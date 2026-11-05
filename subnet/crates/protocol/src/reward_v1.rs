@@ -1,76 +1,72 @@
-//! `reward-v1`: the frozen band mechanism of whitepaper 0.56, Section 7.
+//! `reward-v2`: the SN78 band mechanism of whitepaper Section 7 computed from
+//! quantized scores only (`quant-v1`, [`crate::quant`]).
 //!
-//! It ports the band mechanism of Bittensor subnet 78 (Umi) with the paper's
-//! unit translation. Scores are fixed-point utilities scaled by
-//! [`SCORE_SCALE`]; every comparison, band and credit is exact integer or
-//! rational arithmetic, so every target derives byte-identical rows.
+//! Exact scores are fixed-point utilities scaled by [`SCORE_SCALE`] and stay
+//! in the coordinator's private package. Everything that orders or pays reads
+//! the quantized scores `q`, so the published [`crate::QuantizedResult`]
+//! determines the row exactly ([`derive_units`]). Every comparison, band and
+//! credit is exact integer or rational arithmetic.
 //!
 //! 1. **Scores.** `u = 1 - (a - y)^2` per document; a failure scores 0 and keeps
 //!    its weight. The batch is self-weighting, so `S = floor(sum u / n)`. A
 //!    reference with any failure holds the package ([`reference_score`]).
-//! 2. **Gates.** An entrant is gated when no enforced gate failed and it was
-//!    scored. Gate failures earn nothing. The public-copy gate
+//! 2. **Quantization.** `q = w floor((S + eta + o) / w)`, clamped to `[0, 1]`,
+//!    for every executed entrant and both references, from the private
+//!    cohort seed ([`quantize_package`]).
+//! 3. **Gates.** An entrant is gated when no enforced gate failed and it was
+//!    scored; gates read exact private statistics and publish one bit each.
+//!    The minimum-success gate withholds an entrant with more than `k_n`
+//!    attributable failures: its `q` is never released. The public-copy gate
 //!    ([`check_public`]) fails an entrant whose inference content equals that
 //!    of any published artifact (`public.content`, found at admission, never
-//!    executed), and every scored entrant, gate-failed ones included, that is
-//!    a near copy ([`near`]) of `R_k` or `R_k-1` on the batch or of a
-//!    fingerprinted published artifact on the private probe
-//!    (`public.near.current`, `.predecessor`, `.probe`, in that precedence).
-//!    The probe comparison always includes the fingerprints of `R_k` and
-//!    `R_k-1`, whose statistics every scored entrant publishes, so a copy of
-//!    a reference must escape both the batch and the probe. Every scored
-//!    entrant also runs on the probe, and its probe predictions become its
-//!    fingerprint when its cohort closes ([`PublishedIndex::after_closure`]);
-//!    entrants with identical content record the earliest-committed one's.
-//!    Model `x` is a near copy of model `y` when their monotone-aligned
-//!    distance is at most `d = 0.025` ([`aligned_rss`], [`NearStats::within`])
-//!    and `x` does not score more than `w / 2` above `y` ([`outscores`]).
-//! 3. **Rank order.** Score descending, then finalized commitment block,
-//!    extrinsic index and hotkey bytes ascending. It breaks every tie below.
-//! 4. **Cutoff.** `delta = max(0.01, 2 sigma)`. If a gated entrant has
-//!    `q = (S - S_Rk) / (1 - S_Rk) >= delta`, the cutoff is
-//!    `T = S_Rk + delta (1 - S_Rk)` ([`CutoffMode::Margin`]). The first
-//!    retained cluster head in rank order that passes the strict tier of the
-//!    pure-human false-positive gate and is not blocked by two lookup-canary
-//!    flags becomes `R_k+1` ([`PromotionAudit`]); when none passes nobody is
-//!    promoted and credits are unchanged. Otherwise, when `R_k-1` exists and a gated
-//!    entrant scores strictly above `S_Rk-1`, the cutoff is
-//!    `C_N = S_Rk-1 + 0.15 (max_N - S_Rk-1)` ([`CutoffMode::Fallback`]) and the
-//!    reference stays. Otherwise, or when `S_Rk = 1`, the cohort produces no
-//!    target ([`CutoffMode::NoTarget`]).
-//! 5. **Clusters.** Walking gated entrants at or above the cutoff in rank
+//!    executed), and every scored entrant that is a near copy ([`near`]) of
+//!    `R_k` or `R_k-1` on the batch or of a fingerprinted published artifact
+//!    on the private probe (`public.near.current`, `.predecessor`, `.probe`,
+//!    in that precedence). Model `x` is a near copy of model `y` when their
+//!    monotone-aligned distance is at most `d = 0.025` ([`aligned_rss`],
+//!    [`NearStats::within`]) and `x` does not score more than `w / 2` above
+//!    `y` on exact scores, with reward-v1's exact `w` ([`outscores`]).
+//! 4. **Rank order.** `q` descending, then roster order (admission order). No
+//!    exact score enters.
+//! 5. **Cutoff.** `delta = max(0.01, 2 sigma)`. `T_q = w ceil(T / w)` with
+//!    `T = q_Rk + delta (1 - q_Rk)`; if a gated entrant has `q >= T_q` the mode
+//!    is [`CutoffMode::Margin`]. Otherwise, when `R_k-1` exists and the top
+//!    gated `q` exceeds `q_Rk-1`, `C_q = w ceil(C / w)` with
+//!    `C = q_Rk-1 + 0.15 (max_q - q_Rk-1)` ([`CutoffMode::Fallback`]).
+//!    Otherwise, or when `q_Rk = 1`, the cohort produces no target.
+//! 6. **Clusters.** Walking gated entrants at or above the cutoff in q-rank
 //!    order, the first unassigned entrant heads a cluster with every later
 //!    unassigned entrant of identical inference content or within the
-//!    near-copy distance of the head on the batch; no chaining. In rank order
-//!    a member never outscores its head, so the distance alone decides.
-//!    Assignments and the statistics behind each distance join are coordinator
-//!    measurements published in the package; validators check the structure,
-//!    the identical-content rule and each published statistic against `d`
-//!    ([`cluster_heads`]).
-//! 6. **Near-equal drop.** Walking heads in rank order, a cluster whose score is
-//!    within `epsilon = w / 250` of the last retained head's score is dropped.
-//! 7. **Bands.** `w = 2 sigma (1 - S_Rk)`; band `b = min(floor(S / w),
-//!    ceil(1 / w) - 1)` on the absolute score grid. Occupied bands rank
-//!    `kappa = 0..B` from the top, clusters `mu = 0..n_kappa` in rank order.
+//!    near-copy distance of the head on the batch; no chaining
+//!    ([`assign_clusters`], [`cluster_heads`]).
+//! 7. **Bands.** `W_q = w max(1, ceil(2 sigma (1 - q_Rk) / w))`; band
+//!    `b = min(floor(q / W_q), ceil(1 / W_q) - 1)`. Occupied bands rank
+//!    `kappa = 0..B` from the top, clusters `mu = 0..n_kappa` in q-rank order.
 //! 8. **Credit.** `c = r^kappa / sum_{j<B} r^j * r^mu / sum_{j<n_kappa} r^j`,
-//!    `r = 0.85`; each of a cluster's `m` members receives `c / m`. The
-//!    package publishes every retained cluster's exact `c`.
-//! 9. **Row.** 65,535 units by largest remainder over members, ties in rank
-//!    order. At each tempo a member's units go to the current UID of its
-//!    hotkey and registration generation, or else to the UID that the owner
-//!    hotkey of the validator's finalized snapshot holds, which burns them.
-//!    The launch burn target sends every unit there. The row records that
-//!    owner hotkey, so a rotation moves the burn destination at the next
-//!    tempo without a new target. When units must burn and the finalized
-//!    owner hotkey holds no UID, that row is deferred ([`Error::Deferred`]).
+//!    `r = 0.85`. Clusters whose heads have equal `q` form a tie group and
+//!    share the sum of their positions' credits equally; each of a cluster's
+//!    `m` members receives `credit / m`. reward-v1's near-equal drop is gone:
+//!    two distinct `q` values differ by at least `w`.
+//! 9. **Row.** 65,535 units by largest remainder over members listed in rank
+//!    order, equal remainders in roster order. At each tempo a member's units
+//!    go to the current UID of its hotkey and registration generation, or
+//!    else to the UID that the owner hotkey of the validator's finalized
+//!    snapshot holds, which burns them; when the owner hotkey holds no UID the
+//!    row is deferred ([`Error::Deferred`]).
+//! 10. **Promotion** (margin mode only). Walking cluster heads in q-rank
+//!     order, a candidate whose **exact** score meets the exact margin
+//!     `S >= S_Rk + delta (1 - S_Rk)` is audited ([`PromotionAudit`]); the
+//!     first that passes becomes `R_k+1`. Promotion pays nobody.
 
 use std::collections::BTreeMap;
 
 use crate::bigint::{BigUint, Fraction};
+use crate::quant;
 use crate::records_v2::{
-    CalculationTargetV2, ClusterCredit, CutoffMode, DistanceMonitor, EntrantScore, Gate, NearStats,
-    ProbeMatch, PromotionAudit, PublicCheck, PublicCopy, PublishedIndex, RegistrationSnapshotV2,
-    RewardV1Params, ScorePackageV2, TargetSource, WeightRowV2,
+    CalculationTargetV2, ClusterCredit, CutoffMode, DistanceMonitor, EntrantScore, Gate,
+    GateFailure, MIN_SUCCESS_REASON, NearStats, ProbeMatch, PromotionAudit, PublicCheck,
+    PublicCopy, PublishedIndex, QuantDraw, QuantRecord, RegistrationSnapshotV2, RewardV1Params,
+    ScorePackageV2, TargetSource, WeightRowV2,
 };
 use crate::reward::brier_utility;
 use crate::{
@@ -186,6 +182,7 @@ pub fn near_stats(x: &[Option<Probability>], y: &[Option<Probability>]) -> Resul
     })
 }
 
+/// reward-v1's exact band width, which the copy gate's score clause keeps:
 /// `w * SCORE_SCALE^2 = band_sigmas * sigma * (SCORE_SCALE - S_Rk)`; zero when
 /// `S_Rk = 1`.
 pub fn band_width(params: &RewardV1Params, reference: Score) -> u128 {
@@ -411,7 +408,7 @@ impl Threshold {
         Ok(Self { num, den: SCALE })
     }
 
-    /// `C_N = S_Rk-1 + f (max_N - S_Rk-1)` with `f` in basis points.
+    /// `C = S_Rk-1 + f (max - S_Rk-1)` with `f` in basis points.
     pub fn fallback(predecessor: Score, max: Score, fraction_bps: u16) -> Result<Self> {
         let range = u128::from(max.get())
             .checked_sub(u128::from(predecessor.get()))
@@ -435,6 +432,11 @@ impl Threshold {
             format!("{whole}+{}/{}", rem / g, self.den / g)
         }
     }
+
+    /// `w ceil(T / w)`: the threshold rounded up onto the grid.
+    pub fn on_grid(&self, w: u64) -> Result<u128> {
+        quant::ceil_to_grid(self.num, self.den, w)
+    }
 }
 
 fn gcd_u128(mut a: u128, mut b: u128) -> u128 {
@@ -444,139 +446,292 @@ fn gcd_u128(mut a: u128, mut b: u128) -> u128 {
     a
 }
 
-/// The band width `w = 2 sigma (1 - S_Rk)` as `num / SCORE_SCALE` in units of
-/// `1 / SCORE_SCALE`, with the band grid and near-equal tolerance it fixes.
+/// `W_q = w max(1, ceil(W_raw / w))` with
+/// `W_raw = band_sigmas sigma (1 - q_Rk)`; `None` when `q_Rk = 1`.
+pub fn grid_band_width(params: &RewardV1Params, reference_q: Score, w: u64) -> Result<Option<u64>> {
+    let headroom = SCALE - u128::from(reference_q.get());
+    if headroom == 0 {
+        return Ok(None);
+    }
+    if w == 0 {
+        return Err(Error::Invalid("grid width"));
+    }
+    let num = u128::from(params.band_sigmas)
+        .checked_mul(u128::from(params.sigma))
+        .and_then(|v| v.checked_mul(headroom))
+        .ok_or(Error::Overflow("band width"))?;
+    let cells = quant::ceil_to_grid(num, SCALE, w)? / u128::from(w);
+    let width = cells.max(1) * u128::from(w);
+    u64::try_from(width)
+        .map(Some)
+        .map_err(|_| Error::Overflow("band width"))
+}
+
+/// `b(q) = min(floor(q / W_q), ceil(10^18 / W_q) - 1)`.
+pub fn grid_band(q: u64, band_width: u64) -> u64 {
+    let count = SCORE_SCALE.div_ceil(band_width);
+    (q / band_width).min(count - 1)
+}
+
+/// One entrant as the q-only calculation reads it, in roster order: the
+/// published values and nothing else.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct Bands {
-    /// `w * SCORE_SCALE^2`: `band_sigmas * sigma * (SCORE_SCALE - S_Rk)`.
-    pub width: u128,
-    pub near_equal_divisor: u16,
+pub struct QEntrant {
+    /// `None` for an entrant that was not executed or is withheld.
+    pub q: Option<u64>,
+    /// Passed every gate (gate and copy bits) and released.
+    pub gated: bool,
+    /// For an entrant at or above the cutoff, the roster index of its
+    /// cluster's first member in roster order; `None` otherwise.
+    pub cluster: Option<u16>,
 }
 
-impl Bands {
-    /// `None` when `S_Rk = 1`, which leaves no width.
-    pub fn new(params: &RewardV1Params, reference: Score) -> Option<Self> {
-        let width = band_width(params, reference);
-        (width > 0).then_some(Self {
-            width,
-            near_equal_divisor: params.near_equal_divisor,
-        })
-    }
-
-    /// `min(floor(S / w), ceil(1 / w) - 1)`.
-    // QUANTIZED-SCORE: bands are computed from exact scores. The published
-    // band (`summary.json`), and the row derived from it (the signed
-    // coordinator row, and every revealed on-chain row), stay derived from
-    // exact scores until the quantization specification says which of
-    // these it bounds.
-    pub fn band(&self, score: Score) -> u128 {
-        let index = u128::from(score.get()) * SCALE / self.width;
-        let count = (SCALE * SCALE).div_ceil(self.width);
-        index.min(count - 1)
-    }
-
-    /// `upper - lower <= epsilon = w / divisor`, for `upper >= lower`.
-    // QUANTIZED-SCORE: the near-equal drop compares exact scores at a
-    // resolution of `w / divisor`, far finer than a band. A dropped head is
-    // ranked but paid nothing (no band in the summary, no weight in the
-    // row, and none in the revealed on-chain weights), so whether two
-    // heads' exact scores lie within epsilon is observable: one bit per
-    // adjacent pair, to count in the quantization budget. Hiding it in the
-    // summary alone would not remove it while the row pays by it.
-    pub fn near_equal(&self, upper: Score, lower: Score) -> Result<bool> {
-        let gap = u128::from(upper.get() - lower.get());
-        let scaled = gap
-            .checked_mul(u128::from(self.near_equal_divisor))
-            .and_then(|g| g.checked_mul(SCALE))
-            .ok_or(Error::Overflow("near-equal"))?;
-        Ok(scaled <= self.width)
-    }
-
-    /// `w` as an exact fraction of score.
-    pub fn width_fraction(&self) -> Fraction {
-        Fraction::new(
-            BigUint::from_u128(self.width),
-            BigUint::from_u128(SCALE * SCALE),
-        )
-        .expect("nonzero")
-    }
+/// The q-only inputs of a cohort.
+#[derive(Clone, Copy, Debug)]
+pub struct QInput<'a> {
+    pub params: &'a RewardV1Params,
+    pub width: u64,
+    pub reference_q: u64,
+    pub predecessor_q: Option<u64>,
+    pub entrants: &'a [QEntrant],
 }
 
-/// Rank order key: score descending, then commitment block, extrinsic index
-/// and hotkey ascending.
-fn rank_key(e: &EntrantScore) -> (core::cmp::Reverse<Score>, u64, u32, AccountId) {
-    (
-        core::cmp::Reverse(e.score.unwrap_or(Score::ZERO)),
-        e.commitment_block,
-        e.extrinsic_index,
-        e.identity.hotkey,
-    )
+/// A cluster as the q-only calculation places it.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct QCluster {
+    /// Roster index of the head: the first member in q-rank order.
+    pub head: usize,
+    /// Roster indices in q-rank order, head first.
+    pub members: Vec<usize>,
+    /// Absolute band `b`.
+    pub band: u64,
+    /// `kappa`.
+    pub band_rank: usize,
+    /// The positions `mu_s..=mu_e` of its tie group in the band.
+    pub positions: (usize, usize),
+    /// The cluster's whole credit after tie sharing.
+    pub credit: Fraction,
 }
 
-/// Gated entrants, as package indices in rank order.
-pub fn rank_order(package: &ScorePackageV2) -> Vec<usize> {
-    let mut ranked: Vec<usize> = (0..package.entrants.len())
-        .filter(|&i| package.entrants[i].gated())
+/// The q-only outcome of a cohort.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct QOutcome {
+    pub mode: CutoffMode,
+    /// `T_q` or `C_q`; `None` without a target.
+    pub cutoff: Option<u64>,
+    /// `W_q`; `None` when `q_Rk = 1`.
+    pub band_width: Option<u64>,
+    /// Roster indices at or above the cutoff, in q-rank order.
+    pub eligible: Vec<usize>,
+    /// Clusters in head q-rank order.
+    pub clusters: Vec<QCluster>,
+    /// Occupied absolute bands, top first.
+    pub bands: Vec<u64>,
+    /// Each entrant's band rank `kappa`, in roster order.
+    pub band_rank: Vec<Option<usize>>,
+    /// Units per entrant, in roster order.
+    pub units: Vec<u16>,
+}
+
+/// Gated entrants with a `q`, as roster indices in q-rank order: `q`
+/// descending, then roster index ascending.
+pub fn q_rank(entrants: &[QEntrant]) -> Vec<usize> {
+    let mut ranked: Vec<usize> = (0..entrants.len())
+        .filter(|&i| entrants[i].gated && entrants[i].q.is_some())
         .collect();
-    ranked.sort_by_key(|&i| rank_key(&package.entrants[i]));
+    ranked.sort_by_key(|&i| (core::cmp::Reverse(entrants[i].q), i));
     ranked
 }
 
-fn score_of(package: &ScorePackageV2, index: usize) -> Score {
-    package.entrants[index]
-        .score
-        .expect("gated entrants are scored")
-}
-
-/// The cutoff and the gated entrants at or above it, in rank order.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct Cutoff {
-    pub mode: CutoffMode,
-    pub threshold: Option<Threshold>,
-    pub eligible: Vec<usize>,
-}
-
-/// Step 1 of the paper's calculation.
-pub fn cutoff(package: &ScorePackageV2) -> Result<Cutoff> {
-    let none = Cutoff {
-        mode: CutoffMode::NoTarget,
-        threshold: None,
-        eligible: Vec::new(),
-    };
-    let reference = package.reference.score;
-    if reference == Score::ONE {
+/// The cutoff on the grid and the gated entrants at or above it, in q-rank
+/// order.
+pub fn q_cutoff(input: &QInput<'_>) -> Result<(CutoffMode, Option<u64>, Vec<usize>)> {
+    let w = input.width;
+    for q in core::iter::once(input.reference_q).chain(input.predecessor_q) {
+        if !quant::on_grid(q, w) {
+            return Err(Error::Invalid("reference q off the grid"));
+        }
+    }
+    let none = (CutoffMode::NoTarget, None, Vec::new());
+    if input.reference_q == SCORE_SCALE {
         return Ok(none);
     }
-    let ranked = rank_order(package);
-    let margin = Threshold::margin(reference, package.params.margin())?;
+    let ranked = q_rank(input.entrants);
+    let q_of = |i: usize| input.entrants[i].q.expect("ranked entrants have q");
+    let margin = Threshold::margin(Score::new(input.reference_q)?, input.params.margin())?;
+    let t_q = margin.on_grid(w)?;
     let passing: Vec<usize> = ranked
         .iter()
         .copied()
-        .filter(|&i| margin.admits(score_of(package, i)))
+        .filter(|&i| u128::from(q_of(i)) >= t_q)
         .collect();
     if !passing.is_empty() {
-        return Ok(Cutoff {
-            mode: CutoffMode::Margin,
-            threshold: Some(margin),
-            eligible: passing,
-        });
+        return Ok((CutoffMode::Margin, Some(t_q as u64), passing));
     }
-    let (Some(predecessor), Some(&top)) = (&package.predecessor, ranked.first()) else {
+    let (Some(predecessor), Some(&top)) = (input.predecessor_q, ranked.first()) else {
         return Ok(none);
     };
-    let max = score_of(package, top);
-    if max <= predecessor.score {
+    let max = q_of(top);
+    if max <= predecessor {
         return Ok(none);
     }
-    let fallback = Threshold::fallback(predecessor.score, max, package.params.fallback_bps)?;
-    Ok(Cutoff {
-        mode: CutoffMode::Fallback,
-        threshold: Some(fallback),
-        eligible: ranked
+    let fallback = Threshold::fallback(
+        Score::new(predecessor)?,
+        Score::new(max)?,
+        input.params.fallback_bps,
+    )?;
+    let c_q = fallback.on_grid(w)?;
+    if c_q > u128::from(max) {
+        return Err(Error::Invalid("fallback cutoff above the top"));
+    }
+    Ok((
+        CutoffMode::Fallback,
+        Some(c_q as u64),
+        ranked
             .into_iter()
-            .filter(|&i| fallback.admits(score_of(package, i)))
+            .filter(|&i| u128::from(q_of(i)) >= c_q)
             .collect(),
-    })
+    ))
+}
+
+/// The whole q-only calculation: cutoff, clusters (from the published
+/// membership), bands, tie-shared credits and units.
+pub fn q_outcome(input: &QInput<'_>) -> Result<QOutcome> {
+    let entrants = input.entrants;
+    if entrants.len() > usize::from(crate::MAX_ROSTER) {
+        return Err(Error::LengthLimit {
+            field: "entrants",
+            len: entrants.len() as u64,
+        });
+    }
+    for e in entrants {
+        if let Some(q) = e.q
+            && !quant::on_grid(q, input.width)
+        {
+            return Err(Error::Invalid("q off the grid"));
+        }
+        if e.gated && e.q.is_none() {
+            return Err(Error::Invalid("gated entrant without q"));
+        }
+    }
+    let (mode, cutoff, eligible) = q_cutoff(input)?;
+    let band_width = grid_band_width(input.params, Score::new(input.reference_q)?, input.width)?;
+    let mut outcome = QOutcome {
+        mode,
+        cutoff,
+        band_width,
+        eligible: eligible.clone(),
+        clusters: Vec::new(),
+        bands: Vec::new(),
+        band_rank: vec![None; entrants.len()],
+        units: vec![0; entrants.len()],
+    };
+    // Membership: exactly the eligible entrants, each naming its cluster's
+    // first member in roster order, itself eligible.
+    let mut is_eligible = vec![false; entrants.len()];
+    for &i in &eligible {
+        is_eligible[i] = true;
+    }
+    let mut cluster_of_label = BTreeMap::<usize, usize>::new();
+    let mut clusters: Vec<(usize, Vec<usize>)> = Vec::new();
+    for (i, e) in entrants.iter().enumerate() {
+        if e.cluster.is_some() != is_eligible[i] {
+            return Err(Error::Mismatch("cluster membership"));
+        }
+    }
+    for &i in &eligible {
+        let label = usize::from(entrants[i].cluster.expect("eligible entrants carry a cluster"));
+        if label > i || !is_eligible.get(label).copied().unwrap_or(false) {
+            return Err(Error::Mismatch("cluster first member"));
+        }
+        if entrants[label].cluster != Some(label as u16) {
+            return Err(Error::Mismatch("cluster first member"));
+        }
+        match cluster_of_label.get(&label) {
+            Some(&c) => clusters[c].1.push(i),
+            None => {
+                cluster_of_label.insert(label, clusters.len());
+                clusters.push((label, vec![i]));
+            }
+        }
+    }
+    if mode == CutoffMode::NoTarget {
+        return Ok(outcome);
+    }
+    let band_width = band_width.ok_or(Error::Invalid("band width"))?;
+    let q_of = |i: usize| entrants[i].q.expect("eligible entrants have q");
+    // Clusters in head q-rank order: the walk over eligible meets each
+    // cluster's head first.
+    let mut band_runs: Vec<(u64, Vec<usize>)> = Vec::new();
+    for (c, (_, members)) in clusters.iter().enumerate() {
+        let band = grid_band(q_of(members[0]), band_width);
+        match band_runs.last_mut() {
+            Some((b, run)) if *b == band => run.push(c),
+            Some((b, _)) if *b < band => return Err(Error::Unsorted("bands")),
+            _ => band_runs.push((band, vec![c])),
+        }
+    }
+    let sizes: Vec<usize> = band_runs.iter().map(|(_, run)| run.len()).collect();
+    let credits = band_credits(&sizes, input.params.decay_bps)?;
+    let mut placed: Vec<Option<QCluster>> = vec![None; clusters.len()];
+    for (kappa, (band, run)) in band_runs.iter().enumerate() {
+        let mut start = 0;
+        while start < run.len() {
+            let head_q = q_of(clusters[run[start]].1[0]);
+            let mut end = start;
+            while end + 1 < run.len() && q_of(clusters[run[end + 1]].1[0]) == head_q {
+                end += 1;
+            }
+            let mut sum = credits[kappa][start].clone();
+            for c in &credits[kappa][start + 1..=end] {
+                sum = sum.add(c);
+            }
+            let share = Fraction::new(sum.num, sum.den.mul_u64((end - start + 1) as u64))
+                .ok_or(Error::Invalid("credit"))?
+                .reduced();
+            for &c in &run[start..=end] {
+                let members = clusters[c].1.clone();
+                placed[c] = Some(QCluster {
+                    head: members[0],
+                    members,
+                    band: *band,
+                    band_rank: kappa,
+                    positions: (start, end),
+                    credit: share.clone(),
+                });
+            }
+            start = end + 1;
+        }
+    }
+    outcome.bands = band_runs.iter().map(|(b, _)| *b).collect();
+    outcome.clusters = placed
+        .into_iter()
+        .map(|c| c.ok_or(Error::Invalid("unplaced cluster")))
+        .collect::<Result<_>>()?;
+    // Each member's share in rank order; leftovers by largest remainder,
+    // equal remainders in roster order.
+    let mut position = vec![usize::MAX; entrants.len()];
+    for (pos, &i) in eligible.iter().enumerate() {
+        position[i] = pos;
+    }
+    let mut members: Vec<(usize, Fraction)> = Vec::new();
+    for cluster in &outcome.clusters {
+        let m = cluster.members.len() as u64;
+        for &i in &cluster.members {
+            outcome.band_rank[i] = Some(cluster.band_rank);
+            let share = Fraction::new(cluster.credit.num.clone(), cluster.credit.den.mul_u64(m))
+                .ok_or(Error::Invalid("share"))?;
+            members.push((i, share));
+        }
+    }
+    members.sort_by_key(|(i, _)| position[*i]);
+    let shares: Vec<Fraction> = members.iter().map(|(_, s)| s.clone()).collect();
+    let roster: Vec<usize> = members.iter().map(|(i, _)| *i).collect();
+    let units = largest_remainder(input.params.row_total, &shares, &roster)?;
+    for (&i, u) in roster.iter().zip(units) {
+        outcome.units[i] = u;
+    }
+    Ok(outcome)
 }
 
 /// The coordinator's cluster assignment.
@@ -591,7 +746,7 @@ pub struct ClusterAssignment {
     pub min_head_pair_ppb: Option<u32>,
 }
 
-/// The coordinator's cluster walk over the eligible entrants in rank order.
+/// The coordinator's cluster walk over the eligible entrants in q-rank order.
 /// `pair(head, other)` measures two package indices on the hidden batch
 /// predictions ([`near_stats`] of `other` against `head`); identical inference
 /// content joins without it, and `other` joins when the aligned distance is
@@ -774,9 +929,13 @@ pub fn band_credits(band_sizes: &[usize], decay_bps: u16) -> Result<Vec<Vec<Frac
 }
 
 /// Largest-remainder apportionment of `total` units over exact shares that
-/// sum to one, listed in rank order: each takes the integer part of its share,
-/// and leftover units go to the largest fractional remainders, ties in rank order.
-pub fn largest_remainder(total: u16, shares: &[Fraction]) -> Result<Vec<u16>> {
+/// sum to one, listed in rank order: each takes the integer part of its
+/// share, and leftover units go to the largest fractional remainders, equal
+/// remainders in ascending `roster` index (one per share).
+pub fn largest_remainder(total: u16, shares: &[Fraction], roster: &[usize]) -> Result<Vec<u16>> {
+    if roster.len() != shares.len() {
+        return Err(Error::Mismatch("apportionment roster"));
+    }
     let mut floors = Vec::with_capacity(shares.len());
     let mut remainders = Vec::with_capacity(shares.len());
     for share in shares {
@@ -807,12 +966,12 @@ pub fn largest_remainder(total: u16, shares: &[Fraction]) -> Result<Vec<u16>> {
         return Err(Error::Invalid("apportionment"));
     }
     let mut order: Vec<usize> = (0..shares.len()).collect();
-    // Remainder fractions rem_i / den_i, descending; the stable sort keeps
-    // rank order among exact ties.
+    // Remainder fractions rem_i / den_i, descending; equal ones in roster order.
     order.sort_by(|&a, &b| {
         remainders[b]
             .mul(&shares[a].den)
             .cmp(&remainders[a].mul(&shares[b].den))
+            .then(roster[a].cmp(&roster[b]))
     });
     for &i in order.iter().take(leftover) {
         floors[i] += 1;
@@ -820,60 +979,35 @@ pub fn largest_remainder(total: u16, shares: &[Fraction]) -> Result<Vec<u16>> {
     Ok(floors)
 }
 
-/// Where a retained cluster landed.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct Placement {
-    /// Absolute band index `b`.
-    pub band: u128,
-    /// `kappa`, from the top occupied band.
-    pub band_rank: usize,
-    /// `mu`, within the band.
-    pub rank_in_band: usize,
-    /// `B`.
-    pub bands: usize,
-    /// `n_kappa`.
-    pub band_size: usize,
-    /// `c`, the cluster's whole credit.
-    pub credit: Fraction,
-}
-
-/// A cluster and its placement; `None` when the near-equal drop removed it.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct ClusterOutcome {
-    pub cluster: Cluster,
-    pub placement: Option<Placement>,
-}
-
-/// The full `reward-v1` outcome of a package.
+/// The full `reward-v2` outcome of a package.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Evaluation {
-    pub mode: CutoffMode,
-    pub threshold: Option<Threshold>,
-    pub bands: Option<Bands>,
-    /// Package indices at or above the cutoff, in rank order.
-    pub eligible: Vec<usize>,
-    pub clusters: Vec<ClusterOutcome>,
+    /// The q-only outcome, which the public result reproduces.
+    pub outcome: QOutcome,
     /// Package index of `R_k+1` in a margin cohort.
     pub promoted: Option<usize>,
-    /// Units per entrant, in package order.
-    pub units: Vec<u16>,
 }
 
 impl Evaluation {
-    /// Each retained cluster's exact credit in head rank order, as the
-    /// package publishes it.
-    // QUANTIZED-SCORE: credits (and the units of the row) follow the exact
-    // bands and the near-equal drop; the package stays private, the row is
-    // published (signed coordinator row, revealed weights).
+    pub fn mode(&self) -> CutoffMode {
+        self.outcome.mode
+    }
+
+    /// Units per entrant, in package order.
+    pub fn units(&self) -> &[u16] {
+        &self.outcome.units
+    }
+
+    /// Each cluster's tie-shared credit in head q-rank order, as the package
+    /// records it.
     pub fn credits(&self, package: &ScorePackageV2) -> Vec<ClusterCredit> {
-        self.clusters
+        self.outcome
+            .clusters
             .iter()
-            .filter_map(|o| {
-                o.placement.as_ref().map(|p| ClusterCredit {
-                    head: package.entrants[o.cluster.head].identity.hotkey,
-                    num: p.credit.num.clone(),
-                    den: p.credit.den.clone(),
-                })
+            .map(|c| ClusterCredit {
+                head: package.entrants[c.head].identity.hotkey,
+                num: c.credit.num.clone(),
+                den: c.credit.den.clone(),
             })
             .collect()
     }
@@ -888,9 +1022,8 @@ impl Evaluation {
 ///   within `d` of an earlier head would have joined it;
 /// - the smallest probe distance between a gated entrant and any
 ///   fingerprinted artifact, a coordinator measurement, is absent without a
-///   gated entrant, present whenever a gated entrant's published reference
-///   comparison has a common document, and never above the smallest of those
-///   comparisons.
+///   gated entrant, present whenever a gated entrant's reference comparison
+///   has a common document, and never above the smallest of those.
 fn check_monitor(package: &ScorePackageV2, clusters: &[Cluster]) -> Result<()> {
     let monitor = &package.distance_monitor;
     let mismatch = Err(Error::Mismatch("distance monitor"));
@@ -928,50 +1061,68 @@ fn min_gated_vs_current(package: &ScorePackageV2) -> Option<u32> {
         .min()
 }
 
-/// The near-equal drop against the last retained head only, before banding:
-/// the indices into `clusters` of the retained clusters, in head rank order.
-// QUANTIZED-SCORE: see [`Bands::near_equal`]; the published cluster
-// membership (head and members) comes from exact near-copy statistics too.
-fn retained_clusters(
-    package: &ScorePackageV2,
-    clusters: &[Cluster],
-    bands: &Bands,
-) -> Result<Vec<usize>> {
-    let mut retained = Vec::new();
-    let mut last: Option<Score> = None;
-    for (c, cluster) in clusters.iter().enumerate() {
-        let score = score_of(package, cluster.head);
-        if let Some(prev) = last
-            && bands.near_equal(prev, score)?
-        {
-            continue;
+/// The package's entrants as the q-only calculation reads them. `clusters`
+/// gives the membership of the entrants at or above the cutoff.
+fn q_entrants(package: &ScorePackageV2, clusters: &[Cluster]) -> Vec<QEntrant> {
+    let mut out: Vec<QEntrant> = package
+        .entrants
+        .iter()
+        .map(|e| QEntrant {
+            q: if e.withheld() { None } else { e.q.map(Score::get) },
+            gated: e.gated(),
+            cluster: None,
+        })
+        .collect();
+    for cluster in clusters {
+        let first = *cluster.members.iter().min().expect("nonempty cluster");
+        for &i in &cluster.members {
+            out[i].cluster = Some(first as u16);
         }
-        last = Some(score);
-        retained.push(c);
     }
-    Ok(retained)
+    out
 }
 
-/// The promotion walk over a margin cohort's `candidates`, the retained
-/// cluster heads in rank order: the package's audits must name exactly the
-/// candidates walked, in order, up to and including the first that passes
-/// every promotion condition, or all of them when none passes. Returns the
-/// package index of the promoted candidate.
-fn check_promotion(package: &ScorePackageV2, candidates: &[usize]) -> Result<Option<usize>> {
+fn q_input<'a>(package: &'a ScorePackageV2, entrants: &'a [QEntrant]) -> QInput<'a> {
+    QInput {
+        params: &package.params,
+        width: package.quant.width,
+        reference_q: package.quant.reference_q.get(),
+        predecessor_q: package.quant.predecessor_q.map(Score::get),
+        entrants,
+    }
+}
+
+/// The exact margin of a promotion candidate: `S >= S_Rk + delta (1 - S_Rk)`
+/// on exact scores, so the baseline changes only on an improvement at
+/// sampling precision.
+fn exact_margin(package: &ScorePackageV2, head: usize) -> Result<bool> {
+    let margin = Threshold::margin(package.reference.score, package.params.margin())?;
+    Ok(package.entrants[head].score.is_some_and(|s| margin.admits(s)))
+}
+
+/// The promotion walk over a margin cohort's cluster heads in q-rank order:
+/// a head is a candidate when its exact score meets the exact margin, and
+/// the package's audits must name exactly the candidates walked, in order,
+/// up to and including the first that passes every promotion condition, or
+/// all of them when none passes. Returns the package index promoted.
+fn check_promotion(package: &ScorePackageV2, heads: &[usize]) -> Result<Option<usize>> {
     let audits = &package.promotion_audits;
     let mut promoted = None;
     let mut walked = 0;
-    for &candidate in candidates {
+    for &head in heads {
+        if !exact_margin(package, head)? {
+            continue;
+        }
         let audit = audits
             .get(walked)
             .ok_or(Error::Mismatch("promotion audits"))?;
         audit.validate()?;
-        if audit.head != package.entrants[candidate].identity.hotkey {
+        if audit.head != package.entrants[head].identity.hotkey {
             return Err(Error::Mismatch("promotion audit order"));
         }
         walked += 1;
         if audit.passes() {
-            promoted = Some(candidate);
+            promoted = Some(head);
             break;
         }
     }
@@ -981,127 +1132,58 @@ fn check_promotion(package: &ScorePackageV2, candidates: &[usize]) -> Result<Opt
     Ok(promoted)
 }
 
-/// Derives the outcome from the package's score components, public-copy
-/// records and published cluster assignment, checking the public-copy gate
-/// against the published `index` first ([`check_public`]), so copies cannot
-/// set `max_N`, trigger the fallback or be promoted. The package's own outcome
+/// Derives the outcome from the package's quantized scores, public-copy
+/// records and cluster assignment, checking the public-copy gate against the
+/// published `index` first ([`check_public`]). The package's own outcome
 /// fields are ignored here; [`check_outcome`] compares them.
 pub fn evaluate(package: &ScorePackageV2, index: &PublishedIndex) -> Result<Evaluation> {
     package.validate_inputs()?;
     check_public(package, index)?;
-    let cut = cutoff(package)?;
-    let mut evaluation = Evaluation {
-        mode: cut.mode,
-        threshold: cut.threshold,
-        bands: None,
-        eligible: cut.eligible.clone(),
-        clusters: Vec::new(),
-        promoted: None,
-        units: vec![0; package.entrants.len()],
-    };
-    let clusters = cluster_heads(package, &cut.eligible)?;
+    let bare = q_entrants(package, &[]);
+    let (_, _, eligible) = q_cutoff(&q_input(package, &bare))?;
+    let clusters = cluster_heads(package, &eligible)?;
     check_monitor(package, &clusters)?;
-    if cut.mode == CutoffMode::NoTarget {
-        return Ok(evaluation);
-    }
-    let bands =
-        Bands::new(&package.params, package.reference.score).ok_or(Error::Invalid("band width"))?;
-    evaluation.bands = Some(bands);
-
-    let retained = retained_clusters(package, &clusters, &bands)?;
-
-    // Occupied bands from the top. Rank order is score order, so each band is
-    // a contiguous run of retained clusters.
-    let mut band_runs: Vec<(u128, Vec<usize>)> = Vec::new();
-    for &c in &retained {
-        let band = bands.band(score_of(package, clusters[c].head));
-        match band_runs.last_mut() {
-            Some((b, run)) if *b == band => run.push(c),
-            Some((b, _)) if *b < band => return Err(Error::Unsorted("bands")),
-            _ => band_runs.push((band, vec![c])),
-        }
-    }
-    let sizes: Vec<usize> = band_runs.iter().map(|(_, run)| run.len()).collect();
-    let credits = band_credits(&sizes, package.params.decay_bps)?;
-    let mut placements: BTreeMap<usize, Placement> = BTreeMap::new();
-    for (kappa, (band, run)) in band_runs.iter().enumerate() {
-        for (mu, &c) in run.iter().enumerate() {
-            placements.insert(
-                c,
-                Placement {
-                    band: *band,
-                    band_rank: kappa,
-                    rank_in_band: mu,
-                    bands: band_runs.len(),
-                    band_size: run.len(),
-                    credit: credits[kappa][mu].clone(),
-                },
-            );
-        }
-    }
-
-    // Equal split, then one largest-remainder pass over members in rank order.
-    let mut position = vec![usize::MAX; package.entrants.len()];
-    for (pos, &i) in cut.eligible.iter().enumerate() {
-        position[i] = pos;
-    }
-    let mut members: Vec<(usize, Fraction)> = Vec::new();
-    for (c, placement) in &placements {
-        let cluster = &clusters[*c];
-        let m = cluster.members.len() as u64;
-        for &i in &cluster.members {
-            let share = Fraction::new(
-                placement.credit.num.clone(),
-                placement.credit.den.mul_u64(m),
-            )
-            .ok_or(Error::Invalid("share"))?;
-            members.push((i, share));
-        }
-    }
-    members.sort_by_key(|(i, _)| position[*i]);
-    let shares: Vec<Fraction> = members.iter().map(|(_, s)| s.clone()).collect();
-    let units = largest_remainder(package.params.row_total, &shares)?;
-    for ((i, _), u) in members.iter().zip(units) {
-        evaluation.units[*i] = u;
-    }
-    if cut.mode == CutoffMode::Margin {
-        let candidates: Vec<usize> = retained.iter().map(|&c| clusters[c].head).collect();
-        evaluation.promoted = check_promotion(package, &candidates)?;
+    let entrants = q_entrants(package, &clusters);
+    let outcome = q_outcome(&q_input(package, &entrants))?;
+    let mut evaluation = Evaluation {
+        outcome,
+        promoted: None,
+    };
+    if evaluation.outcome.mode == CutoffMode::Margin {
+        let heads: Vec<usize> = evaluation.outcome.clusters.iter().map(|c| c.head).collect();
+        evaluation.promoted = check_promotion(package, &heads)?;
     } else if !package.promotion_audits.is_empty() {
         return Err(Error::Invalid("promotion audits outside a margin cohort"));
     }
-    evaluation.clusters = clusters
-        .into_iter()
-        .enumerate()
-        .map(|(c, cluster)| ClusterOutcome {
-            cluster,
-            placement: placements.remove(&c),
-        })
-        .collect();
     Ok(evaluation)
 }
 
-/// Recomputes the outcome against the published `index` the validator
-/// rebuilt, and requires the package's published mode, promotion, exact
-/// cluster credits and units to equal it.
+/// Recomputes the outcome against the published `index`, and requires the
+/// package's mode, cutoff, promotion, credits, units and result digest to
+/// equal it.
 pub fn check_outcome(package: &ScorePackageV2, index: &PublishedIndex) -> Result<Evaluation> {
     package.validate()?;
     let evaluation = evaluate(package, index)?;
     let promoted = evaluation
         .promoted
         .map(|i| package.entrants[i].identity.hotkey);
-    if package.mode != evaluation.mode
+    let cutoff = evaluation.outcome.cutoff.map(Score::new).transpose()?;
+    if package.mode != evaluation.mode()
+        || package.quant.cutoff != cutoff
         || package.promoted != promoted
         || package
             .entrants
             .iter()
-            .zip(&evaluation.units)
+            .zip(evaluation.units())
             .any(|(e, &u)| e.units != u)
     {
         return Err(Error::Mismatch("reward outcome"));
     }
     if package.credits != evaluation.credits(package) {
         return Err(Error::Mismatch("cluster credits"));
+    }
+    if package.result != crate::QuantizedResult::of_package(package)?.digest()? {
+        return Err(Error::Mismatch("quantized result"));
     }
     Ok(evaluation)
 }
@@ -1117,8 +1199,7 @@ pub trait Measurements {
     /// `content` on probe `version`: [`near_stats`] of the entrant's probe
     /// predictions against the fingerprint, with both models' probe scores
     /// ([`document_score`], failures at zero). [`finalize`] asks for `R_k` and
-    /// `R_k-1` on every probe version in use, for every scored entrant, and
-    /// publishes the results.
+    /// `R_k-1` on every probe version in use, for every scored entrant.
     fn reference_probe(
         &mut self,
         entrant: usize,
@@ -1131,17 +1212,16 @@ pub trait Measurements {
     fn archive_probe(&mut self, entrant: usize) -> Result<ArchiveProbe>;
     /// `other` against cluster head `head` on the batch.
     fn pair(&mut self, head: usize, other: usize) -> Result<NearStats>;
-    /// The promotion audit of candidate `head`, a retained cluster head of a
-    /// margin cohort: the strict false-positive tier on the first canary
-    /// draw, and the canary, re-audited on a fresh draw after a first flag.
-    /// [`finalize`] asks for the candidates in rank order until one passes.
+    /// The promotion audit of candidate `head`, a cluster head of a margin
+    /// cohort whose exact score meets the exact margin: the strict
+    /// false-positive tier on the first canary draw, and the canary,
+    /// re-audited on a fresh draw after a first flag. [`finalize`] asks for
+    /// the candidates in q-rank order until one passes.
     fn promotion_audit(&mut self, head: usize) -> Result<PromotionAudit>;
 }
 
 /// An entrant's probe comparisons with the archived fingerprints other than
-/// `R_k` and `R_k-1`, for [`Measurements::archive_probe`]. Every scored
-/// entrant runs on the probe for its own fingerprint whether or not this is
-/// asked.
+/// `R_k` and `R_k-1`, for [`Measurements::archive_probe`].
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct ArchiveProbe {
     /// The comparisons that may be near copies. Only near ones can match, so
@@ -1154,23 +1234,158 @@ pub struct ArchiveProbe {
     pub min_distance_ppb: Option<u32>,
 }
 
+/// The private inputs of quantization: the cohort seed and `R_k`'s SE
+/// measured on this batch ([`quant::SeMeasure::measure`] over its utilities
+/// in task order).
+#[derive(Clone, Copy, Debug)]
+pub struct QuantInputs {
+    pub seed: [u8; 32],
+    pub se: quant::SeMeasure,
+}
+
+/// The utilities `u_t` of a batch, in task order, for the SE measurement.
+pub fn utilities(items: &[Graded]) -> impl Iterator<Item = u64> + '_ {
+    items
+        .iter()
+        .map(|i| i.involvement.map_or(0, |a| brier_utility(a, i.label)))
+}
+
+/// The minimum-success gate and the `quant-v1` draws: every executed entrant
+/// with more than `k_n` attributable failures is withheld, then every
+/// executed entrant (withheld ones included, so no draw depends on a gate)
+/// and both references are quantized from their own streams. Fills the
+/// package's `q`, draws and `quant` record except the outcome fields
+/// (`cutoff`), and checks the seal's bit budget, refusing a package over it.
+pub fn quantize_package(package: &mut ScorePackageV2, inputs: &QuantInputs) -> Result<()> {
+    if inputs.se.n != package.cases {
+        return Err(Error::Mismatch("se batch"));
+    }
+    let k_n = package.params.quant.min_success_max_failed;
+    for e in &mut package.entrants {
+        e.gate_failures.retain(|g| g.gate != Gate::MinimumSuccess);
+        if e.score.is_some() && e.failed > k_n {
+            e.gate_failures.push(GateFailure {
+                gate: Gate::MinimumSuccess,
+                reason: MIN_SUCCESS_REASON.into(),
+            });
+            e.gate_failures.sort_by_key(|g| g.gate);
+        }
+    }
+    let executed = package.executed();
+    let predecessor = package.predecessor.is_some();
+    let charged = quant::charged(executed, predecessor);
+    let tau = quant::Tau::new(package.cases, charged, package.params.quant.eps_total_milli)?;
+    let w = quant::width(inputs.se.se, &tau)?;
+    let budget = quant::Budget::count(executed, w, predecessor)?;
+    let qp = &package.params.quant;
+    if !budget.within(package.cases, qp.identify_bits, qp.budget_factor) {
+        return Err(Error::Invalid("bit budget"));
+    }
+    let seed = &inputs.seed;
+    let cohort = quant::CohortBinding(package.cohort_manifest);
+    let reference = quant::draw(
+        seed,
+        &cohort,
+        &quant::Subject::Current(package.reference.model.content),
+        w,
+        &tau,
+    )?;
+    let reference_q = Score::new(quant::quantize(package.reference.score.get(), &reference, w)?)?;
+    let (predecessor_q, predecessor_draw) = match &package.predecessor {
+        Some(p) => {
+            let d = quant::draw(seed, &cohort, &quant::Subject::Predecessor(p.model.content), w, &tau)?;
+            (
+                Some(Score::new(quant::quantize(p.score.get(), &d, w)?)?),
+                Some(QuantDraw::of(&d)),
+            )
+        }
+        None => (None, None),
+    };
+    for e in &mut package.entrants {
+        match e.score {
+            Some(score) => {
+                // Keyed by content: copies under several hotkeys share a draw.
+                let d = quant::draw(seed, &cohort, &quant::Subject::Entrant(e.content), w, &tau)?;
+                e.q = Some(Score::new(quant::quantize(score.get(), &d, w)?)?);
+                e.draw = Some(QuantDraw::of(&d));
+            }
+            None => {
+                e.q = None;
+                e.draw = None;
+            }
+        }
+    }
+    let band_width = grid_band_width(&package.params, reference_q, w)?;
+    package.quant = QuantRecord {
+        s1: inputs.se.s1,
+        s2: inputs.se.s2,
+        se: inputs.se.se,
+        charged,
+        width: w,
+        band_width,
+        cutoff: None,
+        reference_q,
+        reference_draw: QuantDraw::of(&reference),
+        predecessor_q,
+        predecessor_draw,
+    };
+    Ok(())
+}
+
+/// The coordinator's replay check: every recorded draw is the one the
+/// private seed gives its subject.
+pub fn check_draws(package: &ScorePackageV2, seed: &[u8; 32]) -> Result<()> {
+    let q = &package.quant;
+    let tau = quant::Tau::new(package.cases, q.charged, package.params.quant.eps_total_milli)?;
+    let w = q.width;
+    let mismatch = Err(Error::Mismatch("quant draw"));
+    let cohort = quant::CohortBinding(package.cohort_manifest);
+    let current = quant::draw(
+        seed,
+        &cohort,
+        &quant::Subject::Current(package.reference.model.content),
+        w,
+        &tau,
+    )?;
+    if QuantDraw::of(&current) != q.reference_draw {
+        return mismatch;
+    }
+    if let Some(p) = &package.predecessor {
+        let d = quant::draw(seed, &cohort, &quant::Subject::Predecessor(p.model.content), w, &tau)?;
+        if Some(QuantDraw::of(&d)) != q.predecessor_draw {
+            return mismatch;
+        }
+    }
+    for e in &package.entrants {
+        if e.score.is_none() {
+            continue;
+        }
+        let subject = quant::Subject::Entrant(e.content);
+        if Some(QuantDraw::of(&quant::draw(seed, &cohort, &subject, w, &tau)?)) != e.draw {
+            return mismatch;
+        }
+    }
+    Ok(())
+}
+
 /// The coordinator's finalization:
 ///
 /// 1. an entrant whose inference content is in the published `index` fails
 ///    `public.content`; it must not have been executed;
-/// 2. every scored entrant, gate-failed ones included, is compared with
-///    `R_k` and `R_k-1` on the batch and with both references' fingerprints
-///    on every probe version in use, and all of these statistics are
-///    published; only when neither reference is a near copy on the batch is
-///    it compared with the rest of the archive, and the closest near probe
-///    comparison, the references' included, becomes its probe match. A near
-///    copy fails the public-copy gate;
-/// 3. the cutoff, the cluster walk with the hidden batch statistics, the
-///    distance monitor and the outcome fields follow, all after the gate.
+/// 2. every scored entrant is compared with `R_k` and `R_k-1` on the batch
+///    and with both references' fingerprints on every probe version in use;
+///    only when neither reference is a near copy on the batch is it compared
+///    with the rest of the archive. A near copy fails the public-copy gate;
+/// 3. the minimum-success gate and the `quant-v1` draws
+///    ([`quantize_package`]);
+/// 4. the cutoff on `q`, the cluster walk in q-rank order with the hidden
+///    batch statistics, the distance monitor, the promotion walk on exact
+///    margins, and the outcome fields and result digest follow.
 pub fn finalize(
     package: &mut ScorePackageV2,
     index: &PublishedIndex,
     measure: &mut impl Measurements,
+    inputs: &QuantInputs,
 ) -> Result<Evaluation> {
     index.validate()?;
     if index.binding()? != package.published {
@@ -1193,6 +1408,9 @@ pub fn finalize(
     package.credits.clear();
     package.promotion_audits.clear();
     package.distance_monitor = DistanceMonitor::default();
+    package.mode = CutoffMode::NoTarget;
+    package.promoted = None;
+    // The copy gate's score clause keeps reward-v1's exact `w`.
     let width = band_width(&package.params, package.reference.score);
     let reference_keys = package.reference_probe_keys();
     let references: Vec<Digest> = core::iter::once(&package.reference)
@@ -1242,16 +1460,15 @@ pub fn finalize(
         let entrant = &mut package.entrants[i];
         entrant.public = Some(public);
         if let Some(copy) = copy {
-            // Gate failures are recorded in gate order, so the public-copy
-            // failure (gate 5) goes before any later gate already recorded,
-            // such as the loose false-positive tier (gate 6).
             entrant.gate_failures.push(copy.failure());
             entrant.gate_failures.sort_by_key(|g| g.gate);
         }
     }
+    quantize_package(package, inputs)?;
     package.validate_inputs()?;
-    let cut = cutoff(package)?;
-    let assignment = assign_clusters(package, &cut.eligible, |h, o| measure.pair(h, o))?;
+    let bare = q_entrants(package, &[]);
+    let (mode, _, eligible) = q_cutoff(&q_input(package, &bare))?;
+    let assignment = assign_clusters(package, &eligible, |h, o| measure.pair(h, o))?;
     for ((e, head), stats) in package
         .entrants
         .iter_mut()
@@ -1272,12 +1489,13 @@ pub fn finalize(
             .filter_map(|(_, d)| *d)
             .min(),
     };
-    if cut.mode == CutoffMode::Margin {
-        let clusters = cluster_heads(package, &cut.eligible)?;
-        let bands = Bands::new(&package.params, package.reference.score)
-            .ok_or(Error::Invalid("band width"))?;
-        for c in retained_clusters(package, &clusters, &bands)? {
-            let head = clusters[c].head;
+    if mode == CutoffMode::Margin {
+        let clusters = cluster_heads(package, &eligible)?;
+        for cluster in &clusters {
+            let head = cluster.head;
+            if !exact_margin(package, head)? {
+                continue;
+            }
             let audit = measure.promotion_audit(head)?;
             audit.validate()?;
             if audit.head != package.entrants[head].identity.hotkey {
@@ -1291,15 +1509,18 @@ pub fn finalize(
         }
     }
     let evaluation = evaluate(package, index)?;
-    for (e, &u) in package.entrants.iter_mut().zip(&evaluation.units) {
+    for (e, &u) in package.entrants.iter_mut().zip(evaluation.units()) {
         e.units = u;
     }
-    package.mode = evaluation.mode;
+    package.mode = evaluation.mode();
+    package.quant.cutoff = evaluation.outcome.cutoff.map(Score::new).transpose()?;
     package.promoted = evaluation
         .promoted
         .map(|i| package.entrants[i].identity.hotkey);
     package.credits = evaluation.credits(package);
+    package.result = crate::QuantizedResult::of_package(package)?.digest()?;
     package.validate()?;
+    check_draws(package, &inputs.seed)?;
     Ok(evaluation)
 }
 
@@ -1328,24 +1549,30 @@ pub fn next_references(
     })
 }
 
+/// The units of a public result, recomputed from the result alone.
+pub fn derive_units(result: &crate::QuantizedResult) -> Result<QOutcome> {
+    let entrants = result.q_entrants();
+    q_outcome(&QInput {
+        params: &result.params,
+        width: result.width,
+        reference_q: result.current.q.get(),
+        predecessor_q: result.predecessor.as_ref().map(|p| p.q.get()),
+        entrants: &entrants,
+    })
+}
+
 /// Derives the canonical row for the active `target` against a validator's
-/// finalized registration snapshot. A cohort target needs its package and the
-/// published index as of that cohort's manifest, against which
-/// [`check_outcome`] runs; the launch burn row needs neither.
+/// finalized registration snapshot. A cohort target needs its public
+/// [`crate::QuantizedResult`], whose units it pays; the launch burn row
+/// needs none. Nothing here reads an exact score.
 ///
 /// Burned units go to the UID that the snapshot's finalized owner hotkey
-/// holds at this tempo, whatever owner hotkey was in force when the target
-/// was signed, and the row records that hotkey. If units must burn and the
-/// owner hotkey holds no UID in the snapshot, the row fails with
-/// [`Error::Deferred`]: that tempo's row is deferred rather than sent to
-/// another UID, and a later snapshot is tried afresh. A row with nothing to
-/// burn does not need the owner's UID.
-// QUANTIZED-SCORE: the row is derived from the exact bands, drop and
-// credits; under the copy model it is published at commitment time (the
-// signed coordinator row) as well as revealed on chain.
+/// holds at this tempo, and the row records that hotkey. If units must burn
+/// and the owner hotkey holds no UID in the snapshot, the row fails with
+/// [`Error::Deferred`].
 pub fn derive_row(
     target: &CalculationTargetV2,
-    package: Option<(&ScorePackageV2, &PublishedIndex)>,
+    result: Option<&crate::QuantizedResult>,
     snapshot: &RegistrationSnapshotV2,
 ) -> Result<WeightRowV2> {
     target.validate()?;
@@ -1356,26 +1583,26 @@ pub fn derive_row(
     let owner_uid = snapshot.by_hotkey(&snapshot.owner_hotkey).map(|n| n.uid);
     let burn = || owner_uid.ok_or(Error::Deferred("owner hotkey not registered"));
     let mut units = BTreeMap::<u16, u32>::new();
-    match (&target.source, package) {
+    match (&target.source, result) {
         (TargetSource::LaunchBurn, None) => {
             units.insert(burn()?, u32::from(crate::records_v2::ROW_TOTAL));
         }
-        (TargetSource::Cohort { .. }, Some((package, index))) => {
-            target.check_package(package)?;
-            check_outcome(package, index)?;
-            for entrant in package.entrants.iter().filter(|e| e.units > 0) {
-                let uid = match snapshot.by_hotkey(&entrant.identity.hotkey) {
-                    Some(n) if n.registration_block == entrant.identity.registration_block => n.uid,
+        (TargetSource::Cohort { .. }, Some(result)) => {
+            result.validate()?;
+            target.check_result(result)?;
+            for entrant in result.entrants.iter().filter(|e| e.units > 0) {
+                let uid = match snapshot.by_hotkey(&entrant.hotkey) {
+                    Some(n) if n.registration_block == entrant.registration_block => n.uid,
                     _ => burn()?,
                 };
                 *units.entry(uid).or_default() += u32::from(entrant.units);
             }
         }
         (TargetSource::LaunchBurn, Some(_)) => {
-            return Err(Error::Invalid("burn target has no package"));
+            return Err(Error::Invalid("burn target has no result"));
         }
         (TargetSource::Cohort { .. }, None) => {
-            return Err(Error::Invalid("cohort target needs its package"));
+            return Err(Error::Invalid("cohort target needs its result"));
         }
     }
     let entries = units

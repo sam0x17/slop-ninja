@@ -508,6 +508,8 @@ fn index_with(entries: &[(u64, &str, Option<u8>, u64)]) -> CohortIndex {
             artifacts_published: 1,
             artifacts_withheld: 1,
             artifacts_pending: 2,
+            best_q: None,
+            quantization: None,
         });
     }
     idx
@@ -518,6 +520,7 @@ fn summary_for(label: &str, cohort: u64, n: usize, promoted: Option<u8>) -> Coho
     let model = |b: u8| ModelRef {
         content: format!("{b:02x}").repeat(32),
         artifact: format!("{b:02x}").repeat(32),
+        q: Some("0.84".into()),
     };
     CohortSummary {
         schema: summary::SUMMARY_SCHEMA.into(),
@@ -527,10 +530,32 @@ fn summary_for(label: &str, cohort: u64, n: usize, promoted: Option<u8>) -> Coho
         label: label.into(),
         opened_epoch: 78,
         closed_epoch: 100,
+        quantization: Some(summary::Quantization {
+            rule: "quant-v1".into(),
+            width: "0.02".into(),
+        }),
         references: References {
             index: 1,
             current: model(0xaa),
             predecessor: Some(model(0xbb)),
+        },
+        quality: summary::Quality {
+            cutoff: Some(summary::Cutoff {
+                q: "0.86".into(),
+                mode: "margin".into(),
+            }),
+            bands: vec![
+                summary::Band {
+                    band: 1,
+                    lower: "0.90".into(),
+                    upper: "0.92".into(),
+                },
+                summary::Band {
+                    band: 2,
+                    lower: "0.86".into(),
+                    upper: "0.88".into(),
+                },
+            ],
         },
         promoted: promoted.map(hotkey),
         entrants: (0..n)
@@ -548,6 +573,11 @@ fn summary_for(label: &str, cohort: u64, n: usize, promoted: Option<u8>) -> Coho
                         hotkey(i8)
                     },
                     hotkey_hex: "ab".repeat(32),
+                    q: match i % 4 {
+                        2 => None,
+                        1 => Some("0.86".into()),
+                        _ => Some("0.90".into()),
+                    },
                     band: match i % 4 {
                         0 => Some(1),
                         1 => Some(2),
@@ -555,7 +585,7 @@ fn summary_for(label: &str, cohort: u64, n: usize, promoted: Option<u8>) -> Coho
                         _ => Some(1),
                     },
                     gate: if i % 4 == 2 { "not_executed" } else { "pass" }.into(),
-                    copy_gate: "pass".into(),
+                    copy_gate: Some("pass".into()),
                     cluster: None,
                 }
             })
@@ -584,7 +614,7 @@ fn artifacts_for(s: &CohortSummary) -> Vec<ArtifactEntry> {
 }
 
 #[test]
-fn a_closed_cohort_document_carries_bands_and_gates_but_no_score_or_rank() {
+fn a_closed_cohort_document_carries_quantized_scores_bands_and_gates_but_no_rank() {
     let c = chain();
     let s = settings(&c);
     let idx = index_with(&[(5, "testnet-r0-c5", None, 1), (6, "testnet-r0-c6", Some(1), 1)]);
@@ -601,20 +631,34 @@ fn a_closed_cohort_document_carries_bands_and_gates_but_no_score_or_rank() {
     assert_eq!(d.cohort.promoted.as_ref().unwrap().uid, Some(0));
     let en = d.entrants.as_ref().unwrap();
     assert_eq!(en.len(), 4);
-    for e in en {
+    for (e, s) in en.iter().zip(&sm.entrants) {
         assert_eq!(e.eligible, e.band.is_some());
-        assert_eq!(e.score, None);
+        // The summary's q, under the summary's quantization block.
+        assert_eq!(e.score, s.q);
         assert_eq!(e.row_share_pct, None);
     }
+    assert_eq!(
+        d.cohort.quantization,
+        Some(Quantization { rule: Some("quant-v1".into()), width: Some("0.02".into()) })
+    );
+    assert_eq!(d.cohort.best_score.as_deref(), Some("0.90"));
+    assert_eq!(d.score_better.as_deref(), Some(SCORE_BETTER));
     assert!(!en[2].gates_passed && en[0].gates_passed);
     assert!(en[0].promoted && !en[1].promoted);
     assert_eq!(en[0].artifact.as_ref().unwrap().state, "published");
     assert!(en[0].artifact.as_ref().unwrap().download.as_deref().unwrap().starts_with("v1/artifacts/"));
     assert_eq!(en[1].artifact.as_ref().unwrap().download, None);
     let q = d.quality.as_ref().unwrap();
-    assert_eq!(q.cutoff, None);
-    assert_eq!(q.bands.as_ref().unwrap().iter().map(|b| (b.band, b.lower.clone(), b.upper.clone())).collect::<Vec<_>>(), [(1, None, None), (2, None, None)]);
-    assert_eq!(d.reference.as_ref().map(|r| (r.index, r.label.as_str(), r.score.clone())), Some((1, "R1", None)));
+    assert_eq!(q.cutoff, Some(Cutoff { q: Some("0.86".into()), rule: Some("margin".into()) }));
+    // Band 1 is open above; band 2's upper edge is band 1's lower one (the
+    // empty grid band between them merges into band 2), and the last band's
+    // lower edge is the cutoff.
+    let st = |t: &str| Some(t.to_owned());
+    assert_eq!(
+        q.bands.as_ref().unwrap().iter().map(|b| (b.band, b.lower.clone(), b.upper.clone())).collect::<Vec<_>>(),
+        [(1, st("0.90"), None), (2, st("0.86"), st("0.90"))]
+    );
+    assert_eq!(d.reference.as_ref().map(|r| (r.index, r.label.as_str(), r.score.clone())), Some((1, "R1", st("0.84"))));
     assert_eq!(d.predecessor.as_ref().map(|r| r.label.as_str()), Some("R0"));
     assert_eq!(d.promotion_rule.as_deref(), Some(TESTNET_PROMOTION_RULE));
     assert_eq!((d.previous.as_deref(), d.next.as_deref()), (Some("testnet-r0-c5"), None));
@@ -768,7 +812,12 @@ fn the_best_model_is_the_cohort_that_promoted_the_current_reference() {
     let b = d.best.unwrap();
     assert_eq!((b.index, b.label.as_str(), b.since_cohort, b.since_label.as_deref()), (1, "R1", Some(5), Some("testnet-r0-c5")));
     assert_eq!(b.owner.as_ref().map(|o| (o.uid, o.hotkey.clone())), Some((Some(8), hotkey(9))));
-    assert_eq!((b.latest_score, b.quantization, b.licence), (None, None, None));
+    // The promoted entrant's q in the cohort that promoted it, under its grid.
+    assert_eq!(
+        (b.latest_score.as_deref(), b.latest_score_label.as_deref(), b.licence),
+        (Some("0.90"), Some("testnet-r0-c5"), None)
+    );
+    assert_eq!(b.quantization, Some(Quantization { rule: Some("quant-v1".into()), width: Some("0.02".into()) }));
     assert_eq!(d.latest_cohort.as_deref(), Some("testnet-r0-c6"));
 }
 
@@ -1699,4 +1748,114 @@ fn the_websites_fixtures_pass_the_stage_time_checks() {
     fixtures!(CohortsDoc, clean_cohorts, "cohorts-scoring");
     fixtures!(CohortDoc, clean_cohort, "cohort-scoring-testnet-c117", "cohort-scoring-testnet-c112",
         "cohort-transition-testnet-c118", "cohort-no-scores-testnet-c117");
+}
+
+/// A score is published only under a quantization block and only on its
+/// grid: one without the block, with an unknown rule, with more decimals
+/// than the width or off its multiples is refused; a band's upper edge may
+/// be the scale's 1.
+#[test]
+fn scores_are_refused_off_the_grid_or_without_a_quantization_block() {
+    let c = chain();
+    let s = settings(&c);
+    let idx = index_with(&[(6, "testnet-r0-c6", Some(1), 1)]);
+    let rows = listed(&s, &idx, None);
+    let sm = summary_for("testnet-r0-c6", 6, 4, Some(1));
+    let arts = artifacts_for(&sm);
+    let d = cohort_doc(&s, &rows, 0, Some(&sm), &arts, 0, time_of(118));
+    let key = Doc::Cohort("a", "testnet-r0-c6".into()).key();
+    let good = value(&d);
+    check(&key, &serde_json::to_vec(&good).unwrap()).unwrap();
+    let refused = |edit: &dyn Fn(&mut Value)| {
+        let mut v = good.clone();
+        edit(&mut v);
+        check(&key, &serde_json::to_vec(&v).unwrap()).unwrap_err()
+    };
+    assert!(refused(&|v| v["cohort"]["quantization"] = Value::Null).contains("without a quantization block"));
+    assert!(refused(&|v| v["cohort"]["quantization"]["rule"] = json!("quant-v0")).contains("quantization rule"));
+    assert!(refused(&|v| v["cohort"]["quantization"]["width"] = json!("0.021")).contains("quantization width"));
+    assert!(refused(&|v| v["entrants"][0]["score"] = json!("0.901")).contains("off the grid"));
+    assert!(refused(&|v| v["entrants"][0]["score"] = json!("0.91")).contains("off the grid"));
+    assert!(refused(&|v| v["reference"]["score"] = json!("0.8400")).contains("off the grid"));
+    assert!(refused(&|v| v["quality"]["cutoff"]["q"] = json!("1.01")).contains("off the grid"));
+    let mut top = good.clone();
+    top["quality"]["bands"][1]["upper"] = json!("1.00");
+    check(&key, &serde_json::to_vec(&top).unwrap()).unwrap();
+}
+
+/// Review 2026-11-05 (correctness 4): a cluster is placed by its head, so a
+/// member with a lower `q` (here in a lower grid band, where another
+/// cluster's head sits at the same `q`) keeps its cluster's band label while
+/// its dot falls below that band's lower edge. The edges stay the heads'
+/// grid edges; only the heads are guaranteed inside them.
+#[test]
+fn a_cluster_member_in_a_lower_grid_band_keeps_its_cluster_band() {
+    let quality = summary::Quality {
+        cutoff: Some(summary::Cutoff { q: "0.60".into(), mode: "margin".into() }),
+        bands: vec![
+            summary::Band { band: 1, lower: "0.66".into(), upper: "0.69".into() },
+            summary::Band { band: 2, lower: "0.63".into(), upper: "0.66".into() },
+        ],
+    };
+    let edges = band_edges(&quality);
+    let st = |t: &str| Some(t.to_owned());
+    assert_eq!(
+        edges.iter().map(|b| (b.band, b.lower.clone(), b.upper.clone())).collect::<Vec<_>>(),
+        [(1, st("0.66"), None), (2, st("0.60"), st("0.66"))]
+    );
+    let w = 30_000_000_000_000_000;
+    let at = |t: &str| slop_ninja_protocol::quant::parse_grid(t, w).unwrap();
+    // Head of band 1 at 0.66, its member at 0.63, band 2's head at 0.63.
+    let (head, member, other_head) = (at("0.66"), at("0.63"), at("0.63"));
+    let lower = |b: usize| at(edges[b].lower.as_deref().unwrap());
+    assert!(head >= lower(0), "the head is inside its band");
+    assert!(other_head >= lower(1) && other_head < at("0.66"), "so is band 2's head");
+    assert!(member < lower(0), "the member's dot is below its cluster's band edge, as documented");
+}
+
+/// Review 2026-11-05 (ops 4): a cohort listed before quantization keeps its
+/// `cohort_summary/v2`. Its document still lists the entrants and occupied
+/// bands, with every score, edge, cutoff and `quantization` null.
+#[test]
+fn a_cohort_listed_before_quantization_keeps_entrants_and_bands_without_scores() {
+    let c = chain();
+    let s = settings(&c);
+    let idx = index_with(&[(5, "testnet-r0-c5", None, 1), (6, "testnet-r0-c6", Some(1), 1)]);
+    let o = observed(eval_json(118, "scoring", LOG_SCORING, json!({})));
+    let rows = listed(&s, &idx, o.eval.as_ref());
+    let mut v = serde_json::to_value(summary_for("testnet-r0-c6", 6, 4, Some(1))).unwrap();
+    v["schema"] = summary::SUMMARY_SCHEMA_V2.into();
+    let o = v.as_object_mut().unwrap();
+    o.remove("quantization");
+    o.remove("quality");
+    for r in ["current", "predecessor"] {
+        if let Some(m) = v["references"][r].as_object_mut() {
+            m.remove("q");
+        }
+    }
+    for e in v["entrants"].as_array_mut().unwrap() {
+        let e = e.as_object_mut().unwrap();
+        e.remove("q");
+        let copy = e["copy_gate"].as_str().unwrap_or("pass").to_owned();
+        e.insert("copy_gate".into(), copy.into());
+    }
+    let bytes = serde_json::to_vec(&v).unwrap();
+    crate::allowlist::check_object("v1/cohorts/testnet-r0-c6/summary.json", &bytes).unwrap();
+    let sm = summary::read(&bytes).expect("v2 reads");
+    let arts = artifacts_for(&sm);
+    let d = cohort_doc(&s, &rows, 1, Some(&sm), &arts, 118, time_of(118));
+    checked(&Doc::Cohort("a", "testnet-r0-c6".into()), &d);
+    assert!(d.cohort.leaderboard);
+    assert_eq!(d.cohort.quantization, None);
+    assert_eq!(d.cohort.best_score, None);
+    let en = d.entrants.as_ref().unwrap();
+    assert_eq!(en.len(), 4);
+    assert!(en.iter().all(|e| e.score.is_none()));
+    assert!(en.iter().any(|e| e.band.is_some()));
+    let q = d.quality.as_ref().unwrap();
+    assert_eq!(q.cutoff, None);
+    let bands = q.bands.as_ref().unwrap();
+    assert!(!bands.is_empty());
+    assert!(bands.iter().all(|b| b.lower.is_none() && b.upper.is_none()));
+    assert_eq!(d.reference.as_ref().unwrap().score, None);
 }

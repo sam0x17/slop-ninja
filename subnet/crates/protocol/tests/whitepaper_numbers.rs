@@ -5,7 +5,7 @@
 
 use slop_ninja_protocol::{
     CohortSchedule, DECAY_BPS, FALLBACK_BPS, IMPROVEMENT_DIVISOR, LAUNCH_RENEW_BY_TEMPOS,
-    LAUNCH_ORIGIN_MIX, MARGIN_FLOOR, MARGIN_SIGMAS, NEAR_COPY_PPB, NEAR_EQUAL_DIVISOR, SCORE_SCALE,
+    LAUNCH_ORIGIN_MIX, MARGIN_FLOOR, MARGIN_SIGMAS, NEAR_COPY_PPB, SCORE_SCALE,
 };
 
 fn phi(z: f64) -> f64 {
@@ -153,11 +153,8 @@ fn perturbed_copy_costs_against_the_near_copy_distance() {
     // receives 54.1% of the band's share."
     let r = f64::from(DECAY_BPS) / 1e4;
     assert_eq!((1.0 / (1.0 + r) * 1000.0).round(), 541.0);
-    // The score clause's w / 2 is 125 near-equal tolerances.
-    assert_eq!(
-        f64::from(NEAR_EQUAL_DIVISOR) / f64::from(IMPROVEMENT_DIVISOR),
-        125.0
-    );
+    // The score clause's tolerance is w / 2.
+    assert_eq!(IMPROVEMENT_DIVISOR, 2);
 }
 
 #[test]

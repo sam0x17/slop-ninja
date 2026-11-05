@@ -143,9 +143,13 @@ netuid}`, `generated_at` (unix seconds, floored to the minute) and
   credit-adjusted. It is never behind the next boundary. An epoch converts
   to a block by
   `boundary_block + (epoch - boundary_epoch) * tempo_blocks`.
-- **No score before quantization.** Until the coordinator publishes
-  quantized scores `q` under a quantization block, every score, band edge,
-  cutoff value and `quantization` field is `null`. The quality chart then
+- **No score before quantization.** A score is published only as a
+  quantized score `q` under a quantization block `{rule, width}` (rule
+  `quant-v1`): every score, cutoff and band edge of a document is a multiple
+  of `width` printed with exactly its decimals (a band's upper edge may be
+  the scale's `1`), never finer than the grid. A cohort listed before
+  quantization (its summary is `cohort_summary/v2`) keeps every score, band
+  edge, cutoff value and `quantization` field `null`, and its quality chart
   shows bands only.
 - **No rank.** Entrants are listed in roster order, which admission fixes
   before any document is scored. No document carries a rank or any
@@ -250,16 +254,28 @@ list and the cohort documents keep their last version. A closed cohort with its 
 
 - `entrants[{uid, hotkey, score, band, eligible, row_share_pct,
   gates_passed, promoted, artifact{state, download}}]` in roster order.
-  `band` is reward-v1's `kappa` (1 is the top occupied band). It is set
-  exactly when `eligible` is true. `gates_passed` means every enforced gate
-  and the public-copy gate passed.
-- `quality{cutoff, bands[{band, lower, upper}]}`: the occupied bands
-  `1..N`, without edges for now.
-- `reference{index, label, score}`, `predecessor`, `score_better`,
-  `promotion_rule` (`testnet_no_canary` on the testnet record), and the
-  `previous` and `next` labels.
+  `score` is the entrant's `q` (`null` for an entrant withheld by the
+  minimum-success gate or never executed). `band` is reward-v2's `kappa`
+  (1 is the top occupied band). It is set exactly when `eligible` is true.
+  `gates_passed` means every gate, the public-copy gate included, passed;
+  a withheld entrant has `gates_passed` false and no score.
+- `quality{cutoff{q, rule}, bands[{band, lower, upper}]}`: the cutoff on
+  the grid with the rule that set it (`margin` or `fallback`), and the
+  occupied bands `1..N` with their edges on the grid. Band 1 has no upper
+  edge; band `k`'s upper edge is band `k - 1`'s lower edge; the last band's
+  lower edge is the cutoff; every other lower edge is the band's grid edge.
+  Empty grid bands between two occupied ones merge into the lower one. A
+  band places near-copy clusters by their first-ranked member, so every
+  such member lies inside its band's edges, but another member of the same
+  cluster can have a lower `q` (down to the cutoff): its dot can sit below
+  its band's lower edge, inside a lower band's range.
+- `reference{index, label, score}` (`R_k`'s `q`), `predecessor` (`R_k-1`'s
+  `q`), `score_better` (`higher`), `promotion_rule` (`testnet_no_canary`
+  on the testnet record), and the `previous` and `next` labels. The
+  cohort row's `quantization` and `best_score`, and the `best` block's
+  `latest_score` under its own `quantization`, follow the same grid.
 
-`score` and `row_share_pct` are `null` for now. An ended cohort carries its
+`row_share_pct` is `null`. An ended cohort carries its
 phases only. `entrants` and `quality` appear only for `published` and
 `closed` cohorts. The publisher writes `published` documents for the
 current cohort only after it can verify the cohort's records before

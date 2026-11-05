@@ -1,15 +1,14 @@
 //! The leaderboard: `v1/leaderboard.json` and the static `index.html` page
 //! rendered from it at publication time (template and stylesheet in `site/`).
 //!
-//! Schema v3 carries the newest cohort's allow-listed summary
+//! Schema v4 carries the newest cohort's allow-listed summary
 //! ([`crate::summary`]) and nothing else computed from the hidden
-//! evaluation: per entrant, in roster order, its UID and hotkey, band, gate
-//! and public-copy gate bits, cluster membership and artifact state, plus
-//! the active target and the reference pointers. No score, rank, threshold,
-//! band width, credit, count or distance appears, and the rows are not in
-//! rank order (schema v2 carried a rank and listed rows by it); every place
-//! that will carry the quantized score once its specification is approved
-//! is marked `QUANTIZED-SCORE`.
+//! evaluation: the quantization block, and per entrant, in roster order, its
+//! UID and hotkey, quantized score `q`, band, gate and public-copy gate
+//! bits, cluster membership and artifact state, plus the references with
+//! their `q`, the active target and the reference pointers. No exact score,
+//! rank, credit, count or distance appears, and the rows are not in rank
+//! order. The page lists the same rows without a score column.
 
 use serde::{Deserialize, Serialize};
 use slop_ninja_admission_wire::json::Chain;
@@ -17,7 +16,7 @@ use slop_ninja_admission_wire::json::Chain;
 use crate::index::{ActiveTarget, ArtifactEntry, ReferencePointer};
 use crate::summary::{self, CohortSummary};
 
-pub const LEADERBOARD_SCHEMA: &str = "slop_ninja.public.leaderboard/v3";
+pub const LEADERBOARD_SCHEMA: &str = "slop_ninja.public.leaderboard/v4";
 pub const TEMPLATE: &str = include_str!("../../../site/index.html");
 pub const STYLE: &str = include_str!("../../../site/style.css");
 
@@ -78,7 +77,10 @@ pub struct LeaderboardDoc {
     pub cohort: u64,
     pub label: String,
     pub closed_epoch: u64,
-    /// `R_k` and `R_k-1` as the cohort's manifest named them.
+    /// The grid every `q` of this document is on.
+    /// Always present: a leaderboard is built only from a fresh v3 summary.
+    pub quantization: Option<summary::Quantization>,
+    /// `R_k` and `R_k-1` as the cohort's manifest named them, with their `q`.
     pub references: summary::References,
     pub promoted: Option<String>,
     /// The promotion rule of this record (D12b): present for a testnet
@@ -111,6 +113,7 @@ pub fn build(i: Inputs<'_>) -> LeaderboardDoc {
         cohort: s.cohort,
         label: s.label.clone(),
         closed_epoch: s.closed_epoch,
+        quantization: s.quantization.clone(),
         references: s.references.clone(),
         promoted: s.promoted.clone(),
         promotion_rule: PromotionRule::of(&s.chain),
@@ -212,9 +215,6 @@ pub fn render(doc: Option<&LeaderboardDoc>) -> String {
                         },
                         None => String::new(),
                     };
-                    // QUANTIZED-SCORE: a score column (and a rank derived
-                    // from it alone) joins once the specification is
-                    // approved.
                     format!(
                         "<tr><td class=\"num\">{}</td><td><code title=\"{}\">{}</code></td>\
                          <td>{}</td><td>{}</td><td>{}</td><td class=\"num\">{}</td><td>{}</td></tr>",
@@ -222,7 +222,7 @@ pub fn render(doc: Option<&LeaderboardDoc>) -> String {
                         escape(&e.hotkey),
                         escape(&short(&e.hotkey)),
                         escape(&e.gate),
-                        escape(&e.copy_gate),
+                        escape(e.copy_gate.as_deref().unwrap_or("–")),
                         e.cluster.as_ref().map(|c| format!("UID {}", c.uid)).unwrap_or_else(|| "–".into()),
                         e.band.map(|b| b.to_string()).unwrap_or_else(|| "–".into()),
                         artifact,

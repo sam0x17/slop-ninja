@@ -4,7 +4,7 @@
 //! target in bundle verification, and carrier verification.
 
 use crate::fixtures::{package_key, trusted_keys};
-use crate::fixtures_reward_v1::{self as fx, Spec, bp, chain, sigma_permille};
+use crate::fixtures_reward_v1::{self as fx, FIXTURE_QUANT, Spec, bp, chain, finalize_fixture, sigma_permille};
 use crate::reward_v1::{self, ArchiveProbe, Measurements};
 use crate::*;
 
@@ -59,6 +59,7 @@ fn reason(gate: Gate) -> &'static str {
         Gate::Span => "span.fpr_above_threshold",
         Gate::PublicCopy => "public.content",
         Gate::HumanFalsePositive => HUMAN_FPR_LOOSE_REASON,
+        Gate::MinimumSuccess => MIN_SUCCESS_REASON,
     }
 }
 
@@ -87,7 +88,7 @@ fn finalize_records_every_gate_with_every_public_copy_reason_in_gate_order() -> 
                 succeeded: vec![1000, 1000],
                 hotkeys: specs.iter().map(|s| s.identity().hotkey).collect(),
             };
-            reward_v1::finalize(&mut p, &index, &mut measure)
+            finalize_fixture(&mut p, &index, &mut measure)
                 .unwrap_or_else(|e| panic!("{gate:?} with a {near:?} copy: {e:?}"));
             reward_v1::check_outcome(&p, &index)?;
             let gates: Vec<Gate> = p.entrants[0].gate_failures.iter().map(|g| g.gate).collect();
@@ -122,7 +123,7 @@ fn finalize_records_every_gate_with_every_public_copy_reason_in_gate_order() -> 
             succeeded: vec![0, 1000],
             hotkeys: specs.iter().map(|s| s.identity().hotkey).collect(),
         };
-        reward_v1::finalize(&mut p, &index, &mut measure).unwrap_or_else(|e| panic!("{gate:?} with an exact copy: {e:?}"));
+        finalize_fixture(&mut p, &index, &mut measure).unwrap_or_else(|e| panic!("{gate:?} with an exact copy: {e:?}"));
         let gates: Vec<Gate> = p.entrants[0].gate_failures.iter().map(|g| g.gate).collect();
         let mut sorted = gates.clone();
         sorted.sort();
@@ -151,7 +152,7 @@ fn a_canary_reaudit_must_use_a_fresh_draw() {
 
 #[test]
 fn a_manifest_may_lower_the_near_copy_distance_but_never_raise_it() {
-    let mut p = RewardV1Params::new(sigma_permille(35));
+    let mut p = RewardV1Params::new(sigma_permille(35), FIXTURE_QUANT);
     p.validate().unwrap();
     p.near_copy_ppb = 20_000_000;
     p.validate().unwrap();
@@ -160,19 +161,19 @@ fn a_manifest_may_lower_the_near_copy_distance_but_never_raise_it() {
     p.near_copy_ppb = 0;
     assert_eq!(p.validate().unwrap_err(), Error::OutOfRange("near_copy_ppb"));
     // The fixed parts of the rule are not manifest parameters.
-    let mut q = RewardV1Params::new(sigma_permille(35));
+    let mut q = RewardV1Params::new(sigma_permille(35), FIXTURE_QUANT);
     q.decay_bps += 1;
-    assert_eq!(q.validate().unwrap_err(), Error::Mismatch("reward_v1 parameters"));
-    let mut q = RewardV1Params::new(sigma_permille(35));
+    assert_eq!(q.validate().unwrap_err(), Error::Mismatch("reward_v2 parameters"));
+    let mut q = RewardV1Params::new(sigma_permille(35), FIXTURE_QUANT);
     q.fallback_bps -= 1;
-    assert_eq!(q.validate().unwrap_err(), Error::Mismatch("reward_v1 parameters"));
+    assert_eq!(q.validate().unwrap_err(), Error::Mismatch("reward_v2 parameters"));
 }
 
 fn row(entries: &[(u16, u16)]) -> WeightRowV2 {
     WeightRowV2 {
         chain: chain(),
         calculation_target: Digest([1; 32]),
-        reward_rule: RewardRule::RewardV1,
+        reward_rule: RewardRule::RewardV2,
         registration_block: 1,
         registration: Digest([2; 32]),
         owner_hotkey: AccountId([3; 32]),
@@ -330,7 +331,7 @@ fn carrier_cohort(c: &fx::Computed, specs: &[Spec], reference: Score, predecesso
     let manifest = fx::manifest_with(chain(), 4, 1000, sigma_permille(40), refs, &index, fx::probe(fx::EXAMPLE_PROBE_SIZE), specs);
     let mut package = fx::package(&manifest, reference, refs.predecessor.map(|_| predecessor), specs)?;
     let mut measure = fx::spec_measure(specs, 1000, |h, o| specs[h].family == specs[o].family);
-    reward_v1::finalize(&mut package, &index, &mut measure)?;
+    finalize_fixture(&mut package, &index, &mut measure)?;
     Ok((manifest, package, index))
 }
 
@@ -379,6 +380,7 @@ fn a_carrier_package_is_recomputed_and_must_produce_no_target() -> Result<()> {
     forged.promoted = None;
     forged.promotion_audits.clear();
     forged.credits.clear();
+    forged.quant.cutoff = None;
     for e in &mut forged.entrants {
         e.cluster_head = None;
         e.cluster_stats = None;
@@ -394,7 +396,7 @@ fn a_carrier_package_is_recomputed_and_must_produce_no_target() -> Result<()> {
     let s_index = fx::default_index(&s.manifest.references);
     let s_manifest = fx::manifest_with(chain(), 4, 1000, sigma_permille(40), s.manifest.references, &s_index, fx::probe(fx::EXAMPLE_PROBE_SIZE), &low_s);
     let mut s_package = fx::package(&s_manifest, bp(9600), Some(bp(9100)), &low_s)?;
-    reward_v1::finalize(&mut s_package, &s_index, &mut fx::spec_measure(&low_s, 1000, |_, _| false))?;
+    finalize_fixture(&mut s_package, &s_index, &mut fx::spec_measure(&low_s, 1000, |_, _| false))?;
     assert_eq!(
         verify_with(&s_manifest, &s_package, &s_index).unwrap_err(),
         Error::Mismatch("carrier index drops published artifacts")

@@ -73,10 +73,26 @@ fn publishes_a_closed_cohort_as_its_allow_listed_summary() {
         summary.references.current.content,
         b.c.manifest.references.current.content.hex()
     );
+    let result = b.result();
+    let quantization = summary.quantization.as_ref().expect("a v3 summary carries the grid");
+    assert_eq!(quantization.rule, "quant-v1");
+    let w = result.width;
+    assert_eq!(quantization.width, slop_ninja_publisher::summary::decimal(w, w));
+    assert_eq!(
+        summary.references.current.q.as_deref(),
+        Some(slop_ninja_publisher::summary::decimal(result.current.q.get(), w).as_str())
+    );
     for e in &summary.entrants {
         let s = p.entrants.iter().find(|s| s.identity.uid == e.uid).unwrap();
-        assert_eq!(e.gate, slop_ninja_publisher::summary::gate_bit(s));
-        assert_eq!(e.copy_gate == "fail", s.public_copy().is_some());
+        let r = result.entrants.iter().find(|r| r.uid == e.uid).unwrap();
+        assert_eq!(e.gate, slop_ninja_publisher::summary::gate_bit(&r.outcome));
+        assert_eq!(e.copy_gate.as_deref() == Some("fail"), s.public_copy().is_some());
+        assert_eq!(e.gate == "pass", s.gated());
+        // The quantized score only, on the grid with the width's decimals.
+        assert_eq!(e.q, r.outcome.q().map(|q| slop_ninja_publisher::summary::decimal(q.get(), w)));
+        if let Some(q) = &e.q {
+            slop_ninja_protocol::quant::parse_grid(q, w).unwrap();
+        }
     }
     // No rank and no order by rank: the summary carries no `rank` field
     // and lists the entrants in roster order.
@@ -134,9 +150,19 @@ fn publishes_a_closed_cohort_as_its_allow_listed_summary() {
 fn assert_no_score_values(b: &Built, x: &Buckets3) {
     let p = &b.c.package;
     let mut values: Vec<String> = Vec::new();
-    let mut scores: Vec<u64> = vec![p.reference.score.get()];
-    scores.extend(p.predecessor.as_ref().map(|r| r.score.get()));
-    scores.extend(p.entrants.iter().filter_map(|e| e.score.map(|s| s.get())));
+    // Each exact score with its published q. The fixture's grid is fine and
+    // its scores are round, so a q can equal its exact score's leading
+    // digits: those digits are the q's, published by rule, and are skipped.
+    let mut scores: Vec<(u64, Option<u64>)> = vec![(p.reference.score.get(), Some(p.quant.reference_q.get()))];
+    scores.extend(p.predecessor.as_ref().map(|r| (r.score.get(), p.quant.predecessor_q.map(|q| q.get()))));
+    scores.extend(p.entrants.iter().filter_map(|e| e.score.map(|s| (s.get(), e.q.map(|q| q.get())))));
+    let micro = slop_ninja_protocol::SCORE_SCALE / 1_000_000;
+    let published: std::collections::BTreeSet<u64> = scores.iter().filter_map(|(_, q)| q.map(|q| q / micro)).collect();
+    let scores: Vec<u64> = scores
+        .into_iter()
+        .filter(|(s, _)| !published.contains(&(s / micro)))
+        .map(|(s, _)| s)
+        .collect();
     for raw in scores {
         values.push(raw.to_string());
         let scale = u128::from(slop_ninja_protocol::SCORE_SCALE);
@@ -195,10 +221,11 @@ fn leaderboard_and_references_come_from_the_verified_outcome() {
             .map(|e| e.identity.uid)
             .collect::<Vec<_>>()
     );
-    let ranked = slop_ninja_protocol::reward_v1::rank_order(p);
+    let result = b.result();
+    let ranked = slop_ninja_protocol::reward_v1::q_rank(&result.q_entrants());
     assert!(
         ranked.windows(2).any(|w| w[0] > w[1]),
-        "the fixture's rank order differs from its roster order, so the row order tests something"
+        "the fixture's q-rank differs from its roster order, so the row order tests something"
     );
     let raw: serde_json::Value =
         serde_json::from_slice(&x.public.bytes(layout::LEADERBOARD).unwrap()).unwrap();
@@ -211,12 +238,13 @@ fn leaderboard_and_references_come_from_the_verified_outcome() {
     );
     let page = String::from_utf8(x.public.bytes(layout::SITE_INDEX).unwrap()).unwrap();
     assert!(!page.contains(">Rank<"), "no rank column on the page");
-    let ev = slop_ninja_protocol::reward_v1::check_outcome(p, &b.c.index).unwrap();
+    let ev = slop_ninja_protocol::reward_v1::derive_units(&result).unwrap();
+    assert_eq!(doc.quantization.as_ref().map(|q| q.rule.as_str()), Some("quant-v1"));
     // A cluster is named by its first member in roster order, never by its
-    // head (its best-scoring member), and every member carries that name.
+    // head (its first member in q-rank), and every member carries that name.
     for c in &ev.clusters {
-        let first = *c.cluster.members.iter().min().unwrap();
-        for &m in &c.cluster.members {
+        let first = *c.members.iter().min().unwrap();
+        for &m in &c.members {
             let row = doc
                 .entrants
                 .iter()
@@ -246,13 +274,8 @@ fn leaderboard_and_references_come_from_the_verified_outcome() {
                 "{row:?}"
             );
         }
-        let placed = ev.clusters.iter().find(|c| c.cluster.members.contains(&i));
-        assert_eq!(
-            row.entrant.band,
-            placed
-                .and_then(|c| c.placement.as_ref())
-                .map(|pl| pl.band_rank as u32 + 1)
-        );
+        let placed = ev.clusters.iter().find(|c| c.members.contains(&i));
+        assert_eq!(row.entrant.band, placed.map(|c| c.band_rank as u32 + 1));
         if row.entrant.gate != "pass" {
             assert!(row.entrant.band.is_none());
         }
@@ -453,7 +476,7 @@ fn nothing_private_is_published() {
 fn a_tampered_record_is_refused_and_nothing_is_indexed() {
     let b = build(0);
     let x = buckets(&b);
-    let key = format!("cohorts/{}/package.signed", b.label);
+    let key = format!("cohorts/{}/result.signed", b.label);
     let mut bytes = x.receipts.bytes(&key).unwrap();
     let mid = bytes.len() / 2;
     bytes[mid] ^= 0x40;
@@ -461,7 +484,7 @@ fn a_tampered_record_is_refused_and_nothing_is_indexed() {
     let (report, idx) = run(&config(Some(0), false), &x, &mut Memo::default());
     assert!(report.published.is_empty());
     assert_eq!(report.refused.len(), 1, "{report:?}");
-    assert!(report.refused[0].1.starts_with("package.signed"));
+    assert!(report.refused[0].1.starts_with("result.signed"));
     assert!(!idx.unwrap().contains(&b.label));
     assert!(
         x.public.keys().iter().all(|k| !k.contains(&b.label)),
@@ -473,7 +496,7 @@ fn a_tampered_record_is_refused_and_nothing_is_indexed() {
 fn an_incomplete_closure_waits_then_publishes() {
     let b = build(0);
     let x = buckets(&b);
-    let key = format!("cohorts/{}/published-contents-after.bin", b.label);
+    let key = format!("cohorts/{}/result.signed", b.label);
     let saved = x.receipts.bytes(&key).unwrap();
     x.receipts.remove(&key);
     let cfg = config(Some(0), false);
@@ -591,13 +614,14 @@ fn conflicting_cohort_numbers_are_refused() {
     assert_eq!(x.receipts.bytes_read.get(), read);
 }
 
-/// A record that is not a `reward-v1` manifest (a load or older cohort) is
+/// A record that is not a `reward-v2` manifest (a load or older cohort) is
 /// outside the record, not an unverifiable manifest.
 #[test]
 fn a_record_of_another_kind_is_outside_the_record() {
     let b = build(0);
     let x = buckets(&b);
     let d = format!("cohorts/{}", b.label);
+    let manifest = x.receipts.bytes(&format!("{d}/manifest.signed")).unwrap();
     let package = x.receipts.bytes(&format!("{d}/package.signed")).unwrap();
     x.receipts.insert(&format!("{d}/manifest.signed"), package);
     let mut memo = Memo::default();
@@ -609,8 +633,21 @@ fn a_record_of_another_kind_is_outside_the_record() {
     assert_eq!(report.outside, 1);
     assert_eq!(
         memo.outside_record[&b.label].reason,
-        "not a reward-v1 cohort manifest"
+        "not a reward-v2 cohort manifest"
     );
+    // Review 2026-11-05 (ops 3): only this build's decoding placed it
+    // outside, so the placement is this build's. The same build keeps it...
+    assert_eq!(memo.outside_record[&b.label].build, Some(publish::build_id()));
+    x.receipts.insert(&format!("{d}/manifest.signed"), manifest);
+    let (report, _) = run(&config(Some(0), false), &x, &mut memo);
+    assert!(report.published.is_empty() && report.outside == 1, "{report:?}");
+    // ...and a later build (one that reads the format) lists the cohort
+    // instead of dropping it from the record for good.
+    memo.outside_record.get_mut(&b.label).unwrap().build = Some("an-earlier-build".into());
+    let (report, idx) = run(&config(Some(0), false), &x, &mut memo);
+    assert_eq!(report.published, std::slice::from_ref(&b.label), "{report:?}");
+    assert!(idx.unwrap().contains(&b.label));
+    assert!(!memo.outside_record.contains_key(&b.label));
 }
 
 /// A manifest signed for another chain or subnet is outside the record.
@@ -933,23 +970,54 @@ fn a_retry_withholds_a_cluster_whole() {
     }
 }
 
-/// The summary carries no order computed from scores: neither a cluster's
-/// head nor the order of its members (both follow the hidden scores) changes
-/// any public field. Here every multi-member cluster's head is moved to its
-/// last roster member and its members reversed, as if the scores within it
-/// were reversed; then the package scores are reversed, and the
-/// evaluation's positions within each band, its rank-ordered lists, credits
-/// and units are permuted to match. The entrants come out identical each
-/// time.
+/// The summary is a function of the public result alone: the publisher
+/// never reads the private score package or the components (both made
+/// unreadable here, and the cohort still publishes), and a package with
+/// other exact scores, statistics and draws but the same result publishes
+/// byte-identical public objects.
 #[test]
-fn the_summary_does_not_follow_the_rank_order_within_a_cluster() {
+fn the_publisher_never_reads_the_private_package_or_components() {
+    let b = build(0);
+    let cfg = config(Some(0), false);
+    let x = buckets(&b);
+    for rel in [verify::PACKAGE, verify::COMPONENTS] {
+        let key = format!("{}/{rel}", dir(&b.label));
+        assert!(x.receipts.bytes(&key).is_some(), "{rel} is stored");
+        x.receipts.unavailable.borrow_mut().insert(key);
+    }
+    let (report, idx) = run(&cfg, &x, &mut Memo::default());
+    assert_eq!(report.published, vec![b.label.clone()], "{report:?}");
+    assert!(idx.unwrap().contains(&b.label));
+    // Other private bytes behind the same result: every public byte is the
+    // same as a run over the original objects.
+    let y = buckets(&b);
+    for rel in [verify::PACKAGE, verify::COMPONENTS] {
+        y.receipts.insert(&format!("{}/{rel}", dir(&b.label)), b"another private object".to_vec());
+    }
+    run(&cfg, &y, &mut Memo::default()).1.unwrap();
+    let public = |z: &Buckets3| {
+        z.public
+            .keys()
+            .into_iter()
+            .filter(|k| k != layout::STATUS)
+            .map(|k| (k.clone(), z.public.bytes(&k)))
+            .collect::<Vec<_>>()
+    };
+    let x2 = buckets(&b);
+    run(&cfg, &x2, &mut Memo::default()).1.unwrap();
+    assert_eq!(public(&y), public(&x2));
+}
+
+/// The summary's entrants are the result's, in roster order, whatever
+/// order the q values put them in.
+#[test]
+fn the_summary_lists_the_result_in_roster_order() {
     let b = build(0);
     let x = buckets(&b);
     let cfg = config(Some(0), false);
     let opts = Options {
         keys: &cfg.keys,
         chain: &cfg.chain,
-        receipts: false,
     };
     let v = block_on(verify::verify_cohort(
         &x.receipts,
@@ -959,81 +1027,38 @@ fn the_summary_does_not_follow_the_rank_order_within_a_cluster() {
         &Budget::worker(),
     ))
     .unwrap();
-    let before = slop_ninja_publisher::summary::entrants(&v);
-    let mut moved = v.clone();
-    let mut changed = 0;
-    for c in &mut moved.evaluation.clusters {
-        if c.cluster.members.len() > 1 {
-            let last = *c.cluster.members.iter().max().unwrap();
-            assert_ne!(c.cluster.head, last);
-            c.cluster.head = last;
-            c.cluster.members.reverse();
-            changed += 1;
-        }
-    }
-    assert!(changed > 0, "the fixture has a multi-member cluster");
-    assert_eq!(slop_ninja_publisher::summary::entrants(&moved), before);
-    // And the listing is the roster, whatever the scores: reversing the
-    // scored entrants' scores reverses the rank order the removed `rank`
-    // came from (`reward_v1::rank_order`), and changes no public field.
-    let mut rev = moved
-        .package
-        .entrants
-        .iter()
-        .filter_map(|e| e.score)
-        .rev()
-        .collect::<Vec<_>>()
-        .into_iter();
-    for e in moved
-        .package
-        .entrants
-        .iter_mut()
-        .filter(|e| e.score.is_some())
-    {
-        e.score = rev.next();
-    }
-    let ranked = slop_ninja_protocol::reward_v1::rank_order(&v.package);
-    assert_ne!(
-        slop_ninja_protocol::reward_v1::rank_order(&moved.package),
-        ranked,
-        "the scores moved the rank order"
-    );
-    assert_eq!(slop_ninja_publisher::summary::entrants(&moved), before);
-    // The evaluation's own orders, as reversed scores would move them: each
-    // placed cluster's position within its band (`rank_in_band`, reversed
-    // across all placed clusters, since the fixture's bands each hold one),
-    // the credit that decays with it, the cluster and eligible lists (rank
-    // order) and the units. Only the band itself is public.
-    let ev = &mut moved.evaluation;
-    let placed = ev.clusters.iter().filter(|c| c.placement.is_some()).count();
-    assert!(placed > 1, "the fixture places several clusters");
-    let credits: Vec<_> = ev
-        .clusters
-        .iter()
-        .filter_map(|c| c.placement.as_ref().map(|pl| pl.credit.clone()))
-        .collect();
-    for (pos, (pl, credit)) in ev
-        .clusters
-        .iter_mut()
-        .filter_map(|c| c.placement.as_mut())
-        .zip(credits.into_iter().rev())
-        .enumerate()
-    {
-        pl.rank_in_band = placed - 1 - pos;
-        pl.credit = credit;
-    }
-    ev.clusters.reverse();
-    ev.eligible.reverse();
-    ev.units.reverse();
-    assert_eq!(slop_ninja_publisher::summary::entrants(&moved), before);
+    assert_eq!(v.result, b.result());
+    let entrants = slop_ninja_publisher::summary::entrants(&v);
     assert_eq!(
-        before.iter().map(|e| e.uid).collect::<Vec<_>>(),
-        v.package
-            .entrants
-            .iter()
-            .map(|e| e.identity.uid)
-            .collect::<Vec<_>>()
+        entrants.iter().map(|e| e.uid).collect::<Vec<_>>(),
+        v.result.entrants.iter().map(|e| e.uid).collect::<Vec<_>>()
     );
+    let w = v.result.width;
+    for (e, r) in entrants.iter().zip(&v.result.entrants) {
+        assert_eq!(e.band, r.band_rank.map(|k| u32::from(k) + 1));
+        assert_eq!(e.q, r.outcome.q().map(|q| slop_ninja_publisher::summary::decimal(q.get(), w)));
+    }
+    let summary = slop_ninja_publisher::summary::build(&v, slop_ninja_admission_wire::json::Chain::from_binding(&cfg.chain));
+    assert_eq!(summary.quality.bands.len(), v.result.bands.len());
+    assert_eq!(summary.quality.cutoff.is_some(), v.result.cutoff.is_some());
+}
+
+/// A result the closure does not name, or one off the manifest's roster, is
+/// refused; nothing is published.
+#[test]
+fn a_result_the_closure_does_not_name_is_refused() {
+    use slop_ninja_protocol::fixtures::package_key;
+    let b = build(0);
+    let x = buckets(&b);
+    let mut other = b.result();
+    other.revision += 1;
+    x.receipts.insert(
+        &format!("{}/{}", dir(&b.label), verify::RESULT),
+        slop_ninja_protocol::sign(other, &package_key()).unwrap().to_bytes().unwrap(),
+    );
+    let (report, _) = run(&config(Some(0), false), &x, &mut Memo::default());
+    assert!(report.published.is_empty(), "{report:?}");
+    assert!(x.public.bytes(&layout::join(&layout::cohort_dir(&b.label), "summary.json")).is_none());
 }
 
 /// The artifact withholding names no cluster head: a cluster with a
@@ -1105,7 +1130,6 @@ fn the_initial_reference_is_never_published() {
     let opts = Options {
         keys: &cfg.keys,
         chain: &cfg.chain,
-        receipts: true,
     };
     let v = block_on(verify::verify_cohort(
         &x.receipts,
@@ -1118,24 +1142,26 @@ fn the_initial_reference_is_never_published() {
     let initial = slop_ninja_publisher::index::initial_reference(&v.manifest.references).unwrap();
     let refs = std::iter::once(ReferenceDigests::of(&initial)).collect();
     let e = uid_of(&b, 31);
-    let f = publish::EntrantFacts::of(e, &v);
-    assert_eq!(publish::static_withhold(&f, Some(e), &cfg, &refs), None);
+    let r = v.result.entrants.iter().find(|r| r.uid == 31).unwrap();
+    let f = publish::EntrantFacts::of(r, &v);
+    let outcome = Some(&r.outcome);
+    assert_eq!(publish::static_withhold(&f, outcome, &cfg, &refs), None);
     let mut by_content = f.clone();
     by_content.content = initial.content;
     assert_eq!(
-        publish::static_withhold(&by_content, Some(e), &cfg, &refs),
+        publish::static_withhold(&by_content, outcome, &cfg, &refs),
         Some(publish::WITHHELD_INITIAL)
     );
     let mut by_artifact = f.clone();
     by_artifact.artifact = initial.artifact;
     assert_eq!(
-        publish::static_withhold(&by_artifact, Some(e), &cfg, &refs),
+        publish::static_withhold(&by_artifact, outcome, &cfg, &refs),
         Some(publish::WITHHELD_INITIAL)
     );
     let mut listed = cfg.clone();
     listed.private_digests.insert(e.artifact);
     assert_eq!(
-        publish::static_withhold(&f, Some(e), &listed, &refs),
+        publish::static_withhold(&f, outcome, &listed, &refs),
         Some(publish::WITHHELD_LISTED)
     );
     // The admission record must be this entrant's own upload.
@@ -1280,13 +1306,14 @@ fn a_refused_cohort_phase_never_holds_the_row_or_the_revocations() {
     };
     let row = slop_ninja_protocol::CoordinatorRow {
         chain: m.chain.clone(),
-        reward_rule: slop_ninja_protocol::RewardRule::RewardV1,
+        reward_rule: slop_ninja_protocol::RewardRule::RewardV2,
         source: slop_ninja_protocol::RowSource::Cohort {
             cohort: m.cohort,
             cohort_label: m.cohort_label.clone(),
             cohort_manifest: m.digest().unwrap(),
         },
         target: auth.target,
+        result: Some(b.c.package.result),
         activated_epoch: Some(b.c.closure.closed_epoch),
         authorization: auth.digest().unwrap(),
         issued_epoch: auth.issued_epoch,
@@ -1369,13 +1396,14 @@ fn authorizations_and_the_coordinator_row_are_published_as_they_verify() {
     // The coordinator's row of a commitment under that authorization.
     let row = slop_ninja_protocol::CoordinatorRow {
         chain: m.chain.clone(),
-        reward_rule: slop_ninja_protocol::RewardRule::RewardV1,
+        reward_rule: slop_ninja_protocol::RewardRule::RewardV2,
         source: slop_ninja_protocol::RowSource::Cohort {
             cohort: m.cohort,
             cohort_label: m.cohort_label.clone(),
             cohort_manifest: m.digest().unwrap(),
         },
         target: auth.target,
+        result: Some(b.c.package.result),
         activated_epoch: Some(b.c.closure.closed_epoch),
         authorization: auth.digest().unwrap(),
         issued_epoch: auth.issued_epoch,
@@ -1845,10 +1873,7 @@ fn a_cohort_whose_receipts_are_retired_is_still_published() {
     let b = build(0);
     let x = buckets(&b);
     for k in x.receipts.keys() {
-        if k.contains("/receipts/")
-            || k.ends_with(verify::RECEIPT_INDEX)
-            || k.ends_with(verify::CHUNK_MAP)
-        {
+        if k.contains("/receipts/") || k.ends_with("receipt-index.signed") || k.ends_with("chunk-map.json") {
             x.receipts.remove(&k);
         }
     }
@@ -1870,7 +1895,7 @@ fn a_cohort_whose_receipts_are_retired_is_still_published() {
         x.public
             .keys()
             .iter()
-            .all(|k| !k.contains("receipt") && !k.ends_with(verify::CHUNK_MAP))
+            .all(|k| !k.contains("receipt") && !k.ends_with("chunk-map.json"))
     );
 }
 
@@ -1930,8 +1955,8 @@ fn listed(idx: &slop_ninja_publisher::index::CohortIndex) -> Vec<String> {
 fn a_later_cohort_never_lists_before_an_earlier_one() {
     let cfg = config(Some(0), false);
     for (rel, how) in [
-        (verify::PACKAGE, "unavailable"),
-        (verify::PACKAGE, "missing"),
+        (verify::RESULT, "unavailable"),
+        (verify::RESULT, "missing"),
         (verify::CLOSURE, "unavailable"),
         (verify::MANIFEST, "unavailable"),
     ] {
@@ -1980,7 +2005,7 @@ fn a_later_cohort_never_lists_before_an_earlier_one() {
 fn a_refused_cohort_is_indexed_and_the_next_one_follows() {
     let (b, next, x) = two_cohorts();
     let cfg = config(Some(0), false);
-    let key = format!("{}/{}", dir(&b.label), verify::PACKAGE);
+    let key = format!("{}/{}", dir(&b.label), verify::RESULT);
     let good = x.receipts.bytes(&key).unwrap();
     let mut bad = good.clone();
     let mid = bad.len() / 2;
@@ -2000,7 +2025,7 @@ fn a_refused_cohort_is_indexed_and_the_next_one_follows() {
         cohort: Some(b.c.manifest.cohort),
         opened_epoch: Some(b.c.manifest.opened_epoch),
         starts_record: publish::starts_record(&b.c.manifest.references),
-        reason: "package.signed: does not verify".into(),
+        reason: "result.signed: does not verify".into(),
         build: publish::build_id(),
     };
     // The public entry names the object and the kind of failure only; the
@@ -2008,7 +2033,7 @@ fn a_refused_cohort_is_indexed_and_the_next_one_follows() {
     assert!(
         memo.refused[&b.label]
             .reason
-            .starts_with("package.signed: ")
+            .starts_with("result.signed: ")
     );
     assert_ne!(memo.refused[&b.label].reason, want.reason);
     assert_eq!(idx.refused, vec![want.clone()]);
@@ -2071,7 +2096,7 @@ fn a_cohort_before_the_records_first_listed_one_stays_outside() {
 /// Corrupts cohort `b`'s signed package in the private bucket; returns the
 /// good bytes.
 fn tamper_package(x: &Buckets3, b: &Built) -> Vec<u8> {
-    let key = format!("{}/{}", dir(&b.label), verify::PACKAGE);
+    let key = format!("{}/{}", dir(&b.label), verify::RESULT);
     let good = x.receipts.bytes(&key).unwrap();
     let mut bad = good.clone();
     let mid = bad.len() / 2;
@@ -2188,7 +2213,7 @@ fn a_packaged_cohort_without_its_closure_holds_later_ones() {
     // Not packaged (never reaches a closure, as the fixture's never-closed
     // cohort): holds nothing.
     let (b, next, x) = two_cohorts();
-    for rel in [verify::CLOSURE, verify::PACKAGE] {
+    for rel in [verify::CLOSURE, verify::RESULT] {
         x.receipts.remove(&format!("{}/{rel}", dir(&b.label)));
     }
     let (report, _) = run(&cfg, &x, &mut Memo::default());
@@ -2220,7 +2245,7 @@ fn a_refused_first_cohort_is_listed_in_its_place_by_a_later_build() {
     assert_eq!(listed(&idx), vec![second.label.clone()]);
     assert_eq!(idx.refused.len(), 1);
     x.receipts
-        .insert(&format!("{}/{}", dir(&first.label), verify::PACKAGE), good);
+        .insert(&format!("{}/{}", dir(&first.label), verify::RESULT), good);
     memo.refused.get_mut(&first.label).unwrap().build = "an-earlier-build".into();
     let (report, idx) = run(&cfg, &x, &mut memo);
     assert_eq!(report.published, vec![first.label.clone()], "{report:?}");
@@ -2294,7 +2319,7 @@ fn a_refused_first_cohort_starts_the_record_for_a_promoted_successor() {
     assert_eq!(report.published, vec![second.label.clone()], "{report:?}");
     assert_eq!(listed(&idx.unwrap()), vec![second.label.clone()]);
     x.receipts
-        .insert(&format!("{}/{}", dir(&first.label), verify::PACKAGE), good);
+        .insert(&format!("{}/{}", dir(&first.label), verify::RESULT), good);
     memo.refused.get_mut(&first.label).unwrap().build = "an-earlier-build".into();
     let (report, idx) = run(&cfg, &x, &mut memo);
     assert_eq!(report.published, vec![first.label.clone()], "{report:?}");

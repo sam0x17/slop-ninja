@@ -320,10 +320,14 @@ fn cohort(a: &Args, keys: &TrustedKeys, root: &[u8; 32]) {
         "probes": manifest.probes.iter().map(|p| json!({"version": p.version, "size": p.size})).collect::<Vec<_>>(),
         "published_at_seal": {"contents": at_seal.contents.contents.len(), "fingerprints": at_seal.fingerprints.entries.len()},
         "params": {"sigma": manifest.params.sigma.to_string(), "delta": manifest.params.margin().to_string()},
-        "threshold": evaluation.threshold.map(|t| t.display()),
+        "cutoff_q": evaluation.outcome.cutoff.map(|t| t.to_string()),
+        "quant": {"width": package.quant.width.to_string(), "band_width": package.quant.band_width.map(|w| w.to_string()),
+            "reference_q": package.quant.reference_q.get().to_string(), "charged": package.quant.charged,
+            "result": package.result.to_string()},
         "entrants": package.entrants.iter().map(|e| json!({
             "uid": e.identity.uid, "hotkey": hex::encode(e.identity.hotkey.0), "registration_block": e.identity.registration_block,
             "content": e.content.to_string(), "score": e.score.map(|s| s.get().to_string()),
+            "q": e.q.map(|s| s.get().to_string()),
             "assigned": e.assigned, "succeeded": e.succeeded, "failed": e.failed,
             "gates": e.gate_failures.iter().map(|g| g.reason.clone()).collect::<Vec<_>>(),
             "public_distance_current_ppb": e.public.as_ref().and_then(|p| p.current.distance_ppb()),
@@ -341,7 +345,8 @@ fn cohort(a: &Args, keys: &TrustedKeys, root: &[u8; 32]) {
         neurons.sort_by_key(|n| n.uid);
         let s = RegistrationSnapshotV2 { chain: chain(), block: a.at.0, block_hash: Digest(a.at.1), owner_hotkey: AccountId(owner), neurons };
         let row = match &target_rec {
-            Some(t) => slop_ninja_protocol::reward_v1::derive_row(t, Some((&package, &at_seal)), &s),
+            Some(t) => slop_ninja_protocol::QuantizedResult::of_package(&package)
+                .and_then(|r| slop_ninja_protocol::reward_v1::derive_row(t, Some(&r), &s)),
             None => slop_ninja_protocol::reward_v1::derive_row(&CalculationTargetV2::launch_burn(chain()), None, &s),
         }
         .unwrap_or_else(|e| fail(format!("row: {e}")));

@@ -1,9 +1,11 @@
-//! Measures the real heap peak of verifying a wide cohort under a counting
+//! Measures the real heap peak of verifying a cohort under a counting
 //! allocator, and checks that the run's accounting covers it: the budget's
 //! accounted peak plus a fixed allowance for the decoded records and the
-//! outcome recomputation is at least the measured peak. This is the
-//! measurement behind `arena::receipt_verification_peak`,
-//! `arena::RESERVED_BYTES` and `arena::max_receipts`.
+//! result's recomputation is at least the measured peak. Verification reads
+//! the manifest, the public result and the closure only, so the private
+//! receipts stored beside them (here up to 100,000) change nothing. The
+//! receipt-index bounds (`arena::receipt_verification_peak`,
+//! `arena::max_receipts`) remain for the operator's private tools.
 
 mod common;
 
@@ -52,8 +54,8 @@ unsafe impl GlobalAlloc for Counting {
 static GLOBAL: Counting = Counting;
 
 /// Records and recomputation outside the per-object accounting: the decoded
-/// manifest, package, closure and published indexes of a cohort this wide,
-/// and the outcome evaluation's working set. Measured below; part of
+/// manifest, result and closure, and the result's recomputation working set
+/// (`reward_v1::derive_units`). Measured below; part of
 /// `arena::RESERVED_BYTES`.
 const UNACCOUNTED_ALLOWANCE: usize = 2 << 20;
 
@@ -64,7 +66,6 @@ fn measure(receipts: u64) -> (usize, u64) {
     let opts = Options {
         keys: &cfg.keys,
         chain: &cfg.chain,
-        receipts: true,
     };
     let budget = Budget::worker();
     let label = b.label.clone();
@@ -79,7 +80,7 @@ fn measure(receipts: u64) -> (usize, u64) {
         &budget,
     ))
     .unwrap();
-    assert_eq!(v.receipts, receipts);
+    assert_eq!(v.result.entrants.len(), v.manifest.roster.len());
     let peak = PEAK.load(Ordering::Relaxed) - before;
     drop(v);
     (peak, budget.peak())

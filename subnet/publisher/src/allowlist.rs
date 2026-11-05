@@ -1,5 +1,5 @@
 //! The versioned allow-list of everything the public host may carry
-//! (`slop_ninja.public.allowlist/v2`).
+//! (`slop_ninja.public.allowlist/v3`).
 //!
 //! Validators and the public never learn held-out data (user rule,
 //! 2026-11-04): every object in the public bucket must be one this module
@@ -23,14 +23,17 @@
 //! Version 2 removed the entrant's `rank` (and the summary and leaderboard
 //! schemas that listed entrants in rank order, or named a cluster by its
 //! best-scoring head): an ordering of entrants is a channel an entrant with
-//! several hotkeys chooses, so no document carries a rank field until the
-//! quantized score exists ([`crate::summary`]). [`REFUSED_ENTRANT_FIELDS`]
-//! names what this version must never list again without that review. The
-//! ranking of retained entrants is still public through the coordinator's
-//! signed row allowed below (and the weights revealed on chain): its weights
-//! order the retained clusters within a band (`reward_v1::band_credits`) and
-//! give a cluster's leftover units to its members in rank order, until the
-//! quantization specification or a reward-rule change addresses it.
+//! several hotkeys chooses. Version 3 adds the quantized score (`quant-v1`):
+//! the summary (v3), the leaderboard (v4) and the cohort index carry the
+//! grid (`quantization {rule, width}`), each entrant's `q` and the
+//! references' `q`, and the summary the cutoff and band edges on the grid,
+//! and the gate value `withheld`. Nothing else computed from hidden
+//! predictions is listed. Rewards are computed from those values alone
+//! (`reward-v2`): the q-rank they imply (`q` descending, then roster order)
+//! is the only order the coordinator's signed row and the revealed weights
+//! carry, so they add no bits beyond the published `q` values. A rank field
+//! stays refused: [`REFUSED_ENTRANT_FIELDS`] names what this version must
+//! never list without a new review, the exact score among them.
 //!
 //! Binary objects are named by kind:
 //!
@@ -64,7 +67,7 @@ use slop_ninja_protocol::{
 
 use crate::layout;
 
-pub const ALLOWLIST_VERSION: &str = "slop_ninja.public.allowlist/v2";
+pub const ALLOWLIST_VERSION: &str = "slop_ninja.public.allowlist/v3";
 
 /// What a public key holds.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -222,6 +225,10 @@ const INDEX: &[&str] = &[
     "cohorts[].artifacts_published",
     "cohorts[].artifacts_withheld",
     "cohorts[].artifacts_pending",
+    "cohorts[].best_q",
+    "cohorts[].quantization",
+    "cohorts[].quantization.rule",
+    "cohorts[].quantization.width",
     "initial_references",
     "initial_references[].content",
     "initial_references[].artifact",
@@ -255,20 +262,33 @@ const REFERENCES: &[&str] = &[
     "references.current",
     "references.current.content",
     "references.current.artifact",
+    "references.current.q",
     "references.predecessor",
     "references.predecessor.content",
     "references.predecessor.artifact",
+    "references.predecessor.q",
 ];
 
-// QUANTIZED-SCORE: once the quantization specification is approved, the
-// quantized score of each entrant (and of R_k and R_k-1) is the one new
-// field of the summary and the leaderboard, with an allow-list version bump;
-// a rank may join with it only if derived from the quantized score alone and
-// counted in the per-cohort bit budget.
+/// The grid every `q` of a document is on.
+const QUANTIZATION: &[&str] = &["quantization", "quantization.rule", "quantization.width"];
+
+/// The summary's cutoff and occupied bands on the grid.
+const QUALITY: &[&str] = &[
+    "quality",
+    "quality.cutoff",
+    "quality.cutoff.q",
+    "quality.cutoff.mode",
+    "quality.bands",
+    "quality.bands[].band",
+    "quality.bands[].lower",
+    "quality.bands[].upper",
+];
+
 const ENTRANT: &[&str] = &[
     "uid",
     "hotkey",
     "hotkey_hex",
+    "q",
     "band",
     "gate",
     "copy_gate",
@@ -278,12 +298,13 @@ const ENTRANT: &[&str] = &[
 ];
 
 /// Entrant fields that carry an order or a value computed from hidden
-/// predictions, which no version of this allow-list may list before the
-/// quantized score exists: a rank (an ordering of entrants is chosen bits),
-/// a cluster's head (its best-scoring member), a score, and the reward
-/// outcome's exact positions, credits and units. The tests check that
-/// [`ENTRANT`] lists none of them and that a summary or leaderboard
-/// carrying one is refused.
+/// predictions beyond the quantized score: a rank, a cluster's head (its
+/// first member in q-rank), the exact score, the reward outcome's positions,
+/// credits and units, and the private quantization and measurement values
+/// (SE, offset, noise, attempt and failure counts, near-copy statistics,
+/// probe matches, the distance monitor). The tests check that [`ENTRANT`]
+/// lists none of them and that a summary or leaderboard carrying one is
+/// refused.
 pub const REFUSED_ENTRANT_FIELDS: &[&str] = &[
     "rank",
     "rank_in_band",
@@ -294,6 +315,14 @@ pub const REFUSED_ENTRANT_FIELDS: &[&str] = &[
     "credit",
     "units",
     "row_share",
+    "se",
+    "offset",
+    "noise",
+    "assigned",
+    "failed",
+    "near",
+    "probe",
+    "monitor",
 ];
 
 const SUMMARY: &[&str] = &[
@@ -397,6 +426,8 @@ pub fn fields(kind: Kind) -> Option<(&'static str, BTreeSet<String>)> {
             out.extend(prefixed("", SUMMARY));
             out.extend(prefixed("", CHAIN));
             out.extend(prefixed("", REFERENCES));
+            out.extend(prefixed("", QUANTIZATION));
+            out.extend(prefixed("", QUALITY));
             out.extend(prefixed("entrants[].", ENTRANT));
             crate::summary::SUMMARY_SCHEMA
         }
@@ -409,6 +440,7 @@ pub fn fields(kind: Kind) -> Option<(&'static str, BTreeSet<String>)> {
             out.extend(prefixed("", LEADERBOARD));
             out.extend(prefixed("", CHAIN));
             out.extend(prefixed("", REFERENCES));
+            out.extend(prefixed("", QUANTIZATION));
             out.extend(prefixed("current_reference.", POINTER));
             out.extend(prefixed("previous_reference.", POINTER));
             out.extend(prefixed("entrants[].", ENTRANT));
@@ -431,6 +463,20 @@ pub fn fields(kind: Kind) -> Option<(&'static str, BTreeSet<String>)> {
         _ => return None,
     };
     Some((schema, out))
+}
+
+/// The fields of a `cohort_summary/v2` document (listed before
+/// quantization): the v3 summary's without the quantization block, the
+/// quality block and every `q`. Nothing it lists is new.
+fn summary_v2_fields(v3: BTreeSet<String>) -> BTreeSet<String> {
+    v3.into_iter()
+        .filter(|f| {
+            !QUANTIZATION.contains(&f.as_str())
+                && !QUALITY.contains(&f.as_str())
+                && f != "entrants[].q"
+                && !f.ends_with(".q")
+        })
+        .collect()
 }
 
 /// Every object-key path of `v` ([`fields`]'s form).
@@ -539,10 +585,17 @@ pub fn check_object(key: &str, bytes: &[u8]) -> Result<(), String> {
             .then_some(())
             .ok_or_else(|| format!("{key}: not a signed object the pointer may name")),
         _ => {
-            let (schema, allowed) = fields(kind).ok_or_else(|| format!("{key}: no field list"))?;
+            let (schema, mut allowed) =
+                fields(kind).ok_or_else(|| format!("{key}: no field list"))?;
             let v: serde_json::Value =
                 serde_json::from_slice(bytes).map_err(|_| format!("{key}: not JSON"))?;
-            if v.get("schema").and_then(|s| s.as_str()) != Some(schema) {
+            let named = v.get("schema").and_then(|s| s.as_str());
+            if kind == Kind::Summary && named == Some(crate::summary::SUMMARY_SCHEMA_V2) {
+                // A cohort listed before quantization keeps its v2 summary
+                // (a summary is never rewritten once listed): the v3 fields
+                // without the grid, the quality block and every `q`.
+                allowed = summary_v2_fields(allowed);
+            } else if named != Some(schema) {
                 return Err(format!("{key}: not schema {schema}"));
             }
             let extra: Vec<String> = paths(&v)
@@ -971,5 +1024,52 @@ mod tests {
             ]
         );
         assert_eq!(plan.delete[0].reason, "outside_allowlist");
+    }
+
+    /// Review 2026-11-05 (ops 4): a cohort listed before quantization keeps
+    /// its v2 summary. It passes the allow-list (so the key audit keeps it)
+    /// with exactly the v2 fields, reads as a summary without scores, and a
+    /// v2 document carrying any v3-only field is still refused.
+    #[test]
+    fn a_summary_listed_before_quantization_stays_allowed_and_readable() {
+        let key = "v1/cohorts/testnet-r0-c15/summary.json";
+        let v2 = serde_json::json!({
+            "schema": crate::summary::SUMMARY_SCHEMA_V2, "network": "testnet",
+            "chain": {"genesis": "00", "netuid": 601, "mechanism": 0},
+            "cohort": 15, "label": "testnet-r0-c15", "opened_epoch": 1, "closed_epoch": 21,
+            "references": {"index": 0, "current": {"content": "a", "artifact": "b"}, "predecessor": null},
+            "promoted": null,
+            "entrants": [{"uid": 3, "hotkey": "5F", "hotkey_hex": "00", "band": 1, "gate": "pass",
+                          "copy_gate": "pass", "cluster": {"uid": 3, "hotkey": "5F"}},
+                         {"uid": 4, "hotkey": "5G", "hotkey_hex": "01", "band": null, "gate": "fail",
+                          "copy_gate": "pass", "cluster": null}]
+        });
+        let bytes = serde_json::to_vec(&v2).unwrap();
+        check_object(key, &bytes).unwrap();
+        let plan = audit(&[key.to_owned()], |_| Some(bytes.clone()));
+        assert!(plan.delete.is_empty(), "the audit keeps a listed v2 summary");
+        let read = crate::summary::read(&bytes).expect("a v2 summary reads");
+        assert_eq!(read.quantization, None);
+        assert!(read.entrants.iter().all(|e| e.q.is_none()));
+        assert_eq!(read.entrants[0].band, Some(1));
+        assert_eq!(read.entrants[0].copy_gate.as_deref(), Some("pass"));
+        assert_eq!(read.references.current.q, None);
+        assert!(read.quality.bands.is_empty() && read.quality.cutoff.is_none());
+        for (path, value) in [
+            ("q", serde_json::json!("0.84")),
+            ("quantization", serde_json::json!({"rule": "quant-v1", "width": "0.03"})),
+            ("quality", serde_json::json!({"cutoff": null, "bands": []})),
+        ] {
+            let mut d = v2.clone();
+            if path == "q" {
+                d["entrants"][0]["q"] = value;
+            } else {
+                d[path] = value;
+            }
+            assert!(check_object(key, &serde_json::to_vec(&d).unwrap()).is_err(), "{path}");
+        }
+        let mut d = v2.clone();
+        d["references"]["current"]["q"] = "0.84".into();
+        assert!(check_object(key, &serde_json::to_vec(&d).unwrap()).is_err());
     }
 }

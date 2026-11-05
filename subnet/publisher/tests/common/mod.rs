@@ -1,5 +1,6 @@
-//! A synthetic closed `reward-v1` cohort laid out exactly as the coordinator
-//! stores it, with private objects beside it that must never be published.
+//! A synthetic closed `reward-v2` cohort laid out exactly as the coordinator
+//! stores it, with private objects beside it (its score package and
+//! components among them) that must never be read or published.
 #![allow(dead_code)]
 
 use serde_json::json;
@@ -103,6 +104,14 @@ fn build_cohort(mut c: fx::Computed, receipts: u64) -> Built {
     }
 }
 
+impl Built {
+    /// The cohort's public result, as the coordinator signs it beside its
+    /// private package.
+    pub fn result(&self) -> slop_ninja_protocol::QuantizedResult {
+        slop_ninja_protocol::QuantizedResult::of_package(&self.c.package).expect("result")
+    }
+}
+
 pub fn dir(label: &str) -> String {
     format!("cohorts/{label}")
 }
@@ -123,6 +132,13 @@ pub fn store(b: &Built, receipts: &MemStore, eval: &MemStore) {
     put(
         "package.signed",
         sign(c.package.clone(), &package_key())
+            .unwrap()
+            .to_bytes()
+            .unwrap(),
+    );
+    put(
+        "result.signed",
+        sign(b.result(), &package_key())
             .unwrap()
             .to_bytes()
             .unwrap(),
@@ -265,7 +281,7 @@ pub fn components(b: &Built) -> serde_json::Value {
     let p = &b.c.package;
     json!({
         "schema": "slop_ninja_eval_score_components_v2",
-        "cohort": p.cohort, "label": b.label, "reward_rule": "reward-v1",
+        "cohort": p.cohort, "label": b.label, "reward_rule": "reward-v2",
         "cohort_manifest": p.cohort_manifest.hex(),
         "mode": format!("{:?}", p.mode),
         "promoted": p.promoted.map(|h| hex::encode(h.0)),
@@ -350,6 +366,8 @@ pub fn buckets(b: &Built) -> Buckets3 {
         artifacts_published: 0,
         artifacts_withheld: 0,
         artifacts_pending: 0,
+        best_q: None,
+        quantization: None,
     });
     x.public.insert(
         slop_ninja_publisher::layout::COHORT_INDEX,

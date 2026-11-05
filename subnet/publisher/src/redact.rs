@@ -2,15 +2,16 @@
 //!
 //! The publisher never passes a private document through. It publishes:
 //!
-//! - signed and unsigned protocol records it decoded completely and
-//!   canonically ([`crate::verify`]): digests, identities, scores, gates and
-//!   outcome classes, nothing else;
-//! - documents it builds itself from typed fields (the status snapshot, the
-//!   cohort index, the leaderboard, the publication records), never from a
-//!   copy of a status response;
-//! - one copied diagnostic, `components.json`, only when it parses as its
-//!   typed schema (unknown fields refused at every level), agrees with the
-//!   signed manifest and package, and [`scan_value`] passes;
+//! - documents it builds itself from typed fields of the records it decoded
+//!   completely and canonically ([`crate::verify`]: the signed manifest, the
+//!   signed public `QuantizedResult` and the closure): digests, identities,
+//!   quantized scores on the grid, gate bits and band ranks, nothing else
+//!   (the status snapshot, the cohort index, the summary, the leaderboard,
+//!   the publication records), never from a copy of a status response;
+//! - the coordinator's signed authorization objects and row, copied as the
+//!   allow-list names them;
+//! - never `components.json`, the score package or any other private
+//!   record: they stay in the private bucket as operator diagnostics;
 //! - admitted outside entrants' artifact objects after their cohort closed
 //!   (miner submissions published by design), default-deny, never a private
 //!   reference.

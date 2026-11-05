@@ -261,7 +261,7 @@ fn successor(number: u64, predecessor: Digest, padding: u32) -> Cohort {
     );
     let mut package = fx::package(&manifest, bp(9600), Some(bp(9100)), &specs).unwrap();
     let mut measure = fx::spec_measure(&specs, manifest.batch.cases, |h, o| specs[h].family == specs[o].family);
-    slop_ninja_protocol::reward_v1::finalize(&mut package, &index, &mut measure).unwrap();
+    fx::finalize_fixture(&mut package, &index, &mut measure).unwrap();
     assert_eq!(package.mode, CutoffMode::Margin);
     target_cohort(manifest, package, predecessor, &specs, &index)
 }

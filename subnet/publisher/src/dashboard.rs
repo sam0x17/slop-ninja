@@ -16,10 +16,11 @@
 //! What the documents never carry (the held-out exposure review): anything
 //! per document or per task, receipts, exact work counts (only a percent on
 //! the grid 0, 10, ..., 90, read at a tempo boundary and kept until the
-//! next), per-kind or per-entrant progress, ranks, exact scores (no score at
-//! all until the coordinator publishes its quantized `q`, so no quantization
-//! block either), fault codes, notes and step errors, spend, model names,
-//! hosts and keys.
+//! next), per-kind or per-entrant progress, ranks, exact scores, fault
+//! codes, notes and step errors, spend, model names, hosts and keys. Scores
+//! are the coordinator's quantized `q` (`quant-v1`), shown only under the
+//! quantization block `{rule, width}` of the summary they come from, and
+//! [`check`] refuses any score that is not on that grid ([`grid_check`]).
 //!
 //! Stage times are tempo boundaries. A stage is shown as of the last boundary
 //! the coordinator observed: a change the engine logged at a boundary step
@@ -94,6 +95,125 @@ pub const NOW_STAGES: &[&str] = &[
 /// The promotion rule code of a testnet record (the leaderboard's
 /// [`crate::leaderboard::PromotionRule`]); the page owns the wording.
 pub const TESTNET_PROMOTION_RULE: &str = "testnet_no_canary";
+/// A higher `q` is better.
+pub const SCORE_BETTER: &str = "higher";
+
+/// A summary's quantization block as the dashboard carries it.
+pub fn quantization_of(q: &crate::summary::Quantization) -> Quantization {
+    Quantization {
+        rule: Some(q.rule.clone()),
+        width: Some(q.width.clone()),
+    }
+}
+
+/// The dashboard's band edges (higher scores are better): band 1 has no
+/// upper edge, band `k`'s upper edge is band `k - 1`'s lower one, and the
+/// last band's lower edge is the cutoff; every other lower edge is the
+/// band's absolute grid edge `b W_q`. So empty grid bands between two
+/// occupied ones merge into the lower one, the bands are contiguous, and
+/// every cluster's first-ranked member (its head, which places the cluster)
+/// stays in its band. Another member of a cluster carries its cluster's
+/// band and can have a lower `q`, down to the cutoff, so its dot can sit
+/// below the band's lower edge (or inside a lower band's range): bands
+/// place clusters, not single scores, and no interval edges could hold
+/// both a member and another band's head at the same `q`. The dashboard
+/// contract says so (`docs/testnet/dashboard-contract.md`).
+pub fn band_edges(q: &crate::summary::Quality) -> Vec<Band> {
+    let n = q.bands.len();
+    let cutoff = q.cutoff.as_ref().map(|c| c.q.clone());
+    let mut out: Vec<Band> = Vec::with_capacity(n);
+    for (i, b) in q.bands.iter().enumerate() {
+        let lower = if i + 1 == n { cutoff.clone() } else { Some(b.lower.clone()) };
+        let upper = out.last().and_then(|prev: &Band| prev.lower.clone());
+        out.push(Band {
+            band: b.band,
+            lower,
+            upper,
+        });
+    }
+    out
+}
+
+/// A width printed as a decimal (`"0.03"`) in score units, when it is on
+/// the one-digit ladder and printed with exactly its decimals.
+fn width_units(text: &str) -> Option<u64> {
+    let (whole, frac) = text.split_once('.').unwrap_or((text, ""));
+    if whole.len() != 1 || !text.bytes().all(|b| b.is_ascii_digit() || b == b'.') {
+        return None;
+    }
+    let d = u32::try_from(frac.len()).ok().filter(|&d| d <= 18)?;
+    let mut v: u64 = whole.parse::<u64>().ok()?.checked_mul(slop_ninja_protocol::SCORE_SCALE)?;
+    if d > 0 {
+        v = v.checked_add(frac.parse::<u64>().ok()?.checked_mul(10u64.pow(18 - d))?)?;
+    }
+    let w = v;
+    (slop_ninja_protocol::quant::on_ladder(w) && slop_ninja_protocol::quant::decimals(w).ok() == Some(d)).then_some(w)
+}
+
+/// A score under the block's width: a multiple of it with exactly its
+/// decimals, or (an upper band edge) the scale's `1` printed so.
+fn on_grid_text(text: &str, w: u64, edge: bool) -> bool {
+    use slop_ninja_protocol::quant;
+    if quant::parse_grid(text, w).is_ok() {
+        return true;
+    }
+    let one = crate::summary::decimal(slop_ninja_protocol::SCORE_SCALE, w);
+    edge && !one.is_empty() && text == one
+}
+
+/// The grid rule of every score a document carries: each is `null` unless
+/// the document's quantization block (`best.quantization`, a list row's
+/// `quantization` or the cohort row's) names the rule `quant-v1` and a
+/// width on the ladder, and then each is a multiple of that width printed
+/// with exactly its decimals (a band's upper edge may be `1`).
+pub fn grid_check(doc: &Doc, v: &Value) -> Result<(), String> {
+    let block = |q: &Value| -> Result<Option<u64>, String> {
+        if q.is_null() {
+            return Ok(None);
+        }
+        if q["rule"].as_str() != Some(slop_ninja_protocol::quant::QUANT_RULE) {
+            return Err("quantization rule".into());
+        }
+        q["width"].as_str().and_then(width_units).map(Some).ok_or_else(|| "quantization width".into())
+    };
+    let score = |s: &Value, w: Option<u64>, edge: bool, what: &str| -> Result<(), String> {
+        match (s, w) {
+            (Value::Null, _) => Ok(()),
+            (Value::String(t), Some(w)) if on_grid_text(t, w, edge) => Ok(()),
+            (_, None) => Err(format!("{what} without a quantization block")),
+            _ => Err(format!("{what} off the grid")),
+        }
+    };
+    match doc {
+        Doc::Now(_) => {
+            let w = block(&v["best"]["quantization"])?;
+            score(&v["best"]["latest_score"], w, false, "best.latest_score")?;
+        }
+        Doc::Cohorts(_) => {
+            for r in v["cohorts"].as_array().map(Vec::as_slice).unwrap_or_default() {
+                let w = block(&r["quantization"])?;
+                score(&r["best_score"], w, false, "cohorts[].best_score")?;
+            }
+        }
+        Doc::Cohort(..) => {
+            let w = block(&v["cohort"]["quantization"])?;
+            score(&v["cohort"]["best_score"], w, false, "cohort.best_score")?;
+            for e in v["entrants"].as_array().map(Vec::as_slice).unwrap_or_default() {
+                score(&e["score"], w, false, "entrants[].score")?;
+            }
+            for r in ["reference", "predecessor"] {
+                score(&v[r]["score"], w, false, "reference score")?;
+            }
+            score(&v["quality"]["cutoff"]["q"], w, false, "quality.cutoff.q")?;
+            for b in v["quality"]["bands"].as_array().map(Vec::as_slice).unwrap_or_default() {
+                score(&b["lower"], w, false, "quality.bands[].lower")?;
+                score(&b["upper"], w, true, "quality.bands[].upper")?;
+            }
+        }
+        _ => {}
+    }
+    Ok(())
+}
 
 pub fn stage_kind(stage: &str) -> Option<&'static str> {
     BAR_STAGES
@@ -776,6 +896,7 @@ pub fn check(key: &str, bytes: &[u8]) -> Result<Doc, String> {
         return Err(format!("{key}: fields outside the allow-list: {}", extra.join(", ")));
     }
     scan(&v).map_err(|why| format!("{key}: {why}"))?;
+    grid_check(&doc, &v).map_err(|why| format!("{key}: {why}"))?;
     if let Doc::Now(_) = doc {
         let c = &v["cohort"];
         let stage = c["stage"].as_str().unwrap_or_default();
@@ -1795,15 +1916,21 @@ fn owner_in(summary: Option<&CohortSummary>, hotkey: &str) -> Owner {
 
 fn best(b: &BestFacts<'_>) -> Best {
     let promoted = b.since.and_then(|c| c.promoted.as_deref());
+    // The promoted entrant's `q` in the cohort that promoted it, under that
+    // summary's grid.
+    let latest = b.summary.filter(|sm| b.since.is_some_and(|c| c.label == sm.label)).and_then(|sm| {
+        let q = sm.entrants.iter().find(|e| Some(e.hotkey.as_str()) == promoted)?.q.clone()?;
+        Some((q, sm.label.clone(), quantization_of(sm.quantization.as_ref()?)))
+    });
     Best {
         index: b.index,
         label: format!("R{}", b.index),
         since_cohort: b.since.map(|c| c.cohort),
         since_label: b.since.map(|c| c.label.clone()),
         owner: promoted.map(|h| owner_in(b.summary, h)),
-        latest_score: None,
-        latest_score_label: None,
-        quantization: None,
+        latest_score: latest.as_ref().map(|(q, ..)| q.clone()),
+        latest_score_label: latest.as_ref().map(|(_, label, _)| label.clone()),
+        quantization: latest.map(|(.., block)| block),
         artifact: promoted.and_then(|h| b.artifacts.iter().find(|a| a.hotkey == h).map(artifact_of)),
         licence: None,
     }
@@ -2103,8 +2230,8 @@ pub fn listed<'a>(s: &Settings<'_>, idx: &'a CohortIndex, e: Option<&'a EvalView
                 }),
                 entrants: Some(c.entrants),
                 reference_index: Some(c.reference_index),
-                best_score: None,
-                quantization: None,
+                best_score: c.quantization.as_ref().and(c.best_q.clone()),
+                quantization: c.quantization.as_ref().map(quantization_of),
                 leaderboard: true,
                 ended_class: None,
                 bounds: None,
@@ -2207,9 +2334,9 @@ pub fn cohorts_doc(s: &Settings<'_>, idx: &CohortIndex, rows: &[Listed<'_>], now
 
 /// `m/a/cohorts/<label>.json` for row `i` of `rows`: a closed cohort with its
 /// summary carries the outcome, its entrants (roster order, no rank) with
-/// band, eligibility and gate bits, and the occupied bands; an ended cohort
-/// its phases only. No score, cutoff value or band edge until the
-/// coordinator publishes quantized scores.
+/// their `q`, band, eligibility and gate bits, the references' `q`, the
+/// cutoff and the occupied bands with their edges on the summary's grid
+/// ([`band_edges`]); an ended cohort its phases only.
 pub fn cohort_doc(
     s: &Settings<'_>,
     rows: &[Listed<'_>],
@@ -2239,45 +2366,53 @@ pub fn cohort_doc(
             .map(|en| Entrant {
                 uid: en.uid,
                 hotkey: en.hotkey.clone(),
-                score: None,
+                score: en.q.clone(),
                 band: en.band,
                 eligible: en.band.is_some(),
                 row_share_pct: None,
-                gates_passed: en.gate == "pass" && en.copy_gate == "pass",
+                gates_passed: en.gate == "pass" && en.copy_gate.as_deref() == Some("pass"),
                 promoted: sm.promoted.as_deref() == Some(en.hotkey.as_str()),
                 artifact: artifacts.iter().find(|a| a.hotkey == en.hotkey).map(artifact_of),
             })
             .collect::<Vec<_>>()
     });
-    // The occupied bands, 1 for the top one (reward-v1's `kappa`), without
-    // edges: they are offsets from the reference score.
-    let quality = entrants.as_ref().map(|list| {
-        let top = list.iter().filter_map(|e| e.band).max().unwrap_or(0);
-        Quality {
+    // The cutoff and the occupied bands, 1 for the top one (reward-v2's
+    // `kappa`), with their edges on the grid. A summary listed before
+    // quantization (v2) has neither scores nor edges: its occupied bands
+    // only, as that summary's dashboard showed them.
+    let quality = summary.map(|sm| match sm.quantization {
+        Some(_) => Quality {
+            cutoff: sm.quality.cutoff.as_ref().map(|c| Cutoff {
+                q: Some(c.q.clone()),
+                rule: Some(c.mode.clone()),
+            }),
+            bands: Some(band_edges(&sm.quality)),
+        },
+        None => Quality {
             cutoff: None,
             bands: Some(
-                (1..=top)
-                    .map(|band| Band {
-                        band,
-                        lower: None,
-                        upper: None,
-                    })
+                (1..=sm.entrants.iter().filter_map(|e| e.band).max().unwrap_or(0))
+                    .map(|band| Band { band, lower: None, upper: None })
                     .collect(),
             ),
-        }
+        },
     });
+    if let Some(sm) = summary {
+        row.quantization = sm.quantization.as_ref().map(quantization_of);
+        row.best_score = row.quantization.as_ref().and(crate::index::best_q_of(sm));
+    }
     let reference = summary.map(|sm| ReferenceRow {
         index: sm.references.index,
         label: format!("R{}", sm.references.index),
-        score: None,
+        score: sm.references.current.q.clone(),
     });
     let predecessor = summary.and_then(|sm| {
-        sm.references.predecessor.as_ref()?;
+        let p = sm.references.predecessor.as_ref()?;
         let k = sm.references.index.checked_sub(1)?;
         Some(ReferenceRow {
             index: k,
             label: format!("R{k}"),
-            score: None,
+            score: p.q.clone(),
         })
     });
     let testnet = crate::leaderboard::PromotionRule::of(&slop_ninja_admission_wire::json::Chain::from_binding(s.chain)).is_some();
@@ -2296,7 +2431,7 @@ pub fn cohort_doc(
         entrants,
         reference,
         predecessor,
-        score_better: None,
+        score_better: results.then(|| SCORE_BETTER.into()),
         promotion_rule: (testnet && results).then(|| TESTNET_PROMOTION_RULE.into()),
         previous,
         next,
@@ -2424,7 +2559,7 @@ async fn cohort_facts<'b, S: Store>(
         }
     };
     let summary = match read(summary_key).await? {
-        Some(b) => serde_json::from_slice::<CohortSummary>(&b).ok(),
+        Some(b) => crate::summary::read(&b),
         None => None,
     };
     let artifacts = match read(publication_key).await? {

@@ -88,6 +88,15 @@ pub struct CohortEntry {
     pub artifacts_published: u32,
     pub artifacts_withheld: u32,
     pub artifacts_pending: u32,
+    /// The highest `q` of an entrant at or above the cutoff (a decimal under
+    /// `quantization`); `None` without a target, or in an entry written
+    /// before quantized results.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub best_q: Option<String>,
+    /// The cohort's quantization block; `None` in an entry written before
+    /// quantized results.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub quantization: Option<crate::summary::Quantization>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -524,6 +533,8 @@ pub fn for_record_check(v: &serde_json::Value) -> Result<CohortIndex, String> {
                     artifacts_published: 0,
                     artifacts_withheld: 0,
                     artifacts_pending: 0,
+                    best_q: None,
+                    quantization: None,
                 });
             }
             Ok(idx)
@@ -545,6 +556,27 @@ pub fn initial_reference(
     }
 }
 
+/// The highest `q` of an entrant at or above the cutoff: one that holds a
+/// band.
+pub fn best_q(r: &slop_ninja_protocol::QuantizedResult) -> Option<String> {
+    r.entrants
+        .iter()
+        .filter(|e| e.band_rank.is_some())
+        .filter_map(|e| e.outcome.q())
+        .max()
+        .map(|q| crate::summary::decimal(q.get(), r.width))
+}
+
+/// [`best_q`] from a published summary: its `q` decimals all carry the
+/// width's decimals, so they compare as equal-length strings.
+pub fn best_q_of(sm: &crate::summary::CohortSummary) -> Option<String> {
+    sm.entrants
+        .iter()
+        .filter(|e| e.band.is_some())
+        .filter_map(|e| e.q.clone())
+        .max_by(|a, b| (a.len(), a).cmp(&(b.len(), b)))
+}
+
 /// The index entry of a verified cohort with its summary's SHA-256 and its
 /// artifact states.
 pub fn entry(v: &VerifiedCohort, summary: &str, artifacts: &[ArtifactEntry]) -> CohortEntry {
@@ -556,15 +588,17 @@ pub fn entry(v: &VerifiedCohort, summary: &str, artifacts: &[ArtifactEntry]) -> 
         path: format!("{}/", layout::cohort_dir(&v.label)),
         opened_epoch: v.manifest.opened_epoch,
         closed_epoch: v.closure.closed_epoch,
-        promoted: v.package.promoted.map(|h| crate::ss58::encode(&h)),
+        promoted: v.result.promoted.map(|h| crate::ss58::encode(&h)),
         target: v.closure.target.map(|d| d.hex()),
-        reference_index: v.package.reference_index,
+        reference_index: v.result.reference_index,
         manifest: digest(v.manifest.digest()),
         summary: summary.to_owned(),
-        entrants: v.package.entrants.len() as u32,
+        entrants: v.result.entrants.len() as u32,
         artifacts_published: count(ArtifactState::Published),
         artifacts_withheld: count(ArtifactState::Withheld),
         artifacts_pending: count(ArtifactState::Pending),
+        best_q: best_q(&v.result),
+        quantization: Some(crate::summary::quantization(&v.result)),
     }
 }
 
@@ -633,9 +667,9 @@ pub fn references_after(
         p
     };
     let promoted = v
-        .package
+        .result
         .promoted
-        .and_then(|h| v.package.entrants.iter().find(|e| e.identity.hotkey == h));
+        .and_then(|h| v.result.entrants.iter().find(|e| e.hotkey == h));
     match promoted {
         Some(e) => (
             pointer("current", refs.index + 1, e.content.hex(), e.artifact.hex()),

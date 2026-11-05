@@ -414,3 +414,37 @@ fn arena_witness_a_refused_home_opens_at_a_later_use() {
     assert_eq!(home::enter(h, || 2u32).ok(), Some(2), "the next use opens the home");
     assert!(home::stats(h).is_some(), "the home stays open");
 }
+
+/// The package step's `quant-v1` work beside its fitted heap
+/// (`arena_routes::quant_package_bytes`): the public result built from a
+/// finalized package, its digest, and its signed bytes with the record
+/// they encode, as the step and its publication hold them at once. Each
+/// shape is measured on the arena and run under `Strict` in a scope of
+/// exactly the derived footprint; the measured peaks are the fit's inputs.
+#[test]
+fn arena_witness_the_quantized_result_fits_its_derived_footprint() {
+    use slop_ninja_protocol::fixtures_reward_v1 as fx;
+    use slop_ninja_protocol::{QuantizedResult, Record};
+    for entrants in [16u8, 64, 128] {
+        let specs: Vec<fx::Spec> = (1..=entrants)
+            .map(|t| fx::Spec::new(t, fx::bp(9000 + u64::from(t) * 7 % 900)))
+            .collect();
+        let mut m = fx::manifest(fx::chain(), 7, 1000, fx::sigma_permille(40), 0, &specs);
+        m.roster_cap = slop_ninja_protocol::MAX_ROSTER;
+        let index = fx::default_index(&m.references);
+        let mut p = fx::package(&m, fx::bp(9100), None, &specs).expect("package");
+        fx::finalize_fixture(&mut p, &index, &mut fx::spec_measure(&specs, 1000, |_, _| false)).expect("finalize");
+        let key = slop_ninja_protocol::fixtures::package_key();
+        let step = || {
+            let result = QuantizedResult::of_package(&p).expect("result");
+            assert_eq!(result.digest().expect("digest"), p.result);
+            let signed = crate::eval::package::signed_bytes(result.clone(), &key).expect("signed");
+            (result, signed.len())
+        };
+        let (_, peak) = measure(|| drop(step()));
+        let footprint = quant_package_bytes(u64::from(entrants));
+        eprintln!("arena witness: quantized result of {entrants} entrants peak live {peak} B, footprint {footprint} B");
+        assert!(peak <= footprint, "{entrants} entrants: {peak} B above the derived {footprint} B");
+        witness(R_COHORT_PACKAGE, footprint, || drop(step()));
+    }
+}

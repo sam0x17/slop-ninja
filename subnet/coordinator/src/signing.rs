@@ -2749,12 +2749,13 @@ fn read_neurons(
     Ok(Some(neurons))
 }
 
-/// The paid row of reward-v1 target `v` at `snapshot`, with the hotkey and
+/// The paid row of reward-v2 target `v` at `snapshot`, with the hotkey and
 /// registration block at each paid UID and the owner hotkey (what the
 /// signed row other validators copy carries, [`rows`]), or the refusal code.
 ///
-/// QUANTIZED-SCORE: the row is derived from exact scores and is signed for
-/// other validators ([`rows`]) as soon as it is journaled.
+/// The row is derived from the target's public `QuantizedResult` alone (no
+/// exact score enters it) and is signed for other validators ([`rows`]) as
+/// soon as it is journaled.
 fn paid_summary_v2(
     v: &slop_ninja_protocol::VerifiedTarget,
     snapshot: &slop_ninja_protocol::RegistrationSnapshotV2,

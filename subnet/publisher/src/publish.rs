@@ -66,9 +66,9 @@ use serde::{Deserialize, Serialize};
 use slop_ninja_admission_wire::json::Chain;
 use slop_ninja_protocol::submission::SubmissionUpload;
 use slop_ninja_protocol::{
-    AccountId, CalculationTargetV2, CoordinatorRow, Digest, EntrantScore, LaunchAuthorization,
-    Nonce, Record, ReferenceModel, ReferenceSet, RewardIntentAuthorization, RewardIntentRenewal,
-    RewardIntentRevocation, Signed,
+    AccountId, CalculationTargetV2, CoordinatorRow, Digest, EntrantOutcome, LaunchAuthorization,
+    Nonce, Record, ReferenceModel, ReferenceSet, ResultEntrant, RewardIntentAuthorization,
+    RewardIntentRenewal, RewardIntentRevocation, Signed,
 };
 
 use crate::arena::{self, Budget};
@@ -88,8 +88,18 @@ pub const PUBLISHER_ID: &str = concat!("slop-ninja-publisher/", env!("CARGO_PKG_
 /// and unverifiable manifests are remembered per build, so a new version or
 /// a rotation (decision D20) retries them.
 pub fn build_id() -> String {
+    use slop_ninja_protocol::Record as _;
     let trust = slop_ninja_protocol::object_sha256(TRUST_FILE).hex();
-    format!("{PUBLISHER_ID}+trust-{}", &trust[..16])
+    // The record formats this build reads are part of its identity, so a
+    // format change (a new manifest version, a new allow-list) reconsiders
+    // everything an earlier build could not read, even when the crate
+    // version and trust roots stay the same.
+    format!(
+        "{PUBLISHER_ID}+manifest-v{}+{}+trust-{}",
+        slop_ninja_protocol::CohortManifestV2::VERSION,
+        crate::allowlist::ALLOWLIST_VERSION.rsplit('/').next().unwrap_or(""),
+        &trust[..16]
+    )
 }
 
 pub struct Buckets<'a, S> {
@@ -121,6 +131,13 @@ pub struct Outside {
     /// Its manifest's opening epoch, when that placed it before the record.
     pub opened_epoch: Option<u64>,
     pub reason: String,
+    /// The build that placed it outside, when only this build's decoding
+    /// did (a manifest of a kind or version this build does not read): a
+    /// new build reads it again, so a deploy on the wrong side of a format
+    /// change never drops a cohort from the record for good. `None` for a
+    /// placement every build makes (opening epoch, chain, record order).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub build: Option<String>,
 }
 
 /// A cohort this build will not read again.
@@ -301,11 +318,11 @@ fn digest_hex(s: &str) -> Option<Digest> {
 }
 
 impl EntrantFacts {
-    pub fn of(e: &EntrantScore, v: &VerifiedCohort) -> Self {
+    pub fn of(e: &ResultEntrant, v: &VerifiedCohort) -> Self {
         Self {
-            cohort: v.manifest.cohort,
-            hotkey: e.identity.hotkey,
-            registration_block: e.identity.registration_block,
+            cohort: v.result.cohort,
+            hotkey: e.hotkey,
+            registration_block: e.registration_block,
             content: e.content,
             artifact: e.artifact,
             commitment: e.commitment,
@@ -313,10 +330,7 @@ impl EntrantFacts {
                 .closure
                 .openings
                 .iter()
-                .find(|o| {
-                    o.hotkey == e.identity.hotkey
-                        && o.registration_block == e.identity.registration_block
-                })
+                .find(|o| o.hotkey == e.hotkey && o.registration_block == e.registration_block)
                 .map(|o| o.nonce),
         }
     }
@@ -373,7 +387,7 @@ impl EntrantFacts {
 /// Returns why the artifact is withheld, if it is.
 pub fn static_withhold(
     f: &EntrantFacts,
-    score: Option<&EntrantScore>,
+    outcome: Option<&EntrantOutcome>,
     cfg: &Config,
     references: &BTreeSet<ReferenceDigests>,
 ) -> Option<&'static str> {
@@ -390,7 +404,7 @@ pub fn static_withhold(
     {
         return Some(WITHHELD_INITIAL);
     }
-    if score.is_some_and(|e| e.public_copy().is_some()) {
+    if outcome.is_some_and(summary::is_copy) {
         return Some(WITHHELD_COPY);
     }
     None
@@ -651,7 +665,6 @@ impl<S: Store, K: Keepalive> Run<'_, S, K> {
         Options {
             keys: &self.cfg.keys,
             chain: &self.cfg.chain,
-            receipts: false,
         }
     }
 
@@ -772,6 +785,8 @@ impl<S: Store, K: Keepalive> Run<'_, S, K> {
         let build = build_id();
         memo.refused.retain(|_, r| r.build == build);
         memo.unverifiable.retain(|_, r| r.build == build);
+        memo.outside_record
+            .retain(|_, o| o.build.as_ref().is_none_or(|b| *b == build));
         // Only this record's cohorts: an earlier record's refusals never
         // reach this record's public `refused` list or its completions.
         if let Some(prefix) = &self.cfg.record_label_prefix {
@@ -1076,6 +1091,7 @@ impl<S: Store, K: Keepalive> Run<'_, S, K> {
                             Outside {
                                 opened_epoch: Some(m.opened_epoch),
                                 reason: "opened before PUBLISH_FROM_EPOCH".into(),
+                                build: None,
                             },
                         );
                         resolved.push(label);
@@ -1101,15 +1117,17 @@ impl<S: Store, K: Keepalive> Run<'_, S, K> {
                     report.unverifiable.push(label);
                 }
                 Ok(check @ (ManifestCheck::OtherChain | ManifestCheck::OtherKind)) => {
-                    let reason = match check {
-                        ManifestCheck::OtherChain => "another chain or subnet",
-                        _ => "not a reward-v1 cohort manifest",
+                    let (reason, build) = match check {
+                        ManifestCheck::OtherChain => ("another chain or subnet", None),
+                        // Only this build's decoding: a later build reads it again.
+                        _ => ("not a reward-v2 cohort manifest", Some(build_id())),
                     };
                     memo.outside_record.insert(
                         label.clone(),
                         Outside {
                             opened_epoch: None,
                             reason: reason.into(),
+                            build,
                         },
                     );
                     resolved.push(label);
@@ -1165,6 +1183,7 @@ impl<S: Store, K: Keepalive> Run<'_, S, K> {
                     Outside {
                         opened_epoch: None,
                         reason: "precedes the record's first listed cohort".into(),
+                        build: None,
                     },
                 );
                 resolved.push(label);
@@ -1246,8 +1265,9 @@ impl<S: Store, K: Keepalive> Run<'_, S, K> {
     }
 
     /// Whether cohort `label`, which has no closure yet, is packaged and in
-    /// the record, so its closure is only pending: its package is stored
-    /// (a packaged cohort closes unless it is abandoned), nothing says it
+    /// the record, so its closure is only pending: its public result is
+    /// stored beside its private package (a packaged cohort closes unless it
+    /// is abandoned), nothing says it
     /// was abandoned, and its manifest opens with an opening epoch at or
     /// after `from`. Abandonment shows as the signed abandonment record
     /// ([`ABANDONMENT`], verified: [`Run::abandoned`]) or as the coordinator's retirement marker
@@ -1266,9 +1286,9 @@ impl<S: Store, K: Keepalive> Run<'_, S, K> {
     ) -> Result<Option<(u64, u64, bool)>, String> {
         let r = self.buckets.receipts;
         let packaged = r
-            .head(&layout::join(private, verify::PACKAGE))
+            .head(&layout::join(private, verify::RESULT))
             .await
-            .map_err(|e| format!("{}: {e}", verify::PACKAGE))?
+            .map_err(|e| format!("{}: {e}", verify::RESULT))?
             .is_some();
         if !packaged || self.abandoned(private, label).await? {
             return Ok(None);
@@ -1408,12 +1428,12 @@ impl<S: Store, K: Keepalive> Run<'_, S, K> {
         // cluster of a withheld artifact, then the admission record and the
         // copy.
         let references = self.withheld_references(memo, idx, Some(v));
-        let entrants = &v.package.entrants;
+        let entrants = &v.result.entrants;
         let facts: Vec<EntrantFacts> = entrants.iter().map(|e| EntrantFacts::of(e, v)).collect();
         let mut withheld: Vec<Option<&'static str>> = entrants
             .iter()
             .zip(&facts)
-            .map(|(e, f)| static_withhold(f, Some(e), self.cfg, &references))
+            .map(|(e, f)| static_withhold(f, Some(&e.outcome), self.cfg, &references))
             .collect();
         // A cluster is withheld whole when any member is withheld by a
         // static check, whichever member is its head: the rule reads only the
@@ -1422,7 +1442,13 @@ impl<S: Store, K: Keepalive> Run<'_, S, K> {
         // single out the head.
         // Retries apply the same rule (`retry_artifacts`).
         let statically: Vec<bool> = withheld.iter().map(Option::is_some).collect();
-        let clusters: Vec<Option<AccountId>> = entrants.iter().map(|e| e.cluster_head).collect();
+        let clusters: Vec<Option<u16>> = entrants
+            .iter()
+            .map(|e| match e.outcome {
+                EntrantOutcome::Scored { cluster_first_member, .. } => cluster_first_member,
+                _ => None,
+            })
+            .collect();
         for (why, hit) in withheld
             .iter_mut()
             .zip(in_withheld_cluster(&clusters, &statically))
@@ -1433,7 +1459,7 @@ impl<S: Store, K: Keepalive> Run<'_, S, K> {
         }
         let mut artifacts = Vec::new();
         for ((e, f), why) in entrants.iter().zip(&facts).zip(&withheld) {
-            let mut entry = f.entry(e.identity.uid);
+            let mut entry = f.entry(e.uid);
             match why {
                 Some(why) => {
                     entry.state = ArtifactState::Withheld;
@@ -1573,9 +1599,9 @@ impl<S: Store, K: Keepalive> Run<'_, S, K> {
         let mut candidates = vec![refs.current.artifact];
         candidates.extend(refs.predecessor.map(|p| p.artifact));
         candidates.extend(
-            v.package
+            v.result
                 .promoted
-                .and_then(|h| v.package.entrants.iter().find(|e| e.identity.hotkey == h))
+                .and_then(|h| v.result.entrants.iter().find(|e| e.hotkey == h))
                 .map(|e| e.artifact),
         );
         let (mut published, mut staged) = (Vec::new(), Vec::new());
@@ -1807,8 +1833,9 @@ impl<S: Store, K: Keepalive> Run<'_, S, K> {
                 "{WAIT_SUMMARY}: differs from the publication record's digest"
             ));
         }
-        let doc: summary::CohortSummary = serde_json::from_slice(&bytes)
-            .map_err(|_| format!("{WAIT_SUMMARY}: not a {}", summary::SUMMARY_SCHEMA))?;
+        // A cohort listed before quantization keeps its v2 summary.
+        let doc = summary::read(&bytes)
+            .ok_or_else(|| format!("{WAIT_SUMMARY}: not a {}", summary::SUMMARY_SCHEMA))?;
         publication
             .artifacts
             .iter()

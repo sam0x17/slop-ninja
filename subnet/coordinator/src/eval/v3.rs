@@ -72,7 +72,8 @@ use slop_ninja_protocol::{
     Component, ComponentRole, CutoffMode, Digest, EntrantFingerprint, EntrantScore, Fingerprint, Gate, GateFailure,
     HUMAN_FPR_LOOSE_REASON, InferenceContent, MAX_ROSTER, NearStats, NeuronIdentity, Nonce, Origin, OriginMix,
     Probability, ProbeBinding, ProbeMatch, PromotionAudit, PublishedIndex, Record, ReferenceModel, ReferenceScore,
-    ReferenceSet, RewardRule, RewardV1Params, RosterEntry, ScorePackageV2, Stratum, domain_hash,
+    QuantRecord, QuantizedResult, ReferenceSet, RewardRule, RewardV1Params, RosterEntry, ScorePackageV2, Stratum,
+    domain_hash,
 };
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -309,6 +310,10 @@ pub struct V3State {
     /// The closure's per-entrant fingerprints.
     #[serde(default)]
     pub closure_fingerprints: Vec<ClosureFingerprint>,
+    /// Digest of the package's public `QuantizedResult`, which the closure
+    /// names.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub result: Option<H>,
 }
 
 pub fn state(sql: &impl Sql, seq: i64) -> R<V3State> {
@@ -1772,7 +1777,7 @@ pub fn prepare_seal(sql: &impl Sql, cfg: &EvalConfig, seq: i64, inputs: &SealInp
         cohort: plan.cohort,
         cohort_label: c.label.clone(),
         opened_epoch: c.opened_epoch.ok_or(EvalError::State("opened epoch"))?,
-        reward_rule: RewardRule::RewardV1,
+        reward_rule: RewardRule::RewardV2,
         schedule: CohortSchedule {
             tempos: u16::try_from(plan.k_tempos).map_err(|_| EvalError::Plan("k_tempos"))?,
             admission_min: u16::try_from(plan.admission_tempos).map_err(|_| EvalError::Plan("admission"))?,
@@ -1789,7 +1794,7 @@ pub fn prepare_seal(sql: &impl Sql, cfg: &EvalConfig, seq: i64, inputs: &SealInp
                 .collect(),
             batch: Digest(sha2_digest(&index)),
         },
-        params: RewardV1Params::new(v.sigma),
+        params: RewardV1Params::new(v.sigma, v.quant_params().map_err(|e| EvalError::Plan(e.0))?),
         references,
         published: published.binding().map_err(|_| EvalError::State("published binding"))?,
         probes,
@@ -2220,7 +2225,11 @@ pub fn vector_digest(v: &[Option<Probability>]) -> Digest {
 #[derive(Clone, Debug)]
 pub struct PackageV3 {
     pub manifest: CohortManifestV2,
+    /// Private: exact scores and every hidden measurement. It stays in the
+    /// coordinator's storage.
     pub package: ScorePackageV2,
+    /// The public record of the package (`quant-v1`), signed beside it.
+    pub result: QuantizedResult,
     pub target: Option<CalculationTargetV2>,
     pub components: Value,
     /// Private probe vectors to store: (key, bytes).
@@ -2428,6 +2437,8 @@ pub fn prepare_package(
             cluster_head: None,
             cluster_stats: None,
             units: 0,
+            q: None,
+            draw: None,
         };
         if let Some(jv) = vec {
             let batch = slice(&jv.involvement, (0, n))?;
@@ -2457,11 +2468,12 @@ pub fn prepare_package(
         cohort_label: manifest.cohort_label.clone(),
         cohort_manifest: manifest.digest().map_err(|_| EvalError::State("manifest digest"))?,
         revision: 0,
-        reward_rule: RewardRule::RewardV1,
+        reward_rule: RewardRule::RewardV2,
         params: manifest.params,
         span_gate: manifest.span_gate,
         cases: manifest.batch.cases,
         reference_index: manifest.references.index,
+        opened_epoch: manifest.opened_epoch,
         reference: ReferenceScore {
             model: manifest.references.current,
             score: ref_score,
@@ -2490,6 +2502,15 @@ pub fn prepare_package(
         distance_monitor: Default::default(),
         receipt_root,
         receipt_count,
+        quant: QuantRecord::unset(),
+        result: Digest([0; 32]),
+    };
+    // quant-v1: SE of R_k's batch utilities, in task order, and the cohort
+    // seed; both stay in the private package.
+    let quant_inputs = reward_v1::QuantInputs {
+        seed: cohort_seed(&cfg.private_seed, &c.label),
+        se: slop_ninja_protocol::quant::SeMeasure::measure(reward_v1::utilities(&graded(&ref_batch, batch_labels)))
+            .map_err(|_| EvalError::State(PACKAGE_REFUSED))?,
     };
     let evaluation = {
         let mut m = Measure {
@@ -2508,10 +2529,15 @@ pub fn prepare_package(
             draws,
             over_length,
         };
-        reward_v1::finalize(&mut package, &index, &mut m).map_err(|_| EvalError::State(PACKAGE_REFUSED))?
+        reward_v1::finalize(&mut package, &index, &mut m, &quant_inputs).map_err(|_| EvalError::State(PACKAGE_REFUSED))?
     };
     package.validate().map_err(|_| EvalError::State(PACKAGE_REFUSED))?;
     package.check_manifest(&manifest).map_err(|_| EvalError::State(PACKAGE_REFUSED))?;
+    // The public record: only q, the bits, membership and the grid.
+    let result = QuantizedResult::of_package(&package).map_err(|_| EvalError::State(PACKAGE_REFUSED))?;
+    if result.digest().map_err(|_| EvalError::State(PACKAGE_REFUSED))? != package.result {
+        return Err(EvalError::State(PACKAGE_REFUSED));
+    }
     let target = match package.mode {
         CutoffMode::NoTarget => None,
         _ => Some(
@@ -2558,6 +2584,7 @@ pub fn prepare_package(
         });
     }
     st.mode = Some(format!("{:?}", package.mode));
+    st.result = Some(H(package.result));
     st.promoted = evaluation.promoted;
     st.pending_contents = package.entrants.iter().map(|e| H(e.content)).collect();
     st.pending_fingerprints = pending_fps;
@@ -2567,7 +2594,7 @@ pub fn prepare_package(
         .collect();
     let components = json!({
         "schema": "slop_ninja_eval_score_components_v2",
-        "cohort": plan.cohort, "label": c.label, "reward_rule": "reward-v1",
+        "cohort": plan.cohort, "label": c.label, "reward_rule": "reward-v2",
         "cohort_manifest": package.cohort_manifest.to_string(),
         "mode": format!("{:?}", package.mode),
         "promoted": package.promoted.map(|h| hex::encode(h.0)),
@@ -2589,7 +2616,7 @@ pub fn prepare_package(
     if let (Some(l), Some(o)) = (published_limits(plan)?, components.as_object_mut()) {
         o.insert("limits".into(), l);
     }
-    Ok(PackageV3 { manifest, package, target, components, vectors: vectors_out, state: st })
+    Ok(PackageV3 { manifest, package, result, target, components, vectors: vectors_out, state: st })
 }
 
 #[cfg(test)]
@@ -2896,6 +2923,7 @@ pub fn prepare_closure(sql: &impl Sql, cfg: &EvalConfig, seq: i64) -> R<ClosureB
         cohort_label: c.label.clone(),
         cohort_manifest: manifest,
         score_package: package,
+        result: st.result.ok_or(EvalError::State("result digest"))?.0,
         target,
         admission_closed_epoch: uint(r, 2)?,
         published_epoch: uint(r, 3)?,

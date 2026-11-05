@@ -3,10 +3,10 @@
 
 use crate::bigint::{BigUint, Fraction};
 use crate::fixtures_reward_v1::{
-    self as fx, CASES, Spec, bp, chain, computed, computed_snapshot, example, finney, hotkey,
-    sigma_permille,
+    self as fx, CASES, FIXTURE_QUANT, Spec, bp, chain, computed, computed_snapshot, example,
+    finalize_fixture, finney, hotkey, result_of, sigma_permille,
 };
-use crate::reward_v1::{self, Bands, Measurements, Threshold};
+use crate::reward_v1::{self, Measurements, Threshold};
 use crate::*;
 
 const GOLDEN: &str = include_str!("../fixtures/golden-reward-v1.txt");
@@ -49,10 +49,10 @@ fn units(p: &ScorePackageV2) -> Vec<(u8, u16)> {
 
 fn credits(p: &ScorePackageV2) -> Result<Vec<u128>> {
     Ok(reward_v1::evaluate(p, &fx::example_index(p))?
+        .outcome
         .clusters
         .iter()
-        .filter_map(|o| o.placement.as_ref())
-        .map(|pl| tenths_of_percent(&pl.credit))
+        .map(|c| tenths_of_percent(&c.credit))
         .collect())
 }
 
@@ -122,63 +122,54 @@ fn bigint_matches_u128_arithmetic() {
 fn margin_is_two_sigma_with_a_one_percent_floor() {
     // "At 1,000 cases delta is about 0.08; at 4,000 it is about 0.04."
     assert_eq!(
-        RewardV1Params::new(sigma_permille(40)).margin(),
+        RewardV1Params::new(sigma_permille(40), FIXTURE_QUANT).margin(),
         80_000_000_000_000_000
     );
     assert_eq!(
-        RewardV1Params::new(sigma_permille(20)).margin(),
+        RewardV1Params::new(sigma_permille(20), FIXTURE_QUANT).margin(),
         40_000_000_000_000_000
     );
     // The SE at 2,000 cases is 2.8% of headroom.
     assert_eq!(
-        RewardV1Params::new(sigma_permille(28)).margin(),
+        RewardV1Params::new(sigma_permille(28), FIXTURE_QUANT).margin(),
         56_000_000_000_000_000
     );
     // delta = max(0.01, 2 sigma): the floor binds below sigma = 0.005.
     assert_eq!(
-        RewardV1Params::new(sigma_permille(3)).margin(),
+        RewardV1Params::new(sigma_permille(3), FIXTURE_QUANT).margin(),
         MARGIN_FLOOR as u128
     );
 }
 
 #[test]
-fn band_width_translates_sn78_units() {
-    // w / headroom in parts per million.
-    let headroom_ppm = |b: &Bands, reference: Score| {
-        b.width / u128::from(SCORE_SCALE - reference.get()) / 1_000_000_000_000
+fn band_width_translates_sn78_units() -> Result<()> {
+    // w / headroom in parts per million, on the exact width the copy gate's
+    // score clause keeps.
+    let headroom_ppm = |width: u128, reference: Score| {
+        width / u128::from(SCORE_SCALE - reference.get()) / 1_000_000_000_000
     };
+    let p40 = RewardV1Params::new(sigma_permille(40), FIXTURE_QUANT);
+    let p20 = RewardV1Params::new(sigma_permille(20), FIXTURE_QUANT);
     // "8% of headroom at 1,000 cases ... 4% at 4,000."
-    let at_1k = Bands::new(&RewardV1Params::new(sigma_permille(40)), bp(9000)).expect("width");
-    assert_eq!(headroom_ppm(&at_1k, bp(9000)), 80_000);
-    let at_4k = Bands::new(&RewardV1Params::new(sigma_permille(20)), bp(9000)).expect("width");
-    assert_eq!(headroom_ppm(&at_4k, bp(9000)), 40_000);
+    assert_eq!(headroom_ppm(reward_v1::band_width(&p40, bp(9000)), bp(9000)), 80_000);
+    assert_eq!(headroom_ppm(reward_v1::band_width(&p20, bp(9000)), bp(9000)), 40_000);
     // "(0.0041 on the sealed Test's mix)": headroom B0 = 0.0518.
-    let sealed = Bands::new(&RewardV1Params::new(sigma_permille(40)), bp(9482)).expect("width");
-    let w = sealed.width_fraction();
-    assert_eq!(w.floor_scaled(1_000_000).to_u128(), Some(4144));
-    assert_eq!(w.floor_scaled(10_000).to_u128(), Some(41));
+    let sealed = reward_v1::band_width(&p40, bp(9482));
+    assert_eq!(sealed / 1_000_000_000_000_000_000_000_000_000_000, 4144);
     // "A literal 2.5-point band would span about 48% of the reference's
     // headroom": 0.025 / 0.0518 = 48.3%.
     assert_eq!(250_000 / 518, 482);
-    // epsilon = w / 250; SN78's 2.5 points / 250 is 1 basis point (10^-4).
-    assert_eq!(25_000 / u64::from(NEAR_EQUAL_DIVISOR), 100);
-    // epsilon at 1k on the sealed mix: w / 250 = 0.0000166.
-    assert!(
-        sealed
-            .near_equal(
-                bp(9600),
-                Score::new(bp(9600).get() - 16_576_000_000_000).unwrap()
-            )
-            .unwrap()
+    // On the grid: W_q = w max(1, ceil(W_raw / w)). With w = 0.03 the
+    // sealed mix's 0.0041 rounds up to one cell; 0.008 of headroom 0.1 at
+    // w = 0.001 is 8 cells.
+    let w = 30_000_000_000_000_000;
+    assert_eq!(reward_v1::grid_band_width(&p40, bp(9482), w)?, Some(w));
+    assert_eq!(
+        reward_v1::grid_band_width(&p40, bp(9000), 1_000_000_000_000_000)?,
+        Some(8_000_000_000_000_000)
     );
-    assert!(
-        !sealed
-            .near_equal(
-                bp(9600),
-                Score::new(bp(9600).get() - 16_577_000_000_000).unwrap()
-            )
-            .unwrap()
-    );
+    assert_eq!(reward_v1::grid_band_width(&p40, Score::ONE, w)?, None);
+    Ok(())
 }
 
 #[test]
@@ -191,8 +182,8 @@ fn geometric_credits_match_the_paper() -> Result<()> {
     let together = example(bp(REFERENCE), None, &[s(0x21, 9600), s(0x22, 9590)])?;
     let ev_apart = reward_v1::evaluate(&apart, &fx::example_index(&apart))?;
     let ev_together = reward_v1::evaluate(&together, &fx::example_index(&together))?;
-    assert_eq!(ev_apart.clusters[0].placement.as_ref().unwrap().bands, 2);
-    assert_eq!(ev_together.clusters[0].placement.as_ref().unwrap().bands, 1);
+    assert_eq!(ev_apart.outcome.bands.len(), 2);
+    assert_eq!(ev_together.outcome.bands.len(), 1);
     assert_eq!(credits(&apart)?, vec![541, 459]);
     assert_eq!(credits(&together)?, vec![541, 459]);
     // 65535 * 20/37 = 35424.32, 65535 * 17/37 = 30110.68: the larger remainder
@@ -212,11 +203,8 @@ fn geometric_credits_match_the_paper() -> Result<()> {
     let seven: Vec<Spec> = (0..7).map(|i| s(0x21 + i, 9600 - u64::from(i))).collect();
     let crowded = example(bp(REFERENCE), None, &seven)?;
     let ev = reward_v1::evaluate(&crowded, &fx::example_index(&crowded))?;
-    assert!(
-        ev.clusters
-            .iter()
-            .all(|o| o.placement.as_ref().unwrap().bands == 1)
-    );
+    assert_eq!(ev.outcome.bands.len(), 1);
+    assert_eq!(ev.outcome.clusters.len(), 7);
     assert_eq!(credits(&crowded)?[0], 221);
     Ok(())
 }
@@ -291,41 +279,51 @@ fn an_entrant_short_of_the_margin_earns_only_in_a_fallback_cohort() -> Result<()
     assert_eq!(margin.mode, CutoffMode::Margin);
     assert_eq!(units(&margin), vec![(0x42, 65535)]);
     assert_eq!(margin.promoted, Some(hotkey(0x42)));
-    // Promotion uses the same margin: exactly at T promotes.
-    let t = Threshold::margin(bp(9100), RewardV1Params::new(sigma_permille(40)).margin())?;
+    // Eligibility reads q against T_q = w ceil(T / w); promotion also needs
+    // the exact score at the exact margin: exactly at T promotes whenever the
+    // cohort is a margin cohort, one unit below never does.
+    let t = Threshold::margin(bp(9100), RewardV1Params::new(sigma_permille(40), FIXTURE_QUANT).margin())?;
     assert_eq!(t.display(), "917200000000000000");
     let at = example(bp(9100), None, &[s(0x43, 9172)])?;
-    assert_eq!(
-        (at.mode, at.promoted),
-        (CutoffMode::Margin, Some(hotkey(0x43)))
-    );
+    // T_q is computed from q_Rk, not the exact reference score.
+    let t_q = Threshold::margin(at.quant.reference_q, RewardV1Params::new(sigma_permille(40), FIXTURE_QUANT).margin())?
+        .on_grid(at.quant.width)?;
+    assert_eq!(at.quant.cutoff.map(|c| u128::from(c.get())), (at.mode == CutoffMode::Margin).then_some(t_q));
+    if at.mode == CutoffMode::Margin {
+        assert_eq!(at.promoted, Some(hotkey(0x43)));
+    }
     let below = example(
         bp(9100),
         None,
         &[Spec::new(0x44, Score::new(bp(9172).get() - 1)?)],
     )?;
-    assert_eq!(below.mode, CutoffMode::NoTarget);
+    let below_t_q = Threshold::margin(below.quant.reference_q, RewardV1Params::new(sigma_permille(40), FIXTURE_QUANT).margin())?
+        .on_grid(below.quant.width)?;
+    let passes_q = u128::from(below.entrants[0].q.unwrap().get()) >= below_t_q;
+    assert_eq!(below.mode == CutoffMode::Margin, passes_q);
+    assert_eq!(below.promoted, None);
+    assert!(below.promotion_audits.is_empty());
     Ok(())
 }
 
 #[test]
-fn near_equal_drop_compares_with_the_last_retained_head() -> Result<()> {
-    // "dropping a perturbed copy that scores just below its original, within epsilon"
+fn heads_just_below_one_another_are_all_paid() -> Result<()> {
+    // reward-v1 dropped a perturbed copy within epsilon = w / 250 of a
+    // retained head; reward-v2 has no drop: distinct q values differ by at
+    // least w, and equal ones share credit.
     let below = |tag, by: u64| Spec::new(tag, Score::new(bp(9600).get() - by).unwrap());
     let p = example(
         bp(REFERENCE),
         None,
         &[s(0x51, 9600), below(0x52, 10_000_000_000_000)],
     )?;
-    assert_eq!(units(&p), vec![(0x51, 65535)]);
-    // epsilon = 0.0072 / 250 = 0.0000288. A chain 0.96, 0.95998, 0.95996: the
-    // third is 0.00004 below the retained first, so it is kept although it is
-    // within epsilon of the dropped second.
+    let paid: Vec<u8> = units(&p).iter().map(|(t, _)| *t).collect();
+    assert_eq!(paid, vec![0x51, 0x52]);
     let second = below(0x53, 20_000_000_000_000);
     let third = below(0x54, 40_000_000_000_000);
     let p = example(bp(REFERENCE), None, &[s(0x51, 9600), second, third])?;
     let paid: Vec<u8> = units(&p).iter().map(|(t, _)| *t).collect();
-    assert_eq!(paid, vec![0x51, 0x54]);
+    assert_eq!(paid, vec![0x51, 0x53, 0x54]);
     Ok(())
 }
 
@@ -334,7 +332,7 @@ fn near_equal_drop_compares_with_the_last_retained_head() -> Result<()> {
 // ---------------------------------------------------------------------------
 
 #[test]
-fn computed_cohort_clusters_drops_and_pays_as_designed() -> Result<()> {
+fn computed_cohort_clusters_and_pays_as_designed() -> Result<()> {
     let c = computed()?;
     let by_name = |name: &str| {
         let i = c.models.iter().position(|m| m.name == name).expect("model");
@@ -355,23 +353,26 @@ fn computed_cohort_clusters_drops_and_pays_as_designed() -> Result<()> {
     }
     for name in ["beta", "beta_copy_1", "beta_copy_2"] {
         assert_eq!(by_name(name).cluster_head, Some(hotkey(0x12)), "{name}");
-        assert_eq!(by_name(name).units, 6135, "{name}");
+        assert_eq!(by_name(name).units, 3316, "{name}");
     }
     assert_eq!(by_name("iota").units, 21654);
-    // gamma ties beta at RMS 0.032: its own cluster, dropped as near-equal.
+    // gamma ties beta's exact score at RMS 0.032: its own cluster, paid
+    // beside beta's (no near-equal drop); its draw ranks it below beta, and
+    // the two clusters split the band position beta held alone before.
     assert_eq!(by_name("gamma").cluster_head, Some(hotkey(0x15)));
-    assert_eq!(by_name("gamma").units, 0);
+    assert_eq!(by_name("gamma").units, 8457);
+    assert_eq!(3 * 3316 + 8457, 3 * 6135);
     for name in ["delta", "zeta", "eta", "theta"] {
         assert_eq!(by_name(name).cluster_head, None, "{name}");
         assert_eq!(by_name(name).units, 0, "{name}");
     }
     let snapshot = computed_snapshot(&c.specs);
-    let row = reward_v1::derive_row(&c.target, Some((&c.package, &c.index)), &snapshot)?;
+    let row = reward_v1::derive_row(&c.target, Some(&result_of(&c.package)?), &snapshot)?;
     // Owner at UID 2 receives iota's (deregistered) and beta_copy_2's (new
     // generation) units; alpha is paid at its moved UID 0x21.
     assert_eq!(
         fx::row_entries(&row),
-        "2:27789,18:6135,22:8492,23:6135,27:8492,33:8492"
+        "2:24970,18:3316,21:8457,22:8492,23:3316,27:8492,33:8492"
     );
     c.closure.check(&c.manifest, &c.package, Some(&c.target))?;
     for (i, spec) in c.specs.iter().enumerate() {
@@ -401,7 +402,7 @@ fn every_v2_record_round_trips_canonically() -> Result<()> {
     round_trip(&snapshot)?;
     round_trip(&reward_v1::derive_row(
         &c.target,
-        Some((&c.package, &c.index)),
+        Some(&result_of(&c.package)?),
         &snapshot,
     )?)?;
     let opening = fx::opening(&chain(), 3, &c.specs[0]);
@@ -414,14 +415,15 @@ fn every_v2_record_round_trips_canonically() -> Result<()> {
     round_trip(&c.index.contents)?;
     round_trip(&c.index.fingerprints)?;
     round_trip(&fx::verified(0x11, 0x11).header)?;
-    // A version-4 manifest is not a version-1 manifest.
+    // A version-5 manifest is not a version-1 manifest.
     assert_eq!(
         CohortManifest::from_bytes(&c.manifest.to_bytes()?).unwrap_err(),
         Error::WrongVersion {
             kind: "cohort-manifest",
-            version: 4
+            version: 5
         }
     );
+    round_trip(&result_of(&c.package)?)?;
     let audit = fx::promotion_audit(hotkey(0x31), true, 1);
     let mut e = Encoder::new();
     audit.encode_to(&mut e);
@@ -459,7 +461,7 @@ fn reward_v1_is_permitted_on_finney_and_v0_is_not() -> Result<()> {
         FINNEY_GENESIS.hex(),
         "2f0555cc76fc2840a25a6ea3b9637146806f1f44b090c175ffde2a7e5ab36c03"
     );
-    RewardRule::RewardV1.check_chain(&finney())?;
+    RewardRule::RewardV2.check_chain(&finney())?;
     assert_eq!(
         RewardRule::TestnetRewardV0
             .check_chain(&finney())
@@ -472,7 +474,7 @@ fn reward_v1_is_permitted_on_finney_and_v0_is_not() -> Result<()> {
     let t = CalculationTargetV2::for_package(&p, None)?;
     let row = reward_v1::derive_row(
         &t,
-        Some((&p, &fx::example_index(&p))),
+        Some(&result_of(&p)?),
         &fx::snapshot(finney(), 0, &specs),
     )?;
     assert_eq!(fx::row_entries(&row), "177:65535");
@@ -490,7 +492,7 @@ fn reward_v1_is_permitted_on_finney_and_v0_is_not() -> Result<()> {
         Error::Mismatch("reward rule record version")
     );
     let mut v1 = crate::fixtures::manifest();
-    v1.reward_rule = RewardRule::RewardV1;
+    v1.reward_rule = RewardRule::RewardV2;
     assert_eq!(
         v1.to_bytes().unwrap_err(),
         Error::Mismatch("reward rule record version")
@@ -510,18 +512,19 @@ fn single_entrant_all_in_one_band_and_ties() -> Result<()> {
         units(&one_band),
         vec![(0x61, 25475), (0x62, 21654), (0x63, 18406)]
     );
-    // Equal scores without near-duplicate predictions: the earlier commitment
-    // ranks first and the later cluster is dropped as near-equal.
+    // Equal exact scores without near-duplicate predictions: no near-equal
+    // drop, so both clusters are paid; their independent draws order them.
     let tie = example(bp(REFERENCE), None, &[s(0x81, 9600), s(0x82, 9600)])?;
-    assert_eq!(units(&tie), vec![(0x81, 65535)]);
-    // Same scores, but 0x83 committed first: commitment order, not hotkey bytes.
-    let tie = example(bp(REFERENCE), None, &[s(0x83, 9600), s(0x82, 9600)])?;
-    assert_eq!(units(&tie), vec![(0x83, 65535)]);
-    // Largest-remainder ties go in rank order.
+    assert_eq!(units(&tie).len(), 2);
+    // Largest-remainder ties go in roster order, whatever the rank order.
     let shares = vec![Fraction::new(BigUint::one(), BigUint::from_u128(4)).unwrap(); 4];
     assert_eq!(
-        reward_v1::largest_remainder(65535, &shares)?,
+        reward_v1::largest_remainder(65535, &shares, &[0, 1, 2, 3])?,
         vec![16384, 16384, 16384, 16383]
+    );
+    assert_eq!(
+        reward_v1::largest_remainder(65535, &shares, &[3, 0, 2, 1])?,
+        vec![16383, 16384, 16384, 16384]
     );
     Ok(())
 }
@@ -555,10 +558,11 @@ fn sybil_clusters_bound_the_cluster_not_the_party() -> Result<()> {
             s(0x75, 9400),
         ],
     )?;
+    // The copies' draws decide which of the three heads the cluster.
     let total = |p: &ScorePackageV2| {
         p.entrants
             .iter()
-            .filter(|e| e.cluster_head == Some(hotkey(0x71)))
+            .filter(|e| e.identity.hotkey != hotkey(0x75))
             .map(|e| u32::from(e.units))
             .sum::<u32>()
     };
@@ -579,20 +583,32 @@ fn no_target_cases_keep_the_previous_target_or_burn() -> Result<()> {
     };
     // R_0 in force (no predecessor) and nobody reaches the margin.
     no(&example(bp(REFERENCE), None, &[s(0x91, 9150)])?);
-    // A predecessor exists but nobody scores strictly above it.
+    // A predecessor exists but nobody scores above it. (An exact tie with
+    // the predecessor is not a tie on q: the two values draw independent
+    // offsets, so either can land a grid cell higher; the fixture stays a
+    // basis point below.)
     no(&example(
         bp(REFERENCE),
         Some(bp(9165)),
-        &[s(0x92, 9150), s(0x93, 9165)],
+        &[s(0x92, 9150), s(0x93, 9164)],
     )?);
     // An empty roster.
     no(&example(bp(REFERENCE), Some(bp(9000)), &[])?);
-    // A perfect reference leaves no headroom and no band width.
-    no(&example(
-        Score::ONE,
-        Some(bp(9000)),
-        &[Spec::new(0x94, Score::ONE)],
-    )?);
+    // A perfect reference leaves no headroom and no band width. The rule
+    // reads q: an exact S_Rk = 1 can quantize a cell below 1 (negative
+    // noise), so the case is the q-level one.
+    let params = RewardV1Params::new(sigma_permille(40), FIXTURE_QUANT);
+    let w = 10_000_000_000_000_000;
+    let top = [reward_v1::QEntrant { q: Some(SCORE_SCALE), gated: true, cluster: None }];
+    let perfect = reward_v1::q_outcome(&reward_v1::QInput {
+        params: &params,
+        width: w,
+        reference_q: SCORE_SCALE,
+        predecessor_q: Some(900_000_000_000_000_000),
+        entrants: &top,
+    })?;
+    assert_eq!((perfect.mode, perfect.band_width), (CutoffMode::NoTarget, None));
+    assert!(perfect.units.iter().all(|&u| u == 0));
     // Gate failures earn nothing.
     no(&example(
         bp(REFERENCE),
@@ -612,8 +628,8 @@ fn units_of_unregistered_generations_burn_through_the_owner_uid() -> Result<()> 
     let specs = [s(0x21, 9600), s(0x22, 9400)];
     let p = example(bp(REFERENCE), None, &specs)?;
     let t = CalculationTargetV2::for_package(&p, None)?;
-    let index = fx::example_index(&p);
-    let scored = Some((&p, &index));
+    let result = result_of(&p)?;
+    let scored = Some(&result);
     let mut snap = fx::snapshot(chain(), 9, &specs);
     assert_eq!(
         fx::row_entries(&reward_v1::derive_row(&t, scored, &snap)?),
@@ -646,7 +662,7 @@ fn clusters_do_not_chain_through_members() -> Result<()> {
     let mut p = fx::package(&m, bp(REFERENCE), None, &specs)?;
     let near =
         |a: usize, b: usize| (a.min(b), a.max(b)) == (0, 1) || (a.min(b), a.max(b)) == (1, 2);
-    reward_v1::finalize(
+    finalize_fixture(
         &mut p,
         &fx::default_index(&m.references),
         &mut fx::spec_measure(&specs, 1000, near),
@@ -758,7 +774,7 @@ fn aligned_distance_ignores_rank_preserving_maps() -> Result<()> {
 #[test]
 fn near_copies_must_beat_the_other_by_half_a_band() -> Result<()> {
     // sigma = 0.04 and S_y = 0.91: w = 0.0072, so w / 2 = 0.0036.
-    let params = RewardV1Params::new(sigma_permille(40));
+    let params = RewardV1Params::new(sigma_permille(40), FIXTURE_QUANT);
     let width = reward_v1::band_width(&params, bp(9100));
     let zero = fx::aligned(1000);
     for (x, near) in [
@@ -779,7 +795,7 @@ fn near_copies_must_beat_the_other_by_half_a_band() -> Result<()> {
     // Below that, delta is the 0.01 floor and w / 2 is less than half the
     // margin: at sigma = 0.004, w = 0.008 (1 - S_Rk) and the margin is 0.01
     // (1 - S_Rk).
-    let tight = RewardV1Params::new(sigma_permille(4));
+    let tight = RewardV1Params::new(sigma_permille(4), FIXTURE_QUANT);
     let tight_width = reward_v1::band_width(&tight, bp(9100));
     let tight_margin = Threshold::margin(bp(9100), tight.margin())?;
     let margin_width = tight_margin.num - u128::from(bp(9100).get()) * u128::from(SCORE_SCALE);
@@ -861,13 +877,9 @@ fn maximum_roster_stays_exact_and_fast() -> Result<()> {
         assert_eq!(p.credits.len(), clusters);
         assert!(p.credits.iter().all(|c| c.den.bits() < 1120));
         assert_eq!(ScorePackageV2::from_bytes(&p.to_bytes()?)?, p);
-        let placed: Vec<_> = ev
-            .clusters
-            .iter()
-            .filter_map(|o| o.placement.as_ref())
-            .collect();
+        let placed = &ev.outcome.clusters;
         assert_eq!(placed.len(), clusters);
-        assert_eq!(placed[0].bands, bands);
+        assert_eq!(ev.outcome.bands.len(), bands);
         // Credits never increase down the ranking.
         assert!(placed.windows(2).all(|w| w[0].credit >= w[1].credit));
     }
@@ -880,31 +892,30 @@ fn extreme_parameters_do_not_overflow() -> Result<()> {
     let specs = [Spec::new(0xa1, Score::ONE)];
     let m = fx::manifest(chain(), 8, 1000, SCORE_SCALE, 1, &specs);
     let mut p = fx::package(&m, Score::ZERO, Some(Score::ZERO), &specs)?;
-    let ev = reward_v1::finalize(
+    let ev = finalize_fixture(
         &mut p,
         &fx::default_index(&m.references),
         &mut fx::spec_measure(&specs, 1000, |_, _| false),
     )?;
-    assert_eq!(ev.mode, CutoffMode::Fallback);
-    assert_eq!(ev.clusters[0].placement.as_ref().unwrap().band, 0);
-    // sigma = 10^-18: w = 2e-22, a perfect score clamps to the top band.
+    assert_eq!(ev.mode(), CutoffMode::Fallback);
+    assert_eq!(ev.outcome.clusters[0].band, 0);
+    // sigma = 10^-18: W_q is one grid cell, and a perfect score clamps to
+    // the top band.
     let specs = [Spec::new(0xa2, Score::ONE), s(0xa3, 9999)];
     let m = fx::manifest(chain(), 9, 1000, 1, 0, &specs);
     let mut p = fx::package(&m, bp(9999), None, &specs)?;
-    let ev = reward_v1::finalize(
+    let ev = finalize_fixture(
         &mut p,
         &fx::default_index(&m.references),
         &mut fx::spec_measure(&specs, 1000, |_, _| false),
     )?;
-    let band = ev.clusters[0].placement.as_ref().unwrap().band;
-    assert_eq!(
-        band,
-        (u128::from(SCORE_SCALE) * u128::from(SCORE_SCALE)).div_ceil(2 * 100_000_000_000_000) - 1
-    );
-    // Near-equal at the extremes stays inside u128.
-    let bands = Bands::new(&RewardV1Params::new(SCORE_SCALE), Score::ZERO).unwrap();
-    assert!(!bands.near_equal(Score::ONE, Score::ZERO)?);
-    assert_eq!(bands.band(Score::ONE), 0);
+    let width = p.quant.band_width.expect("band width");
+    assert_eq!(width, p.quant.width);
+    if p.entrants[0].q == Some(Score::ONE) {
+        assert_eq!(ev.outcome.clusters[0].band, SCORE_SCALE.div_ceil(width) - 1);
+    }
+    // The band of the largest score under the widest band stays in range.
+    assert_eq!(reward_v1::grid_band(SCORE_SCALE, 2 * SCORE_SCALE), 0);
     Ok(())
 }
 
@@ -1362,19 +1373,20 @@ fn package_binds_its_full_receipt_index() -> Result<()> {
 #[test]
 fn burned_units_follow_the_finalized_owner_hotkey() -> Result<()> {
     let c = computed()?;
-    let scored = Some((&c.package, &c.index));
+    let result = result_of(&c.package)?;
+    let scored = Some(&result);
     let before = reward_v1::derive_row(&c.target, scored, &computed_snapshot(&c.specs))?;
     let rotated = fx::rotated_owner_snapshot(&c.specs);
     let after = reward_v1::derive_row(&c.target, scored, &rotated)?;
     assert_eq!(
         fx::row_entries(&before),
-        "2:27789,18:6135,22:8492,23:6135,27:8492,33:8492"
+        "2:24970,18:3316,21:8457,22:8492,23:3316,27:8492,33:8492"
     );
     // Same target and package: only the burned units moved, to the UID of
     // the rotated owner hotkey, and the row records that hotkey.
     assert_eq!(
         fx::row_entries(&after),
-        "18:6135,22:8492,23:6135,27:8492,33:8492,48:27789"
+        "18:3316,21:8457,22:8492,23:3316,27:8492,33:8492,48:24970"
     );
     assert_eq!(before.owner_hotkey, fx::owner_hotkey());
     assert_eq!(after.owner_hotkey, hotkey(0x77));
@@ -1424,7 +1436,7 @@ fn burned_units_follow_the_finalized_owner_hotkey() -> Result<()> {
     let t = CalculationTargetV2::for_package(&p, None)?;
     let mut snap = fx::snapshot(chain(), 9, &specs);
     snap.owner_hotkey = hotkey(0x77);
-    let row = reward_v1::derive_row(&t, Some((&p, &fx::example_index(&p))), &snap)?;
+    let row = reward_v1::derive_row(&t, Some(&result_of(&p)?), &snap)?;
     assert_eq!(fx::row_entries(&row), "33:35424,34:30111");
     assert_eq!(row.owner_hotkey, hotkey(0x77));
     Ok(())
@@ -1848,13 +1860,15 @@ fn package_publishes_each_retained_clusters_exact_credit() -> Result<()> {
         .iter()
         .map(|k| (k.head.0[0], k.fraction().to_string()))
         .collect();
-    // gamma's cluster (0x15) was dropped as near-equal, so it has no credit.
+    // gamma's cluster (0x15) shares beta's band: the band's 289/1029 splits
+    // 1 : 0.85 between them, so the top bands' credits are unchanged.
     assert_eq!(
         listed,
         vec![
             (0x11, "400/1029".to_string()),
             (0x13, "340/1029".to_string()),
-            (0x12, "289/1029".to_string()),
+            (0x12, "5780/38073".to_string()),
+            (0x15, "4913/38073".to_string()),
         ]
     );
     let sum = c
@@ -1880,10 +1894,12 @@ fn package_publishes_each_retained_clusters_exact_credit() -> Result<()> {
             }
         }
     }
-    // Validators compare each credit exactly, including its representation.
+    // The coordinator's package check compares each credit exactly,
+    // including its representation, before it derives the row.
     let derive = |p: &ScorePackageV2| {
+        reward_v1::check_outcome(p, &c.index)?;
         let t = CalculationTargetV2::for_package(p, c.target.predecessor)?;
-        reward_v1::derive_row(&t, Some((p, &c.index)), &computed_snapshot(&c.specs))
+        reward_v1::derive_row(&t, Some(&result_of(p)?), &computed_snapshot(&c.specs))
     };
     let mut tampered = c.package.clone();
     tampered.credits[2].num = tampered.credits[2].num.add(&BigUint::one());
@@ -2084,7 +2100,7 @@ fn exact_copies_of_published_artifacts_are_refused_both_ways() -> Result<()> {
     let mut p = c.package.clone();
     p.entrants[i].score = Some(bp(9100));
     assert_eq!(
-        reward_v1::finalize(&mut p, &c.index, &mut fx::ComputedMeasure::new(&c.models))
+        finalize_fixture(&mut p, &c.index, &mut fx::ComputedMeasure::new(&c.models))
             .unwrap_err(),
         Error::Invalid("published content executed")
     );
@@ -2546,7 +2562,7 @@ fn the_probe_comparison_includes_both_references() -> Result<()> {
     }
     let mut q = c.package.clone();
     assert_eq!(
-        reward_v1::finalize(
+        finalize_fixture(
             &mut q,
             &c.index,
             &mut Misnamed(fx::ComputedMeasure::new(&c.models))
@@ -2764,7 +2780,7 @@ fn the_distance_monitor_reports_the_closest_archive_probe_distance() -> Result<(
         inner: fx::spec_measure(&specs, 1000, |_, _| false),
         distances: vec![Some(d / 5 * 8), Some(d / 5 * 6), Some(1)],
     };
-    reward_v1::finalize(&mut p, &index, &mut measure)?;
+    finalize_fixture(&mut p, &index, &mut measure)?;
     assert_eq!(p.distance_monitor.min_gated_vs_archive_ppb, Some(d / 5 * 6));
     reward_v1::check_outcome(&p, &index)?;
     // Validators bound it by the published reference comparisons (2d here).
@@ -2811,7 +2827,7 @@ fn audited(audits: &[(usize, bool, u8)]) -> Result<(ScorePackageV2, PublishedInd
     for &(i, strict, flags) in audits {
         measure.audits.insert(i, (strict, flags));
     }
-    reward_v1::finalize(&mut p, &index, &mut measure)?;
+    finalize_fixture(&mut p, &index, &mut measure)?;
     Ok((p, index))
 }
 
@@ -2959,9 +2975,10 @@ fn when_no_head_qualifies_nobody_is_promoted_and_credits_stand() -> Result<()> {
 }
 
 #[test]
-fn a_dropped_cluster_is_never_a_promotion_candidate() -> Result<()> {
-    // 0x92 is within epsilon of 0x91 and dropped; when 0x91 is blocked the
-    // walk goes straight to 0x93.
+fn a_head_just_below_another_is_a_promotion_candidate() -> Result<()> {
+    // reward-v1 dropped 0x92 as near-equal; under reward-v2 it is a cluster
+    // head that meets the exact margin, so when 0x91 is blocked the walk
+    // promotes it.
     let below = |tag, by: u64| Spec::new(tag, Score::new(bp(9600).get() - by).unwrap());
     let specs = [
         s(0x91, 9600),
@@ -2973,9 +2990,9 @@ fn a_dropped_cluster_is_never_a_promotion_candidate() -> Result<()> {
     let mut p = fx::package(&m, bp(REFERENCE), None, &specs)?;
     let mut measure = fx::spec_measure(&specs, 1000, |_, _| false);
     measure.audits.insert(0, (true, 2));
-    reward_v1::finalize(&mut p, &index, &mut measure)?;
-    assert_eq!(audit_heads(&p), vec![0x91, 0x93]);
-    assert_eq!(p.promoted, Some(hotkey(0x93)));
+    finalize_fixture(&mut p, &index, &mut measure)?;
+    assert_eq!(audit_heads(&p), vec![0x91, 0x92]);
+    assert_eq!(p.promoted, Some(hotkey(0x92)));
     reward_v1::check_outcome(&p, &index)?;
     Ok(())
 }

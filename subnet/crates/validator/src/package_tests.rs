@@ -1135,9 +1135,10 @@ fn launch_bundle(issued_epoch: u64) -> Vec<u8> {
     let auth = slop_ninja_protocol::LaunchAuthorization::new(&chain(), 1, issued_epoch).unwrap();
     let row = slop_ninja_protocol::CoordinatorRow {
         chain: chain(),
-        reward_rule: slop_ninja_protocol::RewardRule::RewardV1,
+        reward_rule: slop_ninja_protocol::RewardRule::RewardV2,
         source: slop_ninja_protocol::RowSource::LaunchBurn,
         target: auth.target,
+        result: None,
         activated_epoch: None,
         authorization: slop_ninja_protocol::Record::digest(&auth).unwrap(),
         issued_epoch,
@@ -1716,7 +1717,7 @@ pub(crate) mod rv1 {
     use super::*;
     use slop_ninja_protocol::fixtures_reward_v1::{self as fx, Spec, bp};
     use slop_ninja_protocol::{
-        CalculationTargetV2, CohortManifestV2, CoordinatorRow, CoordinatorRowEntry, Digest, PublishedIndex, Record,
+        CalculationTargetV2, CohortManifestV2, CoordinatorRow, CoordinatorRowEntry, Digest, Record,
         RewardRule, RowSource, ScorePackageV2,
     };
 
@@ -1727,7 +1728,6 @@ pub(crate) mod rv1 {
         pub package: ScorePackageV2,
         pub target: CalculationTargetV2,
         pub closure: slop_ninja_protocol::submission::CohortClosure,
-        pub index: PublishedIndex,
         pub authorization: Vec<u8>,
     }
 
@@ -1735,7 +1735,6 @@ pub(crate) mod rv1 {
     pub fn bound(
         manifest: CohortManifestV2,
         package: ScorePackageV2,
-        index: PublishedIndex,
         predecessor: Digest,
         specs: &[Spec],
     ) -> Cohort {
@@ -1747,7 +1746,7 @@ pub(crate) mod rv1 {
         .unwrap()
         .to_bytes()
         .unwrap();
-        Cohort { manifest, package, target, closure, index, authorization }
+        Cohort { manifest, package, target, closure, authorization }
     }
 
     /// The coordinator's signed row of `c` as its own snapshot `snapshot`
@@ -1773,7 +1772,8 @@ pub(crate) mod rv1 {
             .unwrap()
             .record;
         let v2 = crate::package_v2::snapshot(snapshot, fx::owner_hotkey().0).unwrap();
-        let derived = slop_ninja_protocol::reward_v1::derive_row(&c.target, Some((&c.package, &c.index)), &v2).unwrap();
+        let result = slop_ninja_protocol::QuantizedResult::of_package(&c.package).unwrap();
+        let derived = slop_ninja_protocol::reward_v1::derive_row(&c.target, Some(&result), &v2).unwrap();
         let entries = derived
             .entries
             .iter()
@@ -1784,13 +1784,14 @@ pub(crate) mod rv1 {
             .collect();
         let row = CoordinatorRow {
             chain: c.manifest.chain.clone(),
-            reward_rule: RewardRule::RewardV1,
+            reward_rule: RewardRule::RewardV2,
             source: RowSource::Cohort {
                 cohort: auth.cohort,
                 cohort_label: c.manifest.cohort_label.clone(),
                 cohort_manifest: auth.cohort_manifest,
             },
             target: auth.target,
+            result: Some(c.package.result),
             activated_epoch: Some(c.closure.closed_epoch),
             authorization: auth.digest().unwrap(),
             issued_epoch: auth.issued_epoch,
@@ -1813,9 +1814,10 @@ pub(crate) mod rv1 {
         let auth = slop_ninja_protocol::LaunchAuthorization::new(&fx::chain(), 1, issued_epoch).unwrap();
         let row = CoordinatorRow {
             chain: fx::chain(),
-            reward_rule: RewardRule::RewardV1,
+            reward_rule: RewardRule::RewardV2,
             source: RowSource::LaunchBurn,
             target: auth.target,
+            result: None,
             activated_epoch: None,
             authorization: auth.digest().unwrap(),
             issued_epoch,
@@ -1834,11 +1836,10 @@ pub(crate) mod rv1 {
     pub fn cohorts() -> (Cohort, Cohort, Vec<Spec>) {
         let c = fx::computed().unwrap();
         let launch = CalculationTargetV2::launch_burn(fx::chain()).digest().unwrap();
-        let first = bound(c.manifest.clone(), c.package.clone(), c.index.clone(), launch, &c.specs);
+        let first = bound(c.manifest.clone(), c.package.clone(), launch, &c.specs);
         let s = fx::successor_of(&c).unwrap();
         let s_specs = vec![Spec::new(0x92, bp(9900))];
-        let s_index = fx::default_index(&s.manifest.references);
-        let second = bound(s.manifest, s.package, s_index, first.target.digest().unwrap(), &s_specs);
+        let second = bound(s.manifest, s.package, first.target.digest().unwrap(), &s_specs);
         let mut specs = c.specs.clone();
         specs.extend(s_specs);
         (first, second, specs)
@@ -1850,9 +1851,8 @@ pub(crate) mod rv1 {
         let specs = vec![Spec::new(tag, bp(9600))];
         let manifest = fx::manifest(fx::chain(), 7, 1000, fx::sigma_permille(40), 0, &specs);
         let (package, _) = fx::finalized(&manifest, bp(9100), None, &specs).unwrap();
-        let index = fx::default_index(&manifest.references);
         let launch = CalculationTargetV2::launch_burn(fx::chain()).digest().unwrap();
-        (bound(manifest, package, index, launch, &specs), specs)
+        (bound(manifest, package, launch, &specs), specs)
     }
 
     /// Every fixture entrant registered under its own generation, plus the

@@ -288,6 +288,9 @@ canonical_struct! {
         pub cohort_label: String,
         pub cohort_manifest: Digest,
         pub score_package: Digest,
+        /// The package's public [`crate::QuantizedResult`]: what a reader
+        /// without the private package checks the closure against.
+        pub result: Digest,
         /// The cohort's new calculation target; `None` when it produced none
         /// and the previous target stays live.
         pub target: Option<Digest>,
@@ -308,7 +311,7 @@ canonical_struct! {
 
 impl Record for CohortClosure {
     const KIND: &'static str = "cohort-closure";
-    const VERSION: u16 = 1;
+    const VERSION: u16 = 2;
     const SIGNER: Option<KeyRole> = Some(KeyRole::Package);
     fn validate(&self) -> Result<()> {
         validate_label(&self.cohort_label)?;
@@ -389,25 +392,11 @@ impl CohortClosure {
             || self.cohort_label != package.cohort_label
             || self.cohort_manifest != package.cohort_manifest
             || self.score_package != package.digest()?
+            || self.result != package.result
         {
             return Err(Error::Mismatch("closure package"));
         }
-        if self.admission_closed_epoch < manifest.earliest_admission_close_epoch()? {
-            return Err(Error::Invalid("admission closed before its minimum"));
-        }
-        if self.published_epoch <= self.admission_closed_epoch {
-            return Err(Error::Invalid("published before admission closed"));
-        }
-        let transition_end = self
-            .published_epoch
-            .checked_add(u64::from(manifest.schedule.transition_min))
-            .ok_or(Error::Overflow("transition end"))?;
-        if self.closed_epoch < transition_end {
-            return Err(Error::Invalid("closed before the transition minimum"));
-        }
-        if self.closed_epoch < manifest.earliest_close_epoch()? {
-            return Err(Error::Invalid("closed before the cohort minimum"));
-        }
+        self.check_schedule(manifest)?;
         match (self.target, target, package.mode) {
             (None, None, CutoffMode::NoTarget) => {}
             (Some(digest), Some(t), CutoffMode::Margin | CutoffMode::Fallback) => {
@@ -431,6 +420,76 @@ impl CohortClosure {
             closure: self,
             package,
         })
+    }
+
+    /// The phase epochs against the manifest's frozen schedule: admission
+    /// closed no earlier than its minimum, publication after it, and the
+    /// close after the transition minimum and the cohort minimum `K`.
+    pub fn check_schedule(&self, manifest: &CohortManifestV2) -> Result<()> {
+        if self.cohort_manifest != manifest.digest()? {
+            return Err(Error::Mismatch("closure manifest"));
+        }
+        if self.admission_closed_epoch < manifest.earliest_admission_close_epoch()? {
+            return Err(Error::Invalid("admission closed before its minimum"));
+        }
+        if self.published_epoch <= self.admission_closed_epoch {
+            return Err(Error::Invalid("published before admission closed"));
+        }
+        let transition_end = self
+            .published_epoch
+            .checked_add(u64::from(manifest.schedule.transition_min))
+            .ok_or(Error::Overflow("transition end"))?;
+        if self.closed_epoch < transition_end {
+            return Err(Error::Invalid("closed before the transition minimum"));
+        }
+        if self.closed_epoch < manifest.earliest_close_epoch()? {
+            return Err(Error::Invalid("closed before the cohort minimum"));
+        }
+        Ok(())
+    }
+
+    /// Checks the closure against the public result alone, for a reader
+    /// that never holds the private package (the publisher): the closure
+    /// names this result by digest and its cohort, a target exactly when the
+    /// result's mode produced one, and one opening per result entrant whose
+    /// commitment is the entrant's. The phase epochs are checked against the
+    /// manifest by [`Self::check_schedule`].
+    pub fn check_result(&self, result: &crate::QuantizedResult) -> Result<()> {
+        self.validate()?;
+        if self.chain != result.chain
+            || self.cohort != result.cohort
+            || self.cohort_label != result.cohort_label
+            || self.cohort_manifest != result.cohort_manifest
+            || self.result != result.digest()?
+        {
+            return Err(Error::Mismatch("closure result"));
+        }
+        if self.target.is_some() != (result.mode != CutoffMode::NoTarget) {
+            return Err(Error::Mismatch("closure target"));
+        }
+        if self.published_epoch <= self.admission_closed_epoch || self.closed_epoch < self.published_epoch {
+            return Err(Error::Invalid("closure epochs"));
+        }
+        if self.openings.len() != result.entrants.len() {
+            return Err(Error::Mismatch("closure openings"));
+        }
+        for (published, entrant) in self.openings.iter().zip(&result.entrants) {
+            if published.hotkey != entrant.hotkey || published.registration_block != entrant.registration_block {
+                return Err(Error::Mismatch("opening identity"));
+            }
+            let opening = SubmissionOpening {
+                chain: result.chain.clone(),
+                cohort: result.cohort,
+                hotkey: published.hotkey,
+                registration_block: published.registration_block,
+                content: entrant.content,
+                nonce: published.nonce,
+            };
+            if opening.commitment() != entrant.commitment {
+                return Err(Error::Mismatch("opening commitment"));
+            }
+        }
+        Ok(())
     }
 
     /// The full opening of the `index`th entrant.

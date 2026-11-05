@@ -388,7 +388,7 @@ fn verify_carrier(
     // The carrier's outcome is recomputed like the target's own: a package
     // relabelled as producing no target is refused here.
     let evaluation = crate::reward_v1::check_outcome(&package, &index)?;
-    if evaluation.mode != crate::records_v2::CutoffMode::NoTarget || package.mode != evaluation.mode {
+    if evaluation.mode() != crate::records_v2::CutoffMode::NoTarget || package.mode != evaluation.mode() {
         return Err(Error::Mismatch("carrier produced a target"));
     }
     Ok(VerifiedCarrier {
@@ -603,7 +603,10 @@ impl VerifiedTarget {
     pub fn derive_row(&self, snapshot: &RegistrationSnapshotV2) -> Result<WeightRowV2> {
         match &self.source {
             None => crate::reward_v1::derive_row(&self.target, None, snapshot),
-            Some(s) => crate::reward_v1::derive_row(&self.target, Some((&s.package, &s.index)), snapshot),
+            Some(s) => {
+                let result = crate::QuantizedResult::of_package(&s.package)?;
+                crate::reward_v1::derive_row(&self.target, Some(&result), snapshot)
+            }
         }
     }
 

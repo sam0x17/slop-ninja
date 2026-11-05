@@ -204,33 +204,35 @@ pub enum RewardRule {
     /// Testnet shortcut T8, permitted on the testnet only; Finney uses
     /// `reward-v1`. See [`crate::reward`].
     TestnetRewardV0,
-    /// The frozen `reward-v1` band mechanism of whitepaper 0.56, permitted on
-    /// every chain, Finney included. See [`crate::reward_v1`].
-    RewardV1,
+    /// `reward-v2`: the SN78 band mechanism computed from quantized scores
+    /// only (`quant-v1`, [`crate::quant`]), permitted on every chain, Finney
+    /// included. See [`crate::reward_v1`]. It replaced `reward-v1` in place;
+    /// records naming `reward-v1` (tag 2) no longer decode.
+    RewardV2,
 }
 
 impl RewardRule {
     pub fn name(self) -> &'static str {
         match self {
             Self::TestnetRewardV0 => "testnet-reward-v0",
-            Self::RewardV1 => "reward-v1",
+            Self::RewardV2 => "reward-v2",
         }
     }
 
     /// Fails closed unless the rule is permitted on `chain`.
     /// `testnet-reward-v0` (shortcut T8) is permitted only on [`TESTNET_GENESIS`],
     /// so no record using it can be encoded, decoded or scored for Finney.
-    /// `reward-v1` is permitted on every chain.
+    /// `reward-v2` is permitted on every chain.
     pub fn check_chain(self, chain: &ChainBinding) -> Result<()> {
         match self {
             Self::TestnetRewardV0 if chain.genesis == TESTNET_GENESIS => Ok(()),
             Self::TestnetRewardV0 => Err(Error::Mismatch("testnet_reward_v0 genesis")),
-            Self::RewardV1 => Ok(()),
+            Self::RewardV2 => Ok(()),
         }
     }
 
     /// Version-1 records carry the `testnet-reward-v0` calculation only;
-    /// `reward-v1` uses the version-2 and later records, so neither calculation can be
+    /// `reward-v2` uses the version-2 and later records, so neither calculation can be
     /// applied to the other's inputs.
     pub(crate) fn check_testnet_reward_v0(self, chain: &ChainBinding) -> Result<()> {
         if self != Self::TestnetRewardV0 {
@@ -239,9 +241,9 @@ impl RewardRule {
         self.check_chain(chain)
     }
 
-    /// Version-2 and later records carry the `reward-v1` calculation only.
-    pub(crate) fn check_reward_v1(self, chain: &ChainBinding) -> Result<()> {
-        if self != Self::RewardV1 {
+    /// Version-2 and later records carry the `reward-v2` calculation only.
+    pub(crate) fn check_reward_v2(self, chain: &ChainBinding) -> Result<()> {
+        if self != Self::RewardV2 {
             return Err(Error::Mismatch("reward rule record version"));
         }
         self.check_chain(chain)
@@ -252,13 +254,13 @@ impl Canonical for RewardRule {
     fn encode_to(&self, e: &mut Encoder) {
         e.u8(match self {
             Self::TestnetRewardV0 => 1,
-            Self::RewardV1 => 2,
+            Self::RewardV2 => 3,
         });
     }
     fn decode_from(d: &mut Decoder<'_>) -> Result<Self> {
         match d.u8()? {
             1 => Ok(Self::TestnetRewardV0),
-            2 => Ok(Self::RewardV1),
+            3 => Ok(Self::RewardV2),
             tag => Err(Error::InvalidTag {
                 field: "reward_rule",
                 tag,

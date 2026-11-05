@@ -2613,7 +2613,10 @@ impl EvalCohort {
         let prefix = engine::receipt_prefix(&label);
         let mut objects = vec![
             ("receipt-index.signed", package::signed_bytes(index.clone(), &receipt_key).map_err(|e| e.0)?),
+            // Private: exact scores and hidden measurements. The publisher
+            // reads only `result.signed` and the closure.
             ("package.signed", package::signed_bytes(b.package.clone(), &package_key).map_err(|e| e.0)?),
+            ("result.signed", package::signed_bytes(b.result.clone(), &package_key).map_err(|e| e.0)?),
             ("chunk-map.json", serde_json::to_vec_pretty(&chunk_map).unwrap_or_default()),
             ("components.json", serde_json::to_vec_pretty(&b.components).unwrap_or_default()),
         ];
@@ -2627,6 +2630,7 @@ impl EvalCohort {
                 "package_public_key": hex::encode(package_key.verifying_key().to_bytes()),
                 "receipt_public_key": hex::encode(receipt_key.verifying_key().to_bytes()),
                 "package_digest": b.package.digest().map(|d| d.to_string()).unwrap_or_default(),
+                "result_digest": b.package.result.to_string(),
                 "target_digest": b.target.as_ref().and_then(|t| t.digest().ok()).map(|d| d.to_string()),
             }))
             .unwrap_or_default(),

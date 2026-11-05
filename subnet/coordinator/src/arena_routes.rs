@@ -398,10 +398,29 @@ pub const fn summary_bytes(tasks: u64) -> usize {
     if b > STEP_OBJECT_BYTES as u64 { STEP_OBJECT_BYTES } else { b as usize }
 }
 
-/// The package step's child scope: its fitted heap (`package_bytes`). The
+/// The package step's `quant-v1` work beside the fitted heap: the public
+/// `QuantizedResult` built from the finalized package (with the q-only
+/// outcome it recomputes), its digest, and its signed bytes beside a copy of
+/// the record, held at once while the step publishes them. An upper bound
+/// `base + per_entrant x E` over the peaks measured on the arena
+/// (`arena_witness_the_quantized_result_fits_its_derived_footprint`, native
+/// 64-bit sizes, which bound wasm32's from above; 2026-11-05: 15,878,
+/// 62,178 and 123,786 B at E = 16, 64 and 128, about 963 B an entrant): the
+/// per-entrant term is the measured slope with a fifth added for the credit
+/// fractions' width, which grows with the band layout, rounded up to a
+/// multiple of 64. Version `quant-fit-2026-11-05`.
+pub const fn quant_package_bytes(entrants: u64) -> usize {
+    const BASE: u64 = 16 * 1024;
+    const PER_ENTRANT: u64 = 1_216;
+    let total = BASE.saturating_add(PER_ENTRANT.saturating_mul(entrants));
+    if total > usize::MAX as u64 { usize::MAX } else { total as usize }
+}
+
+/// The package step's child scope: its fitted heap (`package_bytes`) and
+/// its quantization (`quant_package_bytes`, for every job but `R_k`'s). The
 /// summaries it reads are separate exact blocks (`package_reads_bytes`).
 pub const fn package_step_bytes(jobs: u64, docs: u64) -> usize {
-    package_bytes(jobs, docs)
+    package_bytes(jobs, docs).saturating_add(quant_package_bytes(jobs.saturating_sub(1)))
 }
 
 /// The block runs the package step's own reads hold at once: at most
@@ -415,7 +434,7 @@ pub const fn package_reads_bytes(tasks: u64) -> usize {
 /// What a package step's invocation holds: the alarm's scope, the step's
 /// child scope and its in-flight summary blocks.
 pub const fn package_invocation_bytes(jobs: u64, docs: u64, tasks: u64) -> usize {
-    scope_bytes(ALARM_CONTROL_BYTES).saturating_add(scope_bytes(package_bytes(jobs, docs))).saturating_add(package_reads_bytes(tasks))
+    scope_bytes(ALARM_CONTROL_BYTES).saturating_add(scope_bytes(package_step_bytes(jobs, docs))).saturating_add(package_reads_bytes(tasks))
 }
 
 /// The largest package the model holds: `largest_route_bytes` of
@@ -693,6 +712,15 @@ mod tests {
         for (docs, measured_mib) in [(1_000, 12.69), (4_000, 47.44)] {
             let fit = seal_bytes(docs) as f64 / MIB_F;
             assert!(fit >= measured_mib && fit <= measured_mib * 1.02, "seal n = {docs}: fit {fit:.2} MiB, measured {measured_mib}");
+        }
+    }
+
+    #[test]
+    fn the_quant_fit_bounds_every_measured_point() {
+        for (entrants, measured) in [(16u64, 15_878usize), (64, 62_178), (128, 123_786)] {
+            let fit = quant_package_bytes(entrants);
+            assert!(fit >= measured, "E = {entrants}: fit {fit} B below the measured {measured} B");
+            assert!(fit <= measured * 5 / 2, "E = {entrants}: fit {fit} B far above the measured {measured} B");
         }
     }
 

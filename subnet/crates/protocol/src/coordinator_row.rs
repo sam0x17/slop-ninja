@@ -137,6 +137,10 @@ canonical_struct! {
         pub source: RowSource,
         /// Digest of the calculation target the row pays.
         pub target: Digest,
+        /// Digest of the target's public [`crate::QuantizedResult`], from
+        /// which the row derives with the coordinator's snapshot; `None` for
+        /// the launch burn row.
+        pub result: Option<Digest>,
         /// The closing epoch of the closure that activated `target`; `None`
         /// for the launch burn row.
         pub activated_epoch: Option<u64>,
@@ -159,10 +163,10 @@ canonical_struct! {
 
 impl Record for CoordinatorRow {
     const KIND: &'static str = "coordinator-row";
-    const VERSION: u16 = 1;
+    const VERSION: u16 = 2;
     const SIGNER: Option<KeyRole> = Some(KeyRole::Authorization);
     fn validate(&self) -> Result<()> {
-        self.reward_rule.check_reward_v1(&self.chain)?;
+        self.reward_rule.check_reward_v2(&self.chain)?;
         if let RowSource::Cohort { cohort_label, .. } = &self.source {
             validate_label(cohort_label)?;
         }
@@ -175,6 +179,9 @@ impl Record for CoordinatorRow {
         }
         if self.source == RowSource::LaunchBurn && self.target != launch {
             return Err(Error::Mismatch("launch row target"));
+        }
+        if self.result.is_none() != (self.target == launch) {
+            return Err(Error::Invalid("row result"));
         }
         if self.epoch < self.issued_epoch || self.activated_epoch.is_some_and(|a| self.epoch < a) {
             return Err(Error::Invalid("row epoch"));
@@ -213,13 +220,14 @@ impl CoordinatorRow {
         let label_len = crate::MAX_LABEL_LEN;
         let empty = Self {
             chain,
-            reward_rule: RewardRule::RewardV1,
+            reward_rule: RewardRule::RewardV2,
             source: RowSource::Cohort {
                 cohort: 0,
                 cohort_label: "a".repeat(label_len),
                 cohort_manifest: Digest([0; 32]),
             },
             target: Digest([0; 32]),
+            result: Some(Digest([0; 32])),
             activated_epoch: Some(0),
             authorization: Digest([0; 32]),
             issued_epoch: 0,
@@ -534,9 +542,8 @@ impl VerifiedRow {
 }
 
 impl CoordinatorRow {
-    // QUANTIZED-SCORE: the signed row carries the weights derived from exact
-    // scores ([`crate::reward_v1::derive_row`]); it reaches validators (and
-    // the public host) when the coordinator derives it, before the reveal.
+    // The signed row carries the weights the public result determines
+    // ([`crate::reward_v1::derive_row`]); no exact score enters it.
     /// The coordinator's record of the row it derived at `epoch` from the
     /// registrations read at `registration_block`, under its own verified
     /// bundle `v`: the bundle's chain, target and activation, the source and
@@ -552,9 +559,13 @@ impl CoordinatorRow {
         let terms = v.checked_terms(keys)?;
         let row = Self {
             chain: v.chain.clone(),
-            reward_rule: RewardRule::RewardV1,
+            reward_rule: RewardRule::RewardV2,
             source: v.row_source()?,
             target: v.target_digest,
+            result: match &v.target.source {
+                crate::TargetSource::Cohort { result, .. } => Some(*result),
+                crate::TargetSource::LaunchBurn => None,
+            },
             activated_epoch: v.active.activated_epoch(),
             authorization: terms.digest,
             issued_epoch: terms.issued_epoch,

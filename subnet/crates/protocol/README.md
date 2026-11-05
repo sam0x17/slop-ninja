@@ -6,8 +6,10 @@ domain-separated digests and signatures, stable operation identities, private
 submission records, artifact objects and their inference-content identity, the
 validators' launch and reward-intent authorizations, the published-artifact
 index and near-copy relation of copy policy B + D, the verification of an
-active-target bundle, and two row calculations: `reward-v1`, the frozen rule of
-whitepaper 0.56 (Section 7), and the testnet-only `testnet-reward-v0`. It is
+active-target bundle, the `quant-v1` score quantization and its public
+`QuantizedResult`, and two row calculations: `reward-v2`, the band rule of
+whitepaper Section 7 computed from quantized scores only, and the
+testnet-only `testnet-reward-v0`. It is
 pure computation, with no I/O, clock, randomness or chain access, and it builds
 for native targets and `wasm32-unknown-unknown`. Chain submission stays in the
 chain adapters. No record, identity or check carries a chain runtime version.
@@ -269,17 +271,70 @@ metadata, reference test vectors and the commitment nonce are excluded, so
 renaming or re-signing an artifact cannot create new inference content. Two
 inference files with the same role, digest and length are refused.
 
-## `reward-v1`
+## `quant-v1`
 
-The rule ports subnet 78's band mechanism with the paper's unit translation.
-Scores are utilities scaled by 10^18. Every comparison, band and credit is
-exact: checked `u128`, and the crate's own `BigUint` and `Fraction` for
-geometric credits, whose denominators exceed `u128`.
+Only quantized scores leave the coordinator (`src/quant.rs`,
+`src/quantized_result.rs`). For each executed entrant and for `R_k` and
+`R_k-1` the coordinator publishes `q = w floor((S + eta + o) / w)`, clamped
+to `[0, 1]`:
+
+- `w` is `max(2 SE, w_floor)` rounded up to one significant decimal digit
+  (`ladder`), so every multiple of `w` prints exactly. `SE` is the sampling
+  standard error of `S_Rk` on the batch, from `S1 = sum u` and
+  `S2 = sum u^2` in 256-bit integers with every rounding up (`SeMeasure`).
+  `w_floor = ceil(tau)` is the noise scale: the approved floor `c/n` with
+  `c = m / eps_total`, so the grid is never finer than the noise. The
+  floor's `c` and the one-digit ladder are part of `quant-v1`.
+- `eta` is exact discrete-Laplace noise of scale
+  `tau = ceil(10^18 / n) m / eps_total` (Canonne, Kamath and Steinke 2020,
+  integer-only: `bern_exp`, `dlap`); `eps_total` (thousandths, a manifest
+  parameter) is split equally over the `m` released values.
+- `o` is a uniform offset in `[0, w)`.
+- Both are drawn from a stream keyed by the private cohort seed, the
+  cohort's manifest digest (`CohortBinding`) and the subject's inference
+  content (an entrant's or a reference's content digest, domain-separated
+  by role), so the coordinator reproduces every draw
+  (`reward_v1::check_draws`), no draw depends on another subject or on
+  order, copies of one model under several hotkeys share one draw and one
+  `q`, and no two cohorts share a draw even under a reused label or seed.
+
+The published bit budget counts every deterministic hidden-data value a
+result releases (per entrant `q` or withheld, band, gate bit and copy bit;
+the references; cluster membership; the promotion; `w`) and must satisfy
+`total * F <= n h` (`QuantParams`). The manifest checks the worst case over
+every roster size up to its cap and both reference shapes (with and without
+`R_k-1`: without it `m` is smaller and the grid can be a ladder step finer),
+so a manifest that passes is never refused at seal; the package and the
+result check the actual count.
+
+The minimum-success gate (`Gate::MinimumSuccess`) withholds an entrant with
+more than `k_n` attributable failures: its public outcome is `Withheld`.
+
+`QuantizedResult` (kind `quantized-result`, version 1, package key) is the
+cohort's public record: per entrant only its outcome (`q` with its gate and
+copy bits and cluster membership, `Withheld`, or `NotExecuted`), band rank
+and units, plus the grid, the cutoff, the bands, the references' `q`, the
+promotion and the budget. Its validation recomputes the cutoff, bands, band
+ranks, units and budget from those values alone (`reward_v1::derive_units`).
+The score package (version 5) holds the exact values, the SE sums and the
+draws, and names its result's digest; the closure (version 2), the target
+(version 3) and `CoordinatorRow` (version 2) name it too.
+
+## `reward-v2`
+
+The rule ports subnet 78's band mechanism with the paper's unit translation,
+and computes everything that orders or pays from the quantized scores `q`
+alone. Scores are utilities scaled by 10^18. Every comparison, band and
+credit is exact: checked `u128`, and the crate's own `BigUint` and `Fraction`
+for geometric credits, whose denominators exceed `u128`. It replaced
+`reward-v1` in place: rank ties broken by roster order, the near-equal drop
+removed, ties on `q` sharing credit, and leftover units by largest remainder
+with equal remainders in roster order (tied entrants have equal remainders).
 
 0. **Parameters.** The manifest freezes `sigma`, the pooled paired standard
    error of `q`, and the rule's constants, which must equal their frozen
-   values: `delta = max(0.01, 2 sigma)`, `w = 2 sigma (1 - S_Rk)`,
-   `epsilon = w / 250`, `r = 0.85`, the 15% fallback fraction, the near-copy
+   values: `delta = max(0.01, 2 sigma)`, `W = 2 sigma (1 - q_Rk)`,
+   `r = 0.85`, the 15% fallback fraction, the near-copy
    distance `d = 0.025` (`NEAR_COPY_PPB`), the `w / 2` score clause
    (`IMPROVEMENT_DIVISOR`) and 65,535 units. On Finney the batch holds at least
    2,000 cases. The origin mix is a manifest parameter: whole percentages that
@@ -300,11 +355,13 @@ geometric credits, whose denominators exceed `u128`.
    policy the manifest binds.
    The public-copy gate is described below; it runs before the cutoff, so a
    copy cannot set `max_N`, trigger the fallback or be promoted.
-3. **Rank order.** Score descending, then commitment block, extrinsic index
-   and hotkey bytes ascending.
-4. **Cutoff.** If a gated entrant reaches `T = S_Rk + delta (1 - S_Rk)`, that
-   is `q >= delta`, the mode is `Margin`. The first retained cluster head in
-   rank order that passes every promotion condition becomes `R_k+1`
+3. **Rank order.** `q` descending, then roster index ascending. No exact
+   score enters it.
+4. **Cutoff.** All thresholds are rounded up onto the grid. If a gated
+   entrant's `q` reaches `T_q = w ceil((q_Rk + delta (1 - q_Rk)) / w)`, the
+   mode is `Margin`. The first cluster head in q-rank order whose exact score
+   meets the exact margin over `S_Rk` and that passes every promotion
+   condition becomes `R_k+1`
    (`next_references`); when none passes, nobody is promoted, the reference
    stays and the credits are unchanged. The conditions are the strict tier of
    the false-positive gate, measured on the first canary draw, and the lookup
@@ -312,13 +369,12 @@ geometric credits, whose denominators exceed `u128`.
    independent draw, and two flags block the candidate. The package records a
    `PromotionAudit` for each head walked, in rank order, up to and including
    the promoted one (or all retained heads when none passes); `check_outcome`
-   requires exactly that walk. A dropped near-equal cluster is never a
-   candidate. The audits are coordinator measurements on hidden predictions,
+   requires exactly that walk. The audits are coordinator measurements on hidden predictions,
    trusted like the scores; only a signed `canary-clearance` review clears a
    blocked candidate, and it changes no credit and no past promotion. Otherwise, when `R_k-1` exists and a
-   gated entrant scores strictly above `S_Rk-1`, the mode is `Fallback` with
-   `C_N = S_Rk-1 + 0.15 (max_N - S_Rk-1)`, and the reference stays. Otherwise,
-   or when `S_Rk = 1`, the mode is `NoTarget`: the previous target stays
+   gated entrant's `q` is strictly above `q_Rk-1`, the mode is `Fallback` with
+   `C_q = w ceil((q_Rk-1 + 0.15 (max_q - q_Rk-1)) / w)`, and the reference
+   stays. Otherwise, or when `q_Rk = 1`, the mode is `NoTarget`: the previous target stays
    active, or `CalculationTargetV2::launch_burn` if none was ever produced.
 5. **Clusters.** Walking gated entrants at or above the cutoff in rank order,
    the first unassigned entrant heads a cluster with every later unassigned
@@ -333,17 +389,22 @@ geometric credits, whose denominators exceed `u128`.
    identical content never heads a second cluster or joins a cluster later
    than its first head's, a member with identical content carries no
    statistics, and every other member's statistics are within `d`.
-6. **Near-equal drop.** Walking heads in rank order, a cluster within
-   `epsilon` (inclusive) of the last retained head's score is dropped.
-7. **Bands.** `b = min(floor(S / w), ceil(1 / w) - 1)`. Occupied bands rank
-   `kappa` from the top, and clusters `mu` within a band in rank order.
+6. **No near-equal drop.** Two distinct `q` differ by at least `w`, far above
+   reward-v1's `W / 250`, so the drop could only fire on exact ties, which
+   step 8 shares.
+7. **Bands.** `W_q = w max(1, ceil(W / w))` and
+   `b = min(floor(q / W_q), ceil(1 / W_q) - 1)`. Occupied bands rank `kappa`
+   from the top, and clusters `mu` within a band in head q-rank order.
 8. **Credit and split.** `c = r^kappa / sum_{j<B} r^j * r^mu / sum_{j<n} r^j`,
    summing to exactly one; each of a cluster's `m` members receives `c / m`.
    With `r = 17/20` in lowest terms, each `c` comes out in lowest terms: its
    numerator is a product of powers of 17 and 20, and its denominator
    `A_B A_n` (with `A_n = sum_{j<n} 17^j 20^(n-1-j)`) is coprime to both.
+   Clusters whose heads tie on `q` hold consecutive positions `mu_s..mu_e`
+   and each receives `(sum c) / (mu_e - mu_s + 1)`; the total stays exactly
+   one.
 9. **Row.** 65,535 units by largest remainder over members in rank order, with
-   ties in rank order. The package carries every entrant's units, the mode,
+   equal remainders in roster order. The package carries every entrant's units, the mode,
    the promotion and each retained cluster's exact credit in head rank order;
    `check_outcome` recomputes them and refuses any difference, including a
    credit of equal value in other terms. At each tempo `derive_row` maps a
@@ -357,8 +418,7 @@ geometric credits, whose denominators exceed `u128`.
    else pauses, and no other UID receives the units. A row with nothing to burn
    needs no owner UID.
 
-The roster is bounded at 256 entrants (`MAX_ROSTER`). Because
-`epsilon = w / 250`, at most 250 retained clusters fit in one band.
+The roster is bounded at 256 entrants (`MAX_ROSTER`).
 
 ## Copy policy: published artifacts and the near-copy relation
 
@@ -566,7 +626,12 @@ every entry is stored exactly once.
 `fixtures/golden-v1.txt` records the bytes, digests, signing payloads,
 signatures, operation IDs, reward rows and rejection codes for a synthetic
 `testnet-reward-v0` cohort on the testnet genesis.
-`fixtures/golden-reward-v1.txt` records the same for `reward-v1`:
+`fixtures/golden-reward-v1.txt` records the same for `reward-v2` (the file
+keeps its name), and `fixtures/golden-quant-v1.txt` the quantization's
+vectors: stream blocks, `uniform` at edge moduli, `Bern_exp` sequences,
+discrete-Laplace draws at the testnet scale, offsets, `q`, SE, the ladder and
+budget terms, and q-only outcomes with a tie group, withheld rows and
+roster-order leftovers. `reward-v2`'s report covers:
 
 - The aligned distance on fixed synthetic vectors: identical, a
   rank-preserving recalibration, ties, a reversed order, failures left out, no
@@ -661,7 +726,8 @@ cargo run --manifest-path subnet/Cargo.toml --locked -p slop-ninja-protocol-chec
 
 To regenerate a golden file after an intended, versioned change, run
 `slop_ninja_protocol_check native > subnet/crates/protocol/fixtures/golden-v1.txt`
-or `slop_ninja_protocol_check native reward-v1 > subnet/crates/protocol/fixtures/golden-reward-v1.txt`.
+`slop_ninja_protocol_check native reward-v1 > subnet/crates/protocol/fixtures/golden-reward-v1.txt`
+or `slop_ninja_protocol_check native quant-v1 > subnet/crates/protocol/fixtures/golden-quant-v1.txt`.
 
 `tests/allocation.rs` bounds the largest allocation made while decoding an
 oversized item-count claim, and checks that `Signed::open` rejects a forged

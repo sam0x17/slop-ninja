@@ -52,22 +52,24 @@ the host's base URL.
 - Nothing published contains document text, labels, per-document
   predictions, spend figures or credentials. The
   [redaction rules](../../subnet/publisher/src/redact.rs) say how this is
-  enforced. Layout v1 as described below also publishes values derived from
-  the hidden evaluation: exact aggregate scores, near-copy and probe
-  statistics, gate reasons and attempt counts in the signed package and the
-  leaderboard, per-attempt outcome classes in the receipts, and strata in the
-  manifest. A publisher built from this tree publishes only what the
-  versioned allow-list names
-  ([`allowlist.rs`](../../subnet/publisher/src/allowlist.rs)): per cohort an
-  allow-listed summary of bands, gate bits and cluster membership, with the
-  entrants in roster order, and the coordinator's signed row beside its
-  authorization; no receipt, no score value and no rank field. The row still
-  carries the ranking of retained entrants: until the quantization
-  specification or a reward-rule change addresses it, its weights (and the
-  weights validators reveal on chain) order the retained clusters within a
-  band, whose credits decay by position, and give a cluster's leftover row
-  units to its members in rank order. An entrant's artifact can steer the
-  values layout v1 publishes, so they can reveal information about the
+  enforced. A publisher built from this tree publishes only what the
+  versioned allow-list (`slop_ninja.public.allowlist/v3`,
+  [`allowlist.rs`](../../subnet/publisher/src/allowlist.rs)) names. Per
+  cohort that is a summary ([below](#the-cohort-summary-summaryjson)) of
+  the coordinator's quantized scores under `quant-v1`: the grid width,
+  each entrant's `q`, band, gate bit, public-copy gate bit and cluster
+  membership, with the entrants in roster order, and `R_k`'s and
+  `R_k-1`'s `q`. The coordinator's signed row is published beside its
+  authorization. Nothing else computed from the hidden predictions is
+  published: no exact score, SE, quantization offset or noise, near-copy
+  or probe statistic, distance monitor, attempt or failure count, receipt
+  or rank field. Rewards are computed from the quantized scores alone
+  (`reward-v2`), so the row and the weights validators reveal on chain
+  follow from the published `q` values, bits and membership, and carry no
+  order beyond them. Layout v1 as a publisher built before the copy model
+  wrote it also published exact aggregate scores, statistics, gate reasons
+  and attempt counts, per-attempt outcome classes and strata; an entrant's
+  artifact can steer such values, so they can reveal information about the
   hidden documents and their labels.
 - Signed records are the coordinator's exact bytes. Verify them against the
   trust roots in the release's `testnet-trust.json`. The copy at
@@ -81,9 +83,9 @@ the host's base URL.
 | `index.html`, `style.css` | The leaderboard page, rendered from `v1/leaderboard.json` | when a cohort closes or an artifact lands |
 | `v1/status.json` | The status snapshot (unsigned), schema `slop_ninja.public.status/v1` | every run (one a minute) |
 | `v1/cohorts/index.json` | The cohort index, schema `slop_ninja.public.cohort_index/v1` | when a cohort is published or an artifact lands |
-| `v1/cohorts/<label>/...` | One closed cohort's signed and content-free objects (below) | never, once listed |
+| `v1/cohorts/<label>/summary.json` | One closed cohort's quantized summary, schema `slop_ninja.public.cohort_summary/v3` (below) | never, once listed |
 | `v1/cohorts/<label>/publication.json` | The publisher's record of the cohort, schema `slop_ninja.public.publication/v1` | when an artifact lands |
-| `v1/leaderboard.json` | The newest cohort's leaderboard, schema `slop_ninja.public.leaderboard/v1` | when a cohort closes or an artifact lands |
+| `v1/leaderboard.json` | The newest cohort's leaderboard, schema `slop_ninja.public.leaderboard/v4` | when a cohort closes or an artifact lands |
 | `v1/reference/current.json`, `v1/reference/previous.json` | `R_k` and `R_k-1` after the newest cohort's close, schema `slop_ninja.public.reference/v1` | when a cohort closes |
 | `v1/reference/packages/<sha256>/...` | One staged [reference package](reference-packages.md), named by its parts manifest's SHA-256: `artifact-files.json`, `parts/<sha256>`, `package.json`, `NOTICE.md`, `upstream/` and `reference/`, and for `R_0` its training companion `training/` | never, once staged |
 | `v1/artifacts/<sha256>.bin` | An admitted outside entrant's artifact object, named by its SHA-256 | never, once written |
@@ -93,79 +95,122 @@ the host's base URL.
 
 ### One cohort: `v1/cohorts/<label>/`
 
-The object names are the coordinator's own. The same names are used in the
-private receipts bucket under `cohorts/<label>/`.
+A listed cohort's directory holds `summary.json` and `publication.json`
+only. The coordinator keeps its other records private, under the same
+names in the private receipts bucket at `cohorts/<label>/`:
 
-These are coordinator records, and no validator built from this tree reads
-them: a validator commits the coordinator's signed row
-([What a validator checks](#what-a-validator-checks)). The table describes
-what a publisher built before the copy model publishes. A publisher built
-from this tree keeps them private and publishes only what its allow-list names (see
-[Rules](#rules)).
-
-| Object | Record | Verify with |
+| Object | Record | Read by the publisher |
 | --- | --- | --- |
-| `manifest.signed` | `CohortManifestV2`, package key | `Signed::<CohortManifestV2>::open` |
-| `package.signed` | `ScorePackageV2`, package key | `open`, then `check_manifest` |
-| `target.signed` | `CalculationTargetV2`, package key; present exactly when the cohort produced a target | `open`, then `check_package` |
-| `receipt-index.signed` | `ReceiptIndex`, receipt key | `open`, then `ScorePackageV2::check_receipts` |
-| `chunk-map.json` | Format `slop_ninja_receipt_chunk_v1`: the receipt root and count, and each bundle's `key`, `sha256`, `bytes` and `receipts`; every key appears once and every bundle holds at least one receipt | digests and lengths; the root equals the signed index's digest |
-| `receipts/bundle-job-<j>.bin` | Each job's receipts, `u32_le(len) \|\| AttemptReceipt` repeated | `ReceiptIndex::verify_object` for each receipt; each index entry exactly once |
-| `published-contents.bin`, `fingerprint-index.bin` | The published index at the seal | its `binding()` equals the manifest's `published` |
-| `closure.signed` | `CohortClosure`, package key: phase epochs, the target and every entrant's commitment opening | `open`, then `CohortClosure::check` |
-| `closure-fingerprints.json` | `{"fingerprints": [{"hotkey", "version", "fingerprint"}]}`: each scored entrant's probe fingerprint digest | rebuilds the index after the closure |
-| `published-contents-after.bin`, `fingerprint-index-after.bin` | The published index after the closure | equals `PublishedIndex::after_closure` of the index at the seal |
-| `components.json` | Optional content-free diagnostics, schema `slop_ninja_eval_score_components_v2`, including the gate policy | published only when every field is one the schema names (unknown fields refused at every level), it agrees with the manifest and package field for field, its policy document hashes to the manifest's `gate_policy` digest, and it passes the redaction scan |
+| `manifest.signed` | `CohortManifestV2`, package key | yes: the chain, label and roster |
+| `result.signed` | `QuantizedResult`, package key: the cohort's public record under `quant-v1` (below) | yes |
+| `closure.signed` | `CohortClosure` (version 2), package key: phase epochs, the target, the result's digest and every entrant's commitment opening | yes |
+| `package.signed` | `ScorePackageV2`, package key: the exact scores, every hidden measurement, the SE sums and the quantization draws | never |
+| `components.json` | the coordinator's private diagnostics | never |
+| `target.signed`, `receipt-index.signed`, `chunk-map.json`, `receipts/...`, the published-content and fingerprint indexes, `closure-fingerprints.json` | targets, receipts and indexes | never |
 
-The chunk map lists bundle keys as private keys (`cohorts/<label>/receipts/...`),
-byte for byte as the coordinator wrote them. To fetch a bundle, strip
-`cohorts/<label>/` from its key and append the rest to
-`{public}/v1/cohorts/<label>/`.
+A validator built from this tree reads none of them: it commits the
+coordinator's signed row
+([What a validator checks](#what-a-validator-checks)).
 
-With decision D7 (b), receipt indexes, chunk maps and bundles are not
-published (`PUBLISH_RECEIPTS = "false"`). A publisher built from this tree
-refuses `PUBLISH_RECEIPTS = "true"` and never publishes them, and a
-validator built from this tree reads none of them.
+`QuantizedResult` (kind `quantized-result`, version 1) carries the chain,
+cohort, label, manifest digest and opening epoch; the rules `reward-v2`
+and `quant-v1`; the batch size `n`, the charged count `m`, the grid width
+`w`, the band width `W_q` and the public reward and quantization
+parameters; the cutoff mode and cutoff; each reference's content, artifact
+and `q`; the promoted hotkey; the occupied bands' grid edges; per entrant
+in roster order its UID, hotkey, registration, commitment, content and
+artifact (all public before scoring), its outcome (`NotExecuted`,
+`Withheld`, or `Scored {q, gate_pass, copy_pass, cluster_first_member}`),
+band rank and units; and the bit budget's counted terms. Readers refuse a
+declared length above `QuantizedResult::max_signed_len()` before reading
+it. Opening it validates it: every `q` is a multiple of `w`, the charged
+count and grid are the rule's, and the cutoff, bands, band ranks, units and
+bit budget are recomputed from the published values alone
+(`reward_v1::derive_units`).
 
-`publication.json` lists every object copied, with its path relative to the
-cohort directory, its SHA-256 and its length. Before writing it, the
-publisher verified each object, and then verified each copy. The record also
-states the artifact state of every entrant (below), and why
-`components.json` was withheld, when it was.
+`publication.json` names the summary by SHA-256 and states the artifact
+state of every entrant (below).
 
 ### What the publisher checks
 
 Every publisher runs these checks on a closed cohort's objects in the
-private bucket before it publishes anything for the cohort or lists it. Check
-4 runs only where receipts are published (decision D7, a publisher built
-before the copy model); a publisher built from this tree reads no receipt
-and runs checks 1-3, 5 and 6. A publisher built before the copy model runs
-them again on its copies. A validator never runs these checks
-([What a validator checks](#what-a-validator-checks)). The coordinator's
-`examples/reward_v1_verify.rs` runs the same checks.
+private bucket before it publishes anything for the cohort or lists it. A
+validator never runs them
+([What a validator checks](#what-a-validator-checks)).
 
 1. The manifest is this chain's (testnet genesis, netuid 601), and its label
    is the directory's.
-2. The package is bound to the manifest. The target, when present, is bound
-   to the package.
-3. The closure checks against the manifest's frozen schedule, the package and
-   the target.
-4. The receipt index is bound to the package's root and count. Every bundle
-   in the chunk map has its listed digest and length. Every receipt cut from
-   a bundle verifies against its index entry, and each entry is seen exactly
-   once.
-5. The published index at the seal matches the manifest's binding. The
-   outcome recomputed with `reward_v1::check_outcome` equals the package's
-   own (mode, promotion, units and credits).
-6. The index after the closure equals its rebuild from the closure's
-   fingerprints.
+2. The result opens under the package key, validates (above), and is the
+   one the manifest frames: its digest, chain, cohort, label, opening epoch,
+   rule, parameters, batch size, references and roster
+   (`QuantizedResult::check_manifest`).
+3. The closure names the result by digest, has a target exactly when the
+   result's mode produced one, and opens every entrant's commitment
+   (`CohortClosure::check_result`), and its phase epochs meet the
+   manifest's frozen schedule (`CohortClosure::check_schedule`).
+
+The coordinator checks the rest privately before it signs: the package
+against the manifest, the target and receipts against the package, the
+outcome recomputed from the package, every quantization draw replayed from
+the private seed (`reward_v1::check_draws`), and the published index after
+the closure.
+
+### The cohort summary: `summary.json`
+
+Schema `slop_ninja.public.cohort_summary/v3`, built from the verified
+result alone:
+
+```json
+{
+  "schema": "slop_ninja.public.cohort_summary/v3",
+  "network": "testnet",
+  "chain": { "genesis": "8f9c…3105", "netuid": 601, "mechanism": 0 },
+  "cohort": 12, "label": "testnet-c12", "opened_epoch": 23100, "closed_epoch": 23120,
+  "quantization": { "rule": "quant-v1", "width": "0.03" },
+  "references": {
+    "index": 1,
+    "current": { "content": "<64 hex>", "artifact": "<64 hex>", "q": "0.84" },
+    "predecessor": { "content": "<64 hex>", "artifact": "<64 hex>", "q": "0.81" }
+  },
+  "quality": {
+    "cutoff": { "q": "0.87", "mode": "margin" },
+    "bands": [ { "band": 1, "lower": "0.90", "upper": "0.96" } ]
+  },
+  "promoted": "<ss58>",
+  "entrants": [
+    { "uid": 7, "hotkey": "<ss58>", "hotkey_hex": "<64 hex>", "q": "0.90", "band": 1,
+      "gate": "pass", "copy_gate": "pass", "cluster": { "uid": 7, "hotkey": "<ss58>" } }
+  ]
+}
+```
+
+- Every score is a multiple of `width`, printed with exactly its decimals
+  (`width = digit * 10^-d` gives `d` decimals); a band's `upper` may be
+  `1` printed so.
+- `gate` is `pass` (every gate passed, the public-copy gate included),
+  `fail`, `withheld` (the minimum-success gate: `q`, `band`, `copy_gate` and
+  `cluster` are `null`) or `not_executed`.
+- `band` is `1` for the top occupied band; it is set for an entrant at or
+  above the cutoff. `cluster` names the cluster's first member in roster
+  order.
+- `quality.cutoff` is `null` and `bands` empty for a cohort without a
+  target; `mode` is `margin` or `fallback`. Band edges are absolute grid
+  multiples of `W_q`.
+- No field carries a rank. The q-rank (`q` descending, then roster order)
+  follows from the published values.
+
+The cohort index entry of a listed cohort also carries `best_q` (the
+highest `q` at or above the cutoff) and the cohort's `quantization` block.
+`v1/leaderboard.json` (schema `slop_ninja.public.leaderboard/v4`) carries
+the newest cohort's `quantization` block, its references with their `q`,
+and its entrants as the summary lists them.
 
 ### Artifacts: `v1/artifacts/<sha256>.bin`
 
 Artifacts that outside miners uploaded through the admission route are
 published after their cohort closes, under the CC BY-SA 4.0 submission terms.
-Each file is named by the SHA-256 that the score package binds
-(`EntrantScore::artifact`). The destination bucket checks that digest on
+Each file is named by the SHA-256 that the cohort's result names
+(`ResultEntrant::artifact`). The destination bucket checks that digest on
 write. Check it again after you download the file.
 
 Publication is default-deny. The publisher copies an artifact only when the
@@ -184,7 +229,7 @@ withholds for good an artifact that:
 - failed the public-copy gate;
 - is in a near-copy cluster with an artifact withheld for one of the
   reasons above. The whole cluster is withheld, whichever member is its
-  head, so the reasons never single out the best-scoring member. Retries
+  head, so the reasons never single out its first member in q-rank. Retries
   apply this to pending members too. A member withheld only after its
   siblings were published does not withdraw them: a published object is
   never recalled.
@@ -194,12 +239,12 @@ Each entrant's artifact has one of three states in `publication.json`, in
 
 | State | Meaning |
 | --- | --- |
-| `published` | The object is at its path and matches the package's SHA-256. |
+| `published` | The object is at its path and matches the result's SHA-256. |
 | `pending` | Not copied yet, with a reason. The object is not in the eval bucket yet, the admission object layout is not configured yet, the store did not answer, the run reached its wall budget, or (on a retry) the cohort summary that names its near-copy clusters is not readable. Later runs retry and repeat the checks above. |
 | `withheld` | Never published, with the reason from the list above, or: no outside admission record, or a record that does not match the entrant. |
 
 An artifact entry also carries the entrant's 64-hex hotkey, registration
-block, commitment and opening nonce, as the signed package and closure state
+block, commitment and opening nonce, as the signed result and closure state
 them.
 
 `v1/reference/current.json` names `R_k` by content digest and artifact

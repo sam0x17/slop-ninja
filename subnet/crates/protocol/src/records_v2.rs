@@ -3,7 +3,7 @@
 //! near-copy relation that ignores rank-preserving recalibration).
 //!
 //! These records sit beside the version-1 `testnet-reward-v0` family. Each
-//! `reward-v1` record requires [`RewardRule::RewardV1`], and each version-1
+//! `reward-v1` record requires [`RewardRule::RewardV2`], and each version-1
 //! record requires `testnet-reward-v0`, so neither calculation can read the
 //! other's inputs. Encoding and decoding validate structure; [`crate::reward_v1`]
 //! recomputes the reward outcome itself.
@@ -276,8 +276,6 @@ pub const MARGIN_FLOOR: u64 = SCORE_SCALE / 100;
 pub const MARGIN_SIGMAS: u8 = 2;
 /// `w = 2 sigma (1 - S_Rk)`.
 pub const BAND_SIGMAS: u8 = 2;
-/// `epsilon = w / 250`.
-pub const NEAR_EQUAL_DIVISOR: u16 = 250;
 /// `r = 0.85`, across and within bands, in basis points.
 pub const DECAY_BPS: u16 = 8500;
 /// The fallback cutoff removes the bottom 15% of the would-be scoring range.
@@ -295,9 +293,40 @@ pub const MAX_PROBE_SIZE: u32 = 1 << 16;
 pub const ROW_TOTAL: u16 = u16::MAX;
 
 canonical_struct! {
-    /// Every `reward-v1` parameter, frozen and signed in the manifest. `sigma`
-    /// is measured per manifest; the others are the rule's frozen constants
-    /// and must equal them, so the parameter rule cannot drift silently.
+    /// The per-cohort `quant-v1` parameters ([`crate::quant`]), versioned in
+    /// the plan's `reward_v1.quant` block and signed in the manifest.
+    #[derive(Copy)]
+    pub struct QuantParams {
+        /// The cohort's total privacy budget `eps_total`, in thousandths.
+        pub eps_total_milli: u32,
+        /// `h`: bits needed to identify one human document in the pool.
+        pub identify_bits: u16,
+        /// `F`: the published bits must stay `F` times below `n h`.
+        pub budget_factor: u16,
+        /// `k_n`: the minimum-success gate withholds an entrant with more
+        /// than this many attributable failures.
+        pub min_success_max_failed: u32,
+    }
+}
+
+impl QuantParams {
+    /// Every value positive; `k_n < n` is checked against the batch.
+    pub fn validate(&self) -> Result<()> {
+        if self.eps_total_milli == 0 {
+            return Err(Error::OutOfRange("quant.eps_total_milli"));
+        }
+        if self.identify_bits == 0 || self.budget_factor == 0 {
+            return Err(Error::OutOfRange("quant budget"));
+        }
+        Ok(())
+    }
+}
+
+canonical_struct! {
+    /// Every `reward-v2` parameter, frozen and signed in the manifest. `sigma`
+    /// and the `quant` block are set per manifest; the others are the rule's
+    /// frozen constants and must equal them, so the parameter rule cannot
+    /// drift silently.
     #[derive(Copy)]
     pub struct RewardV1Params {
         /// Pooled paired standard error of `q` at the manifest's batch size,
@@ -306,7 +335,6 @@ canonical_struct! {
         pub margin_floor: u64,
         pub margin_sigmas: u8,
         pub band_sigmas: u8,
-        pub near_equal_divisor: u16,
         pub decay_bps: u16,
         pub fallback_bps: u16,
         /// `d` in parts per billion of involvement probability.
@@ -314,23 +342,24 @@ canonical_struct! {
         /// The score clause's `w / improvement_divisor`.
         pub improvement_divisor: u8,
         pub row_total: u16,
+        pub quant: QuantParams,
     }
 }
 
 impl RewardV1Params {
-    /// The frozen rule with a measured `sigma`.
-    pub fn new(sigma: u64) -> Self {
+    /// The frozen rule with a measured `sigma` and a cohort's `quant` block.
+    pub fn new(sigma: u64, quant: QuantParams) -> Self {
         Self {
             sigma,
             margin_floor: MARGIN_FLOOR,
             margin_sigmas: MARGIN_SIGMAS,
             band_sigmas: BAND_SIGMAS,
-            near_equal_divisor: NEAR_EQUAL_DIVISOR,
             decay_bps: DECAY_BPS,
             fallback_bps: FALLBACK_BPS,
             near_copy_ppb: NEAR_COPY_PPB,
             improvement_divisor: IMPROVEMENT_DIVISOR,
             row_total: ROW_TOTAL,
+            quant,
         }
     }
 
@@ -339,8 +368,8 @@ impl RewardV1Params {
     /// models approach it, never raise: `0 < d <= NEAR_COPY_PPB`, the frozen
     /// launch value. Every other value is fixed by the rule itself and must
     /// equal its constant: the margin floor and multiple (decision: `delta =
-    /// max(0.01, 2 sigma)`), the band multiple, the subnet 78 near-equal
-    /// ratio `w / 250` and decay 0.85, the 15% fallback fraction, the score
+    /// max(0.01, 2 sigma)`), the band multiple, the subnet 78 decay 0.85,
+    /// the 15% fallback fraction, the score
     /// clause divisor and the 65,535 row total. Changing any of those is a new
     /// reward rule, not a manifest change.
     pub fn validate(&self) -> Result<()> {
@@ -350,12 +379,13 @@ impl RewardV1Params {
         if self.near_copy_ppb == 0 || self.near_copy_ppb > NEAR_COPY_PPB {
             return Err(Error::OutOfRange("near_copy_ppb"));
         }
+        self.quant.validate()?;
         let fixed = Self {
             near_copy_ppb: self.near_copy_ppb,
-            ..Self::new(self.sigma)
+            ..Self::new(self.sigma, self.quant)
         };
         if *self != fixed {
-            return Err(Error::Mismatch("reward_v1 parameters"));
+            return Err(Error::Mismatch("reward_v2 parameters"));
         }
         Ok(())
     }
@@ -776,11 +806,11 @@ canonical_struct! {
 record!(
     CohortManifestV2,
     "cohort-manifest",
-    4,
+    5,
     Some(KeyRole::Package),
     |m| {
         validate_label(&m.cohort_label)?;
-        m.reward_rule.check_reward_v1(&m.chain)?;
+        m.reward_rule.check_reward_v2(&m.chain)?;
         m.schedule.validate()?;
         m.batch.validate(&m.chain)?;
         m.params.validate()?;
@@ -798,6 +828,25 @@ record!(
                 field: "roster",
                 len: m.roster.len() as u64,
             });
+        }
+        // quant-v1: two documents for SE, `k_n < n`, and the bit budget of
+        // the worst case over every roster size up to the cap.
+        if m.batch.cases < 2 {
+            return Err(Error::Invalid("cases"));
+        }
+        let quant_params = &m.params.quant;
+        if u64::from(quant_params.min_success_max_failed) >= u64::from(m.batch.cases) {
+            return Err(Error::OutOfRange("quant.min_success_max_failed"));
+        }
+        let (_, within) = crate::quant::worst_case(
+            m.batch.cases,
+            m.roster_cap,
+            quant_params.eps_total_milli,
+            quant_params.identify_bits,
+            quant_params.budget_factor,
+        )?;
+        if !within {
+            return Err(Error::Invalid("bit budget"));
         }
         validate_admission_order(
             m.roster.iter().map(|r| (r.position(), &r.identity.hotkey)),
@@ -842,8 +891,15 @@ tagged_enum! {
         /// ([`HUMAN_FPR_LOOSE_REASON`]). The strict tier is a promotion
         /// condition ([`PromotionAudit`]), not a gate.
         HumanFalsePositive = 6,
+        /// The minimum-success gate: more than `quant.min_success_max_failed`
+        /// attributable failures ([`MIN_SUCCESS_REASON`]). An entrant that
+        /// fails it is withheld: nothing of it is published but its identity.
+        MinimumSuccess = 7,
     }
 }
+
+/// Reason code of a minimum-success failure.
+pub const MIN_SUCCESS_REASON: &str = "min_success";
 
 /// Reason code of a loose-tier pure-human false-positive failure.
 pub const HUMAN_FPR_LOOSE_REASON: &str = "human_fpr.loose";
@@ -1026,7 +1082,93 @@ canonical_struct! {
 }
 
 canonical_struct! {
-    /// Public score components of one roster entry.
+    /// One subject's private `quant-v1` draw ([`crate::quant::draw`]): the
+    /// secret offset in `[0, w)` and the discrete-Laplace noise, as sign and
+    /// magnitude. Held in the private package for audit and replay only.
+    #[derive(Copy)]
+    pub struct QuantDraw {
+        pub offset: u64,
+        pub noise_negative: bool,
+        pub noise_magnitude: u128,
+    }
+}
+
+impl QuantDraw {
+    pub fn of(draw: &crate::quant::Draw) -> Self {
+        Self {
+            offset: draw.offset,
+            noise_negative: draw.noise < 0,
+            noise_magnitude: draw.noise.unsigned_abs(),
+        }
+    }
+
+    pub fn draw(&self) -> Result<crate::quant::Draw> {
+        let magnitude =
+            i128::try_from(self.noise_magnitude).map_err(|_| Error::OutOfRange("quant noise"))?;
+        if self.noise_negative && magnitude == 0 {
+            return Err(Error::NonCanonical);
+        }
+        Ok(crate::quant::Draw {
+            offset: self.offset,
+            noise: if self.noise_negative { -magnitude } else { magnitude },
+        })
+    }
+}
+
+canonical_struct! {
+    /// The private `quant-v1` record of a cohort ([`crate::quant`]): the SE
+    /// sums of `R_k` on the batch, the noise scale, the grid and the
+    /// references' quantized scores and draws. None of it is published but
+    /// `w`, `W_q`, the cutoff and the `q` values.
+    pub struct QuantRecord {
+        /// `S1 = sum u` over `R_k`'s batch utilities.
+        pub s1: u128,
+        /// `S2 = sum u^2`.
+        pub s2: crate::quant::U256,
+        /// `SE = ceil_isqrt(ceil((n S2 - S1^2) / (n^2 (n - 1))))`.
+        pub se: u64,
+        /// `m`: the charged values.
+        pub charged: u32,
+        /// `w`, the grid width.
+        pub width: u64,
+        /// `W_q`, the band width on the grid; `None` when `q_Rk = 1`.
+        pub band_width: Option<u64>,
+        /// The published cutoff on the grid (`T_q` or `C_q`).
+        pub cutoff: Option<Score>,
+        pub reference_q: Score,
+        pub reference_draw: QuantDraw,
+        /// Present exactly when `k > 0`.
+        pub predecessor_q: Option<Score>,
+        pub predecessor_draw: Option<QuantDraw>,
+    }
+}
+
+impl QuantRecord {
+    /// The record before [`crate::reward_v1::quantize_package`] fills it.
+    pub fn unset() -> Self {
+        let draw = QuantDraw {
+            offset: 0,
+            noise_negative: false,
+            noise_magnitude: 0,
+        };
+        Self {
+            s1: 0,
+            s2: crate::quant::U256::ZERO,
+            se: 0,
+            charged: 0,
+            width: 0,
+            band_width: None,
+            cutoff: None,
+            reference_q: Score::ZERO,
+            reference_draw: draw,
+            predecessor_q: None,
+            predecessor_draw: None,
+        }
+    }
+}
+
+canonical_struct! {
+    /// Score components of one roster entry, private to the coordinator.
     pub struct EntrantScore {
         pub identity: NeuronIdentity,
         pub commitment: Digest,
@@ -1057,6 +1199,11 @@ canonical_struct! {
         pub cluster_stats: Option<NearStats>,
         /// Units of the 65,535 pool apportioned to this entrant.
         pub units: u16,
+        /// The quantized score `q`, present exactly when `score` is. A
+        /// withheld entrant's is computed but never released.
+        pub q: Option<Score>,
+        /// The private draw behind `q`.
+        pub draw: Option<QuantDraw>,
     }
 }
 
@@ -1064,6 +1211,22 @@ impl EntrantScore {
     /// Gated: every enforced gate passed and the entrant was scored.
     pub fn gated(&self) -> bool {
         self.gate_failures.is_empty() && self.score.is_some()
+    }
+
+    /// Withheld: the minimum-success gate failed, so nothing but the
+    /// entrant's identity is published.
+    pub fn withheld(&self) -> bool {
+        self.gate_failures.iter().any(|g| g.gate == Gate::MinimumSuccess)
+    }
+
+    /// The published gate bit: no gate other than the public-copy gate failed.
+    pub fn gate_pass(&self) -> bool {
+        self.gate_failures.iter().all(|g| g.gate == Gate::PublicCopy)
+    }
+
+    /// The published copy-gate bit.
+    pub fn copy_pass(&self) -> bool {
+        self.public_copy().is_none()
     }
 
     pub fn position(&self) -> (u64, u32) {
@@ -1093,6 +1256,11 @@ impl EntrantScore {
             }
         }
         let copy = self.public_copy();
+        for failure in &self.gate_failures {
+            if failure.gate == Gate::MinimumSuccess && failure.reason != MIN_SUCCESS_REASON {
+                return Err(Error::Invalid("minimum-success reason"));
+            }
+        }
         match self.score {
             Some(_) => {
                 if copy == Some(PublicCopy::Content) {
@@ -1131,6 +1299,9 @@ impl EntrantScore {
                 return Err(Error::Invalid("probe match without a probe failure"));
             }
             _ => {}
+        }
+        if self.q.is_some() != self.score.is_some() || self.draw.is_some() != self.score.is_some() {
+            return Err(Error::Mismatch("quantized score coverage"));
         }
         if self.units > 0 && self.cluster_head.is_none() {
             return Err(Error::Invalid("units outside a cluster"));
@@ -1285,8 +1456,10 @@ impl PromotionAudit {
 }
 
 canonical_struct! {
-    /// Signed `reward-v1` score package: public score components and the
-    /// coordinator's outcome, which every validator recomputes.
+    /// Signed `reward-v2` score package: the exact score components, the
+    /// `quant-v1` record and the coordinator's outcome. It is private: it
+    /// never leaves the coordinator's evaluation storage. What is published
+    /// is its [`crate::QuantizedResult`], whose digest it records.
     pub struct ScorePackageV2 {
         pub chain: ChainBinding,
         pub cohort: u64,
@@ -1300,6 +1473,8 @@ canonical_struct! {
         pub cases: u32,
         /// `k` of the reference `R_k` in force.
         pub reference_index: u64,
+        /// The manifest's opening epoch, which the public result carries.
+        pub opened_epoch: u64,
         /// `S_Rk` on this batch.
         pub reference: ReferenceScore,
         /// `S_Rk-1` on this batch; present exactly when `k > 0`.
@@ -1326,6 +1501,10 @@ canonical_struct! {
         pub distance_monitor: DistanceMonitor,
         pub receipt_root: Digest,
         pub receipt_count: u64,
+        /// The `quant-v1` record.
+        pub quant: QuantRecord,
+        /// Digest of the package's public [`crate::QuantizedResult`].
+        pub result: Digest,
     }
 }
 
@@ -1370,7 +1549,7 @@ impl ScorePackageV2 {
     ///   same for every entrant.
     pub fn validate_inputs(&self) -> Result<()> {
         validate_label(&self.cohort_label)?;
-        self.reward_rule.check_reward_v1(&self.chain)?;
+        self.reward_rule.check_reward_v2(&self.chain)?;
         self.params.validate()?;
         validate_probes(&self.probes)?;
         if self.cases == 0 {
@@ -1474,6 +1653,75 @@ impl ScorePackageV2 {
         if self.receipt_count < assigned {
             return Err(Error::Mismatch("receipt_count below assignments"));
         }
+        self.check_quant()
+    }
+
+    /// `X`: entrants executed in the cohort (scored).
+    pub fn executed(&self) -> u16 {
+        self.entrants.iter().filter(|e| e.score.is_some()).count() as u16
+    }
+
+    /// The `quant-v1` inputs: the charged count, `SE` from its sums, `w` from
+    /// `SE` and the noise scale, every `q` from its score and draw, the
+    /// minimum-success gate against `k_n`, and the seal's bit budget. The
+    /// draws' derivation from the private seed is the coordinator's replay
+    /// check ([`crate::reward_v1::quantize_package`]).
+    pub fn check_quant(&self) -> Result<()> {
+        use crate::quant;
+        let q = &self.quant;
+        let quant_params = &self.params.quant;
+        if u64::from(quant_params.min_success_max_failed) >= u64::from(self.cases) {
+            return Err(Error::OutOfRange("quant.min_success_max_failed"));
+        }
+        let executed = self.executed();
+        let predecessor = self.predecessor.is_some();
+        if q.charged != quant::charged(executed, predecessor) {
+            return Err(Error::Mismatch("quant charged values"));
+        }
+        if quant::SeMeasure::from_sums(self.cases, q.s1, q.s2)?.se != q.se {
+            return Err(Error::Mismatch("quant se"));
+        }
+        let tau = quant::Tau::new(self.cases, q.charged, quant_params.eps_total_milli)?;
+        if quant::width(q.se, &tau)? != q.width {
+            return Err(Error::Mismatch("quant width"));
+        }
+        if quant::quantize(self.reference.score.get(), &q.reference_draw.draw()?, q.width)?
+            != q.reference_q.get()
+        {
+            return Err(Error::Mismatch("reference q"));
+        }
+        match (&self.predecessor, q.predecessor_q, &q.predecessor_draw) {
+            (None, None, None) => {}
+            (Some(p), Some(pq), Some(draw)) => {
+                if quant::quantize(p.score.get(), &draw.draw()?, q.width)? != pq.get() {
+                    return Err(Error::Mismatch("predecessor q"));
+                }
+            }
+            _ => return Err(Error::Mismatch("predecessor q")),
+        }
+        for e in &self.entrants {
+            if let (Some(score), Some(eq), Some(draw)) = (e.score, e.q, &e.draw)
+                && quant::quantize(score.get(), &draw.draw()?, q.width)? != eq.get()
+            {
+                return Err(Error::Mismatch("entrant q"));
+            }
+            let over = e.score.is_some() && e.failed > quant_params.min_success_max_failed;
+            if over != e.withheld() {
+                return Err(Error::Mismatch("minimum-success gate"));
+            }
+        }
+        let budget = quant::Budget::count(executed, q.width, predecessor)?;
+        if !budget.within(self.cases, quant_params.identify_bits, quant_params.budget_factor) {
+            return Err(Error::Invalid("bit budget"));
+        }
+        if q.band_width != crate::reward_v1::grid_band_width(&self.params, q.reference_q, q.width)? {
+            return Err(Error::Mismatch("quant band width"));
+        }
+        if let Some(cutoff) = q.cutoff
+            && !quant::on_grid(cutoff.get(), q.width)
+        {
+            return Err(Error::Invalid("cutoff off the grid"));
+        }
         Ok(())
     }
 
@@ -1513,6 +1761,7 @@ impl ScorePackageV2 {
             || self.span_gate != manifest.span_gate
             || self.cases != manifest.batch.cases
             || self.reference_index != manifest.references.index
+            || self.opened_epoch != manifest.opened_epoch
             || self.reference.model != manifest.references.current
             || !pred_matches
         {
@@ -1534,11 +1783,14 @@ impl ScorePackageV2 {
 record!(
     ScorePackageV2,
     "score-package",
-    4,
+    5,
     Some(KeyRole::Package),
     |p| {
         p.validate_inputs()?;
         let total: u32 = p.entrants.iter().map(|e| u32::from(e.units)).sum();
+        if (p.mode == CutoffMode::NoTarget) != p.quant.cutoff.is_none() {
+            return Err(Error::Invalid("cutoff and mode"));
+        }
         match p.mode {
             CutoffMode::NoTarget => {
                 if total != 0
@@ -1600,7 +1852,8 @@ record!(
                 }
             }
             (None, CutoffMode::Margin) => {
-                if p.promotion_audits.is_empty() || p.promotion_audits.iter().any(|a| a.passes()) {
+                // No head may meet the exact margin, so the walk may audit none.
+                if p.promotion_audits.iter().any(|a| a.passes()) {
                     return Err(Error::Mismatch("promotion audits"));
                 }
                 Ok(())
@@ -1682,6 +1935,9 @@ pub enum TargetSource {
         cohort_manifest: Digest,
         revision: u64,
         score_package: Digest,
+        /// The package's public [`crate::QuantizedResult`], from which the
+        /// row derives.
+        result: Digest,
         receipt_root: Digest,
         receipt_count: u64,
     },
@@ -1697,6 +1953,7 @@ impl Canonical for TargetSource {
                 cohort_manifest,
                 revision,
                 score_package,
+                result,
                 receipt_root,
                 receipt_count,
             } => {
@@ -1706,6 +1963,7 @@ impl Canonical for TargetSource {
                 cohort_manifest.encode_to(e);
                 revision.encode_to(e);
                 score_package.encode_to(e);
+                result.encode_to(e);
                 receipt_root.encode_to(e);
                 receipt_count.encode_to(e);
             }
@@ -1720,6 +1978,7 @@ impl Canonical for TargetSource {
                 cohort_manifest: Digest::decode_from(d)?,
                 revision: u64::decode_from(d)?,
                 score_package: Digest::decode_from(d)?,
+                result: Digest::decode_from(d)?,
                 receipt_root: Digest::decode_from(d)?,
                 receipt_count: u64::decode_from(d)?,
             }),
@@ -1749,10 +2008,10 @@ canonical_struct! {
 record!(
     CalculationTargetV2,
     "calculation-target",
-    2,
+    3,
     Some(KeyRole::Package),
     |t| {
-        t.reward_rule.check_reward_v1(&t.chain)?;
+        t.reward_rule.check_reward_v2(&t.chain)?;
         if let TargetSource::Cohort { cohort_label, .. } = &t.source {
             validate_label(cohort_label)?;
         }
@@ -1767,7 +2026,7 @@ impl CalculationTargetV2 {
     pub fn launch_burn(chain: ChainBinding) -> Self {
         Self {
             chain,
-            reward_rule: RewardRule::RewardV1,
+            reward_rule: RewardRule::RewardV2,
             source: TargetSource::LaunchBurn,
             predecessor: None,
         }
@@ -1787,6 +2046,7 @@ impl CalculationTargetV2 {
                 cohort_manifest: package.cohort_manifest,
                 revision: package.revision,
                 score_package: package.digest()?,
+                result: package.result,
                 receipt_root: package.receipt_root,
                 receipt_count: package.receipt_count,
             },
@@ -1799,6 +2059,28 @@ impl CalculationTargetV2 {
             return Err(Error::Mismatch("calculation target package"));
         }
         Ok(())
+    }
+
+    /// The target names `result` and its cohort, on this chain.
+    pub fn check_result(&self, result: &crate::QuantizedResult) -> Result<()> {
+        match &self.source {
+            TargetSource::Cohort {
+                cohort,
+                cohort_label,
+                cohort_manifest,
+                result: digest,
+                ..
+            } if *digest == result.digest()?
+                && *cohort == result.cohort
+                && *cohort_label == result.cohort_label
+                && *cohort_manifest == result.cohort_manifest
+                && self.chain == result.chain
+                && self.reward_rule == result.reward_rule =>
+            {
+                Ok(())
+            }
+            _ => Err(Error::Mismatch("calculation target result")),
+        }
     }
 }
 
@@ -1887,7 +2169,7 @@ fn max_upscale(w: u64, max: u64) -> u16 {
 }
 
 record!(WeightRowV2, "weight-row", 2, None, |r| {
-    r.reward_rule.check_reward_v1(&r.chain)?;
+    r.reward_rule.check_reward_v2(&r.chain)?;
     let uids: Vec<_> = r.entries.iter().map(|e| e.uid).collect();
     strictly_increasing(&uids, "row uid")?;
     if r.entries.iter().any(|e| e.weight == 0) {

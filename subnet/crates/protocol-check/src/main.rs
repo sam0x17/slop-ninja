@@ -1,6 +1,6 @@
 //! Cross-target fixture check.
 //!
-//! `slop_ninja_protocol_check native [v1|reward-v1]` prints a native golden
+//! `slop_ninja_protocol_check native [v1|reward-v1|quant-v1]` prints a native golden
 //! report (`v1` by default). `slop_ninja_protocol_check wasm <module.wasm>`
 //! executes the `wasm32-unknown-unknown` fixture module in the pure-Rust
 //! `wasmi` interpreter and requires each of its reports to equal both the
@@ -8,11 +8,12 @@
 
 use std::process::ExitCode;
 
-use slop_ninja_protocol::{fixtures, fixtures_reward_v1, object_sha256};
+use slop_ninja_protocol::{fixtures, fixtures_quant, fixtures_reward_v1, object_sha256};
 use wasmi::{Engine, Instance, Linker, Module, Store};
 
 const GOLDEN_V1: &str = include_str!("../../protocol/fixtures/golden-v1.txt");
 const GOLDEN_REWARD_V1: &str = include_str!("../../protocol/fixtures/golden-reward-v1.txt");
+const GOLDEN_QUANT_V1: &str = include_str!("../../protocol/fixtures/golden-quant-v1.txt");
 
 /// One report: its name, wasm export prefix, native builder and golden file.
 struct Report {
@@ -22,7 +23,7 @@ struct Report {
     golden: &'static str,
 }
 
-const REPORTS: [Report; 2] = [
+const REPORTS: [Report; 3] = [
     Report {
         name: "v1",
         export: "slop_ninja_fixture_report",
@@ -34,6 +35,12 @@ const REPORTS: [Report; 2] = [
         export: "slop_ninja_fixture_reward_v1_report",
         native: fixtures_reward_v1::golden_report,
         golden: GOLDEN_REWARD_V1,
+    },
+    Report {
+        name: "quant-v1",
+        export: "slop_ninja_fixture_quant_v1_report",
+        native: fixtures_quant::golden_report,
+        golden: GOLDEN_QUANT_V1,
     },
 ];
 

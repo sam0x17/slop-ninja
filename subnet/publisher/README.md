@@ -13,19 +13,20 @@ into static public objects. Once a minute it:
    row (step 6 below says how), first and on their own: no later step, and
    nothing it fails with, holds a new row or revocation back from
    validators;
-3. verifies the next closed `reward-v1` cohort of the public record in the
-   private receipts bucket (signed records, the published index, the
-   recomputed outcome and the closure; at most one to completion per run).
-   It then writes only the cohort's allow-listed summary
-   (`v1/cohorts/<label>/summary.json`: per entrant, in roster order, its
-   band, gate and public-copy gate bits and cluster membership, the cluster
-   named by its first member in roster order, and `R_k` and `R_k-1` by
-   identity; no score value, no rank and no order of entrants by score)
-   into the separate public-candidate bucket and lists the cohort in the
-   public index. The coordinator's signed manifest,
-   package, target and closure, its receipts, receipt index, chunk maps and
-   bundles, its published-content and fingerprint indexes and its components
-   stay private (the copy model, 2026-11-04; `allowlist.rs` names every
+3. verifies the next closed `reward-v2` cohort of the public record in the
+   private receipts bucket from its signed manifest, its public
+   `QuantizedResult` (`result.signed`, `quant-v1`) and its closure (at most
+   one to completion per run); it never reads the private score package or
+   the components. It then writes only the cohort's allow-listed summary
+   (`v1/cohorts/<label>/summary.json`, schema v3: the grid width, per
+   entrant in roster order its quantized score `q`, band, gate and
+   public-copy gate bits and cluster membership, the cluster named by its
+   first member in roster order, `R_k` and `R_k-1` with their `q`, and the
+   cutoff and bands on the grid; no exact score and no rank) into the
+   separate public-candidate bucket and lists the cohort in the public
+   index. The coordinator's signed records, its receipts, receipt index,
+   chunk maps and bundles, its published-content and fingerprint indexes
+   and its components stay private (`allowlist.rs`, version 3, names every
    public object and field). Cohorts are listed strictly in order: one
    that is incomplete or unreadable for now (a store error, an object not
    stored yet, or a closure or manifest that does not answer during the
@@ -146,26 +147,22 @@ store.
   built from typed fields of the verified records, checked against the
   allow-list (`allowlist::check_object`: its key, its schema and every field
   path) before it is written, and read back and checked again; a test checks
-  every object a run writes, and that no score value of the package (an
+  every object a run writes, and that no exact score of the package (an
   entrant's, `R_k`'s or `R_k-1`'s, a probe or near-copy statistic) appears
-  anywhere in the public bucket. A quantized score joins only after its
-  specification is approved (the places that will carry it are marked
-  `QUANTIZED-SCORE`).
+  anywhere in the public bucket beyond the digits of a published `q`. Only
+  the quantized score `q` (`quant-v1`) is published, under the summary's
+  quantization block.
 - **No public order of entrants.** An ordering is a channel an entrant with
   several hotkeys chooses (up to `log2(k!)` bits a cohort for `k` hotkeys),
   so the summary and the leaderboard carry no rank, list entrants in roster
   order and name a cluster by its first member in that order, never by its
-  best-scoring head; allow-list v2 refuses a `rank`, `rank_in_band` or
-  cluster head field. A rank may return only with the quantized score,
-  derived from it alone and counted in the specification's bit budget.
-  This closes only the summary's channel: the ranking of retained entrants
-  is still public until the quantization specification or a reward-rule
-  change addresses it. The coordinator's signed row (published beside its
-  authorization) and the weights revealed on chain carry credits that decay
-  by position within a band, which orders every retained cluster within its
-  band, and the row's largest-remainder pass gives a cluster's leftover
-  units to its members in rank order, which can name the head. The promoted
-  entrant is the first retained head that passes promotion. Artifact
+  head; allow-list v3 refuses a `rank`, `rank_in_band` or cluster head
+  field. Rewards (`reward-v2`) are computed from the published `q` values
+  alone, with ties in `q` sharing credit and leftover units going in roster
+  order, so the coordinator's signed row and the weights revealed on chain
+  carry no order beyond the q-rank the published values already imply.
+  The promoted entrant is the first head in q-rank whose exact score meets
+  the margin and that passes promotion. Artifact
   withholding never names a head: a cluster with a statically withheld
   member is withheld whole.
 - **Only named objects.** The publisher reads only the cohort objects it

@@ -561,6 +561,69 @@ pub struct RewardV1Plan {
     /// older than this field refuses any plan naming it.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub probe_cut: bool,
+    /// The cohort's `quant-v1` parameters ([`QuantPlan`]), signed in the
+    /// manifest. Every scored cohort names one; a probe build, which builds
+    /// no package, may carry its template's. A plan stored without it
+    /// deserializes but refuses its seal ([`RewardV1Plan::quant_params`]).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub quant: Option<QuantPlan>,
+}
+
+/// The `reward_v1.quant` block: the versioned per-cohort parameters of the
+/// `quant-v1` score quantization (`slop_ninja_protocol::quant`). None is
+/// compiled in; each is a plan value bound into the signed manifest.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct QuantPlan {
+    /// The cohort's total privacy budget `eps_total` in thousandths, split
+    /// equally over every released score.
+    pub eps_total_milli: u32,
+    /// `h`: bits that identifying one human document of the pool takes.
+    pub identify_bits: u16,
+    /// `F`: the published bits stay `F` times below `n h`.
+    pub budget_factor: u16,
+    /// `k_n`: an entrant with more attributable failures is withheld.
+    pub min_success_max_failed: u32,
+    /// Where `k_n` was derived from (a short content-free description:
+    /// the measurement, its bound and its target rate), like `sigma_basis`.
+    pub min_success_basis: String,
+}
+
+impl QuantPlan {
+    /// The manifest's signed parameters.
+    pub fn params(&self) -> slop_ninja_protocol::QuantParams {
+        slop_ninja_protocol::QuantParams {
+            eps_total_milli: self.eps_total_milli,
+            identify_bits: self.identify_bits,
+            budget_factor: self.budget_factor,
+            min_success_max_failed: self.min_success_max_failed,
+        }
+    }
+
+    /// Positive parameters, `k_n < n`, and the plan-time bit budget: the
+    /// worst case over every roster size up to `roster_cap`, with and
+    /// without a predecessor, at the narrowest grid the noise allows, must stay
+    /// within `n h / F` (`slop_ninja_protocol::quant::worst_case`). The
+    /// manifest checks the same at seal.
+    pub fn validate(&self, n: u32, roster_cap: u16) -> Result<(), PlanError> {
+        let e = |c: bool, what: &'static str| if c { Ok(()) } else { Err(PlanError(what)) };
+        e(self.params().validate().is_ok(), "reward_v1.quant (positive eps, h and F)")?;
+        e(n >= 2, "reward_v1.quant (at least two batch documents for SE)")?;
+        e(self.min_success_max_failed < n, "reward_v1.quant.min_success_max_failed (below n)")?;
+        e(
+            !self.min_success_basis.is_empty() && self.min_success_basis.len() <= 200,
+            "reward_v1.quant.min_success_basis",
+        )?;
+        let within = slop_ninja_protocol::quant::worst_case(
+            n,
+            roster_cap,
+            self.eps_total_milli,
+            self.identify_bits,
+            self.budget_factor,
+        )
+        .is_ok_and(|(_, within)| within);
+        e(within, "reward_v1.quant (the worst-case bit budget exceeds n h / F at this roster cap)")
+    }
 }
 
 /// The seeded task order (`reward_v1.task_order`): after selection, every
@@ -787,6 +850,7 @@ impl RewardV1Plan {
             e(!self.probe_cut, "reward_v1.probe_cut (probe builds only)")?;
             e(self.probe_version.is_none(), "reward_v1.probe_version (probe builds only)")?;
             e(!self.probes.is_empty(), "reward_v1.probes (at least one version in use)")?;
+            e(self.quant.is_some(), "reward_v1.quant (every scored cohort names one)")?;
             let mut last = 0u32;
             for p in &self.probes {
                 e(
@@ -800,6 +864,12 @@ impl RewardV1Plan {
             }
         }
         Ok(())
+    }
+
+    /// The manifest's `quant-v1` parameters; a plan without the block
+    /// cannot seal a scored cohort.
+    pub fn quant_params(&self) -> Result<slop_ninja_protocol::QuantParams, PlanError> {
+        self.quant.as_ref().map(QuantPlan::params).ok_or(PlanError("reward_v1.quant"))
     }
 
     /// Whether the seal takes task indices from the seeded rank
@@ -1172,6 +1242,18 @@ impl CohortPlan {
             let probe_build = self.schema == PROBE_PLAN_SCHEMA;
             let v1 = self.reward_v1.as_ref().ok_or(PlanError("reward_v1 block"))?;
             v1.validate(self.k_tempos, probe_build)?;
+            if let Some(q) = &v1.quant {
+                // The manifest's roster cap: the admission cap, else the
+                // deployment's ceiling or the protocol's roster bound.
+                let cap = match &self.admission {
+                    Some(a) => a.roster_cap,
+                    None => ceilings
+                        .roster_cap
+                        .map_or(Ok(slop_ninja_protocol::MAX_ROSTER), u16::try_from)
+                        .map_err(|_| PlanError("roster cap"))?,
+                };
+                q.validate(self.n, cap)?;
+            }
             // The strict false-positive tier is measured on audit draw A; it
             // must rest on at least as many humans as the loose tier (the
             // cohort's own), so its interval is no wider.
@@ -1258,7 +1340,7 @@ impl CohortPlan {
     /// Checks shared by cohort and load plans: scorer, fan-out, identities and roster.
     fn validate_common(&self, ceilings: Ceilings, load: bool) -> Result<(), PlanError> {
         let e = |c: bool, what: &'static str| if c { Ok(()) } else { Err(PlanError(what)) };
-        let rule = if load || self.schema == PLAN_SCHEMA { "testnet-reward-v0" } else { "reward-v1" };
+        let rule = if load || self.schema == PLAN_SCHEMA { "testnet-reward-v0" } else { "reward-v2" };
         e(self.reward_rule == rule, "reward_rule")?;
         // At least one attempt; the receipt's attempt number (u8) bounds it.
         e(self.max_attempts >= 1, "max_attempts")?;
@@ -1482,6 +1564,39 @@ pub(crate) mod tests {
     }
 
     const NONE: Ceilings = Ceilings { roster_cap: None, accept_reward_v0: true };
+
+    /// A test `reward_v1.quant` block: an eps far above the approved 2 (so
+    /// the small synthetic batches of these tests are quantized on the SE
+    /// grid with negligible noise), `F = 1`, an `h` far above the pool's
+    /// (so they pass the worst-case budget at the protocol's roster bound),
+    /// and a generous `k_n` (so their crash fixtures stay scored).
+    pub fn quant_block() -> QuantPlan {
+        QuantPlan {
+            eps_total_milli: 2_000_000,
+            identify_bits: 2000,
+            budget_factor: 1,
+            min_success_max_failed: 9,
+            min_success_basis: "synthetic test value".into(),
+        }
+    }
+
+    /// The plan-time budget is the rule's worst case: the testnet batch of
+    /// 1,000 at a roster cap of 40 passes `bits * 10 <= n * 8`, the mainnet
+    /// shape (4,000 documents, 256 entrants) is refused, and `k_n` must stay
+    /// below `n`.
+    #[test]
+    fn the_quant_block_checks_the_worst_case_bit_budget() {
+        let testnet = QuantPlan { eps_total_milli: 2000, identify_bits: 8, budget_factor: 10, min_success_max_failed: 2, ..quant_block() };
+        testnet.validate(1000, 40).unwrap();
+        assert!(testnet.validate(4000, 256).unwrap_err().0.contains("bit budget"));
+        let k = QuantPlan { min_success_max_failed: 1000, ..testnet.clone() };
+        assert!(k.validate(1000, 40).unwrap_err().0.starts_with("reward_v1.quant.min_success_max_failed"));
+        let no_eps = QuantPlan { eps_total_milli: 0, ..testnet.clone() };
+        assert!(no_eps.validate(1000, 40).is_err());
+        let no_basis = QuantPlan { min_success_basis: String::new(), ..testnet.clone() };
+        assert!(no_basis.validate(1000, 40).is_err());
+        assert_eq!(testnet.params().min_success_max_failed, 2);
+    }
 
     /// The specs a plan may name for its loads are the specs the scorer
     /// admits loads by (its `engine::admits_by`), with the digests the

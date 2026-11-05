@@ -540,7 +540,7 @@ async fn apply_v2<P: AppPorts>(
     let summary = authorized.summary();
     tracing::info!(
         event = "package_verified",
-        rule = "reward-v1",
+        rule = "reward-v2",
         cohort = summary.cohort,
         target = %summary.target,
         row_entries = summary.scored_miners
@@ -590,7 +590,7 @@ async fn apply_v2<P: AppPorts>(
         };
     tracing::info!(
         event = "row_derived",
-        rule = "reward-v1",
+        rule = "reward-v2",
         entries = derived.row_entries.len(),
         registration_block = snapshot.block,
         epoch,

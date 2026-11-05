@@ -403,7 +403,11 @@ impl RewardIntentAuthorization {
     }
 }
 
+/// A short-lived borrow of what an authorization was checked against. The
+/// launch variant holds its burn target by value (it is derived, not
+/// borrowed); the size difference costs one stack value per check.
 #[derive(Clone, Debug)]
+#[allow(clippy::large_enum_variant)]
 enum Scope<'a> {
     Cohort {
         authorization: &'a RewardIntentAuthorization,

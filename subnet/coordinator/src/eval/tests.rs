@@ -732,6 +732,7 @@ impl<'a> Sim<'a> {
         self.rcpt.insert(format!("{prefix}/receipt-index.signed"), index.to_bytes().unwrap());
         self.rcpt.insert(format!("{prefix}/chunk-map.json"), b"{}".to_vec());
         self.rcpt.insert(format!("{prefix}/package.signed"), b.package.to_bytes().unwrap());
+        self.rcpt.insert(format!("{prefix}/result.signed"), b.result.to_bytes().unwrap());
         tx(self.db, |s| v3::commit_package(s, seq, &b, 6, now)).unwrap();
         self.packages_v3.push(b);
     }
@@ -2650,7 +2651,7 @@ fn the_v3_cohort_store_migrates_in_place_to_v7() {
         )
         .unwrap();
     let report = sql::migrate(&db, &EVAL_COHORT_SCHEMA).unwrap();
-    assert_eq!((report.from, report.to), (3, 23));
+    assert_eq!((report.from, report.to), (3, 24));
     let st = status(&db, 5);
     assert_eq!(st["cohorts"][0]["phase"], "closed");
     assert_eq!(st["cohorts"][0]["jobs"][0]["status"], "done", "the jobs table was rebuilt with its rows");
@@ -2964,6 +2965,7 @@ fn v3_block(probes: Vec<super::plan::ProbeRef>) -> super::plan::RewardV1Plan {
         incentive: None,
         task_order: None,
         probe_cut: false,
+        quant: Some(super::plan::tests::quant_block()),
     }
 }
 
@@ -2972,7 +2974,7 @@ fn plan_v3(cohort: u64, label: &str, n: u32, reference: super::plan::ArtifactJso
     p.schema = super::plan::PLAN_SCHEMA_V3.into();
     p.cohort = cohort;
     p.label = label.into();
-    p.reward_rule = "reward-v1".into();
+    p.reward_rule = "reward-v2".into();
     p.mix = super::plan::Mix { human_only: 20, mixed: 55, model_only: 25 };
     p.k_tempos = 4;
     p.admission_tempos = 1;
@@ -3142,10 +3144,29 @@ fn reward_v1_cohorts_run_end_to_end_with_probe_copies_canary_and_promotion() {
         owner_hotkey: hk(0xb0),
         neurons: vec![NeuronIdentity { uid: 0, hotkey: hk(0xb0), registration_block: 1000 }],
     };
-    let row = slop_ninja_protocol::reward_v1::derive_row(&target, Some((p, &at_seal)), &snapshot).unwrap();
+    let result = slop_ninja_protocol::QuantizedResult::of_package(p).unwrap();
+    let row = slop_ninja_protocol::reward_v1::derive_row(&target, Some(&result), &snapshot).unwrap();
     assert_eq!(row.entries.len(), 1);
     assert_eq!((row.entries[0].uid, row.entries[0].weight), (0, u16::MAX));
     let _ = checked;
+    // quant-v1: the public result is the package's, the closure and the
+    // target name it, and it carries every q on the grid and no exact score.
+    assert_eq!(pb.result, result);
+    assert_eq!(slop_ninja_protocol::Record::digest(&result).unwrap(), p.result);
+    assert_eq!(cb.closure.result, p.result);
+    cb.closure.check_result(&result).unwrap();
+    target.check_result(&result).unwrap();
+    result.check_manifest(&pb.manifest).unwrap();
+    let w = result.width;
+    assert!(result.entrants.iter().filter_map(|e| e.outcome.q()).all(|q| q.get() % w == 0));
+    let bytes = slop_ninja_protocol::Record::to_bytes(&result).unwrap();
+    for e in p.entrants.iter().filter_map(|e| e.score) {
+        let exact = e.get();
+        if exact % w != 0 {
+            assert!(!bytes.windows(8).any(|x| x == exact.to_le_bytes() || x == exact.to_be_bytes()));
+        }
+    }
+    slop_ninja_protocol::reward_v1::check_draws(p, &engine::cohort_seed(&cfg().private_seed, &p.cohort_label)).unwrap();
     // The reward-v1 bundle a validator installs: every record signed, the
     // receipts retained, the authorization issued at the closing boundary.
     let fx_keys = slop_ninja_protocol::fixtures::trusted_keys();
@@ -5266,6 +5287,37 @@ fn order_run(order: Option<&str>, probe_order: Option<&str>) -> (Vec<SealedTask>
     (sealed_tasks(&db, seq), sim.packages_v3.pop().unwrap(), scored)
 }
 
+/// Two packages of one cohort sealed in different task orders are the same
+/// but for the manifest (its batch index digest binds the order), the
+/// receipt root (receipts bind task indices), and the quantization draws:
+/// those are keyed by the manifest digest (review 2026-11-05, leak 2), so
+/// each order is its own cohort with its own draws and so its own `q`, grid
+/// cutoff and result digest. Everything the draws do not enter (exact
+/// scores, gates, public checks, clusters, units, mode, promotion) and the
+/// public result's units and band ranks agree.
+fn same_but_manifest_and_draws(s_pkg: &v3::PackageV3, a_pkg: &v3::PackageV3) {
+    let a = &a_pkg.package;
+    let mut s = s_pkg.package.clone();
+    s.cohort_manifest = a.cohort_manifest;
+    s.receipt_root = a.receipt_root;
+    s.result = a.result;
+    for (e, x) in s.entrants.iter_mut().zip(&a.entrants) {
+        e.q = x.q;
+        e.draw = x.draw;
+    }
+    s.quant.reference_q = a.quant.reference_q;
+    s.quant.reference_draw = a.quant.reference_draw;
+    s.quant.predecessor_q = a.quant.predecessor_q;
+    s.quant.predecessor_draw = a.quant.predecessor_draw;
+    s.quant.cutoff = a.quant.cutoff;
+    assert_eq!(&s, a);
+    let (r, ar) = (&s_pkg.result, &a_pkg.result);
+    assert_eq!((r.mode, r.promoted, r.entrants.len()), (ar.mode, ar.promoted, ar.entrants.len()));
+    for (x, y) in r.entrants.iter().zip(&ar.entrants) {
+        assert_eq!((x.units, x.band_rank), (y.units, y.band_rank));
+    }
+}
+
 /// Held-out exposure finding L4: under the seeded order a task's position
 /// says nothing about its kind or set (the probe and the audit draws are
 /// interleaved with the batch, not appended), and the package is exactly
@@ -5305,10 +5357,7 @@ fn the_seeded_order_interleaves_every_set_and_packages_as_the_appended_order() {
     // The package is the appended order's, but for the manifest (its batch
     // index digest binds the order) and the receipt root (receipts bind
     // task indices).
-    let mut s = s_pkg.package.clone();
-    s.cohort_manifest = a_pkg.package.cohort_manifest;
-    s.receipt_root = a_pkg.package.receipt_root;
-    assert_eq!(s, a_pkg.package);
+    same_but_manifest_and_draws(&s_pkg, &a_pkg);
     let mut components = s_pkg.components.clone();
     components["cohort_manifest"] = a_pkg.components["cohort_manifest"].clone();
     assert_eq!(components, a_pkg.components);
@@ -5339,10 +5388,7 @@ fn a_probe_cut_in_the_seeded_order_fingerprints_the_same_under_either_cohort_ord
         let good = &pkg.package.entrants[1].public.as_ref().unwrap().reference_probes[0];
         assert_ne!(good.entrant_probe_score, good.public_probe_score, "a different model does not");
     }
-    let mut s = s_pkg.package.clone();
-    s.cohort_manifest = a_pkg.package.cohort_manifest;
-    s.receipt_root = a_pkg.package.receipt_root;
-    assert_eq!(s, a_pkg.package);
+    same_but_manifest_and_draws(&s_pkg, &a_pkg);
     assert_eq!(s_pkg.vectors.iter().map(|(k, v)| (k, v)).collect::<Vec<_>>(), a_pkg.vectors.iter().map(|(k, v)| (k, v)).collect::<Vec<_>>());
 }
 
@@ -6920,7 +6966,7 @@ fn store_v23_seeds_the_boundary_journal_from_cohort_history_without_work_times()
         )
         .unwrap();
     let report = sql::migrate(&db, &EVAL_COHORT_SCHEMA).unwrap();
-    assert_eq!((report.from, report.to), (22, 23));
+    assert_eq!((report.from, report.to), (22, 24));
     let got: Vec<(u64, Option<u64>, Option<u64>)> = journal(&db).iter().map(|r| (r.epoch, r.block, r.observed_ms)).collect();
     assert_eq!(
         got,

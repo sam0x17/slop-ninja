@@ -917,5 +917,12 @@ pub const EVAL_COHORT_SCHEMA: Schema = Schema {
             version: 23,
             statements: crate::eval::boundaries::SCHEMA_V23,
         },
+        // v24: the rule floor (reward-v2 / quant-v1 records): an earlier
+        // build refuses this store instead of running against cohorts it
+        // cannot decode.
+        Migration {
+            version: 24,
+            statements: crate::eval::engine::SCHEMA_V24,
+        },
     ],
 };

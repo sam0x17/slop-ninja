@@ -2,8 +2,9 @@
 //! domain-separated digests and signatures, stable operation identities,
 //! private submission records, artifact objects and their inference-content
 //! identity, the published-artifact index and the near-copy relation, the
-//! validators' launch and reward-intent authorizations and their revocation, and deterministic
-//! reward arithmetic for `testnet-reward-v0` (testnet only) and `reward-v1`.
+//! validators' launch and reward-intent authorizations and their revocation, deterministic
+//! reward arithmetic for `testnet-reward-v0` (testnet only) and `reward-v2`, and the
+//! `quant-v1` score quantization with its public [`QuantizedResult`].
 //!
 //! The crate is pure computation. It performs no I/O, reads no clock or
 //! randomness, and uses no floating-point arithmetic after input conversion, so
@@ -18,6 +19,8 @@ pub mod coordinator_row;
 mod error;
 mod hash;
 mod operation;
+pub mod quant;
+mod quantized_result;
 mod records;
 mod records_v2;
 pub mod reward;
@@ -30,6 +33,8 @@ pub mod target_bundle;
 pub mod fixtures;
 #[cfg(any(test, feature = "fixtures"))]
 pub mod fixtures_reward_v1;
+#[cfg(any(test, feature = "fixtures"))]
+pub mod fixtures_quant;
 
 pub use artifact::{
     ArtifactFile, ArtifactHeader, ArtifactReader, FileRole, MAX_ARTIFACT_HEADER_LEN,
@@ -70,11 +75,15 @@ pub use records_v2::{
     DistanceMonitor, EntrantFingerprint, EntrantScore, FALLBACK_BPS, Fingerprint, FingerprintIndex,
     Gate, GateFailure, HUMAN_FPR_LOOSE_REASON, IMPROVEMENT_DIVISOR, InferenceContent,
     LAUNCH_ORIGIN_MIX, MAINNET_MIN_CASES, MARGIN_FLOOR, MARGIN_SIGMAS, MAX_PROBE_SIZE, MAX_ROSTER,
-    NEAR_COPY_PPB, NEAR_EQUAL_DIVISOR, NearStats, Nonce, Origin, OriginMix, ProbeBinding,
+    NEAR_COPY_PPB, NearStats, Nonce, Origin, OriginMix, ProbeBinding,
     ProbeMatch, PromotionAudit, PublicCheck, PublicCopy, PublishedContents, PublishedIndex,
     PublishedIndexBinding, ROW_TOTAL, ReferenceModel, ReferenceScore, ReferenceSet,
     RegistrationSnapshotV2, RewardV1Params, RosterEntry, ScorePackageV2, Stratum, TargetSource,
-    WeightRowV2, canonical_fingerprints,
+    WeightRowV2, canonical_fingerprints, MIN_SUCCESS_REASON, QuantDraw, QuantParams, QuantRecord,
+};
+pub use quantized_result::{
+    BudgetRecord, EntrantOutcome, NotExecuted, QuantRule, QuantizedResult, ResultBand,
+    ResultEntrant, ResultReference,
 };
 pub use sign::{KeyRole, MAX_SIGNED_RECORD_LEN, Signed, SignedStream, StreamedRecord, TrustedKeys, sign, signing_payload};
 #[cfg(any(test, feature = "fixtures"))]
@@ -84,6 +93,8 @@ pub use sign::sign_raw;
 mod tests;
 #[cfg(test)]
 mod tests_coordinator_row;
+#[cfg(test)]
+mod tests_quant;
 #[cfg(test)]
 mod tests_reward_v1;
 #[cfg(test)]

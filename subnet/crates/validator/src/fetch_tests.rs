@@ -115,9 +115,10 @@ fn launch_row(authorization: &[u8]) -> Vec<u8> {
         .record;
     let row = slop_ninja_protocol::CoordinatorRow {
         chain: a.chain.clone(),
-        reward_rule: slop_ninja_protocol::RewardRule::RewardV1,
+        reward_rule: slop_ninja_protocol::RewardRule::RewardV2,
         source: slop_ninja_protocol::RowSource::LaunchBurn,
         target: a.target,
+        result: None,
         activated_epoch: None,
         authorization: a.digest().unwrap(),
         issued_epoch: a.issued_epoch,

@@ -339,6 +339,19 @@ pub const SCHEMA_V19: &[&str] = &[
     "ALTER TABLE eval_obs ADD COLUMN watermark_epoch INTEGER",
 ];
 
+/// v24: the rule floor of this store. Records sealed from here are
+/// `reward-v2` / `quant-v1` (manifest v5, package v5, closure v2, target v3)
+/// and no earlier build decodes them, so an earlier build refuses to open
+/// this store (`NewerStoredVersion`) rather than run against cohorts it
+/// cannot package or close. The table records the floor for operators; the
+/// version number is what enforces it.
+pub const SCHEMA_V24: &[&str] = &[
+    "CREATE TABLE rule_floor (
+        id INTEGER PRIMARY KEY CHECK (id = 1), reward_rule TEXT NOT NULL, quant_rule TEXT NOT NULL
+    ) STRICT",
+    "INSERT INTO rule_floor (id, reward_rule, quant_rule) VALUES (1, 'reward-v2', 'quant-v1')",
+];
+
 /// v20: the automatic resume probe of an outage fault ([`probe_due`],
 /// [`probe_begin`], [`probe_done`]: when the next probe may run, how many
 /// ran, consecutive failures, their measured time and spend, the bound

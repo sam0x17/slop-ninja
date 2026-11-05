@@ -2519,7 +2519,7 @@ fn a_reward_v1_launch_bundle_commits_the_burn_row_to_the_owner_uid_each_epoch() 
     assert_eq!(ops.len(), 1);
     assert!(ops[0].op_id.starts_with(slop_ninja_protocol::WEIGHT_OPERATION_V2_PREFIX));
     let row: RowSummary = serde_json::from_value(ops[0].row.clone().unwrap()).unwrap();
-    assert_eq!(row.rule, "reward-v1");
+    assert_eq!(row.rule, "reward-v2");
     assert_eq!(row.entries, vec![(fx::owner().uid, 65535)], "every unit burns through the owner hotkey's UID");
     h.until(200, |h| h.ops().len() == 2 && committed(h));
     let ops = h.ops();

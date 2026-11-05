@@ -12,7 +12,8 @@ use std::fmt::Write as _;
 
 use crate::fixtures::{authorization_key, package_key, receipt_key, trusted_keys};
 use crate::hash::hex;
-use crate::reward_v1::{self, ArchiveProbe, Evaluation, Graded, Measurements};
+use crate::quant::SeMeasure;
+use crate::reward_v1::{self, ArchiveProbe, Evaluation, Graded, Measurements, QuantInputs};
 use crate::submission::{
     CheckedClosure, CohortClosure, FinalizedCommitment, PublishedOpening, SubmissionOpening,
     SubmissionUpload,
@@ -29,8 +30,52 @@ use crate::{
     RewardIntentRevocation, RewardRule,
     RewardV1Params, RosterEntry, SCORE_SCALE, Score, ScorePackageV2, Signed, Stratum,
     TESTNET_GENESIS, VerifiedArtifact, WeightRowV2, domain_hash, object_sha256, sign,
-    signing_payload,
+    signing_payload, QuantParams, QuantRecord, QuantizedResult,
 };
+
+/// Fixture `quant-v1` parameters: a privacy budget so large that the noise
+/// and the grid are far finer than the synthetic scores (basis points), so
+/// each scenario keeps its meaning, and a bit bound no fixture reaches. The
+/// minimum-success gate withholds only an entrant that failed every one of
+/// the smallest fixture batch's documents.
+pub const FIXTURE_QUANT: QuantParams = QuantParams {
+    eps_total_milli: 4_000_000_000,
+    identify_bits: u16::MAX,
+    budget_factor: 1,
+    min_success_max_failed: CASES - 1,
+};
+
+/// The fixtures' private cohort seed.
+pub const FIXTURE_SEED: [u8; 32] = [0x5e; 32];
+
+/// Fixture quantization inputs: the fixed seed, and `R_k`'s SE as if every
+/// batch document scored its mean (`SE = 0`), so `w` is the noise floor.
+pub fn quant_inputs(p: &ScorePackageV2) -> Result<QuantInputs> {
+    let n = u128::from(p.cases);
+    let s = u128::from(p.reference.score.get());
+    let s2 = crate::quant::U256::mul_u128(s, s)
+        .checked_mul_u128(n)
+        .ok_or(Error::Overflow("fixture se"))?;
+    Ok(QuantInputs {
+        seed: FIXTURE_SEED,
+        se: SeMeasure::from_sums(p.cases, n * s, s2)?,
+    })
+}
+
+/// The public result of a finalized package.
+pub fn result_of(p: &ScorePackageV2) -> Result<QuantizedResult> {
+    QuantizedResult::of_package(p)
+}
+
+/// [`reward_v1::finalize`] with [`quant_inputs`].
+pub fn finalize_fixture(
+    p: &mut ScorePackageV2,
+    index: &PublishedIndex,
+    measure: &mut impl Measurements,
+) -> Result<Evaluation> {
+    let inputs = quant_inputs(p)?;
+    reward_v1::finalize(p, index, measure, &inputs)
+}
 
 /// The testnet genesis with a placeholder netuid.
 pub fn chain() -> ChainBinding {
@@ -423,10 +468,10 @@ pub fn manifest_with(
         cohort,
         cohort_label: format!("synthetic-reward-v1-{cohort}"),
         opened_epoch: 20 * cohort,
-        reward_rule: RewardRule::RewardV1,
+        reward_rule: RewardRule::RewardV2,
         schedule: schedule(),
         batch: batch(cases),
-        params: RewardV1Params::new(sigma),
+        params: RewardV1Params::new(sigma, FIXTURE_QUANT),
         references,
         published: index.binding().expect("fixture index"),
         probes: vec![probe],
@@ -486,6 +531,8 @@ pub fn package(
                 cluster_head: None,
                 cluster_stats: None,
                 units: 0,
+                q: None,
+                draw: None,
             }
         })
         .collect::<Vec<_>>();
@@ -496,11 +543,12 @@ pub fn package(
         cohort_label: manifest.cohort_label.clone(),
         cohort_manifest: manifest.digest()?,
         revision: 1,
-        reward_rule: RewardRule::RewardV1,
+        reward_rule: RewardRule::RewardV2,
         params: manifest.params,
         span_gate: manifest.span_gate,
         cases,
         reference_index: manifest.references.index,
+        opened_epoch: manifest.opened_epoch,
         reference: reference_score(manifest.references.current, reference, cases),
         predecessor: manifest
             .references
@@ -517,6 +565,8 @@ pub fn package(
         distance_monitor: DistanceMonitor::default(),
         receipt_root: Digest([0x44; 32]),
         receipt_count: assigned + u64::from(cases) * 2,
+        quant: QuantRecord::unset(),
+        result: Digest([0; 32]),
     })
 }
 
@@ -643,7 +693,7 @@ pub fn finalized(
     let mut measure = spec_measure(specs, manifest.batch.cases, |h, o| {
         specs[h].family == specs[o].family
     });
-    let evaluation = reward_v1::finalize(&mut p, &index, &mut measure)?;
+    let evaluation = finalize_fixture(&mut p, &index, &mut measure)?;
     Ok((p, evaluation))
 }
 
@@ -1154,6 +1204,7 @@ pub fn closure(
         cohort_label: manifest.cohort_label.clone(),
         cohort_manifest: manifest.digest()?,
         score_package: package.digest()?,
+        result: package.result,
         target: target.map(Record::digest).transpose()?,
         admission_closed_epoch: manifest.earliest_admission_close_epoch()?,
         published_epoch: manifest.opened_epoch + PUBLISHED_TEMPO,
@@ -1204,7 +1255,7 @@ fn computed_with(cohort: u64, reference_index: u64) -> Result<Computed> {
     let reference = reward_v1::reference_score(&graded(&current))?;
     let predecessor = reward_v1::reference_score(&graded(&previous))?;
     let mut package = package(&manifest, reference, Some(predecessor), &specs)?;
-    let evaluation = reward_v1::finalize(&mut package, &index, &mut ComputedMeasure::new(&models))?;
+    let evaluation = finalize_fixture(&mut package, &index, &mut ComputedMeasure::new(&models))?;
     let launch = CalculationTargetV2::launch_burn(chain());
     let target = CalculationTargetV2::for_package(&package, Some(launch.digest()?))?;
     let closure = closure(&manifest, &package, Some(&target), &specs)?;
@@ -1316,7 +1367,7 @@ fn scenario(
         archive,
         references: skipped,
     };
-    let evaluation = reward_v1::finalize(&mut package, &index, &mut measure)?;
+    let evaluation = finalize_fixture(&mut package, &index, &mut measure)?;
     Ok(Scenario {
         models,
         index,
@@ -1591,7 +1642,7 @@ fn share(f: &crate::bigint::Fraction) -> String {
 /// Builds the `reward-v1` golden report.
 pub fn golden_report() -> Result<String> {
     let mut r = Report(String::new());
-    r.line("schema", "slop_ninja.protocol.golden/reward-v1");
+    r.line("schema", "slop_ninja.protocol.golden/reward-v2");
     parameters(&mut r)?;
     near_copies(&mut r)?;
     computed_cohort(&mut r)?;
@@ -1643,7 +1694,7 @@ fn promotion(r: &mut Report) -> Result<()> {
         for &(i, strict, flags) in audits {
             measure.audits.insert(i, (strict, flags));
         }
-        reward_v1::finalize(&mut p, &index, &mut measure)?;
+        finalize_fixture(&mut p, &index, &mut measure)?;
         let walked: Vec<String> = p
             .promotion_audits
             .iter()
@@ -1684,20 +1735,21 @@ fn promotion(r: &mut Report) -> Result<()> {
 
 fn parameters(r: &mut Report) -> Result<()> {
     for permille in [3u64, 20, 28, 40] {
-        let p = RewardV1Params::new(sigma_permille(permille));
+        let p = RewardV1Params::new(sigma_permille(permille), FIXTURE_QUANT);
         r.line(&format!("params.sigma_{permille}e-3.delta"), p.margin());
     }
     for (name, reference) in [("0.9", bp(9000)), ("0.9482", bp(9482)), ("1", Score::ONE)] {
-        let p = RewardV1Params::new(sigma_permille(40));
-        match reward_v1::Bands::new(&p, reference) {
+        let p = RewardV1Params::new(sigma_permille(40), FIXTURE_QUANT);
+        let exact = reward_v1::band_width(&p, reference);
+        match reward_v1::grid_band_width(&p, reference, 10u64.pow(16))? {
             Some(b) => r.line(
                 &format!("params.w.sigma_40e-3.reference_{name}"),
-                format_args!("{} epsilon_x250={}", b.width_fraction().reduced(), b.width),
+                format_args!("exact_x1e36={exact} grid_w0.01={b}"),
             ),
             None => r.line(&format!("params.w.sigma_40e-3.reference_{name}"), "none"),
         }
     }
-    let p = RewardV1Params::new(sigma_permille(40));
+    let p = RewardV1Params::new(sigma_permille(40), FIXTURE_QUANT);
     r.line(
         "params.near_copy",
         format_args!(
@@ -1794,7 +1846,7 @@ fn near_copies(r: &mut Report) -> Result<()> {
     }
     // The score clause: within d, x is a near copy of y unless it scores more
     // than w / 2 above it. sigma = 0.04 and S_y = 0.91: w = 0.0072.
-    let params = RewardV1Params::new(sigma_permille(40));
+    let params = RewardV1Params::new(sigma_permille(40), FIXTURE_QUANT);
     let width = reward_v1::band_width(&params, bp(9100));
     for (name, x) in [
         ("below", bp(9000)),
@@ -1938,37 +1990,30 @@ fn computed_cohort(r: &mut Report) -> Result<()> {
         ),
     );
     let ev = &c.evaluation;
-    r.line("cohort.mode", format_args!("{:?}", ev.mode));
+    r.line("cohort.mode", format_args!("{:?}", ev.mode()));
     r.line(
         "cohort.cutoff",
-        ev.threshold.map_or("none".into(), |t| t.display()),
+        ev.outcome.cutoff.map_or("none".into(), |t| t.to_string()),
     );
-    for o in &ev.clusters {
+    for o in &ev.outcome.clusters {
         let members: Vec<_> = o
-            .cluster
             .members
             .iter()
             .map(|&i| format!("{:02x}", c.specs[i].tag))
             .collect();
-        match &o.placement {
-            Some(p) => r.line(
-                &format!("cohort.cluster.{:02x}", c.specs[o.cluster.head].tag),
-                format_args!(
-                    "members={} band={} kappa={}/{} mu={}/{} credit={}",
-                    members.join("+"),
-                    p.band,
-                    p.band_rank,
-                    p.bands,
-                    p.rank_in_band,
-                    p.band_size,
-                    share(&p.credit)
-                ),
+        r.line(
+            &format!("cohort.cluster.{:02x}", c.specs[o.head].tag),
+            format_args!(
+                "members={} band={} kappa={}/{} mu={}..={} credit={}",
+                members.join("+"),
+                o.band,
+                o.band_rank,
+                ev.outcome.bands.len(),
+                o.positions.0,
+                o.positions.1,
+                share(&o.credit)
             ),
-            None => r.line(
-                &format!("cohort.cluster.{:02x}", c.specs[o.cluster.head].tag),
-                format_args!("members={} dropped=near_equal", members.join("+")),
-            ),
-        }
+        );
     }
     r.line(
         "cohort.promoted",
@@ -1981,7 +2026,7 @@ fn computed_cohort(r: &mut Report) -> Result<()> {
     r.record("cohort.target", &c.target)?;
     let snapshot = computed_snapshot(&c.specs);
     r.record("cohort.snapshot", &snapshot)?;
-    let row = reward_v1::derive_row(&c.target, Some((&c.package, &c.index)), &snapshot)?;
+    let row = reward_v1::derive_row(&c.target, Some(&QuantizedResult::of_package(&c.package)?), &snapshot)?;
     r.row("cohort.row", &row)?;
     let launch = CalculationTargetV2::launch_burn(chain());
     r.record("cohort.launch_burn_target", &launch)?;
@@ -1995,7 +2040,7 @@ fn computed_cohort(r: &mut Report) -> Result<()> {
     r.record("cohort.owner_rotated.snapshot", &rotated)?;
     r.row(
         "cohort.owner_rotated.row",
-        &reward_v1::derive_row(&c.target, Some((&c.package, &c.index)), &rotated)?,
+        &reward_v1::derive_row(&c.target, Some(&QuantizedResult::of_package(&c.package)?), &rotated)?,
     )?;
     r.row(
         "cohort.owner_rotated.launch_burn_row",
@@ -2791,11 +2836,10 @@ fn worked_examples(r: &mut Report) -> Result<()> {
         let p = example(reference, None, &specs)?;
         r.outcome(&format!("example.{name}"), &p);
         let ev = reward_v1::evaluate(&p, &example_index(&p))?;
-        for o in ev.clusters.iter().filter(|o| o.placement.is_some()) {
-            let placement = o.placement.as_ref().expect("placed");
+        for o in &ev.outcome.clusters {
             r.line(
-                &format!("example.{name}.credit.{:02x}", specs[o.cluster.head].tag),
-                share(&placement.credit),
+                &format!("example.{name}.credit.{:02x}", specs[o.head].tag),
+                share(&o.credit),
             );
         }
     }
@@ -2813,9 +2857,7 @@ fn worked_examples(r: &mut Report) -> Result<()> {
     r.outcome("example.fallback", &p);
     r.line(
         "example.fallback.cutoff",
-        reward_v1::cutoff(&p)?
-            .threshold
-            .map_or("none".into(), |t| t.display()),
+        p.quant.cutoff.map_or("none".into(), |t| t.get().to_string()),
     );
     // Just short of the margin: earns in a fallback cohort, not beside a passer.
     let short = s(0x41, 9159);
@@ -2839,6 +2881,18 @@ fn worked_examples(r: &mut Report) -> Result<()> {
 fn edge_cases(r: &mut Report) -> Result<()> {
     let s = |tag, score| Spec::new(tag, bp(score));
     let reference = bp(9100);
+    // A withheld entrant (more than k_n attributable failures) is published
+    // by identity only and earns nothing; its draw is still consumed.
+    let mut failing = s(0xd2, 9700);
+    failing.failed = FIXTURE_QUANT.min_success_max_failed + 1;
+    let withheld = example(reference, None, &[s(0xd1, 9600), failing])?;
+    r.outcome("edge.withheld", &withheld);
+    let result = result_of(&withheld)?;
+    r.line(
+        "edge.withheld.outcomes",
+        format_args!("{:?}", result.entrants.iter().map(|e| e.outcome).collect::<Vec<_>>()),
+    );
+    r.record("edge.withheld.result", &result)?;
     let three_in_one_band = [s(0x61, 9600), s(0x62, 9590), s(0x63, 9580)];
     r.outcome(
         "edge.all_in_one_band",
@@ -2911,19 +2965,19 @@ fn edge_cases(r: &mut Report) -> Result<()> {
     // Extreme parameters stay within checked u128 and exact credits.
     let big = manifest(chain(), 8, 1000, SCORE_SCALE, 1, &[s(0xa1, 10_000)]);
     let mut p = package(&big, Score::ZERO, Some(Score::ZERO), &[s(0xa1, 10_000)])?;
-    let ev = reward_v1::finalize(
+    let ev = finalize_fixture(
         &mut p,
         &default_index(&big.references),
         &mut spec_measure(&[s(0xa1, 10_000)], 1000, |_, _| false),
     )?;
     r.line(
         "edge.overflow.sigma_one",
-        format_args!("{:?} {:?}", ev.mode, ev.bands),
+        format_args!("{:?} {:?}", ev.mode(), ev.outcome.band_width),
     );
     let tiny_specs = [s(0xa2, 10_000), s(0xa3, 9999)];
     let tiny = manifest(chain(), 9, 1000, 1, 0, &tiny_specs);
     let mut p = package(&tiny, bp(9999), None, &tiny_specs)?;
-    let ev = reward_v1::finalize(
+    let ev = finalize_fixture(
         &mut p,
         &default_index(&tiny.references),
         &mut spec_measure(&tiny_specs, 1000, |_, _| false),
@@ -2932,10 +2986,11 @@ fn edge_cases(r: &mut Report) -> Result<()> {
         "edge.overflow.sigma_minimum",
         format_args!(
             "{:?} bands={}",
-            ev.mode,
-            ev.clusters
+            ev.mode(),
+            ev.outcome
+                .clusters
                 .iter()
-                .filter_map(|o| o.placement.as_ref().map(|p| p.band.to_string()))
+                .map(|o| o.band.to_string())
                 .collect::<Vec<_>>()
                 .join(",")
         ),
@@ -2945,25 +3000,23 @@ fn edge_cases(r: &mut Report) -> Result<()> {
     let specs = [s(0xc1, 9600), s(0xc2, 9400)];
     let p = example(reference, None, &specs)?;
     let t = CalculationTargetV2::for_package(&p, None)?;
-    let idx = example_index(&p);
     let mut no_owner = snapshot(chain(), 9, &specs);
     no_owner.neurons.retain(|n| n.hotkey != owner_hotkey());
     r.row(
         "edge.owner_unregistered.nothing_burns",
-        &reward_v1::derive_row(&t, Some((&p, &idx)), &no_owner)?,
+        &reward_v1::derive_row(&t, Some(&result_of(&p)?), &no_owner)?,
     )?;
     no_owner.neurons.retain(|n| n.hotkey != hotkey(0xc2));
     r.code(
         "edge.owner_unregistered.must_burn",
-        reward_v1::derive_row(&t, Some((&p, &idx)), &no_owner),
+        reward_v1::derive_row(&t, Some(&result_of(&p)?), &no_owner),
     );
     // Finney: reward-v1 is permitted; the mainnet floor applies.
     let specs = [s(0xb1, 9600)];
     let m = manifest(finney(), 1, 2000, sigma_permille(28), 0, &specs);
     let (p, _) = finalized(&m, reference, None, &specs)?;
     let t = CalculationTargetV2::for_package(&p, None)?;
-    let idx = default_index(&m.references);
-    let row = reward_v1::derive_row(&t, Some((&p, &idx)), &snapshot(finney(), 0, &specs))?;
+    let row = reward_v1::derive_row(&t, Some(&result_of(&p)?), &snapshot(finney(), 0, &specs))?;
     r.row("edge.finney.row", &row)?;
     r.code(
         "edge.finney.below_floor",
@@ -2975,19 +3028,22 @@ fn edge_cases(r: &mut Report) -> Result<()> {
 fn rejections(r: &mut Report) -> Result<()> {
     let c = computed()?;
     let snapshot = computed_snapshot(&c.specs);
+    // The coordinator checks its package before deriving the row from the
+    // package's public result.
     let derive = |p: &ScorePackageV2| -> Result<WeightRowV2> {
+        reward_v1::check_outcome(p, &c.index)?;
         let t = CalculationTargetV2::for_package(p, c.target.predecessor)?;
-        reward_v1::derive_row(&t, Some((p, &c.index)), &snapshot)
+        reward_v1::derive_row(&t, Some(&result_of(p)?), &snapshot)
     };
     // Rule and record version are bound together.
     let mut v0 = c.package.clone();
     v0.reward_rule = RewardRule::TestnetRewardV0;
     r.code("reject.v0_rule_in_v2_package", v0.to_bytes());
     let mut v1_manifest = crate::fixtures::manifest();
-    v1_manifest.reward_rule = RewardRule::RewardV1;
+    v1_manifest.reward_rule = RewardRule::RewardV2;
     r.code("reject.v1_rule_in_v1_manifest", v1_manifest.to_bytes());
     let mut v1_package = crate::fixtures::package(&crate::fixtures::cohort()?)?;
-    v1_package.reward_rule = RewardRule::RewardV1;
+    v1_package.reward_rule = RewardRule::RewardV2;
     r.code("reject.v1_rule_in_v1_package", v1_package.to_bytes());
     r.code(
         "reject.v2_package_as_v1",
@@ -2997,9 +3053,9 @@ fn rejections(r: &mut Report) -> Result<()> {
     let mut params = c.manifest.clone();
     params.params.decay_bps = 7500;
     r.code("reject.params_decay", params.to_bytes());
-    params.params = RewardV1Params::new(0);
+    params.params = RewardV1Params::new(0, FIXTURE_QUANT);
     r.code("reject.params_sigma_zero", params.to_bytes());
-    params.params = RewardV1Params::new(SCORE_SCALE + 1);
+    params.params = RewardV1Params::new(SCORE_SCALE + 1, FIXTURE_QUANT);
     r.code("reject.params_sigma_above_one", params.to_bytes());
     let mut mix = c.manifest.clone();
     mix.batch.mix.mixed = 30;
@@ -3135,7 +3191,8 @@ fn rejections(r: &mut Report) -> Result<()> {
     r.code("reject.eligible_without_cluster", derive(&missing));
     // Snapshots and burn routing: units that must burn while the finalized
     // owner hotkey holds no UID defer the row.
-    let scored = Some((&c.package, &c.index));
+    let scored_result = result_of(&c.package)?;
+    let scored = Some(&scored_result);
     let mut owner = snapshot.clone();
     owner.owner_hotkey = hotkey(0x77);
     r.code(

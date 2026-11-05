@@ -1,6 +1,6 @@
 {
   "schema": "slop_ninja_worker_memory_v2",
-  "version": "coordinator-2026-11-04-r1",
+  "version": "coordinator-2026-11-05-r1",
   "status": "model of the two Workers built from subnet/coordinator (coordinator and eval). Measured: the Rust linear-memory peaks of the cohort steps (probe harness on the fan-out code, design section 1.3) and the workers-rs 0.8.7 glue (glue probe). Not yet measured on this build: the JS heap through the inspector and the painted stack high-water (design migration step 0). The build therefore uses the arena's unmeasured-model feature, which the arena accepts only together with observe (migration step 1: nothing the pool can physically serve is refused, every would-be refusal and overdraft is counted), and links growable linear memory under the ceiling below (the coordinator's build.rs; a fixed memory, initial = maximum, only once the arena enforces), so each isolate holds the linear memory it uses; /status reports the per-route peaks, the JS-side outcomes and the stack high-water of the deployed instances, the inputs of the measured model that Enforce needs.",
   "page_bytes": 65536,
   "page_bytes_source": "WebAssembly page size, equal to the dlmalloc 0.2.12 system granularity",
@@ -28,8 +28,8 @@
   },
   "min_route_bytes": 262144,
   "min_route_bytes_source": "the smallest route control footprint, a Durable Object constructor's storage migration (arena_routes::CONSTRUCTOR_CONTROL_BYTES; checked by arena_routes::tests::the_model_matches_the_route_table)",
-  "largest_route_bytes": 89128960,
-  "largest_route_bytes_source": "the package step's invocation at the load instance's largest rehearsed shape, R_0 + 128 jobs at n = 1,000 with 1,000 tasks a job: the alarm's scope (1 MiB control, 18 pages), the step's child scope (arena_routes::package_bytes(129, 1000) = 87,463,002 B, an upper-bound fit to the measured 83.31 MiB; 1,336 pages) and the step's in-flight summary blocks (arena_routes::package_reads_bytes(1000): 6 reads of at most summary_bytes(1000) = 44,384 B, one page each), 1,360 pages (arena_routes::package_invocation_bytes, checked at build time); plans whose package needs more are refused at /plan",
+  "largest_route_bytes": 89325568,
+  "largest_route_bytes_source": "the package step's invocation at the load instance's largest rehearsed shape, R_0 + 128 jobs at n = 1,000 with 1,000 tasks a job: the alarm's scope (1 MiB control, 18 pages), the step's child scope (arena_routes::package_step_bytes(129, 1000) = 87,635,034 B: package_bytes(129, 1000) = 87,463,002 B, an upper-bound fit to the measured 83.31 MiB, and quant_package_bytes(128) = 172,032 B, the quant-v1 result fit to the measured 123,786 B; 1,339 pages) and the step's in-flight summary blocks (arena_routes::package_reads_bytes(1000): 6 reads of at most summary_bytes(1000) = 44,384 B, one page each), 1,363 pages (arena_routes::package_invocation_bytes, checked at build time); plans whose package needs more are refused at /plan",
   "stack_bytes": 1048576,
   "stack_bytes_source": "rustc wasm32-unknown-unknown links the stack first with rust-lld's default -z stack-size=1048576 (scratch probe, 2026-10-31); the pool starts above static data, so the stack is outside every arena",
   "stack_high_water_bytes": 3912,

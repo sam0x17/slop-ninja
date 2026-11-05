@@ -3784,6 +3784,180 @@ host carries only allow-listed objects (`publisher/src/allowlist.rs`).
   than a band and is also visible in revealed weights. No row-fetcher memory
   measurement yet (the 2G unit limit is kept as an over-provision).
 
+### Score quantization: quant-v1 and reward-v2 (2026-11-04)
+
+Branch `subnet-testnet/quantization`. Not deployed. Only quantized scores
+leave the coordinator, and every reward value is computed from them.
+
+- **Rule.** The coordinator keeps the exact scores `S` in its private score
+  package (`package.signed`, `ScorePackageV2` record version 5). For each
+  executed entrant and for `R_k` and `R_k-1` it publishes
+  `q = w * floor((S + eta + o) / w)`, clamped to `[0, 1]`
+  (`protocol/src/quant.rs`). `w` is `max(2 SE, b)` rounded up to one
+  significant digit, with `SE` measured on `R_k`'s batch utilities in
+  256-bit integers; `eta` is exact discrete-Laplace noise of scale
+  `b = 1/(n eps_v)`; `o` is a secret uniform offset in `[0, w)`. `eps = 2`
+  per cohort is split equally over the `m` released values
+  (`m = X + 1 + [k > 0]`). Testnet, n = 1,000 and 40 entrants: `b = 0.021`,
+  `w = 0.03`.
+- **Two choices inside the approved width rule** (part of `quant-v1`). The
+  approved floor `c/n` takes `c = m / eps`, so the floor is the noise scale
+  `b` itself and the grid is never finer than the noise; and the width is
+  rounded up to one significant digit (the ladder), so every grid value
+  prints exactly. At testnet scale this gives `w = 0.03` where the spec's
+  example said about 0.01-0.02.
+- **Draw keys.** The offset and noise of a value come from a stream keyed by
+  the private cohort seed, the cohort's signed manifest digest and the
+  subject's inference content (`quant::Subject`, `quant::CohortBinding`).
+  Copies of one model submitted under several hotkeys therefore share one
+  draw and one `q`, so copies buy no extra chances at a high noise draw
+  (they share their cluster's credit, as before). Binding the manifest
+  digest means a label or seed reused on a fresh chain record, after a
+  testnet reset or under a re-created ledger never reproduces a draw, so
+  two releases of one reference never share noise that differencing could
+  cancel. The coordinator replays every draw (`reward_v1::check_draws`).
+  The charge still counts every executed entrant (`m = X + 1 + [k > 0]`),
+  which over-counts when copies share a draw; that only widens the noise.
+- **Rewards from q (`reward-v2`, replacing `reward-v1` in place).** Rank is
+  `q` descending, then roster order; the cutoff and band width are rounded
+  up onto the grid; the 0.85 decay across and within bands is kept;
+  clusters tied on `q` share their summed position credits equally;
+  leftover units go by largest remainder, equal remainders in roster
+  order: tied entrants have equal shares and so equal remainders, which go
+  in roster order; between untied entrants the larger remainder goes first.
+  Both orders use `q` only. The near-equal drop is
+  removed. A cluster is placed by its first member in q-rank order.
+- **Exact-score decisions (counted, awaiting the user's confirmation).**
+  Promotion still needs the exact margin over `R_k` (and the promotion
+  audit), and the copy gate's score clause still reads exact batch and
+  probe scores. Both publish one hotkey and one bit per entrant, counted in
+  the bit budget. On noisy `q` alone, an entrant equal to `R_k` would be
+  promoted about a quarter of the time and a copy of `R_k` would escape the
+  gate about a third of the time at full testnet roster.
+- **Minimum-success gate.** An entrant with more than `k_n` attributable
+  failures is withheld: its public outcome is `Withheld`, nothing else.
+  `examples/min_success_k.rs` derives `k_n` from the measured honest rate
+  (1 failure in 254,250 documents gives `p_ub = 3.63e-5` and `k_n = 2` at
+  n = 1,000). Known channel outside the budget: an artifact that crashes
+  only on documents with a hidden property lengthens scoring through crash
+  isolation (`engine::CRASH_RULE`), which the dashboard's coarse scoring
+  progress and stage times show. Scoring does not yet stop isolating an
+  entrant whose failures already exceed `k_n`; the per-document isolation
+  cost has not been measured against the tempo, so this channel is not yet
+  bounded.
+- **Bit budget.** `bits * F <= n * h` (`h = 8`, `F = 10`) is checked at plan
+  validation, at seal (the manifest) and in the public result. The
+  plan-time and manifest worst case covers every roster size up to the cap
+  and both reference shapes: a cohort without a predecessor (`R_0`) has a
+  smaller `m`, so its grid can be one ladder step finer and cost more bits
+  than the reference term it saves. A plan that passes is never refused at
+  seal, whatever `SE` and `k` turn out to be. Testnet n = 1,000 at roster
+  cap 40: 746 bits against 800. The mainnet shape (n = 4,000, roster 256)
+  is refused.
+- **Plan.** A scored v3 plan names `reward_rule = "reward-v2"` and a
+  `reward_v1.quant` block:
+
+  ```json
+  "quant": { "eps_total_milli": 2000, "identify_bits": 8, "budget_factor": 10,
+             "min_success_max_failed": 2,
+             "min_success_basis": "1 attributable failures in 254250 honest documents; one-sided 99.9% Clopper-Pearson p_ub 3.631e-5; alpha 1/(365*256)" }
+  ```
+
+  A stored plan naming `reward-v1`, or without the block, is refused when
+  it is parsed (at roster freeze, a resumable pause) and at seal.
+- **Records.** The package step signs `result.signed`, the public
+  `QuantizedResult` (q, gate and copy bits, cluster membership, band ranks,
+  units, the grid, the cutoff, the bands and the counted budget), beside the
+  private package. The closure (version 2) and the calculation target name
+  the result's digest, and `CoordinatorRow` version 2 names it too: the
+  row is `derive_row(result, snapshot)`. `components.json` stays in the
+  private bucket as operator diagnostics; the publisher never copies it.
+- **Publisher.** It reads only `manifest.signed`, `result.signed` and
+  `closure.signed` (never the package or the components) and publishes the
+  summary v3, leaderboard v4 and dashboard documents with `q` under the
+  quantization block (allow-list v3; `docs/testnet/public-layout.md`).
+  Cohorts listed before quantization keep their `cohort_summary/v2`: the
+  allow-list keeps accepting it (so the key audit keeps it) and the
+  dashboard reads it as entrants and bands with every score `null`. A
+  cohort placed outside the record only because this build could not
+  decode its manifest is read again by the next build (the build id names
+  the manifest version and the allow-list version).
+
+#### Deploy order (quant-v1 / reward-v2)
+
+The records change format together: manifests v4 -> v5, packages v4 -> v5,
+closures v1 -> v2, targets v2 -> v3, coordinator rows v1 -> v2, and the
+reward rule tag 2 -> 3. No build decodes both sides, so the cutover is one
+ordered window. The launch burn target's digest changes with the rule tag,
+so the installed launch authorization stops verifying under the new
+coordinator. Each step names its gate; a step whose gate does not hold
+waits.
+
+1. **Cohort 20 (and any cohort queued from the reward-v1 template)
+   finishes under the current eval build.** Its plan names `reward-v1` and
+   would pause at roster freeze under the new build. Gate: the cohort is
+   closed and the current publisher has listed it (summary v2). Applying
+   the new rule to a cohort that has not started scoring is allowed; doing
+   so needs a plan migration this branch does not have, so the order here
+   is to let it finish.
+2. **Pause the standing template** before cohort 20 reaches `transition`
+   (`calendar::due_any` queues the next cohort from the stored template at
+   that point). Gate: the template reads paused and no cohort is queued,
+   admitting or sealed-but-unpackaged.
+3. **Eval deploy, then template reinstall.** Deploy the eval Worker (store
+   v24, the rule floor), then install the standing template with
+   `reward_rule = "reward-v2"` and the quant block (one install; when the
+   admission v2 lane lands in the same window, the same install carries its
+   `admission.upload_policy`). Leave the template paused.
+4. **Coordinator deploy and launch re-authorization, signing paused
+   throughout.** Confirm first that the held target is still the launch
+   burn (`/status` pointer kind `launch`); if a cohort target activated
+   first, this becomes a chain-record restart instead. With signing paused:
+   deploy, check the journal schema, mint a new launch authorization under
+   the reward-v2 launch burn digest (`examples/reward_v1_verify.rs launch`,
+   the authorization seed never printed), install it with
+   `POST /signing/target`, check that `/status` shows it verified and the
+   pointer names it, then resume signing. In the same window: validator2's
+   build and the native validator release that decode row version 2, and
+   the row mirror's switch to the version-2 row.
+5. **Publisher deploy** before the first reward-v2 cohort closes. Its row
+   copy resumes once the coordinator signs version-2 rows; until then the
+   old coordinator's version-1 rows fail its allow-list. Do not run
+   `audit-keys` with this build across the cutover: version-1 signed rows
+   already in the public bucket do not decode under it and would be planned
+   for deletion.
+6. **Unpause the template.** The next cohort is the first under reward-v2.
+7. **Website:** no change needed (it accepts `quant-v1` grids and null
+   scores).
+
+Probe after the first reward-v2 cohort packages: its score package carries
+`q` and the quant block, the signed row matches the q-derived units
+(`derive_row(result, snapshot)`), and the public summary and dashboard
+documents carry only allow-listed fields.
+
+#### Rollback (quant-v1 / reward-v2)
+
+Every step is one-way once its records exist:
+
+- **Eval.** The v24 store refuses any earlier build (`NewerStoredVersion`).
+  Before the first reward-v2 cohort seals, rolling back means restoring the
+  pre-deploy build against a store that never ran v24 (a store that did
+  cannot go back). After a cohort seals under v5, an earlier build cannot
+  package or close it: abandon that cohort (the signed abandonment record)
+  before any rollback.
+- **Coordinator and validators.** Once the coordinator signs version-2 rows
+  under a reward-v2 launch authorization, an earlier coordinator or
+  validator cannot verify that bundle. Rolling back means reinstalling the
+  previous launch bundle on the earlier coordinator, with validators rolled
+  back to the build that reads version-1 rows, in one window.
+- **Publisher.** An earlier publisher refuses version-2 rows and places
+  v5 cohorts outside the record (permanently, in that build's memory).
+  Roll it back only together with the coordinator and eval, and redeploy
+  this build afterwards so those cohorts are read again.
+
+The deploy's versions are recorded as the new rollback floors in the
+private inventory.
+
 ### Cost projection (daily K = 20 cohorts, n = 1,000)
 
 The projection's inputs come from the load rehearsals of 2026-10-31 (3 to 129

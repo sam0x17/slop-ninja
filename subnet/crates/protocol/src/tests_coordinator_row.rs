@@ -34,9 +34,10 @@ fn cohort_auth(target: Digest) -> RewardIntentAuthorization {
 fn cohort_row(a: &RewardIntentAuthorization, activated: Option<u64>, epoch: u64, entries: Vec<CoordinatorRowEntry>) -> CoordinatorRow {
     CoordinatorRow {
         chain: chain(),
-        reward_rule: RewardRule::RewardV1,
+        reward_rule: RewardRule::RewardV2,
         source: RowSource::Cohort { cohort: a.cohort, cohort_label: "testnet-c7".into(), cohort_manifest: a.cohort_manifest },
         target: a.target,
+        result: (a.target != CalculationTargetV2::launch_burn(chain()).digest().unwrap()).then_some(Digest([0x7e; 32])),
         activated_epoch: activated,
         authorization: a.digest().unwrap(),
         issued_epoch: a.issued_epoch,
@@ -50,9 +51,10 @@ fn cohort_row(a: &RewardIntentAuthorization, activated: Option<u64>, epoch: u64,
 fn launch_row(a: &LaunchAuthorization, epoch: u64) -> CoordinatorRow {
     CoordinatorRow {
         chain: chain(),
-        reward_rule: RewardRule::RewardV1,
+        reward_rule: RewardRule::RewardV2,
         source: RowSource::LaunchBurn,
         target: a.target,
+        result: None,
         activated_epoch: None,
         authorization: a.digest().unwrap(),
         issued_epoch: a.issued_epoch,

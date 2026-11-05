@@ -58,6 +58,9 @@ use std::io::{BufRead, BufReader};
 use std::path::{Path, PathBuf};
 use tokenizers::Tokenizer;
 
+mod d4;
+pub use d4::{Bound, D4_COUNTS_SCHEMA, D4_MANIFEST_SCHEMA, D4Counted, D4Inputs, FOURTH_RULE, count_d4, fourth_invariant, write_d4};
+
 /// The run population of every batch the dry run re-verdicted (R0's Train
 /// positives join `train2`, amendment 10 item 10.8).
 pub const POPULATION: &str = "train2";

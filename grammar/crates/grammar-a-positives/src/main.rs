@@ -284,6 +284,53 @@ enum Cmd {
         #[arg(long)]
         ids_out: PathBuf,
     },
+    /// Item 14.1's child-side counts 4-6 and index 60's fourth stop invariant
+    /// on D4's pilot children (B33): the finalize records of the pilot order's
+    /// items, each record request's response from a journal file `generate`
+    /// added in the pilot or from the runs copy's re-verdict journals (the
+    /// records in force), every input checked by digest, Train lines only. A
+    /// counts record and an ids-only file (mode 600; counts, ids and digests,
+    /// no text). Refuses when any child's re-derived laid-out text or verdict
+    /// differs from `generate`'s record.
+    DryrunCountD4 {
+        /// The batch's label in the records (for example d4-local-plan-v1).
+        #[arg(long)]
+        label: String,
+        /// The D4 plan directory (`PILOT.json` names its plan.json by digest).
+        #[arg(long)]
+        plan: PathBuf,
+        /// The runs copy (its renorm summary, re-verdict journals and the
+        /// journals `generate` added).
+        #[arg(long)]
+        runs: PathBuf,
+        /// The SHA-256 the runs copy's renorm summary must have.
+        #[arg(long)]
+        summary_sha256: String,
+        /// The pilot generation manifest (its `added_by_generate` journals).
+        #[arg(long)]
+        generation_manifest: PathBuf,
+        #[arg(long)]
+        generation_manifest_sha256: String,
+        /// The pilot's PILOT.json (its order files list the D4 items).
+        #[arg(long)]
+        pilot: PathBuf,
+        #[arg(long)]
+        pilot_sha256: String,
+        /// The finalize records of the Train split.
+        #[arg(long)]
+        records: PathBuf,
+        #[arg(long)]
+        records_sha256: String,
+        /// The commit this binary was built from (recorded with its digest).
+        #[arg(long)]
+        code_commit: String,
+        /// New counts record.
+        #[arg(long)]
+        out: PathBuf,
+        /// New ids-only file.
+        #[arg(long)]
+        ids_out: PathBuf,
+    },
     /// Merges the dry run's batch count records into `DRY-RUN-COUNTS.json`
     /// (`slop_ninja_a_r2_reverdict_dry_run_counts_v1`), checking every cell's
     /// children and accepted children against the figures records: index
@@ -2145,6 +2192,37 @@ fn main() -> Result<()> {
             let summary = json!({"batch": label, "children": c.children, "gate": c.tally.to_json()["gate"], "mismatches": c.tally.mismatches});
             println!("{}", serde_json::to_string(&summary)?);
             dryrun_count::write_batch(&out, &ids_out, &label, &c, &code)?;
+        }
+        Cmd::DryrunCountD4 {
+            label,
+            plan: pdir,
+            runs,
+            summary_sha256,
+            generation_manifest,
+            generation_manifest_sha256,
+            pilot,
+            pilot_sha256,
+            records,
+            records_sha256,
+            code_commit,
+            out,
+            ids_out,
+        } => {
+            grammar_a_dryrun::engine::quiet_panics();
+            let code = binary_code(&code_commit)?;
+            let bound = |path: PathBuf, sha256: String| dryrun_count::Bound { path, sha256 };
+            let inp = dryrun_count::D4Inputs {
+                runs,
+                summary_sha256,
+                manifest: bound(generation_manifest, generation_manifest_sha256),
+                pilot: bound(pilot, pilot_sha256),
+                records: bound(records, records_sha256),
+            };
+            let c = dryrun_count::count_d4(&label, &pdir, &inp)?;
+            let summary = json!({"batch": label, "children": c.children["children"], "gate": c.tally.to_json()["gate"]["all_zero"], "fourth_invariant": c.fourth["gate"],
+                "mismatches": c.tally.mismatches});
+            println!("{}", serde_json::to_string(&summary)?);
+            dryrun_count::write_d4(&out, &ids_out, &label, &c, &code)?;
         }
         Cmd::DryrunMerge { batch, figures, figures_sha256, rerun, not_counted, code_commit, out } => {
             let code = binary_code(&code_commit)?;

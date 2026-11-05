@@ -11,10 +11,14 @@
 //!    domain's frontier total only: the added records' allocation over
 //!    labels (label-balanced, Terra ≥ Astra, more to gpt-6.1-terra; §6.4,
 //!    §4.5, user 2026-10-28) is B5b's top-up plan, which checks it
-//!    (amendment 5 item 5.3). **Waived for Enron** (Enron text never goes to
-//!    a hosted model, §2.7, §6.1); the waiver is recorded;
+//!    (amendment 5 item 5.3). **Waived for the domains S0-8 declares in
+//!    `enron_domains`**: amendment 51 item 51.2 leaves whether rule 2 applies
+//!    to the Enron domain to S0-8's declaration; the waiver is recorded;
 //! 3. every declared generator × domain cell ≥ 59 rows (R0's realised
-//!    coverage floor);
+//!    coverage floor). With `rule3_classes` (amendment 55), the declared
+//!    generators are provider classes, and each row, planned rows included,
+//!    counts in the class its generator label maps to; a label in a covered
+//!    domain, or a planned label, with no class refuses the run;
 //! 4. the domain's share of Train-2 rows ≥ its share m_d of the blended
 //!    evaluation human mass: ½ × its share of the Tier C Test human mass plus
 //!    ½ × the v5 CC shares of the strata mapped to it (only a CC stratum that
@@ -64,7 +68,9 @@ pub const RULE1: (u64, u64) = (37_396, 49_179);
 pub const RULE2: (u64, u64) = (10_713, 49_179);
 /// Rule 3: R0's realised coverage floor per generator × domain cell (inherited).
 pub const RULE3_FLOOR: u64 = 59;
-pub const ENRON_WAIVER: &str = "rule 2 waived: Enron text never goes to a hosted model (protocol A2 §2.7, §6.1)";
+pub const ENRON_WAIVER: &str = "rule 2 waived: the domain is in S0-8's enron_domains declaration (protocol A2 amendment 51 item 51.2: whether rule 2 applies to the Enron domain is read when S0-8 is written)";
+/// How rule 3 reads generator labels under `rule3_classes` (protocol A2 amendment 55).
+pub const RULE3_CLASS_READING: &str = "rule 3 by provider class (protocol A2 amendment 55 item 55.1): the declared generators are classes; every positive-weight AI-involved row of a covered domain, and every planned positive, counts in the class its generator label maps to; a label with no class refuses the run; every class x covered domain cell needs 59 rows";
 
 /// The caller's declaration: covered domains, evaluation masses, generators and plans.
 #[derive(Debug, Deserialize)]
@@ -83,8 +89,13 @@ pub struct SupervisionConfig {
     /// Covered domains whose rule 2 is waived (Enron).
     #[serde(default)]
     pub enron_domains: Vec<String>,
-    /// Generator labels of rule 3's cells.
+    /// Generator labels of rule 3's cells, or its provider classes when
+    /// `rule3_classes` is given.
     pub rule3_generators: Vec<String>,
+    /// Rule 3's class reading (protocol A2 amendment 55): generator label ->
+    /// class, every class one of `rule3_generators`.
+    #[serde(default)]
+    pub rule3_classes: Option<BTreeMap<String, String>>,
     #[serde(default)]
     pub planned_humans: BTreeMap<String, u64>,
     /// Domain -> generator label -> planned non-frontier positives.
@@ -283,16 +294,44 @@ pub fn targets(counts: &BTreeMap<String, Counts>, cfg: &SupervisionConfig) -> Re
         let c: f64 = cfg.cc_stratum_domains.iter().filter(|(_, x)| x.as_str() == d).map(|(s, _)| cc[s]).sum();
         (0.5 * t, 0.5 * c)
     };
+    if let Some(t) = &cfg.rule3_classes {
+        for (label, class) in t {
+            ensure!(gens.contains(class.as_str()), "rule-3 class {class} of label {label} is not a declared rule-3 class");
+        }
+    }
     let empty = Counts::default();
     let mut doms: BTreeMap<&str, Domain> = BTreeMap::new();
+    let mut planned_cells: BTreeMap<&str, BTreeMap<String, u64>> = BTreeMap::new();
     for d in &covered {
         let c = counts.get(*d).unwrap_or(&empty);
         let planned = cfg.planned_positives.get(*d);
         let mut cells = BTreeMap::new();
-        for g in &gens {
-            let n = c.by_generator.get(*g).copied().unwrap_or(0) + planned.and_then(|p| p.get(*g)).copied().unwrap_or(0);
-            cells.insert(g.to_string(), n);
+        let mut pc = BTreeMap::new();
+        match &cfg.rule3_classes {
+            None => {
+                for g in &gens {
+                    let p = planned.and_then(|p| p.get(*g)).copied().unwrap_or(0);
+                    cells.insert(g.to_string(), c.by_generator.get(*g).copied().unwrap_or(0) + p);
+                    pc.insert(g.to_string(), p);
+                }
+            }
+            Some(t) => {
+                for g in &gens {
+                    cells.insert(g.to_string(), 0u64);
+                    pc.insert(g.to_string(), 0u64);
+                }
+                let class = |label: &str| t.get(label).with_context(|| format!("generator label {label} in covered domain {d} has no rule-3 class (amendment 55)"));
+                for (label, n) in &c.by_generator {
+                    *cells.get_mut(class(label)?).context("class")? += n;
+                }
+                for (label, n) in planned.into_iter().flatten() {
+                    let k = class(label)?;
+                    *cells.get_mut(k).context("class")? += n;
+                    *pc.get_mut(k).context("class")? += n;
+                }
+            }
         }
+        planned_cells.insert(d, pc);
         let dc = cells.values().map(|n| RULE3_FLOOR.saturating_sub(*n)).sum();
         let (t, cm) = mass(d);
         doms.insert(d, Domain {
@@ -351,7 +390,7 @@ pub fn targets(counts: &BTreeMap<String, Counts>, cfg: &SupervisionConfig) -> Re
             "current": {"humans_positive_weight": c.humans, "humans_zero_weight": c.humans_zero_weight,
                 "positives_positive_weight": c.positives, "positives_zero_weight": c.positives_zero_weight,
                 "frontier_records": c.frontier, "frontier_by_label": c.frontier_by_label, "rows": c.rows(),
-                "generator_rows": x.cells.iter().map(|(g, n)| (g.clone(), json!(n - cfg.planned_positives.get(*d).and_then(|p| p.get(g)).copied().unwrap_or(0)))).collect::<serde_json::Map<_, _>>()},
+                "generator_rows": x.cells.iter().map(|(g, n)| (g.clone(), json!(n - planned_cells[d].get(g).copied().unwrap_or(0)))).collect::<serde_json::Map<_, _>>()},
             "planned": {"humans": cfg.planned_humans.get(*d).copied().unwrap_or(0), "positives": cfg.planned_positives.get(*d)},
             "targets": {"humans": hd, "positives": p, "frontier_records": f, "rows": x.rows(hd),
                 "rule1_min_positives": ceil_ratio(hd, RULE1),
@@ -368,7 +407,7 @@ pub fn targets(counts: &BTreeMap<String, Counts>, cfg: &SupervisionConfig) -> Re
     let uncovered: BTreeMap<&String, u64> = counts.iter().filter(|(d, _)| !covered.contains(d.as_str())).map(|(d, c)| (d, c.rows())).collect();
     let ignored_mass: Vec<&String> = cfg.tier_c_test_mass.keys().filter(|d| !covered.contains(d.as_str())).collect();
     let unmapped_cc: Vec<&String> = cfg.cc_shares.keys().filter(|s| !cfg.cc_stratum_domains.contains_key(*s)).collect();
-    Ok(json!({
+    let mut v = json!({
         "schema": OUTPUT_SCHEMA, "rule": SUPERVISION_RULE,
         "constants": {"rule1_positives_per_human": [RULE1.0, RULE1.1], "rule2_frontier_per_human": [RULE2.0, RULE2.1],
             "rule3_floor": RULE3_FLOOR, "counts": "Train rows with positive weight only"},
@@ -382,7 +421,13 @@ pub fn targets(counts: &BTreeMap<String, Counts>, cfg: &SupervisionConfig) -> Re
         "tier_c_test_domains_not_covered": ignored_mass, "cc_strata_not_mapped": unmapped_cc,
         "added": {"humans": totals.0, "positives": totals.1, "frontier_records": totals.2},
         "domains": out,
-    }))
+    });
+    if let Some(t) = &cfg.rule3_classes {
+        let table = serde_json::to_vec(t)?;
+        v["rule3_classes"] = json!({"reading": RULE3_CLASS_READING, "classes": cfg.rule3_generators, "table": t, "table_sha256": sha_hex(&table),
+            "table_sha256_of": "the table's JSON bytes as serde_json writes the label -> class map (labels in byte order, no whitespace)"});
+    }
+    Ok(v)
 }
 
 /// Count `train_dir`, compute the targets and write them once to `out` (mode 600).

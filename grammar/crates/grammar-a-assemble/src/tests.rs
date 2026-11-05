@@ -1771,6 +1771,85 @@ fn supervision_counts_planned_positives_in_their_generator_cells() {
     assert_eq!(l["current"]["generator_rows"], json!({"phi": 0, "qwen": 40}));
     assert_eq!(l["planned"]["positives"], json!({"phi": 30, "qwen": 5}));
     assert_eq!(l["binding"]["rule4"], false);
+    assert!(v.get("rule3_classes").is_none(), "no class reading without a class table");
+}
+
+/// Amendment 55's five provider classes and a label -> class table.
+fn class_config(domains: &[&str]) -> Value {
+    json!({"schema": supervision::CONFIG_SCHEMA, "domains": domains,
+        "tier_c_test_mass": {"legal": 1.0, "rest": 99.0}, "cc_shares": {"news": 1.0},
+        "rule3_generators": ["workers_ai_small", "workers_ai_mid", "workers_ai_large", "openai", "anthropic"],
+        "rule3_classes": {"qwen3.6": "workers_ai_mid", "phi4": "workers_ai_small", "smollm3": "workers_ai_small",
+            "@cf/openai/gpt-oss-120b": "workers_ai_large", "requested:gpt-6-astra": "openai", "gpt-6.1-terra": "openai",
+            "claude-opus-5-5": "anthropic"}})
+}
+
+#[test]
+fn supervision_reads_rule3_by_provider_class_when_a_class_table_is_given() {
+    use supervision::*;
+    let mut c = BTreeMap::new();
+    // legal: phi4 30 and smollm3 40 both count in workers_ai_small (70), qwen3.6 20 in workers_ai_mid,
+    // the frontier label in openai (10); workers_ai_large and anthropic are empty.
+    c.insert("legal".to_string(), counts(100, 100, &[("requested:gpt-6-astra", 10)], &[("phi4", 30), ("smollm3", 40), ("qwen3.6", 20), ("requested:gpt-6-astra", 10)], "courtlistener_historical"));
+    // an uncovered domain's labels need no class
+    c.insert("rest".to_string(), counts(600, 400, &[], &[("gpt2-xl", 400)], "x"));
+    let mut cfg = class_config(&["legal"]);
+    // planned rows count in their label's class: 50 hosted rows in workers_ai_large, 9 in anthropic
+    cfg["planned_positives"] = json!({"legal": {"@cf/openai/gpt-oss-120b": 50, "claude-opus-5-5": 9}});
+    let cfg: SupervisionConfig = serde_json::from_value(cfg).unwrap();
+    let v = targets(&c, &cfg).unwrap();
+    let l = &v["domains"]["legal"];
+    assert_eq!(l["current"]["generator_rows"], json!({"anthropic": 0, "openai": 10, "workers_ai_large": 0, "workers_ai_mid": 20, "workers_ai_small": 70}));
+    // the floors: mid 59 - 20 = 39, openai 49, large 59 - 50 = 9, anthropic 59 - 9 = 50; small holds 70
+    assert_eq!(l["add"]["local_for_generator_floor"], json!({"anthropic": 50, "openai": 49, "workers_ai_large": 9, "workers_ai_mid": 39}));
+    assert_eq!(l["binding"]["rule3"], json!(["anthropic", "openai", "workers_ai_large", "workers_ai_mid"]));
+    let rc = &v["rule3_classes"];
+    assert_eq!(rc["classes"], json!(["workers_ai_small", "workers_ai_mid", "workers_ai_large", "openai", "anthropic"]));
+    assert_eq!(rc["table"]["phi4"], "workers_ai_small");
+    assert_eq!(rc["table_sha256"], sha_hex(&serde_json::to_vec(&cfg.rule3_classes).unwrap()));
+    assert_eq!(rc["reading"], RULE3_CLASS_READING);
+    // an empty covered domain needs 5 x 59 = 295 rule-3 rows
+    let mut c2 = c.clone();
+    c2.insert("empty".to_string(), counts(0, 0, &[], &[], "x"));
+    let v2 = targets(&c2, &serde_json::from_value(class_config(&["legal", "empty"])).unwrap()).unwrap();
+    let e = &v2["domains"]["empty"];
+    let adds: u64 = e["add"]["local_for_generator_floor"].as_object().unwrap().values().map(|n| n.as_u64().unwrap()).sum();
+    assert_eq!(adds, 5 * RULE3_FLOOR);
+    assert_eq!(adds, 295);
+    assert_eq!(e["targets"]["positives"], 295);
+    // a label of a covered domain with no class is refused; so is a planned label with none
+    let mut c3 = c.clone();
+    c3.get_mut("legal").unwrap().by_generator.insert("granite".into(), 5);
+    let err = format!("{:#}", targets(&c3, &cfg).unwrap_err());
+    assert!(err.contains("generator label granite in covered domain legal has no rule-3 class"), "{err}");
+    let mut pcfg = class_config(&["legal"]);
+    pcfg["planned_positives"] = json!({"legal": {"@cf/unknown/model": 3}});
+    let err = format!("{:#}", targets(&c, &serde_json::from_value(pcfg).unwrap()).unwrap_err());
+    assert!(err.contains("has no rule-3 class"), "{err}");
+    // a table naming an undeclared class is refused
+    let mut bad = class_config(&["legal"]);
+    bad["rule3_classes"]["phi4"] = json!("workers_ai");
+    assert!(format!("{:#}", targets(&c, &serde_json::from_value(bad).unwrap()).unwrap_err()).contains("not a declared rule-3 class"));
+}
+
+#[test]
+fn the_enron_waiver_names_s0_8s_declaration_and_amendment_51() {
+    use supervision::*;
+    // the withdrawn reason (Enron text never goes to a hosted model) is gone; the declaration is S0-8's
+    assert!(!ENRON_WAIVER.contains("hosted model"));
+    assert!(ENRON_WAIVER.contains("enron_domains") && ENRON_WAIVER.contains("amendment 51 item 51.2"));
+    let mut c = BTreeMap::new();
+    c.insert("legal".to_string(), counts(100, 50, &[], &[("phi4", 59), ("qwen3.6", 59)], "courtlistener_historical"));
+    c.insert("enron_email".to_string(), counts(40, 0, &[], &[], grammar_a_pools::pile::ENRON_COLLECTION));
+    let mut cfg = class_config(&["legal", "enron_email"]);
+    cfg["enron_domains"] = json!(["enron_email"]);
+    let v = targets(&c, &serde_json::from_value(cfg.clone()).unwrap()).unwrap();
+    assert_eq!(v["domains"]["enron_email"]["rule2_waiver"], ENRON_WAIVER);
+    assert_eq!(v["domains"]["enron_email"]["binding"]["rule2"], "waived");
+    assert_eq!(v["domains"]["legal"]["rule2_waiver"], Value::Null);
+    // undeclared, rule 2 applies to the domain (and its Enron humans then refuse the run, as before)
+    cfg["enron_domains"] = json!([]);
+    assert!(targets(&c, &serde_json::from_value(cfg).unwrap()).is_err());
 }
 
 #[test]

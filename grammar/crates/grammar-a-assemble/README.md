@@ -280,8 +280,12 @@ shares and digests. Every count is over rows with positive weight. For each
 covered domain (`domains`: those with evaluation humans in a round-2
 population) the targets meet: (1) positives ≥ ⌈H × 37,396/49,179⌉; (2)
 frontier records (source kind `frontier`; RAID, stage-3 and capture rows are
-not) ≥ ⌈H × 10,713/49,179⌉, waived and recorded for `enron_domains`; (3)
-every `rule3_generators` cell ≥ 59 rows, planned positives included; (4) the
+not) ≥ ⌈H × 10,713/49,179⌉, waived and recorded for the domains S0-8
+declares in `enron_domains`; (3) every `rule3_generators` cell ≥ 59 rows,
+planned positives included. With `rule3_classes` (a generator label → class
+table), the declared generators are provider classes: each row counts in its
+label's class, a label of a covered domain or a planned label with no class
+refuses the run, and the output names the classes and the table's digest; (4) the
 domain's share of Train-2 rows ≥ ½ its Tier C Test human mass share + ½ the
 CC shares mapped to it (`cc_stratum_domains`). New frontier and rule-3 rows
 count toward rule 1; rule 4 adds humans with their rule 1–3 positives and is

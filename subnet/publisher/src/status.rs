@@ -116,6 +116,12 @@ pub struct OpView {
     pub epoch: u64,
     pub state: String,
     pub commit_block: Option<u64>,
+    /// The commit extrinsic's index in `commit_block` (a public chain fact;
+    /// the coordinator's type, narrowed where it is published).
+    pub commit_index: Option<u64>,
+    /// The block whose events carry this operation's
+    /// `TimelockedWeightsRevealed` (a public chain fact).
+    pub reveal_block: Option<u64>,
     pub reveal_weights_match: Option<bool>,
     /// The operation's detail code (`inclusion_unverifiable`: its consumed
     /// nonce's inclusion could not be read, so whether its commit landed is
@@ -486,6 +492,8 @@ struct OpJson {
     epoch: Option<u64>,
     state: Option<String>,
     commit_block: Option<u64>,
+    commit_index: Option<u64>,
+    reveal_block: Option<u64>,
     reveal_weights_match: Option<bool>,
     detail: Option<String>,
 }
@@ -822,6 +830,8 @@ fn worker_view(j: ServiceJson) -> WorkerView {
                             epoch: o.epoch?,
                             state: o.state.unwrap_or_default(),
                             commit_block: o.commit_block,
+                            commit_index: o.commit_index,
+                            reveal_block: o.reveal_block,
                             reveal_weights_match: o.reveal_weights_match,
                             detail: o.detail,
                         })
@@ -1262,7 +1272,7 @@ pub(crate) mod tests {
                 "journal": {"confirmed": {"number": 8_340_010, "hash": "0xcd"}, "confirmed_age_ms": 40_000,
                             "fault": if fault { json!({"id": 1, "kind": "parent_conflict", "expected_hash": "fault-detail-hash"}) } else { Value::Null }},
                 "signing": {"state": "active", "reason": null, "ops": [
-                    {"epoch": 23_169, "state": "committed", "commit_block": 8_339_800, "reveal_weights_match": true,
+                    {"epoch": 23_169, "state": "committed", "commit_block": 8_339_800, "commit_index": 7, "reveal_weights_match": true,
                      "attempts": [{"extrinsic_hash": "0xextrinsic_hash"}]}
                 ]}
             }

@@ -205,6 +205,27 @@ netuid}`, `generated_at` (unix seconds, floored to the minute) and
   made it.
 - `latest_cohort`, `notice` (kinds only: `testnet`, `burn`, `target`,
   `operator`), `advisory` (always `null`), `sources_ok`.
+- `weights{epoch, commit_block, commit_index, reveal, reveal_block}` or
+  `null`: the coordinator's latest commit-reveal weight commit, from its
+  signing journal's status (the newest operation, by epoch and then commit
+  block, whose `epoch` is at or below `clock.confirmed_epoch` and whose
+  commit block is at or below `clock.confirmed_block`). `epoch` is the tempo
+  it committed for; `commit_block` and `commit_index` locate the commit
+  extrinsic (the page links them to the network's explorer; `commit_index`
+  is `null` when unknown). `reveal` is the outcome: `revealed` (the chain
+  revealed it at `reveal_block`, the block whose events carry its
+  `TimelockedWeightsRevealed`), `missed` (the coordinator recorded that the
+  chain will never reveal it: its operation failed after the commit, as
+  `reveal_missed` or `reveal_dropped`) or `pending`. `reveal_block` is set
+  only with `revealed`. Public chain facts only: no row, weights, nonce or
+  extrinsic hash. `epoch`, `commit_block` and `reveal` are required. Both
+  sides drop the object when `epoch` or `commit_block` is past the
+  document's chain head, when `commit_block` is 0 and when `reveal` is not
+  one of the three values (a later outcome degrades to no weights fact, not
+  a refused document). A `reveal_block` not after the commit or past the
+  head is dropped and `revealed` then reads `pending`; a `reveal_block`
+  beside any other outcome is dropped. The object is closed: an unknown key
+  refuses the document. A website built before this field ignores it.
 
 A cohort in its admission window, with every boundary credited:
 

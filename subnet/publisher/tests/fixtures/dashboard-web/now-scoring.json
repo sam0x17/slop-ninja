@@ -224,5 +224,6 @@
   "testnet"
  ],
  "advisory": null,
- "sources_ok": true
+ "sources_ok": true,
+ "weights": null
 }

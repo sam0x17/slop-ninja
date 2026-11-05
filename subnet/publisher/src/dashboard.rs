@@ -445,7 +445,35 @@ pub struct NowDoc {
     /// Reserved for validator advisory scores; always `null`.
     pub advisory: Option<Never>,
     pub sources_ok: Option<bool>,
+    /// The coordinator's latest weight commit, from its signing status.
+    pub weights: Option<Weights>,
 }
+
+/// The coordinator's latest commit-reveal weight commit, as public chain
+/// facts: the tempo it committed for, the block and index of its commit
+/// extrinsic, its reveal's outcome and the block whose events carry the
+/// chain's reveal (only when `reveal` is `revealed`). Never the row, the
+/// weights or the extrinsic hash.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Weights {
+    pub epoch: u64,
+    pub commit_block: u64,
+    pub commit_index: Option<u32>,
+    /// [`REVEAL_PENDING`], [`REVEAL_REVEALED`] or [`REVEAL_MISSED`].
+    pub reveal: String,
+    pub reveal_block: Option<u64>,
+}
+
+/// `weights.reveal`: the chain has not revealed the commit by the
+/// document's head (and the coordinator has not seen it fail).
+pub const REVEAL_PENDING: &str = "pending";
+/// `weights.reveal`: revealed at `reveal_block`, within the head.
+pub const REVEAL_REVEALED: &str = "revealed";
+/// `weights.reveal`: the coordinator recorded that the chain will never
+/// reveal it (its operation failed after the commit: `reveal_missed`,
+/// `reveal_dropped`).
+pub const REVEAL_MISSED: &str = "missed";
 
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -695,6 +723,12 @@ const NOW_PATHS: &[&str] = &[
     "notice",
     "advisory",
     "sources_ok",
+    "weights",
+    "weights.epoch",
+    "weights.commit_block",
+    "weights.commit_index",
+    "weights.reveal",
+    "weights.reveal_block",
 ];
 
 const ROW: &[&str] = &[
@@ -1179,6 +1213,7 @@ fn row_points(r: &mut CohortRow) -> Vec<Pt<'_>> {
 /// blocks follow the clock's tempo and boundary; the last phase of a running
 /// cohort counts to the clock's boundary epoch.
 pub fn clean_now(d: &mut NowDoc) {
+    clean_weights(d);
     let c = &mut d.cohort;
     let earliest = Some((c.expected.close_epoch, c.expected.close_block));
     clean_bounds(&mut c.bounds, &c.phases, earliest);
@@ -1196,6 +1231,35 @@ pub fn clean_now(d: &mut NowDoc) {
     let mut pts: Vec<Pt<'_>> = phases.iter_mut().map(pt_phase).collect();
     pts.extend(bound_points(bounds));
     clean_points(&mut pts, d.generated_at, d.clock.tempo_blocks, reference);
+}
+
+/// The website's rule for `weights`: dropped without a chain head, when its
+/// epoch or commit is past it, when its commit block is zero or when
+/// `reveal` is not a known outcome. A reveal block not after its commit, or
+/// past the head, is dropped alone and a `revealed` outcome then reads
+/// `pending`; only a `revealed` outcome keeps a reveal block, and it needs
+/// one.
+fn clean_weights(d: &mut NowDoc) {
+    let (Some(head), Some(epoch)) = (d.clock.confirmed_block, d.clock.confirmed_epoch) else {
+        d.weights = None;
+        return;
+    };
+    let known = [REVEAL_PENDING, REVEAL_REVEALED, REVEAL_MISSED];
+    if d.weights.as_ref().is_some_and(|w| {
+        w.epoch > epoch || w.commit_block == 0 || w.commit_block > head || !known.contains(&w.reveal.as_str())
+    }) {
+        d.weights = None;
+    }
+    if let Some(w) = &mut d.weights {
+        if w.reveal_block.is_some_and(|r| r <= w.commit_block || r > head) {
+            w.reveal_block = None;
+        }
+        if w.reveal != REVEAL_REVEALED {
+            w.reveal_block = None;
+        } else if w.reveal_block.is_none() {
+            w.reveal = REVEAL_PENDING.into();
+        }
+    }
 }
 
 /// A row's reference boundary, when its anchor is whole.
@@ -2113,9 +2177,40 @@ pub fn now_doc(
         notice,
         advisory: None,
         sources_ok: Some(sources_ok),
+        weights: None,
     };
+    d.weights = weights(o, d.clock.confirmed_block, d.clock.confirmed_epoch);
     clean_now(&mut d);
     d
+}
+
+/// The newest operation of the coordinator's signing journal (by epoch, then
+/// commit block) whose epoch and commit are at or below the document's own
+/// chain head, with its reveal outcome: `revealed` with its block when that
+/// follows the commit within the head, `missed` when the operation failed
+/// after its commit (the chain will never reveal it), else `pending`. Public
+/// chain facts only.
+fn weights(o: &Observed, head: Option<u64>, head_epoch: Option<u64>) -> Option<Weights> {
+    let (head, head_epoch) = (head?, head_epoch?);
+    let ops = &o.coordinator.as_ref()?.signing.as_ref()?.ops;
+    let op = ops
+        .iter()
+        .filter(|op| op.epoch <= head_epoch && op.commit_block.is_some_and(|b| b > 0 && b <= head))
+        .max_by_key(|op| (op.epoch, op.commit_block))?;
+    let commit_block = op.commit_block?;
+    let reveal_block = op.reveal_block.filter(|&r| r > commit_block && r <= head);
+    let (reveal, reveal_block) = match op.state.as_str() {
+        "revealed" if reveal_block.is_some() => (REVEAL_REVEALED, reveal_block),
+        "failed" => (REVEAL_MISSED, None),
+        _ => (REVEAL_PENDING, None),
+    };
+    Some(Weights {
+        epoch: op.epoch,
+        commit_block,
+        commit_index: op.commit_index.and_then(|i| u32::try_from(i).ok()),
+        reveal: reveal.into(),
+        reveal_block,
+    })
 }
 
 /// `index.json`: A live on chain mechanism `chain.mechanism`, B and C

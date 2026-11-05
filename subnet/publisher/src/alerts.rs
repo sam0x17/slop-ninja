@@ -1558,6 +1558,7 @@ mod tests {
                 commit_block: Some(1),
                 reveal_weights_match: Some(false),
                 detail: None,
+                ..OpView::default()
             }],
             ..SigningView::default()
         });

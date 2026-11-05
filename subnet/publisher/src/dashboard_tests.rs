@@ -749,6 +749,112 @@ fn an_ended_cohort_is_listed_once_its_end_is_visible() {
     checked(&Doc::Now("a"), &n);
 }
 
+/// The coordinator's latest weight commit at or below the document's chain
+/// head (epoch and block), with its reveal outcome: `revealed` with its block
+/// only when that follows the commit within the head, `missed` for an
+/// operation that failed after its commit, else `pending`; public chain facts
+/// only (no extrinsic hash, row or weights).
+#[test]
+fn weights_carry_the_latest_commit_within_the_chain_head() {
+    use crate::status::OpView;
+    let mut log = LOG_SCORING.to_vec();
+    log.extend([("packaging", 119), ("transition", 121)]);
+    let mut o = observed(eval_json(121, "transition", &log, json!({"published_active": 61, "reward_v1": {"published_epoch": 121}})));
+    let mut memo = saved_at(121);
+    rolled(&o, &mut memo, time_of(121));
+    let clock = now_of(&o, &memo).clock;
+    let head = clock.confirmed_block.expect("a chain head");
+    let head_epoch = clock.confirmed_epoch.expect("a chain head epoch");
+    let op = |epoch: u64, commit: u64, reveal: Option<u64>| OpView {
+        epoch,
+        state: if reveal.is_some() { "revealed" } else { "committed" }.into(),
+        commit_block: Some(commit),
+        commit_index: Some(3),
+        reveal_block: reveal,
+        ..OpView::default()
+    };
+    let failed = |epoch: u64, commit: u64, detail: &str| OpView {
+        state: "failed".into(),
+        detail: Some(detail.into()),
+        ..op(epoch, commit, None)
+    };
+    let set = |o: &mut Observed, ops: Vec<OpView>| {
+        o.coordinator.as_mut().unwrap().signing.as_mut().unwrap().ops = ops;
+    };
+    let w = |epoch: u64, commit: u64, reveal: &str, reveal_block: Option<u64>| {
+        Some(Weights { epoch, commit_block: commit, commit_index: Some(3), reveal: reveal.into(), reveal_block })
+    };
+    // The newest commit past the head waits; the next one is published with its reveal.
+    set(&mut o, vec![op(head_epoch, head + 5, None), op(head_epoch - 1, head - 300, Some(head - 10)), op(head_epoch - 2, head - 700, Some(head - 400))]);
+    let d = now_of(&o, &memo);
+    let v = checked(&Doc::Now("a"), &d);
+    round_trips::<web_model::NowDoc>(&v);
+    assert_eq!(d.weights, w(head_epoch - 1, head - 300, REVEAL_REVEALED, Some(head - 10)));
+    assert_eq!(
+        v["weights"],
+        json!({"epoch": head_epoch - 1, "commit_block": head - 300, "commit_index": 3, "reveal": "revealed", "reveal_block": head - 10})
+    );
+    // An epoch past the head's, though committed within it, waits too: the
+    // previous commit is published rather than nothing.
+    set(&mut o, vec![op(head_epoch + 1, head - 5, None), op(head_epoch, head - 300, None)]);
+    assert_eq!(now_of(&o, &memo).weights, w(head_epoch, head - 300, REVEAL_PENDING, None));
+    // Two operations for one epoch: the later commit.
+    set(&mut o, vec![op(head_epoch, head - 20, None), failed(head_epoch, head - 300, "reveal_dropped")]);
+    assert_eq!(now_of(&o, &memo).weights, w(head_epoch, head - 20, REVEAL_PENDING, None));
+    // A failed operation that had committed will never reveal: missed, not pending.
+    for detail in ["reveal_missed", "reveal_dropped"] {
+        set(&mut o, vec![failed(head_epoch, head - 300, detail), op(head_epoch - 1, head - 700, Some(head - 400))]);
+        let d = now_of(&o, &memo);
+        assert_eq!(d.weights, w(head_epoch, head - 300, REVEAL_MISSED, None), "{detail}");
+        let v = checked(&Doc::Now("a"), &d);
+        round_trips::<web_model::NowDoc>(&v);
+        assert_eq!(v["weights"]["reveal"], "missed");
+    }
+    // A reveal past the head, or not after its commit, is pending; a reveal
+    // block on an operation not marked revealed is not published.
+    set(&mut o, vec![op(head_epoch, head - 300, Some(head + 1))]);
+    assert_eq!(now_of(&o, &memo).weights, w(head_epoch, head - 300, REVEAL_PENDING, None));
+    set(&mut o, vec![op(head_epoch, head - 300, Some(head - 300))]);
+    assert_eq!(now_of(&o, &memo).weights, w(head_epoch, head - 300, REVEAL_PENDING, None));
+    set(&mut o, vec![OpView { reveal_block: Some(head - 10), ..op(head_epoch, head - 300, None) }]);
+    assert_eq!(now_of(&o, &memo).weights, w(head_epoch, head - 300, REVEAL_PENDING, None));
+    // A commit index the chain could not hold is left out, not the commit.
+    set(&mut o, vec![OpView { commit_index: Some(u64::from(u32::MAX) + 1), ..op(head_epoch, head - 300, None) }]);
+    assert_eq!(now_of(&o, &memo).weights.unwrap().commit_index, None);
+    // No commit within the head, or no signing status: no weights.
+    set(&mut o, vec![op(head_epoch, head + 5, None)]);
+    assert_eq!(now_of(&o, &memo).weights, None);
+    o.coordinator.as_mut().unwrap().signing = None;
+    let d = now_of(&o, &memo);
+    assert_eq!(d.weights, None);
+    round_trips::<web_model::NowDoc>(&checked(&Doc::Now("a"), &d));
+}
+
+/// `clean_now` holds the website's rule for `weights` whatever the input: a
+/// zero commit block or an unknown outcome drops the object; a reveal block
+/// rides only with `revealed`, and `revealed` needs one.
+#[test]
+fn clean_now_holds_the_weights_rule() {
+    let o = observed(eval_json(118, "scoring", LOG_SCORING, json!({})));
+    let mut memo = saved_at(118);
+    rolled(&o, &mut memo, time_of(118));
+    let base = now_of(&o, &memo);
+    let head = base.clock.confirmed_block.expect("a chain head");
+    let epoch = base.clock.confirmed_epoch.expect("a chain head epoch");
+    let cleaned = |reveal: &str, commit: u64, reveal_block: Option<u64>| {
+        let mut d = base.clone();
+        d.weights = Some(Weights { epoch, commit_block: commit, commit_index: None, reveal: reveal.into(), reveal_block });
+        clean_now(&mut d);
+        d.weights.map(|w| (w.reveal, w.reveal_block))
+    };
+    assert_eq!(cleaned("revealed", head - 9, Some(head - 1)), Some(("revealed".into(), Some(head - 1))));
+    assert_eq!(cleaned("revealed", head - 9, None), Some(("pending".into(), None)));
+    assert_eq!(cleaned("missed", head - 9, Some(head - 1)), Some(("missed".into(), None)));
+    assert_eq!(cleaned("pending", head - 9, Some(head - 1)), Some(("pending".into(), None)));
+    assert_eq!(cleaned("later", head - 9, None), None);
+    assert_eq!(cleaned("pending", 0, None), None);
+}
+
 #[test]
 fn no_private_status_field_reaches_a_document() {
     let c = chain();
@@ -1038,6 +1144,7 @@ fn the_allow_list_is_exactly_the_contract() {
     now["best"]["quantization"] = json!({"rule": "r", "width": "0.01"});
     let point = json!({"epoch": 1, "block": 2, "at": 60, "basis": "observed"});
     now["cohort"]["bounds"]["cutoff"] = point.clone();
+    now["weights"] = json!({"epoch": 1, "commit_block": 2, "commit_index": 3, "reveal": "revealed", "reveal_block": 4});
     let rows = listed(&s, &idx, o.eval.as_ref());
     let mut cohort = value(&cohort_doc(&s, &rows, 1, Some(&sm), &arts, 118, time_of(118)));
     cohort["cohort"]["quantization"] = json!({"rule": "r", "width": "0.01"});

@@ -317,6 +317,26 @@ pub struct NowDoc {
     /// `false` when the coordinator's or eval status did not answer the
     /// publisher's last run.
     pub sources_ok: Option<bool>,
+    /// The coordinator's latest weight commit on chain, `None` before the
+    /// publisher reports it.
+    pub weights: Option<Weights>,
+}
+
+/// The coordinator's latest commit-reveal weight commit: public chain facts
+/// only. `epoch` is the tempo it committed for; `commit_block` and
+/// `commit_index` locate its commit extrinsic; `reveal` is its outcome
+/// (`pending`, `revealed` or `missed`: the chain will never reveal it) and
+/// `reveal_block` the block whose events carry the chain's reveal (only with
+/// `revealed`). No weights, no row and no extrinsic hash. A closed object,
+/// like [`Phase`], whose `epoch`, `commit_block` and `reveal` are required.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Weights {
+    pub epoch: u64,
+    pub commit_block: u64,
+    pub commit_index: Option<u32>,
+    pub reveal: String,
+    pub reveal_block: Option<u64>,
 }
 
 /// A tempo boundary: its epoch, its first block, its time to the minute and

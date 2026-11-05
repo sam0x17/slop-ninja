@@ -1022,6 +1022,24 @@ pub fn note_budget(sql: &impl Sql, seq: i64, code: &str, now_ms: u64) -> R<()> {
     Ok(())
 }
 
+/// Adds a content-free note to cohort `seq`'s phase log (an operator
+/// record that changes nothing).
+pub(crate) fn log_note(sql: &impl Sql, seq: i64, note: &str, now_ms: u64) -> R<()> {
+    let o = observed(sql)?;
+    sql.exec(
+        "INSERT INTO phase_log (seq, phase, at_ms, confirmed_number, epoch_index, note)
+         SELECT seq, phase, ?, ?, ?, ? FROM cohorts WHERE seq = ?",
+        &[
+            bind_u64(now_ms)?,
+            o.confirmed.map_or(SqlValue::Null, |c| i(c.number as i64)),
+            o.epoch.map_or(SqlValue::Null, |e| i(e.index as i64)),
+            s(note),
+            i(seq),
+        ],
+    )?;
+    Ok(())
+}
+
 /// Pauses a cohort with a content-free fault code; its work and evidence stay.
 pub fn fault(sql: &impl Sql, seq: i64, code: &str, now_ms: u64) -> R<()> {
     fault_with_cause(sql, seq, code, None, now_ms).map(|_| ())
@@ -1516,6 +1534,7 @@ pub fn probe_due(sql: &impl Sql, cfg: &EvalConfig, now_ms: u64) -> R<Option<Work
         // The generator of the paused item with the most outages in a row.
         let g = sql.exec(
             "SELECT generator_next FROM docs WHERE seq = ? AND status = 'pending' AND generator_next IS NOT NULL
+               AND generator_next LIKE '@cf/%'
              ORDER BY infra_failures DESC, idx LIMIT 1",
             &[i(seq)],
         )?;
@@ -1530,6 +1549,7 @@ pub fn probe_due(sql: &impl Sql, cfg: &EvalConfig, now_ms: u64) -> R<Option<Work
             prompt: textgen::scratch_prompt("fineweb", "a short walk along a canal in early spring", 80),
             attempt: 0,
             claim: 0,
+            call: None,
         };
         Probe::Generation { item, timeout_ms: crate::eval::lanes::gen_call_timeout_ms(f.generation.lease_ms) }
     } else {
@@ -2258,6 +2278,11 @@ pub struct GenItem {
     /// The claim fence: a result lands only while this is the item's latest claim.
     #[serde(default)]
     pub claim: i64,
+    /// Generation v2: the vendor call of the item's current cell (built by
+    /// the claim from the cohort's bound manifest); `prompt` is then unused.
+    /// Absent for every v1 item.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub call: Option<Box<slop_ninja_gen_core::outcome::GenCall>>,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -2271,7 +2296,9 @@ pub enum Work {
     /// lanes' containers, then sleep until the next sweep.
     Dispatch { seq: i64, kicks: Vec<crate::eval::lanes::LaneKick>, stop: Vec<String> },
     /// Charge a finished cohort's measured spend to the monthly ledger.
-    Settle { seq: i64, key: String, microusd: u64 },
+    /// The cohort's spend under its own key, and (generation v2) each
+    /// frontier vendor's under `gen:<vendor>:<cohort key>`, settled first.
+    Settle { seq: i64, key: String, microusd: u64, vendors: Vec<(String, u64)> },
     /// Delete a finished cohort's private results objects and summaries (per-
     /// document predictions) from the eval bucket, as its texts are deleted.
     Purge { seq: i64, prefixes: Vec<String> },
@@ -2533,6 +2560,41 @@ pub struct GenOutcome {
     /// The claim this call ran under; a stale claim's result records usage only.
     #[serde(default)]
     pub claim: i64,
+    /// Generation v2: the vendor's content-free reply (with the answer's
+    /// visible text). Absent for every v1 result.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reply: Option<Box<slop_ninja_gen_core::outcome::GenReply>>,
+    /// Generation v2: the effort level the call ran at (its claim's cell),
+    /// so a stale result is recorded and charged on the cell it actually
+    /// ran, not the document's current one. Absent for every v1 result.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub effort: Option<slop_ninja_gen_core::vendor::Effort>,
+}
+
+impl GenOutcome {
+    /// A v2 result from the vendor's reply: `output` mirrors the outcome
+    /// for the lane's events and the limiter's feedback.
+    pub fn from_reply(it: &GenItem, reply: slop_ninja_gen_core::outcome::GenReply) -> Self {
+        use slop_ninja_gen_core::outcome::OutcomeCode as O;
+        let output = match reply.outcome {
+            O::Answer => reply.text.clone().ok_or(Reject::Empty),
+            O::Throttle => Err(Reject::Throttled),
+            O::CellRefused => Err(Reject::ModelUnavailable),
+            O::Outage | O::InterfaceMismatch | O::FlexUnavailable | O::SpendCap | O::KeyUnavailable => Err(Reject::Transport),
+            O::Refusal | O::LengthTokensOut | O::LengthBytes | O::ModelMismatch => Err(Reject::Empty),
+        };
+        GenOutcome {
+            idx: it.idx,
+            generator: it.generator.clone(),
+            output,
+            prompt_tokens: reply.usage.input_tokens + reply.usage.cached_input_tokens,
+            completion_tokens: reply.usage.output_tokens,
+            ms: reply.latency_ms,
+            claim: it.claim,
+            reply: Some(Box::new(reply)),
+            effort: it.call.as_deref().map(|c| c.request.effort),
+        }
+    }
 }
 
 /// An accepted output: final text, model span, words, model words, share (ppb).
@@ -2551,7 +2613,7 @@ pub fn is_outage(g: &GenOutcome) -> bool {
     }
 }
 
-fn gen_backoff_ms(failures: i64) -> u64 {
+pub(crate) fn gen_backoff_ms(failures: i64) -> u64 {
     let shift = (failures.clamp(1, 16) - 1) as u32;
     GEN_BACKOFF_BASE_MS.saturating_mul(1 << shift).min(GEN_BACKOFF_MAX_MS)
 }
@@ -2590,14 +2652,36 @@ pub fn apply_generation(sql: &impl Sql, cfg: &EvalConfig, seq: i64, results: &[G
     let mut released = 0u64;
     // Whether the commit's last token count finished (`None`: no count ran).
     let mut last_count_ok = None;
+    // Generation v2 (a plan naming `generation`): the cohort's bound
+    // manifest, read once per commit when a v2 document is in it.
+    let mut v2: Option<crate::eval::gen_v2::Ctx> = None;
     for g in results {
         let rows = sql.exec(
             "SELECT kind, parent, spec, attempts, status, infra_failures, claim_gen, reserved_microusd, throttles,
-                    throttle_since_ms, key
+                    throttle_since_ms, key, gen_record, domain
              FROM docs WHERE seq = ? AND idx = ?",
             &[i(seq), i(g.idx)],
         )?;
         let r = rows.first().ok_or(EvalError::State("generated doc"))?;
+        if opt_text(r, 11).is_some() {
+            if v2.is_none() {
+                v2 = crate::eval::gen_v2::Ctx::load(sql, &c, &cfg.private_seed)?;
+            }
+            let ctx = v2.as_ref().ok_or(EvalError::State("generation v2 record in a v1 cohort"))?;
+            let a = crate::eval::gen_v2::apply_one(sql, ctx, &c, max_throttle, pause_after, r, g, now_ms)?;
+            accepted += a.accepted;
+            rejected += a.rejected;
+            outages += a.outages;
+            throttled += a.throttled;
+            fenced += a.fenced;
+            cost_total += a.cost_microusd;
+            released += a.released_microusd;
+            pause |= a.pause;
+            if a.count_ok.is_some() {
+                last_count_ok = a.count_ok;
+            }
+            continue;
+        }
         let cost = textgen::cost_microusd(&g.generator, g.prompt_tokens, g.completion_tokens);
         cost_total += cost;
         let current = text(r, 4)? == "pending" && int(r, 6)? == g.claim;
@@ -2658,29 +2742,7 @@ pub fn apply_generation(sql: &impl Sql, cfg: &EvalConfig, seq: i64, results: &[G
             Ok(_) => (1, 0, 0, 0),
             Err(_) => (0, 0, 1, 0),
         };
-        sql.exec(
-            "INSERT INTO gen_usage (seq, model, calls, accepted, rejected, errors, prompt_tokens, completion_tokens,
-                cost_microusd, ms, throttled, fenced) VALUES (?, ?, 1, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-             ON CONFLICT (seq, model) DO UPDATE SET calls = calls + 1, accepted = accepted + excluded.accepted,
-                rejected = rejected + excluded.rejected, errors = errors + excluded.errors,
-                prompt_tokens = prompt_tokens + excluded.prompt_tokens,
-                completion_tokens = completion_tokens + excluded.completion_tokens,
-                cost_microusd = cost_microusd + excluded.cost_microusd, ms = ms + excluded.ms,
-                throttled = throttled + excluded.throttled, fenced = fenced + excluded.fenced",
-            &[
-                i(seq),
-                s(&g.generator),
-                i(ok),
-                i(rej),
-                i(err),
-                bind_u64(g.prompt_tokens)?,
-                bind_u64(g.completion_tokens)?,
-                bind_u64(cost)?,
-                bind_u64(g.ms)?,
-                i(thr),
-                i(i64::from(!current)),
-            ],
-        )?;
+        record_gen_usage(sql, seq, &g.generator, (ok, rej, err, thr, i64::from(!current)), g, cost)?;
         if !current {
             // A stale claim (expired and taken again, or already resolved).
             fenced += 1;
@@ -2772,6 +2834,36 @@ pub fn apply_generation(sql: &impl Sql, cfg: &EvalConfig, seq: i64, results: &[G
         "fenced": fenced, "cost_microusd": cost_total}))
 }
 
+/// Adds one call to the cohort's per-model generation usage: `(accepted,
+/// rejected, errors, throttled, fenced)` and the call's tokens, time and cost.
+pub(crate) fn record_gen_usage(sql: &impl Sql, seq: i64, model: &str, n: (i64, i64, i64, i64, i64), g: &GenOutcome, cost: u64) -> R<()> {
+    let (ok, rej, err, thr, fenced) = n;
+    sql.exec(
+        "INSERT INTO gen_usage (seq, model, calls, accepted, rejected, errors, prompt_tokens, completion_tokens,
+            cost_microusd, ms, throttled, fenced) VALUES (?, ?, 1, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+         ON CONFLICT (seq, model) DO UPDATE SET calls = calls + 1, accepted = accepted + excluded.accepted,
+            rejected = rejected + excluded.rejected, errors = errors + excluded.errors,
+            prompt_tokens = prompt_tokens + excluded.prompt_tokens,
+            completion_tokens = completion_tokens + excluded.completion_tokens,
+            cost_microusd = cost_microusd + excluded.cost_microusd, ms = ms + excluded.ms,
+            throttled = throttled + excluded.throttled, fenced = fenced + excluded.fenced",
+        &[
+            i(seq),
+            s(model),
+            i(ok),
+            i(rej),
+            i(err),
+            bind_u64(g.prompt_tokens)?,
+            bind_u64(g.completion_tokens)?,
+            bind_u64(cost)?,
+            bind_u64(g.ms)?,
+            i(thr),
+            i(fenced),
+        ],
+    )?;
+    Ok(())
+}
+
 /// An item whose answer was rejected.
 struct RejectedItem<'a> {
     idx: i64,
@@ -2817,7 +2909,11 @@ fn reject_answer(
     } else {
         Vec::new()
     };
-    let next = textgen::generator_avoiding(&c.plan.generators, &item_digest(seed, item.key), attempts as u32, &avoid);
+    let v1_next = textgen::generator_avoiding(&c.plan.generators, &item_digest(seed, item.key), attempts as u32, &avoid);
+    // A generation v2 item keeps its current cell (only the pre-seal screen
+    // sends a v2 answer back here; the v2 commit picks retry cells itself).
+    let v2_next = crate::eval::gen_v2::doc_gen(sql, c.seq, item.idx)?.map(|g| g.call.model);
+    let next = v2_next.as_deref().unwrap_or(v1_next);
     sql.exec(
         "UPDATE docs SET attempts = ?, status = ?, infra_failures = 0, throttle_since_ms = 0,
             not_before_ms = 0, generator_next = ?, rejects = rejects || ?, claim_gen = claim_gen + 1
@@ -4013,6 +4109,10 @@ pub fn status(sql: &impl Sql, now_ms: u64) -> R<Value> {
             "draw": opt_text(row, 10).and_then(|d| serde_json::from_str::<Value>(&d).ok()),
             "docs": docs, "rejects": rejects, "rejects_by_kind": rejects_by_kind, "generation": usage,
             "generation_cost_microusd": c.gen_cost_microusd,
+            // By vendor (micro-USD): frontier vendors apart from Workers AI,
+            // for the operator and the private spend tracker.
+            "gen_cost_by_vendor": crate::eval::gen_v2::cost_by_vendor(sql, &c)?,
+            "generation_v2": crate::eval::gen_v2::status(sql, &c)?,
             "budget_microusd": c.plan.generation_budget_microusd,
             "jobs": jobs, "job_count": job_rows.len(), "job_status": job_status, "lanes": lanes, "load": c.plan.is_load(),
             "receipts_recorded": receipts, "receipt_retention": retention,

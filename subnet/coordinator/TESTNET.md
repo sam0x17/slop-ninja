@@ -884,6 +884,18 @@ printf 'Authorization: Bearer %s\n' "$(cat $S/eval_operator_token)" |
 #   (synthetic set only; each vendor call settles under its own ledger key). Once a plan naming
 #   `generation` has been stored (a later build), rolling the eval Worker back below that build is
 #   unsafe: older builds refuse the stored plan (deny_unknown_fields).
+#   This build runs v2 cohorts end to end (draw rotation and voice split, default
+#   profile_none_quarter_v1; lane calls; outcome classes, vendor pause and Workers AI fallback;
+#   private records under cohorts/<label>/generation/ bound in batch index v4; store v26) but still
+#   refuses every plan naming `generation`. /eval/status gives each cohort gen_cost_by_vendor
+#   {openai, anthropic, workers_ai} (micro-USD) and, for v2, generation_v2 (counts, cells, vendor
+#   states); the ledger status gives vendor_cycle_microusd. A v2 cohort settles each frontier
+#   vendor's spend under gen:<vendor>:<instance>:<label>, the rest (lanes, probes, Workers AI)
+#   under <instance>:<label> as before. A vendor paused by a spend cap or a key failure stays paused
+#   (deployment-wide, across cohorts) until POST /eval/gen/vendor-clear {"vendor": "openai"|"anthropic"}
+#   (answers {"vendor", "cleared"}; idempotent); the self-clearing draw probe is not built yet.
+#   A v2 plan's manifest and voice library together must fit 174,762 declared bytes
+#   (gen_v2::GEN_OBJECTS_BYTES, derived from the claim/commit route footprint); the draw refuses more.
 # resume after an outage, platform, unresolved-infrastructure or step_refused fault: /eval/clear {"label": "..."}
 #   (generation, scorer and admission outages also clear by themselves once a probe or the step
 #   succeeds: auto_cleared_faults; a terminal fault answers {"cleared": false, "refused": "abandon_required"};
@@ -3331,13 +3343,14 @@ merge and release it after step 11.
    and the manifest for `artifacts/packages/<package>.json`, through the
    checksum-verified staging the user chose): new eval-bucket keys only,
    additive, read by nothing live, so step 6's probe can load one.
-6. **Eval Worker** (store v25, admission v2, the v2 lanes, the new scorer
+6. **Eval Worker** (store v25 and v26, admission v2, the v2 lanes, the new scorer
    image), in a quiet window with coordinator signing paused and the
    journal schema checked; step 0's preflight repeated inside the lock
    first. After `wrangler deploy`, wait until `wrangler containers info`
    shows the new application version settled (Worker code goes live before
    the Container rollout finishes; no `scheduling` backlog) before the
-   probe. Post-deploy probe: `/eval/status` reports store 25 (and
+   probe. Post-deploy probe: `/eval/status` reports store 26 (v26 adds
+   generation v2's private tables only, in the same transaction; and
    `/eval/load/status` answers, not `migration_failed`); a scorer
    `/healthz` on a fresh instance; one reference load through the v2 lanes
    (`/eval/scorer-probe` with a v2 package staged in step 5); one binding
@@ -3358,10 +3371,10 @@ merge and release it after step 11.
    its `SCORER_BINARY_SHA256`, so v1 lanes do not meet a binary their pin
    refuses), wait for the Container rollout to settle, probe the v1
    status, and resume signing. Then drain (step 0) and try again.
-   **Rollback floor after a successful migration: store v25.** An earlier
+   **Rollback floor after a successful migration: store v26.** An earlier
    build refuses the newer store (`NewerStoredVersion`) and the v1 session
    tables are gone, so a revert is forward only: a build that keeps
-   `SCHEMA_V25`. This window and the upload Worker's (step 8) are
+   `SCHEMA_V25` and `SCHEMA_V26`. This window and the upload Worker's (step 8) are
    effectively one-way together.
 7. **Template**, one ordered block inside one eval window, before the next
    cohort opens: reinstall the standing template with

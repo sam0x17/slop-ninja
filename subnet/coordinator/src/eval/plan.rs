@@ -478,11 +478,13 @@ pub struct CohortPlan {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub admission: Option<AdmissionPlan>,
     /// Generation v2 (`slop_ninja_generation_plan_v2`: half frontier, half
-    /// Workers AI, per-source rotation, voice profiles). Absent: today's v1
+    /// Workers AI, per-source rotation, voice profiles; the draw, lanes,
+    /// commit and seal run it, [`crate::eval::gen_v2`]). Absent: today's v1
     /// generation, byte-identical (the field is never serialized when
     /// absent, so stored plans keep their digests). Off: this build checks
-    /// its shape and refuses it ([`GENERATION_V2_REFUSAL`]) until the draw,
-    /// the lanes and the seal run it.
+    /// its shape and refuses it ([`GENERATION_V2_REFUSAL`]) until the
+    /// generator manifest is measured, both keys exist and the user
+    /// approves.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub generation: Option<slop_ninja_gen_core::plan::GenerationPlan>,
 }
@@ -495,9 +497,11 @@ pub const GEN_V2_LANE_BOUNDS: slop_ninja_gen_core::plan::LaneBounds =
     slop_ninja_gen_core::plan::LaneBounds { alarm_wall_ms: ALARM_WALL_MS, lease_step_ms: 60_000, commit_margin_ms: 15_000, max_inflight: 6 };
 
 /// Why this build refuses a plan naming generation v2 (after its shape
-/// checks pass): the plan field stays off until the draw, the lanes and the
-/// seal run it, the generator manifest is measured and both keys exist.
-pub const GENERATION_V2_REFUSAL: &str = "generation (v2 is not run by this build: the flag stays off until the draw, lanes and seal run it)";
+/// checks pass): the draw, the lanes and the seal run it, but the plan field
+/// stays off until the generator manifest is measured, both keys exist and
+/// the user approves enabling it.
+pub const GENERATION_V2_REFUSAL: &str =
+    "generation (v2 stays off in this build: enabled only once the generator manifest is measured, both keys exist and the user approves)";
 
 /// The `reward-v1` block of a v3 plan. Every value is a plan parameter,
 /// recorded with the plan's digest and bound into the signed manifest (the
@@ -1217,8 +1221,8 @@ impl CohortPlan {
     }
 
     /// Every check of [`validate`](Self::validate) but this build's refusal
-    /// of generation v2 (which the flag lifts once the draw, the lanes and
-    /// the seal run it).
+    /// of generation v2 (which the flag lifts once the manifest is measured,
+    /// the keys exist and the user approves).
     pub(crate) fn validate_checks(&self, ceilings: Ceilings) -> Result<(), PlanError> {
         let e = |c: bool, what: &'static str| if c { Ok(()) } else { Err(PlanError(what)) };
         // New cohorts are reward-v1 (v3) or probe builds; stored v2 plans still
@@ -1819,7 +1823,7 @@ pub(crate) mod tests {
             rotation: slop_ninja_gen_core::ROTATION_VERSION.into(),
             frontier_mode: FrontierMode::Sync,
             frontier_lanes: FrontierLanes { lease_ms: 300_000, inflight_per_lane: None },
-            voice_split: slop_ninja_gen_core::voice::VoiceSplit::NoneHalf.code().into(),
+            voice_split: slop_ninja_gen_core::voice::VoiceSplit::DEFAULT.code().into(),
         }
     }
 

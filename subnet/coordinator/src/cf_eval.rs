@@ -928,6 +928,28 @@ impl DurableObject for EvalCohort {
                     Err(_) => error("store_unavailable", 503),
                 }
             }
+            (Method::Post, "/gen/vendor-clear") => {
+                // An operator clear of a generation v2 vendor pause: the
+                // vendor is active again from the next draw (and for the
+                // retries and fallbacks of running cohorts). Idempotent.
+                #[derive(Deserialize)]
+                #[serde(deny_unknown_fields)]
+                struct VendorClear {
+                    vendor: String,
+                }
+                let c = match super::cf_io::request_json::<VendorClear>(&mut req, OPERATOR_BODY_BYTES).await {
+                    Ok(c) => c,
+                    Err(super::cf_io::JsonError::Parse) => return error("bad_request", 400),
+                    Err(e) => return error(e.code(), e.status()),
+                };
+                let Some(vendor) = crate::eval::gen_v2::pausable_vendor(&c.vendor) else {
+                    return error("unknown_vendor", 400);
+                };
+                tx_reply(transaction(&storage, move |sql| {
+                    let cleared = crate::eval::gen_v2::resume_vendor(sql, vendor)?;
+                    Ok::<_, engine::EvalError>(j!({"vendor": vendor.code(), "cleared": cleared}))
+                }))
+            }
             (Method::Post, "/hold") => {
                 if instance != engine::INSTANCE_LOAD {
                     return error("load_instance_only", 404);
@@ -1363,7 +1385,9 @@ impl EvalCohort {
                 // step), a deterministic one pauses that cohort, resumably.
                 Work::Draw { seq, plan } => {
                     let r = async {
-                        let child = self.step_scope(scope, R_COHORT_DRAW, seq, STEP_BASE_BYTES)?;
+                        // A v2 plan's draw also holds the generation objects (`gen_v2::GEN_DRAW_BYTES`).
+                        let bytes = STEP_BASE_BYTES + if plan.generation.is_some() { crate::eval::gen_v2::GEN_DRAW_BYTES } else { 0 };
+                        let child = self.step_scope(scope, R_COHORT_DRAW, seq, bytes)?;
                         let fut = async { if plan.is_v3() { self.draw_v3(&cfg, seq, &plan).await } else { self.draw(&cfg, seq, &plan).await } };
                         child.scoped(fut).map_err(|_| "arena_defect")?.await?;
                         let _ = child.close();
@@ -1431,9 +1455,18 @@ impl EvalCohort {
                 // A failed bookkeeping step waits out its retry time
                 // (`engine::bookkeeping_failed`), so it never holds other
                 // work, the outage probe included.
-                Work::Settle { seq, key, microusd } => {
+                Work::Settle { seq, key, microusd, vendors } => {
                     // A ledger outage only delays the charge; evaluation never waits on it.
-                    if ledger_call(&self.env, "/settle", &j!({"key": key, "microusd": microusd, "note": "cohort spend"})).await.is_err() {
+                    // Each frontier vendor's generation spend first, under its own key
+                    // (every settle is idempotent per key), then the cohort's own.
+                    let mut failed = false;
+                    for (vkey, vmicro) in &vendors {
+                        if ledger_call(&self.env, "/settle", &j!({"key": vkey, "microusd": vmicro, "note": "vendor generation spend"})).await.is_err() {
+                            failed = true;
+                            break;
+                        }
+                    }
+                    if failed || ledger_call(&self.env, "/settle", &j!({"key": key, "microusd": microusd, "note": "cohort spend"})).await.is_err() {
                         bookkeeping_failed(&storage, engine::BOOKKEEPING_SETTLE, "ledger_settle");
                         return Ok(progress);
                     }
@@ -2021,7 +2054,7 @@ pub async fn ai_generate(env: &Env, it: &GenItem, timeout_ms: u64) -> (GenOutcom
         Err(e) => (Err(textgen::classify_ai_error(&e)), 0, 0, Some(crate::eval::limiter::sanitize(&e))),
     };
     (
-        GenOutcome { idx: it.idx, generator: it.generator.clone(), output, prompt_tokens: pt, completion_tokens: ct, ms: now_ms() - t0, claim: it.claim },
+        GenOutcome { idx: it.idx, generator: it.generator.clone(), output, prompt_tokens: pt, completion_tokens: ct, ms: now_ms() - t0, claim: it.claim, reply: None, effort: None },
         err,
     )
 }
@@ -2036,7 +2069,7 @@ Members asked about heating costs and the timeline for the roof repairs.";
         ("mixed", textgen::rewrite_prompt("wikinews", passage)),
         ("model_only", textgen::scratch_prompt("fineweb", "restoring an old bicycle", 150)),
     ] {
-        let it = GenItem { idx: 0, kind: kind.into(), generator: model.into(), prompt, attempt: 0, claim: 0 };
+        let it = GenItem { idx: 0, kind: kind.into(), generator: model.into(), prompt, attempt: 0, claim: 0, call: None };
         let (g, err) = ai_generate(env, &it, 120_000).await;
         let verdict = match (&g.output, kind) {
             (Ok(t), "mixed") => textgen::validate_rewrite(passage, t).map(|_| "accepted"),
@@ -2073,6 +2106,7 @@ pub async fn probe_connections(env: &Env, kind: &str, n: usize, model: &str, ms:
                     },
                     attempt: 0,
                     claim: 0,
+                    call: None,
                 };
                 let (g, err) = ai_generate(env, &it, 60_000).await;
                 j!({"ok": g.output.is_ok(), "error": err, "completion_tokens": g.completion_tokens})
@@ -2406,6 +2440,30 @@ impl EvalCohort {
         put(env, EVAL_BUCKET, &entry_key, serde_json::to_vec_pretty(&entry).map_err(|_| "ledger entry")?)
             .await
             .map_err(|_| "used ledger write")?;
+        // Generation v2: the plan's bound manifest and voice library, refused
+        // before each read when the declared sizes pass the generation
+        // objects bound (`gen_v2::GEN_OBJECTS_BYTES`: the manifest's alone,
+        // then both), and checked by digest again in the draw.
+        let generation = match &plan.generation {
+            Some(g) => {
+                use crate::eval::gen_v2;
+                if !gen_v2::storable(&g.manifest, None) {
+                    return Err(self.step_refused_now(seq, engine::EvalError::State("generation manifest (larger than the generation objects bound)")));
+                }
+                let bound = usize::try_from(g.manifest.bytes).map_err(|_| "generation manifest size")?;
+                let mb = self.read(seq, EVAL_BUCKET, &g.manifest.key, bound, "generation manifest read").await?.ok_or("generation manifest missing")?;
+                let m = slop_ninja_gen_core::manifest::Manifest::parse_bound(&mb, &g.manifest)
+                    .map_err(|e| self.step_refused_now(seq, engine::EvalError::State(e.0)))?;
+                let lref = gen_v2::library_ref(&m);
+                if !gen_v2::storable(&g.manifest, Some(&lref)) {
+                    return Err(self.step_refused_now(seq, engine::EvalError::State("voice library (with the manifest, larger than the generation objects bound)")));
+                }
+                let bound = usize::try_from(lref.bytes).map_err(|_| "voice library size")?;
+                let lb = self.read(seq, EVAL_BUCKET, &lref.key, bound, "voice library read").await?.ok_or("voice library missing")?;
+                Some(gen_v2::DrawObjects { manifest: mb, library: lb })
+            }
+            None => None,
+        };
         let d = v3::DrawV3 {
             negatives,
             audit_a: audits.first().cloned().flatten(),
@@ -2413,6 +2471,7 @@ impl EvalCohort {
             fresh: Some(fresh),
             earlier,
             probe,
+            generation,
         };
         let c2 = cfg.clone();
         let now = now_ms();
@@ -2459,8 +2518,15 @@ impl EvalCohort {
                 return Err("batch shard put");
             }
         }
+        // Generation v2's private records, before the index that binds them.
+        for group in b.gen_shards.chunks(PARALLEL) {
+            let r = join_all(group.iter().map(|(key, body)| put(&self.env, EVAL_BUCKET, key, body.clone()))).await;
+            if r.iter().any(|x| x.is_err()) {
+                return Err("generation record put");
+            }
+        }
         put(&self.env, EVAL_BUCKET, &b.index_key, b.index.clone()).await.map_err(|_| "batch index put")?;
-        let mut puts = b.shards.len() as u64 + 1;
+        let mut puts = b.shards.len() as u64 + b.gen_shards.len() as u64 + 1;
         if let Some((key, bytes)) = &b.probe_record {
             put(&self.env, EVAL_BUCKET, key, bytes.clone()).await.map_err(|_| "probe record put")?;
             puts += 1;

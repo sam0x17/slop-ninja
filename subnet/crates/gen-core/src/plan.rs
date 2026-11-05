@@ -49,7 +49,15 @@ pub struct GenerationPlan {
     pub rotation: String,
     pub frontier_mode: FrontierMode,
     pub frontier_lanes: FrontierLanes,
+    /// The versioned voice split ([`VoiceSplit`]); a plan that names none
+    /// takes [`VoiceSplit::DEFAULT`] (`profile_none_quarter_v1`). The two
+    /// earlier splits stay valid for the record.
+    #[serde(default = "default_voice_split")]
     pub voice_split: String,
+}
+
+fn default_voice_split() -> String {
+    VoiceSplit::DEFAULT.code().to_owned()
 }
 
 /// The lanes' fixed bounds the plan is checked against (the coordinator's).
@@ -72,6 +80,28 @@ impl LaneBounds {
     pub const fn call_timeout_ceiling_ms(&self) -> u64 {
         self.alarm_wall_ms.saturating_sub(self.lease_step_ms).saturating_sub(self.commit_margin_ms)
     }
+
+    /// A v2 lane's calls in flight per lane class (`lane_inflight_v1`):
+    /// `(frontier, workers_ai)` from the plan's frontier and Workers AI
+    /// values, so that both together stay within [`max_inflight`]
+    /// (`Self::max_inflight`), the connection limit one lane invocation
+    /// shares between its generation-Worker and Workers AI calls. Each class
+    /// is entitled to half of the limit (the frontier class the lower half,
+    /// the manifest's lanes being equal shares); a class asking for less
+    /// leaves the rest to the other. Both classes run their calls at once
+    /// in one invocation, so these are also the concurrencies the phase
+    /// projection uses.
+    pub const fn split_inflight(&self, frontier: u32, workers_ai: u32) -> (u32, u32) {
+        let max = self.max_inflight;
+        let half_f = max / 2;
+        let half_w = max - half_f;
+        let w_claim = if workers_ai < half_w { workers_ai } else { half_w };
+        let f_cap = max - w_claim;
+        let f = if frontier < f_cap { frontier } else { f_cap };
+        let w_cap = max - f;
+        let w = if workers_ai < w_cap { workers_ai } else { w_cap };
+        (f, w)
+    }
 }
 
 impl GenerationPlan {
@@ -85,7 +115,7 @@ impl GenerationPlan {
         need(self.schema == GENERATION_PLAN_SCHEMA, "generation.schema")?;
         self.manifest.validate("generation.manifest")?;
         need(self.rotation == ROTATION_VERSION, "generation.rotation (generation_rotation_v1)")?;
-        need(VoiceSplit::parse(&self.voice_split).is_some(), "generation.voice_split (profile_none_half_v1 or profile_none_category_v1)")?;
+        need(VoiceSplit::parse(&self.voice_split).is_some(), "generation.voice_split (profile_none_quarter_v1, profile_none_half_v1 or profile_none_category_v1)")?;
         need(self.frontier_mode == FrontierMode::Sync, "generation.frontier_mode (this build runs sync only)")?;
         let l = &self.frontier_lanes;
         need(
@@ -177,11 +207,15 @@ pub struct PhaseFit {
     pub workers_ai_all: Projection,
 }
 
-pub fn phase_fit(p: &GenerationPlan, m: &Manifest, phase: &Phase) -> PhaseFit {
+pub fn phase_fit(p: &GenerationPlan, m: &Manifest, phase: &Phase, b: &LaneBounds) -> PhaseFit {
     let frontier_docs = phase.documents.div_ceil(2);
     let lanes = u64::from(phase.lanes.max(1));
-    let wai_conc = lanes.saturating_mul(u64::from(phase.workers_ai_inflight_per_lane.max(1)));
-    let frontier_conc = lanes.saturating_mul(u64::from(p.frontier_lanes.inflight_per_lane.unwrap_or(phase.workers_ai_inflight_per_lane).max(1)));
+    // The lane runs both classes at once within its connection limit
+    // (`LaneBounds::split_inflight`); a fallen-back frontier share runs at
+    // the Workers AI class's own value.
+    let (f, w) = b.split_inflight(p.frontier_lanes.inflight_per_lane.unwrap_or(phase.workers_ai_inflight_per_lane), phase.workers_ai_inflight_per_lane);
+    let wai_conc = lanes.saturating_mul(u64::from(w.max(1)));
+    let frontier_conc = lanes.saturating_mul(u64::from(f.max(1)));
     PhaseFit {
         frontier: project(m, Lane::Frontier, frontier_docs, frontier_conc),
         workers_ai: project(m, Lane::WorkersAi, phase.documents - frontier_docs, wai_conc),
@@ -221,7 +255,7 @@ pub fn admit(p: &GenerationPlan, m: &Manifest, pool_domains: &[String], generato
         .max()
         .unwrap_or(0);
     need(slowest <= timeout, "generation.frontier_lanes.lease_ms (below the slowest measured cell: mark it unusable or raise the lease)")?;
-    let fit = phase_fit(p, m, phase);
+    let fit = phase_fit(p, m, phase, b);
     let window = phase.generating_window_ms;
     need(fit.frontier.ms() <= window && fit.workers_ai.ms() <= window, "generation (the projected generation does not fit the generating window)")?;
     need(fit.workers_ai_all.ms() <= window, "generation (with every frontier item fallen back to Workers AI, the projection does not fit the generating window)")?;
@@ -242,8 +276,51 @@ mod tests {
             rotation: ROTATION_VERSION.into(),
             frontier_mode: FrontierMode::Sync,
             frontier_lanes: FrontierLanes { lease_ms: 300_000, inflight_per_lane: None },
-            voice_split: VoiceSplit::NoneHalf.code().into(),
+            voice_split: VoiceSplit::DEFAULT.code().into(),
         }
+    }
+
+    #[test]
+    fn the_lane_classes_share_the_connection_limit() {
+        // Both at the limit: half each.
+        assert_eq!(B.split_inflight(6, 6), (3, 3));
+        // A class asking for less leaves the rest to the other.
+        assert_eq!(B.split_inflight(2, 6), (2, 4));
+        assert_eq!(B.split_inflight(6, 2), (4, 2));
+        assert_eq!(B.split_inflight(5, 1), (5, 1));
+        assert_eq!(B.split_inflight(1, 1), (1, 1));
+        let odd = LaneBounds { max_inflight: 5, ..B };
+        assert_eq!(odd.split_inflight(5, 5), (2, 3));
+        for max in 1..=8u32 {
+            let b = LaneBounds { max_inflight: max, ..B };
+            for f in 1..=max {
+                for w in 1..=max {
+                    let (sf, sw) = b.split_inflight(f, w);
+                    assert!(sf + sw <= max, "{max} {f} {w}");
+                    assert!(sf <= f && sw <= w);
+                    // Never below a class's half (or its own ask).
+                    assert!(sf >= f.min(max / 2) && sw >= w.min(max - max / 2), "{max} {f} {w}");
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn a_plan_naming_no_voice_split_takes_the_quarter_split_and_the_old_ones_stay_valid() {
+        let mut v = serde_json::to_value(plan()).unwrap();
+        v.as_object_mut().unwrap().remove("voice_split");
+        let p: GenerationPlan = serde_json::from_value(v).unwrap();
+        assert_eq!(p.split(), Some(VoiceSplit::NoneQuarter));
+        p.validate(&B).unwrap();
+        for s in VoiceSplit::ALL {
+            let mut p = plan();
+            p.voice_split = s.code().into();
+            p.validate(&B).unwrap();
+            assert_eq!(p.split(), Some(s));
+        }
+        let mut p = plan();
+        p.voice_split = "profile_none_third_v1".into();
+        assert!(p.validate(&B).unwrap_err().0.starts_with("generation.voice_split"));
     }
 
     #[test]
@@ -263,7 +340,8 @@ mod tests {
         assert!(serde_json::from_value::<GenerationPlan>(v).is_err(), "unknown fields are refused");
     }
 
-    const PHASE: Phase = Phase { documents: 510, generating_window_ms: 3_600_000, lanes: 4, workers_ai_inflight_per_lane: 6 };
+    // Eight lanes, each class at half the connection limit (3 calls): 24 calls per class.
+    const PHASE: Phase = Phase { documents: 510, generating_window_ms: 3_600_000, lanes: 8, workers_ai_inflight_per_lane: 6 };
 
     fn keys() -> Option<Health> {
         Some(Health { interface: crate::iface::MARKER_VALUE.into(), openai: true, anthropic: true })
@@ -313,7 +391,7 @@ mod tests {
         let all = project(&slow, Lane::WorkersAi, 510, 24);
         assert_eq!(all.rate_ms, (510u64.div_ceil(14) * 2 * 60_000).div_ceil(20));
         let tight = Phase { generating_window_ms: all.rate_ms - 1, documents: 510, ..PHASE };
-        let fit = phase_fit(&plan(), &slow, &tight);
+        let fit = phase_fit(&plan(), &slow, &tight, &B);
         assert!(fit.workers_ai_all.ms() > tight.generating_window_ms);
     }
 }

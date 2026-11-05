@@ -146,7 +146,8 @@ impl CohortSpend {
 
 /// The SpendLedger key of a finished cohort's spend with one vendor, so the
 /// monthly ledger and the private tracker see vendor spend apart from
-/// Cloudflare's.
+/// Cloudflare's. `cohort_label` is the cohort's own ledger key
+/// (`<instance>:<label>`), so the key is `gen:<vendor>:<instance>:<label>`.
 pub fn ledger_key(v: Vendor, cohort_label: &str) -> String {
     format!("gen:{}:{cohort_label}", v.code())
 }

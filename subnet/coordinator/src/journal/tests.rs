@@ -640,7 +640,8 @@ fn migrations_are_pinned_by_content() {
     // eval-no-skip lane's outage probe and abandonment record; v21 the
     // reader-allowance lane's framing and blob dispatches; v23 the boundary
     // journal (deployed); v24 the reward-v2 / quant-v1 rule floor; v25
-    // admission contract v2 (direct upload to R2).
+    // admission contract v2 (direct upload to R2); v26 generation v2's
+    // private state.
     const EVAL: &[&str] = &[
         "bb26853f9d8c37f8",
         "a77de0832bb5add7",
@@ -669,6 +670,8 @@ fn migrations_are_pinned_by_content() {
         "e3ef1bff2fbd6125",
         // v25: admission contract v2 (direct upload to R2).
         "6bf062a35e8f2a16",
+        // v26: generation v2's private state (gen-v2 follow-ups).
+        "fff2b064f2f9ecd4",
     ];
     // v1-v10 are deployed on both testnet Workers; v11 is the stuck-states
     // lane's; v12 the automatic target handoff's; v13 the signed coordinator

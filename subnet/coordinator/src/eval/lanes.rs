@@ -387,8 +387,12 @@ pub fn plan_generation(sql: &impl Sql, cfg: &EvalConfig, seq: i64, now: u64) -> 
     let f = c.plan.fanout().map_err(|e| EvalError::Plan(e.0))?;
     let seed = cohort_seed(&cfg.private_seed, &c.label);
     let pending =
-        sql.exec("SELECT idx, key, attempts, kind, spec FROM docs WHERE seq = ? AND status = 'pending'", &[i(seq)])?;
+        sql.exec("SELECT idx, key, attempts, kind, spec, gen_record FROM docs WHERE seq = ? AND status = 'pending'", &[i(seq)])?;
     for r in &pending {
+        // A generation v2 item's cell was set by the draw.
+        if opt_text(r, 5).is_some() {
+            continue;
+        }
         let avoid = match (text(r, 3)?, opt_text(r, 4)) {
             ("mixed", Some(spec)) => serde_json::from_str::<MixedSpec>(&spec).map(|s| s.avoid).unwrap_or_default(),
             _ => Vec::new(),
@@ -795,6 +799,17 @@ pub struct Assignment {
     /// documents are model errors and need no container.
     #[serde(default)]
     pub artifact_failed: bool,
+    /// Generation lanes of a v2 cohort: the frontier claim lease and the
+    /// frontier class's calls in flight per lane (the plan's
+    /// `generation.frontier_lanes`, split with `inflight` so both classes
+    /// together stay within the lane's connection limit,
+    /// `LaneBounds::split_inflight`); 0 for a v1 cohort. Frontier models take
+    /// no Workers AI limiter grant: the vendor's own 429 and `retry-after`
+    /// pace them.
+    #[serde(default)]
+    pub gen_frontier_lease_ms: u64,
+    #[serde(default)]
+    pub gen_frontier_inflight: u32,
     /// Scoring lanes: the digest of the artifact spec the cohort names
     /// (`fanout.score.artifact_spec`), which every load names
     /// (`spec=<digest>`); absent for a cohort that names none, whose loads
@@ -849,6 +864,15 @@ fn assignment_for(sql: &impl Sql, c: &Cohort, kind: &str, l: &LaneRow, now: u64)
         a.generators = c.plan.generators.clone();
         a.inflight = f.generation.inflight_per_lane;
         a.gen_lease_ms = f.generation.lease_ms;
+        if let Some(g) = &c.plan.generation {
+            // Both lane classes run at once in one invocation and share its
+            // connection limit (`LaneBounds::split_inflight`).
+            let (fi, wi) = crate::eval::plan::GEN_V2_LANE_BOUNDS
+                .split_inflight(g.frontier_lanes.inflight_per_lane.unwrap_or(f.generation.inflight_per_lane), f.generation.inflight_per_lane);
+            a.gen_frontier_lease_ms = g.frontier_lanes.lease_ms;
+            a.gen_frontier_inflight = fi;
+            a.inflight = wi;
+        }
     }
     if let Some(job) = l.job {
         let idx = job as usize;
@@ -977,6 +1001,51 @@ pub fn textgen_safe(code: &str) -> String {
 /// work path would accept.
 pub fn gen_call_timeout_ms(lease_ms: u64) -> u64 {
     lease_ms.saturating_sub(GEN_REPORT_MS).max(GEN_CALL_MIN_MS)
+}
+
+/// A generation model's lane class: Workers AI ids (`@cf/...`, the Workers
+/// AI binding and the limiter's grants) or frontier (the generation Worker,
+/// paced by the vendor's own 429s). A v2 lane runs the two classes as two
+/// loops in one invocation, each claiming only its own models, so no item
+/// waits uncommitted behind a call of the other class (a Workers AI item's
+/// lease is the generation lanes' short one).
+pub fn gen_frontier_model(model: &str) -> bool {
+    !model.starts_with("@cf/")
+}
+
+/// The models of one lane class among `wants` (the claim's models with
+/// claimable work), in order.
+pub fn gen_class_models(wants: &BTreeMap<String, u32>, frontier: bool) -> Vec<String> {
+    wants.keys().filter(|m| gen_frontier_model(m) == frontier).cloned().collect()
+}
+
+/// A v2 lane's frontier grants for one claim: `slots` calls in total (the
+/// frontier class's calls in flight, `Assignment::gen_frontier_inflight`)
+/// over the frontier models with claimable work, each at most its claimable
+/// count, one at a time round-robin from the `start`-th model, so one
+/// model's backlog does not hold the others' items back.
+pub fn frontier_grants(wants: &BTreeMap<String, u32>, slots: u32, start: usize) -> BTreeMap<String, u32> {
+    let models: Vec<(&String, u32)> = wants.iter().filter(|(m, n)| gen_frontier_model(m) && **n > 0).map(|(m, n)| (m, *n)).collect();
+    let mut out: BTreeMap<String, u32> = BTreeMap::new();
+    if models.is_empty() {
+        return out;
+    }
+    let mut left = slots;
+    let mut i = start % models.len();
+    let mut idle = 0;
+    while left > 0 && idle < models.len() {
+        let (m, cap) = models[i];
+        let g = out.entry(m.clone()).or_insert(0);
+        if *g < cap {
+            *g += 1;
+            left -= 1;
+            idle = 0;
+        } else {
+            idle += 1;
+        }
+        i = (i + 1) % models.len();
+    }
+    out
 }
 
 /// What a generation lane keeps of its lease to report its answers.
@@ -1854,7 +1923,16 @@ fn gen_item(sql: &impl Sql, c: &Cohort, seed: &[u8; 32], r: &Row) -> R<GenItem> 
         textgen::scratch_prompt(&domain, &spec.topic, spec.words)
     };
     let _ = seed;
-    Ok(GenItem { idx, kind, generator: text(r, 6)?.to_owned(), prompt, attempt: int(r, 5)?, claim: 0 })
+    Ok(GenItem { idx, kind, generator: text(r, 6)?.to_owned(), prompt, attempt: int(r, 5)?, claim: 0, call: None })
+}
+
+/// A generation v2 item: the vendor call of its current cell, built from the
+/// cohort's bound manifest (the prompt is the call's).
+fn gen_item_v2(sql: &impl Sql, ctx: &crate::eval::gen_v2::Ctx, c: &Cohort, r: &Row, wai_lease_ms: u64) -> R<GenItem> {
+    let idx = int(r, 0)?;
+    let (g, call) = crate::eval::gen_v2::claim_call(sql, ctx, c.seq, idx, wai_lease_ms)?;
+    let prompt = textgen::Prompt { system: String::new(), user: String::new(), max_tokens: call.request.max_tokens };
+    Ok(GenItem { idx, kind: text(r, 1)?.to_owned(), generator: g.call.model, prompt, attempt: int(r, 5)?, claim: 0, call: Some(Box::new(call)) })
 }
 
 fn gen_wants(sql: &impl Sql, seq: i64, now: u64) -> R<BTreeMap<String, u32>> {
@@ -1897,17 +1975,32 @@ pub fn gen_claim(sql: &impl Sql, cfg: &EvalConfig, r: &LaneRef, name: &str, gran
     let spent = c.gen_cost_microusd.saturating_sub(uint(reserved_row, 1)?);
     let mut items = Vec::new();
     let mut over_budget = false;
+    // Generation v2: the cohort's bound manifest, read once per claim.
+    let v2 = crate::eval::gen_v2::Ctx::load(sql, &c, &cfg.private_seed)?;
     for (model, n) in grants {
         let rows = sql.exec(
-            "SELECT idx, kind, domain, parent, spec, attempts, generator_next, reserved_microusd FROM docs
+            "SELECT idx, kind, domain, parent, spec, attempts, generator_next, reserved_microusd, gen_record FROM docs
              WHERE seq = ? AND status = 'pending' AND generator_next = ? AND claim_until_ms <= ? AND not_before_ms <= ?
              ORDER BY idx LIMIT ?",
             &[i(r.seq), s(model), bind_u64(now)?, bind_u64(now)?, i(i64::from(*n))],
         )?;
         for row in &rows {
-            let mut it = gen_item(sql, &c, &seed, row)?;
-            let (pi, po) = textgen::price(&it.generator).unwrap_or((1_000_000, 1_000_000));
-            let bound = (engine::BUDGET_PROMPT_TOKENS * pi + u64::from(it.prompt.max_tokens) * po).div_ceil(1_000_000);
+            let (mut it, bound, lease) = match (&v2, opt_text(row, 8)) {
+                (Some(ctx), Some(_)) => {
+                    let it = gen_item_v2(sql, ctx, &c, row, f.generation.lease_ms)?;
+                    let call = it.call.as_deref().ok_or(EvalError::State("generation v2 call"))?;
+                    let bound = crate::eval::gen_v2::reservation_microusd(ctx, call)?;
+                    let lease = ctx.lease_ms(call.request.vendor, f.generation.lease_ms);
+                    (it, bound, lease)
+                }
+                (None, Some(_)) => return Err(EvalError::State("generation v2 record in a v1 cohort")),
+                (_, None) => {
+                    let it = gen_item(sql, &c, &seed, row)?;
+                    let (pi, po) = textgen::price(&it.generator).unwrap_or((1_000_000, 1_000_000));
+                    let bound = (engine::BUDGET_PROMPT_TOKENS * pi + u64::from(it.prompt.max_tokens) * po).div_ceil(1_000_000);
+                    (it, bound, f.generation.lease_ms)
+                }
+            };
             // A stale claim's reservation is replaced, never added to.
             let stale = uint(row, 7)?;
             over_budget |= spent + reserved.saturating_sub(stale) + bound > c.plan.generation_budget_microusd;
@@ -1915,7 +2008,7 @@ pub fn gen_claim(sql: &impl Sql, cfg: &EvalConfig, r: &LaneRef, name: &str, gran
             let claim = sql.exec(
                 "UPDATE docs SET claim_gen = claim_gen + 1, claim_until_ms = ?, holder = ?, reserved_microusd = ?
                  WHERE seq = ? AND idx = ? RETURNING claim_gen",
-                &[bind_u64(now + f.generation.lease_ms)?, s(name), bind_u64(bound)?, i(r.seq), i(it.idx)],
+                &[bind_u64(now + lease)?, s(name), bind_u64(bound)?, i(r.seq), i(it.idx)],
             )?;
             it.claim = int(&claim[0], 0)?;
             items.push(it);
@@ -2114,8 +2207,14 @@ pub fn settle_due(sql: &impl Sql, cfg: &EvalConfig, now: u64) -> R<Option<Work>>
     // Outage probes (`engine::probe_done`) are charged with the cohort, a
     // probe whose outcome was never recorded at its bound (`probe_begin`).
     let probes = u128::from(uint(r, 3)?);
-    let total = uint(r, 2)? + cost::nano_to_micro_ceil(sp.measured_nanousd + sp.unreported_nanousd + probes);
-    Ok(Some(Work::Settle { seq, key: format!("{}:{}", cfg.instance, text(r, 1)?), microusd: total }))
+    let all = uint(r, 2)? + cost::nano_to_micro_ceil(sp.measured_nanousd + sp.unreported_nanousd + probes);
+    // Generation v2: each frontier vendor's spend settles under its own key
+    // (`gen:<vendor>:<cohort key>`); the cohort's key keeps the Cloudflare
+    // spend (lanes, probes and Workers AI generation), as for v1 cohorts.
+    let key = format!("{}:{}", cfg.instance, text(r, 1)?);
+    let vendors = crate::eval::gen_v2::vendor_charges(sql, &c, &key)?;
+    let total = all.saturating_sub(vendors.iter().map(|(_, m)| *m).sum());
+    Ok(Some(Work::Settle { seq, key, microusd: total, vendors }))
 }
 
 /// A closed or abandoned cohort whose private results objects and summaries

@@ -55,6 +55,7 @@ pub const VOICE_LIBRARY_SCHEMA: &str = "eval_voice_library_v1";
 /// The stream bound rule (section 9.1 of the design).
 pub const STREAM_BOUND: &str = "stream_bound_v1";
 // The voice splits this build implements are [`voice::VoiceSplit`]; the
-// plan names one (`generation.voice_split`).
+// plan names one (`generation.voice_split`), default
+// [`voice::VoiceSplit::DEFAULT`] (`profile_none_quarter_v1`).
 /// The generation record's schema.
 pub const RECORD_SCHEMA: &str = "slop_ninja_generation_record_v1";

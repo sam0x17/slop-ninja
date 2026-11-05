@@ -932,5 +932,12 @@ pub const EVAL_COHORT_SCHEMA: Schema = Schema {
             version: 25,
             statements: crate::eval::admission::SCHEMA_V25,
         },
+        // v26: generation v2's private state: each generated document's
+        // record, the objects a cohort drew with, the rotation's streams,
+        // the vendor pause, spend by vendor and disabled cells.
+        Migration {
+            version: 26,
+            statements: crate::eval::gen_v2::SCHEMA_V26,
+        },
     ],
 };

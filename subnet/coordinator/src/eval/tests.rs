@@ -163,6 +163,8 @@ fn outcome(it: &engine::GenItem, output: Result<String, Reject>) -> GenOutcome {
         completion_tokens: 200,
         ms: 900,
         claim: it.claim,
+        reply: None,
+        effort: None,
     }
 }
 
@@ -272,6 +274,8 @@ type StartHook<'a> = Box<dyn FnMut(i64, bool) -> Result<(), RestartFailure> + 'a
 /// Whether an R2 operation on a key fails (`true` for a put).
 type R2Hook<'a> = Box<dyn FnMut(&str, bool) -> bool + 'a>;
 type GenHook<'a> = Box<dyn FnMut(&engine::GenItem) -> Result<String, Reject> + 'a>;
+/// Generation v2: a vendor stand-in answering an item's built call.
+type VendorHook<'a> = Box<dyn FnMut(&engine::GenItem, &slop_ninja_gen_core::outcome::GenCall) -> slop_ninja_gen_core::outcome::GenReply + 'a>;
 /// reward-v1 scorer stand-in: `(job, kind, task) -> (confidence %, share %)`.
 type PredictHook<'a> = Box<dyn Fn(i64, &str, u32) -> (f64, f64) + 'a>;
 /// Predictions keyed by document: `(job, kind, text_sha256)`.
@@ -336,6 +340,9 @@ struct Sim<'a> {
     ledger_down: bool,
     /// Settles attempted, for assertions.
     settle_calls: u32,
+    /// Generation v2: the vendor stand-in, and every ledger key settled.
+    vendor: VendorHook<'a>,
+    settled: Vec<(String, u64)>,
 }
 
 impl<'a> Sim<'a> {
@@ -382,6 +389,8 @@ impl<'a> Sim<'a> {
             probe_starts: Vec::new(),
             ledger_down: false,
             settle_calls: 0,
+            vendor: Box::new(gen_v2_tests::fake_vendor),
+            settled: Vec::new(),
         }
     }
 
@@ -458,7 +467,7 @@ impl<'a> Sim<'a> {
                     }
                     break;
                 }
-                Work::Settle { seq, microusd, .. } => {
+                Work::Settle { seq, microusd, key, vendors } => {
                     // Mirrors `cf_eval`: a ledger that does not answer only
                     // delays the settle, which waits out its retry time.
                     self.settle_calls += 1;
@@ -466,6 +475,8 @@ impl<'a> Sim<'a> {
                         tx(self.db, |s| engine::bookkeeping_failed(s, engine::BOOKKEEPING_SETTLE, "ledger_settle", now)).unwrap();
                         break;
                     }
+                    self.settled.extend(vendors);
+                    self.settled.push((key, microusd));
                     tx(self.db, |s| {
                         lanes::mark_settled(s, seq, microusd)?;
                         engine::bookkeeping_done(s, engine::BOOKKEEPING_SETTLE)
@@ -666,6 +677,11 @@ impl<'a> Sim<'a> {
             fresh: Some(fresh),
             earlier,
             probe,
+            generation: plan.generation.as_ref().map(|g| {
+                let manifest = self.eval[&g.manifest.key].clone();
+                let m = slop_ninja_gen_core::manifest::Manifest::parse_bound(&manifest, &g.manifest).unwrap();
+                super::gen_v2::DrawObjects { manifest, library: self.eval[&m.voice_library.key].clone() }
+            }),
         };
         tx(self.db, |s| v3::apply_draw(s, &c, seq, &d, &parents, &texts, &pool::Used::default(), now)).unwrap();
         Ok(())
@@ -687,7 +703,7 @@ impl<'a> Sim<'a> {
             entrants: plan.entrants.iter().map(|a| self.artifact_digests(a)).collect(),
         };
         let b = tx(self.db, |s| v3::prepare_seal(s, &c, seq, &inputs)).unwrap();
-        for (k, body) in &b.shards {
+        for (k, body) in b.shards.iter().chain(&b.gen_shards) {
             self.eval.insert(k.clone(), body.clone());
         }
         self.eval.insert(b.index_key.clone(), b.index.clone());
@@ -947,18 +963,38 @@ impl<'a> Sim<'a> {
                 Some(w) => w.iter().map(|(m, n)| (m.clone(), (*n).min(grant))).collect(),
                 None => gens.iter().map(|g| (g.clone(), grant)).collect(),
             };
-            let reply = tx(self.db, |s| lanes::gen_claim(s, &c2, r, name, &grants, self.now)).unwrap();
-            match reply {
-                GenClaimReply::Items { items, wants: w } => {
-                    let out: Vec<GenOutcome> = items.iter().map(|it| outcome(it, (self.generate)(it))).collect();
-                    tx(self.db, |s| lanes::gen_commit(s, &c2, r, &out, self.now)).unwrap();
-                    wants = Some(w);
+            // As the lane: each class (Workers AI, frontier) claims, calls
+            // and commits only its own models (`lanes::gen_frontier_model`).
+            let mut classes: Vec<BTreeMap<String, u32>> = [false, true]
+                .into_iter()
+                .map(|f| grants.iter().filter(|(m, _)| lanes::gen_frontier_model(m) == f).map(|(m, n)| (m.clone(), *n)).collect::<BTreeMap<_, _>>())
+                .filter(|g| !g.is_empty())
+                .collect();
+            if classes.is_empty() {
+                classes.push(BTreeMap::new());
+            }
+            for grants in classes {
+                let reply = tx(self.db, |s| lanes::gen_claim(s, &c2, r, name, &grants, self.now)).unwrap();
+                match reply {
+                    GenClaimReply::Items { items, wants: w } => {
+                        let classes: BTreeSet<bool> = items.iter().map(|it| lanes::gen_frontier_model(&it.generator)).collect();
+                        assert!(classes.len() <= 1, "a claim holds one lane class");
+                        let out: Vec<GenOutcome> = items
+                            .iter()
+                            .map(|it| match it.call.as_deref() {
+                                Some(call) => GenOutcome::from_reply(it, (self.vendor)(it, call)),
+                                None => outcome(it, (self.generate)(it)),
+                            })
+                            .collect();
+                        tx(self.db, |s| lanes::gen_commit(s, &c2, r, &out, self.now)).unwrap();
+                        wants = Some(w);
+                    }
+                    GenClaimReply::Wait { ms: 0, wants: w } => wants = Some(w),
+                    GenClaimReply::Wait { .. } => return End::Rearm,
+                    GenClaimReply::Done => return End::Stop(Some("done")),
+                    GenClaimReply::Paused => return End::Stop(Some("paused")),
+                    GenClaimReply::Fenced => return End::Stop(None),
                 }
-                GenClaimReply::Wait { ms: 0, wants: w } => wants = Some(w),
-                GenClaimReply::Wait { .. } => return End::Rearm,
-                GenClaimReply::Done => return End::Stop(Some("done")),
-                GenClaimReply::Paused => return End::Stop(Some("paused")),
-                GenClaimReply::Fenced => return End::Stop(None),
             }
         }
         End::Rearm
@@ -2298,7 +2334,7 @@ fn a_previous_reference_pause_probes_its_own_artifact() {
 /// generator), so the paused cohort resumes instead of waiting.
 #[test]
 fn a_retired_generator_resumes_a_generation_pause() {
-    let g = |m: Reject| GenOutcome { idx: 0, generator: "g".into(), claim: 0, output: Err(m), prompt_tokens: 0, completion_tokens: 0, ms: 0 };
+    let g = |m: Reject| GenOutcome { idx: 0, generator: "g".into(), claim: 0, output: Err(m), prompt_tokens: 0, completion_tokens: 0, ms: 0, reply: None, effort: None };
     assert!(engine::probe_answered(&g(Reject::ModelUnavailable)));
     assert!(!engine::probe_answered(&g(Reject::Transport)));
     assert!(!engine::probe_answered(&g(Reject::Throttled)));
@@ -2520,7 +2556,7 @@ fn a_generation_outage_pauses_the_cohort_instead_of_dropping_cases() {
 #[test]
 fn an_outage_is_no_answer_while_an_empty_answer_after_tokens_is_the_models() {
     let g = |output, completion_tokens| GenOutcome {
-        idx: 0, generator: "x".into(), output, prompt_tokens: 10, completion_tokens, ms: 1, claim: 0,
+        idx: 0, generator: "x".into(), output, prompt_tokens: 10, completion_tokens, ms: 1, claim: 0, reply: None, effort: None,
     };
     assert!(engine::is_outage(&g(Err(Reject::Transport), 0)));
     assert!(engine::is_outage(&g(Err(Reject::Empty), 0)));
@@ -2672,7 +2708,7 @@ fn the_v3_cohort_store_migrates_in_place_to_v7() {
         )
         .unwrap();
     let report = sql::migrate(&db, &EVAL_COHORT_SCHEMA).unwrap();
-    assert_eq!((report.from, report.to), (3, 25));
+    assert_eq!((report.from, report.to), (3, 26));
     let st = status(&db, 5);
     assert_eq!(st["cohorts"][0]["phase"], "closed");
     assert_eq!(st["cohorts"][0]["jobs"][0]["status"], "done", "the jobs table was rebuilt with its rows");
@@ -7054,7 +7090,7 @@ fn store_v23_seeds_the_boundary_journal_from_cohort_history_without_work_times()
         )
         .unwrap();
     let report = sql::migrate(&db, &EVAL_COHORT_SCHEMA).unwrap();
-    assert_eq!((report.from, report.to), (22, 25));
+    assert_eq!((report.from, report.to), (22, 26));
     let got: Vec<(u64, Option<u64>, Option<u64>)> = journal(&db).iter().map(|r| (r.epoch, r.block, r.observed_ms)).collect();
     assert_eq!(
         got,
@@ -7085,3 +7121,6 @@ fn store_v23_seeds_the_boundary_journal_from_cohort_history_without_work_times()
     }
     assert_eq!(boundary_of(&st, 113)["active"], Value::Null, "a seed records no credited count");
 }
+
+#[path = "gen_v2_tests.rs"]
+mod gen_v2_tests;

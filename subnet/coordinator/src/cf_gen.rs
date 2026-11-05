@@ -23,8 +23,10 @@
 //! Everything these decide without the platform lives in
 //! `eval::gen_measure` and `slop_ninja_gen_core` (tested natively).
 //!
-//! The cohort draw, the lanes and the seal do not call any of this yet:
-//! plans naming generation v2 are refused (`plan::GENERATION_V2_REFUSAL`).
+//! The generation lanes call [`frontier`] and [`workers_ai`] for v2 items
+//! (`cf_lanes::gen_call`); the draw reads the bound objects itself. Plans
+//! naming generation v2 are still refused at validation
+//! (`plan::GENERATION_V2_REFUSAL`), so no cohort reaches them yet.
 
 use super::cf_io::{self, Settled};
 use crate::eval::gen_measure::{self, MeasureCall};
@@ -88,8 +90,13 @@ pub async fn frontier(env: &Env, call: &GenCall) -> GenReply {
         return GenReply::without_answer(OutcomeCode::CellRefused, r, 0);
     }
     let Ok(svc) = env.service(GEN_SERVICE) else { return unsent(t0) };
-    // The call's own timeout bounds the vendor; the margin covers the reply.
-    let timeout = call.timeout_ms.saturating_add(GEN_V2_LANE_BOUNDS.commit_margin_ms);
+    // The call's own timeout bounds the whole service call, so the reply
+    // and the commit fit the rest of the claim lease (`GEN_REPORT_MS`)
+    // and no other lane can re-claim the item while its reply is in
+    // flight. The generation Worker's own vendor deadline starts no
+    // earlier, so a vendor slower than both ends here as an outage
+    // charged at its reservation bound (it would be an outage there too).
+    let timeout = call.timeout_ms;
     let Some(req) = interface_request(iface::GENERATE_PATH, Method::Post, Some(&body), timeout) else { return unsent(t0) };
     drop(body);
     let Ok(mut resp) = svc.fetch_request(req).await else { return gen_measure::interface_failure(None, r, since(t0)) };

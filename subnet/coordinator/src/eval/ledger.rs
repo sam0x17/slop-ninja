@@ -198,7 +198,32 @@ pub fn status(sql: &impl Sql, cycle: &str, alert: u64) -> Result<serde_json::Val
             "microusd": int(r, 2).unwrap_or(0), "at_ms": int(r, 3).unwrap_or(0), "note": text(r, 4).unwrap_or("")}))
         .collect();
     Ok(serde_json::json!({"standing": st, "cycle_total_microusd": st.total(), "over_threshold": st.over_threshold,
-        "reservations": res, "recent_charges": charges}))
+        "reservations": res, "recent_charges": charges, "vendor_cycle_microusd": vendor_cycle(sql, cycle)?}))
+}
+
+/// The ledger key prefixes of each frontier vendor's spend: cohort
+/// generation (`gen:<vendor>:<instance>:<label>`) and the operator's
+/// measurement calls (`probe:gen-measure-<vendor>:...`).
+pub const VENDOR_KEY_PREFIXES: [(&str, [&str; 2]); 2] =
+    [("openai", ["gen:openai:", "probe:gen-measure-openai:"]), ("anthropic", ["gen:anthropic:", "probe:gen-measure-anthropic:"])];
+
+/// The cycle's settled spend with each frontier vendor, summed over every
+/// charge of the cycle (not only the newest), so the private spend tracker
+/// sees vendor spend apart from Cloudflare's without paging the charges.
+pub fn vendor_cycle(sql: &impl Sql, cycle: &str) -> Result<serde_json::Value, StoreError> {
+    let mut out = serde_json::Map::new();
+    for (vendor, prefixes) in VENDOR_KEY_PREFIXES {
+        let mut total = 0i64;
+        for p in prefixes {
+            // `substr` compares the prefix exactly (no LIKE wildcards).
+            total += one(&sql.exec(
+                "SELECT COALESCE(SUM(microusd), 0) FROM charges WHERE cycle = ? AND substr(key, 1, ?) = ?",
+                &[s(cycle), i(p.len() as i64), s(p)],
+            )?);
+        }
+        out.insert(vendor.into(), serde_json::json!(total));
+    }
+    Ok(serde_json::Value::Object(out))
 }
 
 #[cfg(test)]
@@ -276,6 +301,29 @@ mod tests {
         // Without a threshold the flag is present and false.
         let none = tx(&db, |s| status(s, c, u64::MAX)).unwrap();
         assert_eq!((none["over_threshold"].as_bool(), none["standing"]["alert_microusd"].is_null()), (Some(false), true));
+    }
+
+    /// Generation v2: each frontier vendor's cycle spend is summed over every
+    /// charge of the cycle (cohort generation and measurement calls), past
+    /// the 50 newest the status lists, and apart from Cloudflare spend.
+    #[test]
+    fn vendor_spend_is_summed_per_cycle_apart_from_cloudflare() {
+        let db = Sqlite::open();
+        tx(&db, |s| crate::sql::migrate(s, &LEDGER_SCHEMA)).unwrap();
+        let c = "2026-11-01";
+        for k in 0..60u64 {
+            tx(&db, |s| settle(s, &format!("gen:anthropic:main:testnet-c{k}"), 10, c, "vendor generation spend", k)).unwrap();
+        }
+        tx(&db, |s| settle(s, "gen:openai:main:testnet-c1", 7, c, "vendor generation spend", 100)).unwrap();
+        tx(&db, |s| settle(s, "probe:gen-measure-openai:gpt-6-luna:low:0:0", 5, c, "measure", 101)).unwrap();
+        tx(&db, |s| settle(s, "main:testnet-c1", 900, c, "cohort spend", 102)).unwrap();
+        // A charge of another cycle, and a key that only looks alike.
+        tx(&db, |s| settle(s, "gen:openai:main:testnet-c0", 1000, "2026-10-01", "vendor generation spend", 103)).unwrap();
+        tx(&db, |s| settle(s, "gen_openai:x", 3, c, "other", 104)).unwrap();
+        let got = tx(&db, |s| status(s, c, u64::MAX)).unwrap();
+        assert_eq!(got["recent_charges"].as_array().unwrap().len(), 50);
+        assert_eq!(got["vendor_cycle_microusd"], serde_json::json!({"openai": 12, "anthropic": 600}));
+        assert_eq!(got["standing"]["spent_microusd"], 600 + 12 + 900 + 3);
     }
 
     /// Review 2026-10-31 (a): a repeated `/plan` for a queued label must not

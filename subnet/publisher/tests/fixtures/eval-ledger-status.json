@@ -13,5 +13,6 @@
   ],
   "recent_charges": [
     {"key": "main:testnet-c7", "cycle": "2026-11-01", "microusd": 900, "at_ms": 3, "note": "cohort spend"}
-  ]
+  ],
+  "vendor_cycle_microusd": {"openai": 0, "anthropic": 0}
 }

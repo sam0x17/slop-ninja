@@ -6,6 +6,12 @@
 //! max_entry_bytes}`, then one entry per line. Every document draws its voice
 //! at random (seeded by the deployment's rotation seed and the document key),
 //! never from a deck, under the plan's versioned split ([`VoiceSplit`]):
+//! - `profile_none_quarter_v1` (the plan default, the user's 2026-11-05
+//!   decision): a quarter of all documents carry no voice profile; the
+//!   other three quarters draw a profile evenly over the library, that is a
+//!   category uniformly among those valid for the kind (each about 1/8 of
+//!   rewrites and 3/20 of scratch documents), then an entry uniformly
+//!   within it;
 //! - `profile_none_half_v1`: profile or none by a fair split (half of all
 //!   documents carry no voice profile and are written in the model's default
 //!   voice), then a category uniformly among those valid for the kind;
@@ -15,7 +21,9 @@
 //!
 //! then an entry uniformly within the category, avoiding the parent's
 //! earlier voice ids. Which split a cohort uses is the plan's choice
-//! (`generation.voice_split`); both are versioned here.
+//! (`generation.voice_split`, [`VoiceSplit::DEFAULT`] when the plan names
+//! none); all three are versioned here, the two earlier ones kept for the
+//! record.
 
 use crate::hash::h64;
 use crate::manifest::{Refused, VoiceLibraryRef};
@@ -64,6 +72,9 @@ impl Category {
 /// The versioned share of "no voice profile" (module docs).
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum VoiceSplit {
+    /// No profile for 25% of documents; 75% evenly over the library.
+    #[serde(rename = "profile_none_quarter_v1")]
+    NoneQuarter,
     #[serde(rename = "profile_none_half_v1")]
     NoneHalf,
     #[serde(rename = "profile_none_category_v1")]
@@ -71,11 +82,24 @@ pub enum VoiceSplit {
 }
 
 impl VoiceSplit {
-    pub const ALL: [VoiceSplit; 2] = [VoiceSplit::NoneHalf, VoiceSplit::NoneCategory];
+    pub const ALL: [VoiceSplit; 3] = [VoiceSplit::NoneQuarter, VoiceSplit::NoneHalf, VoiceSplit::NoneCategory];
+    /// The split a plan uses when it names none (the user's 2026-11-05
+    /// decision: no voice profile for 25% of requests).
+    pub const DEFAULT: VoiceSplit = VoiceSplit::NoneQuarter;
     pub fn code(self) -> &'static str {
         match self {
+            VoiceSplit::NoneQuarter => "profile_none_quarter_v1",
             VoiceSplit::NoneHalf => "profile_none_half_v1",
             VoiceSplit::NoneCategory => "profile_none_category_v1",
+        }
+    }
+    /// The share of documents drawn with no voice profile, `(num, den)`,
+    /// for a kind with `categories` valid categories.
+    pub fn none_share(self, categories: usize) -> (u64, u64) {
+        match self {
+            VoiceSplit::NoneQuarter => (1, 4),
+            VoiceSplit::NoneHalf => (1, 2),
+            VoiceSplit::NoneCategory => (1, categories as u64 + 1),
         }
     }
     pub fn parse(s: &str) -> Option<Self> {
@@ -200,6 +224,14 @@ impl Library {
         let key = doc_key.as_bytes();
         let cats = Category::valid_for(kind);
         let category = match split {
+            // `none` is one residue of four, under its own label so this
+            // split's draws are independent of the other splits'.
+            VoiceSplit::NoneQuarter => {
+                if h64(&[seed, b"voice-quarter", key]).is_multiple_of(4) {
+                    return VoiceChoice::None;
+                }
+                cats.get((h64(&[seed, b"voice-category", key]) % cats.len() as u64) as usize)
+            }
             VoiceSplit::NoneHalf => {
                 if h64(&[seed, b"voice", key]).is_multiple_of(2) {
                     return VoiceChoice::None;
@@ -368,5 +400,49 @@ mod tests {
             assert_eq!(VoiceSplit::parse(v.code()), Some(v));
             assert_eq!(serde_json::to_value(v).unwrap(), v.code());
         }
+    }
+
+    #[test]
+    fn a_quarter_carry_no_profile_and_the_rest_spread_evenly_over_the_library() {
+        let l = library();
+        let seed = [13u8; 32];
+        assert_eq!(VoiceSplit::DEFAULT, VoiceSplit::NoneQuarter);
+        assert_eq!(VoiceSplit::DEFAULT.code(), "profile_none_quarter_v1");
+        for kind in [DocKind::Mixed, DocKind::ModelOnly] {
+            let n: usize = 8000;
+            let (mut none, mut cats, mut ids) = (0usize, std::collections::BTreeMap::new(), std::collections::BTreeMap::new());
+            for i in 0..n {
+                match l.draw(&seed, &format!("doc-{i}"), kind, &[], VoiceSplit::NoneQuarter) {
+                    VoiceChoice::None => none += 1,
+                    VoiceChoice::Profile { category, id } => {
+                        assert!(Category::valid_for(kind).contains(&category));
+                        *cats.entry(category).or_insert(0usize) += 1;
+                        *ids.entry(id).or_insert(0usize) += 1;
+                    }
+                }
+            }
+            let (num, den) = VoiceSplit::NoneQuarter.none_share(Category::valid_for(kind).len());
+            let want_none = n * num as usize / den as usize;
+            assert!(none.abs_diff(want_none) < want_none / 10, "{kind:?}: none {none}, expected about {want_none}");
+            // Three quarters over the kind's categories, then evenly within each.
+            assert_eq!(cats.len(), Category::valid_for(kind).len());
+            let per = (n - none) / cats.len();
+            assert!(cats.values().all(|c| c.abs_diff(per) < per / 6), "{cats:?}");
+            let per_id = (n - none) / ids.len();
+            assert!(ids.values().all(|c| c.abs_diff(per_id) < per_id / 4), "{ids:?}");
+        }
+        // Deterministic, and avoidance still re-draws within the category.
+        for i in 0..200 {
+            let k = format!("doc-{i}");
+            let a = l.draw(&seed, &k, DocKind::Mixed, &[], VoiceSplit::NoneQuarter);
+            assert_eq!(a, l.draw(&seed, &k, DocKind::Mixed, &[], VoiceSplit::NoneQuarter));
+            if let VoiceChoice::Profile { category, id } = a {
+                let again = l.draw(&seed, &k, DocKind::Mixed, std::slice::from_ref(&id), VoiceSplit::NoneQuarter);
+                assert_eq!(again.category(), Some(category));
+                assert_ne!(again.id(), Some(id.as_str()));
+            }
+        }
+        assert_eq!(VoiceSplit::NoneHalf.none_share(6), (1, 2));
+        assert_eq!(VoiceSplit::NoneCategory.none_share(6), (1, 7));
     }
 }

@@ -211,10 +211,18 @@ pub fn sentences(text: &str) -> Vec<(usize, usize)> {
 /// The sentences `[first, last]` to rewrite: 10, 40 or 80 % of the sentences at the
 /// start, middle or end, chosen by digest, always leaving one human sentence.
 pub fn select_span(count: usize, digest: &[u8; 32]) -> Option<(usize, usize, u32)> {
+    let pct = [10u32, 40, 80][usize::from(digest[0]) % 3];
+    select_span_percent(count, pct, digest)
+}
+
+/// [`select_span`] with the percentage supplied (generation v2: the
+/// rotation's span class): `pct` % of the sentences, rounded half up, at
+/// least one and always leaving one human sentence, at the start, middle or
+/// end by digest.
+pub fn select_span_percent(count: usize, pct: u32, digest: &[u8; 32]) -> Option<(usize, usize, u32)> {
     if count < 2 {
         return None;
     }
-    let pct = [10u32, 40, 80][usize::from(digest[0]) % 3];
     let k = ((count as u64 * u64::from(pct) + 50) / 100).clamp(1, count as u64 - 1) as usize;
     let first = match digest[1] % 3 {
         0 => 0,
@@ -346,6 +354,10 @@ pub enum Reject {
     /// The provider no longer serves the model (codes 5007, 3042): the attempt
     /// is used and the generator rotates.
     ModelUnavailable,
+    /// Generation v2, match-surrounding rewrites only: the answer repeats a
+    /// complete sentence of the read-only context that is not also a
+    /// sentence of the passage ([`context_echo`]).
+    ContextEcho,
 }
 
 impl Reject {
@@ -365,6 +377,7 @@ impl Reject {
             Self::Budget => "budget",
             Self::Throttled => "throttled",
             Self::ModelUnavailable => "model_unavailable",
+            Self::ContextEcho => "context_echo",
         }
     }
 }
@@ -444,6 +457,17 @@ pub fn validate_rewrite(source: &str, out: &str) -> Result<String, Reject> {
         return Ok(t.split_whitespace().collect::<Vec<_>>().join(" "));
     }
     Ok(t)
+}
+
+/// Whether `out` (a match-surrounding rewrite of `passage`) contains,
+/// verbatim, a complete sentence of `context` (the same document's text
+/// outside the span) that is not also a sentence of the passage: the model
+/// copied the surrounding text instead of rewriting the passage.
+pub fn context_echo(context: &[&str], passage: &str, out: &str) -> bool {
+    let own: Vec<&str> = sentences(passage).into_iter().filter_map(|(a, b)| passage.get(a..b)).collect();
+    context.iter().any(|c| {
+        sentences(c).into_iter().filter_map(|(a, b)| c.get(a..b)).any(|s| !own.contains(&s) && out.contains(s))
+    })
 }
 
 pub fn validate_scratch(out: &str, target_words: usize) -> Result<String, Reject> {

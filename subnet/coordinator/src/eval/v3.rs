@@ -509,6 +509,10 @@ pub struct DrawV3 {
     pub earlier: Vec<ReuseCandidate>,
     /// Probe documents with their texts, per version in use.
     pub probe: Vec<(u32, Vec<(ProbeDoc, String)>)>,
+    /// Generation v2: the plan's bound generator manifest and voice library
+    /// as read by the Worker (checked again by the draw). `None` for a v1
+    /// plan.
+    pub generation: Option<crate::eval::gen_v2::DrawObjects>,
 }
 
 /// The parents chosen for the mixed children and the rows the draw consumes.
@@ -602,6 +606,8 @@ struct NewDoc {
     spec: Option<String>,
     share_ppb: Option<u32>,
     pool_row: Option<String>,
+    /// Generation v2: the document's private generation record.
+    gen_rec: Option<String>,
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -684,6 +690,14 @@ pub fn apply_draw(
         return Ok(false);
     }
     let get_text = |row: &str| texts.get(row).cloned().ok_or(EvalError::State("drawn row text missing"));
+    // Generation v2: the bound objects are checked and kept, and every
+    // generated document's cell is assigned in this transaction (a draw is
+    // applied once, so no stream advances twice).
+    let mut gdraw = match (&plan.generation, &d.generation) {
+        (Some(g), Some(o)) => Some(crate::eval::gen_v2::Draw::begin(sql, seq, g, o, &cfg.private_seed)?),
+        (Some(_), None) => return Err(EvalError::State("generation v2 objects missing from the draw")),
+        (None, _) => None,
+    };
     let mut docs: Vec<NewDoc> = Vec::new();
     for r in &d.negatives.rows {
         docs.push(NewDoc {
@@ -697,6 +711,7 @@ pub fn apply_draw(
             spec: None,
             share_ppb: Some(0),
             pool_row: Some(r.row_id.clone()),
+            gen_rec: None,
         });
     }
     let rows_by_id: BTreeMap<&str, &PoolRow> = d
@@ -716,7 +731,7 @@ pub fn apply_draw(
             None => (Vec::new(), Vec::new(), Vec::new()),
         })
     };
-    let mut variants: BTreeMap<String, (&'static str, &'static str)> = BTreeMap::new();
+    let mut variants: BTreeMap<String, (String, String)> = BTreeMap::new();
     for (row_id, origin) in &parents.children {
         let row = *rows_by_id.get(row_id.as_str()).ok_or(EvalError::State("parent row"))?;
         let parent_text = get_text(row_id)?;
@@ -735,11 +750,32 @@ pub fn apply_draw(
                 spec: None,
                 share_ppb: None,
                 pool_row: Some(row_id.clone()),
+                gen_rec: None,
             });
             key
         };
         let key = format!("m:{row_id}");
         let digest = item_digest(&seed, &key);
+        if let Some(gd) = gdraw.as_mut() {
+            let (avoid, avoid_voices, avoid_operations) = history(row_id)?;
+            let avoid = crate::eval::gen_v2::avoid_from(avoid, avoid_voices, avoid_operations);
+            let m = gd.mixed(sql, &row.domain, &key, &digest, &parent_key, &parent_text, avoid)?;
+            variants.insert(row_id.clone(), (m.voice.clone(), m.operation.clone()));
+            docs.push(NewDoc {
+                key,
+                kind: "mixed",
+                docset: "batch",
+                domain: row.domain.clone(),
+                group: row.source_group.clone(),
+                parent_key: Some(parent_key),
+                text: None,
+                spec: Some(serde_json::to_string(&m.spec).map_err(|_| EvalError::State("spec"))?),
+                share_ppb: None,
+                pool_row: None,
+                gen_rec: Some(crate::eval::gen_v2::encode(&m.record)?),
+            });
+            continue;
+        }
         let sents = textgen::sentences(&parent_text);
         let (first, last, percent) =
             textgen::select_span(sents.len(), &digest).ok_or(EvalError::State("parent span"))?;
@@ -749,7 +785,7 @@ pub fn apply_draw(
         );
         let (avoid, avoid_voices, avoid_operations) = history(row_id)?;
         let (voice, operation) = textgen::rewrite_variant(&digest, &avoid_voices, &avoid_operations);
-        variants.insert(row_id.clone(), (voice, operation));
+        variants.insert(row_id.clone(), (voice.to_owned(), operation.to_owned()));
         let spec = MixedSpec {
             first,
             last,
@@ -771,6 +807,7 @@ pub fn apply_draw(
             spec: Some(serde_json::to_string(&spec).map_err(|_| EvalError::State("spec"))?),
             share_ppb: None,
             pool_row: None,
+            gen_rec: None,
         });
     }
     // Model-only documents follow the negatives' domain mix.
@@ -782,7 +819,13 @@ pub fn apply_draw(
         for j in 0..count {
             let key = format!("s:{domain}:{j}");
             let dg = item_digest(&seed, &key);
-            let spec = ScratchSpec { topic: textgen::topic(&domain, &dg).into(), words: textgen::scratch_words(&dg) };
+            let (spec, gen_record) = match gdraw.as_mut() {
+                Some(gd) => {
+                    let (spec, g) = gd.scratch(sql, &domain, &key, &dg)?;
+                    (spec, Some(crate::eval::gen_v2::encode(&g)?))
+                }
+                None => (ScratchSpec { topic: textgen::topic(&domain, &dg).into(), words: textgen::scratch_words(&dg) }, None),
+            };
             docs.push(NewDoc {
                 group: format!("scratch:{key}"),
                 key,
@@ -794,6 +837,7 @@ pub fn apply_draw(
                 spec: Some(serde_json::to_string(&spec).map_err(|_| EvalError::State("spec"))?),
                 share_ppb: None,
                 pool_row: None,
+                gen_rec: gen_record,
             });
         }
     }
@@ -828,6 +872,7 @@ pub fn apply_draw(
                 spec: None,
                 share_ppb: Some(pd.share_ppb),
                 pool_row: None,
+                gen_rec: None,
             });
         }
     }
@@ -844,6 +889,7 @@ pub fn apply_draw(
                 spec: None,
                 share_ppb: Some(0),
                 pool_row: Some(r.row_id.clone()),
+                gen_rec: None,
             });
         }
     }
@@ -857,9 +903,18 @@ pub fn apply_draw(
             Some(p) => i(*index.get(p).ok_or(EvalError::State("parent index"))? as i64),
             None => SqlValue::Null,
         };
+        // A generation v2 document's next model is its record's cell (v1
+        // documents get theirs from `lanes::plan_generation`).
+        let next = x
+            .gen_rec
+            .as_deref()
+            .map(|j| serde_json::from_str::<crate::eval::gen_v2::DocGen>(j).map(|g| g.call.model))
+            .transpose()
+            .map_err(|_| EvalError::State("generation record"))?;
         sql.exec(
             "INSERT INTO docs (seq, idx, key, kind, domain, source_group, parent, status, text, text_sha256,
-                share_ppb, spec, docset, pool_row) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                share_ppb, spec, docset, pool_row, gen_record, generator_next)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             &[
                 i(seq),
                 i(k as i64),
@@ -875,6 +930,8 @@ pub fn apply_draw(
                 x.spec.clone().map_or(SqlValue::Null, s),
                 s(x.docset),
                 x.pool_row.clone().map_or(SqlValue::Null, s),
+                x.gen_rec.clone().map_or(SqlValue::Null, s),
+                next.map_or(SqlValue::Null, s),
             ],
         )?;
     }
@@ -932,25 +989,29 @@ pub fn apply_draw(
                     s(&plan.pool.pool_id),
                     bind_u64(ordinal)?,
                     if variant.is_some() { bind_u64(ordinal)? } else { SqlValue::Null },
-                    s(variant.map_or("", |v| v.0)),
-                    s(variant.map_or("", |v| v.1)),
+                    s(variant.map_or("", |v| v.0.as_str())),
+                    s(variant.map_or("", |v| v.1.as_str())),
                 ],
             )?;
         }
         for e in &d.earlier {
             if let Some((voice, operation)) = variants.get(&e.row.row_id) {
+                // An empty value (a v2 child with no voice profile) adds nothing.
                 sql.exec(
                     "UPDATE reuse_sources SET uses = uses + 1, last_cohort = ?, last_ordinal = ?,
-                        voices = CASE WHEN voices = '' THEN ? ELSE voices || ',' || ? END,
-                        operations = CASE WHEN operations = '' THEN ? ELSE operations || ',' || ? END
+                        voices = CASE WHEN ? = '' THEN voices WHEN voices = '' THEN ? ELSE voices || ',' || ? END,
+                        operations = CASE WHEN ? = '' THEN operations WHEN operations = '' THEN ?
+                            ELSE operations || ',' || ? END
                      WHERE row_id = ?",
                     &[
                         bind_u64(plan.cohort)?,
                         bind_u64(ordinal)?,
-                        s(*voice),
-                        s(*voice),
-                        s(*operation),
-                        s(*operation),
+                        s(voice.as_str()),
+                        s(voice.as_str()),
+                        s(voice.as_str()),
+                        s(operation.as_str()),
+                        s(operation.as_str()),
+                        s(operation.as_str()),
                         s(&e.row.row_id),
                     ],
                 )?;
@@ -958,7 +1019,11 @@ pub fn apply_draw(
         }
     }
     let by_origin = |o: &str| parents.children.iter().filter(|(_, x)| *x == o).count();
-    let summary = json!({"rule": pool::DRAW_RULE, "reuse_rule": REUSE_RULE,
+    let gen_summary = match gdraw {
+        Some(gd) => Some(gd.finish(sql, seq)?),
+        None => None,
+    };
+    let mut summary = json!({"rule": pool::DRAW_RULE, "reuse_rule": REUSE_RULE,
         "draw_mode": if exposed { DRAW_EXPOSED } else { DRAW_FRESH }, "reuse_ordinal": ordinal,
         "rewrite_prompts": textgen::REWRITE_PROMPT_SET,
         "reuse": {"max_uses": v.reuse.max_uses, "min_gap": v.reuse.min_gap},
@@ -968,6 +1033,9 @@ pub fn apply_draw(
         "probe_docs": d.probe.iter().map(|(_, x)| x.len()).sum::<usize>(),
         "available_before": d.negatives.available_rows,
         "ledger": {"rows": ledger.rows.len(), "groups": ledger.groups.len()}});
+    if let (Some(g), Some(o)) = (gen_summary, summary.as_object_mut()) {
+        o.insert("generation".into(), g);
+    }
     sql.exec("UPDATE cohorts SET draw = ? WHERE seq = ?", &[s(summary.to_string()), i(seq)])?;
     set_phase(sql, seq, "generating", now_ms, "humans drawn (reward-v1)")?;
     crate::eval::lanes::plan_generation(sql, cfg, seq, now_ms)?;
@@ -1046,6 +1114,9 @@ pub struct SealBuild {
     pub published: Option<(Vec<u8>, Vec<u8>)>,
     /// A probe build's private record and its key.
     pub probe_record: Option<(String, Vec<u8>)>,
+    /// Generation v2: the private generation record shards (bound by digest
+    /// in the batch index), put with the batch shards.
+    pub gen_shards: Vec<(String, Vec<u8>)>,
 }
 
 /// Where a probe version's objects live: under the authority's probe prefix
@@ -1677,6 +1748,17 @@ pub fn prepare_seal(sql: &impl Sql, cfg: &EvalConfig, seq: i64, inputs: &SealInp
                 "max_tokens_including_specials": slop_ninja_artifact_check::text::MAX_TOKENS_INCLUDING_SPECIALS}),
         );
     }
+    // Generation v2: the private records of every generated document, bound
+    // by digest (v4 = the earlier index plus this block). No earlier index
+    // changes.
+    let mut gen_shards = Vec::new();
+    if let Some((shards_g, block)) = crate::eval::gen_v2::seal_records(sql, &c)?
+        && let Some(o) = index_json.as_object_mut()
+    {
+        o.insert("schema".into(), json!(crate::eval::gen_v2::BATCH_INDEX_SCHEMA));
+        o.insert("generation".into(), block);
+        gen_shards = shards_g;
+    }
     let index = serde_json::to_vec_pretty(&index_json).map_err(|_| EvalError::State("batch index"))?;
     let mut st = state(sql, seq)?;
     st.reference = Some(inputs.reference);
@@ -1727,6 +1809,7 @@ pub fn prepare_seal(sql: &impl Sql, cfg: &EvalConfig, seq: i64, inputs: &SealInp
             state: st,
             published: None,
             probe_record: Some((format!("{prefix}/record.json"), bytes)),
+            gen_shards,
         });
     }
     // The cohort manifest.
@@ -1844,6 +1927,7 @@ pub fn prepare_seal(sql: &impl Sql, cfg: &EvalConfig, seq: i64, inputs: &SealInp
         state: st,
         published: Some((enc_contents, enc_fps)),
         probe_record: None,
+        gen_shards,
     })
 }
 

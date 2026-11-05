@@ -3263,9 +3263,13 @@ Blockers before step 1 (each recorded in the private status):
   signer-secret authorization of 2026-11-05 named `R2_S3_HOST` and
   `SIGNER_INTERFACE_TOKEN` only).
 - Probe G7-x (a `CopyObject` from the admission bucket to the public
-  bucket with the copy credential: the same etag, no stored SHA-256, HTTP
-  metadata replaced, 412 on a stale `x-amz-copy-source-if-match`, and a
-  681,508,964 B object) has not run. Until it passes, the publisher runs
+  bucket with the copy credential) ran on 2026-11-05: the same etag, no
+  stored SHA-256, HTTP metadata replaced, 412 on a stale
+  `x-amz-copy-source-if-match`; 256 MiB of random bytes took 25.4 s and a
+  954,576,228 B object 42.5 s, and R2 abandons a copy whose caller
+  disconnects. The publisher therefore waits for a copy as long as the
+  object's length derives and streams objects too large for its step
+  (publisher README, `slop_ninja_r2_copy_wait_v1`). The publisher runs
   `ARTIFACT_COPY = "stream"` (the tracked default) and the drill publishes
   by stream; switching to `server` is its own later one-change deploy.
 - The binding read the v2 load path pins with `onlyIf: {etagMatches}` (the
@@ -3466,9 +3470,8 @@ Worker's `workers.dev` name answers 404 to `/admission/v2/cohort` and to
 
 Not measured yet: the roster's RPC load and lag under real isolate counts;
 the session, event and admission-step memory footprints on wasm32 (the
-native arena witnesses run them at their bounds); a cross-bucket
-`CopyObject` (probe G7-x) and, for the stream copy, the 681,508,964 B
-graph within one publisher run.
+native arena witnesses run them at their bounds); for the stream copy, the
+681,508,964 B graph within one publisher run.
 
 ### Outside-miner admission usability (2026-11-03)
 

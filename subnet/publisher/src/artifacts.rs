@@ -33,10 +33,13 @@
 //!    as they arrive) or by `CopyObject` inside R2 ([`CopyMode::Server`],
 //!    `ARTIFACT_COPY = "server"`, presigned by the internal signer Worker
 //!    with the separate copy credential: metadata replaced, storage class
-//!    `STANDARD`, the source etag pinned). The public copy is then checked by
-//!    `head()`: its size, and its stored SHA-256 or, when R2 does not carry
-//!    the checksum over to a server-side copy (design G7), its etag against
-//!    the source's (`files[].check` records which).
+//!    `STANDARD`, the source etag pinned; waited for as long as the object's
+//!    length derives, and an object too large for the step's window, or a
+//!    copy that was not confirmed and left nothing, goes by stream instead:
+//!    [`crate::copy_wait`]). The public copy is then checked by `head()`: its
+//!    size, and its stored SHA-256 or, when R2 does not carry the checksum
+//!    over to a server-side copy (design G7), its etag against the source's
+//!    (`files[].check` records which).
 //!
 //! Nothing here hashes a byte: every integrity check compares digests R2
 //! computed with the digests the commitment binds. The scores are not known
@@ -94,6 +97,8 @@ pub const WAIT_HEADER: &str = "the header object is not in the admission bucket"
 pub const WAIT_FILE: &str = "a file the header lists is not in the admission bucket";
 pub const WAIT_VISIBLE: &str = "the copy is not visible in the public bucket yet";
 pub const WAIT_SIGNER: &str = "ARTIFACT_COPY is server but the signer binding is not configured";
+pub const WAIT_FALLBACK: &str =
+    "the server-side copy was not confirmed and the lease for the stream copy was lost";
 pub const REFUSED_NO_CHECKSUM: &str =
     "the header object carries no stored SHA-256 (a platform fault, never a pass)";
 pub const REFUSED_HEADER_LEN: &str = "the header object's length is outside its protocol bound";
@@ -202,13 +207,35 @@ impl StartRecord {
 }
 
 /// A server-side copy: asks the signer for the presigned `CopyObject` of
-/// `spec` and sends it (no body). `Ok` once R2 answered success; the caller
-/// checks the copy by `head()`.
+/// `spec` and sends it (no body), waiting up to `wait_ms` for R2's answer
+/// ([`crate::copy_wait`]). `Ok` once R2 answered success; the caller checks
+/// the copy by `head()`. [`StoreError::Unconfirmed`] when the copy was sent
+/// but its success is unconfirmed: aborted at the wait (which closes the
+/// connection, so R2 abandons the copy), a transport failure, or an error
+/// status other than a refusal (403, 501) or the stale source's 412.
 pub trait ServerCopy {
     fn copy<'a>(
         &'a self,
         spec: CopySpec,
+        wait_ms: u64,
     ) -> Pin<Box<dyn Future<Output = Result<(), StoreError>> + 'a>>;
+}
+
+/// How a sent `CopyObject` ended, as [`ServerCopy::copy`] reports it:
+/// `status` is R2's answer, `None` when the request failed in transport or
+/// was aborted (`aborted`: its wait's `AbortSignal` fired). Only a refusal
+/// (403, or 501 `NotImplemented`, which R2 answers before authentication
+/// for a request it does not take, qualification G11) and the stale
+/// source's 412 are definite; anything else was sent and may still land.
+pub fn copy_answer(status: Option<u16>, aborted: bool) -> Result<(), StoreError> {
+    match status {
+        Some(200) => Ok(()),
+        Some(412) => Err(StoreError::Unavailable("copy source changed (412)")),
+        Some(s @ (403 | 501)) => Err(StoreError::Refused(s)),
+        Some(_) => Err(StoreError::Unconfirmed("copy answered an error status")),
+        None if aborted => Err(StoreError::Unconfirmed("copy aborted at its wait")),
+        None => Err(StoreError::Unconfirmed("copy request failed")),
+    }
 }
 
 /// One roster entry of the report to the eval Worker
@@ -665,7 +692,12 @@ impl<S: Store, K: Keepalive> Run<'_, S, K> {
 
     /// Copies one admission object to its public digest key unless the key
     /// already holds it, then checks the public object. `spec.etag` is
-    /// filled here from `src_etag`.
+    /// filled here from `src_etag`. In `server` mode an object whose derived
+    /// wait exceeds the step's window, or whose `CopyObject` was sent but not
+    /// confirmed and is still absent, is copied by stream
+    /// ([`crate::copy_wait`]). A copy is checked by the evidence of the mode
+    /// that made it, except after that fallback: an unconfirmed `CopyObject`
+    /// may still land over the stream copy, so either evidence passes.
     async fn copy_object(
         &self,
         mut spec: CopySpec,
@@ -682,31 +714,13 @@ impl<S: Store, K: Keepalive> Run<'_, S, K> {
         if !self.may_continue().await {
             return Err(Outcome::Pending(WAIT_BUDGET.into()));
         }
-        match self.cfg.artifact_copy {
-            CopyMode::Stream => {
-                let put = Put {
-                    content_type: r2copy::CONTENT_TYPE,
-                    cache: Cache::Immutable,
-                    sha256: Some(&digest),
-                };
-                let src = spec.source_key();
-                match p
-                    .copy_artifact_from(
-                        self.buckets.admission,
-                        src.as_str(),
-                        dst.as_str(),
-                        len,
-                        &put,
-                    )
-                    .await
-                {
-                    Ok(true) => {}
-                    Ok(false) => return Err(Outcome::Pending(WAIT_FILE.into())),
-                    Err(StoreError::Integrity) => return Err(Outcome::Refused(REFUSED_R2.into())),
-                    Err(e) => return Err(pending(e)),
-                }
+        // The mode that made the copy, and whether only its evidence passes.
+        let (made, fresh) = match (self.cfg.artifact_copy, self.cfg.copy_wait.plan(len)) {
+            (CopyMode::Stream, _) | (CopyMode::Server, None) => {
+                self.stream_copy(&spec, &digest, len).await?;
+                (CopyMode::Stream, true)
             }
-            CopyMode::Server => {
+            (CopyMode::Server, Some(wait_ms)) => {
                 let Some(server) = self.buckets.server_copy else {
                     return Err(Outcome::Pending(WAIT_SIGNER.into()));
                 };
@@ -714,18 +728,56 @@ impl<S: Store, K: Keepalive> Run<'_, S, K> {
                     return Err(Outcome::Refused(REFUSED_ETAG.into()));
                 };
                 spec.etag = etag;
-                match server.copy(spec).await {
-                    Ok(()) => {}
+                match server.copy(spec, wait_ms).await {
+                    Ok(()) => (CopyMode::Server, true),
                     Err(StoreError::Refused(status)) => {
                         return Err(Outcome::Refused(format!("{REFUSED_SERVER_COPY} ({status})")));
+                    }
+                    // Aborted at its wait (R2 abandons it, probe G7-x X11),
+                    // failed in transport or answered an error: it may have
+                    // landed anyway. The destination first, then the stream
+                    // copy in this step under a renewed lease, so a slow or
+                    // failing copy is never retried forever.
+                    Err(StoreError::Unconfirmed(_)) => {
+                        if let Some(d) = p.head(dst.as_str()).await.map_err(pending)? {
+                            return check_copy(&d, len, &digest, src_etag, CopyMode::Server, false);
+                        }
+                        if !self.renew_step().await {
+                            return Err(Outcome::Pending(WAIT_FALLBACK.into()));
+                        }
+                        self.stream_copy(&spec, &digest, len).await?;
+                        (CopyMode::Stream, false)
                     }
                     Err(e) => return Err(pending(e)),
                 }
             }
-        }
+        };
         match p.head(dst.as_str()).await.map_err(pending)? {
-            Some(d) => check_copy(&d, len, &digest, src_etag, self.cfg.artifact_copy, true),
+            Some(d) => check_copy(&d, len, &digest, src_etag, made, fresh),
             None => Err(Outcome::Pending(WAIT_VISIBLE.into())),
+        }
+    }
+
+    /// The stream copy of `spec`'s object ([`CopyMode::Stream`]): a binding
+    /// `get` piped into a binding `put` carrying the digest, which R2
+    /// verifies.
+    async fn stream_copy(&self, spec: &CopySpec, digest: &Digest, len: u64) -> Result<(), Outcome> {
+        let put = Put {
+            content_type: r2copy::CONTENT_TYPE,
+            cache: Cache::Immutable,
+            sha256: Some(digest),
+        };
+        let (src, dst) = (spec.source_key(), spec.destination_key());
+        match self
+            .buckets
+            .public
+            .copy_artifact_from(self.buckets.admission, src.as_str(), dst.as_str(), len, &put)
+            .await
+        {
+            Ok(true) => Ok(()),
+            Ok(false) => Err(Outcome::Pending(WAIT_FILE.into())),
+            Err(StoreError::Integrity) => Err(Outcome::Refused(REFUSED_R2.into())),
+            Err(e) => Err(Outcome::Pending(e.to_string())),
         }
     }
 }
@@ -790,6 +842,32 @@ mod tests {
         }
         assert_eq!(check_copy(&both, 5, &sha, Some(etag), Stream, true).ok(), Some(CHECK_SHA256));
         assert!(check_copy(&meta(5, None, Some(etag)), 5, &sha, Some(etag), Stream, true).is_err());
+    }
+
+    /// Only R2's refusal and the stale source's 412 are definite answers to a
+    /// sent `CopyObject`; an abort at its wait, a transport failure or any
+    /// other status leaves it unconfirmed, which reads the destination and
+    /// then streams (`copy_object`), never pending on every run.
+    #[test]
+    fn a_sent_copy_is_definite_only_when_r2_says_so() {
+        assert_eq!(copy_answer(Some(200), false), Ok(()));
+        assert_eq!(copy_answer(Some(200), true), Ok(()));
+        assert_eq!(copy_answer(Some(403), false), Err(StoreError::Refused(403)));
+        assert_eq!(copy_answer(Some(501), false), Err(StoreError::Refused(501)));
+        assert!(matches!(copy_answer(Some(412), false), Err(StoreError::Unavailable(_))));
+        for status in [Some(500), Some(502), Some(503), Some(524), Some(404), None] {
+            for aborted in [false, true] {
+                assert!(
+                    matches!(copy_answer(status, aborted), Err(StoreError::Unconfirmed(_))),
+                    "{status:?} {aborted}"
+                );
+            }
+        }
+        assert_eq!(
+            copy_answer(None, true),
+            Err(StoreError::Unconfirmed("copy aborted at its wait"))
+        );
+        assert_eq!(copy_answer(None, false), Err(StoreError::Unconfirmed("copy request failed")));
     }
 
     #[test]

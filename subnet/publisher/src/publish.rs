@@ -607,6 +607,20 @@ impl<S: Store, K: Keepalive> Run<'_, S, K> {
         true
     }
 
+    /// Whether a started step may go on (the stream fallback of a server-side
+    /// copy that did not answer): the lease renewed, whatever the wall budget,
+    /// so a step the budget let start always finishes or stops for good.
+    pub(crate) async fn renew_step(&self) -> bool {
+        if self.stopped.get() {
+            return false;
+        }
+        if !self.keepalive.renew().await {
+            self.stopped.set(true);
+            return false;
+        }
+        true
+    }
+
     /// Publishes what is due. Returns the index as it now stands.
     pub async fn cohorts(
         &self,

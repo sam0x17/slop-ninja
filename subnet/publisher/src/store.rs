@@ -47,6 +47,11 @@ pub enum StoreError {
     /// `NotImplemented`, a refusal like 403; qualification G11): a fresh
     /// attempt alone cannot fix it.
     Refused(u16),
+    /// A write was sent but its success is unconfirmed: aborted at its wait,
+    /// a transport failure, or an error status that is neither a refusal nor
+    /// a failed precondition. Its effect may still land, so the caller reads
+    /// the destination before writing it another way.
+    Unconfirmed(&'static str),
 }
 
 impl core::fmt::Display for StoreError {
@@ -60,6 +65,7 @@ impl core::fmt::Display for StoreError {
             Self::Integrity => f.write_str("copied bytes differ from the verified digest"),
             Self::NotAllowed => f.write_str("outside the public allow-list; nothing written"),
             Self::Refused(status) => write!(f, "R2 refused the request ({status})"),
+            Self::Unconfirmed(code) => write!(f, "sent but not confirmed ({code})"),
         }
     }
 }
@@ -226,6 +232,10 @@ pub struct MemStore {
     /// Source keys whose bytes change between verification and copy (the
     /// copy delivers them with one byte flipped).
     pub tamper_on_copy: RefCell<BTreeSet<String>>,
+    /// Objects that land over their key just after the next `put` to it (a
+    /// server-side copy that completes after the stream copy that replaced
+    /// it).
+    pub land_after_put: RefCell<BTreeMap<String, Stored>>,
     /// Bytes read through `get`, and the largest single read.
     pub bytes_read: Cell<u64>,
     pub largest_read: Cell<u64>,
@@ -322,6 +332,9 @@ impl Store for MemStore {
                 sha256: put.sha256.copied(),
             },
         );
+        if let Some(late) = self.land_after_put.borrow_mut().remove(key) {
+            self.objects.borrow_mut().insert(key.to_owned(), late);
+        }
         Ok(())
     }
 

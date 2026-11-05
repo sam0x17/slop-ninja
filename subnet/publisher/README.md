@@ -222,11 +222,28 @@ store.
     internal signer Worker for a presigned `CopyObject` (source etag pinned,
     `x-amz-metadata-directive: REPLACE`, storage class `STANDARD`) and sends
     it, with no byte through this Worker; R2 answering 403 or 501 is a
-    refusal, alerted. Each public copy is
+    refusal, alerted. R2 answers a `CopyObject` only once the copy is done
+    and abandons it when the caller disconnects (probe G7-x, X11), so the
+    wait is derived from the object's length (`src/copy_wait.rs`,
+    `slop_ninja_r2_copy_wait_v1`): the outbound request bound plus twice the
+    time at the slowest measured cross-bucket rate (268,435,456 random bytes
+    in 25.4 s, X12). It must end inside the step's two-minute lease, less one
+    request bound before (the signer) and one after (the `head()`), which
+    leaves 100 s; an object above the length that fits (475,574,626 B) is
+    copied by stream instead, without asking the signer. At its wait the copy
+    request is aborted (`AbortSignal.timeout`), which closes the connection,
+    so R2 abandons the copy. A copy that is not confirmed (aborted, failed in
+    transport, or answered an error other than 403, 501 or the stale source's
+    412) is never retried forever: the destination is read first, and an
+    absent one is copied by stream in the same step under a renewed lease;
+    since the `CopyObject` may still land over that stream copy, the result
+    then passes by either its stored SHA-256 or the source's etag. Each
+    public copy is
     then checked by `head()`: its size, and, for a `CopyObject` (which keeps
     the etag but never carries the stored SHA-256, qualification G7), its
     etag against the admitted source's; for a stream copy, its stored
-    SHA-256. A public object a run finds already there passes by either.
+    SHA-256 (`files[].check` records which, so a `server` record can list
+    both). A public object a run finds already there passes by either.
 
   Nothing hashes a byte on this path; `subnet/tests/no_object_hash.rs` scans
   it. The scores do not exist at scoring start, so the public-copy gate and

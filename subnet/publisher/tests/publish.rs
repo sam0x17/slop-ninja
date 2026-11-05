@@ -997,11 +997,8 @@ fn the_server_side_copy_is_checked_by_etag() {
         assert!(published_keys(&x).is_empty());
 
         let server = MemServerCopy {
-            admission: &x.admission,
-            public: &x.public,
             carry_checksum: carry,
-            refuse: None,
-            calls: std::cell::Cell::new(0),
+            ..MemServerCopy::new(&x)
         };
         let mut memo = Memo::default();
         let (report, _) = run_copying(&cfg, &x, &mut memo, &Budget::worker(), Some(&server));
@@ -1023,11 +1020,8 @@ fn the_server_side_copy_is_checked_by_etag() {
         let mut cfg = config(Some(0), true);
         cfg.artifact_copy = slop_ninja_publisher::config::CopyMode::Server;
         let server = MemServerCopy {
-            admission: &x.admission,
-            public: &x.public,
-            carry_checksum: false,
             refuse: Some(status),
-            calls: std::cell::Cell::new(0),
+            ..MemServerCopy::new(&x)
         };
         let (report, _) =
             run_copying(&cfg, &x, &mut Memo::default(), &Budget::worker(), Some(&server));
@@ -1038,6 +1032,172 @@ fn the_server_side_copy_is_checked_by_etag() {
         assert_eq!(start_of(&rec, 31).state, ArtifactState::Pending, "{status}");
         assert!(published_keys(&x).is_empty(), "{status}");
     }
+}
+
+/// The server-side copy's wait comes from the object's length
+/// (`copy_wait::CopyWait::V1`), and a copy that is not confirmed (aborted at
+/// that wait, a transport failure or an error status) is never left
+/// pending: R2 abandons an aborted copy (probe G7-x X11), so the destination
+/// is read first (a copy that completed after all passes by its etag) and an
+/// absent one is copied by stream in the same run. A copy that lands over
+/// that stream copy anyway passes by the source's etag, never a refusal.
+/// Nothing is copied twice on the next run.
+#[test]
+fn a_server_copy_that_does_not_answer_is_found_or_streamed() {
+    use slop_ninja_publisher::copy_wait::CopyWait;
+    for late in [Late::Abandoned, Late::Completed, Late::LandsAfterStream] {
+        let b = build(0);
+        let x = buckets(&b);
+        unclose(&b, &x);
+        let mut cfg = config(Some(0), true);
+        cfg.artifact_copy = slop_ninja_publisher::config::CopyMode::Server;
+        assert_eq!(cfg.copy_wait, CopyWait::V1);
+        let server = MemServerCopy {
+            late: Some(late),
+            ..MemServerCopy::new(&x)
+        };
+        let mut memo = Memo::default();
+        let (report, _) = run_copying(&cfg, &x, &mut memo, &Budget::worker(), Some(&server));
+        assert!(report.artifacts_copied >= 10, "{late:?}: {report:?}");
+        assert!(report.refused.is_empty(), "{late:?}: {report:?}");
+        let rec: StartRecord = public_json(&x, &layout::artifacts_record(&b.label));
+        assert_eq!(rec.copy, "server");
+        let s = start_of(&rec, 31);
+        assert_eq!(s.state, ArtifactState::Published, "{late:?}");
+        if late != Late::Abandoned {
+            // Each public object is the server-side copy, found there or
+            // landed over the stream copy: tied by the source's etag.
+            for f in &s.files {
+                assert_eq!(f.check, slop_ninja_publisher::artifacts::CHECK_ETAG, "{late:?}");
+            }
+        }
+        // Which path made each public object last: a stream put stores the
+        // SHA-256, the server-side copy does not (G7). A file another entrant
+        // published first is checked as one found there, so the record's
+        // `check` follows the mode's preference, not the path.
+        let streamed = late == Late::Abandoned;
+        for k in published_keys(&x) {
+            let stored = x.public.objects.borrow().get(&k).unwrap().sha256.is_some();
+            assert_eq!(stored, streamed, "{late:?}: {k}");
+        }
+        let u = uploaded(&b, 31);
+        assert_eq!(x.public.bytes(&layout::header(&u.header_sha256)).unwrap(), u.header);
+        for (sha, bytes) in &u.files {
+            assert_eq!(x.public.bytes(&layout::blob(sha)).unwrap(), *bytes, "{late:?}");
+            // Each file's copy waited the time its length derives.
+            assert!(server.waits.borrow().contains(&CopyWait::V1.wait_ms(bytes.len() as u64)));
+        }
+        assert!(memo.artifacts_done.contains(&b.label), "{late:?}");
+        // Done: the next run asks for no copy.
+        let calls = server.calls.get();
+        run_copying(&cfg, &x, &mut Memo::default(), &Budget::worker(), Some(&server)).1.unwrap();
+        assert_eq!(server.calls.get(), calls, "{late:?}");
+    }
+}
+
+/// A copy left unconfirmed whose stream fallback cannot renew the lease
+/// stops the run: the entrant waits (`WAIT_FALLBACK`), nothing is streamed,
+/// and the next run publishes it.
+#[test]
+fn an_unconfirmed_copy_without_the_lease_waits_for_the_next_run() {
+    let b = build(0);
+    let x = buckets(&b);
+    unclose(&b, &x);
+    let mut cfg = config(Some(0), true);
+    cfg.artifact_copy = slop_ninja_publisher::config::CopyMode::Server;
+    let server = MemServerCopy {
+        late: Some(Late::Abandoned),
+        ..MemServerCopy::new(&x)
+    };
+    // The lease is lost once the first copy was sent.
+    let lease = FnLease(|| server.calls.get() == 0);
+    let mut memo = Memo::default();
+    let (report, _) =
+        run_copying_leased(&cfg, &x, &mut memo, &Budget::worker(), Some(&server), &lease);
+    assert_eq!(server.calls.get(), 1, "{report:?}");
+    assert!(report.refused.is_empty(), "{report:?}");
+    assert_eq!(report.artifacts_copied, 0, "{report:?}");
+    let fallback = slop_ninja_publisher::artifacts::WAIT_FALLBACK;
+    assert!(report.pending.iter().any(|(_, r)| r == fallback), "{report:?}");
+    let rec: StartRecord = public_json(&x, &layout::artifacts_record(&b.label));
+    let waiting: Vec<_> =
+        rec.entrants.iter().filter(|e| e.reason.as_deref() == Some(fallback)).collect();
+    assert_eq!(waiting.len(), 1, "{rec:?}");
+    assert_eq!(waiting[0].state, ArtifactState::Pending);
+    assert!(published_keys(&x).is_empty(), "nothing streamed");
+    assert!(!memo.artifacts_done.contains(&b.label));
+
+    // The next run, with the lease and a copy that answers, publishes all.
+    let server = MemServerCopy::new(&x);
+    let (report, _) = run_copying(&cfg, &x, &mut memo, &Budget::worker(), Some(&server));
+    assert!(report.refused.is_empty(), "{report:?}");
+    let rec: StartRecord = public_json(&x, &layout::artifacts_record(&b.label));
+    assert!(rec.entrants.iter().all(|e| e.reason.as_deref() != Some(fallback)), "{rec:?}");
+    assert_eq!(start_of(&rec, 31).state, ArtifactState::Published);
+    assert!(memo.artifacts_done.contains(&b.label));
+}
+
+/// An object whose derived wait does not fit the step's window streams
+/// without asking the signer; the others still copy inside R2. Each file is
+/// checked by the evidence of the mode that copied it.
+#[test]
+fn objects_above_the_copy_window_stream() {
+    use slop_ninja_publisher::copy_wait::CopyWait;
+    let b = build(0);
+    let x = buckets(&b);
+    unclose(&b, &x);
+    let u = uploaded(&b, 31);
+    let mut lens: Vec<u64> = u.files.iter().map(|(_, f)| f.len() as u64).collect();
+    lens.sort_unstable();
+    lens.dedup();
+    assert!(lens.len() >= 2, "the fixture needs two file sizes: {lens:?}");
+    let window = lens[lens.len() / 2 - 1];
+    let mut cfg = config(Some(0), true);
+    cfg.artifact_copy = slop_ninja_publisher::config::CopyMode::Server;
+    // One millisecond a byte, no fixed part: an object fits iff its length
+    // is at most the window.
+    cfg.copy_wait = CopyWait {
+        probe_bytes: 1,
+        probe_ms: 1,
+        margin: 1,
+        request_ms: 0,
+        window_ms: window,
+    };
+    assert_eq!(cfg.copy_wait.max_server_len(), window);
+    let server = MemServerCopy::new(&x);
+    let (report, _) = run_copying(&cfg, &x, &mut Memo::default(), &Budget::worker(), Some(&server));
+    assert!(report.refused.is_empty(), "{report:?}");
+    let rec: StartRecord = public_json(&x, &layout::artifacts_record(&b.label));
+    let s = start_of(&rec, 31);
+    assert_eq!(s.state, ArtifactState::Published);
+    // Which path made each public object: a stream put stores the SHA-256,
+    // the server-side copy does not (G7).
+    let (mut server_side, mut streamed) = (0, 0);
+    for k in published_keys(&x) {
+        let objects = x.public.objects.borrow();
+        let o = objects.get(&k).unwrap();
+        if o.bytes.len() as u64 <= window {
+            assert!(o.sha256.is_none(), "{k}");
+            server_side += 1;
+        } else {
+            assert!(o.sha256.is_some(), "{k}");
+            streamed += 1;
+        }
+    }
+    assert!(server_side > 0 && streamed > 0, "{server_side} {streamed}");
+    assert!(server.waits.borrow().iter().all(|w| *w <= window));
+    // A window no object fits: the signer is never asked.
+    let b = build(0);
+    let x = buckets(&b);
+    unclose(&b, &x);
+    cfg.copy_wait.window_ms = 0;
+    let server = MemServerCopy::new(&x);
+    let (report, _) = run_copying(&cfg, &x, &mut Memo::default(), &Budget::worker(), Some(&server));
+    assert!(report.artifacts_copied >= 10, "{report:?}");
+    assert_eq!(server.calls.get(), 0);
+    assert!(published_keys(&x)
+        .iter()
+        .all(|k| x.public.objects.borrow().get(k).unwrap().sha256.is_some()));
 }
 
 /// At closure the published header must be the one the package binds: a

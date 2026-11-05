@@ -315,7 +315,11 @@ impl crate::artifacts::PublicationSink for EvalPublication {
 /// The signer's copy route: one fixed-size request, one presigned
 /// `CopyObject` back, which is sent to R2 with no body and exactly the
 /// signed headers. The bytes are copied inside R2; none passes through this
-/// Worker. Each call is bounded by the outbound timeout.
+/// Worker. The signer request is bounded by the outbound timeout; the copy
+/// by the wait derived from the object's length (`copy_wait`), since R2
+/// answers only once the copy is done. At the wait the copy request is
+/// aborted, which closes its connection, and R2 abandons a copy whose caller
+/// disconnected (probe G7-x X11).
 struct SignerCopy {
     fetcher: worker::Fetcher,
     token: String,
@@ -328,6 +332,7 @@ impl crate::artifacts::ServerCopy for SignerCopy {
     fn copy<'a>(
         &'a self,
         spec: slop_ninja_r2_presign::copy::CopySpec,
+        wait_ms: u64,
     ) -> std::pin::Pin<
         Box<dyn std::future::Future<Output = std::result::Result<(), StoreError>> + 'a>,
     > {
@@ -373,23 +378,22 @@ impl crate::artifacts::ServerCopy for SignerCopy {
             }
             let mut put = RequestInit::new();
             put.with_method(Method::Put).with_headers(put_headers);
-            let status = within(OUTBOUND_TIMEOUT_MS, async {
-                let request = Request::new_with_init(r.url, &put).ok()?;
-                let response = worker::Fetch::Request(request).send().await.ok()?;
-                Some(response.status_code())
-            })
-            .await
-            .flatten();
-            match status {
-                Some(200) => Ok(()),
-                Some(412) => Err(StoreError::Unavailable("copy source changed (412)")),
-                // A refusal, not an outage: 403, or 501 `NotImplemented`,
-                // which R2 answers before authentication for a request it
-                // does not take (qualification G11).
-                Some(s @ (403 | 501)) => Err(StoreError::Refused(s)),
-                Some(_) => Err(StoreError::Unavailable("copy refused by R2")),
-                None => Err(StoreError::Unavailable("copy did not answer")),
-            }
+            // The platform's own timeout (`AbortSignal.timeout`) bounds the
+            // copy: at the wait the fetch is aborted and its connection
+            // closed, so R2 abandons the copy (probe G7-x X11) and no pending
+            // future is dropped (docs/workers-arena-design.md section 2.6).
+            let signal = worker::AbortSignal::from(
+                worker::worker_sys::web_sys::AbortSignal::timeout_with_u32(
+                    u32::try_from(wait_ms).unwrap_or(u32::MAX),
+                ),
+            );
+            let request = Request::new_with_init(r.url, &put)
+                .map_err(|_| StoreError::Unavailable("copy request"))?;
+            let sent = worker::Fetch::Request(request).send_with_signal(&signal).await;
+            // A copy sent but not confirmed: the caller reads the
+            // destination first, then copies by stream
+            // (`artifacts::copy_object`).
+            crate::artifacts::copy_answer(sent.ok().map(|r| r.status_code()), signal.aborted())
         })
     }
 }

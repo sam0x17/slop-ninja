@@ -41,6 +41,7 @@ pub mod allowlist;
 pub mod artifacts;
 pub mod arena;
 pub mod config;
+pub mod copy_wait;
 pub mod dashboard;
 pub mod durable;
 pub mod index;

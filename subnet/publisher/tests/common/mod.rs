@@ -499,19 +499,50 @@ pub fn run_with(
 /// etag is the pinned one. R2 never carries the stored SHA-256 over
 /// (qualification G7, `carry_checksum` false); with it true the copy shows
 /// one anyway, which must not change how the copy is checked. `refuse`
-/// answers that status instead (403, or 501 `NotImplemented`).
+/// answers that status instead (403, or 501 `NotImplemented`). `late`
+/// leaves the copy unconfirmed (aborted at its wait, a transport failure or
+/// an error status) and says how it ends. `waits` records each call's wait.
 pub struct MemServerCopy<'a> {
     pub admission: &'a MemStore,
     pub public: &'a MemStore,
     pub carry_checksum: bool,
     pub refuse: Option<u16>,
+    pub late: Option<Late>,
     pub calls: std::cell::Cell<u32>,
+    pub waits: std::cell::RefCell<Vec<u64>>,
+}
+
+/// How an unconfirmed server-side copy ends.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Late {
+    /// Nothing at the destination (R2 abandons a copy whose caller left).
+    Abandoned,
+    /// The copy is at the destination after all, before it is read.
+    Completed,
+    /// The copy lands after the destination was read, over the stream copy
+    /// that replaced it (an abort that lost to the copy's completion).
+    LandsAfterStream,
+}
+
+impl<'a> MemServerCopy<'a> {
+    pub fn new(x: &'a Buckets3) -> Self {
+        Self {
+            admission: &x.admission,
+            public: &x.public,
+            carry_checksum: false,
+            refuse: None,
+            late: None,
+            calls: std::cell::Cell::new(0),
+            waits: std::cell::RefCell::new(Vec::new()),
+        }
+    }
 }
 
 impl slop_ninja_publisher::artifacts::ServerCopy for MemServerCopy<'_> {
     fn copy<'a>(
         &'a self,
         spec: slop_ninja_r2_presign::copy::CopySpec,
+        wait_ms: u64,
     ) -> std::pin::Pin<
         Box<
             dyn std::future::Future<Output = Result<(), slop_ninja_publisher::store::StoreError>>
@@ -521,8 +552,12 @@ impl slop_ninja_publisher::artifacts::ServerCopy for MemServerCopy<'_> {
         Box::pin(async move {
             use slop_ninja_publisher::store::{StoreError, Stored, mem_etag};
             self.calls.set(self.calls.get() + 1);
+            self.waits.borrow_mut().push(wait_ms);
             if let Some(status) = self.refuse {
                 return Err(StoreError::Refused(status));
+            }
+            if self.late == Some(Late::Abandoned) {
+                return Err(StoreError::Unconfirmed("copy aborted at its wait"));
             }
             let src = self
                 .admission
@@ -535,7 +570,12 @@ impl slop_ninja_publisher::artifacts::ServerCopy for MemServerCopy<'_> {
             if etag != Some(spec.etag) {
                 return Err(StoreError::Unavailable("copy source changed (412)"));
             }
-            self.public.objects.borrow_mut().insert(
+            let landed = if self.late == Some(Late::LandsAfterStream) {
+                &self.public.land_after_put
+            } else {
+                &self.public.objects
+            };
+            landed.borrow_mut().insert(
                 spec.destination_key().as_str().to_owned(),
                 Stored {
                     sha256: if self.carry_checksum {
@@ -548,6 +588,9 @@ impl slop_ninja_publisher::artifacts::ServerCopy for MemServerCopy<'_> {
                     bytes: src.bytes,
                 },
             );
+            if self.late.is_some() {
+                return Err(StoreError::Unconfirmed("copy request failed"));
+            }
             Ok(())
         })
     }
@@ -559,6 +602,26 @@ pub fn run_copying(
     memo: &mut Memo,
     budget: &Budget,
     server_copy: Option<&dyn slop_ninja_publisher::artifacts::ServerCopy>,
+) -> (Report, Result<CohortIndex, String>) {
+    run_copying_leased(cfg, x, memo, budget, server_copy, &NoLease)
+}
+
+/// A lease that renews while the closure says so.
+pub struct FnLease<F: Fn() -> bool>(pub F);
+
+impl<F: Fn() -> bool> slop_ninja_publisher::publish::Keepalive for FnLease<F> {
+    async fn renew(&self) -> bool {
+        (self.0)()
+    }
+}
+
+pub fn run_copying_leased<K: slop_ninja_publisher::publish::Keepalive>(
+    cfg: &Config,
+    x: &Buckets3,
+    memo: &mut Memo,
+    budget: &Budget,
+    server_copy: Option<&dyn slop_ninja_publisher::artifacts::ServerCopy>,
+    keepalive: &K,
 ) -> (Report, Result<CohortIndex, String>) {
     let elapsed = || 0u64;
     let run = Run {
@@ -572,7 +635,7 @@ pub fn run_copying(
         cfg,
         budget,
         elapsed_ms: &elapsed,
-        keepalive: &NoLease,
+        keepalive,
         stopped: std::cell::Cell::new(false),
     };
     let mut report = Report::default();

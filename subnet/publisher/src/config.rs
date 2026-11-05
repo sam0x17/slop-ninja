@@ -118,7 +118,9 @@ pub enum CopyMode {
     /// `CopyObject` keeps the etag but never carries the stored SHA-256
     /// (qualification G7), so the copy is checked by its size and by etag
     /// equality with the admitted source, whose SHA-256 R2 verified at
-    /// upload.
+    /// upload. An object whose length-derived wait does not fit a step, or
+    /// whose copy was not confirmed and left nothing, is copied by stream
+    /// ([`crate::copy_wait`]).
     Server,
 }
 
@@ -183,6 +185,10 @@ pub struct Config {
     /// `stream`, the tracked default until probe G7-x passes and the copy
     /// token is installed) or `server` (configuration only).
     pub artifact_copy: CopyMode,
+    /// How long a server-side copy is waited for, and which objects stream
+    /// instead ([`crate::copy_wait`]). Not configurable: always
+    /// [`crate::copy_wait::CopyWait::V1`] when parsed.
+    pub copy_wait: crate::copy_wait::CopyWait,
     /// The coordinator's admission origin the snapshot advertises.
     pub admission_origin: Option<String>,
     /// Extra operator text for the snapshot's notice.
@@ -476,6 +482,7 @@ pub fn parse(get: impl Fn(&str) -> Option<String>) -> Result<Config, ConfigError
         publish_artifacts,
         artifacts_from_epoch,
         artifact_copy,
+        copy_wait: crate::copy_wait::CopyWait::V1,
         admission_origin,
         notice: get("NOTICE")
             .map(|n| n.trim().to_owned())

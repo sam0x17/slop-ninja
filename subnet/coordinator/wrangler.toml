@@ -328,3 +328,13 @@ bucket_name = "admission-bucket-testnet"
 [[env.eval-testnet.services]]
 binding = "ADMISSION_UPLOAD_TESTNET"
 service = "slop-ninja-admission-testnet"
+
+# Generation v2: the internal generation Worker (subnet/gen-worker,
+# slop-ninja-gen-testnet; no public surface), which holds the two frontier
+# vendor keys. Commented out until that Worker is deployed (its own deploy,
+# then this binding in a separate eval deploy): the eval Worker's
+# /eval/gen/health and /eval/gen/measure answer gen_unavailable without it,
+# and no cohort calls it (plans naming generation v2 are refused).
+# [[env.eval-testnet.services]]
+# binding = "GEN_TESTNET"
+# service = "slop-ninja-gen-testnet"

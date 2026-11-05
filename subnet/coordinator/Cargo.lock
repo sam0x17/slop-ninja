@@ -2293,6 +2293,7 @@ dependencies = [
  "slop-ninja-admission-wire",
  "slop-ninja-arena",
  "slop-ninja-artifact-check",
+ "slop-ninja-gen-core",
  "slop-ninja-protocol",
  "slop-ninja-scorer-tokens",
  "subtle",
@@ -2300,6 +2301,16 @@ dependencies = [
  "wasm-bindgen-futures",
  "worker",
  "zeroize",
+]
+
+[[package]]
+name = "slop-ninja-gen-core"
+version = "0.1.0"
+dependencies = [
+ "hex",
+ "serde",
+ "serde_json",
+ "sha2",
 ]
 
 [[package]]

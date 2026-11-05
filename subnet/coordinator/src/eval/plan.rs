@@ -477,7 +477,27 @@ pub struct CohortPlan {
     /// v3 cohorts admitted by the coordinator (absent: the operator roster).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub admission: Option<AdmissionPlan>,
+    /// Generation v2 (`slop_ninja_generation_plan_v2`: half frontier, half
+    /// Workers AI, per-source rotation, voice profiles). Absent: today's v1
+    /// generation, byte-identical (the field is never serialized when
+    /// absent, so stored plans keep their digests). Off: this build checks
+    /// its shape and refuses it ([`GENERATION_V2_REFUSAL`]) until the draw,
+    /// the lanes and the seal run it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub generation: Option<slop_ninja_gen_core::plan::GenerationPlan>,
 }
+
+/// The lanes' fixed bounds a generation v2 plan is checked against: the
+/// alarm wall, one lease step (the shortest step budget the fan-out allows),
+/// the commit margin a call's timeout leaves of its lease (`GenLanes`), and
+/// the per-invocation connection limit.
+pub const GEN_V2_LANE_BOUNDS: slop_ninja_gen_core::plan::LaneBounds =
+    slop_ninja_gen_core::plan::LaneBounds { alarm_wall_ms: ALARM_WALL_MS, lease_step_ms: 60_000, commit_margin_ms: 15_000, max_inflight: 6 };
+
+/// Why this build refuses a plan naming generation v2 (after its shape
+/// checks pass): the plan field stays off until the draw, the lanes and the
+/// seal run it, the generator manifest is measured and both keys exist.
+pub const GENERATION_V2_REFUSAL: &str = "generation (v2 is not run by this build: the flag stays off until the draw, lanes and seal run it)";
 
 /// The `reward-v1` block of a v3 plan. Every value is a plan parameter,
 /// recorded with the plan's digest and bound into the signed manifest (the
@@ -981,6 +1001,7 @@ impl LoadPlan {
             load: Some(LoadSpec { source: self.source.clone(), faults: self.faults.clone() }),
             reward_v1: None,
             admission: None,
+            generation: None,
         }
     }
 }
@@ -1090,6 +1111,17 @@ impl CohortPlan {
     }
 
     pub fn validate(&self, ceilings: Ceilings) -> Result<(), PlanError> {
+        self.validate_checks(ceilings)?;
+        if self.generation.is_some() {
+            return Err(PlanError(GENERATION_V2_REFUSAL));
+        }
+        Ok(())
+    }
+
+    /// Every check of [`validate`](Self::validate) but this build's refusal
+    /// of generation v2 (which the flag lifts once the draw, the lanes and
+    /// the seal run it).
+    pub(crate) fn validate_checks(&self, ceilings: Ceilings) -> Result<(), PlanError> {
         let e = |c: bool, what: &'static str| if c { Ok(()) } else { Err(PlanError(what)) };
         // New cohorts are reward-v1 (v3) or probe builds; stored v2 plans still
         // deserialize through serde without this check.
@@ -1199,13 +1231,15 @@ impl CohortPlan {
                 && !self.pool.pool_id.is_empty(),
             "pool",
         )?;
+        // v1 prices its generators from `textgen::PRICES`; a v2 plan's are
+        // the bound manifest's Workers AI ids and prices, checked at
+        // admission (`slop_ninja_gen_core::plan::admit`).
         e(
             !self.generators.is_empty()
                 && self.generators.iter().collect::<std::collections::BTreeSet<_>>().len() == self.generators.len()
-                && self
-                    .generators
-                    .iter()
-                    .all(|g| g.starts_with("@cf/") && g.len() <= 96 && crate::eval::textgen::price(g).is_some()),
+                && self.generators.iter().all(|g| {
+                    g.starts_with("@cf/") && g.len() <= 96 && (self.generation.is_some() || crate::eval::textgen::price(g).is_some())
+                }),
             "generators (distinct priced @cf models only)",
         )?;
         // The deployment's monthly spend ledger bounds every budget; the plan
@@ -1215,6 +1249,9 @@ impl CohortPlan {
             self.max_kind_shortfall_permille <= MAX_KIND_SHORTFALL_PERMILLE,
             "max_kind_shortfall_permille",
         )?;
+        if let Some(g) = &self.generation {
+            g.validate(&GEN_V2_LANE_BOUNDS).map_err(|r| PlanError(r.0))?;
+        }
         self.validate_common(ceilings, false)
     }
 
@@ -1399,6 +1436,7 @@ pub(crate) mod tests {
             load: None,
             reward_v1: None,
             admission: None,
+            generation: None,
         }
     }
 
@@ -1625,5 +1663,80 @@ pub(crate) mod tests {
         assert_eq!(p.shortfall_tolerance(), [4, 4, 2]);
         assert_eq!(p.excess_shortfall([396, 400, 198]), None);
         assert_eq!(p.excess_shortfall([400, 400, 197]), Some([0, 0, 3]));
+    }
+
+    /// A generation v2 block of the shape the gen core checks.
+    fn generation_v2() -> slop_ninja_gen_core::plan::GenerationPlan {
+        use slop_ninja_gen_core::manifest::ObjectRef;
+        use slop_ninja_gen_core::plan::{FrontierLanes, FrontierMode, GenerationPlan};
+        GenerationPlan {
+            schema: slop_ninja_gen_core::GENERATION_PLAN_SCHEMA.into(),
+            manifest: ObjectRef { key: "generation/manifests/generator-manifest-v1.json".into(), sha256: "cd".repeat(32), bytes: 9000 },
+            rotation: slop_ninja_gen_core::ROTATION_VERSION.into(),
+            frontier_mode: FrontierMode::Sync,
+            frontier_lanes: FrontierLanes { lease_ms: 300_000, inflight_per_lane: None },
+            voice_split: slop_ninja_gen_core::voice::VoiceSplit::NoneHalf.code().into(),
+        }
+    }
+
+    #[test]
+    fn generation_v2_is_off_by_default_and_refused_by_this_build() {
+        let c = NONE;
+        // Absent: v1, and the stored form never names the field, so plans
+        // written before it keep their bytes and digests.
+        let p = plan(100);
+        assert!(p.generation.is_none());
+        p.validate(c).unwrap();
+        let json = serde_json::to_string(&p).unwrap();
+        let top: serde_json::Value = serde_json::from_str(&json).unwrap();
+        assert!(top.get("generation").is_none(), "the plan's top level never names an absent field");
+        assert_eq!(CohortPlan::parse(json.as_bytes(), c).unwrap(), p);
+        // Present and well formed: refused by this build.
+        let mut v2 = plan(100);
+        v2.generation = Some(generation_v2());
+        assert_eq!(v2.validate(c).unwrap_err().0, GENERATION_V2_REFUSAL);
+        let raw = serde_json::to_vec(&v2).unwrap();
+        assert_eq!(CohortPlan::parse(&raw, c).unwrap_err().0, GENERATION_V2_REFUSAL);
+        // Its shape is checked first.
+        let mut bad = v2.clone();
+        bad.generation.as_mut().unwrap().frontier_lanes.lease_ms = ALARM_WALL_MS;
+        assert!(bad.validate(c).unwrap_err().0.starts_with("generation.frontier_lanes.lease_ms"));
+        // Unknown fields inside the block are refused at parse.
+        let mut j: serde_json::Value = serde_json::from_slice(&raw).unwrap();
+        j["generation"]["spend_cap"] = 1.into();
+        assert_eq!(CohortPlan::parse(&serde_json::to_vec(&j).unwrap(), c).unwrap_err().0, "plan json");
+    }
+
+    /// A v2 plan over the specified 14-model Workers AI roster (eight of
+    /// which `textgen::PRICES` does not list) passes every plan check but the
+    /// flag's refusal, and the manifest admission.
+    #[test]
+    fn a_v2_plan_on_the_roster_passes_the_plan_checks_and_admission() {
+        use slop_ninja_gen_core::manifest::fixture::{lane_ids, measured, planned};
+        use slop_ninja_gen_core::plan::{Health, Phase, admit};
+        use slop_ninja_gen_core::vendor::Lane;
+        let c = NONE;
+        let m = measured(planned());
+        let roster = lane_ids(&m, Lane::WorkersAi);
+        assert_eq!(roster.len(), 14);
+        assert!(roster.iter().any(|g| crate::eval::textgen::price(g).is_none()), "the roster has ids v1 does not price");
+        let mut v2 = plan(100);
+        v2.generators = roster.clone();
+        v2.generation = Some(generation_v2());
+        v2.validate_checks(c).unwrap();
+        assert_eq!(v2.validate(c).unwrap_err().0, GENERATION_V2_REFUSAL);
+        let health = Some(Health { interface: slop_ninja_gen_core::iface::MARKER_VALUE.into(), openai: true, anthropic: true });
+        let phase = Phase { documents: 80, generating_window_ms: 3_600_000, lanes: 4, workers_ai_inflight_per_lane: 6 };
+        admit(v2.generation.as_ref().unwrap(), &m, &["wikipedia".to_owned()], &v2.generators, health, &GEN_V2_LANE_BOUNDS, &phase).unwrap();
+        // v1 still refuses an unpriced generator.
+        let mut v1 = plan(100);
+        v1.generators = roster;
+        assert_eq!(v1.validate(c).unwrap_err().0, "generators (distinct priced @cf models only)");
+    }
+
+    #[test]
+    fn the_generation_interface_bounds_name_the_scorer_limit() {
+        assert_eq!(slop_ninja_gen_core::iface::DOC_TOKENS as u64, slop_ninja_artifact_check::text::MAX_TOKENS_INCLUDING_SPECIALS);
+        assert_eq!(GEN_V2_LANE_BOUNDS.alarm_wall_ms, ALARM_WALL_MS);
     }
 }

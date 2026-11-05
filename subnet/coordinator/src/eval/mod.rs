@@ -39,6 +39,7 @@ pub mod chain;
 pub mod commitments;
 pub mod cost;
 pub mod engine;
+pub mod gen_measure;
 pub mod lane_logic;
 pub mod lanes;
 pub mod ledger;

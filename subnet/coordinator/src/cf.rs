@@ -931,6 +931,8 @@ mod lanes_do;
 
 #[path = "cf_admission.rs"]
 mod admission_do;
+#[path = "cf_gen.rs"]
+mod gen_do;
 #[path = "cf_arena.rs"]
 mod arena_exports;
 #[path = "cf_io.rs"]
@@ -2030,6 +2032,24 @@ async fn eval_route(mut req: Request, env: Env) -> Result<Response> {
         // The standing template and the calendar (main instance).
         (Method::Post, "/template" | "/template/pause" | "/session/refuse" | "/session/dispatch") if instance == "main" => eval_do::forward(&env, instance, Method::Post, &rest, raw).await,
         (Method::Get, "/calendar") if instance == "main" => eval_do::forward(&env, instance, Method::Get, &rest, None).await,
+        // Generation v2: the generation Worker's key health, and one call of
+        // the compiled synthetic measurement set (a cell, a call index and an
+        // attempt index, never text), charged to the ledger per call.
+        (Method::Get, "/gen/health") if instance == "main" => json(&match gen_do::health(&env).await {
+            Some(h) => serde_json::to_value(h).unwrap_or_default(),
+            None => serde_json::json!({"error": "gen_unavailable"}),
+        }),
+        (Method::Post, "/gen/measure") if instance == "main" => {
+            let (mut v, micro, key) = gen_do::measure(&env, &body).await;
+            // One ledger key per vendor call (vendor, cell, call, attempt):
+            // a repeated request settles once, two calls never share a key,
+            // and a ledger failure is reported to the operator, not dropped.
+            if let Some(key) = key.filter(|_| micro > 0) {
+                let settled = eval_do::ledger_call(&env, "/settle", &serde_json::json!({"key": key, "microusd": micro, "note": "operator gen-measure call"})).await;
+                v["ledger"] = serde_json::json!(if settled.is_ok() { "settled" } else { "ledger_error" });
+            }
+            json(&v)
+        }
         (Method::Post, "/probe") => {
             let Some(model) = body["model"].as_str().filter(|m| crate::eval::textgen::price(m).is_some()) else {
                 return error("unpriced_model", 400);

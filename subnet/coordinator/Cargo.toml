@@ -56,6 +56,9 @@ slop-ninja-artifact-check = { path = "../crates/artifact-check", default-feature
 # table (no onig, no call out): generation rejects a final document over the
 # scorer's limit and the seal refuses one (eval::v3::scorer_length_ok).
 slop-ninja-scorer-tokens = { path = "../crates/scorer-tokens" }
+# Generation v2: the plan field, the generator manifest, the measurement set
+# and the generation Worker's interface (requests, outcomes, bounds).
+slop-ninja-gen-core = { path = "../crates/gen-core" }
 hmac = "0.12"
 serde = { version = "1", features = ["derive"] }
 # float_roundtrip is declared here, not only inherited from artifact-check:
@@ -87,6 +90,8 @@ rusqlite = { version = "0.37", features = ["bundled"] }
 scale-info = "2.11.6"
 # Deterministic fixture cohorts and public test seeds for the target tests.
 slop-ninja-protocol = { path = "../crates/protocol", features = ["fixtures"] }
+# The synthetic generator manifest and voice library over the real roster.
+slop-ninja-gen-core = { path = "../crates/gen-core", features = ["fixtures"] }
 
 # Cargo does not inherit patches from a Git dependency's workspace. Mirror the
 # selected rtao revision's core fixes (as subnet/Cargo.toml does) so the

@@ -878,6 +878,12 @@ printf 'Authorization: Bearer %s\n' "$(cat $S/eval_operator_token)" |
   curl -sS --header @- -H 'Content-Type: application/json' --data-binary @plan.json \
     $EVAL_URL/eval/plan
 # pre-flight a generator or the scorer path on fixed synthetic text: /eval/probe, /eval/scorer-probe
+# generation v2 (after the gen Worker and the GEN_TESTNET binding are deployed; gen Worker first, then
+#   eval; never roll the gen Worker back below the eval Worker's interface version): GET /eval/gen/health,
+#   POST /eval/gen/measure {"manifest": {key, sha256, bytes}, "model", "effort", "call", "attempt"}
+#   (synthetic set only; each vendor call settles under its own ledger key). Once a plan naming
+#   `generation` has been stored (a later build), rolling the eval Worker back below that build is
+#   unsafe: older builds refuse the stored plan (deny_unknown_fields).
 # resume after an outage, platform, unresolved-infrastructure or step_refused fault: /eval/clear {"label": "..."}
 #   (generation, scorer and admission outages also clear by themselves once a probe or the step
 #   succeeds: auto_cleared_faults; a terminal fault answers {"cleared": false, "refused": "abandon_required"};

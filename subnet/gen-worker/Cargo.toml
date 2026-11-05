@@ -1,0 +1,53 @@
+[package]
+name = "slop-ninja-gen-worker"
+version = "0.1.0"
+edition = "2024"
+publish = false
+description = "Internal Cloudflare Worker that makes the Slop Ninja testnet frontier generation calls (OpenAI, Anthropic)"
+
+# Its own workspace, like the coordinator and the upload Worker: the Wasm
+# build never pulls the native rtao runtime, and nothing here links the
+# coordinator's signing code. Its dependency set is the generation core, the
+# arena and the Workers bindings only.
+[workspace]
+members = ["."]
+resolver = "3"
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[features]
+# Native witness tests: the arena is the test binary's global allocator, so
+# `cargo test --features arena-witness -- --test-threads=1` runs the route
+# witnesses on the bounded arena.
+arena-witness = ["slop-ninja-arena/knobs"]
+
+[dependencies]
+# The global allocator (wasm32): every invocation allocates in its own
+# bounded scope arena, under this crate's own memory model
+# (`memory-model.json`, SLOP_NINJA_MEMORY_MODEL set by .cargo/config.toml).
+# Unmeasured, so `observe` (migration step 1), as the other Workers.
+slop-ninja-arena = { path = "../crates/arena", features = ["glue-spill", "unmeasured-model", "observe"] }
+# Requests, the stream reader, outcome classes and the interface bounds,
+# shared with the eval Worker.
+slop-ninja-gen-core = { path = "../crates/gen-core" }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+zeroize = "1"
+
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+js-sys = "0.3"
+wasm-bindgen = "0.2"
+wasm-bindgen-futures = "0.4"
+worker = "0.8.7"
+
+[dev-dependencies]
+slop-ninja-gen-core = { path = "../crates/gen-core", features = ["fixtures"] }
+
+[build-dependencies]
+serde_json = "1"
+
+[profile.release]
+opt-level = "s"
+lto = true
+codegen-units = 1

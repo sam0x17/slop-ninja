@@ -1,0 +1,54 @@
+# Slop Ninja generation Worker: Wrangler configuration (tracked).
+#
+# The internal Worker that makes generation v2's frontier calls (OpenAI and
+# Anthropic) for the eval Worker. It has no public surface: no route, no
+# custom domain, no workers.dev name, no preview URL, no cron. The eval
+# Worker reaches it only through its service binding GEN_TESTNET. Deploy
+# only the testnet environment, under the deploy rules:
+#
+#   WRANGLER_WRITE_LOGS=false WRANGLER_SEND_METRICS=false wrangler deploy \
+#     --env testnet --tag testnet --message "slop-ninja testnet gen <sha8> <mode>"
+#
+# No account ID belongs here: Wrangler resolves the account from the
+# operator's existing login. Its two keys live in the account's default
+# Secrets Store (Workers scope), installed by the user, never by a script:
+# SLOP_NINJA_OPENAI_API_KEY_TESTNET and SLOP_NINJA_ANTHROPIC_API_KEY_TESTNET.
+# The store's id is account-specific and stays out of tracked files: the
+# deploy fills SECRETS_STORE_ID below from the private inventory into a
+# temporary copy of this file, and deploys from that copy.
+#
+# The top level is a local-only shell (no vars, bindings, routes or
+# workers.dev name), named with the testnet marker.
+
+name = "slop-ninja-gen-local-testnet"
+main = "build/index.js"
+compatibility_date = "2026-10-01"
+workers_dev = false
+preview_urls = false
+
+[build]
+command = "worker-build --release"
+
+[observability]
+enabled = false
+
+# ------------------------------------------------------------------ testnet
+
+[env.testnet]
+name = "slop-ninja-gen-testnet"
+workers_dev = false
+preview_urls = false
+routes = []
+
+[env.testnet.observability]
+enabled = false
+
+[[env.testnet.secrets_store_secrets]]
+binding = "OPENAI_API_KEY"
+store_id = "SECRETS_STORE_ID"
+secret_name = "SLOP_NINJA_OPENAI_API_KEY_TESTNET"
+
+[[env.testnet.secrets_store_secrets]]
+binding = "ANTHROPIC_API_KEY"
+store_id = "SECRETS_STORE_ID"
+secret_name = "SLOP_NINJA_ANTHROPIC_API_KEY_TESTNET"

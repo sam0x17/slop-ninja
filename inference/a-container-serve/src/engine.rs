@@ -38,6 +38,7 @@ use ort::session::{Session, builder::GraphOptimizationLevel};
 use ort::value::Tensor;
 use serde_json::{Value, json};
 use slop_ninja_artifact_check::spec::Version;
+use slop_ninja_protocol::ArtifactHeader;
 use std::fs;
 use std::path::Path;
 use std::sync::{Condvar, Mutex, OnceLock};
@@ -150,17 +151,82 @@ pub fn guard(dir: &Path) -> Result<(Vec<u8>, Value)> {
         "calibration": cal["involvement"]["selected"]["method"], "contract_sha256": ch})))
 }
 
-/// Runs spec `spec`'s admission checks on `dir`, streaming every file once;
-/// the JSON role files are buffered within the spec's JSON budget. Returns a
-/// content-free summary, which names the spec. A refusal reads
-/// `refused <code>: <detail>`; a spec the scorer does not admit by
+/// [`guard`] with the header's digest of `contract.json` (lowercase hex),
+/// which the object store verified at upload, instead of hashing the file:
+/// the scorer's load path. Its body is [`guard`]'s line for line apart from
+/// the signature and the digest's source (a test compares the two sources),
+/// so [`guard`], pinned by every artifact spec (`SCORER_GUARD_SHA256`), keeps
+/// its digest until a spec version moves the pin to this function.
+pub fn guard_verified(dir: &Path, contract_sha256: &str) -> Result<(Vec<u8>, Value)> {
+    let hb = fs::read(dir.join("heads.json"))?;
+    let cb = fs::read(dir.join("contract.json"))?;
+    let w: Value = serde_json::from_slice(&hb)?;
+    let c: Value = serde_json::from_slice(&cb)?;
+    let m: Value = serde_json::from_slice(&fs::read(dir.join("manifest.json"))?)?;
+    let cal: Value = serde_json::from_slice(&fs::read(dir.join("calibration.json"))?)?;
+    let ch = contract_sha256.to_owned();
+    ensure!(
+        m["schema"] == "slop_ninja_full_a_export_v2" && m["complete"] == true && m["calibrated"] == true,
+        "incomplete or uncalibrated export"
+    );
+    ensure!(
+        c["schema"] == "slop_ninja_full_a_contract_v2"
+            && c["input_mode"] == "text"
+            && c["raw_dimension"] == 768
+            && c["maximum_tokens_including_specials"] == MAX_TOKENS
+            && c["token_truncation"] == false,
+        "input meaning differs"
+    );
+    let t = w["base_temperature"].as_f64().context("base temperature")?;
+    ensure!(w["contract_sha256"] == ch.as_str() && t.is_finite() && t > 0., "heads/contract differ");
+    ensure!(
+        cal["schema"] == "slop_ninja_full_a_calibration_v2"
+            && cal["complete"] == true
+            && cal["fit_split"] == "cal"
+            && cal["arm"] == m["arm"]
+            && cal["seed"] == m["seed"]
+            && cal["selected_checkpoint_sha256"] == m["selected_checkpoint_sha256"]
+            && cal["contract_sha256"] == ch.as_str()
+            && cal["involvement"]["selected"] == w["involvement_calibration"],
+        "calibration/checkpoint/involvement map mismatch"
+    );
+    for role in ["human", "ai"] {
+        let r = &cal["roles"][role];
+        let empty = r["roster_empty"] == true
+            && w["profiles"][role].as_array().is_some_and(|a| a.is_empty())
+            && w["thresholds"][role] == 1.0;
+        ensure!(
+            empty || (r["qualified"] == true && r["threshold"] == w["thresholds"][role]),
+            "unqualified or changed role threshold"
+        );
+        ensure!(w["profiles"][role] == c[format!("{role}_profiles")], "profile roster differs");
+    }
+    ensure!(w["span_head"].is_null(), "span-head arms need token states; not served here");
+    Ok((hb, json!({"arm": m["arm"], "seed": m["seed"], "base_temperature": t,
+        "calibration": cal["involvement"]["selected"]["method"], "contract_sha256": ch})))
+}
+
+/// Runs spec `spec`'s admission checks on the files of `header` in `dir`
+/// (the header's digests are the store-verified ones; no file is hashed),
+/// reading the graph once and the JSON role files within the spec's JSON
+/// budget. Returns a content-free summary, which names the spec. A refusal
+/// reads `refused <code>: <detail>`; a spec the scorer does not admit by
 /// ([`admits_by`]) is an error before any file is read.
-pub fn admit(dir: &Path, spec: Version) -> Result<Value> {
+pub fn admit(dir: &Path, header: &ArtifactHeader, spec: Version) -> Result<Value> {
     ensure!(admits_by(spec), "the scorer does not admit by {}", spec.id());
-    let r = slop_ninja_artifact_check::fs::check_dir_for(dir, spec)
+    let r = slop_ninja_artifact_check::files::check_files_for(dir, header, spec)
         .map_err(|e| anyhow!("refused {}: {e}", e.code()))?;
     Ok(json!({"spec": r.spec, "graph_class": r.graph_class, "content_sha256": r.content_sha256,
         "parameters": r.parameters}))
+}
+
+/// The header of a local model directory, by hashing each file once: for
+/// operator tools that load a directory they built (`slop_ninja_a_local_score`,
+/// `slop_ninja_a_adversarial`). The scorer's load path never calls it: its
+/// header comes from the files manifest, whose digests the object store
+/// verified at upload.
+pub fn header_of_dir(dir: &Path) -> Result<ArtifactHeader> {
+    slop_ninja_artifact_check::fs::header_for_dir(dir).map_err(|e| anyhow!("refused {}: {e}", e.code()))
 }
 
 /// What the heads read from the graph.
@@ -197,21 +263,21 @@ impl Needs {
 
 /// The load guard for any admitted artifact, keyed off the declared schemas:
 /// R0's form takes the release [`guard`]; every other form takes
-/// `load_guard::check`. Returns the heads bytes, a content-free summary and,
-/// for the other forms, the guard's facts.
-pub fn guard_any(dir: &Path) -> Result<(Vec<u8>, Value, Option<load_guard::Facts>)> {
+/// `load_guard::check`. `contract_sha256` is the header's digest of
+/// `contract.json`. Returns the heads bytes, a content-free summary and, for
+/// the other forms, the guard's facts.
+pub fn guard_any(dir: &Path, contract_sha256: &str) -> Result<(Vec<u8>, Value, Option<load_guard::Facts>)> {
     let m: Value = serde_json::from_slice(&fs::read(dir.join("manifest.json"))?)?;
     let hb = fs::read(dir.join("heads.json"))?;
     let w: Value = serde_json::from_slice(&hb)?;
     if load_guard::takes_release_guard(&m, &w) {
         drop((m, w, hb));
-        let (hb, meta) = guard(dir)?;
+        let (hb, meta) = guard_verified(dir, contract_sha256)?;
         return Ok((hb, meta, None));
     }
-    let cb = fs::read(dir.join("contract.json"))?;
-    let c: Value = serde_json::from_slice(&cb)?;
+    let c: Value = serde_json::from_slice(&fs::read(dir.join("contract.json"))?)?;
     let cal: Value = serde_json::from_slice(&fs::read(dir.join("calibration.json"))?)?;
-    let ch = sha(&cb);
+    let ch = contract_sha256.to_owned();
     let facts = load_guard::check(&m, &c, &w, &cal, &ch).map_err(|e| anyhow!("{e}"))?;
     let meta = json!({"arm": m["arm"], "seed": m["seed"], "base_temperature": w["base_temperature"],
         "calibration": cal["involvement"]["selected"]["method"], "contract_sha256": ch,
@@ -301,24 +367,48 @@ fn widen(v: &[f32]) -> Vec<f64> {
 }
 
 impl Model {
-    /// Admit the artifact in `dir` by `spec` and load it with `sessions`
-    /// sessions of `threads` intra-op threads. Admission ([`admit`]) runs
-    /// before any guard and before ONNX Runtime opens the graph.
-    pub fn load(dir: &Path, spec: Version, graph: &str, sessions: usize, threads: usize, lib: &str) -> Result<Self> {
+    /// Admit the files of `header` in `dir` by `spec` and load them with
+    /// `sessions` sessions of `threads` intra-op threads. Admission
+    /// ([`admit`]) runs before any guard and before ONNX Runtime opens the
+    /// graph. The header's digests are the object store's; nothing on this
+    /// path hashes a file.
+    pub fn load(
+        dir: &Path,
+        header: &ArtifactHeader,
+        spec: Version,
+        graph: &str,
+        sessions: usize,
+        threads: usize,
+        lib: &str,
+    ) -> Result<Self> {
         let t = Instant::now();
-        let admission = admit(dir, spec)?;
+        let admission = admit(dir, header, spec)?;
         let admit_s = t.elapsed().as_secs_f64();
-        let mut model = Self::load_without_admission(dir, graph, sessions, threads, lib)?;
+        let contract = header
+            .files
+            .iter()
+            .find(|f| f.name == "contract.json")
+            .map(|f| hex::encode(f.sha256.0))
+            .context("contract.json in the header")?;
+        let mut model = Self::load_without_admission(dir, &contract, graph, sessions, threads, lib)?;
         model.load["admission"] = admission;
         model.load["admission_s"] = json!(admit_s);
         Ok(model)
     }
 
-    /// [`Model::load`] without the admission checks: for engine tests on
-    /// synthetic graphs only. The scorer binaries never call it.
-    pub fn load_without_admission(dir: &Path, graph: &str, sessions: usize, threads: usize, lib: &str) -> Result<Self> {
+    /// [`Model::load`] without the admission checks, given the header's
+    /// digest of `contract.json`: for engine tests on synthetic graphs only.
+    /// The scorer binaries never call it.
+    pub fn load_without_admission(
+        dir: &Path,
+        contract_sha256: &str,
+        graph: &str,
+        sessions: usize,
+        threads: usize,
+        lib: &str,
+    ) -> Result<Self> {
         let t = Instant::now();
-        let (hb, meta, facts) = guard_any(dir)?;
+        let (hb, meta, facts) = guard_any(dir, contract_sha256)?;
         let guard_s = t.elapsed().as_secs_f64();
         let t = Instant::now();
         init_ort(lib)?;

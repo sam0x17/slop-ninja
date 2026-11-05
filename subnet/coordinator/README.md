@@ -55,15 +55,15 @@ and the `fetch` RPC transport, and compiles only for `wasm32`.
 | `POST /signing/control` | Operator action, body `{"action": "resume" \| "pause" \| "clear_fault" \| "arm_drill" \| "auto_pause" \| "auto_resume" \| "auto_abandoned" \| "auto_unabandoned" \| "auto_gap", "drill": ..., "count": n, "label": ..., "cohort": n}`. |
 | `POST /signing/kick` | Operator action: run one signing round now (the duplicate-wakeup drill). |
 | `GET /eval/status` | `EVAL_ROLE = "eval"` only. Content-free cohort status, with every scorer slot's running state. The operator or monitor token, or the publisher's token through its service binding. |
-| `GET /eval/admission/link` | `EVAL_ROLE = "eval"` only. Probes the framing link to the upload Worker (service binding, internal host, shared interface token) without an upload: `{"frame": "ok"}` or the failure. Operator or monitor token. |
+| `GET /eval/admission/link` | `EVAL_ROLE = "eval"` only. Probes the header-check link to the upload Worker (service binding, internal host, shared interface token) without an upload, and reports whether the signer's binding and token are configured: `{"header": "ok", "signer": {...}}` or the failure. Operator or monitor token. |
 | `POST /eval/plan`, `/eval/clear` | Queue a cohort plan; clear a resumable cohort fault (`{"label": ...}`). Operator token. |
 | `POST /eval/abandon` | End a faulted cohort without a target (`{"label": ..., "reason": "<code>"}`); the only exit of a terminal fault. Operator token. |
 | `POST /eval/probe`, `/eval/scorer-probe` | Pre-flight one generator, or the scorer path, on fixed synthetic text; the measured cost is settled in the spend ledger. Operator token. |
 | `GET /eval/gen/health`, `POST /eval/gen/measure` | Generation v2: whether the generation Worker (`../gen-worker`, service binding `GEN_TESTNET`) resolves both vendor keys; and one call of the compiled synthetic measurement set (`{manifest: {key, sha256, bytes}, model, effort, call, attempt}` and no other field, never text), each vendor call settled in the spend ledger under its own key (`probe:gen-measure-<vendor>:<model>:<effort>:<call>:<attempt>`), a call without final usage at its reservation bound. Operator token. Plans naming `generation` are refused by this build. |
 | `POST /eval/template`, `/eval/template/pause`, `GET /eval/calendar` | Install the standing cohort template (journaled; the installed bytes again are a replay that changes nothing); pause or resume opening cohorts from it (`{"paused": bool}`); the cohort calendar. Operator token. |
-| `POST /eval/session/refuse`, `/eval/session/dispatch` | Refuse a stalled session (`{session, reason}`); re-send or clear one outstanding admission work dispatch (`{session, dispatch, action: "resend"\|"clear"}`). Operator token. |
-| `/admission/...` | Always 404. The public admission routes (contract `slop_ninja.admission/v1`, `docs/testnet/admission-api.md`) are the key-free upload Worker's (`subnet/admission-worker`, `slop-ninja-admission-testnet`), not this Worker's. |
-| `POST /internal/admission/v1/<op>` | `EVAL_ROLE = "eval"` only. The internal admission interface, reachable only through the upload Worker's service binding: a request must name the internal host `eval-admission.internal`, which no public route carries, and present the shared `ADMISSION_INTERFACE_TOKEN` (compared in constant time). Anything else answers 404. The body is one forwarded, already checked request (`slop_ninja_admission_wire::internal::Forward`), relayed to the cohort authority. |
+| `POST /eval/session/refuse` | Refuse a stalled session (`{session, reason}`). Operator token. |
+| `/admission/...` | Always 404. The public admission routes (contract `slop_ninja.admission/v2`, `docs/testnet/admission-api.md`) are the key-free upload Worker's (`subnet/admission-worker`, `slop-ninja-admission-testnet`), not this Worker's. |
+| `POST /internal/admission/v2/<op>` | `EVAL_ROLE = "eval"` only. The internal admission interface, reachable only through the upload Worker's service binding: a request must name the internal host `eval-admission.internal`, which no public route carries, and present the shared `ADMISSION_INTERFACE_TOKEN` (compared in constant time). Anything else answers 404. The body is one forwarded, already checked request (`slop_ninja_admission_wire::internal::Forward`), relayed to the cohort authority. |
 | cron `* * * * *` | The watchdog. On the coordinator it is the only timer, and no Durable Object alarms are set; on the eval Worker it also kicks the cohort authority and, outside scoring, stops idle scorer slots, while the cohort and scorer Durable Objects keep bounded alarms. The finalized commitment reader is per-block work: each new block's delivery drives it, and the cron only while the watchdog is in fallback (when no delivery arrives), never as its own schedule. |
 
 Without its token secret, a route returns 503. A wrong token gets 401. Every
@@ -1554,9 +1554,9 @@ A fault pauses the cohort with its state intact. Two kinds:
   receipt deletion, the abandonment record), and a bookkeeping step that
   fails waits out a retry time (`bookkeeping_retry` on `/eval/status`), so
   neither holds the other. Admission's outage faults
-  (`framing_unavailable`, `commitment_state_unavailable`, a verdict's
-  `scorer_unavailable`) record their subject (the session, the commitment
-  resolution, the verdict) and clear once no subject meets the pause
+  (`signer_unavailable`, `upload_path_unavailable`,
+  `upload_front_unavailable`, `commitment_state_unavailable`, a verdict's `scorer_unavailable`) record
+  their subject (the mint or canary, the commitment resolution, the verdict) and clear once no subject meets the pause
   condition any more: re-read after that subject succeeds and on every
   admission step, so a subject that leaves without succeeding (a refused
   session) clears it too, while another subject's success never does (a
@@ -1753,8 +1753,12 @@ bucket.
 lane reports at alarm entry, starts its container with Internet access off,
 waits for it to answer (bounded by `SCORER_START_WAIT_MS`), checks its build
 identity (the scorer binary's and ONNX Runtime's SHA-256 against the pinned
-`SCORER_BINARY_SHA256` and `SCORER_ORT_SHA256`), streams the artifact's
-content-addressed parts from the eval bucket (3 in flight) and loads it,
+`SCORER_BINARY_SHA256` and `SCORER_ORT_SHA256`), streams the artifact's files
+under its files manifest v2 (a miner's from the admission bucket, a reference
+package's from the eval bucket) in ranged reads of at most 64 MiB pinned to
+the entity tag admission recorded, piped untouched to the scorer's writes at
+their offsets, and loads it with no hash (the digests are the header's, which
+R2 verified at upload),
 reporting every 20 s and holding no claim; it sets the container's inactivity
 timeout so the instance survives between its alarm invocations. It then claims
 chunks (`chunk_docs` tasks), reads their texts from the sealed batch shards in
@@ -2007,103 +2011,120 @@ evaluation. Rates and bounds are the plan's `fanout.cost`; none is a
 compiled-in constant.
 
 **Admission.** A `reward-v1` plan with an `admission` block is admitted by
-the coordinator (`eval::admission`, contract `slop_ninja.admission/v1`):
+the coordinator (`eval::admission`, contract `slop_ninja.admission/v2`,
+store v25; [admission API](../../docs/testnet/admission-api.md)):
 
 - The window opens at the cohort's opening boundary and closes at the
   boundary that reaches the admission minimum (`cutoff_block`, that
-  boundary's first block). Part size, part count, the validity window and
-  the roster cap are plan parameters; the object bound derives from the
-  plan's artifact spec (`SpecBounds`: the largest served graph class, the
-  pinned tokenizer, the spec's JSON budget and the protocol header bound),
-  and the scoring lanes size their load allowance from the same spec
-  (`fanout.score.artifact_spec`, replacing the tuned `artifact_max_mib`).
-  Admission plans name spec v2 or v3 (`admission::ADMISSION_SPECS`): each
-  run loads through the scorer's probe route naming the cohort's spec
-  (`LaneRun::body`), as the cohort's scoring loads do, so a spec v3 cohort
-  admits the span tower class; `/plan` and `/template` refuse any other spec
-  (`admission_spec_unsupported`).
-- Requests are signed by the hotkey they concern. The Worker verifies the
-  signature and body digest statelessly before forwarding; the cohort object
-  checks them again against the RPC-confirmed cursor. Sessions (one per
-  hotkey and commitment, so a hotkey's sessions are bounded by its
-  commitments), attempts, parts (with their R2 tags) and each hotkey's last
-  refused request live in the cohort object; part bodies stream from the
-  request to R2's `uploadPart` and never pass through Rust.
-- Verification is durable work of the cohort's alarm, each step resumed
-  after an eviction or redeploy: the multipart completion (stage
-  `complete`; issued again until R2's outcome is recorded; R2's definitive
-  part refusal ends the session as `object_mismatch`, anything else retries
-  with a backoff), framing (stage `frame`) and the blob copies (`blobs`).
-  The cohort object never frames or copies in its own invocation: its step
-  records a dispatch (`adm_sessions.dispatch`, store v21) and sends a
-  content-free message (session, step, dispatch number) on the lane-wakeup
-  Queue. The Queue consumer takes it from the object
-  (`/admission-work/take`), calls the upload Worker's framing route or
-  copies the slices, and reports back (`/admission-work/frame`,
-  `blobs-created` before any copy, `blobs-written` or `blobs-failed`), each
-  one short transaction that is safe to apply twice. A dispatch stays
-  outstanding until its report, and the session is not due meanwhile;
-  nothing re-sends it because time passed. It is recorded `pending` under
-  the object incarnation's random identifier and marked `sent` once the
-  Queue accepted its message. At each heartbeat kick the object sends again,
-  same number, every outstanding dispatch another incarnation recorded (its
-  message may never have left: a deploy or reset between the record and the
-  send) and, after one of its own sends could not be settled in the store,
-  its own `pending` ones; the kick is the event, never elapsed time. The
-  operator can re-send or clear one dispatch by number (`POST
-  /eval/session/dispatch`, `{session, dispatch, action: "resend"|"clear"}`).
-  The consumer retries a delivery that could not reach the object, and on
-  the Queue's last allowed delivery (`max_retries` + 1, checked against
-  `wrangler.toml`) it first sends a fresh copy delayed by the consumer's
-  15-minute wall limit, before any delivery of the batch runs, so the copy
-  arrives only after that delivery has ended and a dispatch is never dropped
-  by the delivery limit. One invocation runs at most one share of admission
-  work (six deliveries, of which as many framings as fit the wall limit at
-  the largest admission object, scaled from the drill's measured framing
-  time, `frame-time-2026-11-04`); the rest of the batch goes back on the
-  Queue as fresh messages before anything runs. A batch whose messages
-  cannot be read is retried whole. A send the Queue refuses clears the
-  dispatch uncounted and backs the session off. Every delivery that takes a
-  framing dispatch is an attempt. A blob take records the session's use of
-  every slice of its record before the consumer heads any blob, and waits
-  (uncounted backoff) while another session's clean-up is deleting one of
-  them (`adm_blob_deletes`), so a blob the consumer finds present is never
-  one a clean-up is about to delete. `/eval/status` `platform_retries`
-  shows `steps_dispatched`, `steps_dispatch_pending`, `dispatch_untaken`,
-  `dispatch_takes_max` and `last_delivery_error` (the consumer reports a
-  failed copy's code and a refused work scope); a dispatch outstanding
-  across ticks with no takes is one whose message did not arrive, an alert
-  for the operator, never a protocol timeout. Why: a service binding runs the
-  caller's thread, so framing called from the object held the object's
-  thread while the upload Worker hashed the whole object (cohort-19 drill,
-  2026-11-04: requests to the object stalled 1 to 27.5 s, and the commitment
-  reader's plan and ingest calls ran out of their allowance).
-  Framing is the protocol reader (the header record, decoded once within
-  `MAX_ARTIFACT_HEADER_LEN`; object and file digests and lengths), the
-  spec's header-only file-table checks, the scorer's content-addressed
-  slices and parts manifest, and `SubmissionUpload::admit` against the
-  logged commitment. A framing attempt that ends without an outcome (cut
-  off by CPU or an eviction) is the platform's: each attempt arms a growing
-  backoff when its delivery takes it, so it runs again after it and never
-  refuses the upload. When one session's cut-offs reach the plan's
-  `fanout.score.failures_before_pause` (and at every multiple), the cohort
-  faults with the resumable `framing_unavailable`: the roster freeze waits on
-  the same cohort, the publisher's `cohort_fault` alert fires, and the
-  operator clears it after a framing that succeeded meanwhile or after
-  refusing the session. Framing runs in the upload Worker: a framing call
-  that fails is counted the same way, except the upload Worker's explicit
-  object-read answer (uncounted), and a link that is not configured (no
-  token or service binding, or a 404 or 400 from the upload Worker) faults
-  the cohort on its first failure; `GET /eval/admission/link` probes the
-  link. A verdict run's platform failures pause the cohort
-  the same way (`scorer_unavailable`), and so does a commitment resolution
-  whose reads keep serving no state while the hotkey has a session verifying
-  (`commitment_state_unavailable`). No parser of graph or
-  role-file bytes runs here; the header record is decoded in this Worker,
-  which holds the package and receipt keys (see "Not yet implemented").
+  boundary's first block), once that boundary's canary passed. The
+  validity window, the roster cap and the upload URL policy
+  (`admission.upload_policy`, `slop_ninja_upload_url_policy_v1`) are plan
+  parameters; the object bound derives from the plan's artifact spec
+  (`SpecBounds`: the largest served graph class, the pinned tokenizer, the
+  spec's JSON budget and the protocol header bound), and the scoring lanes
+  size their load allowance from the same spec (`fanout.score.artifact_spec`).
+  Admission plans name spec v2 or v3 (`admission::ADMISSION_SPECS`); `/plan`
+  and `/template` refuse any other spec (`admission_spec_unsupported`) and
+  a plan with v1's `part_size` or `max_parts`.
+- **Hash once, direct to R2.** Miners PUT the header bytes and each file
+  straight to the admission bucket under presigned URLs the internal signer
+  Worker (`subnet/r2-signer`, binding `R2_SIGNER_TESTNET`, token
+  `SIGNER_INTERFACE_TOKEN`) mints for this Worker only, one signer request
+  per `urls` call. Each URL binds the derived key, the committed length, the
+  committed SHA-256 (R2 verifies it at ingest) and create-only. No upload
+  byte passes through any of our Workers, and nothing here hashes a model
+  byte: objects are recorded from R2's `head()` (size, stored SHA-256, entity
+  tag, and the stored-attribute rule `slop_ninja_object_attributes_v1`,
+  named in the limits record: no customer key, the standard storage class,
+  and empty HTTP and custom metadata, since R2 stores six unsigned standard
+  headers of a presigned PUT as HTTP metadata).
+  The small records hashed are a session-creation body, the files manifest
+  (the package digest), the canary body and the control document; the
+  subnet lint `tests/no_object_hash` checks it.
+- Requests are signed by the hotkey they concern. The upload Worker
+  verifies the signature and body digest statelessly before forwarding; the
+  cohort object checks them again against the RPC-confirmed cursor and
+  requires the session's own hotkey for `urls`, `complete` and `repair`.
+  Sessions (one per hotkey and commitment), their objects (`adm_objects`:
+  the header and each distinct file, with the recorded entity tag) and each
+  hotkey's last refused request live in the cohort object, with one
+  constant-size mint aggregate per session (`mints`, `url_until_ms`), never
+  a row per URL.
+- **The header first.** `urls` (and `complete`, an event or the alarm
+  sweep) settles the header before any file URL is minted: R2's head must
+  show the envelope's size and SHA-256; the bytes are read pinned to that
+  entity tag and piped as a stream into the upload Worker's header route
+  (`/internal/upload/v2/header`), whose bounded outcome is checked here: the
+  table is rebuilt, its content digest recomputed (a mismatch with the
+  outcome's is the platform's fault, never the miner's), the contract and
+  committed content compared, and `SubmissionUpload::admit_header` run
+  against the logged commitment. No header object yet: `header_missing` with
+  a fresh header URL.
+- **Files.** Recorded from R2's heads by the client's `complete`, the R2
+  object-create event (Queue `admission-events-queue-testnet`, a
+  wakeup only), or the alarm sweep (once a tick, sessions that had a URL
+  minted). An object present with other bytes or attributes is deleted
+  (while it keeps the tag seen) and may be PUT again; a head error or a
+  missing stored checksum records nothing. When the header and every file
+  are recorded the session verifies: its files manifest v2 (each file's key
+  and entity tag) is written to the eval bucket, and its admission run
+  follows.
+- **Upload-path faults.** A mint the signer could not make persists
+  `signer_unavailable`; a failed end-to-end canary (a presigned PUT of our
+  own 64 bytes under `health/`, confirmed by a head, then deleted)
+  persists `upload_path_unavailable`; a header settle the platform could
+  not run (R2's head or pinned read, the upload Worker's binding, header
+  route or answer) or a failed link probe (the canary's call of the header
+  route, which also runs the upload Worker's registration read) persists
+  `upload_front_unavailable`, cleared by a settle the upload Worker
+  answered or a passing probe. Each cancels earlier successes and defers
+  the close to the first boundary after a later success; the canary
+  retries once a tick while a fault holds and is the close's first step, so
+  the platform's outage never ends a miner's upload. All show in
+  `/eval/status` (`admission.upload_path`). URLs the signer minted after
+  `closing` was persisted are not handed out (`after_cutoff`).
+- **Lost objects after admission.** A scoring lane whose load meets an
+  admitted entrant's object absent or changed (`/lane/object-missing`), or
+  the publisher's report of a missing object, audits the session: its
+  recorded objects are headed, an absent one is listed `repair_needed`, an
+  unclean one (the committed bytes with a stored attribute) is deleted for a
+  clean PUT, and the session waits in stage `repair`. The lane holds,
+  counted neither as a scorer failure nor as the artifact's, and retries
+  each admission tick until the repair is recorded.
+- **The close.** `closing` is persisted at the boundary (after its canary):
+  from then `urls` and `complete` answer `after_cutoff` and only the close
+  sweep records presence. It heads every unrecorded object of every open
+  session once, in batches within the step's R2 calls
+  (`admission::R2_CALLS_PER_STEP`, half the documented per-invocation
+  subrequest limit), its progress persisted per object; a head that errors
+  defers it after a backoff, and only a definite absence counts as missing.
+  Then the close is recorded: complete sessions verify, the rest are refused
+  `incomplete_at_cutoff`.
+- **Repair and audit.** A verdict run that met an object missing or
+  changed since admission recorded it (`scorer_client::OBJECT_CODES`) sends
+  its session to an audit: an absent object is the platform's (the run
+  waits, the session lists `repair_needed`, and `repair` mints a URL for
+  exactly that recorded key, digest and length while the object is still
+  needed, before its publication is recorded); one present with its digest
+  but another entity tag or a forbidden attribute refuses the session
+  `object_replaced` (the miner's, never a cohort pause).
+- **Retention.** Superseded sessions' objects are deleted at once, those of
+  sessions that ended without admission at the freeze, admitted ones once
+  their publication is recorded and their cohort closed; a standing
+  reconciliation lists `admission/v2/` one page a step and deletes any key
+  no live session holds (a stale URL can recreate one). It never ends on time
+  or on an empty list and gates nothing. There is no lifecycle rule.
+- A verdict run's platform failures pause the cohort (`scorer_unavailable`),
+  and so does a commitment resolution whose reads keep serving no state
+  while the hotkey has a session uploading or verifying
+  (`commitment_state_unavailable`). No parser of graph or role-file bytes
+  runs here, and no uploaded header is decoded in this Worker, which holds
+  the package and receipt keys.
 - The verdict comes from an admission run on the scorer Container, through
   the scoring lane's admission route (`AScorer` `POST /admit`): a fresh
-  single-use instance per try loads the parts under the cohort's label, its
+  single-use instance per try loads the files manifest v2 (each file read
+  from the admission bucket in 64 MiB ranged reads pinned to the recorded
+  entity tag, nothing hashed) under the cohort's label, its
   spec digest (spec v2 or v3) and its lane limits (size bound, load
   allowance, inactivity and document time limit), runs the scorer's own
   admission (graph pre-parse included) and scores the control document; the
@@ -2116,7 +2137,7 @@ the coordinator (`eval::admission`, contract `slop_ninja.admission/v1`):
   allowance, and a control document that did not score count on fresh
   instances toward the plan's `artifact_failures_before_model_error`.
   Everything else (placement, `insufficient_memory`, the coordinator's own
-  manifest or blobs, transport, a code this build does not know) is the
+  manifest, a chunk transfer, a code this build does not know) is the
   platform's: retried with a doubling backoff from 60 s to the 15-minute
   run lease, and reported in the admission status (`platform_retries`) for
   alerting. Runs count against `MAX_SCORE_LANES` together with the live
@@ -2140,18 +2161,19 @@ the coordinator (`eval::admission`, contract `slop_ninja.admission/v1`):
 - **Ways out.** `POST /eval/session/refuse` (`{session, reason}`, main
   instance) refuses one stalled session with a recorded reason
   (`check_failed`, `operator:<reason>`), and its pending verdict with it.
-  `POST /eval/session/dispatch` re-sends one outstanding admission work
-  dispatch under its number (`"resend"`) or clears it so the step
-  dispatches afresh (`"clear"`, uncounted).
   `POST /eval/abandon` also abandons a faulted cohort in `admission`: its
   window closes for good and its live sessions are refused.
-- **Clean-up.** After the freeze (or an abandonment), sessions that ended
-  without admission lose their objects, the blobs their own copies created
-  and the parts manifest they wrote, unless another session still uses
-  them; `closure-artifacts.json` beside the closure names the admitted
-  objects for publication after the close. A cohort abandoned after its
-  freeze has no closure, so its admitted objects (and what only their
-  copies created) are deleted the same way.
+- **Clean-up and publication.** After the freeze (or an abandonment),
+  sessions that ended without admission lose their objects. Admitted objects
+  stay in the admission bucket until the cohort closes and their publication
+  is recorded. Publication happens at scoring start, in the publisher
+  (`subnet/publisher`, `src/artifacts.rs`): once the signed manifest seals
+  the roster, it copies each admitted entrant's files and header from the
+  admission bucket to the public bucket's digest keys, by a binding stream R2
+  verifies or a server-side `CopyObject`, hashing nothing; the closure no
+  longer names objects for a later copy. A standing reconciliation lists
+  `admission/v2/` and deletes any object no open session or admitted entrant
+  awaiting publication holds; it never ends on time and gates nothing.
 - **The commitment log** (`eval::commitments`) runs from the cron tick on
   the RPC-confirmed watermark, within its own share of the per-minute RPC
   budget (`READER_RPC_CALLS_PER_MINUTE`; by default the budget less the
@@ -2690,23 +2712,37 @@ milestone M7.
   one for the operator's validator awaits the user's decision (TESTNET.md,
   "Automatic target handoff").
 - **Admission, open items.** The eval Worker decodes no uploaded object:
-  framing (the header record, the slices and the parts manifest) runs in
-  the key-free upload Worker, which the eval Worker's Queue consumer calls
-  through its service binding (finding 24, decided 2026-11-03; never from
-  the cohort object since the cohort-19 drill). Testnet
-  enforces protocol bounds only (decision D6): no per-IP or per-hotkey rate
-  limit, `rate_limited` is never sent; the upload Worker refuses unsigned
-  and unregistered requests before any body read or forward, and serves the
-  one unsigned route, the cohort read, from the cohort snapshot the cohort
-  object writes to the upload bucket, so no unsigned request reaches the
-  eval Worker ([admission API](../../docs/testnet/admission-api.md),
-  section 13).
-  Framing is one non-resumable step that hashes the object four times; its
-  CPU and peak memory at the spec's largest object are not measured on the
-  load instance (`ADMISSION_STEP_BYTES` and `COMMITMENTS_CONTROL_BYTES` are
-  estimates); a cut-off attempt backs off and runs again, so an object
-  whose framing never fits the platform's limits pauses its cohort
-  (`framing_unavailable`) for the operator.
+  the header check runs in the key-free upload Worker, through its service
+  binding. Testnet enforces protocol bounds only (decision D6): no per-IP or
+  per-hotkey rate limit, `rate_limited` is never sent; the upload Worker
+  refuses unsigned and unregistered requests before any body read or
+  forward, and serves the one unsigned route, the cohort read, from the
+  cohort snapshot the cohort object writes to the eval bucket (which no
+  presigning credential reaches; the snapshot also carries the gate's
+  repair list)
+  ([admission API](../../docs/testnet/admission-api.md), section 13). The
+  R2 behaviours admission v2 relies on were qualified against R2 on
+  2026-11-05, not by these tests: the signed checksum verified on a
+  presigned PUT and a mismatch stored nowhere, create-only enforced, expiry
+  checked when the request starts (so no upload rate is required), the
+  stored checksum in the binding's head, unsigned standard headers stored as
+  HTTP metadata (hence the attribute rule), multipart and version
+  parameters refused with 501. The session, event and admission-step
+  footprints (`cohort_session_bytes`, `ADMISSION_EVENT_BYTES`,
+  `ADMISSION_STEP_BYTES`) are counted from the code; native arena witnesses
+  run them at their bounds (`--features arena-witness`), not yet measured
+  on wasm32. Publication at scoring start is the publisher's (a binding
+  stream by default, a server-side `CopyObject` once probe G7-x qualifies
+  it). The publisher reports each entrant's outcome to this Worker
+  (`POST /eval/admission/published`, its binding and its own status token:
+  the one non-read route that token opens, `access::StatusRoute::Publication`;
+  never the monitor's): a recorded publication releases the admitted
+  objects for deletion once the cohort closes, and a missing object starts
+  the audit above. The report carries the cohort's label, which routes it
+  to the authority that ran the cohort (`Authority::label_authority`); a
+  cohort that authority does not hold answers 404 and stays pending at the
+  publisher. Retained admitted objects count as work that holds a
+  succession (`admission::objects_retained`).
   The outside-entrant rule compares exact content digests; a pre-draw
   similarity probe is still to come. A full 40-entrant template fits the
   coordinator's memory model and one signed receipt index; a native validator

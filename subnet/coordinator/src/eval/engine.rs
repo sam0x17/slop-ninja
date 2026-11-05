@@ -2285,14 +2285,24 @@ pub enum Work {
     RetentionNotice { predecessor: String, after_cohort: u64 },
     /// Publish a closed reward-v1 cohort's signed closure and index.
     Close { seq: i64 },
-    /// Admission: frame a completed upload (`frame`) or copy its slices to
-    /// the blob store (`blobs`).
+    /// Admission: a verifying session's durable step: write its files
+    /// manifest (`manifest`) or audit its recorded objects after its run met
+    /// a missing or changed one (`audit`).
     AdmissionVerify { session: String, stage: String },
     /// Admission: run the claimable verdicts on the scorer.
     AdmissionLanes,
-    /// Admission: abort uploads and delete objects of sessions that ended
-    /// without admission.
+    /// Admission: delete the queued objects (sessions that ended without
+    /// admission, superseded ones, refused objects).
     AdmissionCleanup,
+    /// Admission: the upload path's end-to-end canary (the close's first
+    /// step, and the retry while an upload-path fault is outstanding).
+    AdmissionCanary,
+    /// Admission: one batch of the closing cohort's close sweep.
+    AdmissionClose,
+    /// Admission: the alarm sweep of unrecorded objects (once per tick).
+    AdmissionSweep,
+    /// Admission: one page of the standing reconciliation of `admission/v2/`.
+    AdmissionReconcile,
     /// The calendar: queue the next cohort from the standing template.
     OpenNext { label: String, plan: Vec<u8> },
     /// Admission: charge one run's measured instance time to the tracking
@@ -4110,9 +4120,13 @@ pub fn kick_due(sql: &impl Sql, cfg: &EvalConfig, kick: &Kick, now_ms: u64) -> R
 /// The work a succession or an authority switch waits for (`work` in the
 /// status; `eval::succession::supersede`, `config::deploy_check`): an active
 /// cohort with work, a closure, a finished cohort whose spend is not yet
-/// charged to the ledger or whose private results are not yet purged, or
+/// charged to the ledger or whose private results are not yet purged,
+/// admitted objects not yet released (`admission::objects_retained`: the
+/// publisher's report not yet recorded, or their deletes not yet queued), or
 /// admission or calendar work under `cfg` (a retired authority's calendar
-/// opens nothing, so it is no reason to step). Due receipt deletions are not
+/// opens nothing, so it is no reason to step). Retained objects alone never
+/// re-arm the step alarm ([`has_due_work`]): only the publisher's report
+/// releases them, and it arms the step itself. Due receipt deletions are not
 /// included: a superseded authority finishes them under its successor's
 /// notices (`eval::retention`), so waiting for them adds nothing, and a
 /// storage fault there never holds up a restart.
@@ -4123,6 +4137,7 @@ pub fn blocking_work(sql: &impl Sql, cfg: &EvalConfig) -> R<bool> {
 fn work(sql: &impl Sql, cfg: &EvalConfig, due_by: Option<u64>) -> R<bool> {
     Ok(active(sql)?.is_some()
         || crate::eval::admission::has_work(sql, cfg, due_by)?
+        || (due_by.is_none() && crate::eval::admission::objects_retained(sql)?)
         || crate::eval::v3::closure_due(sql, due_by)?.is_some()
         || !sql
             .exec(

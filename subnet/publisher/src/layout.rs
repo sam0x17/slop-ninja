@@ -2,8 +2,10 @@
 //! documented in `docs/testnet/public-layout.md`; this module is its source.
 //!
 //! Private keys are the coordinator's (`cohorts/<label>/...` in the receipts
-//! bucket). Public keys live under `v1/` in the public-candidate bucket, plus
-//! the static site files at its root.
+//! bucket) and the miners' direct uploads (`admission/v2/...` in the
+//! admission bucket, `slop_ninja_r2_presign::layout`). Public keys live under
+//! `v1/` in the public-candidate bucket, plus the static site files and the
+//! published artifacts (`artifacts/v2/`, `blobs/sha256/`) at its root.
 
 use slop_ninja_protocol::Digest;
 
@@ -53,10 +55,29 @@ pub fn publication(label: &str) -> String {
     format!("v1/cohorts/{label}/publication.json")
 }
 
-/// A published artifact object, addressed by the SHA-256 the score package
-/// binds (`EntrantScore::artifact`).
-pub fn artifact(sha256: &Digest) -> String {
-    format!("v1/artifacts/{}.bin", sha256.hex())
+/// A published artifact's header object, addressed by the SHA-256 the
+/// score package binds (`EntrantScore::artifact`, the header's digest):
+/// `artifacts/v2/<header sha256>/header` (the shared layout,
+/// `slop_ninja_r2_presign::layout`). The header lists every file's SHA-256
+/// and length; each file is at [`blob`].
+pub fn header(sha256: &Digest) -> String {
+    slop_ninja_r2_presign::layout::public_header_key(&sha256.0)
+        .as_str()
+        .to_owned()
+}
+
+/// A published artifact file, shared by digest across artifacts:
+/// `blobs/sha256/<file sha256>`.
+pub fn blob(sha256: &Digest) -> String {
+    slop_ninja_r2_presign::layout::public_blob_key(&sha256.0)
+        .as_str()
+        .to_owned()
+}
+
+/// The publisher's record of a cohort's publication at scoring start: per
+/// roster entry, the header and files published, or why not.
+pub fn artifacts_record(label: &str) -> String {
+    format!("v1/cohorts/{label}/artifacts.json")
 }
 
 /// A staged reference package's public directory (trailing slash), by the

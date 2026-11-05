@@ -12,8 +12,8 @@
 //! runtime it holds ([`RUNTIME_KEYED_TABLE`]).
 //!
 //! The scan covers the subnet crates, the coordinator, the upload Worker, the
-//! generation Worker, the publisher and the alerts relay. Test files and everything after a file's first
-//! `#[cfg(test)]` are skipped. Comments are ignored. Run with
+//! signer Worker, the generation Worker, the publisher and the alerts relay.
+//! Test files and everything after a file's first `#[cfg(test)]` are skipped. Comments are ignored. Run with
 //! `cargo test --test no_runtime_gates`.
 
 use std::path::{Path, PathBuf};
@@ -147,9 +147,11 @@ fn production_code_never_compares_runtime_versions() {
         "crates/admission-gate/src",
         "crates/artifact-check/src",
         "crates/arena/src",
+        "crates/r2-presign/src",
         "crates/gen-core/src",
         "coordinator/src",
         "admission-worker/src",
+        "r2-signer/src",
         "gen-worker/src",
         "publisher/src",
         "alerts-relay/src",
@@ -158,12 +160,25 @@ fn production_code_never_compares_runtime_versions() {
         rust_files(&root.join(dir), &mut files);
     }
     // The build scripts: they configure what the Workers link.
-    for script in ["admission-worker/build.rs", "coordinator/build.rs", "crates/arena/build.rs", "gen-worker/build.rs"] {
+    for script in [
+        "admission-worker/build.rs",
+        "coordinator/build.rs",
+        "crates/arena/build.rs",
+        "r2-signer/build.rs",
+        "gen-worker/build.rs",
+    ] {
         let path = root.join(script);
         assert!(path.is_file(), "missing build script {script}");
         files.push(path);
     }
-    for dir in ["crates/admission-gate/src", "admission-worker/src", "crates/gen-core/src", "gen-worker/src"] {
+    for dir in [
+        "crates/admission-gate/src",
+        "admission-worker/src",
+        "r2-signer/src",
+        "crates/r2-presign/src",
+        "crates/gen-core/src",
+        "gen-worker/src",
+    ] {
         assert!(
             files.iter().any(|f| f.starts_with(root.join(dir))),
             "the scan reads nothing under {dir}"

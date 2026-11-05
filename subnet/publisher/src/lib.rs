@@ -14,10 +14,13 @@
 //!    only its allow-listed summary ([`publish`], [`verify`], [`summary`],
 //!    [`allowlist`]): the signed records, indexes, components and receipts
 //!    stay coordinator-private;
-//! 3. publishes artifact objects after their cohort closed, default-deny:
-//!    only an admitted outside upload, never a reference (references are
-//!    published as staged reference packages), an operator's or a copy
-//!    ([`publish::static_withhold`]);
+//! 3. publishes each admitted entrant's artifact (its header and files) at
+//!    scoring start, copied from the private admission bucket inside R2 or
+//!    by binding stream, with no hash on our side, never a reference's
+//!    (references are published as staged reference packages) or an
+//!    operator's ([`artifacts`], [`publish::static_withhold`]); a closed
+//!    cohort's record reports it, checked against the package's header
+//!    digests;
 //! 4. writes the cohort index, the leaderboard, the reference pointers (each
 //!    linking its staged reference package, when one is staged), the
 //!    current validator authorization and the coordinator's signed row that
@@ -35,6 +38,7 @@
 
 pub mod alerts;
 pub mod allowlist;
+pub mod artifacts;
 pub mod arena;
 pub mod config;
 pub mod dashboard;

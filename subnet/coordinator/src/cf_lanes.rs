@@ -4,9 +4,11 @@
 //!   instance, plus `/authority/<name>` for a named main authority). It
 //!   owns one `a-scorer-testnet` Container instance. Its alarm runs the lane
 //!   loop: report at entry, start the container with Internet off (a running
-//!   one bound to another artifact or cohort is destroyed first) and stream
-//!   the artifact (up to 3 parts in flight, reporting every 20 s, holding no
-//!   claim), set the container's inactivity timeout, then claim, score, store
+//!   one bound to another artifact or cohort is destroyed first) and load
+//!   the artifact (its files manifest v2, then each file in 64 MiB chunks
+//!   read from R2 pinned to the recorded entity tag, up to 3 in flight,
+//!   reporting every 20 s, holding no claim, hashing nothing), set the
+//!   container's inactivity timeout, then claim, score, store
 //!   the private results object and the receipt object, and commit, until its
 //!   job has no claimable chunk or its 600 s step budget is spent (it then
 //!   re-arms at once). A newer kick supersedes the loop without stopping the
@@ -34,12 +36,12 @@ use super::eval_do::{
 use super::{error, json, migrate_storage, now_ms, transaction};
 use crate::eval::engine::{self, CallTiming};
 use crate::eval::lane_logic::{self, ChunkCtx, ChunkEnd, CohortError, Fault, LaneIo, RestartFailure, ScoreFailure};
-use crate::eval::admission::{QueueMessage, WorkMessage};
 use crate::eval::lanes::{
     ArtifactRef, Assignment, BundleReport, ClaimReply, GenClaimReply, LaneKick, LaneRef, LaneReport, Meter, SummaryReport,
 };
 use crate::eval::limiter::{Feedback, Grants, Limiter, LimiterConfig};
 use crate::eval::scorer_client::{self as sc, Entry, Ours, Prep, Slot};
+use slop_ninja_artifact_check::files_manifest::FilesManifest;
 use futures_util::future::{Either, join_all, select};
 use js_sys::{Function, Object, Reflect};
 use serde::{Deserialize, Serialize};
@@ -60,8 +62,13 @@ const REPORT_EVERY_MS: u64 = 20_000;
 const IDLE_MS: i64 = 120_000;
 const STOP_RETRY_MS: i64 = 30_000;
 const STOP_RETRY_MAX_MS: i64 = 300_000;
-/// Parts streamed into a container at once.
-const PARTS_IN_FLIGHT: usize = 3;
+/// Chunks streamed into a container at once (and the operator's probe
+/// objects).
+const CHUNKS_IN_FLIGHT: usize = 3;
+/// One chunk, the largest transfer: the scorer's `MAX_RANGE_BYTES` (the
+/// artifact spec's scorer mapping part size, 64 MiB), so no single
+/// transfer carries a whole graph.
+const CHUNK_BYTES: u64 = slop_ninja_artifact_check::spec::PART_BYTES;
 /// The operator's scorer probe (`/run`), which has no plan: the load wait that
 /// versions up to `da569b03` compiled in.
 const PROBE_LOAD_WAIT_MS: u64 = 180_000;
@@ -196,22 +203,6 @@ struct AdmitRequest {
     docs: Vec<RunDoc>,
 }
 
-#[derive(Deserialize)]
-struct ArtifactParts {
-    files: Vec<ArtifactFileParts>,
-}
-
-#[derive(Deserialize)]
-struct ArtifactFileParts {
-    #[serde(default)]
-    bytes: u64,
-    parts: Vec<PartRef>,
-}
-
-#[derive(Deserialize)]
-struct PartRef {
-    sha256: String,
-}
 
 #[derive(Clone, Debug, Default)]
 struct Cold {
@@ -679,14 +670,20 @@ impl AScorer {
         Ok(cold)
     }
 
-    /// Streams every missing part from the eval bucket into the container (up to
-    /// 3 at a time), then loads the artifact for `cohort` (the cohort sent, if
-    /// any) by the spec `spec` names (the digest sent, if any) and waits for it
-    /// to be ready. The stream and the load each get the
-    /// plan's load allowance; only the load's outcome (and the manifest and
-    /// parts, which are the artifact's) can be the artifact's failure, and an
-    /// admission refusal is definitive unless it can be a host fault
-    /// (`scorer_client::load_failed`).
+    /// Loads the artifact for `cohort` (the cohort sent, if any) by the spec
+    /// `spec` names (the digest sent, if any) and waits for it to be ready:
+    /// the files manifest v2 (read from the eval bucket, its bytes checked to
+    /// be the package, a small record) is posted to the instance, every
+    /// chunk it lists as missing is read from its bucket by a ranged read
+    /// pinned to the entity tag admission recorded and piped as a JS stream
+    /// (no byte enters this isolate, nothing is hashed) to its offset, up to
+    /// 3 at a time, then the load is asked for. The transfer and the load
+    /// each get the plan's load allowance; only the manifest (the artifact's)
+    /// and the load's outcome can be the artifact's failure, and an admission
+    /// refusal is definitive unless it can be a host fault
+    /// (`scorer_client::load_failed`). An object absent or changed since
+    /// admission recorded it is the platform's here
+    /// (`scorer_client::OBJECT_CODES`): admission audits it.
     #[allow(clippy::too_many_arguments)]
     async fn load(
         &self,
@@ -706,45 +703,76 @@ impl AScorer {
         if sha_hex(&manifest) != art.package_sha256 {
             return Err(Prep::Artifact("artifact manifest digest", true));
         }
-        let parts: ArtifactParts = serde_json::from_slice(&manifest).map_err(|_| Prep::Artifact("artifact manifest json", true))?;
-        let bytes = parts.files.iter().try_fold(0u64, |a, f| a.checked_add(f.bytes));
+        let files: FilesManifest =
+            serde_json::from_slice(&manifest).map_err(|_| Prep::Artifact("artifact manifest json", true))?;
+        let bytes = files.files.iter().try_fold(0u64, |a, f| a.checked_add(f.bytes));
         if bytes.is_none_or(|b| b > lim.artifact_max_bytes) {
             return Err(Prep::Artifact("artifact over the declared size bound", true));
         }
-        let mut seen = std::collections::BTreeSet::new();
-        let wanted: Vec<String> = parts
-            .files
-            .iter()
-            .flat_map(|f| f.parts.iter())
-            .filter(|p| seen.insert(p.sha256.clone()) && crate::eval::plan::parse_hex32(&p.sha256).is_some())
-            .map(|p| p.sha256.clone())
-            .collect();
+        let running = || self.state.container().is_some_and(|c| c.running());
+        let mut r = match port_fetch(
+            port,
+            Method::Post,
+            &sc::prepare_path(&art.package_sha256, cohort, spec),
+            Some(js_sys::Uint8Array::from(manifest.as_slice()).into()),
+            Some(manifest.len() as u64),
+        )
+        .await
+        {
+            Ok(r) => r,
+            Err(_) if !running() => return Err(Prep::Artifact("container died during the load", false)),
+            Err(_) => return Err(Prep::Infra("prepare call")),
+        };
+        let status = r.status_code();
+        let body = r.json::<Value>().await.unwrap_or(Value::Null);
+        let missing = sc::prepare_reply(status, &body)?;
         let stream_until = now_ms() + lim.load_wait_ms;
         let mut uploaded = 0;
-        for group in wanted.chunks(PARTS_IN_FLIGHT) {
-            let parts = join_all(group.iter().map(|sha| async move {
-                let path = format!("/v1/blobs/{sha}");
-                if port_fetch(port, Method::Get, &path, None, None).await.is_ok_and(|r| r.status_code() == 200) {
-                    return Ok(0);
+        for group in missing.chunks(CHUNKS_IN_FLIGHT) {
+            let chunks = join_all(group.iter().map(|&(index, offset)| {
+                let files = &files;
+                async move {
+                    let f = files.files.get(index).ok_or(Prep::Infra("chunk index"))?;
+                    let len = f.bytes.checked_sub(offset).filter(|l| *l > 0).ok_or(Prep::Infra("chunk offset"))?.min(CHUNK_BYTES);
+                    let binding = match f.bucket.as_str() {
+                        "admission" => super::admission_do::ADMISSION_BUCKET,
+                        "eval" => EVAL_BUCKET,
+                        _ => return Err(Prep::Infra("chunk bucket")),
+                    };
+                    let bucket = self.env.bucket(binding).map_err(|_| Prep::Infra("chunk bucket"))?;
+                    let mut get = bucket.get(f.key.clone()).range(worker::Range::OffsetWithLength { offset, length: len });
+                    if let Some(etag) = &f.etag {
+                        get = get.only_if(worker::Conditional {
+                            etag_matches: Some(etag.clone()),
+                            etag_does_not_match: None,
+                            uploaded_before: None,
+                            uploaded_after: None,
+                        });
+                    }
+                    let obj = match get.execute().await {
+                        Err(_) => return Err(Prep::Infra("chunk read")),
+                        Ok(None) => return Err(Prep::Infra(sc::OBJECT_MISSING)),
+                        Ok(Some(o)) => o,
+                    };
+                    // No body: the pinned read refused (the entity tag changed).
+                    let Some(body) = obj.body() else {
+                        return Err(Prep::Infra(sc::OBJECT_CHANGED));
+                    };
+                    let stream = match body.response_body().map_err(|_| Prep::Infra("chunk body"))? {
+                        ResponseBody::Stream(s) => s,
+                        _ => return Err(Prep::Infra("chunk stream")),
+                    };
+                    let r = port_fetch(port, Method::Put, &sc::chunk_path(index, offset), Some(stream.into()), Some(len))
+                        .await
+                        .map_err(|_| Prep::Infra("chunk upload"))?;
+                    if !matches!(r.status_code(), 200 | 201) {
+                        return Err(sc::chunk_refused(r.status_code()));
+                    }
+                    Ok(len)
                 }
-                let obj = match self.env.bucket(EVAL_BUCKET).map_err(|_| Prep::Infra("eval bucket"))?.get(format!("artifacts/blobs/{sha}")).execute().await {
-                    Err(_) => return Err(Prep::Infra("part read")),
-                    Ok(None) => return Err(Prep::Artifact("part missing", false)),
-                    Ok(Some(o)) => o,
-                };
-                let size = obj.size();
-                let stream = match obj.body().ok_or(Prep::Infra("part body"))?.response_body().map_err(|_| Prep::Infra("part body"))? {
-                    ResponseBody::Stream(s) => s,
-                    _ => return Err(Prep::Infra("part stream")),
-                };
-                let r = port_fetch(port, Method::Put, &path, Some(stream.into()), Some(size)).await.map_err(|_| Prep::Infra("part upload"))?;
-                if r.status_code() != 201 {
-                    return Err(sc::part_refused(r.status_code()));
-                }
-                Ok(size)
             }));
             let left = stream_until.saturating_sub(now_ms());
-            let r = match select(Box::pin(parts), Box::pin(Delay::from(Duration::from_millis(left)))).await {
+            let r = match select(Box::pin(chunks), Box::pin(Delay::from(Duration::from_millis(left)))).await {
                 Either::Left((r, _)) => r,
                 Either::Right(_) => return Err(Prep::Infra("artifact stream timeout")),
             };
@@ -762,16 +790,7 @@ impl AScorer {
             // Load-mode fault: the artifact fails to load.
             return Err(Prep::Artifact("artifact load failed (load fault)", false));
         }
-        let running = || self.state.container().is_some_and(|c| c.running());
-        let mut r = match port_fetch(
-            port,
-            Method::Post,
-            &sc::load_path(&art.package_sha256, cohort, spec),
-            Some(js_sys::Uint8Array::from(manifest.as_slice()).into()),
-            Some(manifest.len() as u64),
-        )
-        .await
-        {
+        let mut r = match port_fetch(port, Method::Post, &sc::load_path(&art.package_sha256, cohort, spec), None, None).await {
             Ok(r) => r,
             Err(_) if !running() => return Err(Prep::Artifact("container died during the load", false)),
             Err(_) => return Err(Prep::Infra("load call")),
@@ -1004,6 +1023,20 @@ impl AScorer {
                     self.stop().await;
                 }
             } else if !loaded {
+                // A lane held for its entrant's objects (below) starts no
+                // scorer Container again until the cohort answers that the
+                // audit or the miner's repair released it (review round 2:
+                // no cold start per admission tick while the miner has not
+                // repaired).
+                if get_kv::<bool>(&st, "object_held").await.unwrap_or(false) {
+                    match cohort_call::<bool>(&self.env, inst, "/lane/object-held", &j!({"lane": r, "job": a.job})).await {
+                        Ok(true) => return LaneEnd::Rearm(crate::eval::admission::TICK_MS as i64),
+                        Ok(false) => {
+                            let _ = st.delete("object_held").await;
+                        }
+                        Err(_) => return LaneEnd::Rearm(5_000),
+                    }
+                }
                 match self.prepare(Some((inst, &r)), &art, PrepLimits::of(&a), Some(a.label.as_str()), a.spec_sha256.as_deref()).await {
                     Ok(cold) => {
                         let _ = st.put("start_streak", 0i64).await;
@@ -1037,6 +1070,32 @@ impl AScorer {
                             return LaneEnd::Finished;
                         }
                         return LaneEnd::Rearm((5_000i64 << streak.min(4)) + (js_sys::Math::random() * 5_000.0) as i64);
+                    }
+                    Err(Prep::Infra(code)) if sc::OBJECT_CODES.contains(&code) => {
+                        // An admitted entrant's object absent or changed since
+                        // admission recorded it: the coordinator's fault. Its
+                        // session is audited and listed for repair; the lane
+                        // holds, uncounted, and asks again each admission tick
+                        // (without a Container) until the repair clears it. Once
+                        // an audit found every object intact the cohort answers
+                        // "not held": the read path failed, counted below.
+                        let body = j!({"lane": r, "job": a.job});
+                        if let Ok(true) = cohort_call::<bool>(&self.env, inst, "/lane/object-missing", &body).await {
+                            let _ = st.put("object_held", true).await;
+                            self.stop().await;
+                            let _ = self.report(inst, &r, "waiting", None, Some(code)).await;
+                            return LaneEnd::Rearm(crate::eval::admission::TICK_MS as i64);
+                        }
+                        let streak: i64 = get_kv(&st, "start_streak").await.unwrap_or(0) + 1;
+                        let _ = st.put("start_streak", streak).await;
+                        let _ = self.report(inst, &r, "start_failed", None, Some(code)).await;
+                        if streak >= i64::from(a.failures_before_pause.max(1)) {
+                            self.stop().await;
+                            let _ = self.report(inst, &r, "failed", None, Some(code)).await;
+                            return LaneEnd::Finished;
+                        }
+                        let backoff = (5_000i64 << streak.min(4)) + (js_sys::Math::random() * 5_000.0) as i64;
+                        return LaneEnd::Rearm(backoff);
                     }
                     Err(Prep::Infra(code)) => {
                         let streak: i64 = get_kv(&st, "start_streak").await.unwrap_or(0) + 1;
@@ -1410,7 +1469,7 @@ impl EvalLane {
             Err(_) => return LaneEnd::Rearm(10_000),
         };
         let mut bundle = Vec::new();
-        for group in objects.chunks(PARTS_IN_FLIGHT) {
+        for group in objects.chunks(CHUNKS_IN_FLIGHT) {
             let got = join_all(group.iter().map(|(key, sha, _, _)| async move {
                 let b = get_bytes(env, RECEIPTS_BUCKET, key).await.ok().flatten()?;
                 (sha_hex(&b) == *sha).then_some(b)
@@ -1649,29 +1708,21 @@ impl DurableObject for SpendLedger {
 
 // --------------------------------------------------------------- queue consumer
 
-/// The delay of a retried delivery (a kick that did not reach its lane, an
-/// admission work delivery that could not reach the cohort object).
+/// The delay of a retried delivery (a kick that did not reach its lane).
 const RETRY_DELAY_S: u32 = 5;
 
-/// The Queue consumer. Each content-free kick reaches its lane's `/kick`, at
-/// most 6 at a time; a failed delivery is retried after 5 s. Admission work
-/// dispatches (`admission::WorkMessage`) run beside the kicks, each in its
-/// own child scope (`cf_admission::work`), at most one share a batch
-/// (`admission::work_share`: up to `PARALLEL` deliveries, at most one of
-/// them framing): the rest are sent again as fresh messages before anything
-/// runs, so no batch holds more work than fits one consumer invocation's
-/// wall limit. A message that does not parse is acknowledged (the sweep
-/// re-sends any kick that was lost; admission work is sent and consumed by
-/// the same build, and an outstanding dispatch is sent again by the cohort
-/// object's next incarnation or by the operator). A batch whose messages
-/// cannot be read is retried whole, never acknowledged.
+/// The lane-wakeup Queue consumer. Each content-free kick reaches its
+/// lane's `/kick`, at most 6 at a time; a failed delivery is retried after
+/// 5 s. A message that does not parse is acknowledged (the sweep re-sends
+/// any kick that was lost). A batch whose messages cannot be read is
+/// retried whole, never acknowledged.
 pub async fn consume(batch: worker::worker_sys::MessageBatch, env: Env, scope: slop_ninja_arena::ScopeRef) -> Result<()> {
+    let _ = scope;
     let Ok(all) = batch.messages() else {
         let _ = batch.retry_all(retry_options(RETRY_DELAY_S));
         return Ok(());
     };
     let mut kicks: Vec<(worker::worker_sys::Message, LaneKick)> = Vec::new();
-    let mut work: Vec<(worker::worker_sys::Message, WorkMessage)> = Vec::new();
     for v in all.iter() {
         let m: worker::worker_sys::Message = v.unchecked_into();
         let parsed = m
@@ -1679,59 +1730,21 @@ pub async fn consume(batch: worker::worker_sys::MessageBatch, env: Env, scope: s
             .ok()
             .and_then(|b| js_sys::JSON::stringify(&b).ok())
             .and_then(|s| s.as_string())
-            .and_then(|s| serde_json::from_str::<QueueMessage>(&s).ok());
+            .and_then(|s| serde_json::from_str::<LaneKick>(&s).ok());
         match parsed {
-            Some(QueueMessage::Kick(k)) => kicks.push((m, k)),
-            Some(QueueMessage::Admission(w)) => work.push((m, w)),
+            Some(k) => kicks.push((m, k)),
             None => {
                 let _ = m.ack();
             }
         }
     }
-    // This invocation's share of the admission work; the rest goes back on
-    // the Queue as fresh messages (acknowledged once the copy is accepted,
-    // retried otherwise) before any of it runs.
-    let share = crate::eval::admission::work_share(work.iter().map(|(_, w)| w.admission.as_str()));
-    let queue = env.queue(&crate::config::binding(ev::LANE_QUEUE, crate::config::NETWORK)).ok();
-    let mut mine: Vec<(worker::worker_sys::Message, WorkMessage, bool)> = Vec::new();
-    for (n, (m, w)) in work.into_iter().enumerate() {
-        if share.contains(&n) {
-            mine.push((m, w, false));
-            continue;
-        }
-        let moved = match &queue {
-            Some(q) => q.send(w).await.is_ok(),
-            None => false,
-        };
-        let _ = if moved { m.ack() } else { m.retry(retry_options(RETRY_DELAY_S)) };
-    }
-    // On the last delivery the Queue allows, a fresh copy goes first,
-    // delayed by the consumer's wall limit so it arrives only after this
-    // delivery has ended (reported or cut off): every copy is sent before
-    // any delivery runs, so none is lost with an invocation cut off early.
-    let delay = u32::try_from(slop_ninja_arena::limits::QUEUE_MS / 1000).unwrap_or(u32::MAX);
-    for (m, w, carried) in &mut mine {
-        let attempts = Reflect::get(m.as_ref(), &JsValue::from_str("attempts"))
-            .ok()
-            .and_then(|a| a.as_f64())
-            .map_or(1, |a| a as u32);
-        if crate::eval::admission::last_delivery(attempts)
-            && let Some(q) = &queue
-        {
-            *carried = q.send(worker::MessageBuilder::new(w.clone()).delay_seconds(delay).build()).await.is_ok();
-        }
-    }
     let retry = || retry_options(RETRY_DELAY_S);
-    let kicks_done = async {
-        for group in kicks.chunks(6) {
-            let delivered = join_all(group.iter().map(|(_, k)| ev::kick_lane(&env, k))).await;
-            for ((m, _), ok) in group.iter().zip(delivered) {
-                let _ = if ok { m.ack() } else { m.retry(retry()) };
-            }
+    for group in kicks.chunks(6) {
+        let delivered = join_all(group.iter().map(|(_, k)| ev::kick_lane(&env, k))).await;
+        for ((m, _), ok) in group.iter().zip(delivered) {
+            let _ = if ok { m.ack() } else { m.retry(retry()) };
         }
-    };
-    let work_done = join_all(mine.iter().map(|(m, w, carried)| admission_delivery(&env, &scope, m, w, *carried)));
-    futures_util::future::join(kicks_done, work_done).await;
+    }
     Ok(())
 }
 
@@ -1740,35 +1753,6 @@ fn retry_options(delay_s: u32) -> JsValue {
     let o = Object::new();
     let _ = Reflect::set(&o, &JsValue::from_str("delaySeconds"), &JsValue::from(delay_s));
     o.into()
-}
-
-/// One admission work delivery (its last-delivery copy, if any, already
-/// sent: `carried`). A delivery that could not be admitted to a scope or
-/// could not reach the cohort object is retried; a refused scope is also
-/// reported to the object for its status.
-async fn admission_delivery(
-    env: &Env,
-    scope: &slop_ninja_arena::ScopeRef,
-    m: &worker::worker_sys::Message,
-    w: &WorkMessage,
-    carried: bool,
-) {
-    let bytes = crate::arena_routes::admission_work_bytes();
-    let settled = match scope.child_physical(crate::arena_routes::R_QUEUE_ADMISSION, bytes) {
-        Ok(child) => {
-            let r = match child.scoped(super::admission_do::work(env, w)) {
-                Ok(f) => f.await,
-                Err(_) => false,
-            };
-            let _ = child.close();
-            r
-        }
-        Err(_) => {
-            super::admission_do::undelivered(env, w, "work_scope_refused").await;
-            false
-        }
-    };
-    let _ = if settled || carried { m.ack() } else { m.retry(retry_options(RETRY_DELAY_S)) };
 }
 
 /// Content-free state of named lanes (operator diagnostics).

@@ -1,7 +1,10 @@
-//! Admission tests: spec bounds, request authentication, the session state
-//! machine and every request refusal, framing, verdict rules (a)-(d), the
-//! cutoff and the freeze (ordering, cap, overflow, overwritten commitments,
-//! registration changes, the fresh-stock gate), and the template calendar.
+//! Admission tests (contract v2): spec bounds, request authentication, the
+//! session state machine and every request refusal, the header settle and
+//! the R2 heads that record objects, the mint aggregate, the upload-path
+//! faults and the canary, the close sweep, repair and audit, events and the
+//! standing reconciliation, verdict rules (a)-(d), the cutoff and the freeze
+//! (ordering, cap, overflow, overwritten commitments, registration changes,
+//! the fresh-stock gate), and the template calendar.
 
 use super::*;
 use crate::eval::chain::EpochObservation;
@@ -11,8 +14,9 @@ use crate::sql::EVAL_COHORT_SCHEMA;
 use crate::testing::{Sqlite, tx};
 use crate::wire::{BlockRef, Id};
 use slop_ninja_admission_wire::{RequestScope, request_message};
+use slop_ninja_artifact_check::admission::HEADER_OUTCOME_SCHEMA;
 use slop_ninja_protocol::submission::{SubmissionOpening, SubmissionUpload};
-use slop_ninja_protocol::{FileRole, MAX_ARTIFACT_HEADER_LEN, Nonce, TESTNET_GENESIS, VerifiedArtifact, artifact_object};
+use slop_ninja_protocol::{ArtifactFile, ArtifactHeader, FileRole, MAX_ARTIFACT_HEADER_LEN, Nonce, TESTNET_GENESIS};
 
 const NOW: u64 = 1_793_000_000_000;
 const OPEN_BLOCK: u64 = 9_000;
@@ -59,8 +63,9 @@ fn admission_block(cap: u16) -> AdmissionPlan {
         artifact_spec_sha256: b.spec_sha256,
         roster_cap: cap,
         selection: slop_ninja_admission_wire::SELECTION_EARLIEST_COMMITMENT_V1.into(),
-        part_size: 64 << 20,
-        max_parts: 64,
+        upload_policy: Some(plan::UploadPolicyPlan::v1()),
+        part_size: None,
+        max_parts: None,
         request_validity_blocks: 360,
         operator_hotkeys: vec![format!("0x{}", hex::encode(key(9).public()))],
         operator_coldkeys: vec![format!("0x{}", hex::encode([0xc0u8; 32]))],
@@ -221,32 +226,44 @@ fn polled(db: &Sqlite, block: u64) {
     tx(db, |s| s.exec("UPDATE commit_reader SET polled_block = ? WHERE id = 1", &[bind_u64(block)?])).unwrap();
 }
 
-/// A small artifact object (not spec-valid: framing's header checks are
-/// tested separately); its content is what the miner commits.
-fn object(tag: u8) -> Vec<u8> {
-    let files: Vec<(&str, FileRole, Vec<u8>)> = vec![
-        ("a-fp32band.onnx", FileRole::Graph, vec![tag; 300]),
-        ("calibration.json", FileRole::Calibration, vec![b'{', tag, b'}']),
-        ("contract.json", FileRole::OutputSchema, vec![b'c', tag]),
-        ("heads.json", FileRole::Weights, vec![b'h', tag]),
-        ("manifest.json", FileRole::OwnerMetadata, vec![b'm', tag]),
-        ("tokenizer.json", FileRole::Tokenizer, vec![b't', tag]),
-    ];
-    let refs: Vec<(&str, FileRole, &[u8])> = files.iter().map(|(n, r, b)| (*n, *r, b.as_slice())).collect();
-    artifact_object(spec::CONTRACT_ID, &refs).unwrap()
+/// A spec-v2-valid artifact header: admission reads no file byte, so the
+/// files need only their digests and lengths (the graph at the served
+/// class's exact length, the pinned tokenizer, small JSON role files);
+/// `tag` varies the digests and so the committed content.
+fn header(tag: u8) -> ArtifactHeader {
+    let class = Version::V2.classes().iter().find(|c| Version::V2.serves(c)).unwrap();
+    let d = |n: u8| Digest([tag ^ n; 32]);
+    let tok = Digest(crate::eval::plan::parse_hex32(spec::TOKENIZER_SHA256).unwrap());
+    let f = |name: &str, role, sha256, len| ArtifactFile { name: name.into(), role, sha256, len };
+    ArtifactHeader {
+        contract: spec::CONTRACT_ID.into(),
+        files: vec![
+            f("a-fp32band.onnx", FileRole::Graph, d(1), class.bytes),
+            f("calibration.json", FileRole::Calibration, d(2), 100),
+            f("contract.json", FileRole::OutputSchema, d(3), 100),
+            f("heads.json", FileRole::Weights, d(4), 100),
+            f("manifest.json", FileRole::OwnerMetadata, d(5), 100),
+            f("tokenizer.json", FileRole::Tokenizer, tok, spec::TOKENIZER_BYTES),
+        ],
+    }
 }
 
 struct Miner {
     n: u8,
     uid: u16,
     registration_block: u64,
-    obj: Vec<u8>,
+    header: ArtifactHeader,
+    hbytes: Vec<u8>,
     upload: SubmissionUpload,
 }
 
 fn miner(n: u8, uid: u16, cohort: u64, tag: u8) -> Miner {
-    let obj = object(tag);
-    let content = VerifiedArtifact::from_bytes(&obj).unwrap().content;
+    miner_with(n, uid, cohort, tag, header(tag))
+}
+
+fn miner_with(n: u8, uid: u16, cohort: u64, tag: u8, header: ArtifactHeader) -> Miner {
+    let hbytes = header.to_bytes().unwrap();
+    let content = header.content().unwrap().digest().unwrap();
     let opening = SubmissionOpening {
         chain: chain(),
         cohort,
@@ -255,13 +272,39 @@ fn miner(n: u8, uid: u16, cohort: u64, tag: u8) -> Miner {
         content,
         nonce: Nonce([n.wrapping_mul(31).wrapping_add(tag); 32]),
     };
-    let upload = SubmissionUpload::new(opening, &obj);
+    let upload = SubmissionUpload::new(opening, &hbytes).unwrap();
     Miner {
         n,
         uid,
         registration_block: 100 + u64::from(uid),
-        obj,
+        header,
+        hbytes,
         upload,
+    }
+}
+
+/// The signer's answer to a mint, as a test stands in for it.
+fn minted(job: &MintJob) -> Vec<Minted> {
+    job.entries
+        .iter()
+        .map(|e| Minted {
+            url: format!("https://acct.r2.cloudflarestorage.com/slop-ninja-admission-testnet/x?len={}", e.len),
+            checksum: "Y2hlY2tzdW0=".into(),
+            signed_at: NOW / 1000,
+            valid_secs: e.valid_secs,
+        })
+        .collect()
+}
+
+/// Runs a step's mint as the cohort object would (the signer answering).
+fn drive(db: &Sqlite, step: Step) -> (Reply, Option<MintJob>) {
+    match step {
+        Step::Reply(r) => (r, None),
+        Step::Mint(job) => {
+            let r = tx(db, |s| finish_mint(s, &job, Ok(minted(&job)), NOW)).unwrap();
+            (r, Some(job))
+        }
+        other => panic!("not a reply or a mint: {other:?}"),
     }
 }
 
@@ -288,18 +331,98 @@ impl Miner {
         signed_by(self.n, cursor + 10, method, path, body)
     }
 
-    fn create(&self, db: &Sqlite) -> (Reply, Effects) {
+    /// `POST /admission/v2/sessions/{session}/<op>`, signed by the owner.
+    fn post(&self, db: &Sqlite, op: &str) -> Signed {
+        self.signed(db, "POST", &format!("/admission/v2/sessions/{}/{op}", self.session()), &[])
+    }
+
+    fn create(&self, db: &Sqlite) -> (Reply, Option<MintJob>) {
         self.create_hinted(db, None)
     }
 
     /// Session creation carrying `x-sn-commitment-block` (`hint`).
-    fn create_hinted(&self, db: &Sqlite, hint: Option<u64>) -> (Reply, Effects) {
+    fn create_hinted(&self, db: &Sqlite, hint: Option<u64>) -> (Reply, Option<MintJob>) {
         let body = self.upload.to_bytes().unwrap();
-        let mut r = self.signed(db, "POST", "/admission/v1/sessions", &body);
+        let mut r = self.signed(db, "POST", "/admission/v2/sessions", &body);
         r.body = Some(hex::encode(&body));
         r.commitment_block = hint;
-        tx(db, |s| Ok::<_, EvalError>(create(s, &chain(), &r, NOW))).unwrap()
+        let step = tx(db, |s| Ok::<_, EvalError>(create(s, &chain(), &r, NOW))).unwrap();
+        drive(db, step)
     }
+
+    fn job(&self) -> HeaderJob {
+        HeaderJob {
+            session: self.session(),
+            key: object_key(self.upload.opening.cohort, &self.upload.commitment, ObjectKind::Header),
+            sha256: self.upload.header_sha256.0,
+            len: self.upload.header_len,
+            spec_id: spec_v2().spec_id,
+        }
+    }
+
+    /// The upload Worker's outcome for this miner's header.
+    fn checked(&self) -> HeaderSeen {
+        HeaderSeen::Checked { etag: "etag-h".into(), outcome: outcome_of(&self.header) }
+    }
+
+    /// Applies a header settle that found `seen`.
+    fn settle(&self, db: &Sqlite, seen: HeaderSeen) -> Settled {
+        tx(db, |s| apply_header(s, &chain(), &self.job(), seen, NOW)).unwrap()
+    }
+
+    /// One probe per distinct file of the header.
+    fn file_probes(&self) -> Vec<Probe> {
+        let mut out: Vec<Probe> = Vec::new();
+        for f in &self.header.files {
+            if out.iter().any(|p| p.sha256 == f.sha256.0) {
+                continue;
+            }
+            out.push(Probe {
+                session: self.session(),
+                kind: ObjectKind::File(f.sha256.0),
+                sha256: f.sha256.0,
+                len: f.len,
+                key: object_key(self.upload.opening.cohort, &self.upload.commitment, ObjectKind::File(f.sha256.0)),
+                etag: None,
+            });
+        }
+        out
+    }
+
+    /// Every file present in R2 as committed, applied as `who` records it.
+    fn put_files(&self, db: &Sqlite, who: Recorder) -> Applied {
+        let heads: Vec<(Probe, Head)> = self.file_probes().into_iter().map(|p| {
+            let h = stored(p.sha256, p.len, &etag_of(&p));
+            (p, h)
+        }).collect();
+        tx(db, |s| apply_heads(s, &heads, who, NOW)).unwrap()
+    }
+}
+
+fn etag_of(p: &Probe) -> String {
+    format!("etag-{}", hex::encode(&p.sha256[..4]))
+}
+
+/// The upload Worker's checked outcome for `h`.
+fn outcome_of(h: &ArtifactHeader) -> HeaderOutcome {
+    HeaderOutcome {
+        schema: HEADER_OUTCOME_SCHEMA.into(),
+        result: HeaderResult::Checked {
+            contract: h.contract.clone(),
+            content: h.content().unwrap().digest().unwrap().hex(),
+            files: h
+                .files
+                .iter()
+                .map(|f| HeaderFile { name: f.name.clone(), role: f.role.tag(), sha256: hex::encode(f.sha256.0), len: f.len })
+                .collect(),
+        },
+    }
+}
+
+/// An object R2 holds with its committed size and SHA-256, allowed
+/// attributes, and entity tag `etag`.
+fn stored(sha256: [u8; 32], len: u64, etag: &str) -> Head {
+    Head::Present(Stored { size: len, sha256: Some(sha256), etag: etag.into(), clean: true })
 }
 
 fn signed_by(n: u8, valid_until: u64, method: &str, path: &str, body: &[u8]) -> Signed {
@@ -334,72 +457,26 @@ fn state_of(db: &Sqlite, id: &str) -> (String, Option<String>) {
     (row.state.as_str().to_owned(), row.refusal.map(|r| r.code))
 }
 
-/// Uploads every part (recorded with the R2 tag the test invents) and
-/// completes the session; returns the completion reply.
+fn stage_of(db: &Sqlite, id: &str) -> Option<String> {
+    tx(db, |s| session_row(s, id)).unwrap().unwrap().stage
+}
+
+/// Uploads the header and every file (each settled from R2's heads as the
+/// cohort object records them) and completes the session; returns the
+/// completion's answer.
 fn upload_all(db: &Sqlite, m: &Miner) -> Reply {
-    let id = m.session();
-    tx(db, |s| set_upload_id(s, &id, 1, "upload-1")).unwrap();
-    let w = tx(db, window).unwrap().unwrap();
-    let plan = w.part_plan(m.upload.artifact_len).unwrap();
-    for n in 1..=plan.count() {
-        let (a, b) = plan.range(n).unwrap();
-        let part = m.obj.get(a as usize..(a + b) as usize).unwrap();
-        let path = format!("/admission/v1/sessions/{id}/parts/{n}");
-        let req = m.signed(db, "PUT", &path, part);
-        let mut req = req;
-        req.body_sha256 = None;
-        let t = tx(db, |s| {
-            Ok::<_, EvalError>(part_begin(s, &chain(), &req, &id, n, Some(b)))
-        })
-        .unwrap()
-        .unwrap();
-        let r = tx(db, |s| {
-            Ok::<_, EvalError>(part_record(s, &chain(), &req, &id, &t, &format!("etag-{n}")))
-        })
-        .unwrap();
-        assert_eq!(r.status, 200, "{:?}", r.body);
-    }
-    let path = format!("/admission/v1/sessions/{id}/complete");
-    let req = m.signed(db, "POST", &path, &[]);
-    let (r, fx) = tx(db, |s| Ok::<_, EvalError>(complete(s, &chain(), &req, &id, NOW))).unwrap();
-    if r.status == 202 {
-        assert!(fx.complete.is_some());
-        tx(db, |s| completed(s, &id, NOW)).unwrap();
-    }
-    r
+    assert_eq!(m.settle(db, m.checked()), Settled::Recorded);
+    m.put_files(db, Recorder::Upload);
+    let req = m.post(db, "complete");
+    let step = tx(db, |s| Ok::<_, EvalError>(complete(s, &chain(), &req, &m.session()))).unwrap();
+    drive(db, step).0
 }
 
-/// Framing as the Worker does it, with the object's own reader result (the
-/// spec's header checks are skipped: the test object is not spec-valid).
+/// The verifying session's files manifest written: its verdict is pending.
 fn frame_ok(db: &Sqlite, m: &Miner) {
-    frame_only(db, m);
-    tx(db, |s| blobs_written(s, &env(), &m.session(), NOW)).unwrap();
-}
-
-/// The framing stage's outcome for a well-formed object (no blob step).
-fn frame_only(db: &Sqlite, m: &Miner) {
     let id = m.session();
-    let framed = framed_outcome(m);
-    tx(db, |s| apply_frame(s, &chain(), &id, framed, NOW)).unwrap();
-}
-
-/// The upload Worker's outcome for a miner's well-formed object (one slice).
-fn framed_outcome(m: &Miner) -> FrameOutcome {
-    let id = m.session();
-    let artifact = VerifiedArtifact::from_bytes(&m.obj).unwrap();
-    let manifest = format!("manifest-of-{id}").into_bytes();
-    let framed = Framed {
-        package_sha256: hex::encode(Sha256::digest(&manifest)),
-        model_sha256: hex::encode([1; 32]),
-        manifest,
-        slices: vec![Slice {
-            sha256: hex::encode([2; 32]),
-            offset: 0,
-            len: 1,
-        }],
-        artifact,
-    };
-    (m.upload.artifact_sha256, m.upload.artifact_len, Ok(framed)).into()
+    assert!(tx(db, |s| manifest_due(s, &id)).unwrap().is_some(), "the manifest is due");
+    tx(db, |s| manifest_written(s, &env(), &id, NOW)).unwrap();
 }
 
 fn admit_all(db: &Sqlite) {
@@ -444,8 +521,31 @@ fn snapshot(
     .unwrap();
 }
 
+/// The boundary at `cutoff` arrives, its canary passes, and the close sweep
+/// runs to the recorded close (every unrecorded object headed absent).
 fn close_at(db: &Sqlite, cutoff: u64) {
     epoch(db, 12, cutoff, NOW + 2);
+    assert!(tx(db, |s| canary_begin(s, NOW + 2)).unwrap().is_some(), "the close's canary is due");
+    assert!(tx(db, |s| canary_done(s, Ok(()), NOW + 3)).unwrap(), "the window closes at this boundary");
+    sweep_close(db, |_| Head::Absent);
+}
+
+/// Runs the close sweep to the recorded close, each head answered by `head`.
+fn sweep_close(db: &Sqlite, head: impl Fn(&Probe) -> Head) {
+    sweep_close_at(db, NOW + 4, head)
+}
+
+/// [`sweep_close`] at `at`.
+fn sweep_close_at(db: &Sqlite, at: u64, head: impl Fn(&Probe) -> Head) {
+    while let Some((seq, probes)) = tx(db, |s| close_begin(s, at)).unwrap() {
+        let heads: Vec<(Probe, Head)> = probes.into_iter().map(|p| {
+            let h = head(&p);
+            (p, h)
+        }).collect();
+        let applied = tx(db, |s| apply_heads(s, &heads, Recorder::Close, at)).unwrap();
+        assert!(!applied.platform, "a close head failed");
+        tx(db, |s| close_step_done(s, seq, &applied, at)).unwrap();
+    }
 }
 
 // ----------------------------------------------------------------- tests
@@ -486,16 +586,10 @@ fn spec_bounds_derive_from_the_spec_and_size_the_lane_limits() {
         "the spec digest must be the spec's"
     );
     let mut bad = p.clone();
-    bad.admission.as_mut().unwrap().max_parts = 2;
+    bad.admission.as_mut().unwrap().part_size = Some(64 << 20);
     assert!(
         plan::CohortPlan::parse(&serde_json::to_vec(&bad).unwrap(), cfg().ceilings).is_err(),
-        "the largest object must fit"
-    );
-    let mut bad = p.clone();
-    bad.admission.as_mut().unwrap().part_size = 1 << 20;
-    assert!(
-        plan::CohortPlan::parse(&serde_json::to_vec(&bad).unwrap(), cfg().ceilings).is_err(),
-        "below R2's part minimum"
+        "admission v2 has no part size"
     );
     let mut bad = p.clone();
     bad.admission.as_mut().unwrap().roster_cap = 41;
@@ -513,12 +607,12 @@ fn spec_bounds_derive_from_the_spec_and_size_the_lane_limits() {
 
 #[test]
 fn signed_requests_bind_chain_route_body_and_validity() {
-    let r = signed_by(1, 1_010, "GET", "/admission/v1/sessions/ab", &[]);
+    let r = signed_by(1, 1_010, "GET", "/admission/v2/sessions/ab", &[]);
     let (who, _) = authenticate(&chain(), 1_000, 360, &r).unwrap();
     assert_eq!(who, account(1));
     // Another path, method or chain: the signature does not verify.
     let mut other = r.clone();
-    other.path = "/admission/v1/sessions/cd".into();
+    other.path = "/admission/v2/sessions/cd".into();
     assert_eq!(
         authenticate(&chain(), 1_000, 360, &other).unwrap_err().code,
         ErrorCode::BadSignature
@@ -575,7 +669,7 @@ fn opening_a_session_runs_every_check_in_contract_order() {
     let (r, fx) = m.create(&db);
     assert_eq!(r.status, 201, "{:?}", r.body);
     assert_eq!(r.body["state"], "uploading");
-    assert_eq!(fx.create.as_ref().map(|c| c.2), Some(1));
+    assert_eq!(fx.map(|j| j.entries.len()), Some(1), "the header URL is minted");
     assert_eq!(m.create(&db).0.status, 200);
     // Wrong cohort, wrong chain, another hotkey than the signer.
     let other = miner(2, 4, 2, 0x12);
@@ -587,7 +681,7 @@ fn opening_a_session_runs_every_check_in_contract_order() {
     );
     let mut wrong_chain = miner(2, 4, 1, 0x12);
     wrong_chain.upload.opening.chain.netuid = 602;
-    wrong_chain.upload = SubmissionUpload::new(wrong_chain.upload.opening.clone(), &wrong_chain.obj);
+    wrong_chain.upload = SubmissionUpload::new(wrong_chain.upload.opening.clone(), &wrong_chain.hbytes).unwrap();
     assert_eq!(code(&wrong_chain.create(&db).0), "wrong_chain");
     let theirs = miner(3, 5, 1, 0x13);
     let body = theirs.upload.to_bytes().unwrap();
@@ -595,11 +689,11 @@ fn opening_a_session_runs_every_check_in_contract_order() {
         2,
         tx(&db, cursor).unwrap().unwrap() + 1,
         "POST",
-        "/admission/v1/sessions",
+        "/admission/v2/sessions",
         &body,
     );
     req.body = Some(hex::encode(&body));
-    let (r, _) = tx(&db, |s| Ok::<_, EvalError>(create(s, &chain(), &req, NOW))).unwrap();
+    let (r, _) = drive(&db, tx(&db, |s| Ok::<_, EvalError>(create(s, &chain(), &req, NOW))).unwrap());
     assert_eq!(code(&r), "hotkey_mismatch");
     // From here the reader has polled past every commitment this test logs,
     // and each request names the block its CLI confirmed (a block that poll
@@ -615,7 +709,7 @@ fn opening_a_session_runs_every_check_in_contract_order() {
     // Another registration generation.
     let mut regen = miner(1, 3, 1, 0x11);
     regen.upload.opening.registration_block = 1;
-    regen.upload = SubmissionUpload::new(regen.upload.opening.clone(), &regen.obj);
+    regen.upload = SubmissionUpload::new(regen.upload.opening.clone(), &regen.hbytes).unwrap();
     regen.commit(&db, OPEN_BLOCK + 7, 0);
     assert_eq!(code(&regen.create_hinted(&db, Some(OPEN_BLOCK + 7)).0), "registration_mismatch");
     // Not registered at its commitment.
@@ -627,13 +721,13 @@ fn opening_a_session_runs_every_check_in_contract_order() {
     };
     tx(&db, |s| commitments::record(s, &e, NOW)).unwrap();
     assert_eq!(code(&unreg.create_hinted(&db, Some(OPEN_BLOCK + 8)).0), "not_registered");
-    // An envelope larger than the spec's object bound.
+    // A header beyond the protocol's bound is no envelope at all (the record
+    // refuses it), so the gate's bound and the authority's agree.
     let mut big = miner(5, 7, 1, 0x15);
-    big.upload.artifact_len = spec_v2().object_bytes + 1;
-    big.commit(&db, OPEN_BLOCK + 9, 0);
-    assert_eq!(code(&big.create(&db).0), "object_too_large");
+    big.upload.header_len = MAX_ARTIFACT_HEADER_LEN + 1;
+    assert!(big.upload.to_bytes().is_err());
     // Each refusal after the signature verifies is the hotkey's last refusal.
-    let path = format!("/admission/v1/cohorts/1/hotkeys/{}", crate::chain::ss58(account(1).0));
+    let path = format!("/admission/v2/cohorts/1/hotkeys/{}", crate::chain::ss58(account(1).0));
     let req = regen.signed(&db, "GET", &path, &[]);
     let v = tx(&db, |s| {
         Ok::<_, EvalError>(hotkey_view(s, &chain(), &req, 1, &crate::chain::ss58(account(1).0)))
@@ -664,145 +758,44 @@ fn log(m: &Miner, block: u64, extrinsic: u32) -> LogEntry {
 }
 
 #[test]
-fn one_artifact_per_hotkey_attempts_and_supersession() {
+fn one_artifact_per_hotkey_and_supersession() {
     let db = db_with_open_cohort(2);
     let a = miner(1, 3, 1, 0x11);
     a.commit(&db, OPEN_BLOCK + 1, 0);
     assert_eq!(a.create(&db).0.status, 201);
-    // Another envelope for the same commitment (a different object with the
-    // same committed content is impossible; a different length is enough).
-    let mut b = miner(1, 3, 1, 0x11);
-    b.upload.artifact_len += 1;
+    // Another envelope for the same commitment (another header with the
+    // same committed content: an owner-metadata file of another length).
+    let mut h = header(0x11);
+    h.files[4].len += 1;
+    let b = miner_with(1, 3, 1, 0x11, h);
+    assert_eq!(b.upload.commitment, a.upload.commitment);
     let (r, _) = b.create(&db);
     assert_eq!(
         (code(&r).as_str(), r.body["error"]["detail"]["session"].as_str()),
         ("second_artifact", Some(a.session().as_str()))
     );
-    // Abort the live attempt; a stale attempt number is refused; then the
-    // second envelope opens.
-    let id = a.session();
-    let req = a.signed(&db, "DELETE", &format!("/admission/v1/sessions/{id}/attempts/2"), &[]);
-    let (r, _) = tx(&db, |s| Ok::<_, EvalError>(abort(s, &chain(), &req, &id, 2, NOW))).unwrap();
-    assert_eq!(
-        (code(&r).as_str(), r.body["error"]["detail"]["attempt"].as_u64()),
-        ("stale_attempt", Some(1))
-    );
-    let req = a.signed(&db, "DELETE", &format!("/admission/v1/sessions/{id}/attempts/1"), &[]);
-    let (r, fx) = tx(&db, |s| Ok::<_, EvalError>(abort(s, &chain(), &req, &id, 1, NOW))).unwrap();
-    assert_eq!((r.body["state"].as_str(), fx.abort.len()), (Some("aborted"), 1));
-    // Sending the abort again returns the session unchanged.
-    let (r, fx) = tx(&db, |s| Ok::<_, EvalError>(abort(s, &chain(), &req, &id, 1, NOW))).unwrap();
-    assert_eq!((r.body["state"].as_str(), fx.abort.len()), (Some("aborted"), 0));
-    // The same envelope returns the aborted session; reopening is its own
-    // request, as attempt 2 (attempt 3 is stale).
-    assert_eq!(a.create(&db).0.body["state"], "aborted");
-    let req = a.signed(&db, "POST", &format!("/admission/v1/sessions/{id}/attempts/3"), &[]);
-    let (r, _) = tx(&db, |s| Ok::<_, EvalError>(reopen(s, &chain(), &req, &id, 3, NOW))).unwrap();
-    assert_eq!(code(&r), "stale_attempt");
-    let req = a.signed(&db, "POST", &format!("/admission/v1/sessions/{id}/attempts/2"), &[]);
-    let (r, fx) = tx(&db, |s| Ok::<_, EvalError>(reopen(s, &chain(), &req, &id, 2, NOW))).unwrap();
-    assert_eq!(
-        (r.body["attempt"].as_u64(), r.body["state"].as_str()),
-        (Some(2), Some("uploading"))
-    );
-    assert!(
-        fx.create.unwrap().0.ends_with("/a2.object"),
-        "a new attempt has its own object"
-    );
-    // Third W3 review, finding 6: the aborted attempt's object stays
-    // recorded until a clean-up step confirms its delete (the session's own
-    // clean-up names only a2 from now on).
+    // A newer commitment supersedes the live session; its objects are
+    // queued for deletion at once.
+    let c = miner(1, 3, 1, 0x31);
+    c.commit(&db, OPEN_BLOCK + 2, 0);
+    assert_eq!(c.create(&db).0.status, 201);
+    assert_eq!(state_of(&db, &a.session()).0, "superseded");
     let due = tx(&db, |s| object_deletes_due(s, 8, NOW)).unwrap();
-    assert_eq!(due.len(), 1);
-    assert!(due[0].0.ends_with(&format!("/{id}/a1.object")));
-    assert!(matches!(
-        tx(&db, |s| next_work(s, &cfg(), NOW)).unwrap(),
-        Some(engine::Work::AdmissionCleanup)
-    ));
-    // Fix round 1, finding 5: a delete the bucket did not confirm backs off,
-    // so the step reaches its other work (the calendar, the active cohort)
-    // instead of choosing the clean-up again; it is due after the backoff.
+    assert_eq!(due, vec![(a.job().key, None)]);
+    // The alarm sweep of the new session's header first, then the deletes.
+    assert_eq!(tx(&db, |s| next_work(s, &cfg(), NOW)).unwrap(), Some(engine::Work::AdmissionSweep));
+    tx(&db, |s| sweep_begin(s, NOW)).unwrap();
+    assert_eq!(tx(&db, |s| next_work(s, &cfg(), NOW)).unwrap(), Some(engine::Work::AdmissionCleanup));
+    // A delete the bucket did not confirm backs off, so the step reaches its
+    // other work instead of choosing the clean-up again; due after the backoff.
     tx(&db, |s| object_delete_failed(s, &due[0].0, NOW)).unwrap();
     assert!(tx(&db, |s| object_deletes_due(s, 8, NOW)).unwrap().is_empty());
-    assert!(!matches!(
-        tx(&db, |s| next_work(s, &cfg(), NOW)).unwrap(),
-        Some(engine::Work::AdmissionCleanup)
-    ));
     let later = NOW + backoff_ms(1);
     assert_eq!(tx(&db, |s| object_deletes_due(s, 8, later)).unwrap().len(), 1);
     tx(&db, |s| object_delete_failed(s, &due[0].0, later)).unwrap();
     assert!(tx(&db, |s| object_deletes_due(s, 8, later + backoff_ms(1))).unwrap().is_empty(), "the backoff grows");
     tx(&db, |s| object_deleted(s, &due[0].0)).unwrap();
     assert!(tx(&db, |s| object_deletes_due(s, 8, crate::wire::MAX_SAFE_INTEGER)).unwrap().is_empty());
-    // A newer commitment supersedes the live session.
-    let c = miner(1, 3, 1, 0x31);
-    c.commit(&db, OPEN_BLOCK + 2, 0);
-    let (r, fx) = c.create(&db);
-    assert_eq!(r.status, 201);
-    assert_eq!(fx.abort.len(), 1);
-    assert_eq!(state_of(&db, &id).0, "superseded");
-}
-
-/// Review round 1 of the upload Worker split, findings 2 and 3: the
-/// key-holding side creates a multipart upload only for the authenticated
-/// owner, keeps one upload per attempt when two creations race, and
-/// re-derives every part record from the session instead of taking the
-/// upload Worker's target as given.
-#[test]
-fn part_uploads_are_created_for_the_owner_only_and_records_are_rederived() {
-    let db = db_with_open_cohort(2);
-    let m = miner(1, 3, 1, 0x11);
-    m.commit(&db, OPEN_BLOCK + 1, 0);
-    m.create(&db);
-    let id = m.session();
-    let path = format!("/admission/v1/sessions/{id}/parts/1");
-    let req = m.signed(&db, "PUT", &path, &m.obj);
-    // Another hotkey's signed request, an unsigned one, or a tampered
-    // signature creates nothing; the owner's does.
-    let other = miner(2, 4, 1, 0x12);
-    let oreq = other.signed(&db, "PUT", &path, &m.obj);
-    let missing = |r: &Signed| tx(&db, |s| Ok::<_, EvalError>(upload_missing_for(s, &chain(), r, &id))).unwrap();
-    assert_eq!(missing(&oreq), None);
-    assert_eq!(missing(&Signed::default()), None);
-    let mut bad = req.clone();
-    bad.path = format!("/admission/v1/sessions/{id}/parts/2");
-    assert_eq!(missing(&bad), None);
-    assert_eq!(missing(&req).map(|x| x.1), Some(1));
-    // Two creations race: the first stored keeps the attempt's upload.
-    assert!(tx(&db, |s| set_upload_id(s, &id, 1, "u-first")).unwrap());
-    assert!(!tx(&db, |s| set_upload_id(s, &id, 1, "u-second")).unwrap());
-    assert!(tx(&db, |s| set_upload_id(s, &id, 1, "u-first")).unwrap());
-    assert_eq!(missing(&req), None, "created");
-    let t = tx(&db, |s| Ok::<_, EvalError>(part_begin(s, &chain(), &req, &id, 1, Some(m.obj.len() as u64))))
-        .unwrap()
-        .unwrap();
-    assert_eq!(t.upload_id, "u-first");
-    // Every tampered target is refused; nothing is recorded.
-    let record = |r: &Signed, t: &PartTarget| tx(&db, |s| Ok::<_, EvalError>(part_record(s, &chain(), r, &id, t, "e"))).unwrap();
-    let tampered: [(&str, PartTarget); 6] = [
-        ("key", PartTarget { key: "admission/x/y/a1.object".into(), ..t.clone() }),
-        ("upload id", PartTarget { upload_id: "u-second".into(), ..t.clone() }),
-        ("part", PartTarget { part: 2, ..t.clone() }),
-        ("len", PartTarget { len: t.len - 1, ..t.clone() }),
-        ("digest", PartTarget { sha256: "00".repeat(32), ..t.clone() }),
-        ("attempt", PartTarget { attempt: 2, ..t.clone() }),
-    ];
-    for (what, bad_t) in &tampered {
-        let r = record(&req, bad_t);
-        assert!(r.status >= 400, "{what}: {:?}", r.body);
-    }
-    // Another hotkey's signature, or none, cannot record the owner's part.
-    assert_eq!(code(&record(&oreq, &t)), "forbidden");
-    assert_eq!(code(&record(&Signed::default(), &t)), "bad_signature");
-    let rows = tx(&db, |s| s.exec("SELECT COUNT(*) FROM adm_parts", &[])).unwrap();
-    assert_eq!(crate::sql::int(&rows[0], 0).unwrap(), 0);
-    // The target part_begin issued records.
-    assert_eq!(record(&req, &t).status, 200);
-    // The pre-deploy check of a bucket change sees the session in progress.
-    let st = tx(&db, status).unwrap();
-    assert_eq!(st["objects"]["in_progress"], 1);
-    assert_eq!(st["objects"]["uncleaned"], 1);
-    assert_eq!(st["objects"]["pending_object_deletes"], 0);
 }
 
 /// Findings 2, 3 and 5: the forwarded route fields must be the ones the
@@ -814,34 +807,30 @@ fn forwarded_fields_must_be_the_signed_requests_own() {
     let f = |method: &str, path: String| Forward {
         signed: Signed { method: method.into(), path, ..Signed::default() },
         session: sid.clone(),
-        part: 3,
-        attempt: Some(2),
         cohort: 7,
         hotkey: "5Fhot".into(),
-        ..Forward::default()
     };
     let ok = [
-        (op::CREATE, f("POST", "/admission/v1/sessions".into())),
-        (op::READ, f("GET", format!("/admission/v1/sessions/{sid}"))),
-        (op::PART_BEGIN, f("PUT", format!("/admission/v1/sessions/{sid}/parts/3"))),
-        (op::PART_RECORD, f("PUT", format!("/admission/v1/sessions/{sid}/parts/3"))),
-        (op::COMPLETE, f("POST", format!("/admission/v1/sessions/{sid}/complete"))),
-        (op::ABORT, f("DELETE", format!("/admission/v1/sessions/{sid}/attempts/2"))),
-        (op::REOPEN, f("POST", format!("/admission/v1/sessions/{sid}/attempts/2"))),
-        (op::HOTKEY, f("GET", "/admission/v1/cohorts/7/hotkeys/5Fhot".into())),
+        (op::CREATE, f("POST", "/admission/v2/sessions".into())),
+        (op::READ, f("GET", format!("/admission/v2/sessions/{sid}"))),
+        (op::URLS, f("POST", format!("/admission/v2/sessions/{sid}/urls"))),
+        (op::COMPLETE, f("POST", format!("/admission/v2/sessions/{sid}/complete"))),
+        (op::REPAIR, f("POST", format!("/admission/v2/sessions/{sid}/repair"))),
+        (op::HOTKEY, f("GET", "/admission/v2/cohorts/7/hotkeys/5Fhot".into())),
     ];
     for (o, fw) in &ok {
         assert!(forward_matches(o, fw), "{o}");
     }
     let other = "cd".repeat(32);
     let bad = [
-        (op::READ, f("GET", format!("/admission/v1/sessions/{other}"))),
-        (op::PART_BEGIN, f("PUT", format!("/admission/v1/sessions/{sid}/parts/4"))),
-        (op::ABORT, f("DELETE", format!("/admission/v1/sessions/{sid}/attempts/1"))),
-        (op::REOPEN, f("DELETE", format!("/admission/v1/sessions/{sid}/attempts/2"))),
-        (op::HOTKEY, f("GET", "/admission/v1/cohorts/8/hotkeys/5Fhot".into())),
-        (op::COMPLETE, f("POST", format!("/admission/v1/sessions/{sid}"))),
-        (op::CREATE, f("POST", "/admission/v1/sessions?x".into())),
+        (op::READ, f("GET", format!("/admission/v2/sessions/{other}"))),
+        (op::URLS, f("POST", format!("/admission/v2/sessions/{other}/urls"))),
+        (op::URLS, f("POST", format!("/admission/v2/sessions/{sid}/complete"))),
+        (op::REPAIR, f("POST", format!("/admission/v2/sessions/{sid}/urls"))),
+        (op::HOTKEY, f("GET", "/admission/v2/cohorts/8/hotkeys/5Fhot".into())),
+        (op::COMPLETE, f("POST", format!("/admission/v2/sessions/{sid}"))),
+        (op::CREATE, f("POST", "/admission/v2/sessions?x".into())),
+        (op::CREATE, f("POST", "/admission/v1/sessions".into())),
     ];
     for (o, fw) in &bad {
         assert!(!forward_matches(o, fw), "{o} {}", fw.signed.path);
@@ -861,160 +850,6 @@ fn the_eval_classifier_names_the_internal_host() {
     );
     assert!(src.contains(&rule), "{rule}");
     assert!(slop_ninja_admission_wire::internal::EVAL_PATH_PREFIX.starts_with("/internal/admission/"));
-}
-
-#[test]
-fn parts_completion_and_the_hotkey_view() {
-    let db = db_with_open_cohort(2);
-    let m = miner(1, 3, 1, 0x11);
-    m.commit(&db, OPEN_BLOCK + 1, 0);
-    m.create(&db);
-    let id = m.session();
-    // No upload id yet: retry shortly.
-    let req = m.signed(&db, "PUT", &format!("/admission/v1/sessions/{id}/parts/1"), &m.obj);
-    let e = tx(&db, |s| {
-        Ok::<_, EvalError>(part_begin(s, &chain(), &req, &id, 1, Some(m.obj.len() as u64)))
-    })
-    .unwrap()
-    .unwrap_err();
-    assert_eq!(code(&e), "unavailable");
-    assert_eq!(tx(&db, |s| upload_missing(s, &id)).unwrap().map(|x| x.1), Some(1));
-    tx(&db, |s| set_upload_id(s, &id, 1, "u")).unwrap();
-    let e = tx(&db, |s| {
-        Ok::<_, EvalError>(part_begin(s, &chain(), &req, &id, 2, Some(1)))
-    })
-    .unwrap()
-    .unwrap_err();
-    assert_eq!(code(&e), "part_out_of_range");
-    let e = tx(&db, |s| {
-        Ok::<_, EvalError>(part_begin(s, &chain(), &req, &id, 1, Some(1)))
-    })
-    .unwrap()
-    .unwrap_err();
-    assert_eq!(code(&e), "part_length_mismatch");
-    // Completion before every part.
-    let creq = m.signed(&db, "POST", &format!("/admission/v1/sessions/{id}/complete"), &[]);
-    let (r, _) = tx(&db, |s| Ok::<_, EvalError>(complete(s, &chain(), &creq, &id, NOW))).unwrap();
-    assert_eq!(
-        (
-            code(&r).as_str(),
-            r.body["error"]["detail"]["missing"].as_array().map(Vec::len)
-        ),
-        ("parts_missing", Some(1))
-    );
-    assert_eq!(upload_all(&db, &m).status, 202);
-    assert_eq!(state_of(&db, &id).0, "verifying");
-    // A completion sent again returns the session; parts are no longer accepted.
-    let (r, _) = tx(&db, |s| Ok::<_, EvalError>(complete(s, &chain(), &creq, &id, NOW))).unwrap();
-    assert_eq!(r.status, 202);
-    let e = tx(&db, |s| {
-        Ok::<_, EvalError>(part_begin(s, &chain(), &req, &id, 1, Some(m.obj.len() as u64)))
-    })
-    .unwrap()
-    .unwrap_err();
-    assert_eq!(code(&e), "session_not_uploading");
-    // The session read shows the recorded parts.
-    let rreq = m.signed(&db, "GET", &format!("/admission/v1/sessions/{id}"), &[]);
-    let r = tx(&db, |s| Ok::<_, EvalError>(read(s, &chain(), &rreq, &id))).unwrap();
-    assert_eq!(
-        (r.body["parts"].as_array().map(Vec::len), r.body["part_count"].as_u64()),
-        (Some(1), Some(1))
-    );
-    // Another hotkey cannot read it.
-    let other = miner(2, 4, 1, 0x12);
-    let oreq = other.signed(&db, "GET", &format!("/admission/v1/sessions/{id}"), &[]);
-    assert_eq!(
-        code(&tx(&db, |s| Ok::<_, EvalError>(read(s, &chain(), &oreq, &id))).unwrap()),
-        "forbidden"
-    );
-    // A multipart completion R2 refuses ends the session as object_mismatch.
-    let m2 = miner(2, 4, 1, 0x12);
-    m2.commit(&db, OPEN_BLOCK + 2, 0);
-    m2.create(&db);
-    let id2 = m2.session();
-    tx(&db, |s| set_upload_id(s, &id2, 1, "u2")).unwrap();
-    let preq = m2.signed(&db, "PUT", &format!("/admission/v1/sessions/{id2}/parts/1"), &m2.obj);
-    let t = tx(&db, |s| {
-        Ok::<_, EvalError>(part_begin(s, &chain(), &preq, &id2, 1, Some(m2.obj.len() as u64)))
-    })
-    .unwrap()
-    .unwrap();
-    tx(&db, |s| Ok::<_, EvalError>(part_record(s, &chain(), &preq, &id2, &t, "e"))).unwrap();
-    let creq2 = m2.signed(&db, "POST", &format!("/admission/v1/sessions/{id2}/complete"), &[]);
-    tx(&db, |s| Ok::<_, EvalError>(complete(s, &chain(), &creq2, &id2, NOW))).unwrap();
-    tx(&db, |s| completion_failed(s, &id2, NOW)).unwrap();
-    assert_eq!(state_of(&db, &id2), ("refused".into(), Some("object_mismatch".into())));
-}
-
-#[test]
-fn framing_checks_the_envelope_the_contract_and_the_commitment() {
-    let db = db_with_open_cohort(2);
-    let m = miner(1, 3, 1, 0x11);
-    m.commit(&db, OPEN_BLOCK + 1, 4);
-    m.create(&db);
-    upload_all(&db, &m);
-    let id = m.session();
-    // The test object fails the spec's header checks: a check refusal.
-    let mut f = Framer::new();
-    f.update(&m.obj);
-    let framed = f.finish(Version::V2);
-    assert_eq!((framed.0, framed.1), (m.upload.artifact_sha256, m.upload.artifact_len));
-    assert!(
-        matches!(&framed.2, Err(FrameError::Check(c)) if c == "tokenizer_mismatch" || c == "file_size"),
-        "{:?}",
-        framed.2.as_ref().err()
-    );
-    tx(&db, |s| apply_frame(s, &chain(), &id, framed.into(), NOW)).unwrap();
-    assert_eq!(state_of(&db, &id), ("refused".into(), Some("check_failed".into())));
-    // A changed byte: object_mismatch, decided before anything else.
-    let m2 = miner(2, 4, 1, 0x12);
-    m2.commit(&db, OPEN_BLOCK + 2, 0);
-    m2.create(&db);
-    upload_all(&db, &m2);
-    let mut bytes = m2.obj.clone();
-    let last = bytes.len() - 1;
-    bytes[last] ^= 1;
-    let mut f = Framer::new();
-    f.update(&bytes);
-    tx(&db, |s| {
-        apply_frame(s, &chain(), &m2.session(), f.finish(Version::V2).into(), NOW)
-    })
-    .unwrap();
-    assert_eq!(
-        state_of(&db, &m2.session()),
-        ("refused".into(), Some("object_mismatch".into()))
-    );
-    // Garbage that is not an artifact object: artifact_invalid.
-    let mut f = Framer::new();
-    f.update(&[0xff; 64]);
-    assert!(matches!(f.finish(Version::V2).2, Err(FrameError::Reader(_))));
-    // A framed object whose content is not the committed one.
-    let m3 = miner(3, 5, 1, 0x13);
-    m3.commit(&db, OPEN_BLOCK + 3, 0);
-    m3.create(&db);
-    upload_all(&db, &m3);
-    let other = VerifiedArtifact::from_bytes(&object(0x77)).unwrap();
-    let framed = Framed {
-        package_sha256: hex::encode(Sha256::digest([])),
-        model_sha256: hex::encode([1; 32]),
-        manifest: vec![],
-        slices: vec![],
-        artifact: other,
-    };
-    tx(&db, |s| {
-        apply_frame(
-            s,
-            &chain(),
-            &m3.session(),
-            (m3.upload.artifact_sha256, m3.upload.artifact_len, Ok(framed)).into(),
-            NOW,
-        )
-    })
-    .unwrap();
-    assert_eq!(
-        state_of(&db, &m3.session()),
-        ("refused".into(), Some("content_mismatch".into()))
-    );
 }
 
 #[test]
@@ -1165,36 +1000,23 @@ fn verdict_rules_one_run_bound_definitive_and_counted() {
         reached, new_build.scorer_binary,
         "the verdict records the build it was reached on"
     );
-    // (a) one run per hotkey and commitment: another object for the same
-    // commitment, after an abort, is refused without a run.
-    let id = m3.session();
-    let req = m3.signed(&db, "DELETE", &format!("/admission/v1/sessions/{id}/attempts/1"), &[]);
-    tx(&db, |s| Ok::<_, EvalError>(abort(s, &chain(), &req, &id, 1, NOW))).unwrap();
-    let mut again = miner(3, 5, 1, 0x13);
-    again.upload.artifact_len += 0;
-    let req = m3.signed(&db, "POST", &format!("/admission/v1/sessions/{id}/attempts/2"), &[]);
-    tx(&db, |s| Ok::<_, EvalError>(reopen(s, &chain(), &req, &id, 2, NOW))).unwrap();
-    upload_all_attempt(&db, &again, 2);
-    let artifact = VerifiedArtifact::from_bytes(&again.obj).unwrap();
-    let framed = Framed {
-        package_sha256: hex::encode(Sha256::digest([1])),
-        model_sha256: hex::encode([1; 32]),
-        manifest: vec![1],
-        slices: vec![],
-        artifact,
-    };
+    // (a) one run per hotkey and commitment: a manifest that is not the
+    // package the commitment's run already judged is refused without a run.
+    let m4 = miner(4, 6, 1, 0x14);
+    m4.commit(&db, OPEN_BLOCK + 4, 0);
+    m4.create(&db);
+    upload_all(&db, &m4);
     tx(&db, |s| {
-        apply_frame(
-            s,
-            &chain(),
-            &id,
-            (again.upload.artifact_sha256, again.upload.artifact_len, Ok(framed)).into(),
-            NOW,
+        s.exec(
+            "INSERT INTO adm_verdicts (hotkey, commitment, package_sha256, manifest_key, label, scorer_binary, spec_sha256, state, updated_ms)
+             VALUES (?, ?, 'another', 'k', 'testnet-c1', 'b', 's', 'refused', 1)",
+            &[SqlValue::Text(hex::encode(account(4).0)), SqlValue::Text(m4.upload.commitment.hex())],
         )
+        .map(|_| ())
     })
     .unwrap();
-    tx(&db, |s| blobs_written(s, &env(), &id, NOW)).unwrap();
-    let row = tx(&db, |s| session_row(s, &id)).unwrap().unwrap();
+    tx(&db, |s| manifest_written(s, &env(), &m4.session(), NOW)).unwrap();
+    let row = tx(&db, |s| session_row(s, &m4.session())).unwrap().unwrap();
     assert_eq!(row.refusal.unwrap().detail.check.as_deref(), Some("admission_run_used"));
 }
 
@@ -1244,7 +1066,10 @@ fn classify_reads_the_reply_and_counts_only_the_artifacts_own_failures() {
         "artifact manifest missing",
         "artifact manifest digest",
         "artifact stream timeout",
-        "part missing",
+        "chunk rejected",
+        "missing chunks",
+        crate::eval::scorer_client::OBJECT_MISSING,
+        crate::eval::scorer_client::OBJECT_CHANGED,
         "insufficient_memory",
         "load refused",
         crate::eval::scorer_client::REUSED,
@@ -1254,21 +1079,6 @@ fn classify_reads_the_reply_and_counts_only_the_artifacts_own_failures() {
     }
     assert!(matches!(classify(Some(404), &json!(null)), LaneOutcome::Platform(_)));
     assert!(matches!(classify(None, &json!(null)), LaneOutcome::Platform(_)));
-}
-
-fn upload_all_attempt(db: &Sqlite, m: &Miner, attempt: u32) {
-    let id = m.session();
-    tx(db, |s| set_upload_id(s, &id, attempt, "upload-n")).unwrap();
-    let req = m.signed(db, "PUT", &format!("/admission/v1/sessions/{id}/parts/1"), &m.obj);
-    let t = tx(db, |s| {
-        Ok::<_, EvalError>(part_begin(s, &chain(), &req, &id, 1, Some(m.obj.len() as u64)))
-    })
-    .unwrap()
-    .unwrap();
-    tx(db, |s| Ok::<_, EvalError>(part_record(s, &chain(), &req, &id, &t, "e"))).unwrap();
-    let creq = m.signed(db, "POST", &format!("/admission/v1/sessions/{id}/complete"), &[]);
-    tx(db, |s| Ok::<_, EvalError>(complete(s, &chain(), &creq, &id, NOW))).unwrap();
-    tx(db, |s| completed(s, &id, NOW)).unwrap();
 }
 
 #[test]
@@ -1302,19 +1112,10 @@ fn the_cutoff_ranks_caps_queues_overflow_and_refuses_changed_commitments() {
         state_of(&db, &late.session()),
         ("refused".into(), Some("incomplete_at_cutoff".into()))
     );
-    // After the close: parts and completions are refused, new sessions too.
-    let req = late.signed(
-        &db,
-        "PUT",
-        &format!("/admission/v1/sessions/{}/parts/1", late.session()),
-        &late.obj,
-    );
-    let e = tx(&db, |s| {
-        Ok::<_, EvalError>(part_begin(s, &chain(), &req, &late.session(), 1, Some(1)))
-    })
-    .unwrap()
-    .unwrap_err();
-    assert_eq!(code(&e), "after_cutoff");
+    // After the close: URLs and completions are refused, new sessions too.
+    let req = late.post(&db, "urls");
+    let step = tx(&db, |s| Ok::<_, EvalError>(urls(s, &chain(), &req, &late.session()))).unwrap();
+    assert_eq!(code(&drive(&db, step).0), "after_cutoff");
     let after = miner(7, 9, 1, 0x17);
     after.commit(&db, cutoff - 1, 0);
     assert_eq!(code(&after.create(&db).0), "after_cutoff");
@@ -1398,22 +1199,20 @@ fn the_cutoff_ranks_caps_queues_overflow_and_refuses_changed_commitments() {
                 .as_str()
         )
     );
-    assert!(
-        first
-            .object_key
-            .as_deref()
-            .unwrap()
-            .starts_with("admission/testnet-c1/")
-    );
+    let header_key = first.object_key.as_deref().unwrap();
+    assert!(header_key.starts_with("admission/v2/c1/") && header_key.ends_with("/h"), "{header_key}");
     assert_eq!(c.plan.pool.pool_id, "fresh");
     assert!(tx(&db, |s| has_outside_entrant(s, 1)).unwrap());
     assert!(tx(&db, |s| crate::eval::v3::fresh_allowed(s, &c)).unwrap());
     // The stored plan is the frozen one, and validates.
     plan::CohortPlan::parse(&serde_json::to_vec(&c.plan).unwrap(), cfg().ceilings).unwrap();
     assert_eq!(c.plan_sha256, engine::sha_hex(&serde_json::to_vec(&c.plan).unwrap()));
-    // Objects of the sessions that ended without admission are cleaned up.
-    let due = tx(&db, |s| cleanup_due(s, 10, crate::wire::MAX_SAFE_INTEGER)).unwrap();
-    assert_eq!(due.len(), 4, "overflow, overwritten, registration and incomplete");
+    // Objects of the sessions that ended without admission are queued for
+    // deletion: overflow, overwritten and registration (seven objects each)
+    // and the incomplete one's header.
+    tx(&db, |s| next_work(s, &cfg(), NOW)).unwrap();
+    let due = tx(&db, |s| object_deletes_due(s, 100, crate::wire::MAX_SAFE_INTEGER)).unwrap();
+    assert_eq!(due.len(), 3 * 7 + 1);
     // The closure names the admitted objects for publication.
     let v = closure_artifacts(&c.plan);
     assert_eq!(v["artifacts"].as_array().unwrap().len(), 2);
@@ -1421,6 +1220,59 @@ fn the_cutoff_ranks_caps_queues_overflow_and_refuses_changed_commitments() {
     let st = tx(&db, status).unwrap();
     assert_eq!(st["cohorts"][0]["state"], "frozen");
     assert!(!st.to_string().contains(&hex::encode(ms[2].upload.opening.nonce.0)));
+}
+
+/// The v2 path through to the seal's inputs: the frozen plan names each
+/// admitted entrant's files manifest v2 (written by the `manifest` step),
+/// from which the seal takes the entrant's content (the opening's) and its
+/// artifact digest (the SHA-256 of the header the miner uploaded and R2
+/// verified), the digest the package binds and a published header must
+/// match (`check_published_artifact`, run on every sim package in
+/// `eval::tests`).
+#[test]
+fn a_frozen_v2_entrant_seals_under_its_uploaded_header_digest() {
+    let db = db_with_open_cohort(2);
+    let ms: Vec<Miner> = (1..=2u8).map(|n| miner(n, u16::from(n) + 2, 1, 0x20 + n)).collect();
+    let mut manifests = std::collections::BTreeMap::new();
+    for (k, m) in ms.iter().enumerate() {
+        m.commit(&db, OPEN_BLOCK + 3 + k as u64, 0);
+        assert_eq!(m.create(&db).0.status, 201);
+        upload_all(&db, m);
+        let id = m.session();
+        let (key, bytes) = tx(&db, |s| manifest_due(s, &id)).unwrap().unwrap();
+        manifests.insert(key, bytes);
+        frame_ok(&db, m);
+    }
+    admit_all(&db);
+    let cutoff = OPEN_BLOCK + 360;
+    close_at(&db, cutoff);
+    for (k, m) in ms.iter().enumerate() {
+        let payload = m.upload.opening.chain_payload().to_vec();
+        snapshot(&db, cutoff, m, Some(OPEN_BLOCK + 3 + k as u64), &payload, Some(m.uid), Some(m.registration_block));
+    }
+    let b = tx(&db, |s| try_freeze(s, &cfg(), NOW)).unwrap().unwrap();
+    assert!(matches!(b, Boundary::Frozen { admitted: 2, .. }), "{b:?}");
+    let c = tx(&db, |s| engine::cohort(s, 1)).unwrap();
+    assert_eq!(c.plan.entrants.len(), 2);
+    for a in &c.plan.entrants {
+        let m = ms.iter().find(|m| a.owner.hotkey == format!("0x{}", hex::encode(account(m.n).0))).unwrap();
+        let bytes = &manifests[&a.manifest_key];
+        assert_eq!(engine::sha_hex(bytes), a.package_sha256, "the plan binds the written manifest");
+        // The seal takes the header digest admission recorded (R2 verified
+        // it): no hash on our side; it is the canonical record's digest.
+        let recorded = tx(&db, |s| recorded_header_sha256(s, &a.package_sha256)).unwrap();
+        assert_eq!(recorded, Some(m.upload.header_sha256));
+        let d = crate::eval::v3::artifact_digests(bytes, recorded).unwrap();
+        assert_eq!(d.content.0, m.upload.opening.content);
+        assert_eq!(d.artifact.0, m.upload.header_sha256, "the artifact digest is the uploaded header's");
+        assert_eq!(crate::eval::v3::artifact_digests(bytes, None).unwrap(), d, "the same as the record's own digest");
+        let vh = slop_ninja_protocol::VerifiedHeader::from_stored(&m.hbytes, m.upload.header_sha256).unwrap();
+        assert_eq!((vh.sha256, vh.content), (d.artifact.0, d.content.0));
+    }
+    // A files manifest v1 (whole-object parts) is refused by the seal.
+    let v1 = br#"{"schema":"slop_ninja_a_artifact_files_v1","profile_id":"x","contract":"c","graph":"g","files":[]}"#;
+    assert_eq!(crate::eval::v3::artifact_digests(v1, None), Err("artifact manifest schema"));
+    assert_eq!(tx(&db, |s| recorded_header_sha256(s, &"00".repeat(32))).unwrap(), None, "a reference: no recorded digest");
 }
 
 #[test]
@@ -1615,13 +1467,12 @@ fn a_commitment_replaced_after_open_refuses_at_verify_with_its_real_code() {
     m.commit(&db, OPEN_BLOCK + 1, 0);
     let (r, _) = m.create(&db);
     assert_eq!(r.status, 201);
-    upload_all(&db, &m);
     // Replaced (and logged) after the open, with the reader behind the cursor.
     let other = miner(1, 3, 1, 0x42);
     other.commit(&db, OPEN_BLOCK + 2, 0);
     polled(&db, OPEN_BLOCK);
     heartbeat(&db, 5);
-    frame_only(&db, &m);
+    assert!(matches!(m.settle(&db, m.checked()), Settled::Refused(None)));
     assert_eq!(
         state_of(&db, &m.session()),
         ("refused".to_owned(), Some("commitment_mismatch".to_owned()))
@@ -1783,6 +1634,10 @@ fn the_cohort_response_names_the_window_and_its_limits() {
         (1, OPEN_BLOCK, 12, 2)
     );
     assert_eq!(a.max_object_len, spec_v2().object_bytes);
+    assert_eq!(
+        (a.upload_policy.id.as_str(), a.upload_policy.b_min, a.upload_policy.skew_secs),
+        (policy::POLICY_ID, policy::B_MIN, policy::SKEW_SECS)
+    );
     assert_eq!(a.output_contract, spec::CONTRACT_ID);
     assert_eq!(a.artifact_spec.unwrap().sha256, Version::V2.spec_sha256());
     assert_eq!(info.next.unwrap().earliest_open_epoch, Some(15));
@@ -2113,7 +1968,6 @@ fn daily_template(prefix: &str, cap: u16) -> crate::eval::calendar::Template {
     let a = p.admission.as_mut().unwrap();
     a.artifact_spec = b3.spec_id.into();
     a.artifact_spec_sha256 = b3.spec_sha256.clone();
-    a.max_parts = u32::try_from(b3.object_bytes.div_ceil(a.part_size)).unwrap();
     // Standing templates never name a fresh pool (`calendar::check`).
     a.fresh_pool = None;
     crate::eval::calendar::Template {
@@ -2374,196 +2228,6 @@ fn a_verdict_reached_on_another_build_is_run_again_even_when_another_claim_rebin
     );
 }
 
-#[test]
-fn a_lost_multipart_completion_is_resumed_and_an_operator_can_refuse_a_stalled_session() {
-    let db = db_with_open_cohort(4);
-    let m = miner(1, 3, 1, 0x11);
-    m.commit(&db, OPEN_BLOCK + 1, 0);
-    m.create(&db);
-    let id = m.session();
-    tx(&db, |s| set_upload_id(s, &id, 1, "upload-1")).unwrap();
-    let w = tx(&db, window).unwrap().unwrap();
-    let plan = w.part_plan(m.upload.artifact_len).unwrap();
-    for n in 1..=plan.count() {
-        let (a0, len) = plan.range(n).unwrap();
-        let part = m.obj.get(a0 as usize..(a0 + len) as usize).unwrap();
-        let mut req = m.signed(&db, "PUT", &format!("/admission/v1/sessions/{id}/parts/{n}"), part);
-        req.body_sha256 = None;
-        let t = tx(&db, |s| {
-            Ok::<_, EvalError>(part_begin(s, &chain(), &req, &id, n, Some(len)))
-        })
-        .unwrap()
-        .unwrap();
-        tx(&db, |s| {
-            Ok::<_, EvalError>(part_record(s, &chain(), &req, &id, &t, &format!("etag-{n}")))
-        })
-        .unwrap();
-    }
-    let req = m.signed(&db, "POST", &format!("/admission/v1/sessions/{id}/complete"), &[]);
-    let (r, fx) = tx(&db, |s| Ok::<_, EvalError>(complete(s, &chain(), &req, &id, NOW))).unwrap();
-    assert_eq!(r.status, 202);
-    assert!(fx.complete.is_some());
-    // The object is evicted before R2's outcome is recorded: the completion
-    // is durable work, and a retried request issues it again.
-    assert_eq!(
-        tx(&db, |s| verify_due(s, NOW)).unwrap(),
-        Some((id.clone(), "complete".into()))
-    );
-    assert!(matches!(
-        tx(&db, |s| next_work(s, &cfg(), NOW)).unwrap(),
-        Some(engine::Work::AdmissionVerify { stage, .. }) if stage == "complete"
-    ));
-    let (r, fx) = tx(&db, |s| Ok::<_, EvalError>(complete(s, &chain(), &req, &id, NOW))).unwrap();
-    assert_eq!(
-        (r.status, fx.complete.as_ref().map(|c| c.2.len())),
-        (202, Some(plan.count() as usize))
-    );
-    // A transport failure is retried after a backoff, never a refusal.
-    let t = tx(&db, |s| completion_begin(s, &id, NOW)).unwrap();
-    assert!(t.is_some());
-    tx(&db, |s| step_retry(s, &id, false, NOW)).unwrap();
-    assert!(tx(&db, |s| verify_due(s, NOW)).unwrap().is_none(), "backing off");
-    assert!(tx(&db, |s| verify_due(s, NOW + backoff_ms(1))).unwrap().is_some());
-    assert_eq!(state_of(&db, &id).0, "verifying");
-    // R2's definitive refusal ends it; a found object completes it.
-    assert!(completion_refused(
-        "completeMultipartUpload: One or more parts not found (10025)"
-    ));
-    assert!(completion_refused("NoSuchUpload: the upload does not exist"));
-    assert!(!completion_refused("Network connection lost."));
-    assert!(!completion_refused("internal error (10001)"));
-    tx(&db, |s| completed(s, &id, NOW)).unwrap();
-    assert_eq!(
-        tx(&db, |s| verify_due(s, NOW)).unwrap(),
-        Some((id.clone(), "frame".into()))
-    );
-    // A session stalled in any verification stage: the operator refuses it
-    // with a recorded reason, and the freeze no longer waits on it.
-    assert!(operator_refuse_reason_is_checked(&db, &id));
-    assert!(tx(&db, |s| operator_refuse(s, &id, "stalled-completion", NOW)).unwrap());
-    let row = tx(&db, |s| session_row(s, &id)).unwrap().unwrap();
-    assert_eq!(
-        row.refusal.unwrap().detail.check.as_deref(),
-        Some("operator:stalled-completion")
-    );
-    assert!(
-        !tx(&db, |s| operator_refuse(s, &id, "again", NOW)).unwrap(),
-        "already ended"
-    );
-    let cutoff = OPEN_BLOCK + 360;
-    close_at(&db, cutoff);
-    assert_eq!(
-        tx(&db, |s| try_freeze(s, &cfg(), NOW)).unwrap(),
-        Some(Boundary::Frozen {
-            admitted: 0,
-            overflow: 0,
-            outside: false
-        })
-    );
-}
-
-fn operator_refuse_reason_is_checked(db: &Sqlite, id: &str) -> bool {
-    tx(db, |s| operator_refuse(s, id, "Not A Code", NOW)).is_err()
-}
-
-/// Finding 10 of the second W3 review: a framing attempt cut off by the
-/// platform (CPU, eviction) is never charged to the upload. Each attempt
-/// arms a growing backoff before it runs, so a cut-off attempt runs again
-/// after it, and the session is never refused for it.
-#[test]
-fn framing_attempts_that_never_finish_back_off_and_never_refuse_the_upload() {
-    let db = db_with_open_cohort(2);
-    let m = miner(1, 3, 1, 0x11);
-    m.commit(&db, OPEN_BLOCK + 1, 0);
-    m.create(&db);
-    upload_all(&db, &m);
-    let id = m.session();
-    let mut t = NOW;
-    for n in 1..=6u32 {
-        assert_eq!(tx(&db, |s| verify_due(s, t)).unwrap().map(|x| x.1), Some("frame".into()), "attempt {n}");
-        assert!(tx(&db, |s| frame_begin(s, &id, t)).unwrap().is_some());
-        // Cut off: no outcome. Not due again before the backoff.
-        assert!(tx(&db, |s| verify_due(s, t + backoff_ms(n) - 1)).unwrap().is_none());
-        t += backoff_ms(n);
-    }
-    let row = tx(&db, |s| session_row(s, &id)).unwrap().unwrap();
-    assert_eq!(row.state, SessionState::Verifying, "never refused for the platform's cut-offs");
-    let fault = |db: &Sqlite| tx(db, |s| engine::cohort(s, 1)).unwrap().fault;
-    assert_eq!(fault(&db), None, "below the plan's pause bound");
-    let retrying = |db: &Sqlite| tx(db, status).unwrap()["platform_retries"]["steps_retrying"].as_i64();
-    assert_eq!(retrying(&db), Some(1));
-    // Fix round 2, finding 5: at the plan's pause bound
-    // (`failures_before_pause`, 6 here) the next attempt faults the cohort
-    // (resumable `framing_unavailable`): the freeze waits on the same cohort,
-    // visibly, and the attempt still runs.
-    let bound = tx(&db, window).unwrap().unwrap().failures_before_pause;
-    assert_eq!(bound, 6);
-    assert!(tx(&db, |s| frame_begin(s, &id, t)).unwrap().is_some());
-    assert_eq!(fault(&db).as_deref(), Some(FRAMING_UNAVAILABLE));
-    assert!(engine::RESUMABLE_FAULTS.contains(&FRAMING_UNAVAILABLE));
-    close_at(&db, OPEN_BLOCK + 360);
-    assert_eq!(tx(&db, |s| try_freeze(s, &cfg(), t)).unwrap(), None, "a faulted cohort never freezes");
-    // The operator clears it; the next bound of cut-offs faults again, not
-    // the first attempt after the clear.
-    let label = tx(&db, |s| engine::cohort(s, 1)).unwrap().label;
-    assert!(tx(&db, |s| engine::clear_fault(s, &label, t)).unwrap().cleared);
-    t += backoff_ms(7);
-    for n in 8..=12u32 {
-        assert!(tx(&db, |s| frame_begin(s, &id, t)).unwrap().is_some());
-        assert_eq!(fault(&db), None, "attempt {n}");
-        t += backoff_ms(n);
-    }
-    assert!(tx(&db, |s| frame_begin(s, &id, t)).unwrap().is_some());
-    assert_eq!(fault(&db).as_deref(), Some(FRAMING_UNAVAILABLE));
-    // A failed read is the platform's too: not counted, and backed off.
-    tx(&db, |s| step_retry(s, &id, true, t)).unwrap();
-    assert!(tx(&db, |s| verify_due(s, t)).unwrap().is_none());
-    assert!(backoff_ms(40) <= LANE_LEASE_MS, "the backoff is bounded by the lane lease");
-}
-
-/// Review round 1 of the upload Worker split, finding 8: a framing call
-/// that fails through the link between the two Workers is counted (so the
-/// plan's pause bound faults the cohort), a link that is not configured
-/// faults it at once, and only the upload Worker's object-read answer is
-/// uncounted.
-#[test]
-fn framing_link_failures_are_counted_and_a_misconfigured_link_faults_at_once() {
-    let db = db_with_open_cohort(2);
-    let m = miner(1, 3, 1, 0x11);
-    m.commit(&db, OPEN_BLOCK + 1, 0);
-    m.create(&db);
-    upload_all(&db, &m);
-    let id = m.session();
-    let fault = |db: &Sqlite| tx(db, |s| engine::cohort(s, 1)).unwrap().fault;
-    let tries = |db: &Sqlite| {
-        let rows = tx(db, |q| q.exec("SELECT step_tries FROM adm_sessions WHERE session = ?", &[s(&id)])).unwrap();
-        u32::try_from(crate::sql::int(&rows[0], 0).unwrap()).unwrap()
-    };
-    let mut t = NOW;
-    // An object read: uncounted.
-    assert!(tx(&db, |s| frame_begin(s, &id, t)).unwrap().is_some());
-    tx(&db, |s| frame_failed(s, &id, FrameFailure::ObjectRead, t)).unwrap();
-    assert_eq!(tries(&db), 0);
-    // Counted failures reach the pause bound and fault the cohort.
-    let bound = tx(&db, window).unwrap().unwrap().failures_before_pause;
-    for n in 1..=bound {
-        t += backoff_ms(n);
-        assert!(tx(&db, |s| frame_begin(s, &id, t)).unwrap().is_some());
-        assert_eq!(fault(&db), None, "attempt {n}");
-        tx(&db, |s| frame_failed(s, &id, FrameFailure::Counted, t)).unwrap();
-        assert_eq!(tries(&db), n);
-    }
-    t += backoff_ms(bound + 1);
-    assert!(tx(&db, |s| frame_begin(s, &id, t)).unwrap().is_some());
-    assert_eq!(fault(&db).as_deref(), Some(FRAMING_UNAVAILABLE));
-    // After a clear, a misconfigured link faults on its first failure.
-    let label = tx(&db, |s| engine::cohort(s, 1)).unwrap().label;
-    assert!(tx(&db, |s| engine::clear_fault(s, &label, t)).unwrap().cleared);
-    tx(&db, |s| frame_failed(s, &id, FrameFailure::Misconfigured, t)).unwrap();
-    assert_eq!(fault(&db).as_deref(), Some(FRAMING_UNAVAILABLE));
-    assert_eq!(tx(&db, |s| session_row(s, &id)).unwrap().unwrap().state, SessionState::Verifying);
-}
-
 /// Fix round 2, findings 5 and 7: a commitment resolution whose reads keep
 /// serving no state pauses the admitting cohort visibly (resumable
 /// `commitment_state_unavailable`) at the plan's pause bound, but only when
@@ -2609,15 +2273,14 @@ fn backed_off_housekeeping_is_work_but_not_due_work() {
     let a = miner(1, 3, 1, 0x11);
     a.commit(&db, OPEN_BLOCK + 1, 0);
     a.create(&db);
-    let id = a.session();
-    let req = a.signed(&db, "DELETE", &format!("/admission/v1/sessions/{id}/attempts/1"), &[]);
-    let (r, _) = tx(&db, |s| Ok::<_, EvalError>(abort(s, &chain(), &req, &id, 1, NOW))).unwrap();
-    assert_eq!(r.body["state"].as_str(), Some("aborted"), "{:?}", r.body);
-    let req = a.signed(&db, "POST", &format!("/admission/v1/sessions/{id}/attempts/2"), &[]);
-    tx(&db, |s| Ok::<_, EvalError>(reopen(s, &chain(), &req, &id, 2, NOW))).unwrap();
+    let c = miner(1, 3, 1, 0x31);
+    c.commit(&db, OPEN_BLOCK + 2, 0);
+    c.create(&db);
     let due = tx(&db, |s| object_deletes_due(s, 8, NOW)).unwrap();
     assert_eq!(due.len(), 1);
-    // Only the uploading session and the recorded delete are pending.
+    // The paced work (the alarm sweep, the reconciliation) is done for now.
+    tx(&db, |s| sweep_begin(s, NOW)).unwrap();
+    tx(&db, |s| reconcile_page(s, &[], None, NOW)).unwrap();
     let only = |db: &Sqlite, now: Option<u64>| tx(db, |s| has_work(s, &cfg(), now)).unwrap();
     assert!(only(&db, None) && only(&db, Some(NOW)));
     tx(&db, |s| object_delete_failed(s, &due[0].0, NOW)).unwrap();
@@ -2682,7 +2345,7 @@ fn commitments_at_one_position_are_refused_and_a_refused_plan_faults_the_cohort(
     admit_all(&db);
     tx(&db, |s| {
         s.exec(
-            "UPDATE adm_sessions SET object_key = '../outside' WHERE session = ?",
+            "UPDATE adm_sessions SET model_sha256 = 'not-a-digest' WHERE session = ?",
             &[SqlValue::Text(d.session())],
         )
         .map(|_| ())
@@ -2712,7 +2375,8 @@ fn commitments_at_one_position_are_refused_and_a_refused_plan_faults_the_cohort(
     assert!(tx(&db, |s| engine::abandon(s, &co.label, "drill", NOW)).unwrap());
     assert_eq!(tx(&db, |s| engine::cohort(s, 1)).unwrap().phase, "abandoned");
     assert_eq!(state_of(&db, &d.session()).0, "refused");
-    assert_eq!(tx(&db, |s| cleanup_due(s, 10, crate::wire::MAX_SAFE_INTEGER)).unwrap().len(), 1);
+    tx(&db, |s| next_work(s, &cfg(), NOW)).unwrap();
+    assert_eq!(tx(&db, |s| object_deletes_due(s, 100, crate::wire::MAX_SAFE_INTEGER)).unwrap().len(), 7);
 }
 
 #[test]
@@ -2847,12 +2511,8 @@ fn copies_of_published_artifacts_and_plans_without_operator_hotkeys_never_unlock
     let parsed = plan::CohortPlan::parse(&serde_json::to_vec(&v3p).unwrap(), cfg().ceilings).unwrap();
     assert_eq!(parsed.load_spec_sha256(), Some(b3.spec_sha256.as_str()));
     assert_eq!(ADMISSION_SPECS, &[spec::SPEC_ID_V2, spec::SPEC_ID_V3]);
-    let mut few = v3p.clone();
-    few.admission.as_mut().unwrap().max_parts = u32::try_from(b3.object_bytes.div_ceil(64 << 20)).unwrap() - 1;
-    assert!(
-        plan::CohortPlan::parse(&serde_json::to_vec(&few).unwrap(), cfg().ceilings).is_err(),
-        "the v3 object bound needs its parts"
-    );
+    // The v3 object bound fits one URL life and one PUT (no part count).
+    assert!(b3.object_bytes <= policy::MAX_L_AT_B_MIN.min(policy::R2_SINGLE_PUT_MAX));
     // A spec no admission run loads by is refused.
     let mut v4 = v3p;
     v4.admission.as_mut().unwrap().artifact_spec = "slop_ninja_a_artifact_spec_v4".into();
@@ -2896,28 +2556,26 @@ fn one_session_per_commitment_and_a_retried_creation_answers_before_the_checks()
     a.commit(&db, OPEN_BLOCK + 1, 0);
     assert_eq!(a.create(&db).0.status, 201);
     let id = a.session();
-    let req = a.signed(&db, "DELETE", &format!("/admission/v1/sessions/{id}/attempts/1"), &[]);
-    tx(&db, |s| Ok::<_, EvalError>(abort(s, &chain(), &req, &id, 1, NOW))).unwrap();
-    // Another envelope for the aborted session's commitment: refused, the
-    // miner reopens or commits again (sessions stay bounded by commitments).
-    let mut b = miner(1, 3, 1, 0x11);
-    b.upload.artifact_len += 1;
-    let (r, _) = b.create(&db);
-    assert_eq!(code(&r), "second_artifact");
+    tx(&db, |s| operator_refuse(s, &id, "drill", NOW)).unwrap();
+    // Another envelope for the ended session's commitment: refused, the
+    // miner commits again (sessions stay bounded by commitments).
+    let mut h = header(0x11);
+    h.files[4].len += 1;
+    let b = miner_with(1, 3, 1, 0x11, h);
+    assert_eq!(code(&b.create(&db).0), "second_artifact");
     // After a newer commitment, the earlier envelope still answers 200.
     let c = miner(1, 3, 1, 0x31);
     c.commit(&db, OPEN_BLOCK + 2, 0);
-    let (r, _) = a.create(&db);
-    assert_eq!((r.status, r.body["session"].as_str()), (200, Some(id.as_str())));
+    let (r, job) = a.create(&db);
+    assert_eq!((r.status, r.body["session"].as_str(), job.is_none()), (200, Some(id.as_str()), true));
 }
 
 #[test]
-fn verify_due_waits_while_the_hotkeys_commitment_is_being_logged() {
+fn a_header_settle_waits_while_the_hotkeys_commitment_is_being_logged() {
     let db = db_with_open_cohort(2);
     let m = miner(1, 3, 1, 0x11);
     m.commit(&db, OPEN_BLOCK + 1, 0);
     m.create(&db);
-    upload_all(&db, &m);
     tx(&db, |s| {
         s.exec(
             "INSERT INTO commit_seen (hotkey, block, payload, seen_block, stage) VALUES (?, ?, '00', 1, 'events')",
@@ -2929,53 +2587,9 @@ fn verify_due_waits_while_the_hotkeys_commitment_is_being_logged() {
         .map(|_| ())
     })
     .unwrap();
-    assert!(
-        tx(&db, |s| verify_due(s, NOW)).unwrap().is_none(),
-        "framing waits, never refuses"
-    );
-    // Framed meanwhile: a retryable not-found leaves the stage, no refusal.
-    frame_ok(&db, &m);
-    assert_eq!(state_of(&db, &m.session()).0, "verifying");
-}
-
-#[test]
-fn cleanup_deletes_only_the_blobs_a_refused_session_created() {
-    let db = db_with_open_cohort(2);
-    let (a, b) = (miner(1, 3, 1, 0x11), miner(2, 4, 1, 0x12));
-    for (m, x) in [(&a, 0), (&b, 1)] {
-        m.commit(&db, OPEN_BLOCK + 1, x);
-        m.create(&db);
-        upload_all(&db, m);
-    }
-    // A created blobs x and y and its manifest; B reuses y.
-    tx(&db, |s| blob_created(s, &a.session(), "x")).unwrap();
-    tx(&db, |s| blob_created(s, &a.session(), "y")).unwrap();
-    tx(&db, |s| manifest_created(s, &a.session())).unwrap();
-    tx(&db, |s| {
-        s.exec(
-            "INSERT INTO adm_blobs (session, sha256, created) VALUES (?, 'y', 0)",
-            &[SqlValue::Text(b.session())],
-        )
-        .map(|_| ())
-    })
-    .unwrap();
-    tx(&db, |s| {
-        s.exec(
-            "UPDATE adm_sessions SET manifest_key = 'artifacts/packages/a.json', package_sha256 = 'a' WHERE session = ?",
-            &[SqlValue::Text(a.session())],
-        )
-        .map(|_| ())
-    })
-    .unwrap();
-    let keys = tx(&db, |s| cleanup_keys(s, &a.session())).unwrap();
-    assert_eq!(
-        keys,
-        vec!["artifacts/blobs/x".to_owned(), "artifacts/packages/a.json".to_owned()]
-    );
-    // Once B is cleaned up too, y goes with whichever comes last.
-    tx(&db, |s| mark_cleaned(s, &b.session())).unwrap();
-    let keys = tx(&db, |s| cleanup_keys(s, &a.session())).unwrap();
-    assert!(keys.contains(&"artifacts/blobs/y".to_owned()));
+    let Settled::Wait(e) = m.settle(&db, m.checked()) else { panic!("waits, never refuses") };
+    assert_eq!(e.code, ErrorCode::CommitmentNotFound);
+    assert_eq!(state_of(&db, &m.session()), ("uploading".into(), None));
 }
 
 #[test]
@@ -2996,9 +2610,9 @@ fn the_hotkey_view_stays_within_the_response_limit() {
     for n in 0..800u32 {
         tx(&db, |s| {
             s.exec(
-                "INSERT INTO adm_sessions (session, seq, cohort, hotkey, upload, commitment, content, artifact_sha256, artifact_len,
-                    part_size, part_count, attempt, state, refusal, object_key, created_ms, updated_ms)
-                 VALUES (?, 1, 1, ?, ?, 'c', 'c', 'a', 1, 1, 1, 1, 'aborted', NULL, 'k', ?, ?)",
+                "INSERT INTO adm_sessions (session, seq, cohort, hotkey, upload, commitment, content, header_sha256, header_len,
+                    state, refusal, created_ms, updated_ms)
+                 VALUES (?, 1, 1, ?, ?, 'c', 'c', 'a', 1, 'superseded', NULL, ?, ?)",
                 &[
                     SqlValue::Text(format!("{n:064x}")),
                     SqlValue::Text(hex::encode(account(1).0)),
@@ -3012,13 +2626,13 @@ fn the_hotkey_view_stays_within_the_response_limit() {
         .unwrap();
     }
     let path = format!(
-        "/admission/v1/cohorts/1/hotkeys/{}",
+        "/admission/v2/cohorts/1/hotkeys/{}",
         crate::chain::ss58(key(1).public())
     );
     let req = m.signed(&db, "GET", &path, &[]);
     let hk = crate::chain::ss58(key(1).public());
     let r = tx(&db, |s| Ok::<_, EvalError>(hotkey_view(s, &chain(), &req, 1, &hk))).unwrap();
-    let limit = slop_ninja_admission_wire::response_limit(Some(64));
+    let limit = slop_ninja_admission_wire::response_limit();
     assert!(serde_json::to_vec(&r.body).unwrap().len() <= limit);
     let sessions = r.body["sessions"].as_array().unwrap();
     assert!(
@@ -3191,24 +2805,6 @@ fn the_template_runs_the_testnet_plan_defaults() {
     assert!(crate::eval::calendar::check(&cfg(), &serde_json::to_vec(&final_gates).unwrap()).is_err());
 }
 
-/// Review round 2 of the upload Worker split, finding 12: a multipart
-/// upload that R2 created while an abort landed is not stored on the
-/// aborted attempt (the caller aborts it), so none is orphaned.
-#[test]
-fn an_upload_created_across_an_abort_is_not_stored() {
-    let db = db_with_open_cohort(2);
-    let m = miner(1, 3, 1, 0x11);
-    m.commit(&db, OPEN_BLOCK + 1, 0);
-    m.create(&db);
-    let id = m.session();
-    let req = m.signed(&db, "DELETE", &format!("/admission/v1/sessions/{id}/attempts/1"), &[]);
-    let (r, _) = tx(&db, |s| Ok::<_, EvalError>(abort(s, &chain(), &req, &id, 1, NOW))).unwrap();
-    assert_eq!(r.body["state"].as_str(), Some("aborted"));
-    assert!(!tx(&db, |s| set_upload_id(s, &id, 1, "late")).unwrap(), "the caller aborts it");
-    let row = tx(&db, |s| session_row(s, &id)).unwrap().unwrap();
-    assert_eq!(row.upload_id, None);
-}
-
 /// Review round 2, finding 11: the key-holding side hashes a forwarded
 /// creation body itself; a body without the upload Worker's digest, or a
 /// body that is not the signed one, is refused.
@@ -3218,23 +2814,23 @@ fn a_creation_body_is_hashed_by_the_authority() {
     let m = miner(1, 3, 1, 0x11);
     m.commit(&db, OPEN_BLOCK + 1, 0);
     let body = m.upload.to_bytes().unwrap();
-    let mut r = m.signed(&db, "POST", "/admission/v1/sessions", &body);
+    let mut r = m.signed(&db, "POST", "/admission/v2/sessions", &body);
     r.body = Some(hex::encode(&body));
     let mut no_digest = r.clone();
     no_digest.body_sha256 = None;
-    let (reply, fx) = tx(&db, |s| Ok::<_, EvalError>(create(s, &chain(), &no_digest, NOW))).unwrap();
-    assert_eq!((code(&reply).as_str(), fx.create), ("content_digest_mismatch", None));
+    let (reply, fx) = drive(&db, tx(&db, |s| Ok::<_, EvalError>(create(s, &chain(), &no_digest, NOW))).unwrap());
+    assert_eq!((code(&reply).as_str(), fx), ("content_digest_mismatch", None));
     let mut other = r.clone();
     let mut changed = body.clone();
     if let Some(b) = changed.last_mut() {
         *b ^= 1;
     }
     other.body = Some(hex::encode(&changed));
-    let (reply, _) = tx(&db, |s| Ok::<_, EvalError>(create(s, &chain(), &other, NOW))).unwrap();
+    let (reply, _) = drive(&db, tx(&db, |s| Ok::<_, EvalError>(create(s, &chain(), &other, NOW))).unwrap());
     assert_eq!(code(&reply), "content_digest_mismatch");
-    let (reply, fx) = tx(&db, |s| Ok::<_, EvalError>(create(s, &chain(), &r, NOW))).unwrap();
+    let (reply, fx) = drive(&db, tx(&db, |s| Ok::<_, EvalError>(create(s, &chain(), &r, NOW))).unwrap());
     assert_eq!(reply.status, 201, "{}", reply.body);
-    assert!(fx.create.is_some());
+    assert!(fx.is_some());
 }
 
 /// The cohort snapshot answers `paused` once it is as old as the
@@ -3258,15 +2854,15 @@ fn a_refused_freeze_logs_its_code_and_a_clear_freezes_the_same_roster() {
     frame_ok(&db, &d);
     admit_all(&db);
     let key_of = |db: &Sqlite| {
-        let rows = tx(db, |q| q.exec("SELECT object_key FROM adm_sessions WHERE session = ?", &[s(d.session())])).unwrap();
+        let rows = tx(db, |q| q.exec("SELECT model_sha256 FROM adm_sessions WHERE session = ?", &[s(d.session())])).unwrap();
         crate::sql::text(&rows[0], 0).unwrap().to_owned()
     };
     let good = key_of(&db);
     let set_key = |db: &Sqlite, k: &str| {
-        tx(db, |q| q.exec("UPDATE adm_sessions SET object_key = ? WHERE session = ?", &[s(k), s(d.session())]).map(|_| ()))
+        tx(db, |q| q.exec("UPDATE adm_sessions SET model_sha256 = ? WHERE session = ?", &[s(k), s(d.session())]).map(|_| ()))
             .unwrap()
     };
-    set_key(&db, "../outside");
+    set_key(&db, "not-a-digest");
     let cutoff = OPEN_BLOCK + 360;
     close_at(&db, cutoff);
     snapshot(&db, cutoff, &d, Some(OPEN_BLOCK + 1), &d.upload.opening.chain_payload(), Some(d.uid), Some(d.registration_block));
@@ -3301,9 +2897,8 @@ fn a_refused_freeze_logs_its_code_and_a_clear_freezes_the_same_roster() {
 }
 
 /// L2 (A2/A3, admission half): admission's outage faults clear by
-/// themselves once the step that raised them succeeds again: a framing
-/// call the upload Worker answers, a commitment read that serves state,
-/// and a verdict run that reaches the scorer. A different fault is never
+/// themselves once the step that raised them succeeds again: a commitment
+/// read that serves state, and a verdict run that reaches the scorer. A different fault is never
 /// cleared this way.
 #[test]
 fn admission_outage_faults_clear_on_the_next_success_of_their_step() {
@@ -3313,23 +2908,6 @@ fn admission_outage_faults_clear_on_the_next_success_of_their_step() {
             .unwrap()
             .len()
     };
-    // Framing: the bound of cut-offs pauses the cohort; the next answer resumes it.
-    let db = db_with_open_cohort(2);
-    let m = miner(1, 3, 1, 0x11);
-    m.commit(&db, OPEN_BLOCK + 1, 0);
-    m.create(&db);
-    upload_all(&db, &m);
-    let id = m.session();
-    let mut t = NOW;
-    let bound = tx(&db, window).unwrap().unwrap().failures_before_pause;
-    for n in 0..=bound {
-        assert!(tx(&db, |s| frame_begin(s, &id, t)).unwrap().is_some());
-        t += backoff_ms(n + 1);
-    }
-    assert_eq!(fault(&db).as_deref(), Some(FRAMING_UNAVAILABLE));
-    frame_only(&db, &m);
-    assert_eq!(fault(&db), None, "the upload Worker answered");
-    assert_eq!(log_has(&db, "fault_auto_cleared:framing_unavailable"), 1);
     // The commitment state: a served read resumes it.
     let db = db_with_open_cohort(2);
     let m = miner(1, 3, 1, 0x11);
@@ -3368,26 +2946,7 @@ fn admission_outage_faults_clear_on_the_next_success_of_their_step() {
 #[test]
 fn an_admission_outage_fault_is_cleared_by_its_own_subject_not_another() {
     let fault = |db: &Sqlite| tx(db, |s| engine::cohort(s, 1)).unwrap().fault;
-    // Framing: session 1's attempts keep being cut off; session 2 frames.
-    let db = db_with_open_cohort(4);
     let (m1, m2) = (miner(1, 3, 1, 0x11), miner(2, 4, 1, 0x12));
-    for (m, b) in [(&m1, 1), (&m2, 2)] {
-        m.commit(&db, OPEN_BLOCK + b, 0);
-        m.create(&db);
-        upload_all(&db, m);
-    }
-    let id = m1.session();
-    let mut t = NOW;
-    let bound = tx(&db, window).unwrap().unwrap().failures_before_pause;
-    for n in 0..=bound {
-        assert!(tx(&db, |s| frame_begin(s, &id, t)).unwrap().is_some());
-        t += backoff_ms(n + 1);
-    }
-    assert_eq!(fault(&db).as_deref(), Some(FRAMING_UNAVAILABLE));
-    frame_only(&db, &m2);
-    assert_eq!(fault(&db).as_deref(), Some(FRAMING_UNAVAILABLE), "another session framed: session 1 is still cut off");
-    frame_only(&db, &m1);
-    assert_eq!(fault(&db), None, "session 1 framed");
     // Commitment state: hotkey 1's block keeps answering without state;
     // hotkey 2's read is served.
     let db = db_with_open_cohort(4);
@@ -3440,242 +2999,11 @@ fn an_admission_outage_fault_is_cleared_by_its_own_subject_not_another() {
     assert_eq!(fault(&db), None, "hotkey 1's verdict reached the scorer");
 }
 
-/// L2 review r2 (item 5): an admission outage fault whose subject leaves
-/// without succeeding (its session refused) clears on the next admission
-/// step once no other subject meets the pause condition, with no operator;
-/// while the subject still waits on its step, the step leaves it paused.
-#[test]
-fn an_admission_outage_fault_clears_once_its_subject_is_gone() {
-    let fault = |db: &Sqlite| tx(db, |s| engine::cohort(s, 1)).unwrap().fault;
-    let db = db_with_open_cohort(2);
-    let m = miner(1, 3, 1, 0x11);
-    m.commit(&db, OPEN_BLOCK + 1, 0);
-    m.create(&db);
-    upload_all(&db, &m);
-    let id = m.session();
-    let mut t = NOW;
-    let bound = tx(&db, window).unwrap().unwrap().failures_before_pause;
-    for n in 0..=bound {
-        assert!(tx(&db, |s| frame_begin(s, &id, t)).unwrap().is_some());
-        t += backoff_ms(n + 1);
-    }
-    assert_eq!(fault(&db).as_deref(), Some(FRAMING_UNAVAILABLE));
-    tx(&db, |s| crate::eval::admission::next_work(s, &cfg(), t)).unwrap();
-    assert_eq!(fault(&db).as_deref(), Some(FRAMING_UNAVAILABLE), "the session still waits on framing");
-    tx(&db, |s| s.exec("UPDATE adm_sessions SET state = 'refused' WHERE session = ?", &[s_(&id)]).map(|_| ())).unwrap();
-    tx(&db, |s| crate::eval::admission::next_work(s, &cfg(), t)).unwrap();
-    assert_eq!(fault(&db), None, "no subject meets the pause condition any more");
-    let cleared = tx(&db, |q| {
-        q.exec("SELECT 1 FROM phase_log WHERE seq = 1 AND note LIKE 'fault_auto_cleared:framing_unavailable (subject_settled)%'", &[])
-    })
-    .unwrap();
-    assert_eq!(cleared.len(), 1);
-}
-
 fn s_(v: impl Into<String>) -> crate::sql::SqlValue {
     crate::sql::SqlValue::Text(v.into())
 }
 
 // ------------------------------------------------- framing off the object
-
-/// Reader-allowance fix (cohort-19 drill, 2026-11-04): the cohort object
-/// never frames or copies in its own invocation. Its step records one
-/// dispatch for the Queue consumer, and a dispatch is never re-sent because
-/// time passed: while it is outstanding the session is not due (nor is the
-/// step alarm re-armed for it), however long the consumer takes.
-#[test]
-fn framing_and_blob_steps_are_dispatched_once_and_never_resent_by_time() {
-    let db = db_with_open_cohort(2);
-    let m = miner(1, 3, 1, 0x11);
-    m.commit(&db, OPEN_BLOCK + 1, 0);
-    m.create(&db);
-    upload_all(&db, &m);
-    let id = m.session();
-    assert_eq!(tx(&db, |s| verify_due(s, NOW)).unwrap().map(|x| x.1), Some("frame".into()));
-    let d = tx(&db, |s| dispatch_begin(s, &id, 1, NOW)).unwrap().unwrap();
-    assert_eq!((d.stage.as_str(), d.dispatch), ("frame", 1));
-    let msg = d.message(None);
-    assert_eq!(msg, WorkMessage { v: WORK_VERSION, admission: "frame".into(), session: id.clone(), dispatch: 1, authority: None });
-    // Outstanding: never due again by time, and no second dispatch.
-    let far = NOW + 1_000 * LANE_LEASE_MS;
-    assert!(tx(&db, |s| verify_due(s, far)).unwrap().is_none());
-    assert!(!tx(&db, |s| has_work(s, &cfg(), Some(far))).unwrap(), "no due work re-arms the alarm");
-    assert!(tx(&db, |s| has_work(s, &cfg(), None)).unwrap(), "but it is unfinished work");
-    assert!(tx(&db, |s| dispatch_begin(s, &id, 1, far)).unwrap().is_none());
-    assert_eq!(tx(&db, status).unwrap()["platform_retries"]["steps_dispatched"].as_i64(), Some(1));
-    // A take names the object; a dispatch that is not the outstanding one is stale.
-    assert_eq!(tx(&db, |s| take(s, &id, 2, NOW)).unwrap(), Take::Stale);
-    let Take::Frame { key, len, spec: spec_id } = tx(&db, |s| take(s, &id, 1, NOW)).unwrap() else { panic!("frame take") };
-    assert_eq!(len, m.upload.artifact_len);
-    assert_eq!(spec_id, spec::Version::V2.id());
-    // A failed call reported by the outstanding dispatch backs off and clears it.
-    tx(&db, |s| frame_reported(s, &chain(), &id, 1, &key, FrameReport::Failed(FrameFailure::Counted), NOW)).unwrap();
-    assert!(tx(&db, |s| verify_due(s, NOW)).unwrap().is_none(), "backing off");
-    let t = NOW + backoff_ms(1);
-    let d2 = tx(&db, |s| dispatch_begin(s, &id, 1, t)).unwrap().unwrap();
-    assert_eq!(d2.dispatch, 2);
-    let tries = |db: &Sqlite| {
-        let rows = tx(db, |q| q.exec("SELECT step_tries FROM adm_sessions WHERE session = ?", &[s_(&id)])).unwrap();
-        crate::sql::int(&rows[0], 0).unwrap()
-    };
-    assert_eq!(tries(&db), 1);
-    // A duplicate failure of the earlier dispatch is never counted again.
-    tx(&db, |s| frame_reported(s, &chain(), &id, 1, &key, FrameReport::Failed(FrameFailure::Counted), t)).unwrap();
-    assert_eq!(tries(&db), 1);
-    assert!(matches!(tx(&db, |s| take(s, &id, 2, t)).unwrap(), Take::Frame { .. }));
-    // A report for another object (an earlier upload attempt) is ignored.
-    tx(&db, |s| frame_reported(s, &chain(), &id, 2, "other", FrameReport::Outcome(framed_outcome(&m)), t)).unwrap();
-    assert_eq!(tx(&db, |s| session_row(s, &id)).unwrap().unwrap().stage.as_deref(), Some("frame"));
-    // The outcome moves the session to its blobs, which are dispatched next.
-    tx(&db, |s| frame_reported(s, &chain(), &id, 2, &key, FrameReport::Outcome(framed_outcome(&m)), t)).unwrap();
-    assert_eq!(tx(&db, |s| verify_due(s, t)).unwrap().map(|x| x.1), Some("blobs".into()));
-    // The same outcome applied twice changes nothing.
-    tx(&db, |s| frame_reported(s, &chain(), &id, 2, &key, FrameReport::Outcome(framed_outcome(&m)), t)).unwrap();
-    let d3 = tx(&db, |s| dispatch_begin(s, &id, 1, t)).unwrap().unwrap();
-    assert_eq!((d3.stage.as_str(), d3.dispatch), ("blobs", 3));
-    assert!(tx(&db, |s| verify_due(s, far)).unwrap().is_none());
-    // An earlier framing dispatch's redelivery is stale now.
-    assert_eq!(tx(&db, |s| take(s, &id, 2, t)).unwrap(), Take::Stale);
-    let Take::Blobs { key: bkey, record } = tx(&db, |s| take(s, &id, 3, t)).unwrap() else { panic!("blobs take") };
-    assert_eq!(bkey, key);
-    let sha = record.slices[0].sha256.clone();
-    // Creations are recorded before any copy, only for the taken dispatch
-    // and only for the record's own slices.
-    assert!(!tx(&db, |s| blobs_created(s, &id, 2, std::slice::from_ref(&sha), true)).unwrap());
-    assert!(tx(&db, |s| blobs_created(s, &id, 3, &[sha.clone(), "f".repeat(64)], true)).unwrap());
-    let created = tx(&db, |q| q.exec("SELECT sha256 FROM adm_blobs WHERE session = ? AND created = 1", &[s_(&id)])).unwrap();
-    assert_eq!(created.len(), 1);
-    tx(&db, |s| blobs_reported(s, &env(), &id, 3, None, t)).unwrap();
-    let row = tx(&db, |s| session_row(s, &id)).unwrap().unwrap();
-    assert_eq!(row.stage.as_deref(), Some("verdict"));
-    // Repeated reports are no-ops.
-    tx(&db, |s| blobs_reported(s, &env(), &id, 3, None, t)).unwrap();
-    tx(&db, |s| blobs_reported(s, &env(), &id, 3, Some("blob_copy"), t)).unwrap();
-    assert_eq!(tx(&db, |s| session_row(s, &id)).unwrap().unwrap().stage.as_deref(), Some("verdict"));
-    assert_eq!(tx(&db, status).unwrap()["platform_retries"]["steps_dispatched"].as_i64(), Some(0));
-}
-
-/// A send the Queue refuses clears the dispatch uncounted and backs the
-/// session off; a failed blob delivery backs off as a failed copy did.
-#[test]
-fn a_refused_send_or_a_failed_blob_delivery_backs_off_uncounted() {
-    let db = db_with_open_cohort(2);
-    let m = miner(1, 3, 1, 0x11);
-    m.commit(&db, OPEN_BLOCK + 1, 0);
-    m.create(&db);
-    upload_all(&db, &m);
-    let id = m.session();
-    let d = tx(&db, |s| dispatch_begin(s, &id, 1, NOW)).unwrap().unwrap();
-    // A stale unsent note changes nothing.
-    tx(&db, |s| dispatch_unsent(s, &id, d.dispatch + 1, NOW)).unwrap();
-    assert!(tx(&db, |s| dispatch_begin(s, &id, 1, NOW)).unwrap().is_none());
-    tx(&db, |s| dispatch_unsent(s, &id, d.dispatch, NOW)).unwrap();
-    assert!(tx(&db, |s| verify_due(s, NOW)).unwrap().is_none());
-    assert!(tx(&db, |s| verify_due(s, NOW + backoff_ms(1))).unwrap().is_some());
-    let rows = tx(&db, |q| q.exec("SELECT step_tries FROM adm_sessions WHERE session = ?", &[s_(&id)])).unwrap();
-    assert_eq!(crate::sql::int(&rows[0], 0).unwrap(), 0, "a refused send is not an attempt");
-    frame_only(&db, &m);
-    let t = NOW + backoff_ms(1);
-    let d = tx(&db, |s| dispatch_begin(s, &id, 1, t)).unwrap().unwrap();
-    assert_eq!(d.stage, "blobs");
-    assert!(matches!(tx(&db, |s| take(s, &id, d.dispatch, t)).unwrap(), Take::Blobs { .. }));
-    tx(&db, |s| blobs_reported(s, &env(), &id, d.dispatch, Some("blob_copy"), t)).unwrap();
-    assert!(tx(&db, |s| verify_due(s, t)).unwrap().is_none());
-    assert_eq!(tx(&db, |s| verify_due(s, t + backoff_ms(1))).unwrap().map(|x| x.1), Some("blobs".into()));
-}
-
-/// Every delivery that takes a framing dispatch is an attempt: deliveries
-/// cut off before they report (the Queue redelivers the same dispatch)
-/// reach the plan's pause bound and fault the cohort visibly, as cut-off
-/// framing attempts did.
-#[test]
-fn redelivered_framing_takes_count_toward_the_pause_bound() {
-    let db = db_with_open_cohort(2);
-    let m = miner(1, 3, 1, 0x11);
-    m.commit(&db, OPEN_BLOCK + 1, 0);
-    m.create(&db);
-    upload_all(&db, &m);
-    let id = m.session();
-    let fault = |db: &Sqlite| tx(db, |s| engine::cohort(s, 1)).unwrap().fault;
-    let d = tx(&db, |s| dispatch_begin(s, &id, 1, NOW)).unwrap().unwrap();
-    let bound = tx(&db, window).unwrap().unwrap().failures_before_pause;
-    for n in 0..bound {
-        assert!(matches!(tx(&db, |s| take(s, &id, d.dispatch, NOW)).unwrap(), Take::Frame { .. }));
-        assert_eq!(fault(&db), None, "delivery {n}");
-    }
-    assert!(matches!(tx(&db, |s| take(s, &id, d.dispatch, NOW)).unwrap(), Take::Frame { .. }));
-    assert_eq!(fault(&db).as_deref(), Some(FRAMING_UNAVAILABLE));
-    assert_eq!(tx(&db, |s| session_row(s, &id)).unwrap().unwrap().state, SessionState::Verifying);
-}
-
-/// Lane kicks keep their bytes on the shared Queue; admission work is a
-/// separate shape, and a kick never parses as one (or the reverse).
-#[test]
-fn queue_messages_keep_kick_bytes_and_carry_admission_work() {
-    let kick = crate::eval::lanes::LaneKick {
-        v: crate::eval::lanes::KICK_VERSION,
-        instance: "main".into(),
-        seq: 3,
-        kind: "score".into(),
-        lane: 7,
-        generation: 2,
-        name: "a-scorer/testnet/x/lane-0007".into(),
-        authority: None,
-    };
-    let bytes = serde_json::to_string(&kick).unwrap();
-    assert_eq!(serde_json::to_string(&QueueMessage::Kick(kick.clone())).unwrap(), bytes);
-    assert_eq!(serde_json::from_str::<QueueMessage>(&bytes).unwrap(), QueueMessage::Kick(kick));
-    let w = WorkMessage { v: WORK_VERSION, admission: "blobs".into(), session: "ab".into(), dispatch: 4, authority: Some("r0".into()) };
-    let wb = serde_json::to_string(&w).unwrap();
-    assert_eq!(serde_json::from_str::<QueueMessage>(&wb).unwrap(), QueueMessage::Admission(w));
-    assert!(serde_json::from_str::<QueueMessage>(r#"{"v":1}"#).is_err());
-    // A framing report's two shapes.
-    assert_eq!(serde_json::to_string(&FrameReport::Failed(FrameFailure::ObjectRead)).unwrap(), r#"{"failed":"object_read"}"#);
-    assert!(work_body_bound() > slop_ninja_artifact_check::admission::frame_outcome_bound());
-}
-
-/// The last delivery is the one after `max_retries` retries of the eval
-/// lane-wakeup consumer (`wrangler.toml`), whose copy carries the dispatch.
-#[test]
-fn the_last_delivery_follows_the_deployed_consumer_retries() {
-    assert!(!last_delivery(1));
-    assert!(!last_delivery(LANE_QUEUE_MAX_RETRIES));
-    assert!(last_delivery(LANE_QUEUE_MAX_RETRIES + 1));
-    let toml = include_str!("../../wrangler.toml");
-    let mut seen = 0;
-    for block in toml.split("[[").filter(|b| b.contains("queues.consumers]]")) {
-        let retries = block
-            .lines()
-            .find_map(|l| l.trim().strip_prefix("max_retries").map(|v| v.trim_start_matches([' ', '=']).trim().to_owned()))
-            .expect("every lane-wakeup consumer declares max_retries");
-        assert_eq!(retries.parse::<u32>().unwrap(), LANE_QUEUE_MAX_RETRIES);
-        seen += 1;
-    }
-    assert!(seen >= 1);
-}
-
-/// The cohort object makes no service-binding call and copies no byte: its
-/// admission steps only dispatch (`cf_admission.rs`, `impl EvalCohort`), and
-/// the framing call and the copies are the Queue consumer's. Before the fix
-/// the object's framing step called the upload Worker through the service
-/// binding, which runs the callee on the object's own thread.
-#[test]
-fn the_cohort_object_never_calls_framing_or_copies() {
-    let src = include_str!("../cf_admission.rs");
-    let start = src.find("\nimpl EvalCohort {").expect("impl EvalCohort");
-    let len = src[start + 1..].find("\n}\n").expect("end of impl");
-    let object = &src[start..start + 1 + len];
-    for call in [".service(", "fetch_request(", "frame_call(", "copy_range(", "copy_blobs(", "admission_do::work("] {
-        assert!(!object.contains(call), "the cohort object calls {call}");
-    }
-    assert!(object.contains("dispatch_begin("), "the object's steps dispatch");
-    let consumer = &src[src.find("pub async fn work(").expect("consumer")..];
-    assert!(consumer.contains("frame_call(") && consumer.contains("copy_blobs("));
-    for other in [include_str!("../cf_eval.rs"), include_str!("../cf_lanes.rs")] {
-        assert!(!other.contains(".service("), "no other object or lane calls a service binding");
-    }
-    assert!(include_str!("../cf_lanes.rs").contains("admission_do::work("), "the Queue consumer runs the work");
-}
 
 /// Store v21 restarts the reader's stored call maxima once (the drill's
 /// 3000 ms were the in-object framing stalls) and keeps its failure count,
@@ -3695,159 +3023,10 @@ fn store_v21_restarts_the_reader_call_maxima_and_keeps_the_failure_count() {
     let max = tx(&db, |q| q.exec("SELECT plan_ms_max FROM commit_reader WHERE id = 1", &[])).unwrap();
     assert_eq!(crate::sql::int(&max[0], 0).unwrap(), 3000);
     let report = tx(&db, |s| crate::sql::migrate(s, &EVAL_COHORT_SCHEMA)).unwrap();
-    assert_eq!((report.from, report.to), (20, 24));
+    assert_eq!((report.from, report.to), (20, 25));
     let c = calls(&db);
     assert_eq!((c["plan_ms_max"].as_i64(), c["ingest_ms_max"].as_i64(), c["failed"].as_i64()), (Some(0), Some(0), Some(1)));
     assert_eq!(c["plan_ms_last"], 80);
-}
-
-/// Review finding (corr-1): a blob take records the session's use of every
-/// slice before the consumer heads a blob, so another session's clean-up
-/// never deletes a shared slice that the copying session found present and
-/// skipped. Probe: m1 created slice X; m2 takes its blob dispatch (X is
-/// present, so its creation list is empty); m1's clean-up must keep X.
-#[test]
-fn a_blob_take_protects_shared_slices_from_another_sessions_cleanup() {
-    let db = db_with_open_cohort(2);
-    let (m1, m2) = (miner(1, 3, 1, 0x11), miner(2, 4, 1, 0x12));
-    for (m, x) in [(&m1, 0), (&m2, 1)] {
-        m.commit(&db, OPEN_BLOCK + 1, x);
-        m.create(&db);
-        upload_all(&db, m);
-        frame_only(&db, m);
-    }
-    let x = hex::encode([2u8; 32]);
-    let blob = format!("artifacts/blobs/{x}");
-    // m1's copy created X, then m1 ends without admission.
-    let d1 = tx(&db, |s| dispatch_begin(s, &m1.session(), 1, NOW)).unwrap().unwrap();
-    assert!(matches!(tx(&db, |s| take(s, &m1.session(), d1.dispatch, NOW)).unwrap(), Take::Blobs { .. }));
-    assert!(tx(&db, |s| blobs_created(s, &m1.session(), d1.dispatch, std::slice::from_ref(&x), true)).unwrap());
-    assert!(tx(&db, |s| operator_refuse(s, &m1.session(), "probe", NOW)).unwrap());
-    // m2 takes its blob dispatch and finds X present: nothing created.
-    let id = m2.session();
-    let d2 = tx(&db, |s| dispatch_begin(s, &id, 1, NOW)).unwrap().unwrap();
-    assert!(matches!(tx(&db, |s| take(s, &id, d2.dispatch, NOW)).unwrap(), Take::Blobs { .. }));
-    assert!(tx(&db, |s| blobs_created(s, &id, d2.dispatch, &[], false)).unwrap());
-    // While m2 copies, m1's clean-up keeps X (m2 uses it) ...
-    let keys = tx(&db, |s| cleanup_begin(s, &m1.session())).unwrap();
-    assert!(!keys.contains(&blob), "{keys:?}");
-    // ... and after m2's blobs are written too.
-    tx(&db, |s| blobs_reported(s, &env(), &id, d2.dispatch, None, NOW)).unwrap();
-    assert!(!tx(&db, |s| cleanup_keys(s, &m1.session())).unwrap().contains(&blob));
-}
-
-/// The other order: a clean-up chose X before the copying session's take.
-/// The take waits (uncounted, backoff) until that clean-up has finished, so
-/// the consumer never trusts a present X that is about to be deleted; once
-/// the clean-up is marked done the next dispatch takes the blobs and finds
-/// X missing (it copies it again).
-#[test]
-fn a_blob_take_waits_for_a_cleanup_that_chose_one_of_its_slices() {
-    let db = db_with_open_cohort(2);
-    let (m1, m2) = (miner(1, 3, 1, 0x11), miner(2, 4, 1, 0x12));
-    for (m, x) in [(&m1, 0), (&m2, 1)] {
-        m.commit(&db, OPEN_BLOCK + 1, x);
-        m.create(&db);
-        upload_all(&db, m);
-        frame_only(&db, m);
-    }
-    let x = hex::encode([2u8; 32]);
-    let blob = format!("artifacts/blobs/{x}");
-    let d1 = tx(&db, |s| dispatch_begin(s, &m1.session(), 1, NOW)).unwrap().unwrap();
-    assert!(matches!(tx(&db, |s| take(s, &m1.session(), d1.dispatch, NOW)).unwrap(), Take::Blobs { .. }));
-    assert!(tx(&db, |s| blobs_created(s, &m1.session(), d1.dispatch, std::slice::from_ref(&x), true)).unwrap());
-    assert!(tx(&db, |s| operator_refuse(s, &m1.session(), "probe", NOW)).unwrap());
-    // m1's clean-up chooses X (m2 has not taken yet) and is deleting it.
-    assert!(tx(&db, |s| cleanup_begin(s, &m1.session())).unwrap().contains(&blob));
-    let id = m2.session();
-    let d2 = tx(&db, |s| dispatch_begin(s, &id, 1, NOW)).unwrap().unwrap();
-    assert_eq!(tx(&db, |s| take(s, &id, d2.dispatch, NOW)).unwrap(), Take::Stale, "waits for the clean-up");
-    let st = tx(&db, status).unwrap();
-    assert_eq!(st["platform_retries"]["last_delivery_error"], "blob_cleanup_pending");
-    assert_eq!(st["platform_retries"]["steps_dispatched"].as_i64(), Some(0));
-    assert!(tx(&db, |s| verify_due(s, NOW)).unwrap().is_none(), "backing off");
-    // A retried clean-up now keeps X: the waiting take recorded m2's use.
-    assert!(!tx(&db, |s| cleanup_begin(s, &m1.session())).unwrap().contains(&blob));
-    tx(&db, |s| mark_cleaned(s, &m1.session())).unwrap();
-    let t = NOW + backoff_ms(1);
-    assert_eq!(tx(&db, |s| verify_due(s, t)).unwrap().map(|v| v.1), Some("blobs".into()));
-    let d3 = tx(&db, |s| dispatch_begin(s, &id, 1, t)).unwrap().unwrap();
-    assert!(matches!(tx(&db, |s| take(s, &id, d3.dispatch, t)).unwrap(), Take::Blobs { .. }));
-    let tries = tx(&db, |q| q.exec("SELECT step_tries FROM adm_sessions WHERE session = ?", &[s_(&id)])).unwrap();
-    assert_eq!(crate::sql::int(&tries[0], 0).unwrap(), 0, "waiting is not an attempt");
-}
-
-/// Review findings (corr-2, ops-1): a dispatch recorded but whose message
-/// never arrives (the object was reset before the send left, a consumer
-/// dropped it) is sent again, same number, at the first heartbeat kick of
-/// an incarnation that did not record it, never because time passed; the
-/// recording incarnation itself re-sends only its own `pending` ones after
-/// a send it could not settle. The operator can re-send or clear one.
-#[test]
-fn a_lost_dispatch_message_is_sent_again_by_a_fresh_incarnation_or_the_operator() {
-    let db = db_with_open_cohort(2);
-    let m = miner(1, 3, 1, 0x11);
-    m.commit(&db, OPEN_BLOCK + 1, 0);
-    m.create(&db);
-    upload_all(&db, &m);
-    let id = m.session();
-    let (a, b) = (11_i64, 22_i64);
-    let d = tx(&db, |s| dispatch_begin(s, &id, a, NOW)).unwrap().unwrap();
-    // Recorded, its message lost: nothing time-based ever sends it again.
-    let far = NOW + 1_000 * LANE_LEASE_MS;
-    assert!(tx(&db, |s| verify_due(s, far)).unwrap().is_none());
-    assert!(tx(&db, |s| dispatches_to_resend(s, a, false)).unwrap().is_empty(), "its own incarnation vouches for it");
-    let st = tx(&db, status).unwrap();
-    assert_eq!(st["platform_retries"]["steps_dispatch_pending"].as_i64(), Some(1));
-    assert_eq!(st["platform_retries"]["dispatch_untaken"].as_i64(), Some(1));
-    // Its own pending one after a send it could not settle.
-    assert_eq!(tx(&db, |s| dispatches_to_resend(s, a, true)).unwrap(), vec![d.clone()]);
-    // A fresh incarnation sends it again with the same number.
-    assert_eq!(tx(&db, |s| dispatches_to_resend(s, b, false)).unwrap(), vec![d.clone()]);
-    tx(&db, |s| dispatch_resent(s, &id, d.dispatch, b)).unwrap();
-    assert!(tx(&db, |s| dispatches_to_resend(s, b, true)).unwrap().is_empty());
-    assert_eq!(tx(&db, status).unwrap()["platform_retries"]["steps_dispatch_pending"].as_i64(), Some(0));
-    // The re-sent message is taken like the first (counted once per take).
-    assert!(matches!(tx(&db, |s| take(s, &id, d.dispatch, NOW)).unwrap(), Take::Frame { .. }));
-    assert_eq!(tx(&db, status).unwrap()["platform_retries"]["dispatch_takes_max"].as_i64(), Some(1));
-    // The operator: a wrong number is refused, `resend` names the
-    // outstanding dispatch, `clear` ends it so the step is due at once.
-    assert!(tx(&db, |s| operator_dispatch(s, &id, d.dispatch + 1, true, NOW)).unwrap().is_none());
-    assert_eq!(tx(&db, |s| operator_dispatch(s, &id, d.dispatch, false, NOW)).unwrap(), Some(d.clone()));
-    assert_eq!(tx(&db, |s| operator_dispatch(s, &id, d.dispatch, true, NOW)).unwrap(), Some(d.clone()));
-    assert_eq!(tx(&db, |s| verify_due(s, NOW)).unwrap().map(|v| v.1), Some("frame".into()));
-    let d2 = tx(&db, |s| dispatch_begin(s, &id, b, NOW)).unwrap().unwrap();
-    assert_eq!(d2.dispatch, d.dispatch + 1);
-    assert_eq!(tx(&db, |s| take(s, &id, d.dispatch, NOW)).unwrap(), Take::Stale, "the cleared one is stale");
-}
-
-/// Review finding (ops-5): one consumer invocation runs at most one share
-/// of admission work, and the framings in it fit the consumer's wall limit
-/// at the largest admission object (derived from the measured framing
-/// time, `frame-time-2026-11-04`).
-#[test]
-fn a_consumer_share_fits_the_wall_limit_at_the_largest_object() {
-    let largest = slop_ninja_artifact_check::admission::largest_admission_object();
-    let frames = frames_per_share();
-    assert!(frames >= 1);
-    assert!(frames as u64 * frame_ms_bound(largest) <= slop_ninja_arena::limits::QUEUE_MS, "{frames} framings at {largest} B");
-    assert!(frame_ms_bound(FRAME_MEASURED_BYTES) == FRAME_MEASURED_MS);
-    let width = crate::arena_routes::STEP_READS_IN_FLIGHT;
-    let stages: Vec<&str> = (0..3 * width).map(|n| if n % 2 == 0 { "frame" } else { "blobs" }).collect();
-    let share = work_share(stages.iter().copied());
-    assert!(share.len() <= width);
-    assert!(share.iter().filter(|n| stages[**n] == "frame").count() <= frames);
-    assert_eq!(work_share(std::iter::repeat_n("blobs", 3 * width)).len(), width);
-    assert!(work_share(std::iter::empty()).is_empty());
-    eprintln!("largest admission object {largest} B, framing bound {} ms, {frames} framings a share", frame_ms_bound(largest));
-}
-
-/// The work routes' footprints are fixed from this constant before any
-/// scope opens; it is the bound measured on the types.
-#[test]
-fn the_work_body_constant_is_the_measured_bound() {
-    eprintln!("work_body_bound {} B", work_body_bound());
-    assert_eq!(WORK_BODY_BYTES, work_body_bound());
 }
 
 /// The reader's call maxima restart at each admission window's opening and
@@ -3864,109 +3043,6 @@ fn the_reader_call_maxima_restart_at_each_admission_window() {
     let c = tx(&db, |s| engine::cohort(s, 1)).unwrap();
     tx(&db, |s| open(s, &c, OPEN_BLOCK)).unwrap();
     assert_eq!(calls(&db)["plan_ms_max"], 900);
-}
-
-/// A framing outcome for `m`'s object at the spec's maximum manifest
-/// (`MAX_MANIFEST_BYTES`) and slice count (one per part of the largest
-/// admission object plus one per role), valid for `apply_frame`.
-#[cfg(feature = "arena-witness")]
-fn largest_outcome(m: &Miner) -> FrameOutcome {
-    let artifact = VerifiedArtifact::from_bytes(&m.obj).unwrap();
-    let manifest = vec![b'm'; spec::MAX_MANIFEST_BYTES as usize];
-    let largest = slop_ninja_artifact_check::admission::largest_admission_object();
-    let count = largest.div_ceil(spec::PART_BYTES) as usize + spec::ROLES.len();
-    let framed = Framed {
-        package_sha256: hex::encode(Sha256::digest(&manifest)),
-        model_sha256: hex::encode([1; 32]),
-        manifest,
-        slices: (0..count).map(|k| Slice { sha256: format!("{k:064x}"), offset: 0, len: 1 }).collect(),
-        artifact,
-    };
-    (m.upload.artifact_sha256, m.upload.artifact_len, Ok(framed)).into()
-}
-
-/// Review finding (corr-3): the `/admission-work/*` routes and the Queue
-/// consumer's work deliveries fit their derived footprints at a
-/// spec-maximum manifest and slice count, under `Strict`
-/// (`arena_routes::cohort_work_bytes`, `admission_work_bytes`).
-#[cfg(feature = "arena-witness")]
-#[test]
-fn arena_witness_admission_work_fits() {
-    use crate::arena_routes::{R_COHORT_WORK, R_QUEUE_ADMISSION, admission_work_bytes, cohort_work_bytes};
-    use crate::arena_witness::witness;
-    use slop_ninja_arena::{Mode, admit_current_block, set_mode};
-    let db = db_with_open_cohort(2);
-    let m = miner(1, 3, 1, 0x11);
-    m.commit(&db, OPEN_BLOCK + 1, 0);
-    m.create(&db);
-    upload_all(&db, &m);
-    let id = m.session();
-    let outcome = largest_outcome(&m);
-    let raw = serde_json::to_string(&outcome).unwrap();
-    assert!(raw.len() <= slop_ninja_artifact_check::admission::frame_outcome_bound());
-    let d = tx(&db, |s| dispatch_begin(s, &id, 1, NOW)).unwrap().unwrap();
-    let Take::Frame { key, .. } = tx(&db, |s| take(s, &id, d.dispatch, NOW)).unwrap() else { panic!("frame take") };
-    // The consumer's report, built as `cf_admission::work` builds it.
-    let body = frame_report_body(&id, d.dispatch, &key, &raw);
-    assert!(serde_json::from_str::<WorkBody>(&body).is_ok());
-    assert!(body.len() <= WORK_BODY_BYTES);
-    set_mode(Mode::Enforce);
-    // The consumer's framing delivery: the outcome as read, the report.
-    witness(R_QUEUE_ADMISSION, admission_work_bytes(), || {
-        assert_eq!(admit_current_block(raw.len(), 1), Ok(true));
-        let mut read = Vec::with_capacity(raw.len());
-        read.extend_from_slice(raw.as_bytes());
-        assert!(serde_json::from_slice::<FrameOutcome>(&read).is_ok());
-        let text = String::from_utf8(read).unwrap();
-        frame_report_body(&id, d.dispatch, &key, &text).len()
-    });
-    // `/admission-work/frame`: the body as read, its parse, the report applied.
-    witness(R_COHORT_WORK.route(), cohort_work_bytes(), || {
-        assert_eq!(admit_current_block(body.len(), 1), Ok(true));
-        let mut read = Vec::with_capacity(body.len());
-        read.extend_from_slice(body.as_bytes());
-        let b: WorkBody = serde_json::from_slice(&read).unwrap();
-        drop(read);
-        let (Some(key), Some(report)) = (b.key, b.report) else { panic!("frame body") };
-        tx(&db, |s| frame_reported(s, &chain(), &b.session, b.dispatch, &key, report, NOW)).unwrap();
-    });
-    assert_eq!(tx(&db, |s| session_row(s, &id)).unwrap().unwrap().stage.as_deref(), Some("blobs"));
-    let d = tx(&db, |s| dispatch_begin(s, &id, 1, NOW)).unwrap().unwrap();
-    // `/admission-work/take` of the blobs: the stored record, its parse, the reply.
-    let reply = witness(R_COHORT_WORK.route(), cohort_work_bytes(), || {
-        let t = tx(&db, |s| take(s, &id, d.dispatch, NOW)).unwrap();
-        assert!(matches!(t, Take::Blobs { .. }));
-        json_exact(&t).unwrap().len()
-    });
-    assert!(reply <= WORK_BODY_BYTES, "{reply}");
-    let t = tx(&db, |s| take(s, &id, d.dispatch, NOW)).unwrap();
-    let reply = serde_json::to_vec(&t).unwrap();
-    let Take::Blobs { record, .. } = t else { panic!("blobs take") };
-    let created: Vec<&str> = record.slices.iter().map(|sl| sl.sha256.as_str()).collect();
-    let created_body = json!({"session": id, "dispatch": d.dispatch, "created": created, "manifest": true}).to_string();
-    // The consumer's blob delivery: the take reply as read, its parse, the
-    // decoded manifest and the creation list.
-    witness(R_QUEUE_ADMISSION, admission_work_bytes(), || {
-        assert_eq!(admit_current_block(reply.len(), 1), Ok(true));
-        let mut read = Vec::with_capacity(reply.len());
-        read.extend_from_slice(&reply);
-        let Take::Blobs { record, .. } = serde_json::from_slice::<Take>(&read).unwrap() else { panic!("blobs") };
-        drop(read);
-        let created: Vec<&str> = record.slices.iter().map(|sl| sl.sha256.as_str()).collect();
-        let list = json!({"session": id, "dispatch": d.dispatch, "created": created, "manifest": true}).to_string();
-        let manifest = hex::decode(&record.manifest_hex).unwrap();
-        list.len() + manifest.len()
-    });
-    // `/admission-work/blobs-created` with every slice missing.
-    witness(R_COHORT_WORK.route(), cohort_work_bytes(), || {
-        assert_eq!(admit_current_block(created_body.len(), 1), Ok(true));
-        let mut read = Vec::with_capacity(created_body.len());
-        read.extend_from_slice(created_body.as_bytes());
-        let b: WorkBody = serde_json::from_slice(&read).unwrap();
-        drop(read);
-        assert!(tx(&db, |s| blobs_created(s, &b.session, b.dispatch, &b.created, b.manifest)).unwrap());
-    });
-    set_mode(Mode::Observe);
 }
 
 /// The install journal (store v22): a template installed before it is its
@@ -4007,4 +3083,1414 @@ fn a_template_installed_before_the_journal_is_its_first_version() {
         db.conn.query_row("SELECT replaced_sha256 FROM template_installs WHERE version = 2", [], |r| r.get(0)).unwrap();
     assert_eq!(replaced, sha);
     assert_eq!(tx(&db, calendar::view).unwrap()["template"]["paused"], false, "a new template resumes the calendar");
+}
+
+// --------------------------------------------- admission v2: direct upload
+
+/// A session mints its header URL at creation (a lost answer gets a fresh
+/// one), `urls` settles the header before any file URL (`header_missing`
+/// with a fresh header URL while R2 holds none), then mints one URL per
+/// distinct file, every URL's life from the upload URL policy.
+#[test]
+fn a_session_mints_its_header_url_and_settles_the_header_before_any_file_url() {
+    let db = db_with_open_cohort(2);
+    let m = miner(1, 3, 1, 0x11);
+    m.commit(&db, OPEN_BLOCK + 1, 0);
+    let (r, job) = m.create(&db);
+    assert_eq!(r.status, 201, "{}", r.body);
+    let job = job.unwrap();
+    let hl = u64::from(m.upload.header_len);
+    assert_eq!(job.entries.len(), 1);
+    let e = job.entries[0];
+    assert_eq!((e.op, e.len, e.sha256, e.cohort), (mint::Op::Header, hl, m.upload.header_sha256.0, 1));
+    assert_eq!(e.valid_secs, policy::valid_secs(hl).unwrap(), "the policy's life for the header alone");
+    let up = &r.body["uploads"][0];
+    assert_eq!((up["kind"].as_str(), up["content_length"].as_str()), (Some("header"), Some(hl.to_string().as_str())));
+    assert_eq!(up["if_none_match"], "*");
+    assert_eq!(r.body["objects"].as_array().unwrap().len(), 1, "only the header before it is recorded");
+    assert_eq!(r.body["objects"][0]["present"], false);
+    // A retried creation answers the same session with a fresh header URL.
+    let (r, job) = m.create(&db);
+    assert_eq!((r.status, job.map(|j| j.entries.len())), (200, Some(1)));
+    // `urls` before the header is in R2: settled first, then header_missing.
+    let req = m.post(&db, "urls");
+    let step = tx(&db, |s| Ok::<_, EvalError>(urls(s, &chain(), &req, &m.session()))).unwrap();
+    let Step::Header(hj) = step else { panic!("{step:?}") };
+    assert_eq!(hj, m.job());
+    assert!(hj.key.ends_with("/h") && hj.key.starts_with("admission/v2/c1/"));
+    assert_eq!(m.settle(&db, HeaderSeen::Absent), Settled::Absent);
+    let step = tx(&db, |s| Ok::<_, EvalError>(urls_after(s, &chain(), &req, &m.session(), &Settled::Absent))).unwrap();
+    let (r, _) = drive(&db, step);
+    assert_eq!((r.status, code(&r).as_str()), (409, "header_missing"));
+    assert_eq!(r.body["session"]["uploads"].as_array().map(Vec::len), Some(1), "a fresh header URL beside the error");
+    // The header recorded: one URL per file, for the whole artifact's life.
+    assert_eq!(m.settle(&db, m.checked()), Settled::Recorded);
+    let step = tx(&db, |s| Ok::<_, EvalError>(urls(s, &chain(), &req, &m.session()))).unwrap();
+    let (r, job) = drive(&db, step);
+    let job = job.unwrap();
+    assert_eq!(job.entries.len(), 6);
+    assert!(job.entries.iter().all(|e| e.op == mint::Op::File));
+    let total = hl + m.header.files.iter().map(|f| f.len).sum::<u64>();
+    assert!(job.entries.iter().all(|e| e.valid_secs == policy::valid_secs(total).unwrap()));
+    assert_eq!(r.body["objects"].as_array().unwrap().len(), 7);
+    assert_eq!(r.body["objects"][0]["present"], true);
+    // The mint aggregate: one row, its count and latest expiry.
+    let agg = tx(&db, |s| {
+        let r = s.exec("SELECT mints, url_until_ms FROM adm_sessions WHERE session = ?", &[SqlValue::Text(m.session())])?;
+        Ok::<_, EvalError>((int(&r[0], 0)?, int(&r[0], 1)?))
+    })
+    .unwrap();
+    assert_eq!(agg.0, 1 + 1 + 1 + 6);
+    assert_eq!(agg.1 as u64, (NOW / 1000 + u64::from(job.entries[0].valid_secs)) * 1000);
+}
+
+/// The largest answer (a session with one URL per object at the URL format
+/// bound) fits the contract's response limit.
+#[test]
+fn the_largest_session_answer_fits_the_response_limit() {
+    let db = db_with_open_cohort(2);
+    let m = miner(1, 3, 1, 0x11);
+    m.commit(&db, OPEN_BLOCK + 1, 0);
+    m.create(&db);
+    m.settle(&db, m.checked());
+    let r = tx(&db, |s| session_row(s, &m.session())).unwrap().unwrap();
+    let upload = Upload {
+        kind: "file".into(),
+        sha256: "f".repeat(64),
+        len: u64::MAX,
+        url: "u".repeat(slop_ninja_r2_presign::presign::MAX_URL_LEN),
+        content_length: u64::MAX.to_string(),
+        if_none_match: "*".into(),
+        checksum_sha256: "c".repeat(44),
+        signed_at: u64::MAX,
+        valid_secs: u32::MAX,
+    };
+    let s = tx(&db, |s| session_json(s, &r, u64::MAX, vec![upload; 1 + spec::ROLES.len()])).unwrap();
+    let mut body = serde_json::to_value(&s).unwrap();
+    let e = reply_error(&ApiError::new(ErrorCode::HeaderMissing, "x"));
+    body = serde_json::json!({"error": e.body, "session": body});
+    assert!(serde_json::to_vec(&body).unwrap().len() <= slop_ninja_admission_wire::response_limit());
+}
+
+/// Design A1-A3 and skeptic K6: what a header settle can find. R2's stored
+/// size, checksum and attributes decide before the bytes are read; the
+/// upload Worker's table is rebuilt and its content recomputed here.
+#[test]
+fn a_header_is_recorded_only_as_committed_and_the_platforms_faults_refuse_nothing() {
+    let db = db_with_open_cohort(4);
+    let m = miner(1, 3, 1, 0x11);
+    m.commit(&db, OPEN_BLOCK + 1, 0);
+    m.create(&db);
+    let job = m.job();
+    let len = u64::from(job.len);
+    // The head: no stored checksum is never a pass; other bytes are a
+    // mismatch, the committed bytes with a forbidden attribute are dirty;
+    // the committed object reads on.
+    assert_eq!(header_head(&job, &Head::Error), Err(HeaderSeen::Platform("header head")));
+    let no_sum = Head::Present(Stored { size: len, sha256: None, etag: "e".into(), clean: true });
+    assert!(matches!(header_head(&job, &no_sum), Err(HeaderSeen::Platform(_))));
+    let short = Head::Present(Stored { size: len - 1, sha256: Some(job.sha256), etag: "e1".into(), clean: true });
+    assert_eq!(header_head(&job, &short), Err(HeaderSeen::Mismatch("e1".into())));
+    let dirty = Head::Present(Stored { size: len, sha256: Some(job.sha256), etag: "e2".into(), clean: false });
+    assert_eq!(header_head(&job, &dirty), Err(HeaderSeen::Dirty("e2".into())));
+    assert_eq!(header_head(&job, &stored(job.sha256, len, "e3")), Ok("e3".into()));
+    // The platform's failures record nothing and refuse nothing.
+    assert_eq!(m.settle(&db, HeaderSeen::Platform("header read")), Settled::Platform("header read"));
+    let mut lying = outcome_of(&m.header);
+    if let HeaderResult::Checked { content, .. } = &mut lying.result {
+        *content = "00".repeat(32);
+    }
+    assert_eq!(
+        m.settle(&db, HeaderSeen::Checked { etag: "e".into(), outcome: lying }),
+        Settled::Platform("header outcome content"),
+        "an outcome whose table does not recompute to its content"
+    );
+    let mut table = outcome_of(&m.header);
+    if let HeaderResult::Checked { files, .. } = &mut table.result {
+        files[0].len += 1;
+        // The content recomputed from the forged table matches its claim,
+        // but the table fails the spec's own header checks here.
+        let (h, c) = rebuild_header(spec::CONTRACT_ID, files).unwrap();
+        let _ = h;
+        if let HeaderResult::Checked { content, .. } = &mut table.result {
+            *content = c.hex();
+        }
+    }
+    assert_eq!(m.settle(&db, HeaderSeen::Checked { etag: "e".into(), outcome: table }), Settled::Platform("header outcome checks"));
+    assert_eq!(state_of(&db, &m.session()), ("uploading".into(), None));
+    // Another artifact's header (its own consistent table): the content is
+    // not the committed one.
+    let other = header(0x77);
+    assert!(matches!(
+        m.settle(&db, HeaderSeen::Checked { etag: "e".into(), outcome: outcome_of(&other) }),
+        Settled::Refused(None)
+    ));
+    assert_eq!(state_of(&db, &m.session()), ("refused".into(), Some("content_mismatch".into())));
+    // A mismatched object refuses its session and is deleted while it keeps
+    // the tag seen.
+    let m2 = miner(2, 4, 1, 0x12);
+    m2.commit(&db, OPEN_BLOCK + 2, 0);
+    m2.create(&db);
+    let j2 = m2.job();
+    let del = |etag: &str| Delete { key: j2.key.clone(), etag: etag.into(), sha256: j2.sha256, len: u64::from(j2.len) };
+    // A header with the committed bytes but a stray stored attribute (one
+    // unsigned Content-Type) is deleted, and the session keeps uploading
+    // under a fresh header URL: no new commitment is needed.
+    assert_eq!(m2.settle(&db, HeaderSeen::Dirty("dirty".into())), Settled::Unclean(del("dirty")));
+    assert_eq!(state_of(&db, &m2.session()), ("uploading".into(), None));
+    let req = m2.post(&db, "urls");
+    let step = tx(&db, |s| Ok::<_, EvalError>(urls_after(s, &chain(), &req, &m2.session(), &Settled::Unclean(del("dirty"))))).unwrap();
+    let (r, job) = drive(&db, step);
+    assert_eq!((r.status, code(&r).as_str()), (409, "header_missing"));
+    assert_eq!(job.unwrap().entries.len(), 1, "a fresh header URL");
+    // The conditional delete runs only while the object is still unclean:
+    // the clean re-upload of the same bytes (the same entity tag) stays.
+    let d = del("dirty");
+    assert!(d.allows(&Head::Present(Stored { size: d.len, sha256: Some(d.sha256), etag: "dirty".into(), clean: false })));
+    assert!(!d.allows(&stored(d.sha256, d.len, "dirty")), "a clean copy with the same tag survives");
+    assert!(!d.allows(&Head::Present(Stored { size: d.len, sha256: Some(d.sha256), etag: "other".into(), clean: false })));
+    assert!(!d.allows(&Head::Absent) && !d.allows(&Head::Error));
+    // Other bytes refuse the session (R2 verified the checksum, so only a
+    // write of ours could leave them) and are deleted while they keep the
+    // tag seen.
+    assert_eq!(m2.settle(&db, HeaderSeen::Mismatch("bad".into())), Settled::Refused(Some(del("bad"))));
+    assert_eq!(state_of(&db, &m2.session()).1.as_deref(), Some("object_mismatch"));
+    // The upload Worker's refusals are the session's.
+    let m3 = miner(3, 5, 1, 0x13);
+    m3.commit(&db, OPEN_BLOCK + 3, 0);
+    m3.create(&db);
+    let invalid = HeaderOutcome { schema: HEADER_OUTCOME_SCHEMA.into(), result: HeaderResult::Invalid { reason: "prefix".into() } };
+    m3.settle(&db, HeaderSeen::Checked { etag: "e".into(), outcome: invalid });
+    let row = tx(&db, |s| session_row(s, &m3.session())).unwrap().unwrap();
+    let refusal = row.refusal.unwrap();
+    assert_eq!((refusal.code.as_str(), refusal.detail.reason.as_deref()), ("artifact_invalid", Some("prefix")));
+    let m4 = miner(4, 6, 1, 0x14);
+    m4.commit(&db, OPEN_BLOCK + 4, 0);
+    m4.create(&db);
+    let check = HeaderOutcome { schema: HEADER_OUTCOME_SCHEMA.into(), result: HeaderResult::Check { code: "graph_size".into() } };
+    m4.settle(&db, HeaderSeen::Checked { etag: "e".into(), outcome: check });
+    assert_eq!(state_of(&db, &m4.session()).1.as_deref(), Some("check_failed"));
+    // The committed header is recorded once, with its file table and its
+    // position from `admit_header`.
+    let m5 = miner(5, 7, 1, 0x15);
+    m5.commit(&db, OPEN_BLOCK + 5, 3);
+    m5.create(&db);
+    assert_eq!(m5.settle(&db, m5.checked()), Settled::Recorded);
+    assert_eq!(m5.settle(&db, m5.checked()), Settled::Recorded, "again: nothing more");
+    let row = tx(&db, |s| session_row(s, &m5.session())).unwrap().unwrap();
+    assert_eq!(row.files.as_ref().map(Vec::len), Some(6));
+    assert_eq!(row.position, Some(Position { block: OPEN_BLOCK + 5, extrinsic: 3 }));
+    let objs = tx(&db, |s| objects_of(s, &m5.session())).unwrap();
+    assert_eq!(objs.len(), 7);
+    assert_eq!(objs[0].etag.as_deref(), Some("etag-h"));
+}
+
+/// Duplicate digests in a header share one object (and one URL).
+#[test]
+fn files_with_one_digest_share_one_object() {
+    let db = db_with_open_cohort(2);
+    let mut h = header(0x11);
+    h.files[2].sha256 = h.files[1].sha256;
+    let m = miner_with(1, 3, 1, 0x11, h);
+    m.commit(&db, OPEN_BLOCK + 1, 0);
+    m.create(&db);
+    assert_eq!(m.settle(&db, m.checked()), Settled::Recorded);
+    let req = m.post(&db, "urls");
+    let Step::Mint(job) = tx(&db, |s| Ok::<_, EvalError>(urls(s, &chain(), &req, &m.session()))).unwrap() else { panic!() };
+    assert_eq!(job.entries.len(), 5);
+    assert_eq!(upload_all(&db, &m).status, 202);
+}
+
+/// Design A4 and skeptic K1: files are recorded from R2's heads; an object
+/// present with other bytes or attributes is deleted (it may be PUT again);
+/// a head error or a missing stored checksum records nothing. Once every
+/// object is recorded the session verifies, its files manifest v2 naming
+/// each object's key and entity tag.
+#[test]
+fn files_are_recorded_from_r2_heads_and_the_session_verifies() {
+    let db = db_with_open_cohort(2);
+    let m = miner(1, 3, 1, 0x11);
+    m.commit(&db, OPEN_BLOCK + 1, 0);
+    m.create(&db);
+    let req = m.post(&db, "complete");
+    // The header first (complete settles it too).
+    let step = tx(&db, |s| Ok::<_, EvalError>(complete(s, &chain(), &req, &m.session()))).unwrap();
+    assert!(matches!(step, Step::Header(_)));
+    let step = tx(&db, |s| Ok::<_, EvalError>(complete_after(s, &chain(), &req, &m.session(), &Settled::Absent))).unwrap();
+    let (r, _) = drive(&db, step);
+    assert_eq!(
+        (code(&r).as_str(), r.body["error"]["detail"]["missing"][0].as_str()),
+        ("objects_missing", Some(m.upload.header_sha256.hex().as_str()))
+    );
+    m.settle(&db, m.checked());
+    let step = tx(&db, |s| Ok::<_, EvalError>(complete(s, &chain(), &req, &m.session()))).unwrap();
+    let Step::Heads(probes) = step else { panic!("{step:?}") };
+    assert_eq!(probes.len(), 6);
+    let heads: Vec<(Probe, Head)> = probes
+        .iter()
+        .cloned()
+        .enumerate()
+        .map(|(n, p)| {
+            let h = match n {
+                0 => Head::Absent,
+                1 => Head::Present(Stored { size: p.len, sha256: Some([0; 32]), etag: "bad".into(), clean: true }),
+                2 => Head::Present(Stored { size: p.len, sha256: None, etag: "x".into(), clean: true }),
+                3 => Head::Error,
+                4 => Head::Present(Stored { size: p.len, sha256: Some(p.sha256), etag: "attr".into(), clean: false }),
+                _ => stored(p.sha256, p.len, &etag_of(&p)),
+            };
+            (p, h)
+        })
+        .collect();
+    let applied = tx(&db, |s| apply_heads(s, &heads, Recorder::Upload, NOW)).unwrap();
+    assert!(applied.platform);
+    let del = |p: &Probe, etag: &str| Delete { key: p.key.clone(), etag: etag.into(), sha256: p.sha256, len: p.len };
+    assert_eq!(applied.deletes, vec![del(&probes[1], "bad"), del(&probes[4], "attr")]);
+    let e = tx(&db, |s| Ok::<_, EvalError>(complete_reply(s, &m.session()))).unwrap().unwrap_err();
+    assert_eq!((e.code, e.detail.missing.as_ref().map(Vec::len)), (ErrorCode::ObjectsMissing, Some(5)));
+    // Every object as committed: the session verifies.
+    assert_eq!(upload_all(&db, &m).status, 202);
+    assert_eq!((state_of(&db, &m.session()).0.as_str(), stage_of(&db, &m.session()).as_deref()), ("verifying", Some("manifest")));
+    let (key, bytes) = tx(&db, |s| manifest_due(s, &m.session())).unwrap().unwrap();
+    let package = package_of(&bytes);
+    assert_eq!(key, manifest_key(&package));
+    let fm: FilesManifest = serde_json::from_slice(&bytes).unwrap();
+    assert_eq!(fm.files.len(), 6);
+    for f in &fm.files {
+        assert_eq!(f.bucket, "admission");
+        assert!(f.key.starts_with(&format!("admission/v2/c1/{}/f/", m.upload.commitment.hex())));
+        assert_eq!(f.etag.as_deref().map(|e| e.starts_with("etag-")), Some(true));
+    }
+    // The scorer's own parse accepts it under the cohort's spec.
+    FilesManifest::parse(&bytes, &package, Version::V2).unwrap();
+    // The written manifest is the run's package.
+    tx(&db, |s| manifest_written(s, &env(), &m.session(), NOW)).unwrap();
+    let runs = tx(&db, |s| claim_runs(s, &env(), 8, NOW)).unwrap();
+    assert_eq!((runs.len(), runs[0].package_sha256.as_str(), runs[0].manifest_key.as_str()), (1, package.as_str(), key.as_str()));
+    // A complete sent again answers 202; urls after it, the session.
+    let step = tx(&db, |s| Ok::<_, EvalError>(complete(s, &chain(), &req, &m.session()))).unwrap();
+    assert_eq!(drive(&db, step).0.status, 202);
+}
+
+/// Skeptic K1, qualifications G9 and G12: only an object with no stored
+/// attribute a presigned PUT leaves unsigned is admitted.
+#[test]
+fn stored_attributes_a_presigned_put_does_not_sign_are_refused() {
+    assert_eq!(OBJECT_ATTRIBUTES_RULE, "slop_ninja_object_attributes_v1");
+    assert_eq!(HTTP_METADATA_FIELDS.len(), 6, "the six standard headers G9 found stored");
+    assert!(attrs_clean(false, None, false, false));
+    assert!(attrs_clean(false, Some("Standard"), false, false), "a plain PUT (G12)");
+    assert!(!attrs_clean(true, Some("Standard"), false, false), "a customer key");
+    assert!(!attrs_clean(false, Some("InfrequentAccess"), false, false), "another storage class");
+    assert!(!attrs_clean(false, Some("Standard"), true, false), "custom metadata");
+    // Any HTTP metadata, the generic content type included.
+    assert!(!attrs_clean(false, Some("Standard"), false, true), "httpMetadata not empty");
+}
+
+/// Skeptic K14: `urls`, `complete`, `repair` and reads need the session's
+/// own hotkey.
+#[test]
+fn only_the_sessions_hotkey_acts_on_it() {
+    let db = db_with_open_cohort(2);
+    let m = miner(1, 3, 1, 0x11);
+    m.commit(&db, OPEN_BLOCK + 1, 0);
+    m.create(&db);
+    let other = miner(2, 4, 1, 0x12);
+    let id = m.session();
+    for op in ["urls", "complete", "repair"] {
+        let req = other.signed(&db, "POST", &format!("/admission/v2/sessions/{id}/{op}"), &[]);
+        let step = tx(&db, |s| {
+            Ok::<_, EvalError>(match op {
+                "urls" => urls(s, &chain(), &req, &id),
+                "complete" => complete(s, &chain(), &req, &id),
+                _ => repair(s, &chain(), &req, &id),
+            })
+        })
+        .unwrap();
+        assert_eq!(code(&drive(&db, step).0), "forbidden", "{op}");
+    }
+    let req = other.signed(&db, "GET", &format!("/admission/v2/sessions/{id}"), &[]);
+    assert_eq!(code(&tx(&db, |s| Ok::<_, EvalError>(read(s, &chain(), &req, &id))).unwrap()), "forbidden");
+}
+
+/// A mint the signer could not make is the platform's: answered
+/// `unavailable`, the session unchanged, `signer_unavailable` persisted
+/// until a later mint succeeds.
+#[test]
+fn a_mint_failure_is_the_platforms_and_a_later_mint_clears_it() {
+    let db = db_with_open_cohort(2);
+    let m = miner(1, 3, 1, 0x11);
+    m.commit(&db, OPEN_BLOCK + 1, 0);
+    let body = m.upload.to_bytes().unwrap();
+    let mut req = m.signed(&db, "POST", "/admission/v2/sessions", &body);
+    req.body = Some(hex::encode(&body));
+    let Step::Mint(job) = tx(&db, |s| Ok::<_, EvalError>(create(s, &chain(), &req, NOW))).unwrap() else { panic!() };
+    let r = tx(&db, |s| finish_mint(s, &job, Err("signer unreachable"), NOW)).unwrap();
+    assert_eq!((r.status, code(&r).as_str()), (503, "unavailable"));
+    assert_eq!(state_of(&db, &m.session()).0, "uploading");
+    let st = tx(&db, status).unwrap();
+    assert_eq!(st["upload_path"]["faults"][0], SIGNER_UNAVAILABLE);
+    assert_eq!(st["upload_path"]["signer_error"], "signer unreachable");
+    // A reply that does not answer every entry is a failure too.
+    let r = tx(&db, |s| finish_mint(s, &job, Ok(Vec::new()), NOW)).unwrap();
+    assert_eq!(code(&r), "unavailable");
+    let (r, _) = m.create(&db);
+    assert_eq!(r.status, 200);
+    assert!(tx(&db, status).unwrap()["upload_path"]["faults"].as_array().unwrap().is_empty());
+}
+
+/// Skeptic K4 and review R3: the close starts with a fresh canary; a mint or
+/// canary failure recorded since the last success defers the close to the
+/// first boundary after a later success, so the platform's outage never
+/// ends a miner's upload.
+#[test]
+fn an_upload_path_fault_defers_the_close_until_a_later_success() {
+    let db = db_with_open_cohort(2);
+    let admitting = |db: &Sqlite| tx(db, window).unwrap().unwrap().admitting();
+    // A canary passed earlier, then the signer failed a mint.
+    assert!(tx(&db, |s| canary_begin(s, NOW)).unwrap().is_none(), "nothing to check yet");
+    tx(&db, |s| canary_done(s, Ok(()), NOW)).unwrap();
+    let m = miner(1, 3, 1, 0x11);
+    m.commit(&db, OPEN_BLOCK + 1, 0);
+    let body = m.upload.to_bytes().unwrap();
+    let mut req = m.signed(&db, "POST", "/admission/v2/sessions", &body);
+    req.body = Some(hex::encode(&body));
+    let Step::Mint(job) = tx(&db, |s| Ok::<_, EvalError>(create(s, &chain(), &req, NOW))).unwrap() else { panic!() };
+    tx(&db, |s| finish_mint(s, &job, Err("signer status"), NOW + 10)).unwrap();
+    // The boundary arrives: deferred, still admitting, the canary retries.
+    epoch(&db, 12, OPEN_BLOCK + 360, NOW + 20);
+    assert!(admitting(&db), "the fault defers the close");
+    assert_eq!(tx(&db, |s| canary_begin(s, NOW + 20)).unwrap(), Some(1));
+    assert!(tx(&db, |s| canary_begin(s, NOW + 21)).unwrap().is_none(), "once a tick");
+    tx(&db, |s| canary_done(s, Err(CanaryFailure::Path("canary put refused")), NOW + 30)).unwrap();
+    let st = tx(&db, status).unwrap();
+    assert_eq!(st["upload_path"]["faults"], serde_json::json!([UPLOAD_PATH_UNAVAILABLE]), "the canary's mint cleared the signer's");
+    // The next boundary: still faulted, still deferred.
+    epoch(&db, 13, OPEN_BLOCK + 720, NOW + 40);
+    assert!(admitting(&db));
+    // A success clears it, but the close waits for the next boundary.
+    assert!(tx(&db, |s| canary_begin(s, NOW + 30 + TICK_MS)).unwrap().is_some());
+    assert!(!tx(&db, |s| canary_done(s, Ok(()), NOW + 30 + TICK_MS)).unwrap(), "no close at a boundary from before the clear");
+    assert!(admitting(&db));
+    // The first boundary after the clear: its own canary, then the close.
+    epoch(&db, 14, OPEN_BLOCK + 1080, NOW + 2 * TICK_MS);
+    assert!(admitting(&db), "the canary is the close's first step");
+    assert!(tx(&db, |s| canary_begin(s, NOW + 2 * TICK_MS)).unwrap().is_some());
+    assert!(tx(&db, |s| canary_done(s, Ok(()), NOW + 2 * TICK_MS + 1)).unwrap());
+    let w = tx(&db, window).unwrap().unwrap();
+    assert_eq!((w.state.as_str(), w.cutoff_block), ("closing", Some(OPEN_BLOCK + 1080)));
+    // Health passed, then the signer failed, then the boundary: deferred
+    // (a stale success never counts).
+    let db = db_with_open_cohort(2);
+    m.commit(&db, OPEN_BLOCK + 1, 0);
+    tx(&db, |s| canary_done(s, Ok(()), NOW)).unwrap();
+    let Step::Mint(job) = tx(&db, |s| Ok::<_, EvalError>(create(s, &chain(), &req, NOW))).unwrap() else { panic!() };
+    tx(&db, |s| finish_mint(s, &job, Err("signer status"), NOW + 1)).unwrap();
+    epoch(&db, 12, OPEN_BLOCK + 360, NOW + 2);
+    assert!(admitting(&db));
+}
+
+/// Skeptic K7 and K8: once `closing` is persisted only the close sweep
+/// records presence (in batches, its progress per object); a head error
+/// defers the sweep; sessions missing an object at its close head are
+/// refused, complete ones verify, and the freeze waits for the recorded
+/// close.
+#[test]
+fn once_closing_only_the_close_sweep_records_presence() {
+    let db = db_with_open_cohort(4);
+    let (a, b, c) = (miner(1, 3, 1, 0x11), miner(2, 4, 1, 0x12), miner(3, 5, 1, 0x13));
+    for (m, x) in [(&a, 1), (&b, 2), (&c, 3)] {
+        m.commit(&db, OPEN_BLOCK + x, 0);
+        m.create(&db);
+    }
+    // A and B have their headers recorded; C never uploads its header.
+    a.settle(&db, a.checked());
+    b.settle(&db, b.checked());
+    let mut probes = a.file_probes();
+    let last = probes.pop().unwrap();
+    let heads: Vec<(Probe, Head)> = probes.into_iter().map(|p| {
+        let h = stored(p.sha256, p.len, &etag_of(&p));
+        (p, h)
+    }).collect();
+    tx(&db, |s| apply_heads(s, &heads, Recorder::Upload, NOW)).unwrap();
+    // The boundary and its canary: closing.
+    epoch(&db, 12, OPEN_BLOCK + 360, NOW + 2);
+    tx(&db, |s| canary_begin(s, NOW + 2)).unwrap();
+    assert!(tx(&db, |s| canary_done(s, Ok(()), NOW + 3)).unwrap());
+    assert_eq!(tx(&db, |s| freeze_wait(s, 1)).unwrap(), Some("the close sweep is heading the open sessions' objects"));
+    // Every other path records nothing now.
+    for op in ["urls", "complete"] {
+        let req = a.post(&db, op);
+        let step = tx(&db, |s| Ok::<_, EvalError>(if op == "urls" { urls(s, &chain(), &req, &a.session()) } else { complete(s, &chain(), &req, &a.session()) })).unwrap();
+        assert_eq!(code(&drive(&db, step).0), "after_cutoff", "{op}");
+    }
+    let late = vec![(last.clone(), stored(last.sha256, last.len, &etag_of(&last)))];
+    tx(&db, |s| apply_heads(s, &late, Recorder::Upload, NOW + 5)).unwrap();
+    assert!(tx(&db, |s| objects_of(s, &a.session())).unwrap().iter().any(|o| o.etag.is_none()), "not recorded by an upload path");
+    assert_eq!(tx(&db, |s| observe(s, &last.key)).unwrap(), Observed::Nothing);
+    // The close sweep: a head error defers it, its progress is kept.
+    let (seq, probes) = tx(&db, |s| close_begin(s, NOW + 5)).unwrap().unwrap();
+    assert_eq!(probes.len(), 1 + 6, "A's last file and every file of B");
+    let mut heads: Vec<(Probe, Head)> = probes.iter().cloned().map(|p| (p, Head::Absent)).collect();
+    heads[0].1 = Head::Error;
+    let applied = tx(&db, |s| apply_heads(s, &heads, Recorder::Close, NOW + 5)).unwrap();
+    tx(&db, |s| close_step_done(s, seq, &applied, NOW + 5)).unwrap();
+    assert!(tx(&db, |s| close_begin(s, NOW + 6)).unwrap().is_none(), "backing off");
+    // After the backoff the same objects are headed again: A's last file is
+    // present now and counts; B's files are absent.
+    sweep_close_at(&db, NOW + 5 + LANE_RETRY_MS, |p| if p.session == a.session() { stored(p.sha256, p.len, &etag_of(p)) } else { Head::Absent });
+    assert_eq!(state_of(&db, &a.session()).0, "verifying");
+    assert_eq!(state_of(&db, &b.session()), ("refused".into(), Some("incomplete_at_cutoff".into())));
+    assert_eq!(state_of(&db, &c.session()), ("refused".into(), Some("incomplete_at_cutoff".into())));
+    let (cutoff, wanted) = tx(&db, snapshot_needs).unwrap().unwrap();
+    assert_eq!((cutoff, wanted), (OPEN_BLOCK + 360, vec![account(1)]));
+    assert_eq!(tx(&db, |s| freeze_wait(s, 1)).unwrap(), Some("verification or verdicts pending"));
+}
+
+/// Skeptic K2 and K13: a run that met a missing or changed object audits the
+/// session. Absent is the platform's: the session waits for repair (no run
+/// is claimed), `repair` mints a URL for exactly that recorded object, and
+/// its return resumes the run. Present with another entity tag is the
+/// miner's (`object_replaced`). Repair answers `not_needed` once nothing is
+/// missing, or after publication is recorded.
+#[test]
+fn a_missing_object_is_repaired_and_a_replaced_one_refuses_its_session() {
+    let db = db_with_open_cohort(4);
+    let m = miner(1, 3, 1, 0x11);
+    m.commit(&db, OPEN_BLOCK + 1, 0);
+    m.create(&db);
+    upload_all(&db, &m);
+    frame_ok(&db, &m);
+    let id = m.session();
+    let runs = tx(&db, |s| claim_runs(s, &env(), 8, NOW)).unwrap();
+    tx(&db, |s| record_run(s, &env(), &runs[0], &LaneOutcome::Platform(crate::eval::scorer_client::OBJECT_MISSING.into()), 3, NOW))
+        .unwrap();
+    assert_eq!(stage_of(&db, &id).as_deref(), Some("audit"));
+    assert_eq!(tx(&db, |s| verify_due(s, NOW)).unwrap(), Some((id.clone(), "audit".into())));
+    let probes = tx(&db, |s| audit_probes(s, &id)).unwrap();
+    assert_eq!(probes.len(), 7);
+    let gone = probes[3].clone();
+    let heads: Vec<(Probe, Head)> = probes
+        .iter()
+        .cloned()
+        .map(|p| {
+            let h = if p == gone { Head::Absent } else { stored(p.sha256, p.len, p.etag.as_deref().unwrap()) };
+            (p, h)
+        })
+        .collect();
+    let applied = tx(&db, |s| apply_heads(s, &heads, Recorder::Recorded, NOW)).unwrap();
+    tx(&db, |s| audit_done(s, &id, &applied, NOW)).unwrap();
+    assert_eq!(stage_of(&db, &id).as_deref(), Some("repair"));
+    assert!(tx(&db, |s| claim_runs(s, &env(), 8, NOW + LANE_LEASE_MS)).unwrap().is_empty(), "the run waits for the object");
+    let req = m.post(&db, "repair");
+    let Step::Heads(rp) = tx(&db, |s| Ok::<_, EvalError>(repair(s, &chain(), &req, &id))).unwrap() else { panic!() };
+    let heads: Vec<(Probe, Head)> = rp.iter().cloned().map(|p| {
+        let h = if p == gone { Head::Absent } else { stored(p.sha256, p.len, p.etag.as_deref().unwrap()) };
+        (p, h)
+    }).collect();
+    tx(&db, |s| apply_heads(s, &heads, Recorder::Recorded, NOW)).unwrap();
+    let (r, job) = drive(&db, tx(&db, |s| Ok::<_, EvalError>(repair_after(s, &id))).unwrap());
+    let job = job.unwrap();
+    assert_eq!((job.entries.len(), job.entries[0].sha256, job.entries[0].len), (1, gone.sha256, gone.len));
+    assert_eq!(r.body["repair_needed"][0].as_str(), Some(hex::encode(gone.sha256).as_str()));
+    // The object is back (its event): the run resumes.
+    let Observed::Heads(p) = tx(&db, |s| observe(s, &gone.key)).unwrap() else { panic!() };
+    let back = vec![(p[0].clone(), stored(gone.sha256, gone.len, gone.etag.as_deref().unwrap()))];
+    tx(&db, |s| apply_heads(s, &back, Recorder::Recorded, NOW)).unwrap();
+    assert_eq!(stage_of(&db, &id).as_deref(), Some("verdict"));
+    assert_eq!(tx(&db, |s| claim_runs(s, &env(), 8, NOW + 2 * LANE_LEASE_MS)).unwrap().len(), 1);
+    let Step::Heads(rp) = tx(&db, |s| Ok::<_, EvalError>(repair(s, &chain(), &req, &id))).unwrap() else { panic!() };
+    let fine: Vec<(Probe, Head)> = rp.iter().cloned().map(|p| {
+        let h = stored(p.sha256, p.len, p.etag.as_deref().unwrap());
+        (p, h)
+    }).collect();
+    tx(&db, |s| apply_heads(s, &fine, Recorder::Recorded, NOW)).unwrap();
+    assert_eq!(code(&drive(&db, tx(&db, |s| Ok::<_, EvalError>(repair_after(s, &id))).unwrap()).0), "not_needed");
+    // Replaced: present with its digest but another entity tag.
+    let m2 = miner(2, 4, 1, 0x12);
+    m2.commit(&db, OPEN_BLOCK + 2, 0);
+    m2.create(&db);
+    upload_all(&db, &m2);
+    frame_ok(&db, &m2);
+    let runs = tx(&db, |s| claim_runs(s, &env(), 8, NOW + 3 * LANE_LEASE_MS)).unwrap();
+    let r2 = runs.iter().find(|r| r.hotkey == hex::encode(account(2).0)).unwrap();
+    tx(&db, |s| record_run(s, &env(), r2, &LaneOutcome::Platform(crate::eval::scorer_client::OBJECT_CHANGED.into()), 3, NOW)).unwrap();
+    let probes = tx(&db, |s| audit_probes(s, &m2.session())).unwrap();
+    let heads: Vec<(Probe, Head)> = probes.iter().cloned().map(|p| {
+        let h = stored(p.sha256, p.len, "another-tag");
+        (p, h)
+    }).collect();
+    tx(&db, |s| apply_heads(s, &heads, Recorder::Recorded, NOW)).unwrap();
+    assert_eq!(state_of(&db, &m2.session()), ("refused".into(), Some("object_replaced".into())));
+    // The repair window and the admitted objects' retention end once the
+    // cohort is closed AND its publication is recorded (the publisher's
+    // report), never at one of them alone: scoring lanes read the objects
+    // until the cohort closes.
+    tx(&db, |s| s.exec("UPDATE adm_sessions SET state = 'admitted' WHERE session = ?", &[SqlValue::Text(id.clone())]).map(|_| ())).unwrap();
+    assert!(matches!(tx(&db, |s| Ok::<_, EvalError>(repair(s, &chain(), &req, &id))).unwrap(), Step::Heads(_)));
+    let entry = |state: &str| PublicationEntry { commitment: m.upload.commitment.hex(), state: state.into() };
+    // Another authority's cohort (its label, or a number this store does
+    // not hold) is not this one's: nothing is recorded, and the Worker
+    // answers 404 so the publisher keeps the report pending.
+    let v = tx(&db, |s| publication_report(s, 1, "testnet-r0b-1", &[entry("published")], NOW)).unwrap();
+    assert_eq!((v["recorded"].as_u64(), v["known"].as_bool()), (Some(0), Some(false)));
+    assert_eq!(tx(&db, |s| publication_report(s, 99, "testnet-c1", &[entry("published")], NOW)).unwrap()["known"], false);
+    let held = |db: &Sqlite| tx(db, objects_retained).unwrap();
+    assert!(held(&db), "unpublished admitted objects hold a succession");
+    let v = tx(&db, |s| publication_report(s, 1, "testnet-c1", &[entry("published")], NOW)).unwrap();
+    assert_eq!((v["recorded"].as_u64(), v["known"].as_bool()), (Some(1), Some(true)));
+    let v = tx(&db, |s| publication_report(s, 1, "testnet-c1", &[entry("published")], NOW)).unwrap();
+    assert_eq!(v["recorded"].as_u64(), Some(0), "once");
+    assert!(
+        matches!(tx(&db, |s| Ok::<_, EvalError>(repair(s, &chain(), &req, &id))).unwrap(), Step::Heads(_)),
+        "published but the cohort is still scoring: still needed"
+    );
+    let key = ObjectId::parse(&gone.key).unwrap();
+    assert!(tx(&db, |s| live_holder(s, &key)).unwrap().is_some(), "the reconciliation keeps it");
+    tx(&db, |s| s.exec("UPDATE cohorts SET phase = 'closed' WHERE seq = 1", &[]).map(|_| ())).unwrap();
+    assert_eq!(code(&drive(&db, tx(&db, |s| Ok::<_, EvalError>(repair(s, &chain(), &req, &id))).unwrap()).0), "not_needed");
+    assert!(tx(&db, |s| live_holder(s, &key)).unwrap().is_none(), "closed and published: the reconciliation may delete it");
+    assert!(held(&db), "published and closed, but its deletes are not queued yet");
+    // The clean-up queues every admitted object, and the reconciliation's
+    // listing returns them for deletion too.
+    tx(&db, |s| next_work(s, &cfg(), NOW)).unwrap();
+    assert!(!held(&db), "released: what is left is the queued deletes' own work");
+    let due = tx(&db, |s| object_deletes_due(s, 100, crate::wire::MAX_SAFE_INTEGER)).unwrap();
+    let keys: Vec<String> = tx(&db, |s| objects_of(s, &id)).unwrap().iter()
+        .map(|o| object_key(1, &m.upload.commitment, o.kind)).collect();
+    for k in &keys {
+        assert!(due.iter().any(|(d, _)| d == k), "{k} queued");
+        assert!(tx(&db, |s| queued_delete_allowed(s, k)).unwrap());
+    }
+    let gone = tx(&db, |s| reconcile_page(s, &keys, None, NOW)).unwrap();
+    assert_eq!(gone.len(), keys.len());
+}
+
+/// Design section 4 and section 9: an object-create event is a wakeup
+/// only. It settles the object it names, or deletes one no live session
+/// holds; anything else is dropped.
+#[test]
+fn object_create_events_settle_their_object_or_delete_an_orphan() {
+    let db = db_with_open_cohort(4);
+    let m = miner(1, 3, 1, 0x11);
+    m.commit(&db, OPEN_BLOCK + 1, 0);
+    m.create(&db);
+    let hk = m.job().key;
+    let msg = |key: &str| serde_json::json!({"account": "a", "action": "PutObject", "bucket": "b",
+        "object": {"key": key, "size": 1, "eTag": "e"}, "eventTime": "t"}).to_string();
+    assert_eq!(event_key(&msg(&hk)).as_deref(), Some(hk.as_str()));
+    assert_eq!(event_key(&msg("health/c1/aa")), None, "not an admission object");
+    assert_eq!(event_key("{"), None);
+    assert_eq!(event_key(&format!("{}{}", msg(&hk), " ".repeat(EVENT_MESSAGE_BYTES))), None, "refused past its bound");
+    assert_eq!(tx(&db, |s| observe(s, "admission/v2/c1/zz/h")).unwrap(), Observed::Nothing);
+    assert_eq!(tx(&db, |s| observe(s, &hk)).unwrap(), Observed::Header(m.job()));
+    m.settle(&db, m.checked());
+    assert_eq!(tx(&db, |s| observe(s, &hk)).unwrap(), Observed::Nothing, "recorded already");
+    let fp = m.file_probes();
+    assert_eq!(tx(&db, |s| observe(s, &fp[0].key)).unwrap(), Observed::Heads(vec![fp[0].clone()]));
+    // A file key the header does not list, and any key of an ended
+    // session, is an orphan.
+    let stray = object_key(1, &m.upload.commitment, ObjectKind::File([0xee; 32]));
+    assert_eq!(tx(&db, |s| observe(s, &stray)).unwrap(), Observed::Delete(stray.clone()));
+    let nobody = object_key(1, &Digest([0xab; 32]), ObjectKind::Header);
+    assert_eq!(tx(&db, |s| observe(s, &nobody)).unwrap(), Observed::Delete(nobody.clone()));
+    tx(&db, |s| operator_refuse(s, &m.session(), "drill", NOW)).unwrap();
+    assert_eq!(tx(&db, |s| observe(s, &fp[0].key)).unwrap(), Observed::Delete(fp[0].key.clone()));
+}
+
+/// Skeptic K10: one paginated listing of `admission/v2/` at a time, keys no
+/// live session holds deleted, the pass never ended by time or an empty
+/// list, a new pass one tick after the last ended; it gates nothing.
+#[test]
+fn the_standing_reconciliation_deletes_what_no_live_session_holds() {
+    let db = db_with_open_cohort(4);
+    let m = miner(1, 3, 1, 0x11);
+    m.commit(&db, OPEN_BLOCK + 1, 0);
+    m.create(&db);
+    let r = miner(2, 4, 1, 0x12);
+    r.commit(&db, OPEN_BLOCK + 2, 0);
+    r.create(&db);
+    tx(&db, |s| operator_refuse(s, &r.session(), "drill", NOW)).unwrap();
+    assert_eq!(tx(&db, |s| reconcile_begin(s, NOW)).unwrap(), Some(None), "a first pass is due");
+    let keys = vec![m.job().key, r.job().key, object_key(1, &m.upload.commitment, ObjectKind::File([1; 32]))];
+    let gone = tx(&db, |s| reconcile_page(s, &keys, Some("next"), NOW)).unwrap();
+    assert_eq!(gone, keys[1..].to_vec());
+    assert_eq!(tx(&db, |s| reconcile_begin(s, NOW)).unwrap(), Some(Some("next".into())), "the pass continues");
+    assert!(tx(&db, |s| reconcile_page(s, &[], None, NOW + 1)).unwrap().is_empty());
+    assert_eq!(tx(&db, |s| reconcile_begin(s, NOW + 2)).unwrap(), None);
+    assert_eq!(tx(&db, |s| reconcile_begin(s, NOW + 1 + TICK_MS)).unwrap(), Some(None));
+    assert!(!tx(&db, |s| has_work(s, &cfg(), None)).unwrap(), "the reconciliation is never unfinished work");
+    assert_eq!(tx(&db, status).unwrap()["upload_path"]["reconcile_deleted"], 2);
+    // Review round 2: a cohort this store never opened is another
+    // authority's (a successor's, for a retired predecessor that still
+    // reconciles): its keys are never this store's to delete.
+    let other = vec![object_key(20, &Digest([0xcd; 32]), ObjectKind::Header)];
+    assert!(tx(&db, |s| reconcile_page(s, &other, None, NOW + 2)).unwrap().is_empty());
+}
+
+/// The alarm sweep heads every unrecorded object of sessions that had a URL
+/// minted, once per tick.
+#[test]
+fn the_alarm_sweep_runs_once_a_tick_for_sessions_with_urls() {
+    let db = db_with_open_cohort(4);
+    assert!(tx(&db, |s| sweep_begin(s, NOW)).unwrap().is_none(), "nothing minted");
+    let m = miner(1, 3, 1, 0x11);
+    m.commit(&db, OPEN_BLOCK + 1, 0);
+    m.create(&db);
+    let sw = tx(&db, |s| sweep_begin(s, NOW)).unwrap().unwrap();
+    assert_eq!((sw.headers, sw.heads.len()), (vec![m.job()], 0));
+    assert!(tx(&db, |s| sweep_begin(s, NOW + 1)).unwrap().is_none(), "once a tick");
+    m.settle(&db, m.checked());
+    let sw = tx(&db, |s| sweep_begin(s, NOW + TICK_MS)).unwrap().unwrap();
+    assert_eq!((sw.headers.len(), sw.heads.len()), (0, 6));
+    m.put_files(&db, Recorder::Upload);
+    assert!(tx(&db, |s| sweep_begin(s, NOW + 2 * TICK_MS)).unwrap().is_none(), "all recorded");
+    assert_eq!(state_of(&db, &m.session()).0, "verifying", "the sweep's records complete a session too");
+}
+
+/// The signer's interface and the deployment's bindings are the ones this
+/// side names.
+#[test]
+fn the_signer_interface_and_bindings_are_the_deployments() {
+    let lib = include_str!("../../../r2-signer/src/lib.rs");
+    for (name, value) in [
+        ("SIGNER_ORIGIN", signer::ORIGIN),
+        ("MINT_PATH", signer::MINT_PATH),
+        ("TOKEN_HEADER", signer::TOKEN_HEADER),
+        ("MEDIA_TYPE", signer::MEDIA_TYPE),
+    ] {
+        assert!(lib.contains(&format!("pub const {name}: &str = \"{value}\";")), "{name}");
+    }
+    let signer_toml = include_str!("../../../r2-signer/wrangler.toml");
+    assert!(signer_toml.contains("name = \"slop-ninja-r2-signer-testnet\""));
+    assert!(signer_toml.contains(signer::TOKEN_SECRET));
+    let toml = include_str!("../../wrangler.toml");
+    for line in [
+        format!("binding = \"{}\"", signer::BINDING),
+        "service = \"slop-ninja-r2-signer-testnet\"".to_owned(),
+        format!("queue = \"{EVENTS_QUEUE}\""),
+        signer::TOKEN_SECRET.to_owned(),
+    ] {
+        assert!(toml.contains(&line), "{line}");
+    }
+    // The events consumer's concurrency is the bound the memory fit counts.
+    let consumer = &toml[toml.find(&format!("queue = \"{EVENTS_QUEUE}\"")).unwrap()..];
+    let consumer = &consumer[..consumer.find("\n\n").unwrap_or(consumer.len())];
+    assert!(consumer.lines().any(|l| l.trim() == format!("max_concurrency = {EVENTS_MAX_CONCURRENCY}")), "{consumer}");
+}
+
+/// The plan names the upload URL policy and no v1 part fields; a plan
+/// frozen under v1 still parses as stored (its digest is bound) but is no
+/// valid new plan.
+#[test]
+fn the_plan_names_the_url_policy_and_no_part_fields() {
+    let p = admission_plan(1, 2);
+    plan::CohortPlan::parse(&serde_json::to_vec(&p).unwrap(), cfg().ceilings).unwrap();
+    let refused = |f: &dyn Fn(&mut AdmissionPlan)| {
+        let mut q = p.clone();
+        f(q.admission.as_mut().unwrap());
+        plan::CohortPlan::parse(&serde_json::to_vec(&q).unwrap(), cfg().ceilings).is_err()
+    };
+    assert!(refused(&|a| a.upload_policy = None));
+    assert!(refused(&|a| a.upload_policy.as_mut().unwrap().b_min = 1));
+    assert!(refused(&|a| a.upload_policy.as_mut().unwrap().id = "slop_ninja_upload_url_policy_v2".into()));
+    assert!(refused(&|a| a.part_size = Some(64 << 20)));
+    assert!(refused(&|a| a.max_parts = Some(64)));
+    let mut v1 = serde_json::to_value(&p).unwrap();
+    let a = v1["admission"].as_object_mut().unwrap();
+    a.remove("upload_policy");
+    a.insert("part_size".into(), serde_json::json!(64 << 20));
+    a.insert("max_parts".into(), serde_json::json!(64));
+    let stored: plan::CohortPlan = serde_json::from_value(v1.clone()).unwrap();
+    assert_eq!(serde_json::to_value(&stored).unwrap(), v1, "a stored v1 plan round-trips unchanged");
+    assert_eq!(upload_policy(stored.admission.as_ref().unwrap()).id, policy::POLICY_ID);
+}
+
+/// Store v25 replaces the v1 session tables in place once no v1 admission
+/// is live: v1 objects not cleaned up and not admitted are queued for
+/// deletion, pending verdicts dropped, reached ones kept. While a v1
+/// session is uploading, verifying or verified, a window is admitting or
+/// closing, or an admitted session's cohort is not closed, the migration
+/// refuses and the store stays at its pre-deploy version: v24, or v23 when
+/// v24 and v25 arrive in one deploy (one transaction applies both).
+#[test]
+fn store_v25_refuses_a_live_v1_admission_then_replaces_the_session_tables() {
+    static UP_TO_V24: crate::sql::Schema = crate::sql::Schema {
+        family: EVAL_COHORT_SCHEMA.family,
+        migrations: EVAL_COHORT_SCHEMA.migrations.split_at(24).0,
+    };
+    let v1_session = |db: &Sqlite, id: &str, state: &str, cleaned: i64| {
+        db.conn
+            .execute(
+                "INSERT INTO adm_sessions (session, seq, cohort, hotkey, upload, commitment, content, artifact_sha256, artifact_len,
+                    part_size, part_count, attempt, state, object_key, upload_id, created_ms, updated_ms, cleaned)
+                 VALUES (?1, 1, 1, 'h', 'u', 'c', 'c', 'a', 1, 1, 1, 1, ?2, ?3, ?4, 1, 2, ?5)",
+                (id, state, format!("admission/testnet-c1/{id}/a1.object"), format!("up-{id}"), cleaned),
+            )
+            .unwrap();
+    };
+    let version = |db: &Sqlite| tx(db, |s| Ok::<_, EvalError>(crate::sql::stored_version(s)?.1)).unwrap();
+    // Each live v1 state refuses on its own; the store stays at v24.
+    for live in ["uploading", "verifying", "verified", "admitted"] {
+        let db = Sqlite::open();
+        tx(&db, |s| crate::sql::migrate(s, &UP_TO_V24)).unwrap();
+        v1_session(&db, "x", live, 0);
+        assert!(tx(&db, |s| crate::sql::migrate(s, &EVAL_COHORT_SCHEMA)).is_err(), "{live} refuses");
+        assert_eq!(version(&db), 24, "{live}: the store keeps the previous build's version");
+        assert!(tx(&db, |s| s.exec("SELECT * FROM adm_parts", &[])).is_ok(), "{live}: nothing was dropped");
+    }
+    // From v23 (quant-v1's v24 not yet deployed), the refusal rolls back
+    // v24 too: the store stays at v23 for the build deployed before both.
+    {
+        static UP_TO_V23: crate::sql::Schema = crate::sql::Schema {
+            family: EVAL_COHORT_SCHEMA.family,
+            migrations: EVAL_COHORT_SCHEMA.migrations.split_at(23).0,
+        };
+        let db = Sqlite::open();
+        tx(&db, |s| crate::sql::migrate(s, &UP_TO_V23)).unwrap();
+        v1_session(&db, "x", "verifying", 0);
+        assert!(tx(&db, |s| crate::sql::migrate(s, &EVAL_COHORT_SCHEMA)).is_err());
+        assert_eq!(version(&db), 23, "v24 rolls back with the refused v25");
+        assert!(tx(&db, |s| s.exec("SELECT * FROM adm_parts", &[])).is_ok(), "nothing was dropped");
+    }
+    // Review round 2: a queued cohort (its frozen plan names a v1 reference
+    // package), a pending v1 blob delete, or a created blob of a v1 session
+    // not cleaned up refuses too.
+    let refuses = |setup: &dyn Fn(&Sqlite), what: &str| {
+        let db = Sqlite::open();
+        tx(&db, |s| crate::sql::migrate(s, &UP_TO_V24)).unwrap();
+        setup(&db);
+        assert!(tx(&db, |s| crate::sql::migrate(s, &EVAL_COHORT_SCHEMA)).is_err(), "{what} refuses");
+        assert_eq!(version(&db), 24, "{what}");
+    };
+    refuses(
+        &|db| {
+            db.conn
+                .execute(
+                    "INSERT INTO cohorts (seq, label, cohort, plan, plan_sha256, phase, phase_since_ms, queued_ms)
+                     VALUES (2, 'queued-v1', 2, '{}', 'p', 'queued', 1, 1)",
+                    (),
+                )
+                .unwrap();
+        },
+        "a queued v1 plan",
+    );
+    refuses(&|db| { db.conn.execute("INSERT INTO adm_blob_deletes (key, session) VALUES ('k', 's')", ()).unwrap(); }, "a blob delete");
+    refuses(
+        &|db| {
+            v1_session(db, "f", "refused", 0);
+            db.conn.execute("INSERT INTO adm_blobs (session, sha256, created) VALUES ('f', 'aa', 1)", ()).unwrap();
+        },
+        "an uncleaned session's blob",
+    );
+    let db = Sqlite::open();
+    tx(&db, |s| crate::sql::migrate(s, &UP_TO_V24)).unwrap();
+    for (id, state, cleaned) in [("c", "refused", 1), ("d", "overflow", 0), ("e", "refused", 0)] {
+        v1_session(&db, id, state, cleaned);
+    }
+    // An admitted v1 session of a closed cohort does not hold the upgrade.
+    v1_session(&db, "b", "admitted", 0);
+    db.conn
+        .execute(
+            "INSERT INTO cohorts (seq, label, cohort, plan, plan_sha256, phase, phase_since_ms, queued_ms)
+             VALUES (1, 'closed-c1', 1, '{}', 'p', 'closed', 1, 1)",
+            (),
+        )
+        .unwrap();
+    db.conn
+        .execute(
+            "INSERT INTO adm_verdicts (hotkey, commitment, package_sha256, manifest_key, label, scorer_binary, spec_sha256, state, updated_ms)
+             VALUES ('h', 'c', 'p', 'k', 'l', 'b', 's', 'pending', 1), ('h2', 'c', 'p', 'k', 'l', 'b', 's', 'admitted', 1)",
+            (),
+        )
+        .unwrap();
+    let report = tx(&db, |s| crate::sql::migrate(s, &EVAL_COHORT_SCHEMA)).unwrap();
+    assert_eq!((report.from, report.to), (24, 25));
+    let queued: std::collections::BTreeSet<(String, Option<String>)> =
+        tx(&db, |s| object_deletes_due(s, 10, crate::wire::MAX_SAFE_INTEGER)).unwrap().into_iter().collect();
+    let want: std::collections::BTreeSet<(String, Option<String>)> = ["d", "e"]
+        .iter()
+        .map(|id| (format!("admission/testnet-c1/{id}/a1.object"), Some(format!("up-{id}"))))
+        .collect();
+    assert_eq!(queued, want, "the overflow and uncleaned refused objects; admitted and cleaned ones stay");
+    let n = |q: &str| tx(&db, |s| Ok::<_, EvalError>(int(&s.exec(q, &[])?[0], 0)?)).unwrap();
+    assert_eq!(n("SELECT COUNT(*) FROM adm_sessions"), 0);
+    assert_eq!(n("SELECT COUNT(*) FROM adm_verdicts"), 1, "reached verdicts stay as history");
+    assert_eq!(n("SELECT COUNT(*) FROM adm_platform"), 1);
+    assert!(tx(&db, |s| s.exec("SELECT * FROM adm_parts", &[])).is_err());
+    assert!(tx(&db, |s| s.exec("SELECT * FROM adm_v25_guard", &[])).is_err(), "the guard leaves nothing");
+}
+
+/// Every compiled admission spec's largest object fits one URL life at the
+/// policy's B_MIN within R2's 7 days, and one PUT.
+#[test]
+fn every_admission_specs_largest_object_fits_the_url_policy() {
+    for id in ADMISSION_SPECS {
+        let b = SpecBounds::of_id(id).unwrap();
+        let v = policy::valid_secs(b.object_bytes).unwrap();
+        assert!(u64::from(v) <= policy::R2_MAX_VALID_SECS);
+        assert!(b.object_bytes <= policy::R2_SINGLE_PUT_MAX);
+    }
+    assert_eq!(policy::valid_secs(954_576_228), Ok(8_537), "design section 3.3");
+}
+
+/// A legacy v1 fault still clears: nothing keeps `framing_unavailable`.
+#[test]
+fn a_legacy_framing_fault_clears_on_the_next_admission_step() {
+    let db = db_with_open_cohort(2);
+    let fault = |db: &Sqlite| tx(db, |s| engine::cohort(s, 1)).unwrap().fault;
+    tx(&db, |s| engine::fault_with_cause(s, 1, FRAMING_UNAVAILABLE, Some("session:x"), NOW)).unwrap();
+    assert_eq!(fault(&db).as_deref(), Some(FRAMING_UNAVAILABLE));
+    tx(&db, |s| next_work(s, &cfg(), NOW)).unwrap();
+    assert_eq!(fault(&db), None);
+}
+
+/// A frozen cohort with one admitted entrant `m` (cohort 1, seq 1).
+fn admitted_one(tag: u8) -> (Sqlite, Miner) {
+    let db = db_with_open_cohort(2);
+    let m = miner(1, 3, 1, tag);
+    m.commit(&db, OPEN_BLOCK + 3, 0);
+    assert_eq!(m.create(&db).0.status, 201);
+    upload_all(&db, &m);
+    frame_ok(&db, &m);
+    admit_all(&db);
+    let cutoff = OPEN_BLOCK + 360;
+    close_at(&db, cutoff);
+    let payload = m.upload.opening.chain_payload().to_vec();
+    snapshot(&db, cutoff, &m, Some(OPEN_BLOCK + 3), &payload, Some(m.uid), Some(m.registration_block));
+    let b = tx(&db, |s| try_freeze(s, &cfg(), NOW)).unwrap().unwrap();
+    assert!(matches!(b, Boundary::Frozen { admitted: 1, .. }), "{b:?}");
+    assert_eq!(state_of(&db, &m.session()).0, "admitted");
+    (db, m)
+}
+
+fn package_of_session(db: &Sqlite, id: &str) -> String {
+    let rows = tx(db, |s| s.exec("SELECT package_sha256 FROM adm_sessions WHERE session = ?", &[SqlValue::Text(id.into())])).unwrap();
+    text(&rows[0], 0).unwrap().to_owned()
+}
+
+/// Review finding (correctness 1, design R4 and skeptic K2): an admitted
+/// entrant's object lost after the freeze is the coordinator's fault. A
+/// scoring lane's load (or publication) that meets it audits the session
+/// (`object_fault`); the audit lists the object `repair_needed`, the lane
+/// holds uncounted while the session waits in `repair`, and the miner's
+/// re-PUT (recorded by the sweep or the repair route) ends the hold.
+#[test]
+fn an_admitted_entrants_lost_object_is_audited_listed_and_repaired() {
+    let (db, m) = admitted_one(0x31);
+    let id = m.session();
+    let package = package_of_session(&db, &id);
+    // Another package, or another cohort: nothing to hold.
+    assert!(!tx(&db, |s| object_fault(s, 1, FaultBy::Package(&"00".repeat(32)), NOW)).unwrap());
+    assert!(!tx(&db, |s| object_fault(s, 2, FaultBy::Package(&package), NOW)).unwrap());
+    // The lane's load met an object absent: the session is audited.
+    assert!(tx(&db, |s| object_fault(s, 1, FaultBy::Package(&package), NOW)).unwrap(), "the lane holds");
+    assert_eq!(stage_of(&db, &id).as_deref(), Some("audit"));
+    assert_eq!(tx(&db, |s| verify_due(s, NOW)).unwrap(), Some((id.clone(), "audit".into())));
+    assert!(tx(&db, |s| has_work(s, &cfg(), Some(NOW))).unwrap(), "the audit is due work");
+    let probes = tx(&db, |s| audit_probes(s, &id)).unwrap();
+    assert_eq!(probes.len(), 7);
+    let gone = probes[2].clone();
+    let heads: Vec<(Probe, Head)> = probes
+        .iter()
+        .cloned()
+        .map(|p| {
+            let h = if p == gone { Head::Absent } else { stored(p.sha256, p.len, p.etag.as_deref().unwrap()) };
+            (p, h)
+        })
+        .collect();
+    let applied = tx(&db, |s| apply_heads(s, &heads, Recorder::Recorded, NOW)).unwrap();
+    tx(&db, |s| audit_done(s, &id, &applied, NOW)).unwrap();
+    assert_eq!(stage_of(&db, &id).as_deref(), Some("repair"));
+    assert_eq!(state_of(&db, &id).0, "admitted", "never refused: the loss is ours");
+    // Still held: a second lane's report starts no second audit.
+    assert!(tx(&db, |s| object_fault(s, 1, FaultBy::Package(&package), NOW)).unwrap());
+    assert_eq!(stage_of(&db, &id).as_deref(), Some("repair"));
+    // The miner sees it: the session read lists the object.
+    let req = m.signed(&db, "GET", &format!("/admission/v2/sessions/{id}"), &[]);
+    let r = tx(&db, |s| Ok::<_, EvalError>(read(s, &chain(), &req, &id))).unwrap();
+    assert_eq!(r.body["repair_needed"][0].as_str(), Some(hex::encode(gone.sha256).as_str()), "{}", r.body);
+    // Repair mints exactly that object's URL.
+    let rq = m.post(&db, "repair");
+    let Step::Heads(rp) = tx(&db, |s| Ok::<_, EvalError>(repair(s, &chain(), &rq, &id))).unwrap() else { panic!() };
+    let still: Vec<(Probe, Head)> = rp.iter().cloned().map(|p| {
+        let h = if p == gone { Head::Absent } else { stored(p.sha256, p.len, p.etag.as_deref().unwrap()) };
+        (p, h)
+    }).collect();
+    tx(&db, |s| apply_heads(s, &still, Recorder::Recorded, NOW)).unwrap();
+    let (_, job) = drive(&db, tx(&db, |s| Ok::<_, EvalError>(repair_after(s, &id))).unwrap());
+    assert_eq!(job.unwrap().entries.len(), 1);
+    // The alarm sweep heads it (missing = 1), and records the re-PUT.
+    let sweep = tx(&db, |s| sweep_begin(s, NOW + TICK_MS)).unwrap().unwrap();
+    assert!(sweep.heads.iter().any(|p| p.key == gone.key), "{sweep:?}");
+    let back = vec![(gone.clone(), stored(gone.sha256, gone.len, gone.etag.as_deref().unwrap()))];
+    tx(&db, |s| apply_heads(s, &back, Recorder::Recorded, NOW)).unwrap();
+    assert_eq!(stage_of(&db, &id).as_deref(), None, "the hold ends: the lanes and publication resume");
+    let r = tx(&db, |s| Ok::<_, EvalError>(read(s, &chain(), &req, &id))).unwrap();
+    assert_eq!(r.body["repair_needed"].as_array().map(Vec::len).unwrap_or(0), 0);
+    // Publication finding a missing object audits the same way (by the
+    // roster entry's commitment).
+    let entry = PublicationEntry { commitment: m.upload.commitment.hex(), state: "missing".into() };
+    let v = tx(&db, |s| publication_report(s, 1, "testnet-c1", &[entry], NOW)).unwrap();
+    assert_eq!(v["held"].as_u64(), Some(1));
+    assert_eq!(stage_of(&db, &id).as_deref(), Some("audit"));
+}
+
+/// Review finding (correctness 3, skeptic K1): a recorded object found
+/// present with its committed bytes but a forbidden stored attribute (a
+/// repair PUT with an unsigned Content-Type) is deleted (only while still
+/// unclean) and listed missing, in every state, so the miner can PUT it
+/// again cleanly; `object_replaced` stays for other bytes or another tag
+/// before admission.
+#[test]
+fn a_dirty_recorded_object_is_deleted_for_a_clean_put_in_every_state() {
+    let dirty = |p: &Probe| Head::Present(Stored { size: p.len, sha256: Some(p.sha256), etag: p.etag.clone().unwrap(), clean: false });
+    // Admitted.
+    let (db, m) = admitted_one(0x41);
+    let id = m.session();
+    let package = package_of_session(&db, &id);
+    let probes = tx(&db, |s| {
+        object_fault(s, 1, FaultBy::Package(&package), NOW)?;
+        audit_probes(s, &id)
+    })
+    .unwrap();
+    let bad = probes[1].clone();
+    let heads: Vec<(Probe, Head)> = probes.iter().cloned().map(|p| {
+        let h = if p == bad { dirty(&p) } else { stored(p.sha256, p.len, p.etag.as_deref().unwrap()) };
+        (p, h)
+    }).collect();
+    let applied = tx(&db, |s| apply_heads(s, &heads, Recorder::Recorded, NOW)).unwrap();
+    assert_eq!(applied.deletes.len(), 1);
+    assert_eq!((applied.deletes[0].key.as_str(), applied.deletes[0].etag.as_str()), (bad.key.as_str(), bad.etag.as_deref().unwrap()));
+    tx(&db, |s| audit_done(s, &id, &applied, NOW)).unwrap();
+    assert_eq!((state_of(&db, &id).0.as_str(), stage_of(&db, &id).as_deref()), ("admitted", Some("repair")));
+    let req = m.signed(&db, "GET", &format!("/admission/v2/sessions/{id}"), &[]);
+    let r = tx(&db, |s| Ok::<_, EvalError>(read(s, &chain(), &req, &id))).unwrap();
+    assert_eq!(r.body["repair_needed"].as_array().unwrap().len(), 1);
+    // Verifying (the run met it) and verified: the same, never object_replaced.
+    for verified in [false, true] {
+        let db = db_with_open_cohort(4);
+        let m = miner(2, 4, 1, 0x42);
+        m.commit(&db, OPEN_BLOCK + 2, 0);
+        m.create(&db);
+        upload_all(&db, &m);
+        frame_ok(&db, &m);
+        let id = m.session();
+        if verified {
+            admit_all(&db);
+            assert_eq!(state_of(&db, &id).0, "verified");
+        }
+        let req = m.post(&db, "repair");
+        let Step::Heads(rp) = tx(&db, |s| Ok::<_, EvalError>(repair(s, &chain(), &req, &id))).unwrap() else { panic!() };
+        let bad = rp[0].clone();
+        let heads: Vec<(Probe, Head)> = rp.iter().cloned().map(|p| {
+            let h = if p == bad { dirty(&p) } else { stored(p.sha256, p.len, p.etag.as_deref().unwrap()) };
+            (p, h)
+        }).collect();
+        let applied = tx(&db, |s| apply_heads(s, &heads, Recorder::Recorded, NOW)).unwrap();
+        assert_eq!(applied.deletes.len(), 1, "verified {verified}");
+        let st = if verified { "verified" } else { "verifying" };
+        assert_eq!(state_of(&db, &id), (st.into(), None), "never object_replaced for the committed bytes");
+        let (_, job) = drive(&db, tx(&db, |s| Ok::<_, EvalError>(repair_after(s, &id))).unwrap());
+        assert_eq!(job.unwrap().entries.len(), 1, "a fresh URL for the deleted object");
+    }
+}
+
+/// Review finding (security 3): a queued delete never removes a key a live
+/// session holds (its own heads delete an unclean copy conditionally), and
+/// a v1 or orphan key is deleted as before.
+#[test]
+fn a_queued_delete_never_removes_a_live_sessions_object() {
+    let (db, m) = admitted_one(0x51);
+    let probes = tx(&db, |s| objects_of(s, &m.session())).unwrap();
+    let key = object_key(1, &m.upload.commitment, probes[0].kind);
+    assert!(!tx(&db, |s| queued_delete_allowed(s, &key)).unwrap());
+    let orphan = object_key(1, &Digest([9; 32]), ObjectKind::Header);
+    assert!(tx(&db, |s| queued_delete_allowed(s, &orphan)).unwrap());
+    assert!(tx(&db, |s| queued_delete_allowed(s, "admission/testnet-c1/x/a1.object")).unwrap());
+}
+
+/// Review round 2 (correctness 2): a load that reports an object missing or
+/// changed while the audit finds every recorded object present with its
+/// recorded entity tag is the read path's failure (an etag-conditional
+/// read the platform refused, say). It is counted, never a silent loop: a
+/// verifying session's verdict takes a platform try with the growing
+/// backoff and pauses its cohort (`scorer_unavailable`) at the plan's bound;
+/// an admitted entrant's next lane report answers "not held" (the lane
+/// counts it as a start failure) and the status counts it.
+#[test]
+fn an_object_read_failure_with_every_object_intact_is_counted() {
+    let db = db_with_open_cohort(4);
+    let m = miner(1, 3, 1, 0x91);
+    m.commit(&db, OPEN_BLOCK + 1, 0);
+    m.create(&db);
+    upload_all(&db, &m);
+    frame_ok(&db, &m);
+    let id = m.session();
+    let intact = |db: &Sqlite| -> Applied {
+        let probes = tx(db, |s| audit_probes(s, &id)).unwrap();
+        assert_eq!(probes.len(), 7);
+        let heads: Vec<(Probe, Head)> =
+            probes.iter().cloned().map(|p| { let h = stored(p.sha256, p.len, p.etag.as_deref().unwrap()); (p, h) }).collect();
+        tx(db, |s| apply_heads(s, &heads, Recorder::Recorded, NOW)).unwrap()
+    };
+    let bound = tx(&db, window).unwrap().unwrap().failures_before_pause;
+    let mut at = NOW;
+    for round in 1..=bound {
+        let runs = tx(&db, |s| claim_runs(s, &env(), 8, at)).unwrap();
+        assert_eq!(runs.len(), 1, "round {round}: claimable after its backoff");
+        let changed = LaneOutcome::Platform(crate::eval::scorer_client::OBJECT_CHANGED.into());
+        tx(&db, |s| record_run(s, &env(), &runs[0], &changed, 3, at)).unwrap();
+        assert_eq!(stage_of(&db, &id).as_deref(), Some("audit"));
+        let applied = intact(&db);
+        tx(&db, |s| audit_done(s, &id, &applied, at)).unwrap();
+        assert_eq!(stage_of(&db, &id).as_deref(), Some("verdict"));
+        assert!(tx(&db, |s| claim_runs(s, &env(), 8, at)).unwrap().is_empty(), "round {round}: backed off");
+        let st = tx(&db, status).unwrap();
+        assert_eq!(st["platform_retries"]["max_platform_tries"].as_i64(), Some(i64::from(round)), "{}", st["platform_retries"]);
+        assert_eq!(st["platform_retries"]["latest_code"].as_str(), Some(OBJECT_READ_FAULT));
+        at += 2 * 3_600_000;
+    }
+    let fault = tx(&db, |s| crate::eval::engine::cohort(s, 1)).unwrap().fault;
+    assert_eq!(fault.as_deref(), Some(crate::eval::engine::SCORER_UNAVAILABLE), "paused at the plan's bound");
+    assert_eq!(state_of(&db, &id).0, "verifying", "never the miner's");
+
+    // Admitted: the first report holds (and audits); once an audit found
+    // everything intact, the next one is the lane's to count.
+    let (db, m) = admitted_one(0x92);
+    let id = m.session();
+    let package = package_of_session(&db, &id);
+    assert!(tx(&db, |s| object_fault(s, 1, FaultBy::Package(&package), NOW)).unwrap(), "held");
+    assert!(tx(&db, |s| object_held(s, 1, &package)).unwrap());
+    let probes = tx(&db, |s| audit_probes(s, &id)).unwrap();
+    let heads: Vec<(Probe, Head)> =
+        probes.iter().cloned().map(|p| { let h = stored(p.sha256, p.len, p.etag.as_deref().unwrap()); (p, h) }).collect();
+    let applied = tx(&db, |s| apply_heads(s, &heads, Recorder::Recorded, NOW)).unwrap();
+    tx(&db, |s| audit_done(s, &id, &applied, NOW)).unwrap();
+    assert_eq!(stage_of(&db, &id), None);
+    assert!(!tx(&db, |s| object_held(s, 1, &package)).unwrap(), "released: the lane loads again");
+    assert_eq!(tx(&db, status).unwrap()["objects"]["object_read_faults"].as_i64(), Some(1));
+    assert!(!tx(&db, |s| object_fault(s, 1, FaultBy::Package(&package), NOW)).unwrap(), "counted by the lane");
+    assert_eq!(stage_of(&db, &id).as_deref(), Some("audit"), "still audited: a real loss is still found");
+    // A real loss found later holds again and clears the count.
+    let probes = tx(&db, |s| audit_probes(s, &id)).unwrap();
+    let gone = probes[0].clone();
+    let heads: Vec<(Probe, Head)> = probes.iter().cloned().map(|p| {
+        let h = if p == gone { Head::Absent } else { stored(p.sha256, p.len, p.etag.as_deref().unwrap()) };
+        (p, h)
+    }).collect();
+    let applied = tx(&db, |s| apply_heads(s, &heads, Recorder::Recorded, NOW)).unwrap();
+    tx(&db, |s| audit_done(s, &id, &applied, NOW)).unwrap();
+    assert_eq!(stage_of(&db, &id).as_deref(), Some("repair"));
+    assert!(tx(&db, |s| object_fault(s, 1, FaultBy::Package(&package), NOW)).unwrap(), "held for the repair");
+    assert_eq!(tx(&db, status).unwrap()["objects"]["object_read_faults"].as_i64(), Some(0));
+}
+
+/// Review round 2 (correctness 3, security 1): a lane held for an
+/// entrant's repair asks the cohort before it starts a Container
+/// (`object_held`), and the cohort snapshot names exactly the hotkeys whose
+/// sessions wait for a repair, so the gate lets only those read and repair
+/// unregistered.
+#[test]
+fn held_lanes_and_the_snapshots_repair_list_follow_the_repair_stage() {
+    let (db, m) = admitted_one(0x93);
+    let id = m.session();
+    let package = package_of_session(&db, &id);
+    assert_eq!(tx(&db, repair_list).unwrap(), (Vec::new(), false));
+    assert!(!tx(&db, |s| object_held(s, 1, &package)).unwrap());
+    assert!(tx(&db, |s| object_fault(s, 1, FaultBy::Package(&package), NOW)).unwrap());
+    let probes = tx(&db, |s| audit_probes(s, &id)).unwrap();
+    let gone = probes[0].clone();
+    let heads: Vec<(Probe, Head)> = probes.iter().cloned().map(|p| {
+        let h = if p == gone { Head::Absent } else { stored(p.sha256, p.len, p.etag.as_deref().unwrap()) };
+        (p, h)
+    }).collect();
+    let applied = tx(&db, |s| apply_heads(s, &heads, Recorder::Recorded, NOW)).unwrap();
+    tx(&db, |s| audit_done(s, &id, &applied, NOW)).unwrap();
+    assert!(tx(&db, |s| object_held(s, 1, &package)).unwrap(), "no Container while the miner has not repaired");
+    assert!(!tx(&db, |s| object_held(s, 2, &package)).unwrap() && !tx(&db, |s| object_held(s, 1, &"00".repeat(32))).unwrap());
+    assert_eq!(tx(&db, repair_list).unwrap(), (vec![hex::encode(account(1).0)], false));
+    let back = vec![(gone.clone(), stored(gone.sha256, gone.len, gone.etag.as_deref().unwrap()))];
+    tx(&db, |s| apply_heads(s, &back, Recorder::Recorded, NOW)).unwrap();
+    assert!(!tx(&db, |s| object_held(s, 1, &package)).unwrap(), "repaired: the lane loads");
+    assert_eq!(tx(&db, repair_list).unwrap(), (Vec::new(), false));
+    // Past one roster of hotkeys, the list names everyone instead.
+    let max = slop_ninja_admission_wire::internal::REPAIR_LIST_MAX;
+    tx(&db, |s| {
+        for n in 0..=max {
+            s.exec(
+                "INSERT INTO adm_sessions (session, seq, cohort, hotkey, upload, commitment, content, header_sha256, header_len,
+                    state, stage, created_ms, updated_ms)
+                 VALUES (?, 1, 1, ?, '', ?, '', '', 0, 'admitted', 'repair', 0, 0)",
+                &[SqlValue::Text(format!("s{n}")), SqlValue::Text(format!("{n:064x}")), SqlValue::Text(format!("c{n}"))],
+            )?;
+        }
+        Ok::<_, EvalError>(())
+    })
+    .unwrap();
+    assert_eq!(tx(&db, repair_list).unwrap(), (Vec::new(), true));
+}
+
+/// Review round 2 (security 2): one conditional delete per key is in
+/// flight at a time, so two paths that headed the same unclean object never
+/// both delete (the second could remove the clean copy PUT after the
+/// first); a marker left by a dead invocation is taken over after the
+/// longest request scope.
+#[test]
+fn one_conditional_delete_per_key_is_in_flight() {
+    let db = db_with_open_cohort(4);
+    let k = "admission/v2/c1/aa/h";
+    assert!(tx(&db, |s| delete_begin(s, k, NOW)).unwrap(), "the first path deletes");
+    assert!(!tx(&db, |s| delete_begin(s, k, NOW + 1)).unwrap(), "the second leaves it to the first");
+    assert!(tx(&db, |s| delete_begin(s, "admission/v2/c1/aa/f/bb", NOW + 1)).unwrap(), "per key");
+    tx(&db, |s| delete_end(s, k)).unwrap();
+    assert!(tx(&db, |s| delete_begin(s, k, NOW + 2)).unwrap(), "released");
+    let stale = NOW + 2 + crate::arena_routes::UNBOUNDED_FETCH_MS;
+    assert!(!tx(&db, |s| delete_begin(s, k, stale - 1)).unwrap());
+    assert!(tx(&db, |s| delete_begin(s, k, stale)).unwrap(), "a dead invocation's marker is taken over");
+}
+
+/// Review finding (correctness 11): URLs the signer minted after `closing`
+/// was persisted (by another invocation) are never handed out: the mint
+/// counts as the signer's success, the answer is `after_cutoff` (or the
+/// session the close ended, without URLs).
+#[test]
+fn urls_minted_after_the_close_is_persisted_are_never_handed_out() {
+    let db = db_with_open_cohort(4);
+    let m = miner(1, 3, 1, 0x61);
+    m.commit(&db, OPEN_BLOCK + 1, 0);
+    let body = m.upload.to_bytes().unwrap();
+    let mut r = m.signed(&db, "POST", "/admission/v2/sessions", &body);
+    r.body = Some(hex::encode(&body));
+    let Step::Mint(job) = tx(&db, |s| Ok::<_, EvalError>(create(s, &chain(), &r, NOW))).unwrap() else { panic!() };
+    // The close lands while the signer mints.
+    epoch(&db, 12, OPEN_BLOCK + 360, NOW + 2);
+    assert!(tx(&db, |s| canary_begin(s, NOW + 2)).unwrap().is_some());
+    assert!(tx(&db, |s| canary_done(s, Ok(()), NOW + 3)).unwrap());
+    assert_eq!(tx(&db, window).unwrap().unwrap().state, "closing");
+    let reply = tx(&db, |s| finish_mint(s, &job, Ok(minted(&job)), NOW + 4)).unwrap();
+    assert_eq!(code(&reply), "after_cutoff");
+    assert!(!reply.body.to_string().contains("r2.cloudflarestorage.com"), "no URL: {}", reply.body);
+    // The close sweep ends it: a later mint's answer is the ended session.
+    sweep_close(&db, |_| Head::Absent);
+    let reply = tx(&db, |s| finish_mint(s, &job, Ok(minted(&job)), NOW + 5)).unwrap();
+    assert!(!reply.body.to_string().contains("r2.cloudflarestorage.com"), "no URL: {}", reply.body);
+    assert_eq!(state_of(&db, &m.session()).1.as_deref(), Some("incomplete_at_cutoff"));
+}
+
+/// Review finding (correctness 2): the front every session passes before
+/// any file URL exists is part of the upload path. A header settle the
+/// platform could not run (R2, the upload Worker's binding or header route)
+/// persists `upload_front_unavailable`, as does a failed link probe in the
+/// close's canary (the header route and the upload Worker's registration
+/// read); either defers the close until a settle the upload Worker answers,
+/// or a passing canary, clears it.
+#[test]
+fn a_front_outage_is_persisted_and_defers_the_close() {
+    let db = db_with_open_cohort(2);
+    let admitting = |db: &Sqlite| tx(db, window).unwrap().unwrap().admitting();
+    let faults = |db: &Sqlite| tx(db, status).unwrap()["upload_path"]["faults"].clone();
+    let m = miner(1, 3, 1, 0x71);
+    m.commit(&db, OPEN_BLOCK + 1, 0);
+    m.create(&db);
+    assert_eq!(m.settle(&db, HeaderSeen::Platform("header call")), Settled::Platform("header call"));
+    assert_eq!(faults(&db), serde_json::json!([UPLOAD_FRONT_UNAVAILABLE]));
+    assert_eq!(state_of(&db, &m.session()), ("uploading".into(), None), "never the miner's");
+    // Review round 2: an answered outcome the eval side finds inconsistent
+    // (version skew between the Workers, or a faulty upload Worker) is the
+    // same fault, persisted, and never clears it.
+    let mut lying = m.checked();
+    if let HeaderSeen::Checked { outcome, .. } = &mut lying
+        && let HeaderResult::Checked { content, .. } = &mut outcome.result
+    {
+        *content = "00".repeat(32);
+    }
+    assert_eq!(m.settle(&db, lying), Settled::Platform("header outcome content"));
+    assert_eq!(faults(&db), serde_json::json!([UPLOAD_FRONT_UNAVAILABLE]));
+    assert_eq!(
+        tx(&db, status).unwrap()["upload_path"]["front_error"],
+        serde_json::json!("header outcome content"),
+        "{}",
+        tx(&db, status).unwrap()["upload_path"]
+    );
+    // The boundary arrives: deferred; the canary retries each tick.
+    epoch(&db, 12, OPEN_BLOCK + 360, NOW + 20);
+    assert!(admitting(&db), "the front fault defers the close");
+    assert_eq!(state_of(&db, &m.session()), ("uploading".into(), None), "never the miner's");
+    assert_eq!(tx(&db, |s| canary_begin(s, NOW + 20)).unwrap(), Some(1));
+    // The canary's PUT passed but its link probe failed: still faulted.
+    assert!(!tx(&db, |s| canary_done(s, Err(CanaryFailure::Front("registration read")), NOW + 30)).unwrap());
+    assert_eq!(faults(&db), serde_json::json!([UPLOAD_FRONT_UNAVAILABLE]));
+    epoch(&db, 13, OPEN_BLOCK + 720, NOW + 40);
+    assert!(admitting(&db));
+    // A header settle the upload Worker answered clears it; the close waits
+    // for the first boundary after the clear, with its own canary.
+    assert_eq!(m.settle(&db, m.checked()), Settled::Recorded);
+    assert_eq!(faults(&db), serde_json::json!([]));
+    epoch(&db, 14, OPEN_BLOCK + 1080, NOW + 2 * TICK_MS);
+    assert!(tx(&db, |s| canary_begin(s, NOW + 2 * TICK_MS)).unwrap().is_some());
+    assert!(tx(&db, |s| canary_done(s, Ok(()), NOW + 2 * TICK_MS + 1)).unwrap());
+    assert_eq!(tx(&db, window).unwrap().unwrap().state, "closing");
+}
+
+/// Arena witnesses of admission v2 (`--features arena-witness`, one test
+/// thread): each route's heaviest native path at its bounds, under
+/// `Mode::Strict` in exactly its declared footprint (`arena_routes`). Each
+/// path runs once outside the witness first, so lazily built statics (the
+/// spec tables) are not counted as the route's.
+#[cfg(feature = "arena-witness")]
+mod witness {
+    use super::*;
+    use crate::arena_routes::{
+        ADMISSION_EVENT_BYTES, ADMISSION_STEP_BYTES, R_COHORT_ADMISSION, R_COHORT_SESSION, R_QUEUE_ADMISSION,
+        cohort_session_bytes,
+    };
+    use crate::arena_witness::witness;
+    use slop_ninja_arena::{Mode, admit_current_block, set_mode};
+
+    fn read_in(input: &[u8]) -> Vec<u8> {
+        assert_eq!(admit_current_block(input.len().max(1), 1), Ok(true));
+        let mut out = Vec::with_capacity(input.len().max(1));
+        out.extend_from_slice(input);
+        out
+    }
+
+    /// One session's whole life through the session operations: creation
+    /// and its mint, `urls` minting the spec's whole file table, `complete`
+    /// heading every file and building the spec-maximum files manifest, an
+    /// event's `observe`, and the manifest step.
+    fn session_ops(db: &Sqlite, m: &Miner, observed: bool) {
+        let body = m.upload.to_bytes().unwrap();
+        let mut r = m.signed(db, "POST", "/admission/v2/sessions", &body);
+        r.body = Some(hex::encode(&body));
+        let id = m.session();
+        let run = |f: &dyn Fn() -> usize| if observed { witness(R_COHORT_SESSION.route(), cohort_session_bytes(), f) } else { f() };
+        run(&|| {
+            let Step::Mint(job) = tx(db, |s| Ok::<_, EvalError>(create(s, &chain(), &r, NOW))).unwrap() else { panic!("mint") };
+            let reply = tx(db, |s| finish_mint(s, &job, Ok(minted(&job)), NOW)).unwrap();
+            serde_json::to_vec(&reply.body).unwrap().len()
+        });
+        assert_eq!(m.settle(db, m.checked()), Settled::Recorded);
+        let req = m.post(db, "urls");
+        run(&|| {
+            let Step::Mint(job) = tx(db, |s| Ok::<_, EvalError>(urls(s, &chain(), &req, &id))).unwrap() else { panic!("mint") };
+            assert_eq!(job.entries.len(), spec::ROLES.len(), "the whole file table");
+            let reply = tx(db, |s| finish_mint(s, &job, Ok(minted(&job)), NOW)).unwrap();
+            serde_json::to_vec(&reply.body).unwrap().len()
+        });
+        let req = m.post(db, "complete");
+        run(&|| {
+            let Step::Heads(probes) = tx(db, |s| Ok::<_, EvalError>(complete(s, &chain(), &req, &id))).unwrap() else { panic!("heads") };
+            let heads: Vec<(Probe, Head)> = probes.into_iter().map(|p| {
+                let h = stored(p.sha256, p.len, &etag_of(&p));
+                (p, h)
+            }).collect();
+            tx(db, |s| apply_heads(s, &heads, Recorder::Upload, NOW)).unwrap();
+            let reply = tx(db, |s| Ok::<_, EvalError>(complete_reply(s, &id))).unwrap().unwrap();
+            serde_json::to_vec(&reply.body).unwrap().len()
+        });
+        let key = m.job().key;
+        run(&|| match tx(db, |s| observe(s, &key)).unwrap() {
+            Observed::Nothing | Observed::Heads(_) => 0,
+            other => panic!("{other:?}"),
+        });
+        let step = || {
+            let (_, bytes) = tx(db, |s| manifest_due(s, &id)).unwrap().unwrap();
+            bytes.len()
+        };
+        if observed { witness(R_COHORT_ADMISSION, ADMISSION_STEP_BYTES, step) } else { step() };
+    }
+
+    #[test]
+    fn arena_witness_admission_session_operations_fit() {
+        set_mode(Mode::Enforce);
+        let db = db_with_open_cohort(4);
+        let warm = miner(1, 3, 1, 0x11);
+        warm.commit(&db, OPEN_BLOCK + 1, 0);
+        session_ops(&db, &warm, false);
+        let m = miner(2, 4, 1, 0x12);
+        m.commit(&db, OPEN_BLOCK + 2, 0);
+        session_ops(&db, &m, true);
+    }
+
+    /// The alarm's admission steps at their bounds: a sweep with
+    /// `R2_CALLS_PER_STEP` probes, and a reconciliation listing page of the
+    /// platform's 1,000 keys at R2's key length.
+    #[test]
+    fn arena_witness_admission_steps_fit_at_their_bounds() {
+        set_mode(Mode::Enforce);
+        let db = db_with_open_cohort(4);
+        let m = miner(1, 3, 1, 0x11);
+        m.commit(&db, OPEN_BLOCK + 1, 0);
+        m.create(&db);
+        assert_eq!(m.settle(&db, m.checked()), Settled::Recorded);
+        let req = m.post(&db, "urls");
+        drive(&db, tx(&db, |s| Ok::<_, EvalError>(urls(s, &chain(), &req, &m.session()))).unwrap());
+        // Copies of the session until the sweep has more unrecorded objects
+        // than one step heads.
+        let per = spec::ROLES.len();
+        let copies = R2_CALLS_PER_STEP.div_ceil(per) + 1;
+        tx(&db, |s| {
+            let id = SqlValue::Text(m.session());
+            s.exec(
+                "WITH RECURSIVE k(n) AS (SELECT 1 UNION ALL SELECT n + 1 FROM k WHERE n < ?)
+                 INSERT INTO adm_sessions (session, seq, cohort, hotkey, upload, commitment, content, header_sha256,
+                    header_len, state, stage, refusal, pos_block, pos_extrinsic, next_cohort, files, package_sha256,
+                    manifest_key, model_sha256, mints, url_until_ms, created_ms, updated_ms, cleaned, step_tries,
+                    step_after_ms, published)
+                 SELECT printf('%064d', k.n), seq, cohort, hotkey, upload, printf('%064d', k.n), content, header_sha256,
+                    header_len, state, stage, refusal, pos_block, pos_extrinsic, next_cohort, files, package_sha256,
+                    manifest_key, model_sha256, mints, url_until_ms, created_ms, updated_ms, cleaned, step_tries,
+                    step_after_ms, published FROM adm_sessions, k WHERE session = ?",
+                &[SqlValue::Integer(copies as i64), id.clone()],
+            )?;
+            s.exec(
+                "WITH RECURSIVE k(n) AS (SELECT 1 UNION ALL SELECT n + 1 FROM k WHERE n < ?)
+                 INSERT INTO adm_objects (session, kind, sha256, len, etag, missing, close_headed)
+                 SELECT printf('%064d', k.n), kind, sha256, len, etag, missing, close_headed FROM adm_objects, k
+                 WHERE session = ?",
+                &[SqlValue::Integer(copies as i64), id],
+            )?;
+            Ok::<_, EvalError>(())
+        })
+        .unwrap();
+        // Warm: one sweep outside the witness.
+        let warm = tx(&db, |s| sweep_begin(s, NOW + TICK_MS)).unwrap().unwrap();
+        assert_eq!(warm.heads.len(), R2_CALLS_PER_STEP, "the sweep stops at the step's call bound");
+        let probes = witness(R_COHORT_ADMISSION, ADMISSION_STEP_BYTES, || {
+            let sweep = tx(&db, |s| sweep_begin(s, NOW + 2 * TICK_MS)).unwrap().unwrap();
+            sweep.heads.len()
+        });
+        assert_eq!(probes, R2_CALLS_PER_STEP);
+        // A listing page: 1,000 keys at R2's key length (none parses, so
+        // each is returned for deletion: the largest answer).
+        let keys: Vec<String> = (0..1_000).map(|n| format!("{ADMISSION_PREFIX}{n:0>1011}")).collect();
+        assert!(keys.iter().all(|k| k.len() == 1_024));
+        let _ = tx(&db, |s| reconcile_page(s, &keys[..1], None, NOW)).unwrap();
+        let gone = witness(R_COHORT_ADMISSION, ADMISSION_STEP_BYTES, || {
+            tx(&db, |s| reconcile_page(s, &keys, Some(&"c".repeat(1_024)), NOW)).unwrap().len()
+        });
+        assert_eq!(gone, 1_000);
+    }
+
+    /// One admission event delivery at its bound: the message as read (at
+    /// `EVENT_MESSAGE_BYTES`) and its parse.
+    #[test]
+    fn arena_witness_an_admission_event_fits() {
+        set_mode(Mode::Enforce);
+        let key = format!("{ADMISSION_PREFIX}c1/{}/h", "ab".repeat(32));
+        let base = serde_json::json!({"account": "a", "action": "PutObject", "bucket": "b",
+            "object": {"key": key, "size": 1, "eTag": "e"}, "eventTime": "t", "copySource": {"bucket": "", "object": ""}})
+            .to_string();
+        let pad = EVENT_MESSAGE_BYTES - base.len();
+        let msg = base.replacen(r#""bucket":"""#, &format!(r#""bucket":"{}""#, "x".repeat(pad)), 1);
+        assert_eq!(msg.len(), EVENT_MESSAGE_BYTES);
+        let _ = event_key(&msg);
+        let got = witness(R_QUEUE_ADMISSION, ADMISSION_EVENT_BYTES, || {
+            let read = read_in(msg.as_bytes());
+            let text = String::from_utf8(read).unwrap();
+            event_key(&text).map(|k| k.len())
+        });
+        assert_eq!(got, Some(key.len()));
+    }
 }

@@ -31,6 +31,12 @@ fn lib() -> Option<String> {
     lib
 }
 
+/// The test's own digest of an artifact's `contract.json` (in production the
+/// header carries it, verified by the object store at upload).
+fn contract_sha(dir: &Path) -> String {
+    sha256_hex(&fs::read(dir.join("contract.json")).unwrap())
+}
+
 fn scratch(tag: &str) -> PathBuf {
     let d = std::env::temp_dir().join(format!("a-engine-{tag}-{}", std::process::id()));
     let _ = fs::remove_dir_all(&d);
@@ -354,7 +360,8 @@ fn admission_refuses_a_synthetic_graph_before_onnx_runtime() {
     // Not an allow-listed class: refused by length, with no library loaded at all.
     let dir = artifact("admission", Form::Plain, &weights(1e-3), false, false);
     let spec = a_container_serve::engine::NEWEST_SPEC;
-    let e = Model::load(&dir, spec, GRAPH, 1, 1, "/nonexistent/libonnxruntime.so").err().unwrap();
+    let header = a_container_serve::engine::header_of_dir(&dir).unwrap();
+    let e = Model::load(&dir, &header, spec, GRAPH, 1, 1, "/nonexistent/libonnxruntime.so").err().unwrap();
     let msg = format!("{e:#}");
     assert!(msg.starts_with("refused "), "{msg}");
     fs::remove_dir_all(&dir).unwrap();
@@ -365,7 +372,7 @@ fn plain_document_outputs_equal_the_heads_on_the_graph_outputs_and_ignore_batchi
     let Some(lib) = lib() else { return };
     let wt = weights(1e-3);
     let dir = artifact("plain", Form::Plain, &wt, false, false);
-    let model = Model::load_without_admission(&dir, GRAPH, 3, 1, &lib).unwrap();
+    let model = Model::load_without_admission(&dir, &contract_sha(&dir), GRAPH, 3, 1, &lib).unwrap();
     assert!(!model.emits_spans());
     let h = heads(&dir);
     let alone: Vec<Value> = DOCS.iter().enumerate().map(|(i, d)| model.score(&i.to_string(), d)).collect();
@@ -408,7 +415,7 @@ fn an_artifact_that_overflows_on_the_warm_up_document_fails_to_load() {
     wt.w = vec![3.0e38; N];
     let dir = artifact("overflow", Form::Plain, &wt, false, false);
     // Warm-up runs a document too, so the load itself fails.
-    let e = Model::load_without_admission(&dir, GRAPH, 1, 1, &lib).err().unwrap();
+    let e = Model::load_without_admission(&dir, &contract_sha(&dir), GRAPH, 1, 1, &lib).err().unwrap();
     assert!(format!("{e:#}").contains("invalid h"), "{e:#}");
     fs::remove_dir_all(&dir).unwrap();
 }
@@ -422,7 +429,7 @@ fn an_artifact_that_loads_and_overflows_on_every_document_fails_each_as_a_model_
     let mut wt = weights(3.0e38);
     wt.shift = warm;
     let dir = artifact("overflow-docs", Form::Plain, &wt, false, false);
-    let model = Model::load_without_admission(&dir, GRAPH, 2, 1, &lib).unwrap();
+    let model = Model::load_without_admission(&dir, &contract_sha(&dir), GRAPH, 2, 1, &lib).unwrap();
     for (i, d) in DOCS.iter().enumerate() {
         let r = model.score(&i.to_string(), d);
         assert_eq!((r["status"].as_str(), r["reason"].as_str()), (Some("error"), Some("model")), "{r}");
@@ -438,7 +445,7 @@ fn a_heads_v2_token_head_reads_the_final_norm_states_and_emits_spans() {
     let Some(lib) = lib() else { return };
     let wt = weights(1e-3);
     let dir = artifact("token-head", Form::TokenHead, &wt, true, false);
-    let model = Model::load_without_admission(&dir, GRAPH, 2, 1, &lib).unwrap();
+    let model = Model::load_without_admission(&dir, &contract_sha(&dir), GRAPH, 2, 1, &lib).unwrap();
     assert!(model.emits_spans());
     assert!(model.needs.token_states && !model.needs.tower_states);
     let h = heads(&dir);
@@ -475,7 +482,7 @@ fn a_heads_v3_token_head_reads_the_span_tower_states() {
     let Some(lib) = lib() else { return };
     let wt = weights(1e-3);
     let dir = artifact("tower", Form::Tower, &wt, true, true);
-    let model = Model::load_without_admission(&dir, GRAPH, 1, 1, &lib).unwrap();
+    let model = Model::load_without_admission(&dir, &contract_sha(&dir), GRAPH, 1, 1, &lib).unwrap();
     assert!(model.needs.tower_states && !model.needs.token_states);
     let h = heads(&dir);
     for (i, d) in DOCS.iter().enumerate() {
@@ -505,7 +512,7 @@ fn a_graph_without_the_states_its_heads_read_is_refused_at_load() {
         ("no-tower-states", Form::Tower, true, false, TOWER_STATES),
     ] {
         let dir = artifact(tag, form, &wt, token_states, tower);
-        let e = Model::load_without_admission(&dir, GRAPH, 1, 1, &lib).err().unwrap();
+        let e = Model::load_without_admission(&dir, &contract_sha(&dir), GRAPH, 1, 1, &lib).err().unwrap();
         assert!(format!("{e:#}").contains(missing), "{e:#}");
         fs::remove_dir_all(&dir).unwrap();
     }
@@ -534,7 +541,7 @@ fn the_load_guard_binds_the_export_to_its_heads() {
         edit(&mut m, &mut c, &mut w);
         fs::write(dir.join("manifest.json"), serde_json::to_vec(&m).unwrap()).unwrap();
         fs::write(dir.join("calibration.json"), serde_json::to_vec(&c).unwrap()).unwrap();
-        let e = Model::load_without_admission(&dir, GRAPH, 1, 1, "/nonexistent/libonnxruntime.so").err().unwrap();
+        let e = Model::load_without_admission(&dir, &contract_sha(&dir), GRAPH, 1, 1, "/nonexistent/libonnxruntime.so").err().unwrap();
         assert!(format!("{e:#}").contains(want), "{tag}: {e:#}");
         fs::remove_dir_all(&dir).unwrap();
     }
@@ -564,7 +571,7 @@ fn per_document_results_are_content_free() {
     let wt = weights(1e-3);
     for (tag, form, token_states) in [("cf-plain", Form::Plain, false), ("cf-token", Form::TokenHead, true)] {
         let dir = artifact(tag, form, &wt, token_states, false);
-        let model = Model::load_without_admission(&dir, GRAPH, 1, 1, &lib).unwrap();
+        let model = Model::load_without_admission(&dir, &contract_sha(&dir), GRAPH, 1, 1, &lib).unwrap();
         for text in texts {
             for spans in [false, true] {
                 let r = model.score_with(id, text, spans);
@@ -600,4 +607,35 @@ fn per_document_results_are_content_free() {
         }
         fs::remove_dir_all(&dir).unwrap();
     }
+}
+
+/// The scorer's load path takes the header's digest of `contract.json`
+/// (`guard_verified`) instead of hashing it; the release guard every spec pins
+/// by source (`guard`) stays unchanged. The two differ in exactly the
+/// signature and the digest's source, so their checks are the same.
+#[test]
+fn the_load_guard_differs_from_the_pinned_guard_only_in_the_digest_source() {
+    let src = include_str!("../src/engine.rs");
+    let body = |sig: &str| -> Vec<&str> {
+        let at = src.find(sig).unwrap();
+        let mut lines = Vec::new();
+        for l in src[at..].lines() {
+            lines.push(l);
+            if l == "}" {
+                break;
+            }
+        }
+        lines
+    };
+    let pinned = body("pub fn guard(dir: &Path)");
+    let verified = body("pub fn guard_verified(dir: &Path, contract_sha256: &str)");
+    assert_eq!(pinned.len(), verified.len());
+    let differ: Vec<(&str, &str)> = pinned.iter().zip(&verified).filter(|(a, b)| a != b).map(|(a, b)| (*a, *b)).collect();
+    assert_eq!(
+        differ,
+        vec![
+            ("pub fn guard(dir: &Path) -> Result<(Vec<u8>, Value)> {", "pub fn guard_verified(dir: &Path, contract_sha256: &str) -> Result<(Vec<u8>, Value)> {"),
+            ("    let ch = sha(&cb);", "    let ch = contract_sha256.to_owned();"),
+        ]
+    );
 }

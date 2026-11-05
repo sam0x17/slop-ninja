@@ -924,5 +924,13 @@ pub const EVAL_COHORT_SCHEMA: Schema = Schema {
             version: 24,
             statements: crate::eval::engine::SCHEMA_V24,
         },
+        // v25: admission contract v2 in place: direct uploads to R2 under
+        // presigned URLs, recorded from R2's stored checksum (no framing,
+        // blobs or dispatches), the objects, the mint aggregate, the
+        // upload-path faults and the close sweep.
+        Migration {
+            version: 25,
+            statements: crate::eval::admission::SCHEMA_V25,
+        },
     ],
 };

@@ -8,7 +8,7 @@ contract it implements. The validator fetcher reads only the authorization
 pointer and the signed objects it names
 ([What a validator checks](#what-a-validator-checks)). The miner client's
 `status` and `next-cohort` (with `--public`; without it they read the
-coordinator's unsigned cohort read, `GET /admission/v1/cohort`) read these
+coordinator's unsigned cohort read, `GET /admission/v2/cohort`) read these
 paths.
 
 **State: not yet live.** The publisher is built and tested, but not
@@ -84,19 +84,21 @@ the host's base URL.
 | `v1/status.json` | The status snapshot (unsigned), schema `slop_ninja.public.status/v1` | every run (one a minute) |
 | `v1/cohorts/index.json` | The cohort index, schema `slop_ninja.public.cohort_index/v1` | when a cohort is published or an artifact lands |
 | `v1/cohorts/<label>/summary.json` | One closed cohort's quantized summary, schema `slop_ninja.public.cohort_summary/v3` (below) | never, once listed |
+| `v1/cohorts/<label>/artifacts.json` | Publication at scoring start: each roster entry's artifact state, header digest and published keys, schema `slop_ninja.public.artifacts/v1` | from scoring start until every entry is decided |
 | `v1/cohorts/<label>/publication.json` | The publisher's record of the cohort, schema `slop_ninja.public.publication/v1` | when an artifact lands |
 | `v1/leaderboard.json` | The newest cohort's leaderboard, schema `slop_ninja.public.leaderboard/v4` | when a cohort closes or an artifact lands |
 | `v1/reference/current.json`, `v1/reference/previous.json` | `R_k` and `R_k-1` after the newest cohort's close, schema `slop_ninja.public.reference/v1` | when a cohort closes |
 | `v1/reference/packages/<sha256>/...` | One staged [reference package](reference-packages.md), named by its parts manifest's SHA-256: `artifact-files.json`, `parts/<sha256>`, `package.json`, `NOTICE.md`, `upstream/` and `reference/`, and for `R_0` its training companion `training/` | never, once staged |
-| `v1/artifacts/<sha256>.bin` | An admitted outside entrant's artifact object, named by its SHA-256 | never, once written |
+| `artifacts/v2/<sha256>/header` | An admitted entrant's artifact header (the file table), named by its SHA-256, the digest the cohort's result names | never, once written |
+| `blobs/sha256/<sha256>` | One artifact file, named by its SHA-256 and shared by every artifact that lists it | never, once written |
 | `v1/authorizations/current.json` | The authorization validators commit under now, any renew-by hint refresh, the revocation set and the coordinator's signed row, schema `slop_ninja.public.authorization/v2` | when the coordinator installs an authorization, journals a revocation or signs a row |
 | `v1/authorizations/<sha256>.signed` | One signed authorization, refresh, revocation set or coordinator row, named by its SHA-256 | never, once written |
 | `v1/trust/testnet-trust.json` | The trust roots, byte-identical to the release's file | when the roots rotate (decision D20) |
 
 ### One cohort: `v1/cohorts/<label>/`
 
-A listed cohort's directory holds `summary.json` and `publication.json`
-only. The coordinator keeps its other records private, under the same
+A listed cohort's directory holds `summary.json` and `publication.json`,
+and `artifacts.json` from scoring start (below), only. The coordinator keeps its other records private, under the same
 names in the private receipts bucket at `cohorts/<label>/`:
 
 | Object | Record | Read by the publisher |
@@ -205,43 +207,65 @@ highest `q` at or above the cutoff) and the cohort's `quantization` block.
 the newest cohort's `quantization` block, its references with their `q`,
 and its entrants as the summary lists them.
 
-### Artifacts: `v1/artifacts/<sha256>.bin`
+### Artifacts: `artifacts/v2/<sha256>/header` and `blobs/sha256/<sha256>`
 
-Artifacts that outside miners uploaded through the admission route are
-published after their cohort closes, under the CC BY-SA 4.0 submission terms.
-Each file is named by the SHA-256 that the cohort's result names
-(`ResultEntrant::artifact`). The destination bucket checks that digest on
-write. Check it again after you download the file.
+Every admitted entrant's artifact is published when its cohort's scoring
+starts (the roster is sealed and the coordinator's signed manifest written),
+under the CC BY-SA 4.0 submission terms. An artifact is its header (the file
+table: the output contract and each file's name, role, SHA-256 and length)
+and its files:
 
-Publication is default-deny. The publisher copies an artifact only when the
-coordinator's private eval bucket holds that entrant's upload envelope (the
-protocol's `SubmissionUpload`) and the envelope names this chain and cohort,
-the entrant's hotkey and registration, its committed content, commitment and
-object, and the nonce the signed closure published. Before that check, it
-withholds for good an artifact that:
+- the header is at `artifacts/v2/<header sha256>/header`; its SHA-256 is the
+  digest the cohort's result names (`ResultEntrant::artifact`), and its derived
+  inference content is the content the entrant's commitment binds;
+- each file is at `blobs/sha256/<file sha256>`, stored once however many
+  artifacts list it (the pinned tokenizer, for example).
+
+The files of an artifact are copied before its header, so a published header
+names files that are already public. The copies come from the private
+admission bucket, where miners upload the header and each file directly with
+presigned URLs and R2 verifies each against its committed SHA-256 as it
+arrives. Publication hashes nothing: the publisher compares R2's stored
+checksums and sizes with the header, and each public copy is checked the same
+way: the default server-side `CopyObject` (metadata replaced) keeps the
+source's etag but not its stored checksum, so it is checked by its size and by
+etag equality with the admitted source, whose SHA-256 R2 verified at upload;
+the fallback, a binding stream, is verified by R2 against the digest and
+checked by its stored SHA-256. To check an artifact yourself, hash the header
+you downloaded, then each file against the digest the header lists.
+
+The publisher withholds, for good and before anything is copied, an artifact
+that:
 
 - belongs to an operator or synthetic hotkey;
-- is a listed reference digest;
+- has a listed reference digest (header or content);
 - is an initial reference (`R_0` or its single replacement) that any
   manifest named, even after the manifest chain stopped naming it (the index
   lists them in `initial_references`). References are published as reference
-  packages instead, never as entrant artifacts;
-- failed the public-copy gate;
-- is in a near-copy cluster with an artifact withheld for one of the
-  reasons above. The whole cluster is withheld, whichever member is its
-  head, so the reasons never single out its first member in q-rank. Retries
-  apply this to pending members too. A member withheld only after its
-  siblings were published does not withdraw them: a published object is
-  never recalled.
+  packages instead, never as entrant artifacts.
 
-Each entrant's artifact has one of three states in `publication.json`, in
-`leaderboard.json` and as counts in the index entry:
+Scores do not exist at scoring start, so no score-dependent rule (the
+public-copy gate, near-copy clusters) decides publication. A published object
+is never recalled.
+
+`v1/cohorts/<label>/artifacts.json` (`slop_ninja.public.artifacts/v1`)
+records publication at scoring start, one entry per roster entry in roster
+order: `uid`, `hotkey` (SS58), `commitment`, `state`, `header` (the header's
+SHA-256), `path` (the header key), `reason`, and `files` (each `sha256`,
+`bytes`, `path` and `check`: `sha256` when the public copy carries R2's
+checksum, `etag` when only its etag ties it to the R2-verified source). The
+top level names the `cohort`, `label`, `publisher` build and `copy` mode
+(`stream` or `server`).
+
+After the cohort closes, each entrant's artifact has one of three states in
+`publication.json`, in `leaderboard.json` and as counts in the index entry,
+taken from the scoring-start record:
 
 | State | Meaning |
 | --- | --- |
-| `published` | The object is at its path and matches the result's SHA-256. |
-| `pending` | Not copied yet, with a reason. The object is not in the eval bucket yet, the admission object layout is not configured yet, the store did not answer, the run reached its wall budget, or (on a retry) the cohort summary that names its near-copy clusters is not readable. Later runs retry and repeat the checks above. |
-| `withheld` | Never published, with the reason from the list above, or: no outside admission record, or a record that does not match the entrant. |
+| `published` | Published at scoring start, at `path` (the header key), and its header is the one the result names by digest. |
+| `pending` | Not published yet, with a reason: an upload not in the admission bucket, a store that did not answer, the run's wall budget, publication at scoring start not enabled, or an integrity fault (alerted) such as a header the result does not name. Later runs settle it again. |
+| `withheld` | Never published, with the reason from the list above. |
 
 An artifact entry also carries the entrant's 64-hex hotkey, registration
 block, commitment and opening nonce, as the signed result and closure state
@@ -368,7 +392,7 @@ copies anything.
 ## The status snapshot: `v1/status.json`
 
 The snapshot is unsigned and is information only. The coordinator's
-`GET /admission/v1/cohort` is authoritative for uploads. The fields that the
+`GET /admission/v2/cohort` is authoritative for uploads. The fields that the
 miner client reads ([admission API](admission-api.md), section 10):
 
 ```json

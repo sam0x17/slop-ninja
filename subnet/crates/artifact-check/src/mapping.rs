@@ -1,142 +1,32 @@
-//! The artifact object and its exact mapping to the scorer's parts manifest.
+//! The artifact object's header checks and the whole-object check.
 //!
 //! **Object.** The protocol artifact object, `u32_le(len(H)) || H || files`,
 //! with header `H` an `artifact-header` v1 record: contract
 //! [`spec::CONTRACT_ID`] and exactly the six files of [`spec::ROLES`], sorted
 //! by name. Its inference-content digest is what a miner commits.
 //!
-//! **Parts manifest.** `slop_ninja_a_artifact_files_v1`, as the scorer parses
-//! it (`inference/a-container-serve/src/artifact.rs`). It is a function of
-//! the object and its graph class only:
-//!
-//! - `schema`: [`spec::PARTS_SCHEMA`];
-//! - `profile_id`: `"<spec id>/<graph class id>"`;
-//! - `contract`: the header's contract;
-//! - `graph`: [`spec::GRAPH_FILE`];
-//! - `files`: in file-table order (the scorer's file order), each with the
-//!   header's name, size and SHA-256, the role string of the file table, and
-//!   its parts: consecutive slices of [`spec::PART_BYTES`] (the last one
-//!   shorter), each with its SHA-256 and size;
-//! - bytes: `serde_json` pretty printing with a final newline, as the scorer's
-//!   packer writes them. The package digest is the SHA-256 of those bytes.
-//!
-//! The scorer accepts at most [`spec::MAX_PARTS_PER_FILE`] parts per file and
-//! a manifest of at most [`spec::MAX_MANIFEST_BYTES`]; [`check_header`]
-//! refuses a file the mapping could not express, before any byte is read.
+//! [`check_header_for`] decides everything a header alone can, before any
+//! file byte. [`ObjectCheck`] streams a whole reassembled object for tools
+//! that hold one (the command-line `check-object`, tests); admission and
+//! scoring never use it: they check the files of a store-verified header
+//! with [`crate::files`], hashing nothing.
 
 use serde::Serialize;
-use sha2::{Digest as _, Sha256};
 use slop_ninja_protocol::{ArtifactHeader, ArtifactReader, FileRole, Record};
 
 use crate::Refusal;
 use crate::onnx::{GraphReport, GraphScan};
-use crate::roles::{RoleFiles, RolesReport, check_roles_with, check_tokenizer};
+use crate::roles::{RoleDigests, RoleFiles, RolesReport, check_roles_with, check_tokenizer};
 use crate::spec::{self, GraphClass, Version};
 
-#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
-pub struct Part {
-    pub sha256: String,
-    pub bytes: u64,
-}
-
-#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
-pub struct PartsFile {
-    pub name: String,
-    pub role: String,
-    pub bytes: u64,
-    pub sha256: String,
-    pub parts: Vec<Part>,
-}
-
-/// The scorer's `ArtifactFiles`, field for field and in the same order.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
-pub struct PartsManifest {
-    pub schema: String,
-    pub profile_id: String,
-    pub contract: String,
-    pub graph: String,
-    pub files: Vec<PartsFile>,
-}
-
-impl PartsManifest {
-    /// The manifest bytes the scorer receives; their SHA-256 is the package digest.
-    pub fn to_bytes(&self) -> Vec<u8> {
-        let mut bytes = serde_json::to_vec_pretty(self).expect("manifest serializes");
-        bytes.push(b'\n');
-        bytes
-    }
-}
-
-/// Profile id of a graph class in the parts manifest (spec v1).
+/// Profile id of a graph class (spec v1).
 pub fn profile_id(class: &GraphClass) -> String {
     profile_id_for(class, Version::V1)
 }
 
-/// Profile id of a graph class in the parts manifest of `version`.
+/// Profile id of a graph class under `version`.
 pub fn profile_id_for(class: &GraphClass, version: Version) -> String {
     format!("{}/{}", version.id(), class.id)
-}
-
-/// Builds the parts manifest from a checked header, the part digests of each
-/// header file (in header order) and the graph class.
-pub fn parts_manifest(
-    header: &ArtifactHeader,
-    parts: &[Vec<Part>],
-    profile_id: &str,
-) -> Result<PartsManifest, Refusal> {
-    parts_manifest_for(header, parts, profile_id, Version::V1)
-}
-
-/// [`parts_manifest`] for a header checked under `version`.
-pub fn parts_manifest_for(
-    header: &ArtifactHeader,
-    parts: &[Vec<Part>],
-    profile_id: &str,
-    version: Version,
-) -> Result<PartsManifest, Refusal> {
-    check_header_for(header, version)?;
-    if parts.len() != header.files.len() {
-        return Err(Refusal::Object("part list per file".into()));
-    }
-    let mut files = Vec::new();
-    for role in &spec::ROLES {
-        let (i, f) = header
-            .files
-            .iter()
-            .enumerate()
-            .find(|(_, f)| f.name == role.name)
-            .ok_or(Refusal::MissingFile(role.name))?;
-        let total: u64 = parts[i].iter().map(|p| p.bytes).sum();
-        if total != f.len
-            || parts[i].is_empty()
-            || parts[i].len() as u64 > spec::MAX_PARTS_PER_FILE
-            || parts[i]
-                .iter()
-                .any(|p| p.bytes == 0 || p.bytes > spec::PART_BYTES)
-        {
-            return Err(Refusal::Object(format!("{}: parts", f.name)));
-        }
-        files.push(PartsFile {
-            name: f.name.clone(),
-            role: role.scorer_role.into(),
-            bytes: f.len,
-            sha256: hex::encode(f.sha256.0),
-            parts: parts[i].clone(),
-        });
-    }
-    let m = PartsManifest {
-        schema: spec::PARTS_SCHEMA.into(),
-        profile_id: profile_id.into(),
-        contract: header.contract.clone(),
-        graph: spec::GRAPH_FILE.into(),
-        files,
-    };
-    if m.to_bytes().len() as u64 > spec::MAX_MANIFEST_BYTES {
-        return Err(Refusal::Object(
-            "parts manifest past the scorer's manifest limit".into(),
-        ));
-    }
-    Ok(m)
 }
 
 /// The file-table checks a header alone decides (spec v1): the contract,
@@ -259,10 +149,8 @@ pub struct ObjectReport {
     pub roles: RolesReport,
     /// Graph plus head parameters.
     pub parameters: u64,
-    /// SHA-256 of the parts manifest bytes.
-    pub package_sha256: String,
-    #[serde(skip)]
-    pub parts_manifest: PartsManifest,
+    /// `"<spec id>/<graph class id>"`.
+    pub profile_id: String,
 }
 
 /// Index of the JSON role buffers.
@@ -273,10 +161,11 @@ const JSON_ROLES: [&str; 4] = [
     "manifest.json",
 ];
 
-/// Streams a whole artifact object and runs every check of the spec.
+/// Streams a whole artifact object and runs every check of the spec. A tool
+/// check: the protocol reader verifies the object and every file against
+/// the header as it streams.
 ///
-/// Memory: the header, the four JSON role files, one part hasher and the
-/// graph walk. The graph and tokenizer are never buffered. Each JSON role
+/// Memory: the header, the four JSON role files and the graph walk. The graph and tokenizer are never buffered. Each JSON role
 /// file is buffered at exactly its declared length ([`json_buffer_bytes`]),
 /// allocated with `try_reserve_exact` when its first byte arrives; a caller
 /// with a memory budget passes it to [`ObjectCheck::with_json_budget`] and
@@ -291,9 +180,6 @@ pub struct ObjectCheck {
     header: Option<ArtifactHeader>,
     index: usize,
     remaining: u64,
-    part: Sha256,
-    part_len: u64,
-    parts: Vec<Vec<Part>>,
     graph: Option<GraphScan<'static>>,
     graph_report: Option<GraphReport>,
     json: [Vec<u8>; 4],
@@ -323,9 +209,6 @@ impl ObjectCheck {
             header: None,
             index: 0,
             remaining: 0,
-            part: Sha256::new(),
-            part_len: 0,
-            parts: Vec::new(),
             graph: None,
             graph_report: None,
             json: Default::default(),
@@ -421,7 +304,6 @@ impl ObjectCheck {
                 return Err(Refusal::JsonBudget { need, budget });
             }
         }
-        self.parts = vec![Vec::new(); header.files.len()];
         self.index = 0;
         self.remaining = header.files.first().map_or(0, |f| f.len);
         self.head = Vec::new();
@@ -455,11 +337,8 @@ impl ObjectCheck {
                 return Err(Refusal::Object("bytes after the last file".into()));
             };
             let name = f.name.clone();
-            let to_part = spec::PART_BYTES - self.part_len;
-            let take = self.remaining.min(to_part).min(rest.len() as u64) as usize;
+            let take = self.remaining.min(rest.len() as u64) as usize;
             let bytes = &rest[..take];
-            self.part.update(bytes);
-            self.part_len += take as u64;
             if name == spec::GRAPH_FILE {
                 self.graph.as_mut().expect("graph walk").update(bytes)?;
             } else if let Some(j) = JSON_ROLES.iter().position(|n| *n == name) {
@@ -474,14 +353,6 @@ impl ObjectCheck {
             }
             self.remaining -= take as u64;
             rest = &rest[take..];
-            if self.part_len == spec::PART_BYTES || self.remaining == 0 {
-                let digest = std::mem::take(&mut self.part).finalize();
-                self.parts[self.index].push(Part {
-                    sha256: hex::encode(digest),
-                    bytes: self.part_len,
-                });
-                self.part_len = 0;
-            }
             if self.remaining == 0 {
                 if name == spec::GRAPH_FILE {
                     let scan = self.graph.take().expect("graph walk");
@@ -533,12 +404,14 @@ impl ObjectCheck {
             return Err(Refusal::GraphClassNotServed(class.id));
         }
         let [heads, contract, calibration, manifest] = &self.json;
+        let hex = RoleDigests::hex_of(&header)?;
         let roles = check_roles_with(
             &RoleFiles {
                 heads,
                 contract,
                 calibration,
                 manifest,
+                digests: RoleDigests::of(&hex),
             },
             Some(class),
             self.version,
@@ -551,13 +424,6 @@ impl ObjectCheck {
                 max: class.max_parameters,
             });
         }
-        let parts_manifest = parts_manifest_for(
-            &header,
-            &self.parts,
-            &profile_id_for(class, self.version),
-            self.version,
-        )?;
-        let package_sha256 = crate::sha256_hex(&parts_manifest.to_bytes());
         Ok(ObjectReport {
             spec: self.version.id(),
             object_sha256: hex::encode(verified.sha256.0),
@@ -567,8 +433,7 @@ impl ObjectCheck {
             graph,
             roles,
             parameters,
-            package_sha256,
-            parts_manifest,
+            profile_id: profile_id_for(class, self.version),
         })
     }
 }

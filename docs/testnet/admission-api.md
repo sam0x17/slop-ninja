@@ -1,71 +1,90 @@
-# Admission API (testnet, contract `slop_ninja.admission/v1`)
+# Admission API (testnet, contract `slop_ninja.admission/v2`)
 
 This is the contract between the coordinator's admission routes and the miner
 client `slop_ninja_miner` (`subnet/crates/miner`). It covers the on-chain
-commitment and how the coordinator reads it, the hotkey-signed upload into the
-coordinator's private upload bucket, the admission cutoff, the
-one-artifact-per-hotkey rule, the status endpoints and the error codes. It
-applies to testnet subnet 601.
+commitment and how the coordinator reads it, the hotkey-signed sessions, the
+direct upload of every artifact object to the coordinator's private R2 bucket
+under presigned URLs, the admission cutoff, the one-artifact-per-hotkey rule,
+the status endpoints and the error codes. It applies to testnet subnet 601.
+
+**Two rules shape version 2** (user direction, 2026-11-04):
+
+- **Every artifact is hashed once.** The miner hashes each file once, at
+  `pack`, to build the header the commitment binds. R2 verifies each uploaded
+  object against that committed SHA-256 as the bytes arrive and stores
+  nothing on a mismatch. No Slop Ninja Worker, Durable Object or Container
+  hashes a model byte: admission compares R2's stored checksum and size with
+  the header, and every later reader takes the header's digests.
+- **No upload byte passes through any Slop Ninja Worker.** The header and
+  each file go straight to R2 as one presigned `PutObject` each. The public
+  upload Worker takes only signed session requests (each at most one
+  `SubmissionUpload` record) and holds no key and no R2 binding.
 
 It is built on the protocol crate's submission types in
 `subnet/crates/protocol/src/submission.rs` and the artifact object in
-`subnet/crates/protocol/src/artifact.rs`:
-`SubmissionOpening`, `SubmissionUpload`, `FinalizedCommitment`, `RosterEntry`,
-`ArtifactReader` and `VerifiedArtifact`. Nothing here changes those types. The
-artifact checks are those of the *A* artifact spec
+`subnet/crates/protocol/src/artifact.rs`: `SubmissionOpening`,
+`SubmissionUpload` (record version 2), `FinalizedCommitment`, `RosterEntry` and
+`VerifiedHeader`. The artifact checks are those of the *A* artifact spec
 (`docs/testnet/artifact-spec.md`, crate `slop_ninja_artifact_check`).
 
-The byte-level helpers below (request message, route parser, session id, part
-plan, error codes, response limit) are implemented once in the crate
-`slop-ninja-admission-wire` (`subnet/crates/miner/wire`). It performs no I/O and
-keeps no global state. Its arena-safe items (the request message, the borrowed
-route parser `Route::parse`, the `path::write_*` writers, `PartPlan`, the codes,
-the header parsers and `response_limit`) allocate nothing and build for
-`wasm32-unknown-unknown`, so Workers code can use them inside a bounded memory
-arena. Its owned JSON shapes (feature `json`) allocate; they serve the native
-client and the test mock.
+The byte-level helpers below (request message, route parser, session id,
+error codes, response limit) are implemented once in the crate
+`slop-ninja-admission-wire` (`subnet/crates/miner/wire`). The presigned URL
+form, the object keys and the URL policy are in `slop-ninja-r2-presign`
+(`subnet/crates/r2-presign`). Neither performs I/O or keeps global state; their
+arena-safe items allocate nothing and build for `wasm32-unknown-unknown`.
 
-Status: the miner client implements this contract and is tested against a local
-mock of it. The coordinator implements it on two Workers, tested natively and
-for wasm32:
+Status (2026-11-04): this text is the version 2 contract. The wire crate, the
+front gate (`slop_ninja_admission_gate`), the presigner and the internal signer
+Worker (`subnet/r2-signer`) implement it; the cohort authority, the upload
+Worker's v2 routes and the miner client's direct upload are being rebuilt on
+it (branch `subnet-testnet/direct-r2-upload`), and nothing of version 2 is
+deployed. Three Workers take part:
 
 - the **upload Worker** `slop-ninja-admission-testnet`
   (`subnet/admission-worker`), served at `https://testnet-admission.slop.ninja`,
-  takes every public request. It holds no signing key. It checks each request
-  (signature, registration on the subnet, body bounds) before anything else,
-  streams parts into a private upload bucket, and frames uploaded objects;
+  takes every public request. It holds no key and no R2 binding. It checks each
+  request (signature, registration on the subnet, body bounds) before anything
+  else, and decodes uploaded headers for the cohort authority on an internal
+  route;
 - the **eval Worker** (`subnet/coordinator/src/eval/admission.rs`,
   `commitments.rs`, `calendar.rs` and `src/cf_admission.rs`) holds the package
-  and receipt keys and the cohort state. It serves no public admission route.
-  The upload Worker reaches it only through a service binding (section 13).
+  and receipt keys and the cohort state. It serves no public admission route;
+- the **signer Worker** `slop-ninja-r2-signer-testnet` (`subnet/r2-signer`)
+  holds the one R2 S3 credential, scoped to the admission bucket, and presigns
+  the uploads. It has no route and no `workers.dev` name; only the eval Worker
+  can call it, through a service binding.
 
-Every value under "Parameters" is announced by the
-coordinator rather than assumed by the client: each is a parameter of the
-cohort's frozen plan (its `admission` block) or derived from the plan's
-artifact spec. Section 13 lists where the implementation refines this text.
+Every value under "Parameters" is announced by the coordinator rather than
+assumed by the client: each is a parameter of the cohort's frozen plan (its
+`admission` block), derived from the plan's artifact spec, or the versioned
+upload URL policy.
 
 ## 1. Flow
 
 1. `next-cohort` reads the public status snapshot with `--public` (section
    10); otherwise the coordinator's unsigned cohort read (`GET
-   /admission/v1/cohort`). It reports the admitting cohort, or the next one
+   /admission/v2/cohort`). It reports the admitting cohort, or the next one
    and its earliest opening epoch.
 2. `pack --dir MODEL_DIR` builds the artifact object `u32_le(len(H)) || H ||
-   files` (`artifact.rs`) from the artifact spec's six files, with their fixed
-   roles and the spec's output contract. `check` verifies the object and runs
-   the spec's admission checks, the same streaming checks the coordinator runs.
-3. `commit` makes a fresh secret 256-bit nonce and the opening for the
-   admitting cohort, stores the opening in a local file with mode 0600, and
-   signs `Commitments.set_commitment` with the hotkey (section 2).
-4. After the commitment finalizes and the coordinator has logged it,
-   `upload` opens a session at an authenticated coordinator origin (section
-   4), uploads the object in parts through the coordinator's upload Worker, and
-   completes the session (sections 4 to 6). An interrupted upload resumes from
-   the parts the coordinator has recorded.
-5. The coordinator verifies the object and the envelope at completion and
-   again at the cutoff, ranks the remaining entrants and freezes the roster
-   (section 7). `status` shows the result, including every refusal (section
-   5, the hotkey view).
+   files` (`artifact.rs`) from the artifact spec's six files, hashing each file
+   once while it writes it. `check` runs the spec's admission checks on the
+   object in place, hashing nothing.
+3. `commit` reads only the object's header, makes a fresh secret 256-bit nonce
+   and the opening for the admitting cohort, stores the opening in a local file
+   with mode 0600, and signs `Commitments.set_commitment` with the hotkey
+   (section 2).
+4. After the commitment finalizes and the coordinator has logged it, `upload`
+   opens a session at an authenticated coordinator origin with the envelope
+   (the opening, the commitment and the header's SHA-256 and length), PUTs the
+   header bytes straight to R2 with the URL the session returns, asks for the
+   file URLs (the coordinator checks the header first), PUTs each file straight
+   to R2, and completes the session (sections 5 and 6). An interrupted upload
+   resumes per file: the session lists which objects are recorded present.
+5. The coordinator records each object from R2's stored checksum and size,
+   runs the scorer's admission load on the files, ranks the remaining entrants
+   at the cutoff and freezes the roster (section 7). `status` shows the result,
+   including every refusal (section 5, the hotkey view).
 
 ## 2. The commitment
 
@@ -181,7 +200,7 @@ reserved in the shared RPC budget first:
   `commitment_not_found` (retryable). The close uses the snapshot.
 - A hotkey that commits again (a returning miner, or a replaced commitment)
   can open a session before the poll has seen the new commitment. While a
-  cohort admits, opening or reopening a session for that cohort whose logged
+  cohort admits, opening a session for that cohort whose logged
   commitment is older than the window, opens another opening or another
   registration generation, or held no UID is answered `commitment_not_found`
   (retryable) until the reader has completed a poll at or after a block fixed
@@ -242,16 +261,18 @@ counts them (`CohortManifestV2::opened_epoch`, `CohortSchedule`).
   the freeze.
 - **Commitments** count when their block is in `[opening block, cutoff block)`,
   as the commitment log records them.
-- **Uploads** count when the coordinator recorded the session's completion
-  before it recorded the close. Session operations and the close are serialized
-  by the same Durable Object, so every part and completion request is either
-  recorded before the close or refused with `after_cutoff`. Verification that
-  was accepted before the close finishes after it and still counts.
+- **Uploads** count when the coordinator recorded the header and every file
+  of the session present and matching before it recorded the close. Once the
+  close begins (`closing`), only the close's own sweep records presence: it
+  heads every unrecorded object of every open session once, and an object
+  present at its close-sweep head counts. A write that lands after its key's
+  close head does not count. Verification that was accepted before the close
+  finishes after it and still counts.
 
 A commitment needs finality and the coordinator's logging of it (the nominal
 wait is at most 60 seconds after finality, and it can be longer) before a
-session can open. The object, up to about 955 MB (the spec's largest
-object), must then be uploaded before the cutoff. Commit and upload together,
+session can open. The objects, up to about 955 MB together (the spec's
+largest artifact), must then be uploaded before the cutoff. Commit and upload together,
 not near the cutoff. The window is the standing template's `admission_tempos`
 (16 tempos under the testnet template), frozen in each cohort's plan when it
 is queued, so a cohort queued before the template took that value keeps its
@@ -263,8 +284,11 @@ and nominal minutes.
 
 ## 4. Signed requests
 
-Every request except `GET /admission/v1/cohort` is signed by the hotkey that the
-request concerns. There are no accounts, tokens, cookies or presigned URLs.
+Every coordinator request except `GET /admission/v2/cohort` is signed by the
+hotkey that the request concerns. There are no accounts, tokens or cookies.
+The only other requests are the presigned PUTs to R2 (section 6), which carry
+no hotkey signature: their URL is the authorization, minted for the session's
+owner only.
 
 Headers:
 
@@ -272,9 +296,9 @@ Headers:
 | --- | --- |
 | `x-sn-hotkey` | SS58 address (prefix 42) of the signing hotkey |
 | `x-sn-valid-until` | decimal finalized block number after which the request is refused |
-| `x-sn-content-sha256` | lowercase hex SHA-256 of the request body (of the empty string when there is none); for a part, the part's digest |
+| `x-sn-content-sha256` | lowercase hex SHA-256 of the request body (of the empty string when there is none) |
 | `x-sn-signature` | lowercase hex of the 64-byte sr25519 signature |
-| `x-sn-commitment-block` | optional, session creation and reopening only, outside the signature: the decimal block of this wallet's confirmed commitment for the opening (an untrusted hint; see section 2) |
+| `x-sn-commitment-block` | optional, session creation only, outside the signature: the decimal block of this wallet's confirmed commitment for the opening (an untrusted hint; see section 2) |
 
 The signed message is 32 bytes:
 
@@ -284,8 +308,8 @@ D       = "slop_ninja.admission/request/v1"
 body    = genesis (32) || u16_le(netuid) || u8(mechanism)
         || hotkey public key (32)
         || u64_le(valid_until)
-        || u32_le(len(method)) || method        e.g. "PUT"
-        || u32_le(len(path))   || path          e.g. "/admission/v1/sessions/<id>/parts/3"
+        || u32_le(len(method)) || method        e.g. "POST"
+        || u32_le(len(path))   || path          e.g. "/admission/v2/sessions/<id>/urls"
         || content sha256 (32)
 ```
 
@@ -313,19 +337,24 @@ a body or forwards anything:
    bodiless route's signed `x-sn-content-sha256` is the empty string's
    (`content_digest_mismatch`); a declared `Content-Length` is within the
    route's bound (one `SubmissionUpload` record for a creation, none for a
-   bodiless route; `bad_request`); a part's `Content-Length` is present and
-   no larger than the largest object any admission spec allows
-   (`part_length_mismatch`);
+   bodiless route; `bad_request`). No route takes an upload byte;
 5. the signer holds a UID on the subnet at the finalized head
-   (`not_registered`). This is a lookup in the Worker's roster of the
+   (`not_registered`). A session read and `repair` that fail it (the signer
+   is not registered, or the roster cannot be read) go on only when the
+   cohort snapshot lists the signer among the hotkeys whose sessions wait
+   for a repair (or lists everyone, past one roster of them), so a
+   deregistered entrant may still repair its admitted objects while an
+   unregistered key's signed requests never reach the coordinator; the
+   coordinator still requires the session to be the signer's own and a
+   repair's objects to be still needed. This is a lookup in the Worker's roster of the
    subnet's hotkeys, which each isolate reads once a block (12 s) with
    read-only RPC calls (`SubnetworkN` and `Keys` at the head, keys composed
    by name from live metadata, a runtime upgrade followed), so the request
    itself costs no I/O. While the roster cannot be read the Worker answers
    `unavailable` (retry 12 s);
 6. only then is the body read, within its route's bound, and compared with
-   `x-sn-content-sha256`. A part's body is not read: it streams to R2. A
-   body the platform could not read answers `unavailable` (retryable).
+   `x-sn-content-sha256`. A body the platform could not read answers
+   `unavailable` (retryable).
 
 The upload Worker does not check `valid_until`: its chain head can run ahead
 of the cohort authority's cursor, and a check against the head could refuse
@@ -348,16 +377,16 @@ or after `valid_until`. Inside the validity window an observer who saw a
 request could send it again. Each route is safe against that:
 
 - a read (`GET`) changes nothing;
-- a part `PUT` carries the part's digest, so sending it again records the same
-  bytes again;
-- a completion completes only what was uploaded, and returns the session once
-  it is complete;
-- `POST /admission/v1/sessions` returns an existing session in whatever state
-  it is and never reopens an aborted one;
-- abort and reopen name the session's attempt (section 5). Every reopen starts
-  a new attempt, so an abort or reopen sent again from an earlier attempt is
-  refused with `stale_attempt`, and sending again the request that made the
-  current state returns it unchanged.
+- `urls` and `repair` mint more URLs for the same derived keys, whose content
+  R2 fixes to the committed digests;
+- a completion records only objects R2 holds, and returns the session once it
+  is complete;
+- `POST /admission/v2/sessions` returns an existing session in whatever state
+  it is.
+
+A presigned URL is a bearer token until it expires, but it can only create its
+one key with exactly the committed bytes (R2 refuses any other body), and only
+once (`if-none-match: *`): a URL replayed after success gets 412.
 
 **Destination.** An upload carries the opening, with its secret nonce, and the
 artifact before the cohort closes, so the client sends signed requests only to
@@ -373,8 +402,9 @@ The public snapshot (section 10) is unsigned. Its `coordinator` field chooses a
 destination only when the trust file pins that origin. When a trust file pins
 origins, every other origin is refused, including one named with
 `--coordinator`. The client prints the origin before it opens a session. It
-never follows a redirect: a 3xx answer is an error, so signed headers and parts
-reach only that origin. `subnet/coordinator/testnet-trust.json` pins
+never follows a redirect: a 3xx answer is an error, so signed headers reach only
+that origin. Presigned PUTs go only to the R2 S3 host the URL names, after the
+client's own check of the URL (section 6). `subnet/coordinator/testnet-trust.json` pins
 `https://testnet-admission.slop.ninja`, the upload Worker's custom domain,
 and the public snapshot advertises the same origin. A released client run
 with `--public` therefore uploads there. Because the file pins an origin,
@@ -386,15 +416,13 @@ All paths are under the coordinator's base URL. Responses are JSON
 (`content-type: application/json`) with a `schema` field. Clients ignore
 unknown fields; a change of meaning bumps the schema version.
 
-A response body is at most 64 KiB plus 256 bytes for each of the admitting
-cohort's `max_parts` (`response_limit` in the wire crate): no response lists
-more than `max_parts` part records or missing part numbers, and the largest
-compact part record has 122 bytes. The cohort read and the public snapshot,
-read before `max_parts` is known, are at most 64 KiB. Clients refuse longer
-bodies without buffering them. A hotkey view that would exceed the limit lists
-the live session and the newest ended sessions that fit.
+A response body is at most 64 KiB (`response_limit` in the wire crate): the
+largest response, a session with one fresh URL for the header and each file
+of the spec's file table, is far smaller. Clients refuse longer bodies
+without buffering them. A hotkey view that would exceed the limit lists the
+live session and the newest ended sessions that fit.
 
-### `GET /admission/v1/cohort` (unsigned)
+### `GET /admission/v2/cohort` (unsigned)
 
 The coordinator's admission parameters. Content-free. The response carries
 `cache-control: no-store`, and the client asks for `no-cache`, because the
@@ -402,8 +430,8 @@ cursor in it dates request signatures.
 
 ```json
 {
-  "schema": "slop_ninja.admission.cohort/v1",
-  "contract": "slop_ninja.admission/v1",
+  "schema": "slop_ninja.admission.cohort/v2",
+  "contract": "slop_ninja.admission/v2",
   "chain": { "genesis": "8f9c…3105", "netuid": 601, "mechanism": 0 },
   "finalized_block": 8340012,
   "request_validity_blocks": 360,
@@ -420,9 +448,8 @@ cursor in it dates request signatures.
     "artifact_spec": { "id": "slop_ninja_a_artifact_spec_v2", "sha256": "<spec digest>" },
     "roster_cap": 40,
     "selection": "earliest_commitment/v1",
-    "max_object_len": 700000000,
-    "part_size": 67108864,
-    "max_parts": 10000,
+    "max_object_len": 954576228,
+    "upload_policy": { "id": "slop_ninja_upload_url_policy_v1", "b_min": 125000, "skew_secs": 900 },
     "limits": "<hex digest of the cohort's limits record>"
   },
   "next": { "cohort": 8, "earliest_open_epoch": 23189, "admission_tempos": 16 }
@@ -431,8 +458,9 @@ cursor in it dates request signatures.
 
 `admitting` is `null` when no cohort is admitting. `closing` is true once the
 coordinator has begun closing admission; new sessions are then refused.
-`request_validity_blocks` is top-level because signed reads and aborts are
-also made while no cohort is admitting.
+`request_validity_blocks` is top-level because signed reads are also made
+while no cohort is admitting. `upload_policy` sets each presigned URL's life
+(section 6).
 
 `next` names the next cohort: a queued one, else the one the standing template
 opens next. `earliest_open_epoch` is a lower bound: a cohort opens only at the
@@ -467,193 +495,131 @@ bounds: the 4-byte length prefix, the protocol's header bound
 (a class fixes its file length), the pinned tokenizer length and the spec's
 budget for the JSON role files together (spec v2 and v3). It is recorded in
 the cohort's `limits` record and changes only with the spec or a new limits
-version; no deployment value enters it. The value above is an example, not a
-derivation.
+version; no deployment value enters it. Every object fits one R2 PUT (the
+single-part limit is 5 GiB less 5 MiB), so there is no part size and no
+multipart upload.
 
-### `POST /admission/v1/sessions` (signed)
+### `POST /admission/v2/sessions` (signed)
 
-Opens, or returns, the upload session for one envelope.
+Opens, or returns, the upload session for one envelope. Body: exactly one
+canonical `SubmissionUpload` record (version 2), media type
+`application/vnd.slop-ninja.submission-upload.v2`: the opening, the
+commitment, `header_sha256` (the SHA-256 of the header bytes `H`) and
+`header_len` (`1..=MAX_ARTIFACT_HEADER_LEN`, 1 MiB). The session id is the
+record's digest, so a lost answer loses nothing: the same envelope again
+returns the same session.
 
-- Body: the canonical bytes of the protocol record `SubmissionUpload`
-  (`Record::to_bytes()`), with
-  `content-type: application/vnd.slop-ninja.submission-upload.v1`. The record
-  has a fixed size; the coordinator refuses a larger body with `bad_request`.
-- Session id: lowercase hex of `SubmissionUpload::digest()`. The client can
-  compute it before the request, so a lost response never loses the session.
-- Checks, in order: the record validates; `opening.chain` is the coordinator's
-  chain (`wrong_chain`); a cohort is admitting (`not_admitting`) and
-  `opening.cohort` is it (`wrong_cohort`); `opening.hotkey` is the signer
-  (`hotkey_mismatch`); `artifact_len` is at most `max_object_len` and fits in
-  `max_parts` parts (`object_too_large`); the hotkey held a UID at its
-  commitment (`not_registered`) under the opening's generation
-  (`registration_mismatch`);
-  the commitment log holds a commitment of the hotkey (`commitment_not_found`),
-  made inside the window (`commitment_before_open`), that this opening opens
-  (`commitment_mismatch`); and the one-artifact rule below (`second_artifact`).
-  While no cohort is admitting, an opening for a cohort whose admission has
-  closed gets `after_cutoff`, and any other `not_admitting`.
-- The same envelope returns the existing session (200) in whatever state it
-  is, `aborted` and `refused` included, before any of the checks above: they
-  ran when it was created, and a later commitment changes nothing about it.
-  Reopening is its own request.
-- One artifact per hotkey per cohort: a hotkey has at most one live session,
-  and one session per commitment.
-  - A different envelope that opens the same commitment is refused with
-    `second_artifact` (409), with the existing session's id in
-    `detail.session`, whatever that session's state: the miner reopens it
-    (when aborted) or commits again to submit another artifact.
-  - An envelope that opens a newer commitment (the hotkey committed again)
-    supersedes the earlier session, whose state becomes `superseded` and whose
-    parts are deleted.
-- Every refusal of this request, and of a reopen, after the signature verifies
-  is recorded as the hotkey's `last_refusal` for the cohort (the hotkey view),
-  because no session record exists to carry it.
-- Response: 201 with the session (below) when created, 200 when it existed.
-
-### `GET /admission/v1/sessions/{session}` (signed)
-
-The session, including the parts the coordinator has recorded. A client resumes
-by uploading every part that is missing here.
+The cohort authority checks, in order: the chain, that a cohort admits
+(`not_admitting`, `after_cutoff`), the cohort (`wrong_cohort`), the signer is
+the opening's hotkey (`hotkey_mismatch`), the header length
+(`header_too_large`), the logged commitment (section 2), and the one-artifact
+rule (`second_artifact`; a live session of an older commitment of the same
+hotkey is `superseded`). It answers 201 with the session and `uploads` holding
+one URL, the header's.
 
 ```json
 {
-  "schema": "slop_ninja.admission.session/v1",
+  "schema": "slop_ninja.admission.session/v2",
   "session": "<hex>",
   "cohort": 7,
   "hotkey": "5F…",
   "commitment": "<hex>",
-  "artifact_sha256": "<hex>",
-  "artifact_len": 610612345,
-  "part_size": 67108864,
-  "part_count": 10,
-  "attempt": 1,
-  "parts": [ { "part": 1, "len": 67108864, "sha256": "<hex>" } ],
+  "header_sha256": "<hex>",
+  "header_len": 1022,
+  "objects": [ { "kind": "header", "sha256": "<hex>", "len": 1022, "present": false } ],
   "state": "uploading",
   "refusal": null,
-  "position": null,
+  "position": { "block": 8339500, "extrinsic": 3 },
   "next_cohort": null,
-  "finalized_block": 8340020
+  "finalized_block": 8340012,
+  "uploads": [ {
+    "kind": "header", "sha256": "<hex>", "len": 1022,
+    "url": "https://<account>.r2.cloudflarestorage.com/slop-ninja-admission-testnet/admission/v2/c7/<commitment>/h?X-Amz-…",
+    "content_length": "1022", "if_none_match": "*", "checksum_sha256": "<base64 of the digest>",
+    "signed_at": 1793846400, "valid_secs": 909
+  } ],
+  "repair_needed": []
 }
 ```
 
-`attempt` starts at 1 and grows by one each time an aborted session reopens; a
-new attempt starts with no parts. `refusal`, when present, is
-`{ "code", "message", "detail" }` with a code from section 8. `position` is
-`{ "block", "extrinsic" }` once the coordinator has read the commitment.
-`next_cohort` is set for `overflow`.
+### `GET /admission/v2/sessions/{session}` (signed)
 
-### `PUT /admission/v1/sessions/{session}/parts/{n}` (signed)
+The session, as above, with no `uploads`. `objects` lists the header and,
+once the header is recorded, every file of its table with whether R2 holds
+it as committed.
 
-Uploads part `n` (1-based) as the raw request body.
+### `POST /admission/v2/sessions/{session}/urls` (signed, empty body)
 
-- `Content-Length` is required and must be the part's exact length
-  (section 6); `x-sn-content-sha256` is the part's SHA-256.
-- The Worker streams the body into the R2 multipart upload through its bucket
-  binding (`uploadPart`), through a `FixedLengthStream` of the part's exact
-  length; it never buffers the part. A body that is not that length answers
-  `part_length_mismatch`; a part R2 could not store answers `unavailable`
-  (send it again). Where the digest-stream
-  path is qualified it also hashes the stream and refuses a mismatch with
-  `part_digest_mismatch`, after which the part may be sent again. Where it is
-  not, it records the claimed digest, and a part that changed in transit
-  surfaces at completion as `object_mismatch`. The coordinator today records
-  the claimed digest. Clients handle both: on `object_mismatch`,
-  `upload --restart` aborts the attempt and sends every part again in a new
-  one.
-- Re-sending a recorded part replaces it; the latest one counts.
-- Errors: `part_out_of_range`, `part_length_mismatch`, `part_digest_mismatch`,
-  `session_not_uploading`, `after_cutoff`.
-- Response 200: `{ "part", "len", "sha256" }` as recorded. Until the
-  digest-stream check is qualified, `sha256` echoes the declared
-  `x-sn-content-sha256`: the coordinator has not hashed the part, so the
-  acknowledgement is no integrity check of it. A changed part surfaces only
-  at completion (`object_mismatch`, a full re-upload).
+Fresh presigned URLs for every object not yet recorded present. Every call
+mints new ones, with no count or time limit; only protocol state refuses.
 
-### `POST /admission/v1/sessions/{session}/complete` (signed, empty body)
+1. If the header is not yet recorded, the coordinator settles it first: R2's
+   `head()` of the header key must show `size == header_len` and the stored
+   SHA-256 equal to `header_sha256` (R2 verified it at upload), with no
+   customer encryption key, the standard storage class and no stored HTTP or
+   custom metadata. It reads the header bytes (at most 1 MiB, pinned to the
+   entity tag it just saw) and asks the upload Worker to decode and check them
+   against the spec's file table; it then recomputes the content digest from
+   the returned table, requires it to be the committed one and the contract
+   to be the cohort's, and runs `SubmissionUpload::admit_header` against the
+   logged commitment.
+   - No header object yet: `header_missing` (409, retryable), with a fresh
+     header URL in the error's session.
+   - A header that fails: the session ends `refused` with the code (section 8).
+2. Otherwise: 200 with the session and one URL per file not yet recorded
+   present (at most the spec's six files). An artifact doomed by its header is
+   refused before the miner sends any file.
 
-Requires every part (`parts_missing`, with the missing part numbers in
-`detail.missing`; the client uploads those and asks again). The coordinator
-answers 202 with the session in state `verifying` and completes the R2
-multipart upload as durable work: a completion whose outcome was not
-recorded (an eviction, a transport error) is issued again, by the
-coordinator itself and on a repeated `complete`, until R2 completes it or
-the object is found at the envelope's length; only R2's definitive refusal
-of the parts (a part missing or changed, or an upload gone with no object)
-ends the session with `object_mismatch`. It then, as its own durable work:
+After the close begins, `urls` answers `after_cutoff`.
 
-1. streams the object through `ArtifactReader` (bounded memory: one fixed
-   buffer; the header is at most 1 MiB and is decoded once, and a header
-   length of zero is refused) and requires the object's SHA-256 and length
-   to be the envelope's (`object_mismatch`) and the object to verify
-   (`artifact_invalid`). A header listing more files than the spec's file
-   table is refused at once (`check_failed`, `undeclared_file`). Framing
-   that is cut off (CPU or wall limits, an eviction) is the platform's: it
-   runs again after a growing backoff and never refuses the session, and a
-   failed read of the object is the coordinator's too. When the cut-offs of
-   one session reach the plan's `fanout.score.failures_before_pause`, the
-   cohort pauses (fault `framing_unavailable`, resumable; the roster does not
-   freeze while it holds) until the operator clears it. Framing waits while
-   the hotkey's newest commitment is still being logged;
-2. runs the artifact spec's header-only file-table checks (contract, names,
-   roles, tokenizer byte-match, declared lengths, graph class length) and
-   cuts each file into the scorer's content-addressed parts and parts
-   manifest (`check_failed`, with the spec's code in `detail.check`);
-3. requires the header's contract to be the cohort's `output_contract`
-   (`contract_mismatch`);
-4. runs `SubmissionUpload::admit` against the hotkey's logged commitment
-   (`content_mismatch` when the object's derived content is not the committed
-   one, or the commitment codes above);
-5. runs the artifact spec's whole check in an admission run on the scorer
-   Container: a fresh, single-use instance loads the parts for the cohort,
-   and the scorer's own admission (graph pre-parse included) runs before ONNX
-   Runtime opens anything. A definitive refusal ends the session with
-   `check_failed` and the scorer's code in `detail.check` (such as
-   `undeclared_file`, `tokenizer_mismatch`, `graph_op_not_allowed` or
-   `too_many_parameters`; `docs/testnet/artifact-spec.md` lists them). The
-   miner's `check` reports the same codes. There is one admission run per
-   hotkey and commitment: another object for the same commitment is refused
-   with `detail.check` `admission_run_used` (commit again to submit another).
-   The run also scores one fixed control document; the artifact is admitted
-   only when it does. A load that fails, dies or outlasts its allowance on
-   fresh instances, a host read fault the scorer files under `object`, or a
-   control document that does not score, as many times as the plan's
-   `artifact_failures_before_model_error`, gives `load_failed:<reason>`;
-   platform failures are retried with a growing backoff and never count. A
-   verdict records the scorer build and spec it was reached on; when either
-   differs from the deployment's, it runs again before the roster freezes,
-   refusals included, and the session shows `verifying` meanwhile.
+### `PUT <presigned URL>` (to R2, not to the coordinator)
 
-No byte of an uploaded object is decoded in the eval Worker, which holds the
-package and receipt signing keys. Framing (step 1: the header record, lengths
-and digests, the slices and the parts manifest) runs in the key-free upload
-Worker. The eval Worker's framing step calls it through a service binding and
-receives a bounded JSON outcome. That outcome carries the header's contract,
-the derived content digest, the manifest and the slices, never the header
-record. Steps 2 to 4 compare those digests, and no parser of the graph or the
-role files runs in either Worker. An operator can refuse a stalled session with a
-recorded reason (`check_failed`, `detail.check` `operator:<reason>`).
+The object's exact bytes, with exactly these headers (the HTTP stack adds
+`host`), and nothing else `x-amz-*`, no `content-encoding`, never chunked
+transfer encoding:
 
-The session ends in `verified` or `refused`. The client polls the session.
+| Header | Value |
+| --- | --- |
+| `content-length` | the committed length |
+| `if-none-match` | `*` |
+| `x-amz-checksum-sha256` | the committed SHA-256, base64 |
 
-### `DELETE /admission/v1/sessions/{session}/attempts/{attempt}` (signed)
+All four (with `host`) are signed into the URL; leaving one out or changing it
+fails the signature (403 `SignatureDoesNotMatch`). R2 hashes the body as it
+arrives and refuses a mismatch (400 `BadDigest`), storing nothing. Section 6
+gives the client's checks and retries.
 
-Aborts attempt `attempt` of the session before the cutoff: the multipart upload
-is aborted, stored parts and objects are deleted, and the state becomes
-`aborted`. It applies to a session that is `uploading`, `verified` or
-`refused`, and only when `attempt` is the session's current attempt
-(`stale_attempt` otherwise, with the current attempt in `detail.attempt`).
-Aborting an attempt that is already aborted returns the session unchanged. The
-hotkey can then open another session for its current commitment. A refused
-session stays refused for its envelope until its attempt is aborted.
+### `POST /admission/v2/sessions/{session}/complete` (signed, empty body)
 
-### `POST /admission/v1/sessions/{session}/attempts/{attempt}` (signed, empty body)
+The coordinator heads every object it has not yet recorded and records those
+R2 holds as committed (size, stored SHA-256 and the attributes above), with
+their entity tags. An object present with other bytes or attributes is
+deleted, and the miner may PUT it again.
 
-Reopens an aborted session, empty, as attempt `attempt`, which must be its
-current attempt plus one; otherwise `stale_attempt`. The same checks as opening
-a session apply (commitment, window, registration, the one-artifact rule).
-Sending it again while that attempt is live returns the session unchanged.
+- All present: 202, state `verifying`; the scorer's admission load is queued
+  (section 7). The files manifest the scorer loads names each object's key
+  and entity tag.
+- Otherwise: 409 `objects_missing`, `detail.missing` listing the missing
+  digests. The client asks for URLs again.
 
-### `GET /admission/v1/cohorts/{cohort}/hotkeys/{hotkey}` (signed by that hotkey)
+### `POST /admission/v2/sessions/{session}/repair` (signed, empty body)
+
+For a recorded object that went missing after admission recorded it (a
+platform fault, never the miner's): the coordinator heads every recorded
+object first, then answers a fresh URL for exactly each missing recorded key,
+digest and length, so R2 again fixes the content. An object found with its
+committed bytes but a stored attribute (an unsigned `Content-Type`) is
+deleted and listed missing too, so it can be PUT again cleanly. Valid in any
+phase while the objects are still needed: until the cohort is closed and the
+entrant's publication is recorded (an admitted entrant's scoring lanes read
+them until the close); after that it answers `not_needed`. It needs no
+current registration. The session's `repair_needed` lists such objects; a
+scoring lane or publication that meets one absent starts the same check, and
+waits, uncounted, until the object is back; it is never skipped.
+`slop_ninja_miner repair` (and `status --repair`) re-PUTs them from the local
+object, and asks for the check even when nothing is listed yet.
+
+### `GET /admission/v2/cohorts/{cohort}/hotkeys/{hotkey}` (signed by that hotkey)
 
 What the coordinator sees for one hotkey in one cohort, including when no
 session exists. `slop_ninja_miner status` prints it, so every admission refusal
@@ -662,7 +628,7 @@ session requests in `last_refusal`.
 
 ```json
 {
-  "schema": "slop_ninja.admission.hotkey/v1",
+  "schema": "slop_ninja.admission.hotkey/v2",
   "cohort": 7,
   "hotkey": "5F…",
   "finalized_block": 8340020,
@@ -676,7 +642,7 @@ session requests in `last_refusal`.
     "in_window": true
   },
   "cutoff_block": null,
-  "sessions": [ { "session": "<hex>", "state": "verified", "attempt": 1, "refusal": null } ],
+  "sessions": [ { "session": "<hex>", "state": "verified", "refusal": null, "repair_needed": [] } ],
   "last_refusal": {
     "code": "second_artifact",
     "message": "…",
@@ -694,38 +660,98 @@ has no logged commitment.
 `commitment` is the hotkey's commitment that counts for the cohort, from the
 commitment log: its latest one while the cohort admits, and its last one before
 the cutoff block once admission has closed (`cutoff_block` is then set); it is
-`null` when there is none. `last_refusal` is the latest refused session or
-reopen request by the hotkey while this cohort admitted (or, once no cohort
+`null` when there is none. `last_refusal` is the latest refused session
+request by the hotkey while this cohort admitted (or, once no cohort
 admits, naming this cohort); the coordinator keeps one per hotkey and cohort,
 content-free, for as long as it keeps the cohort's session records.
 
-## 6. Parts
+## 6. Direct upload
 
-Uploads go through the Worker's R2 binding (`createMultipartUpload`,
-`uploadPart`, `complete`, `abort`). There are no presigned URLs and no S3 API
-credentials. Each part is one Worker request.
+Each object goes to R2 in one presigned `PutObject`: the header bytes `H`
+under `admission/v2/c<cohort>/<commitment>/h`, and each distinct file of the
+header under `admission/v2/c<cohort>/<commitment>/f/<file sha256>`. The
+signer derives every key from protocol values and never accepts one. The
+largest file (the tower graph, 681,508,964 B) and the largest artifact
+(954,576,228 B) are far below R2's single-PUT limit (5,363,466,240 B), so
+there is no multipart upload and no part size.
 
-- `part_size` (`P`) comes from the cohort parameters. Part `n` covers bytes
-  `[(n-1)·P, min(n·P, L))` of the object of length `L`; every part but the last
-  has exactly `P` bytes. `part_count = ceil(L / P)`.
-- `P` must be at least R2's multipart minimum of 5 MiB and fit within the
-  Workers request-body limit of the account's plan. The coordinator chooses it
-  so that `max_object_len` fits in `max_parts` parts (R2 allows at most 10,000).
-  It is a versioned deployment parameter; the client never assumes a value.
-- The client holds one part in memory at a time, shared across retries, so its
-  memory use is about `P`. It bounds a part's request by its base timeout plus
-  the part's size at a slowest acceptable upload rate the miner chooses
-  (`--min-upload-kib-per-sec`), so a slow uplink is not cut off by a fixed
-  timeout.
-- Retryable errors are retried with doubling backoff; a `Retry-After` from the
-  coordinator sets the wait instead.
+**Why one object per file.** The commitment binds the header, and the header
+binds each file's SHA-256. With one PUT per file, R2 verifies exactly the
+digests the commitment rests on; a whole-object PUT would leave the files
+inside unchecked without a second hash on our side.
+
+**The client's checks before it sends a byte** (`slop_ninja_r2_presign::check`):
+
+- the URL is `https`;
+- its host is the release trust file's pinned upload host when one is pinned,
+  else an R2 S3 host (`*.r2.cloudflarestorage.com`);
+- its path is the bucket and exactly the key the client derives itself from
+  (cohort, commitment, digest);
+- its query has exactly the seven SigV4 parameters, `X-Amz-SignedHeaders`
+  exactly `content-length;host;if-none-match;x-amz-checksum-sha256`,
+  `X-Amz-Content-Sha256=UNSIGNED-PAYLOAD`, and `X-Amz-Expires` within R2's
+  7 days.
+
+It refuses a redirect.
+
+**URL life (upload URL policy `slop_ninja_upload_url_policy_v1`, frozen in
+each cohort plan).** `valid_secs = ceil(L_total / B_min) + S`, with `L_total`
+the artifact's committed size (header plus every file, so a client that takes
+every URL at once and starts them in sequence at `B_min` is covered),
+`B_min` = 125,000 B/s (1 Mbit/s) and `S` = 900 s, at most R2's 604,800 s. For
+the largest spec v3 artifact that is 8,537 s. R2 checks a URL's expiry when
+the PUT starts, not when its body ends (qualified 2026-11-05: a body that
+ended about 30 s after expiry was stored), so a PUT that started in time
+completes at any rate: no upload rate is required, and `B_min` only sets how
+long an unused URL waits.
+
+**No expiring lease.** Expiry ends one URL, never the session or the
+commitment: a miner whose commitment is valid gets fresh URLs on every
+request. During a coordinator outage no new URL is minted, but issued URLs
+still work, and the cutoff cannot pass while the coordinator is down.
+
+**Retries** (per file; a PUT cannot resume):
+
+- a transport error, a 5xx, 429 (R2 takes one write per second per key), or
+  403 `ExpiredRequest`: ask `urls` for a fresh URL and send that file again
+  from byte 0 (doubling backoff, except after expiry);
+- 412 `PreconditionFailed`: the object exists (for example after a lost
+  success answer); go on to `complete`, which confirms it;
+- 400 `BadDigest`: the local object no longer matches its own header; stop
+  and re-pack from the same sources, since the commitment binds the digests;
+- 403 `SignatureDoesNotMatch`: a client defect; stop;
+- 501 `NotImplemented`: R2's refusal, before authentication, of a URL
+  carrying a parameter a presigned PUT does not take (`partNumber` with
+  `uploadId`, `versionId`); nothing is stored. The URL checks above refuse
+  such a URL before any byte, so this is a refusal like 403: stop.
+
+Send only the URL's signed headers (and `host`). R2 stores six unsigned
+standard headers a presigned PUT carries (`Content-Type`, `Content-Encoding`,
+`Content-Disposition`, `Content-Language`, `Cache-Control`, `Expires`) as the
+object's HTTP metadata, and admission refuses any object with stored HTTP or
+custom metadata (rule `slop_ninja_object_attributes_v1`, named in the cohort's
+limits record): an object with any, header or file, is deleted (only while it
+still carries them) and listed missing again, so it is PUT once more under a
+fresh URL; the commitment stays valid.
+
+A restarted `upload` sends only the objects the session lists as missing. The
+client streams each file from disk with one buffer, so its memory does not
+grow with the artifact. `--min-upload-kib-per-sec` bounds each PUT's local
+timeout only; nothing about the rate is sent.
 
 ## 7. The cutoff and the roster
 
 When the coordinator closes admission at the cutoff block, it:
 
-1. refuses every session not yet completed (`incomplete_at_cutoff`) and aborts
-   its upload;
+1. persists `closing` (from here `urls` answers `after_cutoff` and only the
+   close's own sweep records presence), checks the upload path end to end
+   with a canary PUT of its own bytes (a failure defers the close), heads every
+   unrecorded object of every open session once (in batches within the
+   platform's subrequest limit, the progress persisted), records the close,
+   and refuses every session still missing an object (`incomplete_at_cutoff`).
+   A head that errors defers the close; only a definite absence counts as
+   missing. A signer or upload-path fault recorded since the last success also
+   defers it, so the platform's outage never ends a miner's upload;
 2. once every completed upload is verified or refused, every verdict is in and
    the snapshot at `cutoff_block - 1` is read (section 2), checks each
    `verified` session against the snapshot: the hotkey's commitment then must
@@ -740,7 +766,7 @@ When the coordinator closes admission at the cutoff block, it:
    hotkeys: `commitment_mismatch`, `detail.reason` `shared_extrinsic`), sorts
    the remaining sessions by position `(block, extrinsic)` and admits the
    first `roster_cap` of them (`admitted`), in that order, as the cohort
-   manifest's roster (the `RosterEntry` values `SubmissionUpload::admit`
+   manifest's roster (the `RosterEntry` values `SubmissionUpload::admit_header`
    returned);
 4. marks the rest `overflow`, with `next_cohort` set.
 
@@ -752,7 +778,7 @@ finalized before the cutoff) gets a new name.
 cohort, so it cannot open a commitment for the next one. To enter cohort `N+1`
 the miner makes a fresh commitment (a new nonce and cohort `N+1`) inside
 `N+1`'s window and uploads again. It is then ranked by that new commitment's
-position. The overflow upload is deleted at the close and never published.
+position. The overflow upload is deleted at the freeze and never published.
 
 **Ordering and the official client.** `slop_ninja_miner commit` waits until the
 coordinator reports the cohort as admitting, which lags the opening block by
@@ -769,7 +795,7 @@ Every error response has this shape:
 
 ```json
 {
-  "schema": "slop_ninja.admission.error/v1",
+  "schema": "slop_ninja.admission.error/v2",
   "error": { "code": "wrong_cohort", "message": "…", "retryable": false, "detail": { "admitting": 8 } }
 }
 ```
@@ -799,14 +825,12 @@ and never retry the others unchanged.
 | `commitment_unresolvable` | 422 | no | the hotkey's latest commitment can never be logged (`detail.reason`: `shared_extrinsic`, `undecodable`, `state_discarded`, `block_unknown`, `no_commitment_event`, `state_unavailable`); commit again with a new nonce |
 | `commitment_before_open` | 422 | no | the commitment was made before the cohort opened |
 | `commitment_mismatch` | 422 | no | the opening does not open the hotkey's current commitment (`detail.payload_cohort` when parseable), or (at the cutoff) the commitment shares its extrinsic with another hotkey's (`detail.reason` `shared_extrinsic`) |
-| `object_too_large` | 413 | no | `artifact_len` exceeds `max_object_len` or `max_parts` parts |
+| `header_too_large` | 413 | no | `header_len` is zero or exceeds `MAX_ARTIFACT_HEADER_LEN` |
 | `second_artifact` | 409 | no | a session already exists for this commitment, or another live session for this hotkey and commitment (`detail.session`) |
-| `part_out_of_range` | 422 | no | `n` is not in `1..=part_count` |
-| `part_length_mismatch` | 422 | no | the part is not exactly its expected length |
-| `part_digest_mismatch` | 422 | yes, resend | the streamed part does not match its digest |
-| `session_not_uploading` | 409 | no | the session no longer accepts parts, completion or an abort |
-| `stale_attempt` | 409 | no | the abort or reopen names another attempt than the current one (`detail.attempt`) |
-| `parts_missing` | 409 | yes, upload them | completion before every part (`detail.missing`) |
+| `session_not_uploading` | 409 | no | the session has ended and takes no URL request or completion |
+| `header_missing` | 409 | yes, PUT it | `urls` before R2 holds the header; the answer carries a fresh header URL |
+| `objects_missing` | 409 | yes, PUT them | completion before every object is in R2 as committed (`detail.missing`: digests) |
+| `not_needed` | 409 | no | `repair` for an object that is present or no longer needed |
 | `rate_limited` | 429 | yes | reserved; testnet enforces no request rate (section 13, "Limits") |
 | `paused` | 503 | yes | the coordinator is paused or catching up; the cutoff extends |
 | `unavailable` | 503 | yes | temporary failure |
@@ -816,17 +840,18 @@ Session refusals (in `session.refusal`):
 
 | Code | When | Meaning |
 | --- | --- | --- |
-| `object_mismatch` | completion | the assembled object's SHA-256 or length is not the envelope's |
-| `artifact_invalid` | completion | `ArtifactReader` refused the object (`detail.reason`) |
-| `contract_mismatch` | completion | the header's contract is not the cohort's output contract |
-| `content_mismatch` | completion | the object's derived content is not the committed content |
-| `check_failed` | completion | an artifact check refused it (`detail.check`) |
+| `object_mismatch` | header | R2's stored size or checksum of the header is not the envelope's (a header with only a forbidden stored attribute, rule `slop_ninja_object_attributes_v1`, is deleted and PUT again instead) |
+| `artifact_invalid` | header | the header bytes do not decode or validate (`detail.reason`) |
+| `contract_mismatch` | header | the header's contract is not the cohort's output contract |
+| `content_mismatch` | header | the header's derived content is not the committed content |
+| `check_failed` | header, admission run | an artifact check refused it (`detail.check`) |
+| `object_replaced` | verify | before admission, a recorded object is present with other bytes or another entity tag: the miner's, never a cohort pause (one with its committed bytes and only a forbidden stored attribute is deleted and listed for repair instead) |
 | `commitment_overwritten` | cutoff | a later commitment before the cutoff block replaced the one this session opens |
 | `incomplete_at_cutoff` | cutoff | the session was not completed before the close |
 | `not_registered`, `registration_mismatch` | cutoff | the registration changed before the cutoff |
 
 Session states: `uploading`, `verifying`, `verified`, `refused`, `admitted`,
-`overflow`, `superseded`, `aborted`.
+`overflow`, `superseded`.
 
 The admission refusals of the announce-readiness plan map onto these codes. A
 session refusal appears in the hotkey view's `sessions`; a refused session
@@ -842,7 +867,7 @@ subnet).
 | overwritten commitment | `commitment_mismatch` (at the session) or `commitment_overwritten` (at the cutoff) |
 | a second artifact for the same hotkey | `second_artifact` |
 | upload after the cutoff | `after_cutoff`, `incomplete_at_cutoff` |
-| object larger than the bound | `object_too_large` |
+| header larger than the bound | `header_too_large` |
 | graph not allow-listed | `check_failed`: `graph_not_allowed`, `graph_op_not_allowed`, `graph_class` |
 | more parameters than the graph class's bound (160M; under spec v3, 173,549,185 for the tower class) | `check_failed`: `too_many_parameters` |
 | tokenizer not byte-identical | `check_failed`: `tokenizer_mismatch` |
@@ -852,27 +877,47 @@ subnet).
 
 ## 9. Privacy and retention
 
-- Objects and openings stay in the private evaluation bucket and are never
-  readable through this API. Only admitted entrants' artifacts and openings are
-  published, after the cohort closes, in the signed `CohortClosure`.
-- Refused, overflow, superseded and aborted uploads are deleted once the
-  roster freezes (no later than the close) and are never published: the
-  object, the content-addressed slices the upload's own copies created and
-  the parts manifest it wrote, except what another upload still uses (the
-  slice store is shared by digest).
+- Objects and openings stay in the private admission bucket until scoring
+  starts and are never readable through this API. When a cohort's scoring
+  starts (roster frozen), the publisher copies each admitted entrant's files
+  and then its header into the public bucket (`blobs/sha256/<file sha256>` and
+  `artifacts/v2/<header sha256>/header`), hashing nothing. The default copy
+  (`ARTIFACT_COPY = "stream"`, until probe G7-x passes and the copy token is
+  installed) pipes the admission object into a write that carries its
+  SHA-256, which R2 verifies, and is checked by that stored SHA-256. The
+  server-side copy (`ARTIFACT_COPY = "server"`, configuration, its own
+  deploy) is an S3 `CopyObject` inside R2, presigned by
+  the internal signer with its own copy credential, with the source entity
+  tag pinned, `x-amz-metadata-directive: REPLACE` (no stored header of the
+  source carries over), a fixed content type and the standard storage class.
+  `CopyObject` keeps the entity tag but not the stored SHA-256, so the public
+  copy is checked by its size and by entity-tag equality with the admitted
+  object, whose SHA-256 R2 verified at upload. Operator and synthetic hotkeys and reference digests are withheld. The
+  openings are published in the signed `CohortClosure`.
+- Refused, overflow and superseded uploads are deleted once the roster
+  freezes and are never published. Admitted objects are deleted from the
+  admission bucket once the cohort closes and their publication is recorded
+  (the publisher reports each entrant published or withheld to the eval
+  Worker, and an absent object as missing, which starts its repair).
+- A standing reconciliation lists `admission/v2/` and deletes any object no
+  open session, verifying session or admitted entrant still needing it holds
+  (a stale URL can recreate one); a delete queued after a failed one never
+  removes a key such a session holds. It never ends on time or on an empty list, and gates nothing.
+  There is no time-based R2 lifecycle rule on the bucket.
 - Session records and last refusals are content-free (digests, lengths,
-  states, codes, positions) and stay readable at least until the cohort closes;
-  after that the published package is the record.
-- The upload is protected in transit by TLS, to an origin the client
-  authenticates as section 4 describes. Encryption to the coordinator key is a
-  later, separately qualified layer around the same bytes.
+  states, codes, positions, URL mint counts) and stay readable at least until
+  the cohort closes; after that the published package is the record.
+- Uploads are protected in transit by TLS to the R2 S3 host. The miner sees
+  the account's S3 host, the bucket name and the signing key's id in each URL;
+  none of these is a credential. There is no separate encryption layer: R2 can
+  only verify the digest of the bytes it receives.
 - On the miner's machine, the object and the openings are files of mode 0600.
 
 ## 10. Public reads the client depends on (planned public layout)
 
 With `--public`, `status` and `next-cohort` read the public status snapshot,
 unauthenticated; otherwise they read the coordinator's unsigned cohort read
-(`GET /admission/v1/cohort`).
+(`GET /admission/v2/cohort`).
 The public publisher owns the layout, which is planned and not yet published;
 the client reads only these fields and ignores the rest:
 
@@ -898,46 +943,60 @@ the client reads only these fields and ignores the rest:
 
 The snapshot is unsigned, and the client labels it so. It is information only:
 its `coordinator` field becomes an upload destination only when the trust file
-pins that origin (section 4). The coordinator's `GET /admission/v1/cohort` is
+pins that origin (section 4). The coordinator's `GET /admission/v2/cohort` is
 authoritative for uploads; the snapshot is a published mirror and can lag it.
 
-## 11. Not in v1
+## 11. Not in v2
 
-- Presigned URLs, S3 API tokens or any credential other than the hotkey.
+- S3 API credentials, or any credential other than the hotkey and the
+  presigned URLs the coordinator mints for the session's owner.
+- Multipart uploads or resumable transfers within one file.
 - Carrying a commitment, a queue place or an uploaded object to a later cohort.
 - Per-coldkey limits or a random or stake-weighted draw under the roster cap
   (a user decision; it would get a new `selection` name).
 - Encryption of the upload to the coordinator key.
-- A coordinator signature over the cohort response and the status snapshot; v1
+- A coordinator signature over the cohort response and the status snapshot; v2
   authenticates the destination by its pinned origin and TLS.
 
 ## 12. Notes for the coordinator implementation
 
-- Serialize session operations and the close in one Durable Object per cohort,
-  persist part records (number, length, digest, R2 part tag) and each session's
-  attempt before answering, and keep the multipart upload id in that state so
-  completion can resume after a restart.
-- Stream bodies; never buffer a part or the object. Parse routes with
-  `Route::parse` and the headers in place from the request bytes. Keep every
-  bound (`part_size`, `max_parts`, `max_object_len`, `request_validity_blocks`,
-  rate limits) as a versioned parameter, not a constant, and keep responses
-  within `response_limit`.
-- Keep the commitment log of section 2 on the finalized cursor: per commitment
-  event, `CommitmentOf(netuid, who)`, `Uids` and `BlockAtRegistration` at that
-  block's hash, plus the subnet's registration events, within the shared RPC
-  budget. Session opening and the close read only the log.
+- Serialize session operations, R2 object observations, the sweeps and the
+  close in one Durable Object per cohort. Once `closing` is persisted, only
+  the close sweep records presence, and its progress is persisted per key so
+  it resumes after an eviction.
+- Record presence only from R2's `head()`: size, the stored SHA-256, the entity
+  tag, and no customer key, non-standard storage class or stored metadata.
+  An object-create event on the bucket's `admission/v2/` prefix is a wakeup
+  only (its payload carries no checksum); the client's `urls` and `complete`
+  requests and the alarm's sweep settle objects too, so a lost event loses
+  nothing.
+- Keep one constant-size aggregate per session for minted URLs (a count and
+  the latest expiry), never a row per mint. One `urls` call is one signer
+  request (at most one header and the spec's file table).
+- A mint failure that is the platform's (the signer unreachable, a 5xx) is a
+  cohort fault (`signer_unavailable`), a failed canary is
+  `upload_path_unavailable`, and a header settle or link probe the platform
+  could not run (R2, the upload Worker's header route, or its registration
+  read) is `upload_front_unavailable`; each defers the close until a later
+  success, and the close begins with a fresh canary that also runs the link
+  probe. URLs minted after the close was recorded are never handed out
+  (`after_cutoff`).
+- Keep every bound (`max_object_len`, `request_validity_blocks`, the URL
+  policy) as a versioned parameter, and keep responses within
+  `response_limit`.
+- Keep the commitment log of section 2 on the finalized cursor. Session
+  opening and the close read only the log.
 - Record one `last_refusal` per hotkey and cohort, overwritten by the next
   refusal, after the signature verifies.
-- Answer `GET /admission/v1/cohort` with `cache-control: no-store`, and put the
+- Answer `GET /admission/v2/cohort` with `cache-control: no-store`, and put the
   cursor in `request_expired`'s `detail.finalized_block`. (On testnet the
-  cohort authority writes the response, with the time, to a snapshot in the
-  upload bucket at every heartbeat, and the upload Worker serves the read
-  from it through one edge-cache copy per location kept for one block, 12 s,
-  under one key for every URL variant: the query is dropped. A snapshot
-  older than the heartbeat freshness, 10 minutes, answers `paused: true`.
-  So this unsigned read never reaches the eval Worker, and reaches the
-  bucket about once a block per edge location; concurrent misses are not
-  coalesced. Clients still receive `no-store`.)
+  cohort authority writes the response, with the time, to a snapshot at every
+  heartbeat, and the upload Worker serves the read from one edge-cache copy
+  per location kept for one block, 12 s, refreshed on a miss through the eval
+  Worker's internal snapshot operation, which answers from the snapshot
+  object without reaching the cohort object. A snapshot older than the
+  heartbeat freshness, 10 minutes, answers `paused: true`. This unsigned read
+  never reaches the cohort authority.)
 
 ## 13. Implementation notes (coordinator, testnet)
 
@@ -948,128 +1007,41 @@ authoritative for uploads; the snapshot is a published mirror and can lag it.
   `open` (every registered hotkey), `hotkeys` (only those `ADMISSION_HOTKEYS`
   lists, for operator drills) or `off` (404). The eval Worker answers 404 to
   every `/admission/` request. Its internal interface
-  (`/internal/admission/v1/<op>`, `slop_ninja_admission_wire::internal`)
-  serves only requests addressed to its internal host, which no public route
-  carries, that also present the interface token the two Workers share as a
-  Worker secret. Another Worker bound to the eval Worker (the publisher)
-  cannot reach it. The upload Worker forwards one bounded message per checked
-  request. The cohort authority (`EvalCohort`) authenticates it again against
-  the cursor and re-derives the route fields from the signed method and path
-  (a forwarded session, part, attempt or hotkey other than the signed one is
-  refused), decides and records in one transaction, then creates, aborts or
-  completes the R2 multipart upload in the upload bucket and records the
-  result. It hashes a creation body itself. A part's upload is created only
-  for its authenticated owner, and a creation that loses a race, or that
-  lands after an abort or supersede of its attempt, is aborted. A part record carries the part's
-  signed request again: the cohort authority verifies it for the session's
-  owner and checks the target (object key, upload id, the plan's length of
-  that part, the signed digest) against the session before it records the
-  part. Session operations, the close and the freeze are serialized by that
-  one object.
-- **Framing failures.** A framing call through the upload Worker that fails
-  counts against the session's attempts, so attempts that keep failing reach
-  the plan's pause bound and fault the cohort (`framing_unavailable`,
-  resumable). Only the upload Worker's platform answers (503 with
-  `x-sn-frame-failure`: `object-read`, or `platform` for a framing request
-  it could not take) are not counted. A link that is not
-  configured (no token or service binding, or the upload Worker answering
-  404 or 400) faults the cohort on its first failure. `GET
-  /eval/admission/link` (the status token, on the eval Worker's existing
-  operator surface) probes the link without an upload.
-- **Keys and bindings.** The upload Worker holds no chain hotkey and no
-  package, receipt or authorization key. Its one secret is the interface
-  token. Its bindings are the private upload bucket
-  (`admission-bucket-testnet`, uploaded objects only) and the service
-  binding to the eval Worker. The eval Worker binds the same upload bucket
-  for the multipart control operations, slice copies and deletes and the
-  cohort snapshot, and has a
-  service binding back to the upload Worker for framing (`POST
-  /internal/upload/v1/frame`, which needs the same internal host and token).
-  Parts stream from the request to R2 in the upload Worker and never reach
-  the eval Worker.
-- **Limits.** Testnet enforces protocol bounds only (decision D6). A request
-  must be signed by a hotkey registered on subnet 601. There is one session
-  per hotkey and commitment and one artifact per hotkey per cohort. Objects
-  and parts are bounded by the artifact spec (the declared length at the
-  upload Worker, the exact part length and the cohort's `max_object_len` at
-  the cohort authority). Cloudflare's built-in DDoS protection sits in front
-  of the custom domain. Unsigned requests, other than the cohort read, and
-  requests from unregistered hotkeys are refused before any body is read or
-  anything is forwarded; the cohort read is served from the snapshot
-  (section 12), never by the eval Worker. There is no per-IP or per-hotkey
-  rate cap, and `rate_limited` is never sent. A signed request costs no RPC
-  call of its own: each isolate of the upload Worker reads the finalized
-  head and the subnet's roster once a block, by one request at a time
-  (later ones wait for it), and after a failed read answers `unavailable`
-  for one block without reading again. So the RPC load grows with the
-  number of busy isolates, never with the request rate; it is not yet
-  measured on the deployed Worker. The RPC is the public OpenTensor testnet
-  endpoint, as for the coordinator's other testnet reads.
-- **Parameters.** `part_size`, `max_parts`, `request_validity_blocks`,
-  `roster_cap`, `selection`, the artifact spec (id and digest), the
-  operator's own hotkeys and the fresh pool are the plan's `admission` block.
-  The deployment's `ROSTER_CAP` bounds `roster_cap`. Coordinator-opened
-  cohorts take them from the standing template. Every admission run names
-  the cohort's spec digest on its load, so spec v2 and spec v3 (the span
-  tower class) are both admitted; any other spec is refused at the plan
-  (`admission_spec_unsupported`). The standing template's roster cap is
-  also bounded by the receipt index: every receipt a cohort at the cap can
-  record (every document at every attempt) must fit one signed index
-  (972,591 entries, what the protocol's 64 MiB signed-record limit holds).
-  Native validators hold a target's receipts by reference (bundle schema
-  v3), so their 64 MiB bundle file bound limits only the embedded records,
-  and they read the signed indexes of a target and its carrier within their
-  own allowance of two such indexes.
-- **Outside entrants.** An admitted entrant whose hotkey is not one of the
-  plan's `operator_hotkeys`, whose hotkey no coldkey in `operator_coldkeys`
-  owned at the cutoff (`Owner`, read in the cutoff snapshot; an owner that
-  does not read counts as the operator's whenever the plan lists coldkeys),
-  and whose content is not an already published artifact's, is an outside
-  entrant (its artifact loaded and scored the
-  control document). Fresh human stock is drawn only for a cohort whose
-  frozen roster holds one, from the plan's fresh pool; a plan with a fresh
-  pool must list the operator's hotkeys and coldkeys; every other cohort
-  draws only already-exposed stock. The content comparison is exact, so a
-  near copy of a published artifact is caught only by the copy gate at
-  scoring, after the draw: standing templates never name a fresh pool, and
-  fresh stock comes only from an operator's plan.
-- **Commitment log.** It has its own share of the coordinator's per-minute
-  RPC budget. A resolution read that another runtime wrote reads the
-  metadata at that block and is read again; a runtime upgrade never makes a
-  commitment unresolvable. State the RPC endpoint no longer keeps is read
-  again from the archive endpoint when the deployment configures one
-  (`ARCHIVE_RPC_URL`). A commitment whose value does not decode, whose
-  extrinsic also committed for another hotkey, or whose block state no
-  endpoint keeps is never logged; a session that opens it gets
-  `commitment_unresolvable` with the reason, and the miner commits again. A
-  snapshot block whose state no endpoint keeps pauses the cohort
-  (`snapshot_state_discarded`) until a read answers; the same cohort then
-  freezes.
-- **Retention.** Objects of refused, overflow, superseded and aborted
-  sessions, and the slices and manifests only their copies created, are
-  deleted after the freeze. Admitted objects stay private until the close;
-  `closure-artifacts.json` beside the signed closure names them for
-  publication. A cohort abandoned after its freeze has no closure: its
-  admitted objects, and the slices and manifests only their copies created,
-  are deleted like a refused session's.
-- **Not yet.** The digest-stream
-  part check is not qualified, so parts record their claimed digest (the
-  same signed part headers sent again within `valid_until` with another
-  body, or after a reopen, record that digest for the other bytes; that
-  shows at framing as `object_mismatch` and costs the owner the attempt).
-  Copies of slices into the eval bucket are not hashed in transit either:
-  a blob is written under the digest of the upload Worker's framing
-  outcome, and the scorer refuses a blob that does not match it.
-  Admission runs use the scorer lane's admission route: a freshly started
-  instance under the cohort's label, spec digest and lane limits (its size
-  bound, load allowance and document time limit), whose reply says whether a
-  failure was definitive. A framing attempt cut off by the platform is tried
-  again after a growing backoff and never refuses the upload; repeated
-  cut-offs (and repeated platform failures of a verdict run) pause the cohort
-  at the plan's `failures_before_pause` (`framing_unavailable`,
-  `scorer_unavailable`) rather than stalling the freeze unseen. A
-  commitment resolution whose reads serve no state for its block stays
-  pending and is read again after a growing backoff (from `ARCHIVE_RPC_URL`
-  when configured); it ends only on an explicit discarded-state answer
-  (`state_discarded`), and while the hotkey has a session verifying it pauses
-  the cohort at the same bound (`commitment_state_unavailable`).
+  (`/internal/admission/v2/<op>`, `slop_ninja_admission_wire::internal`)
+  serves only requests addressed to its internal host that also present the
+  interface token the two Workers share. The cohort authority authenticates
+  each forwarded request again against the cursor and re-derives the route
+  fields from the signed method and path, and requires the signer to be the
+  session's hotkey.
+- **Keys and bindings.** The upload Worker holds no key and no R2 binding;
+  its one secret is the interface token, and its one binding is the service
+  binding to the eval Worker (every forwarded request and the snapshot
+  refresh, `/internal/admission/v2/snapshot`). The signer Worker holds the R2 S3 credential (Object
+  Read & Write on the admission bucket only, from Secrets Store) and the S3
+  host; it signs PUT only, for keys it derives, and never touches an object.
+  The eval Worker binds the admission bucket (heads, header reads, deletes)
+  and writes the cohort snapshot to the eval bucket, which neither R2 S3
+  credential reaches, and has service bindings to the signer and to the
+  upload Worker's header route (`POST /internal/upload/v2/header`, the same
+  internal host and token). No upload byte reaches any of them.
+- **Limits.** Testnet enforces protocol bounds only (decision D6): a request
+  must be signed by a hotkey registered on subnet 601; one session per hotkey
+  and commitment; one artifact per hotkey per cohort; each URL bound to its
+  derived key, the committed length and digest, and create-only. There is no
+  per-IP or per-hotkey rate cap, and `rate_limited` is never sent. A URL
+  holder can make R2 refuse garbage bodies repeatedly; each attempt is a write
+  operation on that miner's own key (at most about one per second), and the
+  session's mint count names the hotkey.
+- **Parameters.** `request_validity_blocks`, `roster_cap`, `selection`, the
+  artifact spec (id and digest), the upload URL policy, the operator's own
+  hotkeys and the fresh pool are the plan's `admission` block. Every
+  admission run names the cohort's spec digest on its load.
+- **Outside entrants**, **commitment log** and **snapshot**: as in version 1;
+  section 2 and the coordinator README describe them.
+- **Hash once.** The scorer Container receives each file in 64 MiB chunks at
+  their offsets, read from R2 by ranged reads pinned to the recorded entity
+  tag, and loads them with no hash; the spec's role binding and load guards
+  compare the header's digests. The one remaining hash over model bytes is
+  the graph allow-list's structure digest (decision D5, open). A source test
+  (`no_object_hash`) fails if any other hash reaches the admission, scoring or
+  check paths.

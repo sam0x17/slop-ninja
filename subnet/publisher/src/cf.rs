@@ -28,7 +28,9 @@ use slop_ninja_alerts_wire as wire;
 use slop_ninja_protocol::Digest;
 
 const RECEIPTS: &str = "RECEIPTS_TESTNET";
-const EVAL: &str = "EVAL_TESTNET";
+/// The private admission bucket (the miners' direct uploads), read for
+/// publication at scoring start.
+const ADMISSION: &str = "ADMISSION_TESTNET";
 const PUBLIC: &str = "PUBLIC_TESTNET";
 /// The dashboard bucket (`dashboard/v1` only), read by the private dashboard
 /// feed Worker. Optional: without the binding no dashboard is written.
@@ -39,6 +41,14 @@ const STATE: &str = "PUBLISHER_STATE_TESTNET";
 /// The private alerts relay Worker (decision D18), reached only through this
 /// service binding.
 const RELAY: &str = "ALERTS_RELAY_TESTNET";
+/// The internal signer Worker's copy route (`ARTIFACT_COPY = "server"`),
+/// reached only through this service binding with `COPY_INTERFACE_TOKEN`.
+const SIGNER: &str = "R2_SIGNER_TESTNET";
+/// The eval Worker's publication report route, on the internal status host.
+const PUBLICATION_URL: &str = "https://status.internal/eval/admission/published";
+const SIGNER_COPY_URL: &str = "https://r2-signer.internal/internal/r2-signer/v1/copy";
+const SIGNER_TOKEN_HEADER: &str = "x-sn-interface-token";
+const COPY_MEDIA_TYPE: &str = "application/vnd.slop-ninja.r2-copy.v1";
 
 /// Each status read is answered within this or skipped for the run (the
 /// coordinator's own liveness probe uses the same order of bound). The wire
@@ -85,6 +95,7 @@ fn meta(o: &worker::Object) -> ObjectMeta {
             .sha256
             .and_then(|b| <[u8; 32]>::try_from(b).ok())
             .map(Digest),
+        etag: Some(o.etag()),
     }
 }
 
@@ -242,6 +253,144 @@ impl Store for R2 {
             .delete(key)
             .await
             .map_err(|_| StoreError::Unavailable("r2 delete"))
+    }
+}
+
+// ---------------------------------------------------- publication report
+
+/// The eval Worker's publication report route (`POST
+/// /eval/admission/published` on the internal status host, with the
+/// publisher's own eval status token): one small JSON body per cohort and
+/// run, bounded by the outbound timeout. Only a 200 is taken: the eval
+/// Worker answers 404 when the authority the label names holds no such
+/// cohort.
+struct EvalPublication {
+    fetcher: worker::Fetcher,
+    token: String,
+}
+
+impl crate::artifacts::PublicationSink for EvalPublication {
+    fn report<'a>(
+        &'a self,
+        cohort: u64,
+        label: &'a str,
+        entries: &'a [crate::artifacts::ReportEntry],
+    ) -> std::pin::Pin<
+        Box<dyn std::future::Future<Output = std::result::Result<(), StoreError>> + 'a>,
+    > {
+        Box::pin(async move {
+            let body = serde_json::to_vec(
+                &serde_json::json!({"cohort": cohort, "label": label, "entrants": entries}),
+            )
+                .map_err(|_| StoreError::Unavailable("publication report"))?;
+            let headers = Headers::new();
+            headers
+                .set("authorization", &format!("Bearer {}", self.token))
+                .map_err(|_| StoreError::Unavailable("publication report"))?;
+            headers
+                .set("content-type", "application/json")
+                .map_err(|_| StoreError::Unavailable("publication report"))?;
+            let mut init = RequestInit::new();
+            let array = js_sys::Uint8Array::from(body.as_slice());
+            init.with_method(Method::Post)
+                .with_headers(headers)
+                .with_body(Some(array.into()));
+            let ok = within(STATUS_TIMEOUT_MS, async {
+                let request = Request::new_with_init(PUBLICATION_URL, &init).ok()?;
+                let mut response = self.fetcher.fetch_request(request).await.ok()?;
+                let ok = response.status_code() == 200;
+                let _ = response.bytes().await;
+                Some(ok)
+            })
+            .await
+            .flatten()
+            .unwrap_or(false);
+            if ok { Ok(()) } else { Err(StoreError::Unavailable("publication report")) }
+        })
+    }
+}
+
+// ----------------------------------------------------------- server copy
+
+/// The signer's copy route: one fixed-size request, one presigned
+/// `CopyObject` back, which is sent to R2 with no body and exactly the
+/// signed headers. The bytes are copied inside R2; none passes through this
+/// Worker. Each call is bounded by the outbound timeout.
+struct SignerCopy {
+    fetcher: worker::Fetcher,
+    token: String,
+    /// The admission bucket's name (`ADMISSION_BUCKET_NAME`, the signer's
+    /// value): `x-amz-copy-source` names it.
+    source_bucket: String,
+}
+
+impl crate::artifacts::ServerCopy for SignerCopy {
+    fn copy<'a>(
+        &'a self,
+        spec: slop_ninja_r2_presign::copy::CopySpec,
+    ) -> std::pin::Pin<
+        Box<dyn std::future::Future<Output = std::result::Result<(), StoreError>> + 'a>,
+    > {
+        Box::pin(async move {
+            use slop_ninja_r2_presign::{copy, wire};
+            let req = wire::encode_copy_request(&spec, slop_ninja_r2_presign::policy::SKEW_SECS as u32);
+            let headers = Headers::new();
+            headers
+                .set(SIGNER_TOKEN_HEADER, &self.token)
+                .map_err(|_| StoreError::Unavailable("signer headers"))?;
+            headers
+                .set("content-type", COPY_MEDIA_TYPE)
+                .map_err(|_| StoreError::Unavailable("signer headers"))?;
+            let mut init = RequestInit::new();
+            let body = js_sys::Uint8Array::from(req.as_slice());
+            init.with_method(Method::Post)
+                .with_headers(headers)
+                .with_body(Some(body.into()));
+            let reply = within(OUTBOUND_TIMEOUT_MS, async {
+                let request = Request::new_with_init(SIGNER_COPY_URL, &init).ok()?;
+                let mut response = self.fetcher.fetch_request(request).await.ok()?;
+                if response.status_code() != 200 {
+                    return None;
+                }
+                let bytes = response.bytes().await.ok()?;
+                (bytes.len() <= wire::COPY_REPLY_MAX).then_some(bytes)
+            })
+            .await
+            .flatten()
+            .ok_or(StoreError::Unavailable("signer copy"))?;
+            let r = wire::decode_copy_reply(&reply).ok_or(StoreError::Unavailable("signer reply"))?;
+            if r.status != wire::Status::Ok {
+                return Err(StoreError::Unavailable("signer refused the copy"));
+            }
+            // The headers are the signed values, derived here from the same
+            // spec; the signer's URL carries only the signature.
+            let put_headers = Headers::new();
+            let (src, ifm) = (spec.copy_source(&self.source_bucket), spec.if_match());
+            for (name, value) in copy::copy_headers(src.as_str(), ifm.as_str()) {
+                put_headers
+                    .set(name, value)
+                    .map_err(|_| StoreError::Unavailable("copy headers"))?;
+            }
+            let mut put = RequestInit::new();
+            put.with_method(Method::Put).with_headers(put_headers);
+            let status = within(OUTBOUND_TIMEOUT_MS, async {
+                let request = Request::new_with_init(r.url, &put).ok()?;
+                let response = worker::Fetch::Request(request).send().await.ok()?;
+                Some(response.status_code())
+            })
+            .await
+            .flatten();
+            match status {
+                Some(200) => Ok(()),
+                Some(412) => Err(StoreError::Unavailable("copy source changed (412)")),
+                // A refusal, not an outage: 403, or 501 `NotImplemented`,
+                // which R2 answers before authentication for a request it
+                // does not take (qualification G11).
+                Some(s @ (403 | 501)) => Err(StoreError::Refused(s)),
+                Some(_) => Err(StoreError::Unavailable("copy refused by R2")),
+                None => Err(StoreError::Unavailable("copy did not answer")),
+            }
+        })
     }
 }
 
@@ -855,13 +1004,31 @@ async fn scheduled(_event: ScheduledEvent, env: Env, ctx: ScheduleContext) {
         Ok(c) => c,
         Err(e) => return config_fault(&env, e).await,
     };
-    let (Ok(receipts), Ok(eval), Ok(public)) =
-        (env.bucket(RECEIPTS), env.bucket(EVAL), env.bucket(PUBLIC))
+    let (Ok(receipts), Ok(admission), Ok(public)) =
+        (env.bucket(RECEIPTS), env.bucket(ADMISSION), env.bucket(PUBLIC))
     else {
         console_error!("publisher: a bucket binding is missing");
         return;
     };
-    let (receipts, eval, public_bucket) = (R2(receipts), R2(eval), R2(public));
+    let (receipts, admission, public_bucket) = (R2(receipts), R2(admission), R2(public));
+    let server_copy = match (
+        env.service(SIGNER),
+        // A secret only, never a var: a mis-deployed var would show the
+        // token in the dashboard's variables.
+        env.secret("COPY_INTERFACE_TOKEN").ok().map(|s| s.to_string()),
+        var_or_secret(&env, "ADMISSION_BUCKET_NAME"),
+    ) {
+        (Ok(fetcher), Some(token), Some(source_bucket)) => Some(SignerCopy {
+            fetcher,
+            token,
+            source_bucket: source_bucket.trim().to_owned(),
+        }),
+        _ => None,
+    };
+    let publication = match (env.service(EVAL_SERVICE), var_or_secret(&env, "EVAL_STATUS_TOKEN")) {
+        (Ok(fetcher), Some(token)) => Some(EvalPublication { fetcher, token }),
+        _ => None,
+    };
     // The public bucket is written only through the allow-list.
     let public = PublicStore::new(&public_bucket);
     let budget = Budget::worker();
@@ -962,8 +1129,14 @@ async fn scheduled(_event: ScheduledEvent, env: Env, ctx: ScheduleContext) {
     let run = Run {
         buckets: Buckets {
             receipts: &receipts,
-            eval: &eval,
+            admission: &admission,
             public,
+            server_copy: server_copy
+                .as_ref()
+                .map(|c| c as &dyn crate::artifacts::ServerCopy),
+            publication: publication
+                .as_ref()
+                .map(|p| p as &dyn crate::artifacts::PublicationSink),
         },
         cfg: &cfg,
         budget: &budget,

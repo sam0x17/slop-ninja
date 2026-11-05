@@ -100,7 +100,8 @@ Known AI models occupy predefined
 author profiles alongside human writers. AI-involvement Brier is the only reward
 quantity; share, attribution, and span outputs are qualification gates.
 A detector miner commits its artifact's digest on chain and uploads the artifact
-privately to the coordinator, which publishes it after the cohort ends. The
+privately and directly to the coordinator's object store, which publishes it
+when the cohort's scoring starts. The
 miner does not need a miner-owned Cloudflare account, private LoRA, or delegated
 inference credential.
 Slop Ninja pays for production
@@ -570,15 +571,24 @@ remain to be fixed before live rewards.
    rule text, which describes how `R_0`'s roster was derived; an artifact that
    keeps that fixed roster therefore carries a rule text that misdescribes its
    own roster. A later spec version could pin a fixed-roster text instead. The
-   miner uploads
-   the object and opening privately to the coordinator's private evaluation
-   bucket before the cutoff, encrypted to the coordinator key once that path
-   is qualified. The coordinator checks that the upload opens a finalized
+   miner opens an admission session with its opening and, before the cutoff,
+   uploads the artifact's header and each file straight to the coordinator's
+   private admission bucket, one presigned R2 `PutObject` per object. Each URL
+   binds the derived key, the committed length, the committed SHA-256 and
+   create-only; R2 verifies each object against its SHA-256 as it arrives and
+   stores nothing on a mismatch. The miner's pack-time hash is therefore the
+   only hash over model bytes, admission compares R2's stored checksums and
+   sizes with the header, and no upload byte passes through a Slop Ninja
+   Worker. TLS and the private bucket are the privacy boundary until scoring
+   starts; there is no encryption layer, since R2 can verify only the digest
+   of the bytes it receives. The coordinator checks that the upload opens a finalized
    commitment for this cohort on this chain, made by the hotkey and
    registration generation the opening names and registered no later than the
    commitment block, and that the artifact qualifies. That commitment's
    finalized block and extrinsic index fix admission order. Artifacts stay
-   private until the cohort ends. Training methods and permitted data stay at
+   private until the cohort's scoring starts, when every admitted artifact is
+   published (header and files, each named by its SHA-256, copied inside R2
+   or by a stream R2 verifies). Training methods and permitted data stay at
    the miner's discretion.
 3. **Build a fresh batch.** About 1,000 paired cases on testnet and 4,000 on
    mainnet (floor 2,000), 20% `human_only`, 55% `mixed`, 25% `model_only`,
@@ -596,8 +606,9 @@ remain to be fixed before live rewards.
    attribution, span, and pure-human false-positive outputs are gates only.
 5. **Derive credits** by the rules below and publish a signed package with the
    scores, failed gates and reason codes, public-copy results, cluster
-   assignments, parameters, and exact credits; publish the artifacts and
-   commitment openings when the cohort ends. Each validator verifies digests,
+   assignments, parameters, and exact credits; publish the commitment
+   openings when the cohort ends (the artifacts were published when scoring
+   started). Each validator verifies digests,
    commitment positions, copy-check consistency and the receipt package, and
    derives the same canonical row before committing.
 6. **Pay with a lag.** `T_N` activates at the first eligible tempo boundary
@@ -858,8 +869,8 @@ runtime versions:
   model becomes `R_{k-1}`, so a fallback cohort pays only entrants that outscore
   it. False promotion and drift are stated limits of the shared margin, measured
   on simulated rosters before launch.
-- **Public-copy gate.** Every entrant artifact is published after its cohort,
-  and a copy of a published artifact earns nothing. An entrant whose inference
+- **Public-copy gate.** Every admitted entrant artifact is published when its
+  cohort's scoring starts, and a copy of a published artifact earns nothing. An entrant whose inference
   content equals that of any published artifact fails at admission and is
   never executed. An executed entrant within the near-copy distance of `R_k`
   or `R_{k-1}` on the batch, or of any fingerprinted published artifact on the
@@ -1105,9 +1116,9 @@ cannot advance the cohort.
 | --- | --- | --- | --- |
 | Admission | 0–1 | Accept finalized digest commitments and private uploads; freeze the roster. | At least one tempo. |
 | Generation | 1–3 | Draw human texts under the frozen pool manifest, generate fresh AI-side text in parallel lanes, seal the batch and roster digests. | On completion. |
-| Scoring | 3–15 | Paired scoring of entrants, `R_k`, and `R_{k-1}` in parallel lanes, then each executed entrant's probe run; work sized to at most half of the window. | On completion. |
+| Scoring | 3–15 | Publish every admitted artifact as scoring starts; paired scoring of entrants, `R_k`, and `R_{k-1}` in parallel lanes, then each executed entrant's probe run; work sized to at most half of the window. | On completion. |
 | Publication | 15–16 | Bundle receipts; seal, sign, and publish the score package and receipt index. | On completion. |
-| Transition | 16–20 | No new challenges. Validators process chain obligations independently. At the closing boundary, publish the artifacts and openings. | At least two tempos and the `K`-tempo minimum. No validator's chain delivery is a condition. |
+| Transition | 16–20 | No new challenges. Validators process chain obligations independently. At the closing boundary, publish the openings. | At least two tempos and the `K`-tempo minimum. No validator's chain delivery is a condition. |
 | Paused, from any phase | – | Retain the checkpoint and receive results from already dispatched work; issue no new challenges or cohort advancement. | The coordinator recovers, reconciles the checkpoint and chain, and authorizes resumption of the same cohort. |
 
 A package finished by tempo 18 (block 6,480 of the cohort) keeps the daily
@@ -1121,7 +1132,7 @@ more than `K`, and a reward-intent lease of at least `2K` tempos.
 
 **Lagged payout.** Cohort N's signed target `T_N` activates at the first
 eligible tempo boundary after its package and receipts are durable: the
-boundary that closes cohort N and publishes its artifacts, nominally the start
+boundary that closes cohort N and publishes its openings, nominally the start
 of N+1, at its signed epoch index. From then on every validator
 re-derives `T_N`'s row against a fresh finalized registration snapshot and
 commits it each tempo, with commit/reveal on, under a per-tempo operation
@@ -1307,8 +1318,9 @@ distance-based cluster membership, the reference scores `S(R_k)` and
 `S(R_{k-1})`, the `reward-v1` parameters and cutoff mode, each retained
 cluster's exact credit and every member's units, the published-artifact index
 root and count, the distance monitor, mechanism and cohort identities, result
-revision, artifact digests, and hotkey/registration bindings. After the cohort closes it also publishes the artifacts and their
-commitment openings. It fixes the calculation version, arithmetic precision,
+revision, artifact digests, and hotkey/registration bindings. The artifacts are
+published when scoring starts; after the cohort closes the coordinator also
+publishes their commitment openings. It fixes the calculation version, arithmetic precision,
 operation order, tie handling, normalization, rounding, UID ordering, and native
 weight encoding together with the finalized registration bindings. No chain
 runtime version enters the package or the calculation. Include the R2
@@ -1326,8 +1338,9 @@ canonical UID/weight entries, including native normalization and quantization.
 It checks each published artifact digest and opening against the finalized
 on-chain commitment, made by the entrant's hotkey and registration generation
 at the block and extrinsic index the package lists, since that position breaks
-rank-order ties; it never runs the models. The artifact check streams each
-whole published object and recomputes every file's SHA-256 against its header,
+rank-order ties; it never runs the models. The artifact check hashes each
+published header against the artifact digest the cohort's public result names
+and each file the header lists against its SHA-256,
 at most about 180 GB per validator per cohort for 256 entrants at the roughly
 700 MB artifact bound. It checks the exact-content check
 of every entrant against all published artifacts, the consistency of the
@@ -1752,7 +1765,8 @@ toolchain may generate JavaScript bindings; those are platform glue.
 Support Linux and macOS with explicitly tested platform combinations.
 
 The miner registers its hotkey, commits its *A* artifact's digest on chain,
-uploads the artifact privately to the coordinator, and tracks admission and
+uploads the artifact's header and files privately and directly to the
+coordinator's R2 bucket through presigned URLs, and tracks admission and
 results. Later *B*
 enrollment also manages its private adapter and delegated credential. Miner
 control endpoints never receive customer text. All validators verify the signed
@@ -2001,13 +2015,16 @@ the faithfulness tests above. They are not required launch outputs.
 
 Artifact registration commits on chain only a digest binding the chain and
 subnet, the cohort, the authenticated registration identity, the
-inference-content digest, and a fresh secret nonce. The artifact and opening go
-privately to the coordinator's evaluation bucket, encrypted to the coordinator
-key where qualified; validators check digests and commitment positions only. A
+inference-content digest, and a fresh secret nonce. The opening goes to the
+coordinator in a signed admission session; the artifact's header and files go
+privately and directly to the coordinator's admission bucket through presigned
+URLs, each verified by R2 against its committed SHA-256 on arrival.
+Validators check digests and commitment positions only. A
 missing or invalid upload reserves nothing; an accepted upload still needs
 qualification within the artifact cap (an allow-listed ModernBERT-base graph,
-with or without the token span head, and at most 160M parameters). After the cohort closes, the package
-publishes every artifact and opening. Copies of published artifacts earn
+with or without the token span head, and at most 160M parameters). Every
+admitted artifact is published when the cohort's scoring starts; after the
+cohort closes, the closure publishes every opening. Copies of published artifacts earn
 nothing. Within a cohort, identical content and predictions within the
 near-copy distance on the batch form one cluster that shares one credit
 equally; commitment order breaks score ties and picks the cluster head. This
@@ -3132,8 +3149,9 @@ promotion that passes to the next cluster head. Exercise the launch authorizatio
 manifest, a first cohort with no target, a probe-version replacement, a renewal
 after a lapsed lease, the per-tempo active-target check, and owner-hotkey
 rotation, including to an unregistered hotkey.
-Verify that no submitted artifact is retrievable before its cohort ends and
-that every artifact and opening is published afterward. Recovery must resume the
+Verify that no submitted artifact is retrievable before its cohort's scoring
+starts, that every admitted artifact is published then, and that every opening
+is published after the cohort closes. Recovery must resume the
 same cohort without lost outcomes, duplicate credit, or new challenges during
 transition/pause. Verify that customer deadlines and refund obligations survive.
 Exercise queue expiry and redelivery, interrupted state migrations, and recovery

@@ -1,4 +1,4 @@
-//! JSON response and error shapes of `slop_ninja.admission/v1`.
+//! JSON response and error shapes of `slop_ninja.admission/v2`.
 //!
 //! Digests and keys are lowercase hex strings without a prefix (parsers accept
 //! `0x`), addresses are SS58, and states and codes stay strings so a client
@@ -14,10 +14,10 @@ use slop_ninja_protocol::{ChainBinding, Digest};
 
 use crate::{ErrorCode, SessionState, parse_hex32};
 
-pub const SCHEMA_COHORT: &str = "slop_ninja.admission.cohort/v1";
-pub const SCHEMA_SESSION: &str = "slop_ninja.admission.session/v1";
-pub const SCHEMA_HOTKEY: &str = "slop_ninja.admission.hotkey/v1";
-pub const SCHEMA_ERROR: &str = "slop_ninja.admission.error/v1";
+pub const SCHEMA_COHORT: &str = "slop_ninja.admission.cohort/v2";
+pub const SCHEMA_SESSION: &str = "slop_ninja.admission.session/v2";
+pub const SCHEMA_HOTKEY: &str = "slop_ninja.admission.hotkey/v2";
+pub const SCHEMA_ERROR: &str = "slop_ninja.admission.error/v2";
 /// The authorization pointer (`docs/testnet/public-layout.md`,
 /// "Authorizations"), private and public.
 pub const AUTHORIZATION_POINTER_SCHEMA: &str = "slop_ninja.public.authorization/v2";
@@ -47,7 +47,7 @@ impl Chain {
     }
 }
 
-/// `GET /admission/v1/cohort`.
+/// `GET /admission/v2/cohort`.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct CohortInfo {
     pub schema: String,
@@ -81,12 +81,23 @@ pub struct Admitting {
     pub roster_cap: u16,
     pub selection: String,
     pub max_object_len: u64,
-    pub part_size: u64,
-    pub max_parts: u32,
+    /// The URL policy that sets each presigned URL's life.
+    pub upload_policy: UploadPolicy,
     pub limits: String,
     /// The artifact spec whose checks admission runs.
     #[serde(default)]
     pub artifact_spec: Option<ArtifactSpecRef>,
+}
+
+/// The upload URL policy (`slop_ninja_upload_url_policy_v1`): a URL lives
+/// `ceil(L_total / b_min) + skew_secs` seconds (at most R2's 7 days), where
+/// `L_total` is the artifact's committed size. Expiry ends one URL only: a
+/// client asks for fresh ones whenever it needs them.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct UploadPolicy {
+    pub id: String,
+    pub b_min: u64,
+    pub skew_secs: u64,
 }
 
 /// An artifact spec by id and digest (`slop_ninja_artifact_check spec`).
@@ -119,12 +130,32 @@ pub struct NextCohort {
     pub artifact_spec: Option<ArtifactSpecRef>,
 }
 
-/// One recorded part.
+/// One object of a session: the header (`kind` `header`) or a file, by its
+/// committed SHA-256 and length, and whether admission recorded it present.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-pub struct PartRecord {
-    pub part: u32,
-    pub len: u64,
+pub struct ObjectState {
+    pub kind: String,
+    #[serde(default)]
+    pub name: Option<String>,
     pub sha256: String,
+    pub len: u64,
+    pub present: bool,
+}
+
+/// One presigned upload: PUT the object's exact bytes to `url` with exactly
+/// these headers (and `host`), nothing else `x-amz-*`, never chunked.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Upload {
+    pub kind: String,
+    pub sha256: String,
+    pub len: u64,
+    pub url: String,
+    pub content_length: String,
+    pub if_none_match: String,
+    pub checksum_sha256: String,
+    /// Unix seconds of the signature, and how long the URL lives.
+    pub signed_at: u64,
+    pub valid_secs: u32,
 }
 
 /// A commitment's admission position.
@@ -143,9 +174,9 @@ pub struct Detail {
     /// The next cohort, for `not_admitting`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub next: Option<NextCohort>,
-    /// Missing part numbers, for `parts_missing`.
+    /// The SHA-256 of every object still missing, for `objects_missing`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub missing: Option<Vec<u32>>,
+    pub missing: Option<Vec<String>>,
     /// The cohort the on-chain payload names, for `commitment_mismatch`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub payload_cohort: Option<u64>,
@@ -155,13 +186,9 @@ pub struct Detail {
     /// A short machine-readable reason, for example a protocol error.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub reason: Option<String>,
-    /// The live session, for `second_artifact`; the session, for
-    /// `stale_attempt`.
+    /// The live session, for `second_artifact`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub session: Option<String>,
-    /// The session's current attempt, for `stale_attempt`.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub attempt: Option<u32>,
     /// The coordinator's finalized cursor, for `request_expired`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub finalized_block: Option<u64>,
@@ -188,7 +215,8 @@ impl Refusal {
     }
 }
 
-/// `POST /admission/v1/sessions` and `GET /admission/v1/sessions/{session}`.
+/// `POST /admission/v2/sessions`, `GET /admission/v2/sessions/{session}`,
+/// and the answers of `urls`, `complete` and `repair`.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Session {
     pub schema: String,
@@ -196,14 +224,11 @@ pub struct Session {
     pub cohort: u64,
     pub hotkey: String,
     pub commitment: String,
-    pub artifact_sha256: String,
-    pub artifact_len: u64,
-    pub part_size: u64,
-    pub part_count: u32,
-    /// Starts at 1 and grows by one each time an aborted session reopens.
-    pub attempt: u32,
+    pub header_sha256: String,
+    pub header_len: u32,
+    /// The header, then each file once its header is recorded.
     #[serde(default)]
-    pub parts: Vec<PartRecord>,
+    pub objects: Vec<ObjectState>,
     pub state: String,
     #[serde(default)]
     pub refusal: Option<Refusal>,
@@ -212,20 +237,19 @@ pub struct Session {
     #[serde(default)]
     pub next_cohort: Option<u64>,
     pub finalized_block: u64,
+    /// Fresh presigned URLs, on the answers that mint them.
+    #[serde(default)]
+    pub uploads: Vec<Upload>,
+    /// Recorded objects that went missing after admission recorded them:
+    /// `repair` mints a URL for each (the same key, so the same bytes).
+    #[serde(default)]
+    pub repair_needed: Vec<String>,
 }
 
 impl Session {
     pub fn state(&self) -> Option<SessionState> {
         SessionState::parse(&self.state)
     }
-}
-
-/// `PUT /admission/v1/sessions/{session}/parts/{n}`.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-pub struct PartAck {
-    pub part: u32,
-    pub len: u64,
-    pub sha256: String,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -255,12 +279,13 @@ pub struct SessionSummary {
     pub session: String,
     pub state: String,
     #[serde(default)]
-    pub attempt: Option<u32>,
-    #[serde(default)]
     pub refusal: Option<Refusal>,
+    /// Recorded objects that went missing (`repair` restores them).
+    #[serde(default)]
+    pub repair_needed: Vec<String>,
 }
 
-/// The latest refused `POST /admission/v1/sessions` or reopen by the hotkey
+/// The latest refused `POST /admission/v2/sessions` by the hotkey
 /// for the cohort. Content-free.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct LastRefusal {
@@ -282,7 +307,7 @@ impl LastRefusal {
     }
 }
 
-/// `GET /admission/v1/cohorts/{cohort}/hotkeys/{hotkey}`.
+/// `GET /admission/v2/cohorts/{cohort}/hotkeys/{hotkey}`.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct HotkeyView {
     pub schema: String,

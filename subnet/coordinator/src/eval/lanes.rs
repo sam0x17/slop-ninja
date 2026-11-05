@@ -1696,6 +1696,50 @@ pub fn iso_yield(sql: &impl Sql, r: &LaneRef, name: &str, job: i64, chunk: i64, 
     Ok(true)
 }
 
+/// A scoring lane's load met an object of the job's artifact absent or
+/// changed since admission recorded it (`scorer_client::OBJECT_CODES`).
+/// For an admitted entrant that is the coordinator's fault: its session is
+/// audited and the lane holds, counted as neither a scorer failure nor the
+/// artifact's, until the miner's repair (or the audit) clears it
+/// (`admission::object_fault`). `true` while held; `false` for any other
+/// job (a reference's objects: the start failure counts as before), and
+/// once an audit of the entrant found every object intact (the read
+/// path's failure, which the lane counts: `admission::audit_done`).
+pub fn object_missing(sql: &impl Sql, r: &LaneRef, job: i64, now: u64) -> R<bool> {
+    if fence(sql, r)?.is_none() {
+        return Ok(false);
+    }
+    touch(sql, r, now)?;
+    let row = sql.exec("SELECT role, package_sha256 FROM jobs WHERE seq = ? AND job = ?", &[i(r.seq), i(job)])?;
+    let Some(row) = row.first() else { return Ok(false) };
+    if text(row, 0)? != "entrant" {
+        return Ok(false);
+    }
+    let held = crate::eval::admission::object_fault(sql, r.seq, crate::eval::admission::FaultBy::Package(text(row, 1)?), now)?;
+    if held {
+        event(sql, r.seq, &r.kind, r.lane, "object_held", 0, now)?;
+    }
+    Ok(held)
+}
+
+/// Whether a scoring lane's entrant job is held for its objects (its
+/// admitted session in audit or awaiting the miner's repair:
+/// `admission::object_held`). A lane that was held asks this before it
+/// starts a scorer Container again, so a miner who has not repaired costs
+/// one cohort call per admission tick, never a cold start.
+pub fn object_held(sql: &impl Sql, r: &LaneRef, job: i64, now: u64) -> R<bool> {
+    if fence(sql, r)?.is_none() {
+        return Ok(false);
+    }
+    touch(sql, r, now)?;
+    let row = sql.exec("SELECT role, package_sha256 FROM jobs WHERE seq = ? AND job = ?", &[i(r.seq), i(job)])?;
+    let Some(row) = row.first() else { return Ok(false) };
+    if text(row, 0)? != "entrant" {
+        return Ok(false);
+    }
+    crate::eval::admission::object_held(sql, r.seq, text(row, 1)?)
+}
+
 /// An attributable artifact failure on a fresh instance: a load that failed or
 /// outlasted its allowance, a control document that killed a freshly restarted
 /// instance, or (with `definitive`) a manifest over the declared size bound,
@@ -2271,6 +2315,12 @@ impl ClaimRef {
     }
 }
 
+#[derive(Deserialize)]
+pub struct ObjectMissing {
+    pub lane: LaneRef,
+    pub job: i64,
+}
+
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ArtifactFailure {
     pub lane: LaneRef,
@@ -2344,6 +2394,14 @@ pub fn scoring_route(sql: &impl Sql, cfg: &EvalConfig, path: &str, body: &[u8], 
         "/lane/artifact-failure" => {
             let b: ArtifactFailure = parse(body)?;
             json!(artifact_failure(sql, &b.lane, b.job, &b.code, b.definitive, now)?)
+        }
+        "/lane/object-missing" => {
+            let b: ObjectMissing = parse(body)?;
+            json!(object_missing(sql, &b.lane, b.job, now)?)
+        }
+        "/lane/object-held" => {
+            let b: ObjectMissing = parse(body)?;
+            json!(object_held(sql, &b.lane, b.job, now)?)
         }
         _ => return Ok(None),
     };

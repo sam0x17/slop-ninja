@@ -15,9 +15,18 @@
 //!   assembled files also reports for a host fault ([`HOST_FAULT_CODES`]);
 //!   those, and every other load failure, stay attributable only on a fresh
 //!   instance.
-//! - **Platform replies.** A part or load meeting another binding (409
-//!   `instance_bound`), parts missing at load (409 `missing_parts`) and too
-//!   little memory (507 `insufficient_memory`) are the platform's.
+//! - **Loads (files manifest v2).** The client posts the manifest
+//!   (`/v2/prepare`), writes each file's missing chunks at their offsets
+//!   (`/v2/files/<index>/<offset>`, read from R2 by ranged reads pinned to
+//!   the entity tag the manifest names), then asks for the load
+//!   (`/v2/load`). While chunks arrive the instance reports `receiving`.
+//!   Nothing is hashed on the way: R2 verified every file at ingest.
+//! - **Platform replies.** A chunk or load meeting another binding (409
+//!   `instance_bound`), chunks missing at load (409 `missing_chunks`), a
+//!   chunk the instance refused (its length: a transfer fault) and too little
+//!   memory (507 `insufficient_memory`) are the platform's. An object the
+//!   load could not read at its recorded entity tag ([`OBJECT_CODES`]) is
+//!   neither the scorer's nor yet the miner's: admission audits it.
 //! - **Artifact spec.** A cohort that names an artifact spec
 //!   (`fanout.score.artifact_spec`) names its digest on every load
 //!   (`spec=<digest>`, [`load_path`]), so the scorer admits the cohort's
@@ -57,8 +66,16 @@ impl Prep {
     }
 }
 
-/// A part or load met an instance bound to another package or cohort.
+/// A chunk or load met an instance bound to another package or cohort.
 pub const INSTANCE_BOUND: &str = "instance bound to another artifact";
+/// A file object the load reads is absent from its bucket.
+pub const OBJECT_MISSING: &str = "artifact object missing";
+/// A file object the load reads no longer has the entity tag admission
+/// recorded (the pinned read refused it).
+pub const OBJECT_CHANGED: &str = "artifact object changed";
+/// The load failures that send an admission run's session to an audit of
+/// its recorded objects (`admission::record_run`).
+pub const OBJECT_CODES: &[&str] = &[OBJECT_MISSING, OBJECT_CHANGED];
 /// A non-definitive artifact failure on an instance this prepare did not start.
 pub const REUSED: &str = "artifact load failed on a reused instance";
 /// The code recorded for a refusal whose code is not in [`REFUSALS`].
@@ -166,6 +183,8 @@ pub enum Slot {
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Ours {
+    /// Prepared: its chunks are arriving.
+    Receiving,
     Loading,
     Ready,
     Failed,
@@ -188,6 +207,7 @@ pub fn slot(h: &Value, package: &str, cohort: Option<&str>, spec: Option<&str>) 
     };
     let ours = h["package"].as_str() == Some(package) && h["cohort"].as_str() == sent(h, cohort) && spec_ours;
     match (state, ours) {
+        (Some("receiving"), true) => Slot::Ours(Ours::Receiving),
         (Some("loading"), true) => Slot::Ours(Ours::Loading),
         (Some("ready"), true) => Slot::Ours(Ours::Ready),
         (Some("failed"), true) => Slot::Ours(Ours::Failed),
@@ -212,7 +232,7 @@ pub enum Entry {
 pub fn entry(h: Option<&Value>, package: &str, cohort: Option<&str>, spec: Option<&str>) -> Entry {
     let Some(h) = h else { return Entry::Keep };
     match slot(h, package, cohort, spec) {
-        Slot::Empty | Slot::Ours(Ours::Loading | Ours::Ready) => Entry::Keep,
+        Slot::Empty | Slot::Ours(Ours::Receiving | Ours::Loading | Ours::Ready) => Entry::Keep,
         Slot::Ours(Ours::Failed) => match load_failed(h["error"].as_str().unwrap_or("")) {
             Prep::Artifact(code, true) => Entry::Refused(code),
             _ => Entry::Fresh,
@@ -241,16 +261,50 @@ pub fn load_failed(error: &str) -> Prep {
     }
 }
 
-/// A `PUT /v1/blobs/<sha256>` reply other than 201.
-pub fn part_refused(status: u16) -> Prep {
+/// A `PUT /v2/files/<index>/<offset>` reply other than 201 (or 200 for a
+/// chunk already written): another binding, or a chunk the instance refused
+/// (its exact length or offset), which is the transfer's fault: the bytes
+/// were read from R2 at the recorded length and entity tag.
+pub fn chunk_refused(status: u16) -> Prep {
     match status {
         409 => Prep::Infra(INSTANCE_BOUND),
-        // The container refused the bytes stored under this digest.
-        _ => Prep::Artifact("part rejected", false),
+        _ => Prep::Infra("chunk rejected"),
     }
 }
 
-/// A `POST /v1/load` reply and its JSON body (`Null` when unreadable): `None`
+/// A `POST /v2/prepare` reply and its JSON body: `Ok(missing chunks)` as
+/// `(file index, offset)` when the instance took (or already holds) this
+/// binding, else the failure. The manifest check reads no file, so a
+/// refusal there is the manifest's and definitive.
+pub fn prepare_reply(status: u16, body: &Value) -> Result<Vec<(usize, u64)>, Prep> {
+    let error = body["error"].as_str().unwrap_or("");
+    match status {
+        200 | 201 => Ok(missing_chunks(body)),
+        422 => Err(match refusal(error) {
+            Some(code) => Prep::Artifact(code, true),
+            None => Prep::Artifact("prepare refused", false),
+        }),
+        409 if error == "instance_bound" => Err(Prep::Infra(INSTANCE_BOUND)),
+        507 => Err(Prep::Infra("insufficient_memory")),
+        _ => Err(Prep::Infra("prepare refused")),
+    }
+}
+
+/// The chunks a prepare reply lists as missing (`missing`: `[[index,
+/// offset], ...]`); an entry that does not parse is skipped (the load then
+/// answers `missing_chunks`, the platform's).
+pub fn missing_chunks(body: &Value) -> Vec<(usize, u64)> {
+    body["missing"]
+        .as_array()
+        .map(|a| {
+            a.iter()
+                .filter_map(|c| Some((usize::try_from(c.get(0)?.as_u64()?).ok()?, c.get(1)?.as_u64()?)))
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+/// A `POST /v2/load` reply and its JSON body (`Null` when unreadable): `None`
 /// when the load started or this binding is already loading or loaded.
 pub fn load_reply(status: u16, body: &Value) -> Option<Prep> {
     let error = body["error"].as_str().unwrap_or("");
@@ -262,16 +316,31 @@ pub fn load_reply(status: u16, body: &Value) -> Option<Prep> {
             None => Prep::Artifact("load refused", false),
         }),
         409 if error == "instance_bound" => Some(Prep::Infra(INSTANCE_BOUND)),
-        409 if error == "missing_parts" => Some(Prep::Infra("missing parts")),
+        409 if error == "missing_chunks" => Some(Prep::Infra("missing chunks")),
+        409 if error == "not_prepared" => Some(Prep::Infra("not prepared")),
         507 => Some(Prep::Infra("insufficient_memory")),
         _ => Some(Prep::Infra("load refused")),
     }
 }
 
-/// The load route, naming the cohort and the artifact spec's digest when the
-/// client sends them ([`sent`], [`spec_sent`]).
+/// The prepare route (`/v2/prepare`), with the load's query.
+pub fn prepare_path(package: &str, cohort: Option<&str>, spec: Option<&str>) -> String {
+    format!("/v2/prepare{}", load_query(package, cohort, spec))
+}
+
+/// The load route (`/v2/load`), naming the cohort and the artifact spec's
+/// digest when the client sends them ([`sent`], [`spec_sent`]).
 pub fn load_path(package: &str, cohort: Option<&str>, spec: Option<&str>) -> String {
-    let mut path = format!("/v1/load?package={package}");
+    format!("/v2/load{}", load_query(package, cohort, spec))
+}
+
+/// The chunk route of file `index` at `offset`.
+pub fn chunk_path(index: usize, offset: u64) -> String {
+    format!("/v2/files/{index}/{offset}")
+}
+
+fn load_query(package: &str, cohort: Option<&str>, spec: Option<&str>) -> String {
+    let mut path = format!("?package={package}");
     if let Some(c) = cohort {
         path.push_str("&cohort=");
         path.push_str(c);
@@ -403,8 +472,9 @@ mod tests {
         assert_eq!(spec_sent(&old_scorer("empty", P), Some(V3)), Err(Prep::Infra(SPEC_NOT_SERVED)));
         assert_eq!(spec_sent(&old_scorer("empty", P), None), Ok(None));
         assert_eq!(SPEC_NOT_SERVED, Prep::Infra(SPEC_NOT_SERVED).code(), "the platform's, never the artifact's");
-        assert_eq!(load_path(P, c, Some(V3)), format!("/v1/load?package=aa&cohort=testnet-r0b-14&spec={V3}"));
-        assert_eq!(load_path(P, None, Some(V3)), format!("/v1/load?package=aa&spec={V3}"));
+        assert_eq!(load_path(P, c, Some(V3)), format!("/v2/load?package=aa&cohort=testnet-r0b-14&spec={V3}"));
+        assert_eq!(load_path(P, None, Some(V3)), format!("/v2/load?package=aa&spec={V3}"));
+        assert_eq!(prepare_path(P, c, Some(V3)), format!("/v2/prepare?package=aa&cohort=testnet-r0b-14&spec={V3}"));
         // What the load binds to: the named spec, or the unnamed-load spec.
         assert_eq!(bound_spec(&empty, Some(V3)), Some("slop_ninja_a_artifact_spec_v3"));
         assert_eq!(bound_spec(&empty, None), Some("slop_ninja_a_artifact_spec_v2"));
@@ -495,22 +565,43 @@ mod tests {
         assert_eq!(load_reply(422, &Value::Null), Some(Prep::Artifact("load refused", false)));
         assert_eq!(load_reply(409, &e("instance_bound")), Some(Prep::Infra(INSTANCE_BOUND)));
         assert_eq!(
-            load_reply(409, &json!({"error": "missing_parts", "missing": ["bb"]})),
-            Some(Prep::Infra("missing parts"))
+            load_reply(409, &json!({"error": "missing_chunks", "missing": [[0, 0]]})),
+            Some(Prep::Infra("missing chunks"))
         );
         assert_eq!(load_reply(409, &Value::Null), Some(Prep::Infra("load refused")));
         assert_eq!(load_reply(507, &e("insufficient_memory")), Some(Prep::Infra("insufficient_memory")));
         assert_eq!(load_reply(400, &e("query")), Some(Prep::Infra("load refused")));
         assert_eq!(load_reply(500, &Value::Null), Some(Prep::Infra("load refused")));
-        assert_eq!(part_refused(409), Prep::Infra(INSTANCE_BOUND));
-        assert_eq!(part_refused(422), Prep::Artifact("part rejected", false));
-        assert_eq!(part_refused(400), Prep::Artifact("part rejected", false));
+        assert_eq!(chunk_refused(409), Prep::Infra(INSTANCE_BOUND));
+        assert_eq!(chunk_refused(422), Prep::Infra("chunk rejected"));
+        assert_eq!(chunk_refused(400), Prep::Infra("chunk rejected"));
+        // The prepare: the missing chunks, or the manifest's own refusal.
+        let ok = json!({"state": "receiving", "missing": [[0, 0], [0, 67108864], [5, 0], ["x", 1]]});
+        assert_eq!(prepare_reply(201, &ok), Ok(vec![(0, 0), (0, 64 << 20), (5, 0)]));
+        assert_eq!(prepare_reply(200, &json!({"state": "receiving"})), Ok(Vec::new()));
+        assert_eq!(
+            prepare_reply(422, &e("refused graph_class: not a served class")),
+            Err(Prep::Artifact("refused graph_class", true))
+        );
+        assert_eq!(prepare_reply(422, &e("files manifest: schema")), Err(Prep::Artifact("prepare refused", false)));
+        assert_eq!(prepare_reply(409, &e("instance_bound")), Err(Prep::Infra(INSTANCE_BOUND)));
+        assert_eq!(prepare_reply(507, &e("insufficient_memory")), Err(Prep::Infra("insufficient_memory")));
+        assert_eq!(prepare_reply(400, &e("query")), Err(Prep::Infra("prepare refused")));
+        assert_eq!(chunk_path(3, 64 << 20), "/v2/files/3/67108864");
+    }
+
+    #[test]
+    fn a_receiving_instance_is_kept_for_its_binding() {
+        let c = Some("testnet-rv1-a");
+        assert_eq!(slot(&new_scorer("receiving", P, c), P, c, None), Slot::Ours(Ours::Receiving));
+        assert_eq!(entry(Some(&new_scorer("receiving", P, c)), P, c, None), Entry::Keep);
+        assert_eq!(entry(Some(&new_scorer("receiving", "bb", c)), P, c, None), Entry::Fresh);
     }
 
     #[test]
     fn the_cohort_is_named_only_when_sent() {
-        assert_eq!(load_path(P, None, None), "/v1/load?package=aa");
-        assert_eq!(load_path(P, Some("load-s2a"), None), "/v1/load?package=aa&cohort=load-s2a");
+        assert_eq!(load_path(P, None, None), "/v2/load?package=aa");
+        assert_eq!(load_path(P, Some("load-s2a"), None), "/v2/load?package=aa&cohort=load-s2a");
         let docs = vec![(7u32, "x".to_string(), String::new())];
         let without: Value = serde_json::from_str(&score_body(P, None, &docs, false)).unwrap();
         // The older scorer refuses unknown fields, `"cohort": null` included.
@@ -530,7 +621,7 @@ mod tests {
         for (_, label) in REFUSALS {
             assert!(safe(label), "{label}");
         }
-        for code in [REFUSED, INSTANCE_BOUND, REUSED, "missing parts", "insufficient_memory", "artifact load failed"] {
+        for code in [REFUSED, INSTANCE_BOUND, REUSED, OBJECT_MISSING, OBJECT_CHANGED, "missing chunks", "chunk rejected", "insufficient_memory", "artifact load failed"] {
             assert!(safe(code), "{code}");
         }
     }

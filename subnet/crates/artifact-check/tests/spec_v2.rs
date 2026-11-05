@@ -91,6 +91,7 @@ fn the_value_budget_is_checked_before_any_role_file_is_parsed() {
         contract: pretty,
         calibration: pretty,
         manifest: compact,
+        digests: slop_ninja_artifact_check::roles::RoleDigests { heads: "", contract: "", calibration: "" },
     };
     let refused = |budget| check_roles_with(&files, None, Version::V2, budget).unwrap_err();
     assert_eq!(refused(None).code(), "schema");
@@ -293,7 +294,7 @@ fn enc(name: &str, v: &Value) -> Vec<u8> {
     canonical::encode(v, spec::role_by_name(name).unwrap().layout.unwrap())
 }
 
-fn code(r: Result<slop_ninja_artifact_check::ObjectReport, Refusal>) -> String {
+fn code<T>(r: Result<T, Refusal>) -> String {
     match r {
         Ok(_) => "accepted".into(),
         Err(e) => {
@@ -316,11 +317,8 @@ fn r0_passes_spec_v2_with_its_plain_class() {
     // The content digest a miner commits does not depend on the spec version;
     // the package's profile id does.
     assert_eq!(v1.content_sha256, v2.content_sha256);
-    assert_eq!(
-        v2.parts_manifest.profile_id,
-        "slop_ninja_a_artifact_spec_v2/a-plain-f32band-v1"
-    );
-    assert_ne!(v1.package_sha256, v2.package_sha256);
+    assert_eq!(v2.profile_id, "slop_ninja_a_artifact_spec_v2/a-plain-f32band-v1");
+    assert_ne!(v1.profile_id, v2.profile_id);
 }
 
 /// R0's export manifest with `extra` set to a canonical array of `n` copies

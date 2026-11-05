@@ -95,7 +95,7 @@ derived from it, the adversarial set's graph rewrites and the load guards.
 The route tests (`tests/routes.rs`) start the built `a-scorer` on loopback:
 the work directory is cleared at start and core dumps are off; a manifest past
 the JSON budget or with a free-text `profile_id` is refused 422 before any
-part, and one without its parts leaves the instance unbound; a bound instance
+chunk, and a load before every chunk is written is refused; a bound instance
 refuses every other package, cohort and part with `instance_bound`; and no
 document text or id reaches standard error, `/healthz` or a refusal. With
 `A_R0_MODEL_DIR` and `A_ORT_LIB` they also load R0 through the routes, score
@@ -147,11 +147,16 @@ on-demand `a-scorer-testnet` Container. Its image
 ONNX Runtime library and the binary only; no model.
 
 - **Any admitted artifact.** An artifact is the six files of the
-  [artifact spec](../../docs/testnet/artifact-spec.md), stored as
-  content-addressed parts of at most 64 MiB. The artifact files manifest
-  (`slop_ninja_a_artifact_files_v1`, `src/artifact.rs`) lists each file's
-  SHA-256, size and parts; its exact bytes are the package, and their SHA-256 is
-  the `package_sha256` an artifact record commits to.
+  [artifact spec](../../docs/testnet/artifact-spec.md). The files manifest v2
+  (`slop_ninja_a_artifact_files_v2`, `src/artifact.rs` and
+  `slop_ninja_artifact_check::files_manifest`) lists each file's name, role,
+  size and SHA-256 (the header's, which R2 verified when the miner uploaded
+  it) and where it is stored (bucket, key, entity tag); its exact bytes are
+  the package, and their SHA-256 is the `package_sha256` an artifact record
+  commits to. The coordinator moves each file in chunks of at most 64 MiB
+  (`MAX_RANGE_BYTES`, ranged reads pinned to the entity tag), which the
+  scorer writes at their offsets. No file is hashed on the load path: the
+  digests are the header's (`subnet/tests/no_object_hash.rs` scans it).
 - **Admitted by the cohort's spec.** Each load admits by the artifact spec it
   names by digest (`spec=`, the digest `slop_ninja_artifact_check spec`
   prints and a cohort's `artifact_spec` names), which is its cohort's. The
@@ -164,18 +169,20 @@ ONNX Runtime library and the binary only; no model.
   only by a load that names spec v3. `slop_ninja_a_served_profile pack
   [--spec v2|v3] --model-dir DIR --out DIR` admits a model directory by the
   spec `--spec` names (the cohort's), else by spec v2 as a load that names
-  none is, and writes its parts and manifest. The manifest's `profile_id`
+  none is, and writes its files and manifest. The manifest's `profile_id`
   names that spec, so the package digest depends on it; for R0's own files it
   keeps the served profile's `profile_id` under either spec, so R0's deployed
   package digest is unchanged.
-- **Admission inside the scorer.** Before it reads a part, the scorer checks
+- **Admission inside the scorer.** Before it takes a chunk, the scorer checks
   the manifest against the load's spec's file table and bounds
   (`src/limits.rs`): the six names and roles, the graph at the exact length of
   a class that spec serves, the pinned
   tokenizer, the heads within the heads runtime's limit and the JSON budget.
-  After assembly, and before ONNX Runtime opens anything, it runs the spec's
-  whole admission check on the files (`engine::admit`), graph pre-parse
-  included. A refusal fails the load with `refused <code>: <detail>`.
+  Once every chunk is written, and before ONNX Runtime opens anything, it runs
+  the spec's whole admission check on the files with the header's digests
+  (`engine::admit`), graph pre-parse included; the role binding and the load
+  guards compare digests with the header and hash no file (the graph's
+  structure digest is the one remaining hash, decision D5). A refusal fails the load with `refused <code>: <detail>`.
 - **Guards.** R0's form (export v2, heads v1, no span head) keeps the release
   guard (`engine.rs` `guard`, unchanged and pinned by spec v1). Every other
   form takes the shared load guard (`src/load_guard.rs`), which spec v2 and v3
@@ -195,10 +202,10 @@ ONNX Runtime library and the binary only; no model.
   (spec v3 `tower_runtime_sha256`).
 - **Single use.** The first accepted load binds the process to its package,
   cohort and spec for its life, whatever the load's outcome
-  (`src/instance.rs`). A load of another package, cohort or spec, a part
-  upload after binding (other than a part of the bound package) and a score
-  request for another package or cohort get 409 `instance_bound`. Parts are deleted once assembled, and at start the
-  process removes the work directory's `blobs/` and `files/`, so a process
+  (`src/instance.rs`). A prepare or load of another package, cohort or spec
+  and a score request for another package or cohort get 409
+  `instance_bound`. Each file is written once in place, and at start the
+  process removes the work directory's `files/`, so a process
   restarted in the same container holds no earlier artifact. The cohort half
   binds only when the caller names it: a load without `cohort=` binds the
   absent cohort, which every later request without one matches. A cohort id
@@ -216,18 +223,29 @@ ONNX Runtime library and the binary only; no model.
   checker also files an instance's failed read of its assembled files, or a
   failed allocation while buffering one, under `object`. That and every other
   load failure count only on a freshly started instance.
-- **Routes.** `PUT /v1/blobs/<sha256>` streams one part to disk, checking its
-  digest and size (`HEAD`/`GET` report presence; a bound package's parts count
-  as present). `POST /v1/load?package=<sha256>[&cohort=<id>][&spec=<spec sha256>]`
-  takes the manifest and loads the artifact in the background: 202 when
-  started, 200 when the same binding is already loading or loaded, 400 for a
-  malformed query (`query`) or a spec digest the scorer does not admit by
-  (`spec`), neither of them the artifact's fault, 422 when the manifest is
-  refused (including `refused profile_id` for a profile id no packer writes:
-  `<spec id>/<graph class id>` or the served profile's id), 409 for
-  `missing_parts` or `instance_bound`, 507
-  `insufficient_memory` when the container's memory limit is below the
-  [memory model](#memory-model)'s bound (a platform fault, not the artifact's).
+- **Routes.**
+  - `POST /v2/prepare?package=<sha256>[&cohort=<id>][&spec=<spec sha256>]`
+    takes the files manifest v2, checks it against the load's spec
+    (`limits::check_manifest`) and preallocates each file at its exact length:
+    201 with the chunks still `missing` when it binds, 200 with them when the
+    same binding is already receiving (or loading, loaded), 400 for a malformed
+    query (`query`) or a spec digest the scorer does not admit by (`spec`),
+    neither of them the artifact's fault, 422 when the manifest is refused
+    (including `refused profile_id` for a profile id no packer writes:
+    `<spec id>/<graph class id>` or the served profile's id), 409
+    `instance_bound`, 507 `insufficient_memory` when the container's memory
+    limit is below the [memory model](#memory-model)'s bound, or a placement
+    failure (both platform faults, not the artifact's).
+  - `PUT /v2/files/<index>/<offset>` writes one chunk of the manifest's
+    `index`th file at `offset` (a multiple of 64 MiB inside the file, at most
+    64 MiB, exactly the chunk's length): 201 when written, 200 with nothing to
+    store once the binding is loading or loaded (a late retry), 409
+    `not_prepared` before a prepare, 422 for a chunk outside the manifest or of
+    another length. Nothing is hashed.
+  - `POST /v2/load` (the same query) loads the bound artifact in the
+    background once every chunk is written: 202 when started, 200 when it is
+    already loading or loaded, 409 `missing_chunks` (with the list),
+    `not_prepared` or `instance_bound`.
   `POST /v1/score` scores up to 128 documents (`{"package", "cohort"?,
   "spans"?, "docs": [{"id", "text"}]}`) across the session pool and returns,
   per document, the status, text digest, token count, prediction and output
@@ -243,7 +261,9 @@ ONNX Runtime library and the binary only; no model.
   against the served profile's pins at start, and the tower runtime against
   its pin. Core dumps are off.
 - **Isolation.** The Worker starts the container with Internet access disabled;
-  parts arrive from the coordinator's private eval bucket. It logs start, load
+  file chunks arrive from the coordinator's private buckets (a miner's from
+  the admission bucket, a reference package's from the eval bucket), piped by
+  the coordinator's lane. It logs start, load
   and failure events only.
 
 The engine repeats the release guards except the served profile's base

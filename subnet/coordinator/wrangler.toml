@@ -211,13 +211,20 @@ BILLING_CYCLE_DAY = "1"
 # is drawn only for a cohort with an admitted external entrant.
 EXPOSED_POOLS = "testnet-human-pool-v1,testnet-human-pool-pc1"
 # Admission: this Worker serves no public admission route. The public
-# /admission/v1/ routes (contract slop_ninja.admission/v1) are the key-free
+# /admission/v2/ routes (contract slop_ninja.admission/v2) are the key-free
 # upload Worker's (subnet/admission-worker, slop-ninja-admission-testnet), which
 # forwards checked, bounded messages to this Worker's internal interface
 # through its service binding; ADMISSION_ROUTES and ADMISSION_HOTKEYS are its
 # vars. Both Workers hold the secret ADMISSION_INTERFACE_TOKEN (installed with
 # `wrangler secret put`, never tracked); without it this Worker serves no
-# interface request and frames nothing.
+# interface request and checks no header. Miners PUT every artifact object
+# straight to R2 under presigned URLs the internal signer Worker mints for
+# this Worker only (binding R2_SIGNER_TESTNET below); this Worker and the
+# signer hold the secret SIGNER_INTERFACE_TOKEN (at least 32 bytes, installed
+# with `wrangler secret put --env eval-testnet` from stdin, never tracked);
+# without it nothing is minted and the cohort's upload path stays faulted
+# (signer_unavailable), which defers the close. No upload byte reaches this
+# Worker, and nothing here hashes a model byte.
 # Scorer build identity (S-1): lanes refuse an instance whose /healthz reports
 # other digests. ORT is the served profile's pin; the binary is the image's.
 SCORER_ORT_SHA256 = "fc44112fbe06d7d689c57e11d3862031f64711007e4ee020f8eed5185fd2c1d3"
@@ -314,20 +321,50 @@ bucket_name = "receipts-bucket-testnet"
 binding = "EVAL_TESTNET"
 bucket_name = "eval-bucket-testnet"
 
-# Uploaded artifact objects (private: no public access, no custom domain). The
-# upload Worker writes their parts and frames them; this Worker creates,
-# completes and aborts their multipart uploads, copies their slices into the
-# eval bucket's blob store and deletes them. Create it before the first
-# deploy of either Worker: wrangler r2 bucket create admission-bucket-testnet
+# Uploaded artifact objects (private: no public access, no custom domain).
+# Miners PUT each object straight to R2 under presigned URLs; this Worker
+# heads them (R2's stored size, SHA-256, entity tag and attributes), reads
+# a header pinned to its entity tag into the upload Worker's header route as
+# a stream, sends the end-to-end canary under health/, lists admission/v2/
+# for the standing reconciliation and deletes objects no session needs. The
+# lanes read files by ranged reads pinned to the recorded entity tag. It also
+# holds the cohort snapshot (cohort/v1/current.json). Create it before the
+# first deploy of either Worker: wrangler r2 bucket create admission-bucket-testnet
 [[env.eval-testnet.r2_buckets]]
 binding = "ADMISSION_TESTNET"
 bucket_name = "admission-bucket-testnet"
 
-# The upload Worker's internal framing route (no public route). Deploy the
-# upload Worker first: its own binding names this Worker, which exists.
+# The upload Worker's internal header route (no public route). Both Workers
+# exist, so either may deploy first; the admission v2 set deploys the eval
+# Worker before the upload Worker (TESTNET.md, "Deploy set (admission v2)").
 [[env.eval-testnet.services]]
 binding = "ADMISSION_UPLOAD_TESTNET"
 service = "slop-ninja-admission-testnet"
+
+# The internal signer Worker (subnet/r2-signer: no route, no workers.dev
+# name, the R2 S3 credential from Secrets Store). Its only caller is this
+# binding, after the cohort authority authorized a request; the public
+# upload Worker has none. Deploy the signer first.
+[[env.eval-testnet.services]]
+binding = "R2_SIGNER_TESTNET"
+service = "slop-ninja-r2-signer-testnet"
+
+# R2 object-create notifications of the admission bucket's admission/v2/
+# prefix (a wakeup only: the cohort object heads the object itself; a lost
+# event loses nothing, the alarm sweep and the close sweep record it). Create
+# the queue before this Worker's deploy, and the notification rule after the
+# consumer is live:
+#   wrangler queues create admission-events-queue-testnet
+#   wrangler r2 bucket notification create slop-ninja-admission-testnet \
+#     --event-type object-create --queue admission-events-queue-testnet --prefix admission/v2/
+[[env.eval-testnet.queues.consumers]]
+queue = "admission-events-queue-testnet"
+max_batch_size = 100
+max_batch_timeout = 1
+max_retries = 10
+# One batch at a time (admission::EVENTS_MAX_CONCURRENCY, the bound the
+# memory fit counts): events are wakeups only, so this costs only latency.
+max_concurrency = 1
 
 # Generation v2: the internal generation Worker (subnet/gen-worker,
 # slop-ninja-gen-testnet; no public surface), which holds the two frontier

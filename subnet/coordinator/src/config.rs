@@ -463,6 +463,29 @@ impl Authority {
         name == self.name() || self.predecessors().contains(&name)
     }
 
+    /// The known authority ([`Authority::known`]) whose cohort `label` is:
+    /// the named one whose prefix ([`Authority::label_prefix`]) the label
+    /// carries, else the original authority when the deployment knows it.
+    /// Names hold no `-`, so at most one named prefix matches, and a
+    /// succession refuses a successor whose prefix an earlier label carries
+    /// ([`Authority::follows`]). Whether that authority holds the label is
+    /// its own store's answer. A report about a cohort (the publisher's
+    /// publication report) so reaches the authority that ran it, also after
+    /// a successor took over.
+    pub fn label_authority(&self, label: &str) -> Option<&str> {
+        std::iter::once(self.name())
+            .chain(self.predecessors())
+            .find(|n| {
+                *n != ORIGINAL_AUTHORITY
+                    && label
+                        .strip_prefix(NETWORK)
+                        .and_then(|l| l.strip_prefix('-'))
+                        .and_then(|l| l.strip_prefix(*n))
+                        .is_some_and(|l| l.starts_with('-'))
+            })
+            .or_else(|| self.known(ORIGINAL_AUTHORITY).then_some(ORIGINAL_AUTHORITY))
+    }
+
     /// The main authority's Durable Object name ([`authority_cohort_name`]).
     pub fn cohort_name(&self, chain: &ChainConfig) -> Option<String> {
         authority_cohort_name(chain, self.name())
@@ -720,7 +743,8 @@ pub struct DeployedAuthority {
     /// (`succession_recorded`): each of them is superseded.
     pub succession_recorded: Vec<String>,
     /// Whether it still has work (`work`, `engine::blocking_work`): a
-    /// closure, a spend settlement, a purge or an admission clean-up. A due
+    /// closure, a spend settlement, a purge, an admission clean-up or
+    /// admitted objects awaiting the publisher's report. A due
     /// receipt deletion is not included (`retention_work`): it finishes under
     /// the successor's notices.
     pub work: bool,
@@ -985,8 +1009,9 @@ pub fn deploy_check(
         }
         if d.work {
             return Err(format!(
-                "the deployed authority {} still has work (a closure, a spend settlement, a purge or an \
-                 admission clean-up; due receipt deletions never count): wait until its status reports work \
+                "the deployed authority {} still has work (a closure, a spend settlement, a purge, an \
+                 admission clean-up or admitted objects awaiting the publisher's report; due receipt \
+                 deletions never count): wait until its status reports work \
                  false",
                 d.name
             ));
@@ -1839,5 +1864,28 @@ mod tests {
             receiver_config(&c, DEFAULT_KEY_ID, &secret, &sub.to_uppercase()),
             Err(ConfigError::Subscription)
         ));
+    }
+
+    /// A report about a cohort reaches the known authority whose label it
+    /// is, the current one or a predecessor (the publisher's publication
+    /// report after a succession).
+    #[test]
+    fn a_label_names_the_known_authority_that_ran_it() {
+        let original = Authority::default();
+        assert_eq!(original.label_authority("testnet-rv1-a"), Some("main"));
+        assert_eq!(
+            original.label_authority("testnet-r0b-14"),
+            Some("main"),
+            "not a known name"
+        );
+        let r0c = Authority::named_after("r0c", 20, &["r0b"]).unwrap();
+        assert_eq!(r0c.label_authority("testnet-r0c-21"), Some("r0c"));
+        assert_eq!(r0c.label_authority("testnet-r0b-14"), Some("r0b"));
+        assert_eq!(r0c.label_authority("testnet-rv1-a"), Some("main"));
+        // A prefix of a name is not that name, nor is another network's.
+        assert_eq!(r0c.label_authority("testnet-r0bx-1"), Some("main"));
+        assert_eq!(r0c.label_authority("testnet-r0b"), Some("main"));
+        assert_eq!(r0c.label_authority("finney-r0c-21"), Some("main"));
+        assert_eq!(r0c.label_authority(""), Some("main"));
     }
 }

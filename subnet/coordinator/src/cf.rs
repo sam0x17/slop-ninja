@@ -2014,6 +2014,24 @@ async fn eval_route(mut req: Request, env: Env) -> Result<Response> {
         // The eval-to-upload link probe: the framing service binding, the
         // internal host and the shared interface token (the deploy probe).
         (Method::Get, "/admission/link") if instance == "main" => json(&admission_do::link_probe(&env).await),
+        // The publisher's report of a cohort's publication at scoring start
+        // (`access::StatusRoute::Publication`): recorded by the object of
+        // the known authority whose label the cohort carries
+        // (`config::Authority::label_authority`), a predecessor too after a
+        // succession, by `admission::publication_report`; 404 when that
+        // authority holds no such cohort.
+        (Method::Post, "/admission/published") if instance == "main" => {
+            let Ok(known) = eval_do::main_authority(&env) else {
+                return error("not_configured", 503);
+            };
+            match body["label"].as_str().and_then(|l| known.label_authority(l)) {
+                Some(authority) => {
+                    eval_do::authority_fetch(&env, "main", authority, Method::Post, "/admission/published", raw, None)
+                        .await
+                }
+                None => error("cohort_unknown", 404),
+            }
+        }
         // Main authority `<name>`, only when the deployment knows it, so no
         // request creates an object for any other name. A named authority's
         // own succession check runs in its object (`EvalCohort::succeed`), so
@@ -2034,7 +2052,7 @@ async fn eval_route(mut req: Request, env: Env) -> Result<Response> {
         }
         (Method::Post, "/plan" | "/clear" | "/abandon" | "/hold") => eval_do::forward(&env, instance, Method::Post, &rest, raw).await,
         // The standing template and the calendar (main instance).
-        (Method::Post, "/template" | "/template/pause" | "/session/refuse" | "/session/dispatch") if instance == "main" => eval_do::forward(&env, instance, Method::Post, &rest, raw).await,
+        (Method::Post, "/template" | "/template/pause" | "/session/refuse") if instance == "main" => eval_do::forward(&env, instance, Method::Post, &rest, raw).await,
         (Method::Get, "/calendar") if instance == "main" => eval_do::forward(&env, instance, Method::Get, &rest, None).await,
         // Generation v2: the generation Worker's key health, and one call of
         // the compiled synthetic measurement set (a cell, a call index and an
@@ -2598,9 +2616,15 @@ mod reader_calls {
     }
 }
 
-/// The lane-wakeup Queue consumer (eval deployment only), run inside its own
-/// scope by the hand-written `queue` export: lane kicks and admission work.
+/// The eval deployment's Queue consumers, run inside their own scope by the
+/// hand-written `queue` export: the admission events Queue (R2
+/// object-create notifications, `admission_do::events`), and the
+/// lane-wakeup Queue (lane kicks).
 async fn queue(batch: worker::worker_sys::MessageBatch, env: Env, scope: slop_ninja_arena::ScopeRef) -> Result<()> {
+    let name = batch.queue().ok().and_then(|q| q.as_string());
+    if name.as_deref() == Some(crate::eval::admission::EVENTS_QUEUE) {
+        return admission_do::events(batch, env, scope).await;
+    }
     lanes_do::consume(batch, env, scope).await
 }
 

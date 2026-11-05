@@ -1,0 +1,55 @@
+[package]
+name = "slop-ninja-r2-signer"
+version = "0.1.0"
+edition = "2024"
+publish = false
+description = "Internal Cloudflare Worker that presigns the Slop Ninja testnet direct-to-R2 artifact uploads"
+
+# Its own workspace, like the other Workers: it links no chain code and no
+# coordinator signing code. It holds two credentials, read from Secrets
+# Store per request: the presign key (the admission bucket only) for the
+# mint route, and the copy key (the admission and public buckets) for the
+# copy route.
+[workspace]
+members = ["."]
+resolver = "3"
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[features]
+# Native witness tests: the arena is the test binary's global allocator, so
+# `cargo test --features arena-witness arena_witness -- --test-threads=1`
+# runs each route's heaviest path under `Mode::Strict` in its footprint.
+arena-witness = ["slop-ninja-arena/knobs"]
+
+[dependencies]
+# The global allocator (wasm32): every invocation allocates in its own
+# bounded scope arena, under this crate's own memory model
+# (`memory-model.json`). Unmeasured, so `observe` (migration step 1), as the
+# other Workers.
+slop-ninja-arena = { path = "../crates/arena", features = ["glue-spill", "unmeasured-model", "observe"] }
+# SigV4, the derived object layout and the fixed-size signer messages.
+slop-ninja-r2-presign = { path = "../crates/r2-presign" }
+# The spec-derived bounds: the header limit, the largest object of any
+# admission spec and the file table's size.
+slop-ninja-artifact-check = { path = "../crates/artifact-check", default-features = false }
+slop-ninja-protocol = { path = "../crates/protocol" }
+serde = "1"
+serde_json = "1"
+sha2 = "0.10"
+zeroize = "1"
+
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+js-sys = "0.3"
+wasm-bindgen = "0.2"
+wasm-bindgen-futures = "0.4"
+worker = "0.8.7"
+
+[build-dependencies]
+serde_json = "1"
+
+[profile.release]
+opt-level = "s"
+lto = true
+codegen-units = 1

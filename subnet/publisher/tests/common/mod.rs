@@ -6,28 +6,87 @@
 use serde_json::json;
 use slop_ninja_protocol::fixtures::{package_key, receipt_key, trusted_keys};
 use slop_ninja_protocol::fixtures_reward_v1 as fx;
-use slop_ninja_protocol::submission::SubmissionUpload;
 use slop_ninja_protocol::{
-    AccountId, AttemptReceipt, CalculationTargetV2, Canonical, Digest, OutcomeClass, ReceiptIndex,
-    ReceiptIndexEntry, Record, domain_hash, sign,
+    AccountId, ArtifactHeader, AttemptReceipt, CalculationTargetV2, Canonical, Digest,
+    OutcomeClass, ReceiptIndex, ReceiptIndexEntry, Record, domain_hash, sign,
 };
 use slop_ninja_publisher::arena::Budget;
 use slop_ninja_publisher::config::{self, Config};
 use slop_ninja_publisher::index::CohortIndex;
 use slop_ninja_publisher::publish::{Buckets, Memo, NoLease, Report, Run};
 use slop_ninja_publisher::store::{MemStore, block_on};
+use slop_ninja_r2_presign::layout::{ObjectId, ObjectKind};
 
 pub const PRIVATE_TEXT: &str =
     "PRIVATE-DOCUMENT-TEXT: a private passage that must never leave the eval bucket";
 pub const PRIVATE_VECTOR: &[u8] = b"PRIVATE-PREDICTION-VECTOR";
-pub const ARTIFACT_TEMPLATE: &str = "admission/objects/{sha256}.bin";
-pub const ADMISSION_TEMPLATE: &str = "admission/cohorts/{label}/{hotkey}.upload";
+/// The admission-bucket key of a commitment's header object.
+pub fn header_key(cohort: u64, commitment: &Digest) -> String {
+    ObjectId {
+        cohort,
+        commitment: commitment.0,
+        kind: ObjectKind::Header,
+    }
+    .key()
+    .as_str()
+    .to_owned()
+}
 
-/// The eval-bucket key of an entrant's stored admission record.
-pub fn admission_key(label: &str, hotkey: &AccountId) -> String {
-    ADMISSION_TEMPLATE
-        .replace("{label}", label)
-        .replace("{hotkey}", &hex::encode(hotkey.0))
+/// The admission-bucket key of a commitment's file object.
+pub fn file_key(cohort: u64, commitment: &Digest, sha256: &Digest) -> String {
+    ObjectId {
+        cohort,
+        commitment: commitment.0,
+        kind: ObjectKind::File(sha256.0),
+    }
+    .key()
+    .as_str()
+    .to_owned()
+}
+
+/// An artifact object split into its header bytes and its files (in header
+/// order), with the header's SHA-256: what a miner uploads directly.
+pub struct Uploaded {
+    pub header: Vec<u8>,
+    pub header_sha256: Digest,
+    pub files: Vec<(Digest, Vec<u8>)>,
+}
+
+pub fn split(object: &[u8]) -> Uploaded {
+    let header = fx::header_bytes(object);
+    let parsed = ArtifactHeader::from_bytes(&header).expect("fixture header");
+    let mut at = 4 + header.len();
+    let mut files = Vec::new();
+    for f in &parsed.files {
+        let len = f.len as usize;
+        files.push((f.sha256, object[at..at + len].to_vec()));
+        at += len;
+    }
+    Uploaded {
+        header_sha256: slop_ninja_protocol::object_sha256(&header),
+        header,
+        files,
+    }
+}
+
+/// Stores one commitment's direct uploads in the admission bucket, each with
+/// the SHA-256 R2 verified at upload.
+pub fn store_upload(
+    admission: &MemStore,
+    cohort: u64,
+    commitment: &Digest,
+    object: &[u8],
+) -> Uploaded {
+    let u = split(object);
+    admission.insert_checked(
+        &header_key(cohort, commitment),
+        u.header.clone(),
+        u.header_sha256,
+    );
+    for (sha, bytes) in &u.files {
+        admission.insert_checked(&file_key(cohort, commitment, sha), bytes.clone(), *sha);
+    }
+    u
 }
 
 pub struct Built {
@@ -116,9 +175,10 @@ pub fn dir(label: &str) -> String {
     format!("cohorts/{label}")
 }
 
-/// Stores the cohort in the private receipts bucket, its artifact objects in
-/// the eval bucket, and private material a careless copy would leak.
-pub fn store(b: &Built, receipts: &MemStore, eval: &MemStore) {
+/// Stores the cohort in the private receipts bucket, its entrants' direct
+/// uploads in the admission bucket, and private material a careless copy
+/// would leak.
+pub fn store(b: &Built, receipts: &MemStore, admission: &MemStore) {
     let c = &b.c;
     let d = dir(&b.label);
     let put = |rel: &str, bytes: Vec<u8>| receipts.insert(&format!("{d}/{rel}"), bytes);
@@ -254,22 +314,19 @@ pub fn store(b: &Built, receipts: &MemStore, eval: &MemStore) {
     // A cohort that never closed, and a load cohort.
     receipts.insert("cohorts/testnet-c99/manifest.signed", vec![1, 2, 3]);
     receipts.insert("cohorts/load-x/package.signed", vec![1, 2, 3]);
+    // Every fixture entrant uploaded its header and files directly, under
+    // the commitment its roster entry names.
     for spec in &c.specs {
-        let object = fx::artifact_bytes(spec);
-        let sha = slop_ninja_protocol::object_sha256(&object);
-        // Every fixture entrant was admitted through the admission route: its
-        // upload envelope is stored beside the object.
         let opening = fx::opening(&c.manifest.chain, c.manifest.cohort, spec);
-        let hotkey = opening.hotkey;
-        let upload = SubmissionUpload::new(opening, &object);
-        eval.insert(
-            &admission_key(&b.label, &hotkey),
-            upload.to_bytes().unwrap(),
+        store_upload(
+            admission,
+            c.manifest.cohort,
+            &opening.commitment(),
+            &fx::artifact_bytes(spec),
         );
-        eval.insert(&ARTIFACT_TEMPLATE.replace("{sha256}", &sha.hex()), object);
     }
-    eval.insert(
-        "cohorts/x/batch/shard-0000.jsonl",
+    admission.insert(
+        "health/c3/0000000000000000000000000000000000000000000000000000000000000000",
         PRIVATE_TEXT.as_bytes().to_vec(),
     );
 }
@@ -313,7 +370,7 @@ pub fn unrelated() -> Digest {
 }
 
 /// The configuration with the record from epoch `from`, and, with
-/// `artifacts`, artifact copies and every guard they require.
+/// `artifacts`, publication at scoring start and every guard it requires.
 pub fn config(from: Option<u64>, artifacts: bool) -> Config {
     let mut c = config::parse(|k| match k {
         "NETWORK" => Some("testnet".into()),
@@ -324,9 +381,12 @@ pub fn config(from: Option<u64>, artifacts: bool) -> Config {
     c.chain = fx::chain();
     c.keys = trusted_keys();
     c.publish_from_epoch = from;
+    // The stream fallback: the default, the server-side copy, needs the
+    // signer, which the tests that exercise it pass (`MemServerCopy`).
+    c.artifact_copy = slop_ninja_publisher::config::CopyMode::Stream;
     if artifacts {
-        c.artifact_source = Some(ARTIFACT_TEMPLATE.to_owned());
-        c.admission_record = Some(ADMISSION_TEMPLATE.to_owned());
+        c.publish_artifacts = true;
+        c.artifacts_from_epoch = Some(0);
         c.private_digests.insert(unrelated());
         c.operator_hotkeys.insert(AccountId(unrelated().0));
     }
@@ -335,8 +395,37 @@ pub fn config(from: Option<u64>, artifacts: bool) -> Config {
 
 pub struct Buckets3 {
     pub receipts: MemStore,
-    pub eval: MemStore,
+    pub admission: MemStore,
     pub public: MemStore,
+    /// What the eval Worker's publication report route took, in order.
+    pub reports: MemReports,
+}
+
+/// The eval Worker's publication report route, as a test stands in for it:
+/// records every report; `refuse` answers failure instead.
+#[derive(Default)]
+pub struct MemReports {
+    pub taken: std::cell::RefCell<Vec<(u64, String, Vec<slop_ninja_publisher::artifacts::ReportEntry>)>>,
+    pub refuse: std::cell::Cell<bool>,
+}
+
+impl slop_ninja_publisher::artifacts::PublicationSink for MemReports {
+    fn report<'a>(
+        &'a self,
+        cohort: u64,
+        label: &'a str,
+        entries: &'a [slop_ninja_publisher::artifacts::ReportEntry],
+    ) -> std::pin::Pin<
+        Box<dyn std::future::Future<Output = Result<(), slop_ninja_publisher::store::StoreError>> + 'a>,
+    > {
+        Box::pin(async move {
+            if self.refuse.get() {
+                return Err(slop_ninja_publisher::store::StoreError::Unavailable("eval"));
+            }
+            self.taken.borrow_mut().push((cohort, label.to_owned(), entries.to_vec()));
+            Ok(())
+        })
+    }
 }
 
 /// The label of the seeded first cohort of the record.
@@ -380,10 +469,11 @@ pub fn buckets(b: &Built) -> Buckets3 {
 pub fn buckets_unseeded(b: &Built) -> Buckets3 {
     let x = Buckets3 {
         receipts: MemStore::new(),
-        eval: MemStore::new(),
+        admission: MemStore::new(),
         public: MemStore::new(),
+        reports: MemReports::default(),
     };
-    store(b, &x.receipts, &x.eval);
+    store(b, &x.receipts, &x.admission);
     x
 }
 
@@ -401,12 +491,83 @@ pub fn run_with(
     memo: &mut Memo,
     budget: &Budget,
 ) -> (Report, Result<CohortIndex, String>) {
+    run_copying(cfg, x, memo, budget, None)
+}
+
+/// A server-side copy inside the test store, as R2's `CopyObject` does it:
+/// the source's bytes under the destination key, only while the source's
+/// etag is the pinned one. R2 never carries the stored SHA-256 over
+/// (qualification G7, `carry_checksum` false); with it true the copy shows
+/// one anyway, which must not change how the copy is checked. `refuse`
+/// answers that status instead (403, or 501 `NotImplemented`).
+pub struct MemServerCopy<'a> {
+    pub admission: &'a MemStore,
+    pub public: &'a MemStore,
+    pub carry_checksum: bool,
+    pub refuse: Option<u16>,
+    pub calls: std::cell::Cell<u32>,
+}
+
+impl slop_ninja_publisher::artifacts::ServerCopy for MemServerCopy<'_> {
+    fn copy<'a>(
+        &'a self,
+        spec: slop_ninja_r2_presign::copy::CopySpec,
+    ) -> std::pin::Pin<
+        Box<
+            dyn std::future::Future<Output = Result<(), slop_ninja_publisher::store::StoreError>>
+                + 'a,
+        >,
+    > {
+        Box::pin(async move {
+            use slop_ninja_publisher::store::{StoreError, Stored, mem_etag};
+            self.calls.set(self.calls.get() + 1);
+            if let Some(status) = self.refuse {
+                return Err(StoreError::Refused(status));
+            }
+            let src = self
+                .admission
+                .objects
+                .borrow()
+                .get(spec.source_key().as_str())
+                .cloned()
+                .ok_or(StoreError::Unavailable("copy source missing"))?;
+            let etag = slop_ninja_r2_presign::copy::parse_etag(&mem_etag(&src.bytes));
+            if etag != Some(spec.etag) {
+                return Err(StoreError::Unavailable("copy source changed (412)"));
+            }
+            self.public.objects.borrow_mut().insert(
+                spec.destination_key().as_str().to_owned(),
+                Stored {
+                    sha256: if self.carry_checksum {
+                        src.sha256
+                    } else {
+                        None
+                    },
+                    content_type: slop_ninja_r2_presign::copy::CONTENT_TYPE.into(),
+                    cache: Some(slop_ninja_publisher::layout::Cache::Immutable),
+                    bytes: src.bytes,
+                },
+            );
+            Ok(())
+        })
+    }
+}
+
+pub fn run_copying(
+    cfg: &Config,
+    x: &Buckets3,
+    memo: &mut Memo,
+    budget: &Budget,
+    server_copy: Option<&dyn slop_ninja_publisher::artifacts::ServerCopy>,
+) -> (Report, Result<CohortIndex, String>) {
     let elapsed = || 0u64;
     let run = Run {
         buckets: Buckets {
             receipts: &x.receipts,
-            eval: &x.eval,
+            admission: &x.admission,
             public: slop_ninja_publisher::store::PublicStore::new(&x.public),
+            server_copy,
+            publication: Some(&x.reports),
         },
         cfg,
         budget,

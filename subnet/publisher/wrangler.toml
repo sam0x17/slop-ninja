@@ -34,6 +34,10 @@
 #                             list --env testnet` before such a deploy)
 #   HEARTBEAT_URL             optional external dead-man check; pinged only
 #                             when HEARTBEAT_ENABLED is "true"
+#   COPY_INTERFACE_TOKEN      the token of the signer's copy route (that
+#                             Worker's COPY_INTERFACE_TOKEN value), for
+#                             ARTIFACT_COPY = "server" only; a secret, never
+#                             a var (read with env.secret)
 #
 # Decision D18: alerts are email, sent by the private alerts relay Worker
 # (subnet/alerts-relay) through the ALERTS_RELAY_TESTNET service binding when
@@ -112,10 +116,30 @@ RUN_WALL_BUDGET_MS = "60000"
 # pointers, and starts a fresh record (publish.rs, `start_record`).
 PUBLISH_FROM_EPOCH = "76"
 RECORD_LABEL_PREFIX = "testnet-r0-"
+# Publication at scoring start (tracked, so a routine deploy keeps it): the
+# first chain epoch whose cohorts publish their artifacts when scoring
+# starts, inside the public record above (never moving PUBLISH_FROM_EPOCH).
+# Empty: off. Set, every deploy must pass PRIVATE_DIGESTS and
+# OPERATOR_HOTKEYS (below) or the configuration is refused (config_refused
+# alerts). Set by its own commit and deploy (TESTNET.md, deploy set step 10).
+ARTIFACTS_FROM_EPOCH = ""
 # The admission origin the snapshot advertises: the key-free upload Worker's
 # custom domain, the origin testnet-trust.json pins (admission_origins), so a
 # released miner client run with --public uploads there.
 ADMISSION_ORIGIN = "https://testnet-admission.slop.ninja"
+# How publication at scoring start copies an object: "stream" (the default
+# until probe G7-x qualifies a cross-bucket CopyObject: a binding get from the
+# admission bucket piped into a binding put on the public bucket with the
+# object's SHA-256, which R2 verifies; no extra credential) or "server" (an
+# S3 CopyObject inside R2, presigned by the internal signer Worker with the
+# separate copy credential, metadata directive REPLACE, checked by etag
+# equality with the admitted source; needs the R2_SIGNER_TESTNET binding
+# below and the COPY_INTERFACE_TOKEN secret; switch only after G7-x passed,
+# TESTNET.md). Neither hashes a byte on our side.
+ARTIFACT_COPY = "stream"
+# The admission bucket's name, as the signer's ADMISSION_BUCKET_NAME
+# (x-amz-copy-source names it in a server-side copy).
+ADMISSION_BUCKET_NAME = "slop-ninja-admission-testnet"
 # Set at deploy, not here:
 #   PRIVATE_DIGESTS       comma-separated content digests and artifact SHA-256s
 #                         of the references (the initial reference and its
@@ -124,23 +148,23 @@ ADMISSION_ORIGIN = "https://testnet-admission.slop.ninja"
 #   OPERATOR_HOTKEYS      comma-separated 64-hex hotkeys whose artifacts are
 #                         never published (owner, our miners and validators,
 #                         synthetic identities)
-#   ARTIFACT_SOURCE_KEY   eval-bucket key of an admitted artifact object, with
-#                         {sha256}; unset leaves artifacts pending
-#   ADMISSION_RECORD_KEY  eval-bucket key of an admitted upload's
-#                         SubmissionUpload envelope, with {label} and {hotkey};
-#                         required with ARTIFACT_SOURCE_KEY, as are a non-empty
-#                         PRIVATE_DIGESTS and OPERATOR_HOTKEYS
 #   NOTICE                extra operator text for the snapshot
+# PRIVATE_DIGESTS and OPERATOR_HOTKEYS are required (non-empty) whenever
+# ARTIFACTS_FROM_EPOCH is set.
+# Retired: ARTIFACT_SOURCE_KEY and ADMISSION_RECORD_KEY (closure-time copies)
+# and PUBLISH_ARTIFACTS (replaced by the tracked ARTIFACTS_FROM_EPOCH) are
+# ignored with a config_warning.
 
-# Read: cohort objects (receipts) and artifact objects (eval). The publisher
-# writes only to the public-candidate bucket.
+# Read: cohort objects (receipts) and the miners' direct uploads (admission,
+# admission/v2/, read at scoring start). The publisher writes only to the
+# public-candidate bucket.
 [[env.testnet.r2_buckets]]
 binding = "RECEIPTS_TESTNET"
 bucket_name = "receipts-bucket-testnet"
 
 [[env.testnet.r2_buckets]]
-binding = "EVAL_TESTNET"
-bucket_name = "eval-bucket-testnet"
+binding = "ADMISSION_TESTNET"
+bucket_name = "slop-ninja-admission-testnet"
 
 [[env.testnet.r2_buckets]]
 binding = "PUBLIC_TESTNET"
@@ -170,6 +194,13 @@ service = "slop-ninja-eval-testnet"
 [[env.testnet.services]]
 binding = "ALERTS_RELAY_TESTNET"
 service = "slop-ninja-alerts-testnet"
+
+# The internal signer Worker's copy route, for ARTIFACT_COPY = "server".
+# Cloudflare refuses a deploy whose service binding names a Worker that does
+# not exist: deploy the signer first.
+[[env.testnet.services]]
+binding = "R2_SIGNER_TESTNET"
+service = "slop-ninja-r2-signer-testnet"
 
 # Alert state, the run lease and the before-record memo.
 [[env.testnet.durable_objects.bindings]]

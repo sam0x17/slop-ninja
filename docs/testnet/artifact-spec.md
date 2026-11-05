@@ -49,6 +49,15 @@ A miner submits one **artifact object**: the protocol encoding from
   object.
 - The miner commits on chain to the object's **inference-content digest**: the
   contract plus the inference files by role, digest and length.
+- The object is the miner's local file and the published form, but it is not
+  uploaded whole. Admission v2 ([admission API](admission-api.md)) uploads the
+  header bytes `H` and each distinct file as separate objects, each with one
+  presigned R2 `PutObject` that binds its committed SHA-256: the header's for
+  `H`, each file's own for the file. R2 verifies every object against that
+  digest as it arrives. The miner's `pack` hashes each file once; nothing
+  after it hashes a model byte (the one exception is the graph's structure
+  digest, below, until decision D5). Anyone can rebuild the object by
+  concatenating `u32_le(len(H))`, `H` and the files in header order.
 
 The header contract must be `slop_ninja_full_a_contract_v2`. The object holds
 exactly these six files:
@@ -66,24 +75,31 @@ exactly these six files:
 prediction depends on it, so it is owner metadata. Any other file is refused
 as undeclared. That includes external-data sidecars, notes and a second graph.
 
-### Mapping to the scorer's parts manifest
+### Mapping to the scorer's files manifest (v2)
 
-The scorer loads an artifact from content-addressed parts and a parts manifest
-(`slop_ninja_a_artifact_files_v1`, `inference/a-container-serve/src/artifact.rs`).
-The coordinator derives that manifest from the object. The mapping is exact,
-so there is no second upload format.
+The scorer loads an admitted artifact file by file, straight from object
+storage, under a files manifest (`slop_ninja_a_artifact_files_v2`,
+`subnet/crates/artifact-check/src/files_manifest.rs`, read by
+`inference/a-container-serve/src/artifact.rs`). The coordinator derives it from
+the header and the objects admission recorded. The mapping is exact, so there
+is no second upload format.
 
 | Manifest field | Value |
 |---|---|
-| `schema` | `slop_ninja_a_artifact_files_v1` |
-| `profile_id` | `slop_ninja_a_artifact_spec_v1/<graph class id>` |
+| `schema` | `slop_ninja_a_artifact_files_v2` |
+| `profile_id` | `slop_ninja_a_artifact_spec_v1/<graph class id>` (the spec version's id) |
 | `contract` | the header contract |
 | `graph` | `a-fp32band.onnx` |
-| `files` | the six files in the table order above (the scorer's order, not the header's), each with the header's name, size and SHA-256 and the scorer role |
-| `parts` | consecutive 64 MiB slices of each file (the last one shorter), each with its SHA-256 and size. 64 MiB is the scorer's `MAX_PART_BYTES`. |
+| `files` | the six files in the table order above (the scorer's order, not the header's), each with the header's name, size and SHA-256, the scorer role, and where it is stored: `bucket` (`admission` for a miner's upload, `eval` for an operator-staged reference package), `key` and the `etag` admission recorded |
 | bytes | `serde_json` pretty printing with a final newline |
 
-The package digest is the SHA-256 of the manifest bytes.
+The package digest is the SHA-256 of the manifest bytes (a small record).
+A load moves each file in ranged, etag-pinned reads of at most 64 MiB (the
+scorer's `MAX_RANGE_BYTES`, the former part size) written at their offsets,
+and hashes nothing: the digests are the header's, which R2 verified at
+upload. The files manifest v1 (`slop_ninja_a_artifact_files_v1`, a file's
+consecutive 64 MiB parts each with its own SHA-256) remains the layout of the
+staged [reference packages](reference-packages.md).
 
 The mapping reproduces R0's deployed package byte for byte (`2f88b0d2…678559`)
 when given that package's `profile_id` (`a-baseline-rc-s17-f32band-v1`). Under
@@ -101,13 +117,17 @@ the R0 digests on this page and run the R0 tests below.
 
 ## Checks, in order
 
-The coordinator streams the object through `ObjectCheck`. The graph and the
-tokenizer are never buffered. Each of the four JSON role files is buffered at
-exactly the length the header declares, allocated when its first byte
-arrives.
+Admission checks the header first (in the key-free upload Worker,
+`admission::check_header_bytes`), then the scorer runs the files check
+(`files::check_files_with`) on the stored files before it loads them. The
+graph and the tokenizer are never buffered. Each of the four JSON role files
+is buffered at exactly the length the header declares. A tool that holds a
+whole object (the miner's self-test) uses `ObjectCheck`, which streams it and
+also checks every file against its header digest.
 
-1. **Object.** The protocol reader checks every file against its header digest
-   and length, and the header against its schema.
+1. **Files.** Each stored file's size and SHA-256 are R2's (verified at
+   upload) and must equal the header's; no file is hashed again. The header
+   is checked against its schema.
 2. **File table.** It checks the contract id, exactly the six names, each
    name's role, the tokenizer byte-match and every declared length (see
    [Lengths](#lengths)). All of these are decided from the header alone,
@@ -115,7 +135,10 @@ arrives.
 3. **Graph pre-parse** while the graph streams (see the next section).
 4. **Graph class.** The structure digest must equal an allow-listed class
    that the scorer serves.
-5. **Role schemas and bindings** (see [Role schemas](#role-schemas)).
+5. **Role schemas and bindings** (see [Role schemas](#role-schemas)). The
+   export manifest's digests of the heads, contract and calibration files,
+   and the load guard's contract digest, are compared with the header's
+   digests, never with a fresh hash of the files.
 6. **Parameter bound.** Graph `FLOAT` parameters plus head weights must be at
    most 160,000,000 (spec v3: the graph class's bound, which is 160,000,000
    for the plain and span classes and 173,549,185 for the tower class). The
@@ -138,10 +161,10 @@ the runtime that reads the file:
 | `a-fp32band.onnx` | exactly a served class's length (601,028,257 for the plain class) | the structure digest keeps every byte except the initializer float payloads, and keeps their lengths, so a class fixes its file length |
 | `tokenizer.json` | exactly 3,583,228 | the pinned tokenizer |
 | `heads.json` | 1 to 67,108,864 (64 MiB) | the heads runtime refuses larger heads (`full_a.rs` `FullAHeads::from_json`) |
-| the other three JSON files | 1 to 4,294,967,296 (64 parts of 64 MiB) | the scorer refuses an empty file and more than 64 parts per file (`artifact.rs` `MAX_PARTS_PER_FILE`) |
+| the other three JSON files | 1 to 4,294,967,296 (64 ranges of 64 MiB) | the scorer refuses an empty file and more than 64 ranges per file (`artifact.rs` `MAX_CHUNKS_PER_FILE`) |
 
-The parts manifest must also fit the scorer's 1 MiB `MAX_MANIFEST_BYTES`; with
-at most 64 parts per file it always does. Because the graph's length is
+The files manifest must also fit the scorer's 1 MiB `MAX_MANIFEST_BYTES`; with
+six files it always does. Because the graph's length is
 fixed, an admitted graph cannot reach the parameter bound: at four bytes per
 float, a file of 601,028,257 bytes holds fewer than 160,000,000 floats, and
 the plain and span classes hold exactly 150,058,763. The tower class of
@@ -205,6 +228,14 @@ The removed payloads are the `raw_data` or `float_data` of
 `GraphProto.initializer` tensors. Each field's tag and length prefix stay in
 the stream. Float tensors inside `Constant` nodes are hashed like every other
 byte.
+
+This digest is the one hash our side still computes over uploaded bytes:
+every byte of the graph except its initializer float payloads, in the
+scorer's admission check and the miner's `check`. Decision D5 of the
+direct-upload design proposes replacing it with a byte comparison against
+each class's pinned reference structure stream (the same acceptance set,
+under a new spec version); until the user decides, `subnet/tests/no_object_hash.rs`
+names it as the single exception.
 
 Two graphs share a structure digest exactly when their bytes are identical
 apart from their initializer float values. Identical means the same:
@@ -770,6 +801,17 @@ whether or not spans are asked: about 18 to 20% of the encoder's CPU time.
   v1 refuse it (`graph_size`). Its digests are in
   [Reference packages](reference-packages.md).
 
+## Spec v4 (planned, not defined)
+
+Admission v2 made the spec checks hash-free under v1 to v3 without changing
+what they accept: the files check compares stored digests with the header,
+and the role binding and load guard take the header's digests. A spec v4
+would carry the remaining changes that do alter a spec record: the structure
+digest replaced by a byte comparison (D5, above), and the guard pin and the
+scorer mapping schema moved to the files manifest v2. It is not defined in
+this tree: it changes every `profile_id` the coordinator, the miner and the
+scorer write, so it lands with D5's decision, as one version in all of them.
+
 ## Tests
 
 `cargo test -p slop-ninja-artifact-check`, from the `subnet/` workspace, runs
@@ -922,10 +964,10 @@ of your own, such as the
 - **Free-text provenance strings and lists** in the JSON role files are free,
   so the JSON files can be as large as their runtime bounds (64 MiB for the
   heads, 4 GiB for the others), within spec v2's byte and value budgets. Their
-  buffer is exactly the declared length, known from the header; a Workers
-  admission must pass its arena budget to `ObjectCheck::with_json_budget`, and
-  what its parses may hold to `ObjectCheck::with_json_value_budget`, or check
-  the files elsewhere.
+  buffer is exactly the declared length, known from the header. Admission v2
+  checks the files in the scorer Container, not in a Worker; a tool with a
+  memory budget passes it to `ObjectCheck::with_json_budget` and
+  `ObjectCheck::with_json_value_budget`.
 - **Not yet arena-ready decoding.** The schemas and the guard mirror parse
   owned values (`String`, `Vec`, `serde_json::Value` views), whose memory is
   bounded by the files' value cost, not by an arena. A borrowed decode is

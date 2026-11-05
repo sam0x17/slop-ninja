@@ -37,7 +37,9 @@ use std::path::Path;
 use anyhow::{Context, Result, ensure};
 use serde::de::{DeserializeSeed, Deserializer, MapAccess, SeqAccess, Visitor};
 use slop_ninja_artifact_check::spec::{MAX_JSON_BYTES_V2, ROLES};
-use slop_ninja_protocol::{FileRole, VerifiedArtifact};
+use slop_ninja_protocol::FileRole;
+
+use crate::object::ObjectHeader;
 
 /// Whether `s` reads as an absolute local path: POSIX `/x`, `~/x` or
 /// `~user/x`, a Windows drive path (`C:\x`, `C:/x`) or a UNC path
@@ -318,34 +320,28 @@ fn role_bound(role: FileRole) -> u64 {
         .map_or(MAX_JSON_BYTES_V2, |r| r.max_bytes)
 }
 
-/// Scans every JSON file of the object at `path` (`verified` is its header)
-/// except the tokenizer, which the spec pins byte for byte. An object that
-/// changed since it was verified is an error; a file that cannot be read is
-/// [`Scan::Unreadable`].
-pub fn scan_object(path: &Path, verified: &VerifiedArtifact) -> Result<Vec<FileScan>> {
+/// Scans every JSON file of the object at `path` (`object` is its header)
+/// except the tokenizer, which the spec pins byte for byte. An object whose
+/// length or header changed since `object` was read is an error; a file
+/// that cannot be read is [`Scan::Unreadable`].
+pub fn scan_object(path: &Path, object: &ObjectHeader) -> Result<Vec<FileScan>> {
     let mut file = File::open(path).with_context(|| format!("open {}", path.display()))?;
     ensure!(
-        file.metadata()?.len() == verified.len,
-        "{} changed since it was verified",
+        file.metadata()?.len() == object.object_len,
+        "{} changed since its header was read",
         path.display()
     );
     let mut prefix = [0u8; 4];
     file.read_exact(&mut prefix)
         .with_context(|| format!("read {}", path.display()))?;
-    let mut offset = 4 + u64::from(u32::from_le_bytes(prefix));
-    let total = verified
-        .header
-        .files
-        .iter()
-        .try_fold(offset, |sum, f| sum.checked_add(f.len))
-        .context("file lengths overflow")?;
     ensure!(
-        total == verified.len,
-        "{} changed since it was verified",
+        u32::from_le_bytes(prefix) == object.len,
+        "{} changed since its header was read",
         path.display()
     );
+    let mut offset = object.files_at();
     let mut scans = Vec::new();
-    for f in &verified.header.files {
+    for f in &object.header.files {
         let start = offset;
         offset += f.len;
         if f.role == FileRole::Tokenizer || !f.name.ends_with(".json") {
@@ -520,8 +516,8 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("o");
         std::fs::write(&path, &object).unwrap();
-        let verified = VerifiedArtifact::from_bytes(&object).unwrap();
-        let scans = scan_object(&path, &verified).unwrap();
+        let header = crate::object::read_header(&path).unwrap();
+        let scans = scan_object(&path, &header).unwrap();
         let by_name = |n: &str| scans.iter().find(|s| s.name == n).map(|s| s.scan.clone());
         assert_eq!(scans.len(), 3);
         assert!(matches!(
@@ -540,6 +536,6 @@ mod tests {
         assert_eq!(by_name("tokenizer.json"), None);
         // A changed object is an error, not a scan.
         std::fs::write(&path, &object[..object.len() - 1]).unwrap();
-        assert!(scan_object(&path, &verified).is_err());
+        assert!(scan_object(&path, &header).is_err());
     }
 }

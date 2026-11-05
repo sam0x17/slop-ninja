@@ -5,16 +5,22 @@
 //!    canonical inference-content digest, and a fresh secret 256-bit nonce
 //!    ([`SubmissionOpening::commitment`]). [`SubmissionOpening::chain_payload`]
 //!    gives the exact bytes for the chain's commitment call.
-//! 2. Before the admission cutoff it uploads the artifact object (see
-//!    [`crate::artifact`]) with a [`SubmissionUpload`] envelope, privately, to
-//!    the coordinator. The envelope carries the opening and is bound to the
-//!    on-chain digest and to the exact artifact object. Admission
-//!    ([`SubmissionUpload::admit`]) checks the envelope against the finalized
-//!    commitment as read from the chain ([`FinalizedCommitment`]): this chain
-//!    and cohort, made by the hotkey and registration generation the opening
-//!    names. It derives the inference-content digest from the object,
-//!    requires it to be the committed one, and returns the roster entry at
-//!    the commitment's finalized block and extrinsic index.
+//! 2. Before the admission cutoff it opens a session with a
+//!    [`SubmissionUpload`] envelope and uploads the artifact (see
+//!    [`crate::artifact`]) privately, straight to the coordinator's object
+//!    store: the header bytes and each file as separate objects, each verified
+//!    by the store against its committed SHA-256 as it arrives. The envelope
+//!    carries the opening and is bound to the on-chain digest and to the exact
+//!    header bytes (their SHA-256 and length). Admission
+//!    ([`SubmissionUpload::admit_header`]) checks the envelope against the
+//!    finalized commitment as read from the chain ([`FinalizedCommitment`]):
+//!    this chain and cohort, made by the hotkey and registration generation
+//!    the opening names. It takes the store-verified header
+//!    ([`crate::VerifiedHeader`]), requires its derived inference-content
+//!    digest to be the committed one, and returns the roster entry at the
+//!    commitment's finalized block and extrinsic index. Each file is then
+//!    admitted by comparing the store's verified checksum and size with the
+//!    header; no file byte is read or hashed for admission.
 //! 3. After the cohort closes, the coordinator publishes every entrant's
 //!    artifact and opening in a signed [`CohortClosure`] bound to the score
 //!    package, with the epochs at which admission closed, publication
@@ -23,9 +29,11 @@
 //!    ([`CohortClosure::check`], which returns a [`CheckedClosure`]). For each
 //!    entrant they check the finalized on-chain commitment: its committing
 //!    registration and its block and extrinsic index are the package's, and
-//!    the opening opens its payload. They also check the published object
+//!    the opening opens its payload. They also check the published header
 //!    against the package's artifact digest and the committed content
-//!    ([`CheckedClosure::check_entrant`]). They never run the models. Only a
+//!    ([`CheckedClosure::check_entrant`]): the published header is the one
+//!    the package binds by digest, and its files are the ones it lists.
+//!    They never run the models. Only a
 //!    checked closure activates a cohort target
 //!    ([`crate::ActiveTarget::activated`]), which a checked reward-intent
 //!    authorization then commits ([`crate::CheckedAuthorization::operation`]).
@@ -38,7 +46,8 @@ use crate::records_v2::{
 };
 use crate::sign::KeyRole;
 use crate::{
-    AccountId, ChainBinding, Digest, Error, NeuronIdentity, Record, Result, VerifiedArtifact,
+    AccountId, ChainBinding, Digest, Error, MAX_ARTIFACT_HEADER_LEN, NeuronIdentity, Record,
+    Result, VerifiedHeader,
 };
 
 const COMMITMENT_DOMAIN: &str = "slop_ninja.protocol/submission-commitment/v1";
@@ -137,30 +146,34 @@ pub fn parse_chain_payload(payload: &[u8]) -> Result<(u64, Digest)> {
 }
 
 canonical_struct! {
-    /// Private upload envelope sent to the coordinator's evaluation storage
-    /// before the admission cutoff. It is bound to the on-chain digest and to
-    /// the exact uploaded artifact object. Encryption to the coordinator key
-    /// is a later, separately qualified layer around these bytes.
+    /// Private upload envelope that opens an admission session before the
+    /// admission cutoff. It is bound to the on-chain digest and to the exact
+    /// header bytes `H` of the artifact, which list every file's SHA-256 and
+    /// length: the header object is uploaded under `header_sha256`, verified
+    /// by the object store, and each file under its own digest from the
+    /// header. Version 2: the whole-object digest and length of version 1
+    /// are gone (they were a second hash over the same bytes).
     pub struct SubmissionUpload {
         pub opening: SubmissionOpening,
         /// Must equal `opening.commitment()`.
         pub commitment: Digest,
-        /// SHA-256 and length of the exact uploaded artifact object.
-        pub artifact_sha256: Digest,
-        pub artifact_len: u64,
+        /// SHA-256 of the header bytes `H`.
+        pub header_sha256: Digest,
+        /// `len(H)`: `1..=MAX_ARTIFACT_HEADER_LEN`.
+        pub header_len: u32,
     }
 }
 
 impl Record for SubmissionUpload {
     const KIND: &'static str = "submission-upload";
-    const VERSION: u16 = 1;
+    const VERSION: u16 = 2;
     const SIGNER: Option<KeyRole> = None;
     fn validate(&self) -> Result<()> {
         if self.commitment != self.opening.commitment() {
             return Err(Error::Mismatch("upload commitment"));
         }
-        if self.artifact_len == 0 {
-            return Err(Error::Invalid("artifact length"));
+        if self.header_len == 0 || self.header_len > MAX_ARTIFACT_HEADER_LEN {
+            return Err(Error::Invalid("artifact header length"));
         }
         Ok(())
     }
@@ -190,7 +203,7 @@ impl SubmissionUpload {
     /// (`u32` length and bytes), the `u16` version, the opening (chain:
     /// genesis, `u16` netuid, `u8` mechanism; `u64` cohort; hotkey; `u64`
     /// registration block; content digest; nonce), the commitment, the
-    /// artifact digest and its `u64` length. The admission Workers bound a
+    /// header digest and its `u32` length. The admission Workers bound a
     /// session-creation body by it.
     pub const ENCODED_LEN: usize = 4
         + <Self as Record>::KIND.len()
@@ -203,15 +216,25 @@ impl SubmissionUpload {
         + 32
         + 32
         + 32
-        + 8;
+        + 4;
 
-    pub fn new(opening: SubmissionOpening, artifact: &[u8]) -> Self {
-        Self {
+    /// The envelope for `opening` and the header bytes `H` (hashed here: at
+    /// most [`MAX_ARTIFACT_HEADER_LEN`] bytes of file table). Fails on an
+    /// empty or oversized header.
+    pub fn new(opening: SubmissionOpening, header: &[u8]) -> Result<Self> {
+        let header_len = u32::try_from(header.len())
+            .ok()
+            .filter(|&l| l > 0 && l <= MAX_ARTIFACT_HEADER_LEN)
+            .ok_or(Error::LengthLimit {
+                field: "artifact header",
+                len: header.len() as u64,
+            })?;
+        Ok(Self {
             commitment: opening.commitment(),
             opening,
-            artifact_sha256: object_sha256(artifact),
-            artifact_len: artifact.len() as u64,
-        }
+            header_sha256: object_sha256(header),
+            header_len,
+        })
     }
 
     /// The coordinator's admission check for `cohort`:
@@ -222,33 +245,20 @@ impl SubmissionUpload {
     ///   chain, made by the opening's hotkey under its registration
     ///   generation, registered no later than the commitment block, with a
     ///   payload that the envelope's opening opens;
-    /// - the envelope carries exactly the verified `artifact` object, whose
-    ///   derived inference content is the committed one.
+    /// - `header` is the envelope's (the store-verified digest and the
+    ///   length), and its derived inference content is the committed one.
     ///
     /// Returns the roster entry: the committing registration, the commitment
     /// digest, and the finalized block and extrinsic index that set admission
     /// order. Whether the commitment finalized before the admission cutoff,
-    /// and qualification of the artifact's files, are checked separately.
-    pub fn admit(
+    /// the presence of each file the header lists (the store's verified
+    /// checksum and size), and qualification of the files are checked
+    /// separately.
+    pub fn admit_header(
         &self,
         cohort: u64,
         commitment: &FinalizedCommitment<'_>,
-        artifact: &VerifiedArtifact,
-    ) -> Result<RosterEntry> {
-        self.admit_digests(cohort, commitment, &artifact.sha256, artifact.len, &artifact.content)
-    }
-
-    /// [`SubmissionUpload::admit`] from the object's digests alone: its
-    /// SHA-256 and length, and the inference-content digest a verifying
-    /// reader derived from it. For a decider that receives those from the
-    /// component that read the object, and never decodes the object itself.
-    pub fn admit_digests(
-        &self,
-        cohort: u64,
-        commitment: &FinalizedCommitment<'_>,
-        object_sha256: &Digest,
-        object_len: u64,
-        content: &Digest,
+        header: &VerifiedHeader,
     ) -> Result<RosterEntry> {
         self.validate()?;
         let opening = &self.opening;
@@ -256,10 +266,10 @@ impl SubmissionUpload {
             return Err(Error::Mismatch("commitment cohort"));
         }
         let entry = opening.check_finalized(commitment)?;
-        if object_len != self.artifact_len || *object_sha256 != self.artifact_sha256 {
-            return Err(Error::Mismatch("upload artifact"));
+        if header.len != self.header_len || header.sha256 != self.header_sha256 {
+            return Err(Error::Mismatch("upload header"));
         }
-        if *content != opening.content {
+        if header.content != opening.content {
             return Err(Error::Mismatch("upload content"));
         }
         Ok(entry)
@@ -550,13 +560,13 @@ impl<'a> CheckedClosure<'a> {
     ///   identity;
     /// - its finalized block and extrinsic index are the entrant's position,
     ///   which breaks rank-order ties;
-    /// - the published `artifact` object is the package's and carries the
-    ///   committed inference content.
+    /// - the published `header` is the package's (by its SHA-256) and carries
+    ///   the committed inference content.
     pub fn check_entrant(
         &self,
         index: usize,
         commitment: &FinalizedCommitment<'_>,
-        artifact: &VerifiedArtifact,
+        header: &VerifiedHeader,
     ) -> Result<()> {
         let opening = self.closure.opening(self.package, index)?;
         let entrant = &self.package.entrants[index];
@@ -570,25 +580,28 @@ impl<'a> CheckedClosure<'a> {
         if entry.position() != entrant.position() {
             return Err(Error::Mismatch("commitment position"));
         }
-        check_published_artifact(self.package, &entrant.identity.hotkey, artifact)
+        check_published_artifact(self.package, &entrant.identity.hotkey, header)
     }
 }
 
-/// Checks one published artifact object against the package: the object is
-/// the one the package names, and its derived inference content is the
-/// entrant's content, which the entrant's opening commits to on chain.
+/// Checks one published artifact header against the package: the header is
+/// the one the package names (`EntrantScore::artifact` is the header's
+/// SHA-256), and its derived inference content is the entrant's content,
+/// which the entrant's opening commits to on chain. The files the header
+/// lists are fixed by their digests in it; a reader that downloads them
+/// checks each against those digests.
 pub fn check_published_artifact(
     package: &ScorePackageV2,
     hotkey: &AccountId,
-    artifact: &VerifiedArtifact,
+    header: &VerifiedHeader,
 ) -> Result<()> {
     let entrant = package
         .entrant(hotkey)
         .ok_or(Error::Mismatch("published artifact entrant"))?;
-    if artifact.sha256 != entrant.artifact {
+    if header.sha256 != entrant.artifact {
         return Err(Error::Mismatch("published artifact"));
     }
-    if artifact.content != entrant.content {
+    if header.content != entrant.content {
         return Err(Error::Mismatch("published artifact content"));
     }
     Ok(())

@@ -1,6 +1,7 @@
 //! One publisher run over the three buckets: the private receipts bucket
-//! (cohort objects and authorizations), the private eval bucket (artifact
-//! objects and admission records) and the public-candidate bucket.
+//! (cohort objects and authorizations), the private admission bucket (the
+//! miners' direct uploads, read for publication at scoring start,
+//! [`crate::artifacts`]) and the public-candidate bucket.
 //!
 //! The public record (decision U2's restart) is the set of closed cohorts
 //! whose manifest opened at or after `PUBLISH_FROM_EPOCH` (and, when
@@ -31,8 +32,11 @@
 //!    read back through the allow-list check ([`crate::allowlist`]); none of
 //!    the coordinator's signed records, indexes, components or receipts is
 //!    copied: they stay coordinator-private;
-//! 5. artifacts are published default-deny ([`static_withhold`], then the
-//!    entrant's admission record, [`EntrantFacts::admitted_by`]);
+//! 5. the publication record reports each entrant's artifact as published
+//!    at scoring start ([`crate::artifacts`]), checked against the public
+//!    result: the header digest published for the entrant must be the
+//!    result's artifact digest; the static checks ([`static_withhold`]) still withhold
+//!    one that was not published;
 //! 6. the publication record and the index entry are written, then, for the
 //!    newest cohort, the leaderboard, the page and the reference pointers.
 //!
@@ -46,8 +50,9 @@
 //! A refused cohort that starts the record starts it for later cohorts;
 //! before the record started, one that cannot start it (or whose manifest
 //! did not open) starts nothing ([`record_start`]).
-//! Artifacts not copied in one run stay pending and are retried by later
-//! runs. The current validator authorization, its renewal, the revocation
+//! Artifacts are copied only at scoring start, never at closure; a closed
+//! cohort's entry still pending there is settled again by later runs. The
+//! current validator authorization, its renewal, the revocation
 //! set and the coordinator's signed row are copied as soon as they verify
 //! ([`Run::authorizations`]): validators commit that row and need no cohort
 //! record.
@@ -64,9 +69,8 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use serde::{Deserialize, Serialize};
 use slop_ninja_admission_wire::json::Chain;
-use slop_ninja_protocol::submission::SubmissionUpload;
 use slop_ninja_protocol::{
-    AccountId, CalculationTargetV2, CoordinatorRow, Digest, EntrantOutcome, LaunchAuthorization,
+    AccountId, CalculationTargetV2, CoordinatorRow, Digest, LaunchAuthorization,
     Nonce, Record, ReferenceModel, ReferenceSet, ResultEntrant, RewardIntentAuthorization,
     RewardIntentRenewal, RewardIntentRevocation, Signed,
 };
@@ -104,9 +108,18 @@ pub fn build_id() -> String {
 
 pub struct Buckets<'a, S> {
     pub receipts: &'a S,
-    pub eval: &'a S,
+    /// The private admission bucket (`admission/v2/`): read only, for
+    /// publication at scoring start.
+    pub admission: &'a S,
     /// The public bucket, writable only through the allow-list.
     pub public: PublicStore<'a, S>,
+    /// The signer's copy route (`ARTIFACT_COPY = "server"`); `None` when the
+    /// binding is not configured.
+    pub server_copy: Option<&'a dyn crate::artifacts::ServerCopy>,
+    /// The eval Worker's publication report route; `None` when its binding
+    /// or token is not configured (scoring-start publication then never
+    /// counts a cohort done).
+    pub publication: Option<&'a dyn crate::artifacts::PublicationSink>,
 }
 
 /// The digests of one initial reference.
@@ -202,6 +215,11 @@ pub struct Memo {
     /// Every initial reference (`R_0` and its replacement) any opened
     /// manifest named, inside or outside the record.
     pub references: BTreeSet<ReferenceDigests>,
+    /// Cohorts whose publication at scoring start is decided for every
+    /// roster entry (or that have nothing to publish): never read again for
+    /// it. Pruned to the cohort directories that still exist.
+    #[serde(default)]
+    pub artifacts_done: BTreeSet<String>,
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
@@ -246,60 +264,19 @@ pub struct Report {
     pub retention_checked: bool,
 }
 
-/// Why an artifact is or is not published.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub enum Decision {
-    Withhold(&'static str),
-    Wait(&'static str),
-    Copy(String),
-}
-
 pub const WITHHELD_OPERATOR: &str = "an operator or synthetic hotkey";
 pub const WITHHELD_LISTED: &str = "a listed reference digest: references are published as reference packages, not as entrant artifacts";
 pub const WITHHELD_INITIAL: &str = "an initial reference R_0 (or its replacement): published as a reference package, not as an entrant artifact";
-pub const WITHHELD_COPY: &str =
-    "failed the public-copy gate: a copy of a reference or of a published artifact";
-pub const WITHHELD_CLUSTER: &str = "in a near-copy cluster with a withheld artifact";
-pub const WITHHELD_NOT_ADMITTED: &str = "no outside admission record: not uploaded through the admission route under the submission terms";
-pub const WITHHELD_ADMISSION: &str = "the admission record does not match the entrant";
-pub const WAIT_LAYOUT: &str = "the admission object layout is not configured";
-pub const WAIT_SOURCE: &str = "the artifact object is not in the eval bucket";
+pub const WITHHELD_START: &str = "withheld at scoring start";
+pub const WAIT_DISABLED: &str = "publication at scoring start is not enabled (ARTIFACTS_FROM_EPOCH)";
+pub const WAIT_START: &str = "not yet published at scoring start";
 pub const WAIT_BUDGET: &str = "the run reached its wall budget";
-pub const WAIT_STORE: &str = "the eval bucket did not answer";
-pub const WAIT_SUMMARY: &str =
-    "the cohort summary that names its near-copy clusters is not readable";
-
-/// The withheld reasons that withhold an artifact's near-copy cluster: the
-/// static checks, and the cluster reason itself (its cluster already holds
-/// a statically withheld member).
-const CLUSTER_WITHHOLDING: [&str; 5] = [
-    WITHHELD_OPERATOR,
-    WITHHELD_LISTED,
-    WITHHELD_INITIAL,
-    WITHHELD_COPY,
-    WITHHELD_CLUSTER,
-];
-
-/// For each entrant, whether its near-copy cluster (`cluster[i]`, any label
-/// every member shares; `None` outside every cluster) has a member marked in
-/// `withheld`. The rule reads only membership, never which member is the
-/// cluster's head, so a cluster is withheld whole.
-fn in_withheld_cluster<K: PartialEq>(cluster: &[Option<K>], withheld: &[bool]) -> Vec<bool> {
-    cluster
-        .iter()
-        .map(|c| {
-            c.as_ref().is_some_and(|c| {
-                cluster
-                    .iter()
-                    .zip(withheld)
-                    .any(|(x, &w)| w && x.as_ref() == Some(c))
-            })
-        })
-        .collect()
-}
+pub const WAIT_STORE: &str = "the scoring-start record did not answer";
+pub const REFUSED_HEADER: &str = "the header published at scoring start differs from the result's artifact digest";
+pub const REFUSED_ROSTER: &str = "the entrant is not in its cohort's scoring-start record";
 
 /// What an artifact decision needs to know about one entrant, from the
-/// verified package and closure or from a publication record.
+/// verified result and closure or from a publication record.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct EntrantFacts {
     pub cohort: u64,
@@ -364,30 +341,16 @@ impl EntrantFacts {
         }
     }
 
-    /// Whether a stored `SubmissionUpload` is this entrant's admitted
-    /// upload: this chain and cohort, the entrant's hotkey and registration,
-    /// its committed content, commitment and artifact object, and the nonce
-    /// the signed closure published.
-    pub fn admitted_by(&self, u: &SubmissionUpload, cfg: &Config) -> bool {
-        let o = &u.opening;
-        o.chain == cfg.chain
-            && o.cohort == self.cohort
-            && o.hotkey == self.hotkey
-            && o.registration_block == self.registration_block
-            && o.content == self.content
-            && u.commitment == self.commitment
-            && u.artifact_sha256 == self.artifact
-            && self.nonce.is_some_and(|n| n == o.nonce)
-    }
 }
 
 /// The checks that need no read, in order: an operator or synthetic hotkey,
 /// a listed reference digest, an initial reference any manifest named (or the
-/// current one's), and, at the first decision, a public-copy gate failure.
-/// Returns why the artifact is withheld, if it is.
+/// current one's). The same checks withhold at scoring start
+/// ([`crate::artifacts`]); no score-dependent rule decides publication, since
+/// it happens before the scores exist. Returns why the artifact is withheld,
+/// if it is.
 pub fn static_withhold(
     f: &EntrantFacts,
-    outcome: Option<&EntrantOutcome>,
     cfg: &Config,
     references: &BTreeSet<ReferenceDigests>,
 ) -> Option<&'static str> {
@@ -403,9 +366,6 @@ pub fn static_withhold(
         .any(|r| r.content == content || r.artifact == artifact)
     {
         return Some(WITHHELD_INITIAL);
-    }
-    if outcome.is_some_and(summary::is_copy) {
-        return Some(WITHHELD_COPY);
     }
     None
 }
@@ -477,7 +437,7 @@ fn put_meta(key: &str, cache: Cache) -> Put<'_> {
 
 /// Writes a public JSON document; the public store refuses it unless the
 /// allow-list accepts it ([`PublicStore`]).
-async fn put_json<S: Store, T: Serialize>(
+pub(crate) async fn put_json<S: Store, T: Serialize>(
     store: PublicStore<'_, S>,
     key: &str,
     value: &T,
@@ -498,7 +458,7 @@ async fn write_public_once<S: Store>(
     store.put(key, bytes, put).await
 }
 
-async fn get_json<S: Store, T: for<'d> Deserialize<'d>>(
+pub(crate) async fn get_json<S: Store, T: for<'d> Deserialize<'d>>(
     store: PublicStore<'_, S>,
     key: &str,
     budget: &Budget,
@@ -576,43 +536,6 @@ async fn copy_checked<S: Store>(
     to.copy_checked_from(from, src, dst, bytes, &put).await
 }
 
-/// Copies one artifact object, or says why not.
-async fn copy_artifact<S: Store>(
-    b: &Buckets<'_, S>,
-    src: &str,
-    sha256: &Digest,
-) -> Result<ArtifactState, (ArtifactState, String, bool)> {
-    let dst = layout::artifact(sha256);
-    let unavailable = |e: StoreError| (ArtifactState::Pending, e.to_string(), false);
-    if let Some(meta) = b.public.head(&dst).await.map_err(unavailable)?
-        && meta.sha256 == Some(*sha256)
-    {
-        return Ok(ArtifactState::Published);
-    }
-    let Some(meta) = b.eval.head(src).await.map_err(unavailable)? else {
-        return Err((ArtifactState::Pending, WAIT_SOURCE.into(), false));
-    };
-    let put = Put {
-        content_type: "application/octet-stream",
-        cache: Cache::Immutable,
-        sha256: Some(sha256),
-    };
-    match b
-        .public
-        .copy_artifact_from(b.eval, src, &dst, meta.size, &put)
-        .await
-    {
-        Ok(true) => Ok(ArtifactState::Published),
-        Ok(false) => Err((ArtifactState::Pending, WAIT_SOURCE.into(), false)),
-        Err(StoreError::Integrity) => Err((
-            ArtifactState::Pending,
-            "the stored object differs from the package's SHA-256".into(),
-            true,
-        )),
-        Err(e) => Err(unavailable(e)),
-    }
-}
-
 /// Renews the run's lease between steps.
 #[allow(async_fn_in_trait)]
 pub trait Keepalive {
@@ -659,7 +582,7 @@ pub struct Run<'a, S, K> {
 }
 
 impl<S: Store, K: Keepalive> Run<'_, S, K> {
-    fn opts(&self) -> Options<'_> {
+    pub(crate) fn opts(&self) -> Options<'_> {
         // Receipts are coordinator-private: the publisher neither reads nor
         // publishes them.
         Options {
@@ -673,7 +596,7 @@ impl<S: Store, K: Keepalive> Run<'_, S, K> {
     }
 
     /// Whether a new step may start: within the wall budget, lease renewed.
-    async fn may_continue(&self) -> bool {
+    pub(crate) async fn may_continue(&self) -> bool {
         if self.over_budget() {
             return false;
         }
@@ -807,6 +730,11 @@ impl<S: Store, K: Keepalive> Run<'_, S, K> {
         }
         report.unverifiable = memo.unverifiable.keys().cloned().collect();
 
+        // Publication at scoring start holds nothing else back: a store error
+        // there is reported and retried by the next run.
+        if let Err(e) = self.scoring_start(&idx, memo, report).await {
+            report.pending.push(("artifacts".into(), e));
+        }
         self.retry_artifacts(&mut idx, memo, report).await?;
         match self.cfg.publish_from_epoch {
             Some(from) => self.new_cohorts(from, &mut idx, memo, report).await?,
@@ -1372,7 +1300,7 @@ impl<S: Store, K: Keepalive> Run<'_, S, K> {
     /// named (the memo), every one a listed cohort named (the index), every
     /// one an earlier record's cohorts named (`previous_records`), and this
     /// cohort's own.
-    fn withheld_references(
+    pub(crate) fn withheld_references(
         &self,
         memo: &Memo,
         idx: &CohortIndex,
@@ -1424,49 +1352,15 @@ impl<S: Store, K: Keepalive> Run<'_, S, K> {
             }
             Err(e) => return Err(store_err(e)),
         }
-        // Artifacts, default-deny: the static checks, then the near-copy
-        // cluster of a withheld artifact, then the admission record and the
-        // copy.
+        // Artifacts: what publication at scoring start did, checked against
+        // the public result's artifact digests.
         let references = self.withheld_references(memo, idx, Some(v));
-        let entrants = &v.result.entrants;
-        let facts: Vec<EntrantFacts> = entrants.iter().map(|e| EntrantFacts::of(e, v)).collect();
-        let mut withheld: Vec<Option<&'static str>> = entrants
-            .iter()
-            .zip(&facts)
-            .map(|(e, f)| static_withhold(f, Some(&e.outcome), self.cfg, &references))
-            .collect();
-        // A cluster is withheld whole when any member is withheld by a
-        // static check, whichever member is its head: the rule reads only the
-        // cluster's membership (public in the summary) and the static checks,
-        // never which member scored best, so the withheld reasons cannot
-        // single out the head.
-        // Retries apply the same rule (`retry_artifacts`).
-        let statically: Vec<bool> = withheld.iter().map(Option::is_some).collect();
-        let clusters: Vec<Option<u16>> = entrants
-            .iter()
-            .map(|e| match e.outcome {
-                EntrantOutcome::Scored { cluster_first_member, .. } => cluster_first_member,
-                _ => None,
-            })
-            .collect();
-        for (why, hit) in withheld
-            .iter_mut()
-            .zip(in_withheld_cluster(&clusters, &statically))
-        {
-            if why.is_none() && hit {
-                *why = Some(WITHHELD_CLUSTER);
-            }
-        }
+        let start = self.scoring_start_record(label).await;
         let mut artifacts = Vec::new();
-        for ((e, f), why) in entrants.iter().zip(&facts).zip(&withheld) {
+        for e in &v.result.entrants {
+            let f = EntrantFacts::of(e, v);
             let mut entry = f.entry(e.uid);
-            match why {
-                Some(why) => {
-                    entry.state = ArtifactState::Withheld;
-                    entry.reason = Some((*why).into());
-                }
-                None => self.admit_and_copy(f, label, &mut entry, report).await,
-            }
+            self.settle(&f, &references, &start, label, &mut entry, report);
             artifacts.push(entry);
         }
         let publication = Publication {
@@ -1521,72 +1415,82 @@ impl<S: Store, K: Keepalive> Run<'_, S, K> {
         Ok(())
     }
 
-    /// The entrant's admission record decides, then the copy: no record
-    /// withholds the artifact for good, a record that does not match it
-    /// withholds it and raises an alert.
-    async fn admit_and_copy(
+    /// The cohort's scoring-start record ([`crate::artifacts::StartRecord`]),
+    /// when one is stored; `Err` when the store did not answer or the record
+    /// does not read.
+    async fn scoring_start_record(&self, label: &str) -> Result<Option<crate::artifacts::StartRecord>, String> {
+        get_json::<S, crate::artifacts::StartRecord>(
+            self.buckets.public,
+            &layout::artifacts_record(label),
+            self.budget,
+        )
+        .await
+        .map(|r| r.filter(|r| r.label == label))
+    }
+
+    /// Settles one closed cohort's artifact entry from the scoring-start
+    /// record. A header published for the entrant counts only when it is the
+    /// result's artifact digest (alerted otherwise); published objects are
+    /// never recalled, so a published entry stays published. Anything not
+    /// published is withheld by the static checks, by the record's own
+    /// withholding, or left pending.
+    fn settle(
         &self,
         f: &EntrantFacts,
+        references: &BTreeSet<ReferenceDigests>,
+        start: &Result<Option<crate::artifacts::StartRecord>, String>,
         label: &str,
         entry: &mut ArtifactEntry,
         report: &mut Report,
     ) {
-        let (Some(source), Some(record)) = (&self.cfg.artifact_source, &self.cfg.admission_record)
-        else {
-            entry.reason = Some(WAIT_LAYOUT.into());
-            return;
-        };
         let subject = format!("{label}/artifact-{}", &entry.sha256[..16]);
-        if !self.may_continue().await {
-            entry.reason = Some(WAIT_BUDGET.into());
-            report.pending.push((subject, WAIT_BUDGET.into()));
+        let found = match start {
+            Ok(Some(rec)) => rec.entry(&entry.hotkey),
+            _ => None,
+        };
+        if let Some(s) = found
+            && s.state == ArtifactState::Published
+        {
+            if s.header.as_deref() == Some(entry.sha256.as_str()) {
+                entry.state = ArtifactState::Published;
+                entry.path = s.path.clone();
+                entry.reason = None;
+            } else {
+                entry.state = ArtifactState::Pending;
+                entry.reason = Some(REFUSED_HEADER.into());
+                report.refused.push((subject, REFUSED_HEADER.into()));
+            }
             return;
         }
-        let key = record
-            .replace("{label}", label)
-            .replace("{hotkey}", &hex::encode(f.hotkey.0));
-        let admitted = match self
-            .buckets
-            .eval
-            .get(&key, arena::ADMISSION_RECORD_BOUND)
-            .await
-        {
-            Ok(None) => Err(WITHHELD_NOT_ADMITTED),
-            Ok(Some(bytes)) => match SubmissionUpload::from_bytes(&bytes) {
-                Ok(u) if f.admitted_by(&u, self.cfg) => Ok(()),
-                _ => Err(WITHHELD_ADMISSION),
-            },
-            Err(StoreError::TooLarge { .. }) => Err(WITHHELD_ADMISSION),
-            Err(e) => {
-                entry.reason = Some(WAIT_STORE.into());
-                report.pending.push((subject, e.to_string()));
-                return;
-            }
-        };
-        if let Err(why) = admitted {
+        if let Some(why) = static_withhold(f, self.cfg, references) {
             entry.state = ArtifactState::Withheld;
             entry.reason = Some(why.into());
-            if why == WITHHELD_ADMISSION {
-                report.refused.push((subject, why.into()));
-            }
             return;
         }
-        let src = source.replace("{sha256}", &entry.sha256);
-        match copy_artifact(&self.buckets, &src, &f.artifact).await {
-            Ok(state) => {
-                entry.state = state;
-                entry.path = Some(layout::artifact(&f.artifact));
-                entry.reason = None;
-                report.artifacts_copied += 1;
+        match (start, found) {
+            (_, Some(s)) if s.state == ArtifactState::Withheld => {
+                entry.state = ArtifactState::Withheld;
+                entry.reason = Some(s.reason.clone().unwrap_or_else(|| WITHHELD_START.into()));
             }
-            Err((state, why, refused)) => {
-                entry.state = state;
-                if refused {
-                    report.refused.push((subject, why.clone()));
-                } else {
-                    report.pending.push((subject, why.clone()));
-                }
-                entry.reason = Some(why);
+            (_, Some(s)) => {
+                let why = s.reason.clone().unwrap_or_else(|| WAIT_START.into());
+                entry.reason = Some(why.clone());
+                report.pending.push((subject, why));
+            }
+            (Ok(Some(_)), None) => {
+                entry.reason = Some(REFUSED_ROSTER.into());
+                report.refused.push((subject, REFUSED_ROSTER.into()));
+            }
+            (Ok(None), None) if !self.cfg.publish_artifacts => {
+                entry.reason = Some(WAIT_DISABLED.into());
+            }
+            (Ok(None), None) => {
+                entry.reason = Some(WAIT_START.into());
+                report.pending.push((subject, WAIT_START.into()));
+            }
+            (Err(e), None) => {
+                entry.reason = Some(WAIT_STORE.into());
+                report.pending.push((subject, e.clone()));
             }
         }
     }
@@ -1606,8 +1510,8 @@ impl<S: Store, K: Keepalive> Run<'_, S, K> {
         );
         let (mut published, mut staged) = (Vec::new(), Vec::new());
         for c in candidates {
-            if let Some(meta) = self.buckets.public.head(&layout::artifact(&c)).await?
-                && meta.sha256 == Some(c)
+            if let Some(meta) = self.buckets.public.head(&layout::header(&c)).await?
+                && meta.sha256.is_none_or(|s| s == c)
             {
                 published.push(c.hex());
             } else if self.staged_package(&c).await? {
@@ -1658,23 +1562,17 @@ impl<S: Store, K: Keepalive> Run<'_, S, K> {
         Ok(())
     }
 
-    /// Retries pending artifacts of published cohorts, newest first, with
-    /// the static checks repeated (the configuration may list more since)
-    /// and the cluster rule applied again, and refreshes the records that
-    /// name them. A pending member of a cluster with a statically withheld
-    /// member is withheld whole, by the membership the cohort's summary
-    /// states; a member already published stays published (nothing recalls
-    /// a public object).
+    /// Settles the pending artifacts of listed cohorts again, newest first,
+    /// from their scoring-start records (copies happen only at scoring
+    /// start, [`crate::artifacts`]), with the static checks repeated (the
+    /// configuration may list more since), and refreshes the records that
+    /// name them.
     async fn retry_artifacts(
         &self,
         idx: &mut CohortIndex,
         memo: &Memo,
         report: &mut Report,
     ) -> Result<(), String> {
-        if self.cfg.artifact_source.is_none() {
-            // Nothing can be copied; the static checks run when it is set.
-            return Ok(());
-        }
         let b = &self.buckets;
         let references = self.withheld_references(memo, idx, None);
         let pending: Vec<String> = idx
@@ -1699,73 +1597,17 @@ impl<S: Store, K: Keepalive> Run<'_, S, K> {
             };
             let cohort = publication.cohort;
             let before = publication.artifacts.clone();
-            // As at the first decision: the static checks over every pending
-            // artifact first, then the near-copy cluster of any artifact
-            // withheld by them (now or on an earlier run), and only then the
-            // admission record and the copy.
-            let mut undecided: Vec<Option<EntrantFacts>> = Vec::new();
+            let start = self.scoring_start_record(&label).await;
             for a in &mut publication.artifacts {
-                let mut facts = None;
-                if a.state == ArtifactState::Pending {
-                    match EntrantFacts::from_entry(a, cohort) {
-                        None => {
-                            a.state = ArtifactState::Withheld;
-                            a.reason = Some(WITHHELD_ADMISSION.into());
-                        }
-                        Some(f) => match static_withhold(&f, None, self.cfg, &references) {
-                            Some(why) => {
-                                a.state = ArtifactState::Withheld;
-                                a.reason = Some(why.into());
-                            }
-                            None => facts = Some(f),
-                        },
-                    }
+                if a.state != ArtifactState::Pending {
+                    continue;
                 }
-                undecided.push(facts);
-            }
-            let withholding: Vec<bool> = publication
-                .artifacts
-                .iter()
-                .map(|a| {
-                    a.state == ArtifactState::Withheld
-                        && a.reason
-                            .as_deref()
-                            .is_some_and(|r| CLUSTER_WITHHOLDING.contains(&r))
-                })
-                .collect();
-            if withholding.iter().any(|&w| w) && undecided.iter().any(Option::is_some) {
-                match self.summary_clusters(&label, &publication).await {
-                    Ok(clusters) => {
-                        let hits = in_withheld_cluster(&clusters, &withholding);
-                        for ((a, f), hit) in publication
-                            .artifacts
-                            .iter_mut()
-                            .zip(&mut undecided)
-                            .zip(hits)
-                        {
-                            if hit && f.take().is_some() {
-                                a.state = ArtifactState::Withheld;
-                                a.reason = Some(WITHHELD_CLUSTER.into());
-                            }
-                        }
+                match EntrantFacts::from_entry(a, cohort) {
+                    Some(f) => self.settle(&f, &references, &start, &label, a, report),
+                    None => {
+                        a.reason = Some(REFUSED_ROSTER.into());
+                        report.refused.push((format!("{label}/artifact-{}", &a.sha256[..16]), REFUSED_ROSTER.into()));
                     }
-                    // Default-deny: without the membership nothing is copied.
-                    Err(why) => {
-                        for (a, f) in publication.artifacts.iter_mut().zip(&mut undecided) {
-                            if f.take().is_some() {
-                                a.reason = Some(WAIT_SUMMARY.into());
-                                report.pending.push((
-                                    format!("{label}/artifact-{}", &a.sha256[..16]),
-                                    why.clone(),
-                                ));
-                            }
-                        }
-                    }
-                }
-            }
-            for (a, f) in publication.artifacts.iter_mut().zip(&undecided) {
-                if let Some(f) = f {
-                    self.admit_and_copy(f, &label, a, report).await;
                 }
             }
             if publication.artifacts == before {
@@ -1806,49 +1648,6 @@ impl<S: Store, K: Keepalive> Run<'_, S, K> {
         Ok(())
     }
 
-    /// The near-copy cluster of each of `publication`'s artifacts, by the
-    /// label the cohort's public summary gives it (its first member in roster
-    /// order; `None` outside every cluster). The summary must be the one the
-    /// publication record names by digest; the membership it states is the
-    /// package's, which the summary was rendered from.
-    async fn summary_clusters(
-        &self,
-        label: &str,
-        publication: &Publication,
-    ) -> Result<Vec<Option<String>>, String> {
-        let key = layout::join(&layout::cohort_dir(label), summary::SUMMARY);
-        let bytes = self
-            .buckets
-            .public
-            .get(&key, self.budget.remaining())
-            .await
-            .map_err(|e| e.to_string())?
-            .ok_or_else(|| format!("{WAIT_SUMMARY}: missing"))?;
-        let _hold = self
-            .budget
-            .reserve(bytes.len() as u64)
-            .map_err(|_| "budget".to_owned())?;
-        if slop_ninja_protocol::object_sha256(&bytes).hex() != publication.summary {
-            return Err(format!(
-                "{WAIT_SUMMARY}: differs from the publication record's digest"
-            ));
-        }
-        // A cohort listed before quantization keeps its v2 summary.
-        let doc = summary::read(&bytes)
-            .ok_or_else(|| format!("{WAIT_SUMMARY}: not a {}", summary::SUMMARY_SCHEMA))?;
-        publication
-            .artifacts
-            .iter()
-            .map(|a| {
-                doc.entrants
-                    .iter()
-                    .find(|e| e.hotkey_hex == a.hotkey_hex)
-                    .map(|e| e.cluster.as_ref().map(|c| c.hotkey.clone()))
-                    .ok_or_else(|| format!("{WAIT_SUMMARY}: uid {} is not listed", a.uid))
-            })
-            .collect()
-    }
-
     async fn refresh_newest(&self, publication: &Publication) -> Result<(), StoreError> {
         let p = self.buckets.public;
         let Ok(Some(mut doc)) =
@@ -1878,7 +1677,7 @@ impl<S: Store, K: Keepalive> Run<'_, S, K> {
                 && published(&pointer.artifact)
                 && let Some(sha) = digest_hex(&pointer.artifact)
             {
-                pointer.path = Some(layout::artifact(&sha));
+                pointer.path = Some(layout::header(&sha));
                 pointer.package = None;
                 pointer.licence = None;
                 pointer.withheld = None;

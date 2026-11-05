@@ -2,15 +2,18 @@
 //!
 //! This step reads no chain state itself: the caller supplies the chain
 //! binding, the admitting cohort and the hotkey's finalized registration. The
-//! CLI reads those through rtao; tests supply them directly.
+//! CLI reads those through rtao; tests supply them directly. It reads only
+//! the object's header ([`ObjectHeader`]): the commitment binds the content
+//! the header derives, so no file of the object is read or hashed.
 
 use std::path::PathBuf;
 
 use anyhow::{Result, bail, ensure};
 use slop_ninja_protocol::submission::{SUBMISSION_PAYLOAD_LEN, SubmissionOpening};
-use slop_ninja_protocol::{ChainBinding, NeuronIdentity, VerifiedArtifact};
+use slop_ninja_protocol::{ChainBinding, NeuronIdentity};
 
 use crate::client::ss58;
+use crate::object::ObjectHeader;
 use crate::opening::{NonceSource, OpeningFile, Store, make_opening};
 
 /// A prepared, stored commitment.
@@ -41,11 +44,11 @@ pub fn prepare(
     chain: &ChainBinding,
     cohort: u64,
     identity: &NeuronIdentity,
-    artifact: &VerifiedArtifact,
+    object: &ObjectHeader,
     nonces: &mut dyn NonceSource,
     replace: bool,
 ) -> Result<Prepared> {
-    let draft = make(store, chain, cohort, identity, artifact, nonces, replace)?;
+    let draft = make(store, chain, cohort, identity, object, nonces, replace)?;
     let path = store.save_new_opening(&draft.file)?;
     Ok(Prepared {
         path,
@@ -62,7 +65,7 @@ pub fn make(
     chain: &ChainBinding,
     cohort: u64,
     identity: &NeuronIdentity,
-    artifact: &VerifiedArtifact,
+    object: &ObjectHeader,
     nonces: &mut dyn NonceSource,
     replace: bool,
 ) -> Result<Draft> {
@@ -91,7 +94,7 @@ pub fn make(
         cohort,
         identity.hotkey,
         identity.registration_block,
-        artifact,
+        object,
         nonces,
     )?;
     ensure!(
@@ -100,7 +103,7 @@ pub fn make(
             .all(|(_, f)| f.commitment != opening.commitment().hex()),
         "the random source repeated a nonce"
     );
-    let file = OpeningFile::new(&opening, artifact, &hotkey);
+    let file = OpeningFile::new(&opening, object, &hotkey);
     Ok(Draft {
         payload: opening.chain_payload(),
         file,

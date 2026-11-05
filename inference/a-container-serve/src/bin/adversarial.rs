@@ -22,7 +22,7 @@
 //! content-free JSON report and exits 1
 //! if any case missed its expectation. Nothing leaves the host.
 use a_container_serve::adversarial::{CASES, Case, Expect, case, write_case};
-use a_container_serve::artifact::ArtifactFiles;
+use a_container_serve::artifact::FilesManifest;
 use a_container_serve::engine::{Model, NEWEST_SPEC, admit};
 use a_container_serve::limits;
 use anyhow::{Context, Result, bail};
@@ -57,7 +57,8 @@ fn peak_rss_bytes() -> Option<u64> {
 
 fn score_all(dir: &Path, lib: &str, docs: &[Doc]) -> Result<(BTreeMap<String, usize>, f64, f64)> {
     let t = Instant::now();
-    let model = Model::load(dir, NEWEST_SPEC, slop_ninja_artifact_check::spec::GRAPH_FILE, 1, 1, lib)?;
+    let header = a_container_serve::engine::header_of_dir(dir)?;
+    let model = Model::load(dir, &header, NEWEST_SPEC, slop_ninja_artifact_check::spec::GRAPH_FILE, 1, 1, lib)?;
     let load_s = t.elapsed().as_secs_f64();
     let t = Instant::now();
     let mut status = BTreeMap::new();
@@ -76,11 +77,11 @@ fn run_case(c: &Case, expect: Expect, dir: &Path, lib: &str, docs: &[Doc]) -> Va
     if c.manifest_only {
         let observed = std::fs::read(dir.join("artifact-files.json"))
             .map_err(anyhow::Error::from)
-            .and_then(|b| Ok(serde_json::from_slice::<ArtifactFiles>(&b)?))
-            .and_then(|m| {
-                m.validate()?;
-                limits::check_manifest(&m, NEWEST_SPEC)
-            });
+            .and_then(|b| {
+                let package = FilesManifest::package_of(&b);
+                FilesManifest::parse(&b, &package, NEWEST_SPEC).map_err(|e| anyhow::anyhow!("refused {}: {e}", e.code()))
+            })
+            .and_then(|m| limits::check_manifest(&m, NEWEST_SPEC));
         let got = match &observed {
             Ok(()) => "accepted".to_string(),
             Err(e) => code(e),
@@ -89,7 +90,7 @@ fn run_case(c: &Case, expect: Expect, dir: &Path, lib: &str, docs: &[Doc]) -> Va
         return json!({"case": c.name, "stage": "manifest", "observed": got, "pass": pass});
     }
     let t = Instant::now();
-    if let Err(e) = admit(dir, NEWEST_SPEC) {
+    if let Err(e) = a_container_serve::engine::header_of_dir(dir).and_then(|h| admit(dir, &h, NEWEST_SPEC)) {
         let got = code(&e);
         let pass = matches!(expect, Expect::Refused(want) if want == got);
         return json!({"case": c.name, "stage": "admission", "observed": got,

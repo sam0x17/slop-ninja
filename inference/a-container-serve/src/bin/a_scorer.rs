@@ -1,15 +1,19 @@
 //! a-scorer: batch scoring of one admitted *A* artifact per instance, loaded by digest.
 //!
-//! The image carries no model. The coordinator streams an artifact's content-addressed
-//! parts into the container (`PUT /v1/blobs/<sha256>`), then posts the artifact files
-//! manifest (`POST /v1/load?package=<sha256>[&cohort=<id>][&spec=<spec sha256>]`). The
-//! load admits by the artifact spec it names by digest, the cohort's (spec v2 or v3),
-//! and by spec v2 when it names none (`engine::UNNAMED_LOAD_SPEC`). The server checks
-//! that the manifest bytes hash to the package digest and that it lists that spec's
-//! file table within the spec's bounds (`limits`), assembles each file from its parts
-//! with every part and file digest checked, deletes the parts, runs the spec's whole
-//! admission check (graph pre-parse included) before ONNX Runtime opens anything,
-//! repeats the release contract guards and loads the f32 graph (`engine`).
+//! The image carries no model. The coordinator posts the artifact's files manifest v2
+//! (`POST /v2/prepare?package=<sha256>[&cohort=<id>][&spec=<spec sha256>]`), writes each
+//! file in fixed chunks at their offsets (`PUT /v2/files/<index>/<offset>`, read from
+//! storage with the length and entity tag the manifest names), then asks for the load
+//! (`POST /v2/load?<the same query>`). The load admits by the artifact spec it names by
+//! digest, the cohort's (spec v2 or v3), and by spec v2 when it names none
+//! (`engine::UNNAMED_LOAD_SPEC`). The server checks that the manifest bytes hash to the
+//! package digest (a small record) and that it lists that spec's file table within the
+//! spec's bounds (`limits`), creates each file at its declared length, takes each chunk
+//! at exactly its offset and length, runs the spec's whole admission check (graph
+//! pre-parse included) on the header's store-verified digests before ONNX Runtime opens
+//! anything, repeats the contract guards and loads the f32 graph (`engine`). **No file
+//! is hashed**: the object store verified every file's SHA-256 when the miner uploaded
+//! it, and the bytes reach this process only from the coordinator's lane.
 //! `POST /v1/score` then scores a batch of documents for that package and returns,
 //! per document, digests, counts and the prediction; with `"spans": true` and a token
 //! head, also sentences and spans.
@@ -19,8 +23,9 @@
 //! A load of anything else, a part upload after binding, or a score request for
 //! another package or cohort is refused with 409 `instance_bound`: no process holds
 //! a second artifact or serves a second cohort it was told about. At start the
-//! process removes the work directory's `blobs/` and `files/`, so a process
-//! restarted in the same container begins with no artifact on disk. The cohort
+//! process removes the work directory's `files/` (and any `blobs/` an older build
+//! left), so a process restarted in the same container begins with no artifact on
+//! disk. The cohort
 //! half binds only when the caller names the cohort (`cohort=` on load, `cohort`
 //! on score); a load without one binds the absent cohort, which any later request
 //! without one matches. Starting a fresh instance for each artifact and cohort is
@@ -36,9 +41,9 @@
 //! coordinator's crash isolation. Environment: A_HOST (0.0.0.0), A_PORT (8080),
 //! A_SESSIONS (1-8, default 4), A_THREADS (1-16, default 1), A_WORK_DIR (/tmp/a-scorer),
 //! A_ORT_LIB (/opt/ort/libonnxruntime.so.1.31.1).
-use a_container_serve::artifact::{self, ArtifactFiles, MAX_MANIFEST_BYTES, MAX_PART_BYTES};
+use a_container_serve::artifact::{FilesManifest, MAX_MANIFEST_BYTES, Placement, write_chunk};
 use a_container_serve::engine::Model;
-use a_container_serve::instance::{Binding, Load, Put as PartPut, load_query};
+use a_container_serve::instance::{Binding, Load, load_query};
 use a_container_serve::limits::{self, MAX_DOCS, MAX_INFLIGHT, MAX_SCORE_BODY};
 use a_container_serve::profile::ServedProfile;
 use anyhow::{Context, Result, anyhow, ensure};
@@ -47,7 +52,7 @@ use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
 use slop_ninja_artifact_check::spec::Version;
 use std::fs;
-use std::io::{Read, Write};
+use std::io::Read;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicUsize, Ordering::SeqCst};
 use std::sync::{Arc, Mutex};
@@ -64,6 +69,8 @@ struct Config {
 
 enum Slot {
     Empty,
+    /// Bound by a prepare: the files are arriving.
+    Receiving { bound: Binding, since: Instant },
     Loading { bound: Binding, since: Instant },
     Ready { bound: Binding, model: Arc<Model>, load_ms: f64 },
     Failed { bound: Binding, error: String },
@@ -73,17 +80,25 @@ impl Slot {
     fn bound(&self) -> Option<&Binding> {
         match self {
             Slot::Empty => None,
-            Slot::Loading { bound, .. } | Slot::Ready { bound, .. } | Slot::Failed { bound, .. } => Some(bound),
+            Slot::Receiving { bound, .. }
+            | Slot::Loading { bound, .. }
+            | Slot::Ready { bound, .. }
+            | Slot::Failed { bound, .. } => Some(bound),
         }
     }
 }
 
+/// The bound package's files as they arrive, with the header the manifest lists
+/// (its digests are the store-verified ones the load admits by).
+struct Receive {
+    placement: Placement,
+    header: slop_ninja_protocol::ArtifactHeader,
+    graph: String,
+}
+
 struct State {
     slot: Mutex<Slot>,
-    /// Part digests of the bound package's manifest. They count as present after
-    /// the parts are deleted, so a coordinator re-entering a bound instance with
-    /// the same package skips the upload instead of meeting `instance_bound`.
-    bound_parts: Mutex<std::collections::BTreeSet<String>>,
+    receive: Mutex<Option<Receive>>,
     start: Instant,
     scored: AtomicUsize,
     build: Value,
@@ -133,6 +148,8 @@ fn slot_json(state: &State) -> Value {
     let slot = state.slot.lock().unwrap();
     let mut v = match &*slot {
         Slot::Empty => json!({"state": "empty"}),
+        Slot::Receiving { bound, since } => json!({"state": "receiving", "package": bound.package,
+            "cohort": bound.cohort, "spec": bound.spec.id(), "receiving_ms": since.elapsed().as_secs_f64() * 1e3}),
         Slot::Loading { bound, since } => json!({"state": "loading", "package": bound.package,
             "cohort": bound.cohort, "spec": bound.spec.id(), "loading_ms": since.elapsed().as_secs_f64() * 1e3}),
         Slot::Ready { bound, model, load_ms } => json!({"state": "ready", "package": bound.package,
@@ -149,53 +166,16 @@ fn slot_json(state: &State) -> Value {
     v
 }
 
-fn blob_path(cfg: &Config, sha: &str) -> PathBuf {
-    cfg.work.join("blobs").join(sha)
+/// Load the bound package's files (runs on a loader thread): admission by `spec`
+/// on the header's store-verified digests runs inside `Model::load` before ONNX
+/// Runtime opens the graph. Nothing is hashed.
+fn load(cfg: &Config, spec: Version, r: &Receive) -> Result<Model> {
+    Model::load(r.placement.dir(), &r.header, spec, &r.graph, cfg.sessions, cfg.threads, &cfg.lib)
 }
 
-/// Stream a request body to a part file, checking its digest and size.
-fn put_blob(cfg: &Config, sha: &str, reader: &mut dyn Read) -> Result<u64> {
-    let dir = cfg.work.join("blobs");
-    fs::create_dir_all(&dir)?;
-    let tmp = dir.join(format!("{sha}.{}.part", std::process::id()));
-    let mut w = fs::File::create(&tmp)?;
-    let mut h = Sha256::new();
-    let mut total = 0u64;
-    let mut buf = vec![0u8; 1 << 20];
-    loop {
-        let n = reader.read(&mut buf)?;
-        if n == 0 {
-            break;
-        }
-        total += n as u64;
-        if total > MAX_PART_BYTES {
-            let _ = fs::remove_file(&tmp);
-            return Err(anyhow!("part larger than {MAX_PART_BYTES} bytes"));
-        }
-        h.update(&buf[..n]);
-        w.write_all(&buf[..n])?;
-    }
-    w.sync_all()?;
-    drop(w);
-    if hex::encode(h.finalize()) != sha {
-        let _ = fs::remove_file(&tmp);
-        return Err(anyhow!("part digest differs"));
-    }
-    fs::rename(&tmp, blob_path(cfg, sha))?;
-    Ok(total)
-}
-
-/// Assemble and load `manifest` for `package` (runs on a loader thread). The parts
-/// are deleted once every file is assembled; admission by `spec` runs inside
-/// `Model::load` before ONNX Runtime opens the graph.
-fn load(cfg: &Config, package: &str, spec: Version, manifest: &ArtifactFiles) -> Result<Model> {
-    let dir = cfg.work.join("files").join(package);
-    fs::create_dir_all(&dir)?;
-    let blobs = cfg.work.join("blobs");
-    let assembled = manifest.files.iter().try_for_each(|f| artifact::assemble(f, &blobs, &dir.join(&f.name)));
-    let _ = fs::remove_dir_all(&blobs);
-    assembled?;
-    Model::load(&dir, spec, &manifest.graph, cfg.sessions, cfg.threads, &cfg.lib)
+/// `missing` as JSON: `[[file index, offset], ...]`.
+fn missing_json(r: &Receive) -> Value {
+    json!(r.placement.missing())
 }
 
 #[derive(Deserialize)]
@@ -281,7 +261,7 @@ fn main() -> Result<()> {
             fs::remove_dir_all(&dir).with_context(|| format!("clearing {sub}/ in the work directory"))?;
         }
     }
-    fs::create_dir_all(cfg.work.join("blobs"))?;
+    fs::create_dir_all(cfg.work.join("files"))?;
     let server = tiny_http::Server::http((cfg.host.as_str(), cfg.port)).map_err(|e| anyhow!("bind: {e}"))?;
     eprintln!("a-scorer listening on {} (sessions {}, threads {})", cfg.port, cfg.sessions, cfg.threads);
     let build = json!({
@@ -293,7 +273,7 @@ fn main() -> Result<()> {
     });
     let state = Arc::new(State {
         slot: Mutex::new(Slot::Empty),
-        bound_parts: Mutex::new(Default::default()),
+        receive: Mutex::new(None),
         start: Instant::now(),
         scored: AtomicUsize::new(0),
         build,
@@ -328,36 +308,7 @@ fn main() -> Result<()> {
                         "processors": cpu.lines().filter(|l| l.starts_with("processor")).count(),
                         "kernel": read_trim("/proc/version"), "slot": slot_json(&state)}));
                 }
-                (Head | Get, p) if p.starts_with("/v1/blobs/") => {
-                    let sha = &p["/v1/blobs/".len()..];
-                    let ok = artifact::is_digest(sha)
-                        && (blob_path(&cfg, sha).exists() || state.bound_parts.lock().unwrap().contains(sha));
-                    respond(req, if ok { 200 } else { 404 }, &json!({"present": ok}));
-                }
-                (Put, p) if p.starts_with("/v1/blobs/") => {
-                    let sha = p["/v1/blobs/".len()..].to_string();
-                    let put = PartPut::decide(
-                        state.slot.lock().unwrap().bound(),
-                        &state.bound_parts.lock().unwrap(),
-                        &sha,
-                    );
-                    if put == PartPut::AlreadyBound {
-                        // Already part of the bound package: nothing to store.
-                        respond(req, 201, &json!({"stored": 0, "bound": true}));
-                    } else if put == PartPut::Refuse {
-                        respond(req, 409, &json!({"error": "instance_bound"}));
-                    } else if !artifact::is_digest(&sha) {
-                        respond(req, 400, &json!({"error": "digest"}));
-                    } else {
-                        let t = Instant::now();
-                        match put_blob(&cfg, &sha, req.as_reader()) {
-                            Ok(bytes) => respond(req, 201, &json!({"stored": bytes,
-                                "ms": t.elapsed().as_secs_f64() * 1e3})),
-                            Err(e) => respond(req, 422, &json!({"error": format!("{e:#}")})),
-                        }
-                    }
-                }
-                (Post, "/v1/load") => {
+                (Post, "/v2/prepare") => {
                     // A malformed query, or a spec this build does not admit by: neither is the artifact's fault.
                     let want = match load_query(&query) {
                         Ok(want) => want,
@@ -371,56 +322,126 @@ fn main() -> Result<()> {
                     let mut body = Vec::new();
                     let read = req.as_reader().take(MAX_MANIFEST_BYTES as u64 + 1).read_to_end(&mut body);
                     let parsed = read.map_err(anyhow::Error::from).and_then(|_| {
-                        let m = ArtifactFiles::parse(&body, &package)?;
+                        let m = FilesManifest::parse(&body, &package, spec)
+                            .map_err(|e| anyhow!("refused {}: {e}", e.code()))?;
                         limits::check_manifest(&m, spec)?;
-                        Ok(m)
+                        let header = m.header().map_err(|e| anyhow!("refused {}: {e}", e.code()))?;
+                        Ok((m, header))
                     });
-                    let bound = state.slot.lock().unwrap().bound().cloned();
-                    match parsed {
+                    let mut slot = state.slot.lock().unwrap();
+                    match (Load::decide(slot.bound(), &want), parsed) {
                         // A bound instance answers for its own binding only.
-                        _ if Load::decide(bound.as_ref(), &want) == Load::Bound => {
+                        (Load::Bound, _) => {
+                            drop(slot);
                             respond(req, 409, &json!({"error": "instance_bound"}))
                         }
-                        Err(e) => respond(req, 422, &json!({"error": format!("{e:#}")})),
-                        Ok(m) if bound.is_none()
-                            && !limits::manifest_fits(&m, spec, limits::memory_limit(), cfg.sessions) =>
+                        (_, Err(e)) => {
+                            drop(slot);
+                            respond(req, 422, &json!({"error": format!("{e:#}")}))
+                        }
+                        (Load::Same, Ok(_)) => {
+                            drop(slot);
+                            let mut v = slot_json(&state);
+                            if let Some(r) = state.receive.lock().unwrap().as_ref() {
+                                v["missing"] = missing_json(r);
+                            }
+                            respond(req, 200, &v);
+                        }
+                        (Load::Fresh, Ok((m, _)))
+                            if !limits::manifest_fits(&m, spec, limits::memory_limit(), cfg.sessions) =>
                         {
+                            drop(slot);
                             // Every admitted artifact of the class needs at most its bound: a platform fault.
                             respond(req, 507, &json!({"error": "insufficient_memory",
                                 "limits": limits::report(cfg.sessions)}))
                         }
-                        Ok(manifest) => {
-                            let missing: Vec<String> = manifest
-                                .parts()
-                                .into_iter()
-                                .filter(|p| !blob_path(&cfg, &p.sha256).exists())
-                                .map(|p| p.sha256.clone())
-                                .collect();
-                            let mut slot = state.slot.lock().unwrap();
-                            match Load::decide(slot.bound(), &want) {
-                                Load::Same => {
+                        (Load::Fresh, Ok((m, header))) => {
+                            match Placement::create(&cfg.work.join("files").join(&package), &m) {
+                                Ok(placement) => {
+                                    *slot = Slot::Receiving { bound: want, since: Instant::now() };
+                                    let r = Receive { placement, header, graph: m.graph.clone() };
+                                    let missing = missing_json(&r);
+                                    *state.receive.lock().unwrap() = Some(r);
                                     drop(slot);
-                                    respond(req, 200, &slot_json(&state));
+                                    let mut v = slot_json(&state);
+                                    v["missing"] = missing;
+                                    respond(req, 201, &v);
                                 }
-                                Load::Bound => {
+                                Err(e) => {
                                     drop(slot);
-                                    respond(req, 409, &json!({"error": "instance_bound"}));
+                                    respond(req, 507, &json!({"error": format!("placement: {e:#}")}));
                                 }
-                                Load::Fresh if !missing.is_empty() => {
-                                    drop(slot);
-                                    respond(req, 409, &json!({"error": "missing_parts", "missing": missing}));
+                            }
+                        }
+                    }
+                }
+                (Put, p) if p.starts_with("/v2/files/") => {
+                    let target = p["/v2/files/".len()..].split_once('/').and_then(|(i, o)| {
+                        Some((i.parse::<usize>().ok()?, o.parse::<u64>().ok()?))
+                    });
+                    let receiving = matches!(&*state.slot.lock().unwrap(), Slot::Receiving { .. });
+                    let bound = state.slot.lock().unwrap().bound().is_some();
+                    let Some((index, offset)) = target else {
+                        respond(req, 400, &json!({"error": "chunk path"}));
+                        inflight.fetch_sub(1, SeqCst);
+                        return;
+                    };
+                    if !receiving {
+                        // Already loading or loaded: a late retry of a written chunk
+                        // has nothing to store; unbound: no prepare yet.
+                        let code = if bound { 200 } else { 409 };
+                        respond(req, code, &json!({"written": 0, "bound": bound, "error": (!bound).then_some("not_prepared")}));
+                    } else {
+                        let at = state.receive.lock().unwrap().as_ref().and_then(|r| r.placement.target(index, offset));
+                        match at {
+                            None => respond(req, 422, &json!({"error": "no such chunk"})),
+                            Some((path, want)) => {
+                                let t = Instant::now();
+                                match write_chunk(&path, offset, want, req.as_reader()) {
+                                    Ok(n) => {
+                                        if let Some(r) = state.receive.lock().unwrap().as_mut() {
+                                            r.placement.mark(index, offset);
+                                        }
+                                        respond(req, 201, &json!({"written": n, "ms": t.elapsed().as_secs_f64() * 1e3}))
+                                    }
+                                    Err(e) => respond(req, 422, &json!({"error": format!("{e:#}")})),
                                 }
-                                Load::Fresh => {
+                            }
+                        }
+                    }
+                }
+                (Post, "/v2/load") => {
+                    let want = match load_query(&query) {
+                        Ok(want) => want,
+                        Err(e) => {
+                            respond(req, 400, &json!({"error": e.code()}));
+                            inflight.fetch_sub(1, SeqCst);
+                            return;
+                        }
+                    };
+                    let spec = want.spec;
+                    let mut slot = state.slot.lock().unwrap();
+                    match (Load::decide(slot.bound(), &want), &*slot) {
+                        (Load::Bound, _) => {
+                            drop(slot);
+                            respond(req, 409, &json!({"error": "instance_bound"}));
+                        }
+                        (Load::Fresh, _) => {
+                            drop(slot);
+                            respond(req, 409, &json!({"error": "not_prepared"}));
+                        }
+                        (Load::Same, Slot::Receiving { .. }) => {
+                            let receive = state.receive.lock().unwrap().take();
+                            match receive {
+                                Some(r) if r.placement.complete() => {
                                     *slot = Slot::Loading { bound: want.clone(), since: Instant::now() };
-                                    *state.bound_parts.lock().unwrap() =
-                                        manifest.parts().into_iter().map(|p| p.sha256.clone()).collect();
                                     drop(slot);
                                     let (cfg2, state2) = (cfg.clone(), state.clone());
                                     std::thread::spawn(move || {
                                         let t = Instant::now();
-                                        let r = load(&cfg2, &package, spec, &manifest);
+                                        let out = load(&cfg2, spec, &r);
                                         let mut slot = state2.slot.lock().unwrap();
-                                        *slot = match r {
+                                        *slot = match out {
                                             Ok(model) => {
                                                 eprintln!("artifact loaded");
                                                 Slot::Ready { bound: want, model: Arc::new(model),
@@ -434,7 +455,21 @@ fn main() -> Result<()> {
                                     });
                                     respond(req, 202, &slot_json(&state));
                                 }
+                                Some(r) => {
+                                    let missing = missing_json(&r);
+                                    *state.receive.lock().unwrap() = Some(r);
+                                    drop(slot);
+                                    respond(req, 409, &json!({"error": "missing_chunks", "missing": missing}));
+                                }
+                                None => {
+                                    drop(slot);
+                                    respond(req, 409, &json!({"error": "not_prepared"}));
+                                }
                             }
+                        }
+                        (Load::Same, _) => {
+                            drop(slot);
+                            respond(req, 200, &slot_json(&state));
                         }
                     }
                 }

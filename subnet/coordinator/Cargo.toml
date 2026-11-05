@@ -42,11 +42,12 @@ slop-ninja-arena = { path = "../crates/arena", features = ["glue-spill", "unmeas
 # stack and do not build for wasm32; the coordinator uses only this seam.
 rtao-core = { git = "https://github.com/sam0x17/rtao", rev = "fa83052d37b39f002f7a4d3cc5c04f25503e1d11", default-features = false }
 slop-ninja-protocol = { path = "../crates/protocol" }
-# The admission API's byte-level helpers (request message, route parser, part
-# plan, codes) and its response shapes, shared with the miner client.
+# The admission API's byte-level helpers (request message, route parser,
+# codes) and its response shapes, shared with the miner client.
 slop-ninja-admission-wire = { path = "../crates/miner/wire" }
-# The A artifact spec: the bounds admission derives its object bound from, and
-# the header-only file-table checks and parts mapping of an uploaded object.
+# The A artifact spec: the bounds admission derives its object bound from, the
+# header outcome the upload Worker returns (its table rebuilt here) and the
+# scorer's files manifest v2.
 # The full check (graph pre-parse, role schemas) runs in the scorer
 # Container's admission load, never in a Worker that holds signing keys.
 # Its spec records also name the spec a cohort's scorer loads name (`spec=`
@@ -56,6 +57,10 @@ slop-ninja-artifact-check = { path = "../crates/artifact-check", default-feature
 # table (no onig, no call out): generation rejects a final document over the
 # scorer's limit and the seal refuses one (eval::v3::scorer_length_ok).
 slop-ninja-scorer-tokens = { path = "../crates/scorer-tokens" }
+# Admission v2's direct-upload layout: the derived object keys, the upload
+# URL policy and the signer Worker's fixed-size mint messages. Allocation-free
+# and `no_std`.
+slop-ninja-r2-presign = { path = "../crates/r2-presign" }
 # Generation v2: the plan field, the generator manifest, the measurement set
 # and the generation Worker's interface (requests, outcomes, bounds).
 slop-ninja-gen-core = { path = "../crates/gen-core" }

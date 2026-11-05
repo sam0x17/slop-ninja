@@ -4,7 +4,10 @@
 //! `slop_ninja_admission_wire::request_message`. Plain HTTP is accepted only
 //! for loopback hosts; everything else must be HTTPS with the system's trust
 //! roots and an explicit ring provider. Redirects are never followed, so the
-//! signed headers and the artifact bytes go only to the configured origin.
+//! signed headers go only to the configured origin. No request to the
+//! coordinator carries an artifact byte: the largest body is one
+//! `SubmissionUpload` record, and the header and files go straight to R2
+//! under the presigned URLs these requests return ([`crate::direct`]).
 //! Response bodies are read up to the contract's
 //! [`response_limit`](slop_ninja_admission_wire::response_limit).
 
@@ -16,8 +19,7 @@ use bytes::Bytes;
 use futures::future::BoxFuture;
 use reqwest::{Method, StatusCode};
 use slop_ninja_admission_wire::json::{
-    CohortInfo, ErrorBody, HotkeyView, PartAck, SCHEMA_COHORT, SCHEMA_HOTKEY, SCHEMA_SESSION,
-    Session,
+    CohortInfo, ErrorBody, HotkeyView, SCHEMA_COHORT, SCHEMA_HOTKEY, SCHEMA_SESSION, Session,
 };
 use slop_ninja_admission_wire::{
     ErrorCode, RequestScope, UPLOAD_MEDIA_TYPE, empty_sha256, header, path, request_message,
@@ -96,8 +98,8 @@ pub fn base_url(text: &str) -> Result<Url> {
 pub const USER_AGENT: &str = concat!("slop_ninja_miner/", env!("CARGO_PKG_VERSION"));
 
 /// The HTTP client: rustls with ring and the system's trust roots, no
-/// redirects. `timeout` bounds every request that carries no part; a part's
-/// request gets its own bound from its size (see [`Transfer`]).
+/// redirects. `timeout` bounds every request without an object body; a
+/// presigned PUT gets its own bound from its size (see [`Transfer`]).
 pub fn http_client(timeout: Duration) -> Result<reqwest::Client> {
     let mut roots = rustls::RootCertStore::empty();
     let native = rustls_native_certs::load_native_certs();
@@ -121,15 +123,18 @@ pub fn http_client(timeout: Duration) -> Result<reqwest::Client> {
 /// How long a request may take.
 #[derive(Clone, Copy, Debug)]
 pub struct Transfer {
-    /// Bound on a request without a part body.
+    /// Bound on a request without an object body.
     pub timeout: Duration,
-    /// Slowest sustained upload rate a part may take, in bytes per second. A
-    /// part's request is bounded by `timeout + len / min_upload_rate`.
+    /// Slowest sustained upload rate this client waits for on a presigned
+    /// PUT, in bytes per second: a local bound on a stalled connection
+    /// (`timeout + len / min_upload_rate`), never a protocol condition. R2
+    /// checks a URL's expiry when the PUT starts, so a transfer in flight
+    /// completes at any rate.
     pub min_upload_rate: u64,
 }
 
 impl Transfer {
-    pub fn part_timeout(&self, len: u64) -> Duration {
+    pub fn put_timeout(&self, len: u64) -> Duration {
         let secs = len.div_ceil(self.min_upload_rate.max(1));
         self.timeout.saturating_add(Duration::from_secs(secs))
     }
@@ -199,8 +204,8 @@ impl std::fmt::Display for ApiError {
                 if let Some(session) = &detail.session {
                     write!(f, " [session {session}]")?;
                 }
-                if let Some(attempt) = detail.attempt {
-                    write!(f, " [current attempt {attempt}]")?;
+                if let Some(missing) = &detail.missing {
+                    write!(f, " [{} objects missing]", missing.len())?;
                 }
                 if let Some(cohort) = detail.admitting {
                     write!(f, " [admitting cohort {cohort}]")?;
@@ -218,7 +223,7 @@ impl std::fmt::Display for ApiError {
 
 impl std::error::Error for ApiError {}
 
-/// Reads `GET /admission/v1/cohort` (unsigned, never from a cache).
+/// Reads `GET /admission/v2/cohort` (unsigned, never from a cache).
 pub async fn cohort_info(http: &reqwest::Client, base: &Url) -> Result<CohortInfo, ApiError> {
     let url = join(base, path::COHORT)?;
     let response = http
@@ -227,7 +232,7 @@ pub async fn cohort_info(http: &reqwest::Client, base: &Url) -> Result<CohortInf
         .send()
         .await
         .map_err(ApiError::Transport)?;
-    let info: CohortInfo = decode(response, response_limit(None)).await?;
+    let info: CohortInfo = decode(response, response_limit()).await?;
     if info.schema != SCHEMA_COHORT {
         return Err(ApiError::Protocol(format!(
             "cohort schema {:?}",
@@ -331,13 +336,13 @@ pub struct AdmissionClient {
     /// The coordinator's latest finalized block seen in a response.
     cursor: u64,
     validity: u64,
-    /// The admitting cohort's `max_parts`, which sets the response limit.
-    max_parts: Option<u32>,
     transfer: Transfer,
+    /// How presigned URLs are checked and where their PUTs go.
+    put_policy: crate::direct::PutPolicy,
     /// The block of this wallet's confirmed commitment for the opening being
-    /// uploaded, sent with session creation and reopening
-    /// (`x-sn-commitment-block`) so a coordinator that has not logged it yet
-    /// waits for it rather than answering with an older commitment.
+    /// uploaded, sent with session creation (`x-sn-commitment-block`) so a
+    /// coordinator that has not logged it yet waits for it rather than
+    /// answering with an older commitment.
     commitment_block: Option<u64>,
 }
 
@@ -368,8 +373,8 @@ impl AdmissionClient {
             signer,
             cursor: info.finalized_block,
             validity: info.request_validity_blocks,
-            max_parts: info.admitting.as_ref().map(|a| a.max_parts),
             transfer: Transfer::default(),
+            put_policy: crate::direct::PutPolicy::default(),
             commitment_block: None,
         };
         Ok((client, info))
@@ -380,8 +385,28 @@ impl AdmissionClient {
         self
     }
 
-    /// Sets the confirmed commitment block that session creation and
-    /// reopening send (`None`: send none).
+    /// Sets how presigned URLs are checked (the trust file's pinned upload
+    /// host) and where their PUTs go.
+    pub fn with_put_policy(mut self, policy: crate::direct::PutPolicy) -> Self {
+        self.put_policy = policy;
+        self
+    }
+
+    pub fn transfer(&self) -> Transfer {
+        self.transfer
+    }
+
+    pub fn put_policy(&self) -> &crate::direct::PutPolicy {
+        &self.put_policy
+    }
+
+    /// The HTTP client (no redirects), shared by the presigned PUTs.
+    pub fn http(&self) -> &reqwest::Client {
+        &self.http
+    }
+
+    /// Sets the confirmed commitment block that session creation sends
+    /// (`None`: send none).
     pub fn set_commitment_block(&mut self, block: Option<u64>) {
         self.commitment_block = block;
     }
@@ -404,9 +429,6 @@ impl AdmissionClient {
         let info = cohort_info(&self.http, &self.base).await?;
         self.observe(info.finalized_block);
         self.validity = info.request_validity_blocks;
-        if let Some(admitting) = &info.admitting {
-            self.max_parts = Some(admitting.max_parts);
-        }
         Ok(info)
     }
 
@@ -415,13 +437,13 @@ impl AdmissionClient {
     }
 
     /// Half the validity window past the latest cursor, so the coordinator's
-    /// cursor can advance during a long part without expiring the request.
+    /// cursor can advance between requests without expiring the request.
     fn valid_until(&self) -> u64 {
         self.cursor.saturating_add(self.validity / 2)
     }
 
     fn limit(&self) -> usize {
-        response_limit(self.max_parts)
+        response_limit()
     }
 
     async fn send(
@@ -430,7 +452,7 @@ impl AdmissionClient {
         route: &str,
         body: Option<(Bytes, &'static str)>,
         content_sha256: Digest,
-        commitment_block: Option<u64>,
+        hints: &[(&'static str, String)],
     ) -> Result<reqwest::Response, ApiError> {
         let hotkey = self.signer.hotkey();
         let valid_until = self.valid_until();
@@ -454,12 +476,11 @@ impl AdmissionClient {
             .header(header::VALID_UNTIL, valid_until.to_string())
             .header(header::CONTENT_SHA256, content_sha256.hex())
             .header(header::SIGNATURE, hex::encode(signature));
-        if let Some(block) = commitment_block {
-            request = request.header(header::COMMITMENT_BLOCK, block.to_string());
+        for (name, value) in hints {
+            request = request.header(*name, value);
         }
         if let Some((bytes, media_type)) = body {
             request = request
-                .timeout(self.transfer.part_timeout(bytes.len() as u64))
                 .header(reqwest::header::CONTENT_TYPE, media_type)
                 .body(bytes);
         }
@@ -476,22 +497,24 @@ impl AdmissionClient {
         body: Option<(Bytes, &'static str)>,
         content_sha256: Digest,
     ) -> Result<(StatusCode, T), ApiError> {
-        self.signed_with(method, route, body, content_sha256, None).await
+        self.signed_with(method, route, body, content_sha256, &[])
+            .await
     }
 
-    /// [`Self::signed`], with the confirmed commitment block when given.
+    /// [`Self::signed`], with unsigned hint headers (the confirmed
+    /// commitment block, a declared upload rate).
     async fn signed_with<T: serde::de::DeserializeOwned>(
         &mut self,
         method: Method,
         route: &str,
         body: Option<(Bytes, &'static str)>,
         content_sha256: Digest,
-        commitment_block: Option<u64>,
+        hints: &[(&'static str, String)],
     ) -> Result<(StatusCode, T), ApiError> {
         let mut renewed = false;
         loop {
             let response = self
-                .send(method.clone(), route, body.clone(), content_sha256, commitment_block)
+                .send(method.clone(), route, body.clone(), content_sha256, hints)
                 .await?;
             let status = response.status();
             match decode::<T>(response, self.limit()).await {
@@ -523,8 +546,8 @@ impl AdmissionClient {
     }
 
     /// Opens or returns the session for `upload`. `true` when it was created.
-    /// An existing session is returned in whatever state it is, aborted
-    /// included; [`Self::reopen`] restarts an aborted one.
+    /// An existing session is returned in whatever state it is; while its
+    /// header is not recorded, the answer carries a fresh header URL.
     pub async fn create_session(
         &mut self,
         upload: &SubmissionUpload,
@@ -532,14 +555,20 @@ impl AdmissionClient {
         let bytes = upload
             .to_bytes()
             .map_err(|error| ApiError::Protocol(format!("envelope: {error:?}")))?;
+        // The signed body digest of one fixed-size envelope record.
         let digest = object_sha256(&bytes);
+        let hints: Vec<(&'static str, String)> = self
+            .commitment_block
+            .map(|block| (header::COMMITMENT_BLOCK, block.to_string()))
+            .into_iter()
+            .collect();
         let (status, session) = self
             .signed_with::<Session>(
                 Method::POST,
                 path::SESSIONS,
                 Some((Bytes::from(bytes), UPLOAD_MEDIA_TYPE)),
                 digest,
-                self.commitment_block,
+                &hints,
             )
             .await?;
         let session = self.checked(session)?;
@@ -561,30 +590,17 @@ impl AdmissionClient {
         self.checked(value)
     }
 
-    /// Uploads one part. `bytes` is shared, not copied, across retries.
-    pub async fn put_part(
-        &mut self,
-        session: &str,
-        part: u32,
-        bytes: Bytes,
-    ) -> Result<PartAck, ApiError> {
-        let digest = object_sha256(&bytes);
-        let (_, ack) = self
-            .signed::<PartAck>(
-                Method::PUT,
-                &path::part(session, part),
-                Some((bytes, "application/octet-stream")),
-                digest,
-            )
+    /// Fresh presigned URLs for every object the coordinator has not
+    /// recorded present (settling the header first).
+    pub async fn urls(&mut self, session: &str) -> Result<Session, ApiError> {
+        let (_, value) = self
+            .signed::<Session>(Method::POST, &path::urls(session), None, empty_sha256())
             .await?;
-        if ack.part != part || ack.sha256 != digest.hex() {
-            return Err(ApiError::Protocol(format!(
-                "part {part} acknowledged as another part"
-            )));
-        }
-        Ok(ack)
+        self.checked(value)
     }
 
+    /// Asks the coordinator to record every object R2 holds as committed
+    /// and, when all are present, to queue the admission run.
     pub async fn complete(&mut self, session: &str) -> Result<Session, ApiError> {
         let (_, value) = self
             .signed::<Session>(Method::POST, &path::complete(session), None, empty_sha256())
@@ -592,31 +608,10 @@ impl AdmissionClient {
         self.checked(value)
     }
 
-    /// Aborts attempt `attempt` of the session. A replay of this request
-    /// after the session reopened is refused (`stale_attempt`).
-    pub async fn abort(&mut self, session: &str, attempt: u32) -> Result<Session, ApiError> {
+    /// Fresh URLs for recorded objects that went missing (`repair_needed`).
+    pub async fn repair(&mut self, session: &str) -> Result<Session, ApiError> {
         let (_, value) = self
-            .signed::<Session>(
-                Method::DELETE,
-                &path::attempt(session, attempt),
-                None,
-                empty_sha256(),
-            )
-            .await?;
-        self.checked(value)
-    }
-
-    /// Reopens an aborted session as attempt `attempt` (its current attempt
-    /// plus one), empty.
-    pub async fn reopen(&mut self, session: &str, attempt: u32) -> Result<Session, ApiError> {
-        let (_, value) = self
-            .signed_with::<Session>(
-                Method::POST,
-                &path::attempt(session, attempt),
-                None,
-                empty_sha256(),
-                self.commitment_block,
-            )
+            .signed::<Session>(Method::POST, &path::repair(session), None, empty_sha256())
             .await?;
         self.checked(value)
     }
@@ -651,8 +646,8 @@ impl AdmissionClient {
 pub fn check_session_matches(session: &Session, upload: &SubmissionUpload) -> Result<()> {
     if session.cohort != upload.opening.cohort
         || session.commitment != upload.commitment.hex()
-        || session.artifact_sha256 != upload.artifact_sha256.hex()
-        || session.artifact_len != upload.artifact_len
+        || session.header_sha256 != upload.header_sha256.hex()
+        || session.header_len != upload.header_len
         || session.hotkey != ss58(&upload.opening.hotkey)
     {
         bail!("the coordinator's session does not describe this upload");
@@ -665,21 +660,21 @@ mod tests {
     use super::*;
 
     #[test]
-    fn part_timeouts_grow_with_the_part() {
+    fn put_timeouts_grow_with_the_object() {
         let transfer = Transfer {
             timeout: Duration::from_secs(300),
             min_upload_rate: 32 * 1024,
         };
-        assert_eq!(transfer.part_timeout(0), Duration::from_secs(300));
-        // A 64 MiB part at the floor rate gets 2,048 s on top of the base.
+        assert_eq!(transfer.put_timeout(0), Duration::from_secs(300));
+        // A 64 MiB file at the floor rate gets 2,048 s on top of the base.
         assert_eq!(
-            transfer.part_timeout(64 << 20),
+            transfer.put_timeout(64 << 20),
             Duration::from_secs(300 + 2_048)
         );
         let zero = Transfer {
             min_upload_rate: 0,
             ..transfer
         };
-        assert_eq!(zero.part_timeout(10), Duration::from_secs(310));
+        assert_eq!(zero.put_timeout(10), Duration::from_secs(310));
     }
 }

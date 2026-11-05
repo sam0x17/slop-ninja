@@ -1,5 +1,6 @@
-//! Wire helpers for the admission API contract `slop_ninja.admission/v1`
-//! (`docs/testnet/admission-api.md`).
+//! Wire helpers for the admission API contract `slop_ninja.admission/v2`
+//! (`docs/testnet/admission-api.md`): sessions on the key-free upload
+//! Worker, and every upload byte sent straight to R2 under presigned URLs.
 //!
 //! Shared by the native miner client, the key-free upload Worker and the
 //! Workers coordinator.
@@ -11,7 +12,6 @@
 //! - [`Route::parse`]: the zero-copy route parser for a method and path;
 //! - the `path::write_*` functions, which write a route into a
 //!   [`core::fmt::Write`] sink;
-//! - [`PartPlan`], including [`PartPlan::missing`], an iterator;
 //! - [`ErrorCode`] and [`SessionState`]: the stable codes and states;
 //! - [`parse_hex32`], [`parse_signature`] and [`parse_valid_until`]: borrowed
 //!   parsers for the header values;
@@ -25,8 +25,8 @@
 //!   responses and errors, and the authorization pointer;
 //! - the [`internal`] module (feature `json`): the internal interface between
 //!   the key-free upload Worker and the eval Worker (the forwarded request,
-//!   the part target, the reply, the framing request, the internal origins
-//!   and the interface token check);
+//!   the reply, the header-check request, the internal origins and the
+//!   interface token check);
 //! - the [`receipts`] module (feature `json`): the private receipts-bucket
 //!   contract the coordinator and the publisher share (pointer checks and
 //!   bounds, the receipt-retirement marker).
@@ -39,11 +39,11 @@ use slop_ninja_protocol::submission::SubmissionUpload;
 use slop_ninja_protocol::{AccountId, ChainBinding, Digest, Record};
 
 /// The contract identifier the coordinator reports.
-pub const CONTRACT: &str = "slop_ninja.admission/v1";
+pub const CONTRACT: &str = "slop_ninja.admission/v2";
 /// Domain of the signed request message.
 pub const REQUEST_DOMAIN: &str = "slop_ninja.admission/request/v1";
 /// Media type of the session-creation body: canonical `SubmissionUpload` bytes.
-pub const UPLOAD_MEDIA_TYPE: &str = "application/vnd.slop-ninja.submission-upload.v1";
+pub const UPLOAD_MEDIA_TYPE: &str = "application/vnd.slop-ninja.submission-upload.v2";
 /// The first `selection` rule: earliest commitment position, one per hotkey.
 pub const SELECTION_EARLIEST_COMMITMENT_V1: &str = "earliest_commitment/v1";
 
@@ -64,29 +64,29 @@ pub mod header {
 pub mod path {
     use core::fmt::{self, Write};
 
-    pub const COHORT: &str = "/admission/v1/cohort";
-    pub const SESSIONS: &str = "/admission/v1/sessions";
+    pub const COHORT: &str = "/admission/v2/cohort";
+    pub const SESSIONS: &str = "/admission/v2/sessions";
 
-    /// `/admission/v1/sessions/{session}`.
+    /// `/admission/v2/sessions/{session}`.
     pub fn write_session(out: &mut impl Write, session: &str) -> fmt::Result {
         write!(out, "{SESSIONS}/{session}")
     }
-    /// `/admission/v1/sessions/{session}/parts/{part}`.
-    pub fn write_part(out: &mut impl Write, session: &str, part: u32) -> fmt::Result {
-        write!(out, "{SESSIONS}/{session}/parts/{part}")
+    /// `/admission/v2/sessions/{session}/urls`: fresh presigned URLs.
+    pub fn write_urls(out: &mut impl Write, session: &str) -> fmt::Result {
+        write!(out, "{SESSIONS}/{session}/urls")
     }
-    /// `/admission/v1/sessions/{session}/complete`.
+    /// `/admission/v2/sessions/{session}/complete`.
     pub fn write_complete(out: &mut impl Write, session: &str) -> fmt::Result {
         write!(out, "{SESSIONS}/{session}/complete")
     }
-    /// `/admission/v1/sessions/{session}/attempts/{attempt}`: `DELETE` aborts
-    /// that attempt, `POST` reopens an aborted session as that attempt.
-    pub fn write_attempt(out: &mut impl Write, session: &str, attempt: u32) -> fmt::Result {
-        write!(out, "{SESSIONS}/{session}/attempts/{attempt}")
+    /// `/admission/v2/sessions/{session}/repair`: a URL for a recorded object
+    /// that went missing, in any phase while the object is still needed.
+    pub fn write_repair(out: &mut impl Write, session: &str) -> fmt::Result {
+        write!(out, "{SESSIONS}/{session}/repair")
     }
-    /// `/admission/v1/cohorts/{cohort}/hotkeys/{hotkey}`.
+    /// `/admission/v2/cohorts/{cohort}/hotkeys/{hotkey}`.
     pub fn write_hotkey(out: &mut impl Write, cohort: u64, hotkey_ss58: &str) -> fmt::Result {
-        write!(out, "/admission/v1/cohorts/{cohort}/hotkeys/{hotkey_ss58}")
+        write!(out, "/admission/v2/cohorts/{cohort}/hotkeys/{hotkey_ss58}")
     }
 
     fn owned(write: impl FnOnce(&mut String) -> fmt::Result) -> String {
@@ -99,17 +99,17 @@ pub mod path {
     pub fn session(session: &str) -> String {
         owned(|out| write_session(out, session))
     }
-    /// Allocating form of [`write_part`].
-    pub fn part(session: &str, part: u32) -> String {
-        owned(|out| write_part(out, session, part))
+    /// Allocating form of [`write_urls`].
+    pub fn urls(session: &str) -> String {
+        owned(|out| write_urls(out, session))
     }
     /// Allocating form of [`write_complete`].
     pub fn complete(session: &str) -> String {
         owned(|out| write_complete(out, session))
     }
-    /// Allocating form of [`write_attempt`].
-    pub fn attempt(session: &str, attempt: u32) -> String {
-        owned(|out| write_attempt(out, session, attempt))
+    /// Allocating form of [`write_repair`].
+    pub fn repair(session: &str) -> String {
+        owned(|out| write_repair(out, session))
     }
     /// Allocating form of [`write_hotkey`].
     pub fn hotkey(cohort: u64, hotkey_ss58: &str) -> String {
@@ -122,21 +122,19 @@ pub mod path {
 /// decimals; the hotkey segment is returned as sent for the caller to parse.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Route<'a> {
-    /// `GET /admission/v1/cohort` (unsigned).
+    /// `GET /admission/v2/cohort` (unsigned).
     ReadCohort,
-    /// `POST /admission/v1/sessions`.
+    /// `POST /admission/v2/sessions`.
     CreateSession,
-    /// `GET /admission/v1/sessions/{session}`.
+    /// `GET /admission/v2/sessions/{session}`.
     ReadSession { session: &'a str },
-    /// `PUT /admission/v1/sessions/{session}/parts/{part}`.
-    PutPart { session: &'a str, part: u32 },
-    /// `POST /admission/v1/sessions/{session}/complete`.
+    /// `POST /admission/v2/sessions/{session}/urls`.
+    Urls { session: &'a str },
+    /// `POST /admission/v2/sessions/{session}/complete`.
     Complete { session: &'a str },
-    /// `DELETE /admission/v1/sessions/{session}/attempts/{attempt}`.
-    Abort { session: &'a str, attempt: u32 },
-    /// `POST /admission/v1/sessions/{session}/attempts/{attempt}`.
-    Reopen { session: &'a str, attempt: u32 },
-    /// `GET /admission/v1/cohorts/{cohort}/hotkeys/{hotkey}`.
+    /// `POST /admission/v2/sessions/{session}/repair`.
+    Repair { session: &'a str },
+    /// `GET /admission/v2/cohorts/{cohort}/hotkeys/{hotkey}`.
     ReadHotkey { cohort: u64, hotkey: &'a str },
 }
 
@@ -144,31 +142,19 @@ impl<'a> Route<'a> {
     /// The route for `method` and `path`, or `None` when the contract has no
     /// such request.
     pub fn parse(method: &str, path: &'a str) -> Option<Self> {
-        let rest = path.strip_prefix("/admission/v1/")?;
+        let rest = path.strip_prefix("/admission/v2/")?;
         let mut segments = rest.split('/');
         let route = match (method, segments.next()?) {
             ("GET", "cohort") => Self::ReadCohort,
             (_, "sessions") => match (method, segments.next(), segments.next()) {
                 ("POST", None, _) => Self::CreateSession,
-                (_, Some(session), next) if is_session_id(session) => {
-                    match (method, next, segments.next()) {
-                        ("GET", None, _) => Self::ReadSession { session },
-                        ("POST", Some("complete"), None) => Self::Complete { session },
-                        ("PUT", Some("parts"), Some(n)) => Self::PutPart {
-                            session,
-                            part: u32::try_from(parse_decimal(n)?).ok()?,
-                        },
-                        (_, Some("attempts"), Some(n)) => {
-                            let attempt = u32::try_from(parse_decimal(n)?).ok()?;
-                            match method {
-                                "DELETE" => Self::Abort { session, attempt },
-                                "POST" => Self::Reopen { session, attempt },
-                                _ => return None,
-                            }
-                        }
-                        _ => return None,
-                    }
-                }
+                (_, Some(session), next) if is_session_id(session) => match (method, next) {
+                    ("GET", None) => Self::ReadSession { session },
+                    ("POST", Some("urls")) => Self::Urls { session },
+                    ("POST", Some("complete")) => Self::Complete { session },
+                    ("POST", Some("repair")) => Self::Repair { session },
+                    _ => return None,
+                },
                 _ => return None,
             },
             ("GET", "cohorts") => {
@@ -283,110 +269,17 @@ pub fn session_id(upload: &SubmissionUpload) -> slop_ninja_protocol::Result<Dige
     upload.digest()
 }
 
-/// Why a part plan cannot be made.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum PlanError {
-    EmptyObject,
-    ZeroPartSize,
-    /// The object needs more parts than the coordinator allows.
-    TooManyParts {
-        needed: u64,
-        max_parts: u32,
-    },
-}
-
-impl core::fmt::Display for PlanError {
-    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        match self {
-            Self::EmptyObject => f.write_str("the object is empty"),
-            Self::ZeroPartSize => f.write_str("the part size is zero"),
-            Self::TooManyParts { needed, max_parts } => {
-                write!(
-                    f,
-                    "the object needs {needed} parts; at most {max_parts} are allowed"
-                )
-            }
-        }
-    }
-}
-
-impl std::error::Error for PlanError {}
-
-/// Part arithmetic: part `n` (1-based) covers bytes
-/// `[(n-1)·part_size, min(n·part_size, len))`, so every part but the last has
-/// exactly `part_size` bytes.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct PartPlan {
-    len: u64,
-    part_size: u64,
-    count: u32,
-}
-
-impl PartPlan {
-    pub fn new(len: u64, part_size: u64, max_parts: u32) -> Result<Self, PlanError> {
-        if len == 0 {
-            return Err(PlanError::EmptyObject);
-        }
-        if part_size == 0 {
-            return Err(PlanError::ZeroPartSize);
-        }
-        let needed = len.div_ceil(part_size);
-        let count = u32::try_from(needed)
-            .ok()
-            .filter(|&count| count <= max_parts)
-            .ok_or(PlanError::TooManyParts { needed, max_parts })?;
-        Ok(Self {
-            len,
-            part_size,
-            count,
-        })
-    }
-
-    pub fn len(&self) -> u64 {
-        self.len
-    }
-    /// Always false: a plan covers a nonempty object.
-    pub fn is_empty(&self) -> bool {
-        false
-    }
-    pub fn part_size(&self) -> u64 {
-        self.part_size
-    }
-    pub fn count(&self) -> u32 {
-        self.count
-    }
-
-    /// Byte offset and exact length of part `n`, or `None` outside `1..=count`.
-    pub fn range(&self, part: u32) -> Option<(u64, u64)> {
-        if part == 0 || part > self.count {
-            return None;
-        }
-        let offset = u64::from(part - 1) * self.part_size;
-        Some((offset, (self.len - offset).min(self.part_size)))
-    }
-
-    /// Part numbers in `1..=count` for which `recorded` is false, in order,
-    /// without allocating.
-    pub fn missing<F: Fn(u32) -> bool>(&self, recorded: F) -> impl Iterator<Item = u32> {
-        (1..=self.count).filter(move |part| !recorded(*part))
-    }
-}
-
-/// Base allowance of a response body: every field other than the part list.
+/// Base allowance of a response body. The largest v2 response, a session
+/// with one fresh URL per object (one header and the spec's file table, at
+/// most `slop_ninja_r2_presign::presign::MAX_URL_LEN` each) and its file
+/// list, fits well inside it (tested in the coordinator).
 pub const RESPONSE_BASE_BYTES: usize = 64 * 1024;
-/// Allowance per part record. The largest compact record,
-/// `{"part":4294967295,"len":18446744073709551615,"sha256":"<64 hex>"}`, has
-/// 122 bytes; the allowance leaves room for formatting.
-pub const RESPONSE_PART_BYTES: usize = 256;
 
-/// The largest response body a client accepts: [`RESPONSE_BASE_BYTES`] plus
-/// [`RESPONSE_PART_BYTES`] for each of the cohort's `max_parts` parts, the
-/// most part records (or missing part numbers) any response lists. Before the
-/// cohort parameters are known, `max_parts` is `None` and only the base
-/// applies.
-pub fn response_limit(max_parts: Option<u32>) -> usize {
-    let parts = max_parts.map_or(0, |n| n as usize);
-    RESPONSE_BASE_BYTES.saturating_add(parts.saturating_mul(RESPONSE_PART_BYTES))
+/// The largest response body a client accepts: [`RESPONSE_BASE_BYTES`]. No
+/// v2 response lists a variable number of parts; the URL list is bounded by
+/// the spec's file table.
+pub const fn response_limit() -> usize {
+    RESPONSE_BASE_BYTES
 }
 
 macro_rules! codes {
@@ -415,7 +308,7 @@ macro_rules! codes {
 }
 
 codes! {
-    /// Error and refusal codes of `slop_ninja.admission/v1`.
+    /// Error and refusal codes of `slop_ninja.admission/v2`.
     ErrorCode {
         BadRequest = "bad_request",
         UnsupportedMediaType = "unsupported_media_type",
@@ -436,14 +329,12 @@ codes! {
         CommitmentUnresolvable = "commitment_unresolvable",
         CommitmentBeforeOpen = "commitment_before_open",
         CommitmentMismatch = "commitment_mismatch",
-        ObjectTooLarge = "object_too_large",
+        HeaderTooLarge = "header_too_large",
         SecondArtifact = "second_artifact",
-        PartOutOfRange = "part_out_of_range",
-        PartLengthMismatch = "part_length_mismatch",
-        PartDigestMismatch = "part_digest_mismatch",
         SessionNotUploading = "session_not_uploading",
-        StaleAttempt = "stale_attempt",
-        PartsMissing = "parts_missing",
+        HeaderMissing = "header_missing",
+        ObjectsMissing = "objects_missing",
+        NotNeeded = "not_needed",
         RateLimited = "rate_limited",
         Paused = "paused",
         Unavailable = "unavailable",
@@ -455,6 +346,7 @@ codes! {
         CheckFailed = "check_failed",
         CommitmentOverwritten = "commitment_overwritten",
         IncompleteAtCutoff = "incomplete_at_cutoff",
+        ObjectReplaced = "object_replaced",
     }
 }
 
@@ -468,13 +360,12 @@ impl ErrorCode {
             BadSignature | RequestExpired => 401,
             Forbidden => 403,
             NotFound => 404,
-            NotAdmitting | AfterCutoff | CommitmentNotFound | SecondArtifact
-            | SessionNotUploading | StaleAttempt | PartsMissing => 409,
-            ObjectTooLarge => 413,
+            NotAdmitting | AfterCutoff | CommitmentNotFound | SecondArtifact | SessionNotUploading
+            | HeaderMissing | ObjectsMissing | NotNeeded => 409,
+            HeaderTooLarge => 413,
             UnsupportedMediaType => 415,
             WrongChain | WrongCohort | HotkeyMismatch | NotRegistered | RegistrationMismatch
-            | CommitmentUnresolvable | CommitmentBeforeOpen | CommitmentMismatch | PartOutOfRange | PartLengthMismatch
-            | PartDigestMismatch => 422,
+            | CommitmentUnresolvable | CommitmentBeforeOpen | CommitmentMismatch => 422,
             RateLimited => 429,
             Internal => 500,
             Paused | Unavailable => 503,
@@ -484,7 +375,8 @@ impl ErrorCode {
             | ContentMismatch
             | CheckFailed
             | CommitmentOverwritten
-            | IncompleteAtCutoff => return None,
+            | IncompleteAtCutoff
+            | ObjectReplaced => return None,
         })
     }
 
@@ -496,8 +388,8 @@ impl ErrorCode {
             RequestExpired
                 | NotAdmitting
                 | CommitmentNotFound
-                | PartDigestMismatch
-                | PartsMissing
+                | HeaderMissing
+                | ObjectsMissing
                 | RateLimited
                 | Paused
                 | Unavailable
@@ -516,7 +408,6 @@ codes! {
         Admitted = "admitted",
         Overflow = "overflow",
         Superseded = "superseded",
-        Aborted = "aborted",
     }
 }
 
@@ -529,7 +420,7 @@ impl SessionState {
     pub fn ended(self) -> bool {
         matches!(
             self,
-            Self::Refused | Self::Admitted | Self::Overflow | Self::Superseded | Self::Aborted
+            Self::Refused | Self::Admitted | Self::Overflow | Self::Superseded
         )
     }
 }

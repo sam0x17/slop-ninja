@@ -22,8 +22,8 @@ closes.
 | Release public key | published on the [landing page](README.md#release-key) |
 | Public repository | [sam0x17/slop-ninja](https://github.com/sam0x17/slop-ninja) |
 | Signed release binaries (Linux x86_64) | not yet live: the miner client and the artifact checker, built from the public repository, signed and smoke-tested when the release is published; a validator release follows later |
-| Coordinator unsigned cohort read (`GET /admission/v1/cohort`), used by `check`, `commit`, `status` and `next-cohort`, served by the upload Worker at `https://testnet-admission.slop.ninja` | live |
-| Coordinator signed admission routes, used by `upload`, `abort` and the hotkey view of `status` | not yet open to outside hotkeys: until they are, an outside hotkey's signed request is answered `not_found` (exit 1) |
+| Coordinator unsigned cohort read (`GET /admission/v2/cohort`), used by `check`, `commit`, `status` and `next-cohort`, served by the upload Worker at `https://testnet-admission.slop.ninja` | live |
+| Coordinator signed admission routes, used by `upload`, `repair` and the hotkey view of `status`; the artifact goes straight to R2 under presigned URLs they return | not yet open to outside hotkeys: until they are, an outside hotkey's signed request is answered `not_found` (exit 1) |
 | Public status host (`--public`), with the published packages, leaderboard and artifacts | not yet live; until it is, `status` and `next-cohort` show the calendar from the coordinator's unsigned cohort read |
 | The coordinator's admission origin pinned in the release trust file | pinned: `https://testnet-admission.slop.ninja` |
 | Validators committing the launch burn row ([Rewards](#13-rewards)) | live since November 3, 2026: both Slop Ninja validators commit and reveal it on subnet 601 each tempo |
@@ -190,7 +190,7 @@ names, which is the spec the hidden scorer admits your artifact by. The checker
 also has `check-dir DIR` and `check-object FILE`
 (the admission checks on a directory or a packed object), `graph FILE` (the
 structure digest and parameter count of one graph) and `spec` (the whole spec
-as JSON). Its `pack DIR OUT` and `parts DIR OUT` are operator tools: to pack
+as JSON). Its `pack DIR OUT` and `files DIR OUT` are operator tools: to pack
 an artifact, use `slop_ninja_miner pack`, which refuses an existing output and
 writes the object with mode 0600.
 
@@ -382,12 +382,18 @@ slop_ninja_miner check ./my-artifact.bin
 ```
 
 `pack` writes the artifact object with mode 0600 and refuses an output path
-that exists. Keep the object and the model files private until the cohort
-closes: anyone who has them before then can enter the same model.
+that exists. It hashes each file exactly once, while it writes it: those
+digests go into the object's header, your commitment binds them, and R2
+checks each uploaded file against them. Nothing hashes your model again.
+Keep the object and the model files private until the cohort's scoring
+starts: anyone who has them before then can enter the same model. Do not
+change the object after you commit; a changed file is refused at upload
+(`BadDigest`).
 
-`check` runs the spec's admission checks, the same streaming checks the
-coordinator runs at upload. Every `slop_ninja_miner` command uses the same
-exit statuses:
+`check` runs the spec's admission checks on the object in place, the same
+checks the scorer runs on the files at admission. It reads the object's header
+and takes every digest from it, hashing no file. Every `slop_ninja_miner`
+command uses the same exit statuses:
 
 | Exit | Meaning |
 | --- | --- |
@@ -414,7 +420,8 @@ admitting`.
 spec the build defines (spec v3). A note `artifact_spec_mismatch` means the
 cohort checks a spec your build does not define: update the client.
 
-The JSON files are published with the artifact after its cohort closes. If one
+The JSON files are published with the artifact when its cohort's scoring
+starts. If one
 holds a string or key that reads as an absolute local path (one that starts
 with `/`, `~/` or a Windows drive), carries one (a home directory or a file
 URL in text) or names a path under a `data/` tree, it would publish your
@@ -473,14 +480,15 @@ export SLOP_NINJA_PUBLIC=<public status host>         # not yet live; leave unse
 export SLOP_NINJA_WALLET=my-wallet SLOP_NINJA_HOTKEY=my-miner
 ```
 
-An upload sends your opening, with its secret nonce, and your whole artifact
-before the cohort closes, so the client sends signed requests only to an
-authenticated coordinator origin. The release trust file lists one origin in
-`admission_origins`: `https://testnet-admission.slop.ninja`, the coordinator's
-upload Worker. The client uses only that origin:
+An upload sends your opening, with its secret nonce, in signed requests,
+and the coordinator answers with presigned URLs for your artifact's objects,
+so the client sends signed requests only to an authenticated coordinator
+origin. The release trust file lists one origin in `admission_origins`:
+`https://testnet-admission.slop.ninja`, the coordinator's upload Worker. The
+client uses only that origin:
 
 - With `SLOP_NINJA_TRUST` set and neither `--coordinator` nor `--public`,
-  `check`, `commit`, `upload`, `abort`, `status` and `next-cohort` use the one
+  `check`, `commit`, `upload`, `repair`, `status` and `next-cohort` use the one
   origin the trust file pins. This works now, before the public status host is
   live.
 - `--coordinator https://testnet-admission.slop.ninja` (or
@@ -495,8 +503,22 @@ snapshot alone.
 The client prints the origin before it opens a session, never follows
 redirects, and accepts plain HTTP only for loopback hosts.
 
-The upload Worker holds no signing key. It checks every signed request before
-it reads the body or forwards anything: the signature must verify, and the
+**Your artifact's bytes go straight to R2**, the coordinator's private object
+storage, never through a Slop Ninja Worker: one presigned PUT for the header
+and one for each file. The client needs outbound HTTPS to the coordinator
+origin and to the R2 S3 host the URLs name (`<account>.r2.cloudflarestorage.com`).
+Before it sends a byte it checks each URL: `https`; the host and bucket the
+release pins (the trust file's `upload_host_sha256`, the SHA-256 of the R2 S3
+host's name, and its `upload_bucket`; the client compiles the release's pins in,
+so they apply even without `--trust`, unless you pass `--any-upload-host` for a
+deployment other than the release's); the object key it derives itself from
+the cohort, your commitment and the file's digest; and the signed headers. An
+error message names the object and the host, never the URL's signed query. The URL shows the storage account's host, the bucket name and
+the signing key's id; none of these is a credential.
+
+The upload Worker holds no signing key and no storage binding, and takes no
+upload byte: its largest request body is one session envelope. It checks every
+signed request before it reads the body or forwards anything: the signature must verify, and the
 hotkey must hold a UID on subnet 601 at the finalized head (the Worker
 reads the subnet's hotkeys once a block, so a hotkey registered in the
 last few blocks may answer `not_registered` until finality and that read
@@ -518,7 +540,7 @@ next cohort with its earliest opening epoch and how long its admission window
 lasts, each with its distance from the confirmed epoch, for example `planned
 cutoff at epoch 23170 (1 epoch after the confirmed epoch)`. With `--public` it
 reads the public status snapshot (not yet live). Without it, it reads the
-coordinator's unsigned cohort read (`GET /admission/v1/cohort`,
+coordinator's unsigned cohort read (`GET /admission/v2/cohort`,
 [admission API](admission-api.md#get-admissionv1cohort-unsigned)) from the
 origin the trust file pins, or from `--coordinator`; its first line names
 that origin, the finalized block and the coordinator's confirmed epoch. A
@@ -526,7 +548,7 @@ coordinator that reports no confirmed epoch gets absolute epochs only. The
 same read works without the client:
 
 ```sh
-curl -s https://testnet-admission.slop.ninja/admission/v1/cohort
+curl -s https://testnet-admission.slop.ninja/admission/v2/cohort
 ```
 
 Its `admitting` is `null` outside a window, and `next` names the next cohort
@@ -654,33 +676,52 @@ opening.
 slop_ninja_miner upload --artifact ./my-artifact.bin
 ```
 
-`upload` (signed routes not yet open to outside hotkeys) opens a session for your opening, sends the object in
-parts, completes the session and waits while the coordinator verifies it. It
-picks the local opening whose payload matches the commitment the coordinator
-observed; `--opening FILE` names one. Rerun the same command to resume an
-interrupted upload: parts the coordinator already holds with the same digest
-are skipped.
+`upload` (signed routes not yet open to outside hotkeys) opens a session for
+your opening, PUTs the object's header straight to R2 with the URL the
+session returns, asks for the file URLs (the coordinator checks the header
+first, so an artifact doomed by its header is refused before any file is
+sent), PUTs each file straight to R2, largest first, completes the session and
+waits while the coordinator verifies it. It picks the local opening whose
+payload matches the commitment the coordinator observed; `--opening FILE` names
+one. Progress lines on standard error show each file's bytes, rate and time
+left (`--quiet` turns them off).
 
-- The client holds one part in memory at a time. A part's timeout grows with
-  its size at `--min-upload-kib-per-sec` (default 32); raise it on a fast
-  link, lower it on a slow one.
-- The upload Worker holds a part's request open for as long as the part
-  streams, in a small memory scope of its own. Its memory bookkeeping
-  expects that scope to end within the Worker's arena deadline (15 minutes,
-  borrowed from the longest documented Workers wall limit; a fetch itself
-  has none): a 64 MiB part (the testnet `part_size`) slower than about 0.6
-  Mbit/s (75 KiB/s) still completes, but is counted as overdue while it
-  streams. A busy Worker answers `unavailable`, which the client retries.
-- Retryable errors are retried with backoff (`--attempts`, default 6). A busy
-  upload Worker answers the contract's `unavailable` with `Retry-After`. An
-  edge error page without a contract body (502, 503, 504, or a Cloudflare
-  52x) is retried the same way.
-- `--restart` aborts a refused attempt, for example after `object_mismatch`,
-  and sends every part again.
-- To upload a different object for the same commitment, abort the live session
-  first with `slop_ninja_miner abort`. To upload a different model, pack it,
-  commit again (`commit --replace`) and upload; the new commitment supersedes
-  the old session and moves your position.
+- **Resume is per file.** A single PUT cannot resume, so an interrupted file is
+  sent again from its first byte; files R2 already holds are not sent again.
+  Rerun the same command to resume.
+- **Each URL lives long enough** for your whole artifact at 1 Mbit/s plus 15
+  minutes (2 h 22 min for the largest spec v3 artifact). R2 checks a URL's
+  expiry when the PUT starts, so a file whose PUT started in time finishes at
+  any speed. Expiry never ends anything: the client asks for a fresh URL
+  whenever one expires before its PUT starts, at once. A file's PUT times out
+  locally after `--http-timeout-secs` plus its size at
+  `--min-upload-kib-per-sec` (default 32); raise it on a fast link, lower it
+  on a slow one.
+- **Retries** (`--attempts`, default 6, per request and per file): a dropped
+  connection, a 5xx or 429 from R2 gets a fresh URL and the file goes again
+  after a doubling wait. 412 means R2 already holds the file. A busy upload
+  Worker answers the contract's `unavailable` with `Retry-After`; an edge error
+  page without a contract body (502, 503, 504, or a Cloudflare 52x) is retried
+  the same way.
+- **501 `NotImplemented`** from R2 is a refusal: nothing is stored and the
+  client stops (it checks every URL first, so this should not happen).
+- **Send nothing else.** The client sends only the URL's signed headers. A
+  tool that adds `Content-Type`, `Content-Encoding` or similar to the PUT
+  gets its object refused: R2 stores those headers with the object, and
+  admission refuses an object with any stored HTTP or custom metadata.
+- **`BadDigest`** means the object on disk no longer matches the digests you
+  committed to: it changed after `pack`. Restore it, or pack again from the
+  same sources (the same files give the same digests); a different object
+  needs a new commitment.
+- **One object per commitment.** A refused session stays refused. To upload a
+  different object or model, pack it, commit again (`commit --replace`) and
+  upload; the new commitment supersedes the old session and moves your
+  position.
+- **Repair.** If an object the coordinator recorded later goes missing on its
+  side (a platform fault, never yours), `status` lists it and
+  `slop_ninja_miner repair --artifact ./my-artifact.bin` (or `status --repair
+  --artifact ...`) sends it again from your local object, also after the
+  cutoff. Keep the object until your cohort's scoring starts.
 
 One hotkey enters at most one artifact per cohort. The session ends as
 `verified` or `refused`.
@@ -696,7 +737,8 @@ slop_ninja_miner status
 (as `next-cohort` does), your local openings, and the coordinator's view of
 your hotkey for the admitting cohort or `--cohort N`: registration, the
 commitment that counts and whether it is in the window, each session with its
-state and refusal, and the last refused request. With no openings it says so
+state, its recorded objects, its refusal and any objects to repair, and the
+last refused request. With no openings it says so
 and names the state directory it read. The local openings are always printed:
 when the cohort read or the public snapshot cannot be read (a coordinator
 outage, an unreadable trust file), `status` prints them first, then reports
@@ -710,7 +752,7 @@ The public snapshot is not yet live, and the hotkey view is not yet open to
 outside hotkeys (`not_found`).
 
 Session states: `uploading`, `verifying`, `verified`, `refused`, `admitted`,
-`overflow`, `superseded` (a newer commitment replaced it) and `aborted`.
+`overflow` and `superseded` (a newer commitment replaced it).
 
 ## 12. At the cutoff and the cohort close
 
@@ -734,6 +776,11 @@ The cohort then runs without you:
 - **Generation.** The coordinator draws the hidden batch, about 1,000
   human-only, mixed and model-only documents in the proportions the cohort
   manifest fixes, and generates its AI-side text.
+- **Publication of the artifacts.** When scoring starts, every admitted
+  artifact (header and files) is published in the public bucket, except an
+  operator's or a reference's: the header at
+  `artifacts/v2/<header sha256>/header` and each file at
+  `blobs/sha256/<file sha256>`.
 - **Scoring.** Every admitted artifact, the reference and its predecessor, when
   one exists, score the same documents, each document independently. Every
   executed entrant also runs once on a private 1,024-document probe used for
@@ -741,8 +788,8 @@ The cohort then runs without you:
 - **Publication.** The coordinator signs and publishes the score package and
   its receipt index, nominally by tempo 18.
 - **Transition.** At least two tempos with no new challenges. At the closing boundary
-  the coordinator publishes every admitted artifact and its opening, and the
-  cohort's target activates.
+  the coordinator publishes every admitted entrant's opening, and the cohort's
+  target activates.
 
 Validators then commit the cohort's row at every tempo during the next cohort,
 so cohort *N* is paid during the following day while cohort *N*+1 is scored.
@@ -756,12 +803,14 @@ testnet stock is public and can be recognized, an accepted testnet limit.
 
 What becomes public, and what never does:
 
-- **Public after the close:** your artifact and opening, if admitted; the
-  signed package with your hotkey, UID, commitment position, artifact digest,
+- **Public when scoring starts:** your artifact (header and files), if
+  admitted.
+- **Public after the close:** your opening; the signed package with your
+  hotkey, UID, commitment position, artifact digest (your header's SHA-256),
   exact score, each failed gate with its reason code, your cluster, credit and
   integer units.
 - **Never public:** the hidden documents, their labels and per-document
-  predictions. Refused, overflow, superseded and aborted uploads are deleted
+  predictions. Refused, overflow and superseded uploads are deleted
   no later than the close and never published.
 
 ## 13. Rewards
@@ -795,8 +844,8 @@ When a gated entrant beats `R_k` by `δ`:
 
 - every gated entrant at or above the cutoff `S_R + δ(1 - S_R)` earns;
 - the top-ranked eligible entrant that also passes the promotion checks
-  becomes the next reference, `R_{k+1}`. Its artifact is published with its
-  cohort. The whitepaper's promotion checks are the strict pure-human
+  becomes the next reference, `R_{k+1}`. Its artifact was published when its
+  cohort's scoring started. The whitepaper's promotion checks are the strict pure-human
   false-positive tier and the lookup canary. **Testnet only:** promotions on
   testnet run without the lookup canary, and the leaderboard says so. An
   operator drill of the blocking path, named in the cohort's plan, can still
@@ -841,7 +890,7 @@ by a better reference Slop Ninja trains, only if it passes every required gate,
 and announced in advance on the status page. The replacement takes `R_0`'s
 place with no predecessor and moves no reward already earned. Every later change
 follows the promotion rule above. An entrant that becomes the reference was
-already published with its cohort.
+already published when its cohort's scoring started.
 
 ## 14. Refusals and what they mean
 
@@ -853,7 +902,7 @@ locally; the coordinator reports them inside `check_failed` (in
 
 | Code | Meaning | What to do |
 | --- | --- | --- |
-| `object` | the object does not parse, or a file does not match its header digest | pack again from the model directory |
+| `object` | the object's header does not parse, or the object's length is not its header's (a file that no longer matches its header digest is refused by R2 at upload, `BadDigest`) | pack again from the model directory |
 | `undeclared_file`, `missing_file` | a file other than the six, such as an external-data sidecar or notes, or one of the six missing | fix the directory and pack again |
 | `contract_id`, `file_role`, `file_size` | another output contract, a wrong role, or a length outside the spec's bounds | pack with `--dir`, which sets the contract and roles; re-export the file |
 | `tokenizer_mismatch` | the tokenizer is not byte-identical to the pinned one | use the pinned `tokenizer.json` |
@@ -867,13 +916,13 @@ locally; the coordinator reports them inside `check_failed` (in
 | `json_budget` | the JSON files together exceed spec v2's 256 MiB, or the coordinator's own budget | remove oversized free-text provenance |
 | `json_value_budget` | parsing the JSON files would hold more than the spec's value budget (for example, very many small objects or strings), or the coordinator's own | remove oversized free-text provenance; R0's files use 5.8% of the budget |
 
-### Requests (`commit`, `upload`, `abort`, `status`)
+### Requests (`commit`, `upload`, `repair`, `status`)
 
 A command that gets one of these codes prints it. The coordinator marks
-`not_admitting`, `commitment_not_found`, `part_digest_mismatch`,
-`parts_missing` and the transient codes retryable: the client retries them
-where the command allows (`--attempts`), and a command they outlast exits 2.
-Every other code here exits 1.
+`not_admitting`, `commitment_not_found`, `header_missing`, `objects_missing`
+and the transient codes retryable: the client retries them where the command
+allows (`--attempts`), and a command they outlast exits 2. Every other code
+here exits 1.
 
 | Code | Meaning | What to do |
 | --- | --- | --- |
@@ -884,11 +933,11 @@ Every other code here exits 1.
 | `commitment_mismatch` | the opening is not the hotkey's current commitment | upload the opening of your latest commitment |
 | `wrong_cohort`, `wrong_chain`, `hotkey_mismatch` | the opening names another cohort, chain, subnet or hotkey | commit again for the admitting cohort with this hotkey |
 | `not_registered`, `registration_mismatch` | the hotkey has no UID, or registered again since the opening | register, then commit again |
-| `second_artifact` | another live session exists for this commitment | `abort` it first; `status` names it |
-| `object_too_large` | the object exceeds the cohort's bound | check the file sizes |
-| `part_length_mismatch`, `part_out_of_range`, `part_digest_mismatch` | a part was not the expected bytes | rerun `upload`; the last is retried |
-| `parts_missing` | completion before every part arrived | rerun `upload` |
-| `stale_attempt`, `session_not_uploading` | the request names an old attempt, or a session that no longer accepts it | read `status` and act on the current session |
+| `second_artifact` | another live session exists for this commitment (another object for the same commitment) | upload that session's object, or commit again for the new one; `status` names the session |
+| `header_too_large` | the header length is zero or over 1 MiB | pack with the release client |
+| `header_missing`, `objects_missing` | the coordinator found no header, or not every file, in R2 yet | the client sends them again; rerun `upload` |
+| `not_needed` | `repair` for an object that is present or no longer needed | nothing to do |
+| `session_not_uploading` | the session no longer takes uploads | read `status` and act on the current session |
 | `request_expired`, `rate_limited`, `paused`, `unavailable`, `internal` | transient | retried automatically; a long `paused` means the coordinator is catching up, and the cutoff moves later |
 | `bad_signature`, `forbidden`, `request_validity_too_long`, `content_digest_mismatch`, `bad_request`, `unsupported_media_type`, `not_found` | a malformed or wrongly signed request; until the signed routes open to outside hotkeys ([What is live](#what-is-live)), also every signed request from an outside hotkey (`not_found`) | update the client; report it if it persists; for `not_found` from an outside hotkey, wait for the routes to open |
 
@@ -896,11 +945,12 @@ Every other code here exits 1.
 
 | Code | When | Meaning |
 | --- | --- | --- |
-| `object_mismatch` | completion | the assembled object is not the one declared; rerun with `upload --restart` |
-| `artifact_invalid` | completion | the object does not parse or verify |
-| `contract_mismatch` | completion | the object's output contract is not the cohort's |
-| `content_mismatch` | completion | the object is not the content you committed to |
-| `check_failed` | completion | an artifact check refused it; see the table above |
+| `object_mismatch` | header | the header R2 stores is not the one your envelope names |
+| `artifact_invalid` | header | the header does not decode or validate |
+| `contract_mismatch` | header | the object's output contract is not the cohort's |
+| `content_mismatch` | header | the header's content is not the content you committed to |
+| `check_failed` | header, admission run | an artifact check refused it; see the table above |
+| `object_replaced` | any | a recorded object was replaced in R2 (another entity tag or stored attribute); only a client that sends more than the signed headers can cause it |
 | `commitment_overwritten` | cutoff | a later commitment before the cutoff replaced the one this session opens |
 | `incomplete_at_cutoff` | cutoff | the session was not completed before the close |
 | `not_registered`, `registration_mismatch` | cutoff | the registration changed before the cutoff |

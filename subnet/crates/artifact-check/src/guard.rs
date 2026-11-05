@@ -20,7 +20,6 @@ use serde::de::{DeserializeSeed, Deserializer, IgnoredAny, MapAccess, Visitor};
 use serde_json::{Map, Value};
 
 use crate::roles::RoleFiles;
-use crate::sha256_hex as sha;
 
 /// The scorer's `MAX_TOKENS` (`engine.rs`), with its type.
 const MAX_TOKENS: usize = 2048;
@@ -160,7 +159,8 @@ pub fn scorer_guard(files: &RoleFiles<'_>) -> Result<(), String> {
             "roles",
         ],
     )?;
-    let ch = sha(cb);
+    // The header's store-verified digest of contract.json: no file is hashed.
+    let ch = files.digests.contract.to_owned();
     ensure(
         m["schema"] == "slop_ninja_full_a_export_v2"
             && m["complete"] == true
@@ -224,7 +224,7 @@ pub fn load_guard(files: &RoleFiles<'_>) -> Result<crate::load_guard::Facts, Str
     let c = view("contract.json", files.contract, g::CONTRACT_KEYS)?;
     let w = view("heads.json", files.heads, g::HEADS_KEYS)?;
     let cal = view("calibration.json", files.calibration, g::CALIBRATION_KEYS)?;
-    g::check(&m, &c, &w, &cal, &sha(files.contract)).map_err(str::to_owned)
+    g::check(&m, &c, &w, &cal, files.digests.contract).map_err(str::to_owned)
 }
 
 #[cfg(test)]

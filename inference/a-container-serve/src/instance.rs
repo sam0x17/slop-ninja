@@ -7,7 +7,6 @@
 //! `a_scorer.rs` applies them to its routes.
 use crate::engine::{UNNAMED_LOAD_SPEC, admits_by};
 use slop_ninja_artifact_check::spec::Version;
-use std::collections::BTreeSet;
 
 /// What an instance is bound to.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -99,27 +98,6 @@ impl Load {
     }
 }
 
-/// What a part upload meets.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum Put {
-    /// Unbound: store and check the part.
-    Store,
-    /// Bound, and the part belongs to the bound package: nothing to store.
-    AlreadyBound,
-    /// Bound, and the part is not the bound package's: refused.
-    Refuse,
-}
-
-impl Put {
-    pub fn decide(current: Option<&Binding>, bound_parts: &BTreeSet<String>, sha: &str) -> Self {
-        match current {
-            None => Put::Store,
-            Some(_) if bound_parts.contains(sha) => Put::AlreadyBound,
-            Some(_) => Put::Refuse,
-        }
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -150,15 +128,6 @@ mod tests {
         let z = bs("aa", Some("c1"), Version::V3);
         assert!(z.serves("aa", Some("c1")) && !z.serves("aa", None));
         assert!(!z.serves("aa", Some("c2")) && !z.serves("bb", Some("c1")));
-    }
-
-    #[test]
-    fn parts_after_binding_are_refused_unless_they_are_the_bound_packages() {
-        let x = b("aa", None);
-        let parts: BTreeSet<String> = ["p1".to_string()].into();
-        assert_eq!(Put::decide(None, &parts, "p9"), Put::Store);
-        assert_eq!(Put::decide(Some(&x), &parts, "p1"), Put::AlreadyBound);
-        assert_eq!(Put::decide(Some(&x), &parts, "p9"), Put::Refuse);
     }
 
     #[test]

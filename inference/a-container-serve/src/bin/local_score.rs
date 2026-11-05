@@ -236,7 +236,8 @@ fn main() -> Result<()> {
 
     let t = Instant::now();
     let graph = slop_ninja_artifact_check::spec::GRAPH_FILE;
-    let model = Model::load(&a.model, a.spec, graph, a.sessions, a.threads, &a.lib)?;
+    let header = a_container_serve::engine::header_of_dir(&a.model)?;
+    let model = Model::load(&a.model, &header, a.spec, graph, a.sessions, a.threads, &a.lib)?;
     let load_s = t.elapsed().as_secs_f64();
 
     let t = Instant::now();

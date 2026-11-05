@@ -3,7 +3,7 @@ name = "slop-ninja-admission-worker"
 version = "0.1.0"
 edition = "2024"
 publish = false
-description = "Key-free Cloudflare Worker that takes the Slop Ninja testnet admission upload traffic"
+description = "Key-free Cloudflare Worker that fronts the Slop Ninja testnet admission routes (no upload byte passes through it)"
 
 # Its own workspace, like the coordinator: the Wasm build never pulls the
 # native rtao runtime, and nothing here links the coordinator's signing code.
@@ -13,6 +13,12 @@ resolver = "3"
 
 [lib]
 crate-type = ["cdylib", "rlib"]
+
+[features]
+# Native witness tests: the arena is the test binary's global allocator, so
+# `cargo test --features arena-witness arena_witness -- --test-threads=1`
+# runs each route's heaviest path under `Mode::Strict` in its footprint.
+arena-witness = ["slop-ninja-arena/knobs"]
 
 [dependencies]
 hex = "0.4"
@@ -32,10 +38,16 @@ slop-ninja-admission-wire = { path = "../crates/miner/wire" }
 # The front gate (signature, access mode, body bounds), shared with the
 # miner client's mock.
 slop-ninja-admission-gate = { path = "../crates/admission-gate" }
-# The spec-derived object bound and the framing of uploaded objects.
+# The spec bounds and the header check of a direct upload (the header
+# route): no file byte is read and nothing is hashed.
 slop-ninja-artifact-check = { path = "../crates/artifact-check", default-features = false }
 serde = { version = "1", features = ["derive"] }
-serde_json = "1"
+# raw_value: an interface reply's body is relayed byte for byte, never
+# parsed into a tree.
+serde_json = { version = "1", features = ["raw_value"] }
+# The digest of the chain's runtime-upgrade marker value (registry), the
+# crate's one hash: a small storage value, never an uploaded byte (the
+# no_object_hash lint pins it).
 sha2 = "0.10"
 zeroize = "1"
 

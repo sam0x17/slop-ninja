@@ -9,12 +9,21 @@
 //! length. File names, owner metadata, publisher signatures and reference test
 //! vectors are excluded.
 //!
-//! [`ArtifactReader`] streams an object, checks every file against the header
-//! and the whole object's SHA-256 and length, and yields a
-//! [`VerifiedArtifact`]. The coordinator uses it at admission and validators
-//! use it on published objects, so the inference-content digest a miner
-//! commits on chain is checked against the artifact bytes rather than
-//! asserted. Qualification of the files themselves is separate.
+//! **Admission (direct upload).** A miner uploads the header bytes `H` and
+//! each file as separate objects straight to the object store, each with the
+//! SHA-256 the store verifies as the bytes arrive (the header's own digest,
+//! and each file's digest from the header). Admission never re-reads or
+//! re-hashes a file: [`VerifiedHeader`] is built from `H` and the digest the
+//! store verified, and every file is checked by comparing the store's
+//! verified checksum and size with the header. So the miner's pack-time
+//! per-file hash is the only SHA-256 over model bytes, and the store's
+//! ingest check the only verification.
+//!
+//! [`ArtifactReader`] streams a reassembled object, checks every file against
+//! the header and yields a [`VerifiedArtifact`]. It is for tools that hold a
+//! whole object (the miner's self-test, a validator that downloads a
+//! published artifact to check it); nothing on the admission or scoring path
+//! calls it. Qualification of the files themselves is separate.
 
 use sha2::{Digest as _, Sha256};
 
@@ -190,12 +199,62 @@ pub fn artifact_object(contract: &str, files: &[(&str, FileRole, &[u8])]) -> Res
     Ok(e.into_bytes())
 }
 
+/// An artifact header whose bytes an object store verified at ingest
+/// against `sha256`, decoded and validated, with its derived content. This
+/// is what admission and publication bind: the header's digest, which with
+/// the per-file digests it lists fixes every byte of the artifact.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct VerifiedHeader {
+    /// SHA-256 of the header bytes `H`.
+    pub sha256: Digest,
+    /// `len(H)`, at most [`MAX_ARTIFACT_HEADER_LEN`].
+    pub len: u32,
+    pub header: ArtifactHeader,
+    /// Digest of the derived [`InferenceContent`].
+    pub content: Digest,
+}
+
+impl VerifiedHeader {
+    /// From the header bytes and the SHA-256 the object store verified when
+    /// it stored them (R2's stored checksum). The digest is trusted as the
+    /// store's; the bytes are decoded, validated and their content derived.
+    /// No byte is hashed.
+    pub fn from_stored(bytes: &[u8], stored_sha256: Digest) -> Result<Self> {
+        let len = u32::try_from(bytes.len())
+            .ok()
+            .filter(|&l| l > 0 && l <= MAX_ARTIFACT_HEADER_LEN)
+            .ok_or(Error::LengthLimit {
+                field: "artifact header",
+                len: bytes.len() as u64,
+            })?;
+        let header = ArtifactHeader::from_bytes(bytes)?;
+        let content = header.content()?.digest()?;
+        Ok(Self {
+            sha256: stored_sha256,
+            len,
+            header,
+            content,
+        })
+    }
+
+    /// From header bytes alone, hashing them (at most
+    /// [`MAX_ARTIFACT_HEADER_LEN`] bytes of file table, never a model file):
+    /// for the miner's pack and for a validator that downloaded the header.
+    pub fn from_bytes(bytes: &[u8]) -> Result<Self> {
+        Self::from_stored(bytes, crate::object_sha256(bytes))
+    }
+}
+
 /// An artifact object whose every file matched its header.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct VerifiedArtifact {
-    /// Plain SHA-256 of the whole object, as an object store reports it.
+    /// Plain SHA-256 of the whole object.
     pub sha256: Digest,
     pub len: u64,
+    /// SHA-256 of the header bytes `H`, what a package binds.
+    pub header_sha256: Digest,
+    /// `len(H)`.
+    pub header_len: u32,
     pub header: ArtifactHeader,
     /// Digest of the derived [`InferenceContent`]: the canonical
     /// inference-content digest.
@@ -209,6 +268,16 @@ impl VerifiedArtifact {
         reader.update(object)?;
         reader.finish()
     }
+
+    /// The verified header this object carries.
+    pub fn verified_header(&self) -> VerifiedHeader {
+        VerifiedHeader {
+            sha256: self.header_sha256,
+            len: self.header_len,
+            header: self.header.clone(),
+            content: self.content,
+        }
+    }
 }
 
 enum ReadState {
@@ -218,6 +287,7 @@ enum ReadState {
     /// files begin at object offset `files_at` (the prefix and the header).
     Files {
         header: ArtifactHeader,
+        header_sha256: Digest,
         files_at: u64,
         index: usize,
         remaining: u64,
@@ -303,9 +373,11 @@ impl ArtifactReader {
                         continue;
                     }
                     let header = ArtifactHeader::from_bytes(&buffer[4..])?;
+                    let header_sha256 = crate::object_sha256(&buffer[4..]);
                     let remaining = header.files.first().map_or(0, |f| f.len);
                     self.state = ReadState::Files {
                         header,
+                        header_sha256,
                         files_at: need as u64,
                         index: 0,
                         remaining,
@@ -363,11 +435,20 @@ impl ArtifactReader {
     /// Ends the object: every file must be complete.
     pub fn finish(self) -> Result<VerifiedArtifact> {
         match self.state {
-            ReadState::Files { header, index, .. } if index == header.files.len() => {
+            ReadState::Files {
+                header,
+                header_sha256,
+                files_at,
+                index,
+                ..
+            } if index == header.files.len() => {
                 let content = header.content()?.digest()?;
                 Ok(VerifiedArtifact {
                     sha256: Digest(self.object.finalize().into()),
                     len: self.len,
+                    header_sha256,
+                    // The prefix and a header within MAX_ARTIFACT_HEADER_LEN.
+                    header_len: u32::try_from(files_at - 4).unwrap_or(u32::MAX),
                     header,
                     content,
                 })

@@ -1,74 +1,78 @@
-//! Workers side of coordinator admission (wasm32 only): the eval Worker's
+//! Workers side of coordinator admission v2 (wasm32 only): the eval Worker's
 //! internal admission interface (reachable only through the upload Worker's
-//! service binding), the `EvalCohort` object's admission, template,
-//! commitment-reader and admission-work routes, its admission steps
-//! (completions, framing and blob dispatches, verdict runs, clean-up, the
-//! calendar), and the Queue consumer's admission work (framing through the
-//! upload Worker, blob copies).
+//! service binding), the `EvalCohort` object's admission, template and
+//! commitment-reader routes, its admission steps (the canary, the close
+//! sweep, manifest writes and audits, verdict runs, the alarm sweep, deletes,
+//! the reconciliation, the calendar), and the admission events Queue's
+//! consumer.
 //!
 //! The eval Worker serves no public admission route: every `/admission/`
-//! request to it answers 404. The unsigned cohort read never reaches it:
-//! at every heartbeat the cohort object writes the cohort response to the
-//! upload bucket (`internal::COHORT_SNAPSHOT_KEY`), which the upload Worker
-//! serves. The public `/admission/v1/` routes are the
-//! key-free upload Worker's (`subnet/admission-worker`,
-//! `slop-ninja-admission-testnet`): it decodes and checks every untrusted
-//! request (signature, body digest, registration on the subnet, the
-//! spec-derived size bound) and forwards only checked, bounded messages
-//! here, to `/internal/admission/v1/<op>` on the internal origin, with the
-//! shared interface token (`slop_ninja_admission_wire::internal`). This
-//! Worker forwards them to the cohort object, which authenticates against
-//! the cursor, decides and records in one transaction, then performs the R2
-//! control operations (create, abort, complete a multipart upload, in the
-//! upload bucket) and records their result. A part's body never reaches
-//! this Worker: the upload Worker streams it to R2's `uploadPart` between
-//! the object's `part-begin` and `part-record`. A completion is durable
-//! work until R2's outcome is recorded. Framing (the one decode of an
-//! uploaded object: its header record) runs in the upload Worker, which the
-//! Queue consumer calls through this Worker's own service binding; the
-//! consumer then copies the slices from the upload bucket to the eval bucket
-//! as JS streams. The cohort object never makes either call: it records a
-//! dispatch and sends a content-free message on the lane-wakeup Queue
-//! (`admission::dispatch_begin`), and the consumer reports back through the
-//! object's `/admission-work/` routes, one short transaction each. A service
-//! binding runs the callee on the caller's thread, so framing called from the
-//! object (up to the cohort-19 drill) held the object's thread for the whole
-//! object's hashing and stalled every other request to it, the commitment
-//! reader's included. Nothing here decodes an uploaded object, parses the
-//! graph or the role files: the verdict is the scorer Container's admission
-//! load.
+//! request to it answers 404. The unsigned cohort read never reaches it: at
+//! every heartbeat the cohort object writes the cohort response to the
+//! eval bucket (`internal::COHORT_SNAPSHOT_KEY`; no presigning credential
+//! reaches it), which the upload Worker serves. The public `/admission/v2/` routes are the key-free upload
+//! Worker's (`subnet/admission-worker`): it checks every untrusted request
+//! (signature, body digest, registration, the record's size) and forwards
+//! only checked, bounded messages here, to `/internal/admission/v2/<op>`
+//! with the shared interface token. This Worker forwards them to the cohort
+//! object, which authenticates against the cursor and decides in a
+//! transaction, then does the operation's I/O and records its result:
+//!
+//! - **No upload byte reaches any of our Workers.** Miners PUT every object
+//!   straight to R2 under presigned URLs; the internal signer Worker
+//!   (`R2_SIGNER_TESTNET`, its token `SIGNER_INTERFACE_TOKEN`) mints them
+//!   for this object only, one request per `urls` call.
+//! - **Nothing hashes a model byte.** Objects are recorded from R2's
+//!   `head()`: size, stored SHA-256, entity tag and attributes. The header
+//!   bytes (at most 1 MiB) are piped from an entity-tag-pinned R2 read
+//!   straight into the upload Worker's header route as a JS stream, so they
+//!   never enter this isolate's memory; its bounded outcome comes back and
+//!   the content digest is recomputed from the returned table.
+//! - The R2 object-create events (a wakeup only) arrive on the admission
+//!   events Queue; the consumer asks the cohort object to `observe` the key,
+//!   which heads it itself.
 
 use super::eval_do::{self, EVAL_BUCKET, EvalCohort, cohort_fetch, lane_stub};
 use super::{TxError, error, json, now_ms, transaction};
 use crate::eval::admission::{
-    self, AdmissionEnv, Effects, FrameFailure, FrameOutcome, FrameRecord, FrameReport, LaneOutcome, Reply, Take, WorkBody, WorkMessage,
+    self, AdmissionEnv, Applied, CanaryFailure, Head, HeaderJob, HeaderSeen, LaneOutcome, Minted, Observed,
+    Probe, Recorder, Reply, Settled, Step, Stored,
 };
 use crate::eval::{calendar, commitments, engine};
 use crate::sql::Sql;
-use js_sys::{Function, Reflect};
+use js_sys::{Reflect, Uint8Array};
 use serde::Deserialize;
 use serde_json::{Value, json as j};
+use sha2::{Digest as _, Sha256};
 use slop_ninja_admission_wire::internal::{self as iface, Forward};
 use slop_ninja_protocol::ChainBinding;
+use slop_ninja_r2_presign::{layout, policy, wire as mint};
 use wasm_bindgen::{JsCast, JsValue, prelude::wasm_bindgen};
-use worker::{Env, Method, Request, Response, Result};
+use worker::{Env, Headers, Method, Request, RequestInit, Response, Result};
 
-/// The upload bucket's binding: uploaded objects only (private; the upload
-/// Worker binds the same bucket and nothing else).
+/// The admission bucket's binding: uploaded objects (private) and the
+/// cohort snapshot.
 pub const ADMISSION_BUCKET: &str = "ADMISSION_TESTNET";
-/// The upload Worker's service binding (framing).
+/// The upload Worker's service binding (its internal header route).
 pub const UPLOAD_SERVICE: &str = "ADMISSION_UPLOAD_TESTNET";
-/// The interface token, a Worker secret of both admission Workers.
+/// The interface token the two admission Workers share.
 pub const INTERFACE_TOKEN: &str = "ADMISSION_INTERFACE_TOKEN";
 
 /// The bound of a cohort object's admission reply the Worker forwards: the
-/// contract's response limit at R2's part maximum.
-const REPLY_BYTES: usize = 64 * 1024 + 256 * crate::eval::plan::R2_MAX_PARTS as usize;
+/// contract's response limit (a session with one URL per object and its
+/// object list), and an error body beside a `header_missing` session.
+const REPLY_BYTES: usize = 2 * slop_ninja_admission_wire::RESPONSE_BASE_BYTES;
 /// A commitment-reader round's request body: `commitments::plan` puts at
 /// most one large read in a round, so its replies are one large reply and
 /// the small ones beside it, which the reader's share bounds in number
 /// (each small reply within the RPC client's default response bound).
 pub const READER_BODY_BYTES: usize = 2 * crate::rpc::MAX_LARGE_RESPONSE_BYTES;
+/// R2 heads one step keeps in flight: Workers' six simultaneous outgoing
+/// connections per invocation.
+const HEADS_IN_FLIGHT: usize = 6;
+/// The longest chain of one session operation's steps: a header settle,
+/// the files' mint (or a heads batch and its answer).
+const SESSION_STEPS: usize = 4;
 
 #[wasm_bindgen(inline_js = "
 export function adm_fixed(body, len) {
@@ -76,22 +80,44 @@ export function adm_fixed(body, len) {
   body.pipeTo(f.writable).catch(() => {});
   return f.readable;
 }
-export function adm_get(bucket, key, offset, length) {
-  const opts = (offset === undefined) ? undefined : { range: { offset: offset, length: length } };
-  return bucket.get(key, opts);
+export function adm_head(bucket, key) {
+  return bucket.head(key).then((o) => {
+    if (o === null) return null;
+    let sha = null;
+    const c = o.checksums;
+    if (c && c.sha256) { const b = new Uint8Array(c.sha256); if (b.length === 32) sha = b; }
+    const h = o.httpMetadata || {};
+    const http = Object.keys(h).some((k) => h[k] !== undefined && h[k] !== null);
+    const cm = o.customMetadata || {};
+    return {
+      size: o.size, etag: o.etag, sha256: sha, ssec: !!o.ssecKeyMd5,
+      storageClass: (o.storageClass === undefined || o.storageClass === null) ? null : String(o.storageClass),
+      http: http, custom: Object.keys(cm).length > 0,
+    };
+  });
+}
+export function adm_get_pinned(bucket, key, etag) {
+  return bucket.get(key, { onlyIf: { etagMatches: etag } });
+}
+export function adm_random32() {
+  const b = new Uint8Array(32);
+  crypto.getRandomValues(b);
+  return b;
 }
 ")]
 extern "C" {
     fn adm_fixed(body: &JsValue, len: f64) -> JsValue;
-    fn adm_get(bucket: &JsValue, key: &str, offset: Option<f64>, length: Option<f64>) -> js_sys::Promise;
+    fn adm_head(bucket: &JsValue, key: &str) -> js_sys::Promise;
+    fn adm_get_pinned(bucket: &JsValue, key: &str, etag: &str) -> js_sys::Promise;
+    fn adm_random32() -> Uint8Array;
 }
 
 fn chain(env: &Env) -> Option<ChainBinding> {
     eval_do::eval_config(env, engine::INSTANCE_MAIN).ok().map(|c| c.chain)
 }
 
-fn interface_token(env: &Env) -> Option<zeroize::Zeroizing<String>> {
-    env.secret(INTERFACE_TOKEN).ok().map(|s| zeroize::Zeroizing::new(s.to_string()))
+fn secret(env: &Env, name: &str) -> Option<zeroize::Zeroizing<String>> {
+    env.secret(name).ok().map(|s| zeroize::Zeroizing::new(s.to_string()))
 }
 
 /// Whether a request is the upload Worker's: addressed to the internal
@@ -102,7 +128,7 @@ fn from_upload_worker(req: &Request, env: &Env) -> bool {
     if !host_ok {
         return false;
     }
-    let token = interface_token(env);
+    let token = secret(env, INTERFACE_TOKEN);
     let presented = req.headers().get(iface::TOKEN_HEADER).ok().flatten();
     iface::token_matches(token.as_deref().map(String::as_str), presented.as_deref())
 }
@@ -115,12 +141,9 @@ pub fn interface_body_bytes() -> usize {
     iface::FORWARD_BYTES
 }
 
-/// `/internal/admission/v1/<op>` (the upload Worker's service binding only):
+/// `/internal/admission/v2/<op>` (the upload Worker's service binding only):
 /// the forwarded message goes to the cohort object's `/admission/<op>`, and
-/// its JSON answer comes back as is (a `Reply`, or for `part-begin` a
-/// target or a reply). The unsigned cohort read is not an operation here:
-/// the upload Worker serves it from the cohort snapshot
-/// ([`EvalCohort::write_cohort_snapshot`]). Anything not addressed and
+/// its JSON answer (a `Reply`) comes back as is. Anything not addressed and
 /// authenticated as the upload Worker's answers 404, as does every request
 /// when the eval role is off.
 pub async fn interface_route(mut req: Request, env: Env) -> Result<Response> {
@@ -128,6 +151,9 @@ pub async fn interface_route(mut req: Request, env: Env) -> Result<Response> {
         return error("not_found", 404);
     }
     let path = req.path();
+    if path.strip_prefix(iface::EVAL_PATH_PREFIX) == Some(iface::op::SNAPSHOT) {
+        return snapshot_read(&env).await;
+    }
     let Some(op) = path.strip_prefix(iface::EVAL_PATH_PREFIX).filter(|op| iface::op::ALL.contains(op)) else {
         return error("not_found", 404);
     };
@@ -141,6 +167,27 @@ pub async fn interface_route(mut req: Request, env: Env) -> Result<Response> {
     let body = serde_json::to_string(&f).map_err(|_| worker::Error::RustError("forward".into()))?;
     let mut r = cohort_fetch(&env, engine::INSTANCE_MAIN, Method::Post, &format!("/admission/{op}"), Some(body)).await?;
     relay(&mut r).await
+}
+
+/// The interface operation [`iface::op::SNAPSHOT`], which refreshes the
+/// upload Worker's edge copy of the cohort read: the cohort snapshot's exact
+/// bytes (at most `internal::cohort_snapshot_limit`), or 503 while it is not
+/// written. It is answered from the snapshot object and never reaches the
+/// cohort object, so no unsigned request reaches the cohort authority.
+async fn snapshot_read(env: &Env) -> Result<Response> {
+    let Ok(b) = env.bucket(EVAL_BUCKET) else {
+        return error("not_configured", 503);
+    };
+    match super::cf_io::r2_bytes(&b, iface::COHORT_SNAPSHOT_KEY, iface::cohort_snapshot_limit(), None).await {
+        Ok(Some(bytes)) => {
+            let mut resp = Response::from_bytes(bytes)?;
+            resp.headers_mut().set("Content-Type", "application/json")?;
+            resp.headers_mut().set("Cache-Control", "no-store")?;
+            Ok(resp)
+        }
+        Ok(None) => error("snapshot_unwritten", 503),
+        Err(_) => error("snapshot_unavailable", 503),
+    }
 }
 
 /// A cohort object's answer, relayed within the reply bound.
@@ -159,20 +206,226 @@ async fn relay(r: &mut Response) -> Result<Response> {
     }
 }
 
+// ------------------------------------------------------------------ R2 I/O
+
+fn bucket(env: &Env) -> std::result::Result<worker::Bucket, &'static str> {
+    env.bucket(ADMISSION_BUCKET).map_err(|_| "admission bucket")
+}
+
+fn field(v: &JsValue, k: &str) -> JsValue {
+    Reflect::get(v, &JsValue::from_str(k)).unwrap_or(JsValue::NULL)
+}
+
+/// R2's `head()` of `key`: its stored size, SHA-256, entity tag and whether
+/// its attributes are the allowed ones (`admission::attrs_clean`).
+async fn head(b: &worker::Bucket, key: &str) -> Head {
+    let v = match super::cf_io::settle(adm_head(b.as_ref(), key), None).await {
+        super::cf_io::Settled::Value(v) => v,
+        _ => return Head::Error,
+    };
+    if v.is_null() || v.is_undefined() {
+        return Head::Absent;
+    }
+    let (Some(size), Some(etag)) = (field(&v, "size").as_f64(), field(&v, "etag").as_string()) else {
+        return Head::Error;
+    };
+    let sha256 = field(&v, "sha256").dyn_into::<Uint8Array>().ok().and_then(|a| {
+        let mut out = [0u8; 32];
+        (a.length() == 32).then(|| {
+            a.copy_to(&mut out);
+            out
+        })
+    });
+    let class = field(&v, "storageClass").as_string();
+    let clean = admission::attrs_clean(
+        field(&v, "ssec").as_bool().unwrap_or(true),
+        class.as_deref(),
+        field(&v, "custom").as_bool().unwrap_or(true),
+        field(&v, "http").as_bool().unwrap_or(true),
+    );
+    Head::Present(Stored { size: size as u64, sha256, etag, clean })
+}
+
+/// Heads every probe, at most [`HEADS_IN_FLIGHT`] at once.
+async fn heads(env: &Env, probes: Vec<Probe>) -> Vec<(Probe, Head)> {
+    let Ok(b) = bucket(env) else {
+        return probes.into_iter().map(|p| (p, Head::Error)).collect();
+    };
+    let mut out = Vec::with_capacity(probes.len());
+    let mut it = probes.into_iter().peekable();
+    while it.peek().is_some() {
+        let group: Vec<Probe> = it.by_ref().take(HEADS_IN_FLIGHT).collect();
+        let got = futures_util::future::join_all(group.iter().map(|p| head(&b, &p.key))).await;
+        out.extend(group.into_iter().zip(got));
+    }
+    out
+}
+
+/// Makes a conditional delete ([`admission::Delete`]): only while a fresh
+/// head still shows its entity tag and the object is still not a clean copy
+/// of the committed digest, so a correct object PUT since (the same bytes
+/// have the same tag) survives. A delete that failed is queued; the queue
+/// itself never deletes a key a live session holds
+/// ([`admission::queued_delete_allowed`]). One delete per key is in flight
+/// at a time ([`admission::delete_begin`]): a path that finds another
+/// deleting the key leaves it to that one.
+async fn delete_if(env: &Env, storage: &worker::Storage, d: &admission::Delete) {
+    let Ok(b) = bucket(env) else { return };
+    let (k, now) = (d.key.clone(), now_ms());
+    if !matches!(transaction(storage, move |sql| admission::delete_begin(sql, &k, now)), Ok(true)) {
+        return;
+    }
+    if d.allows(&head(&b, &d.key).await) && b.delete(d.key.clone()).await.is_err() {
+        let (k, now) = (d.key.clone(), now_ms());
+        let _ = transaction(storage, move |sql| admission::object_delete_failed(sql, &k, now));
+    }
+    let k = d.key.clone();
+    let _ = transaction(storage, move |sql| admission::delete_end(sql, &k));
+}
+
+/// The header settle's I/O (design A1-A2): the head, then the header bytes
+/// read pinned to the entity tag just seen and piped as a JS stream into
+/// the upload Worker's header route (no byte enters this isolate), whose
+/// bounded outcome is parsed.
+async fn settle_header(env: &Env, job: &HeaderJob) -> HeaderSeen {
+    let Ok(b) = bucket(env) else { return HeaderSeen::Platform("admission bucket") };
+    let etag = match admission::header_head(job, &head(&b, &job.key).await) {
+        Ok(etag) => etag,
+        Err(seen) => return seen,
+    };
+    let obj = match super::cf_io::settle(adm_get_pinned(b.as_ref(), &job.key, &etag), None).await {
+        super::cf_io::Settled::Value(v) => v,
+        _ => return HeaderSeen::Platform("header read"),
+    };
+    if obj.is_null() || obj.is_undefined() {
+        return HeaderSeen::Platform("header gone since its head");
+    }
+    let body = field(&obj, "body");
+    if body.is_null() || body.is_undefined() {
+        // The pinned read refused: the object changed since its head.
+        return HeaderSeen::Platform("header changed since its head");
+    }
+    let stream = adm_fixed(&body, f64::from(job.len));
+    let Some(token) = secret(env, INTERFACE_TOKEN) else { return HeaderSeen::Platform("interface token") };
+    let headers = Headers::new();
+    if headers.set(iface::TOKEN_HEADER, token.as_str()).is_err()
+        || headers.set(iface::SPEC_HEADER, job.spec_id).is_err()
+        || headers.set("content-type", "application/octet-stream").is_err()
+    {
+        return HeaderSeen::Platform("header request");
+    }
+    let mut init = RequestInit::new();
+    init.with_method(Method::Post).with_headers(headers).with_body(Some(stream));
+    let url = format!("{}{}", iface::UPLOAD_INTERFACE_ORIGIN, iface::UPLOAD_HEADER_PATH);
+    let Ok(req) = Request::new_with_init(&url, &init) else { return HeaderSeen::Platform("header request") };
+    let Ok(service) = env.service(UPLOAD_SERVICE) else { return HeaderSeen::Platform("upload service binding") };
+    let Ok(mut r) = service.fetch_request(req).await else { return HeaderSeen::Platform("header call") };
+    if r.status_code() != 200 {
+        let marked = r.headers().get(iface::HEADER_FAILURE_HEADER).ok().flatten().is_some();
+        let status = r.status_code();
+        super::cf_io::discard(&mut r);
+        return HeaderSeen::Platform(match (marked, status) {
+            (true, _) => "upload Worker platform failure",
+            (false, 400 | 404) => "header route link",
+            _ => "header route unavailable",
+        });
+    }
+    let bound = slop_ninja_artifact_check::admission::header_outcome_bound();
+    match super::cf_io::response_json::<slop_ninja_artifact_check::admission::HeaderOutcome>(&mut r, bound).await {
+        Ok(outcome) => HeaderSeen::Checked { etag, outcome },
+        Err(_) => HeaderSeen::Platform("header outcome"),
+    }
+}
+
+/// One signer request (`slop_ninja_r2_presign::wire`) through the service
+/// binding with the shared token: every entry minted, or the platform's
+/// failure (`signer_unavailable`).
+async fn mint_urls(env: &Env, entries: &[mint::Entry]) -> std::result::Result<Vec<Minted>, &'static str> {
+    let token = secret(env, admission::signer::TOKEN_SECRET).ok_or("signer token")?;
+    let mut buf = vec![0u8; mint::request_len(entries.len())];
+    let n = mint::encode_request(entries, &mut buf).ok_or("signer request")?;
+    let headers = Headers::new();
+    headers.set(admission::signer::TOKEN_HEADER, token.as_str()).map_err(|_| "signer request")?;
+    headers.set("content-type", admission::signer::MEDIA_TYPE).map_err(|_| "signer request")?;
+    let body = Uint8Array::from(buf.get(..n).ok_or("signer request")?);
+    let mut init = RequestInit::new();
+    init.with_method(Method::Post).with_headers(headers).with_body(Some(body.into()));
+    let url = format!("{}{}", admission::signer::ORIGIN, admission::signer::MINT_PATH);
+    let req = Request::new_with_init(&url, &init).map_err(|_| "signer request")?;
+    let service = env.service(admission::signer::BINDING).map_err(|_| "signer binding")?;
+    let mut r = service.fetch_request(req).await.map_err(|_| "signer unreachable")?;
+    if r.status_code() != 200 {
+        super::cf_io::discard(&mut r);
+        return Err("signer status");
+    }
+    let bytes = super::cf_io::response_bytes(&mut r, mint::reply_max(entries.len())).await.map_err(|_| "signer reply")?;
+    let reply = mint::decode_reply(&bytes, entries.len()).ok_or("signer reply")?;
+    let mut out = Vec::with_capacity(entries.len());
+    for (e, got) in entries.iter().zip(reply) {
+        let got = got.ok_or("signer reply")?;
+        if got.status != mint::Status::Ok || got.content_length != e.len || got.valid_secs == 0 {
+            return Err("signer refused an entry");
+        }
+        out.push(Minted { url: got.url.to_owned(), checksum: got.checksum.to_owned(), signed_at: got.signed_at, valid_secs: got.valid_secs });
+    }
+    Ok(out)
+}
+
+/// The upload path's end-to-end canary (skeptic K4): the signer mints a
+/// presigned PUT for a `health/` key (outside the events prefix) with the
+/// fixed 64-byte canary body, this Worker sends it to the S3 host (our own
+/// bytes, never a miner's), confirms it with `head()` (size and stored
+/// checksum), then deletes it. It does not exercise miners' Internet path.
+/// `Ok(Some(key))` when the canary passed but its delete must be retried.
+async fn canary(env: &Env, cohort: u64) -> std::result::Result<Option<String>, CanaryFailure> {
+    let mut nonce = [0u8; 32];
+    adm_random32().copy_to(&mut nonce);
+    let body = layout::canary_body(&nonce);
+    // The canary body is our own 64 bytes, a small record.
+    let sha: [u8; 32] = Sha256::digest(body).into();
+    let valid = policy::valid_secs(body.len() as u64).map_err(|_| CanaryFailure::Signer("canary validity"))?;
+    let entry = mint::Entry { op: mint::Op::Canary, cohort, commitment: nonce, sha256: sha, len: body.len() as u64, valid_secs: valid };
+    let minted = mint_urls(env, &[entry]).await.map_err(CanaryFailure::Signer)?;
+    let url = minted.first().ok_or(CanaryFailure::Signer("signer reply"))?;
+    let headers = Headers::new();
+    headers.set("if-none-match", slop_ninja_r2_presign::presign::IF_NONE_MATCH).map_err(|_| CanaryFailure::Path("canary request"))?;
+    headers.set("x-amz-checksum-sha256", &url.checksum).map_err(|_| CanaryFailure::Path("canary request"))?;
+    let mut init = RequestInit::new();
+    init.with_method(Method::Put).with_headers(headers).with_body(Some(Uint8Array::from(&body[..]).into()));
+    let req = Request::new_with_init(&url.url, &init).map_err(|_| CanaryFailure::Path("canary request"))?;
+    let mut r = worker::Fetch::Request(req).send().await.map_err(|_| CanaryFailure::Path("canary put unreachable"))?;
+    let status = r.status_code();
+    super::cf_io::discard(&mut r);
+    if status != 200 {
+        return Err(CanaryFailure::Path("canary put refused"));
+    }
+    let b = bucket(env).map_err(CanaryFailure::Path)?;
+    let key = layout::health_key(cohort, &nonce);
+    match head(&b, key.as_str()).await {
+        Head::Present(st) if st.size == body.len() as u64 && st.sha256 == Some(sha) => {}
+        Head::Present(_) => return Err(CanaryFailure::Path("canary stored otherwise")),
+        Head::Absent => return Err(CanaryFailure::Path("canary absent after its put")),
+        Head::Error => return Err(CanaryFailure::Path("canary head")),
+    }
+    Ok(b.delete(key.as_str().to_owned()).await.err().map(|_| key.as_str().to_owned()))
+}
+
 // ------------------------------------------------------- cohort object side
 
-type AdmissionBody = Forward;
-
 fn tx_or_unavailable<T>(r: std::result::Result<T, TxError<engine::EvalError>>) -> std::result::Result<T, Reply> {
-    r.map_err(|_| {
-        let mut e = admission::ApiError::new(slop_ninja_admission_wire::ErrorCode::Unavailable, "store");
-        e.retry_after = Some(2);
-        admission::reply_error(&e)
-    })
+    r.map_err(|_| unavailable())
+}
+
+fn unavailable() -> Reply {
+    let mut e = admission::ApiError::new(slop_ninja_admission_wire::ErrorCode::Unavailable, "store");
+    e.retry_after = Some(2);
+    admission::reply_error(&e)
 }
 
 impl EvalCohort {
-    /// The cohort object's `/admission/*` routes (from the Worker only).
+    /// The cohort object's `/admission/*` routes (from the Worker only): the
+    /// forwarded session operations, the unsigned cohort read, and
+    /// `observe` (the admission events Queue's consumer).
     pub(super) async fn admission_route(&self, req: &mut Request, path: &str) -> Result<Response> {
         let Some(chain) = chain(&self.env) else {
             return error("not_configured", 503);
@@ -185,122 +438,191 @@ impl EvalCohort {
                 Err(_) => error("store_unavailable", 503),
             };
         }
-        let b: AdmissionBody = match super::cf_io::request_json(req, interface_body_bytes()).await {
+        if path == "/admission/published" {
+            #[derive(Deserialize)]
+            #[serde(deny_unknown_fields)]
+            struct B {
+                cohort: u64,
+                label: String,
+                entrants: Vec<admission::PublicationEntry>,
+            }
+            let b: B = match super::cf_io::request_json(req, admission::PUBLICATION_REPORT_BYTES).await {
+                Ok(b) => b,
+                Err(e) => return error(e.code(), e.status()),
+            };
+            let now = now_ms();
+            return match transaction(&storage, move |sql| {
+                admission::publication_report(sql, b.cohort, &b.label, &b.entrants, now)
+            }) {
+                // Not this authority's cohort: never a 200, so the publisher
+                // keeps the report pending (its status shows it) instead of
+                // taking it as recorded.
+                Ok(v) if v["known"] == false => error("cohort_unknown", 404),
+                Ok(v) => {
+                    let _ = storage.set_alarm(500i64).await;
+                    json(&v)
+                }
+                Err(_) => error("store_unavailable", 503),
+            };
+        }
+        if path == "/admission/observe" {
+            #[derive(Deserialize)]
+            #[serde(deny_unknown_fields)]
+            struct B {
+                key: String,
+            }
+            let b: B = match super::cf_io::request_json(req, admission::EVENT_MESSAGE_BYTES).await {
+                Ok(b) => b,
+                Err(e) => return error(e.code(), e.status()),
+            };
+            return match self.observe(&chain, &b.key).await {
+                Ok(()) => json(&j!({"ok": true})),
+                Err(code) => error(code, 503),
+            };
+        }
+        let b: Forward = match super::cf_io::request_json(req, interface_body_bytes()).await {
             Ok(b) => b,
             Err(e) => return error(e.code(), e.status()),
         };
-        let now = now_ms();
         // The route fields must be the signed request's own (the key-holding
         // side re-derives what the upload Worker parsed).
-        let op = path.strip_prefix("/admission/").unwrap_or_default();
-        if !admission::forward_matches(op, &b) {
-            let reply = admission::forward_mismatch();
-            return if op == iface::op::PART_BEGIN { json(&j!({"reply": reply})) } else { json(&reply) };
+        let op = path.strip_prefix("/admission/").unwrap_or_default().to_owned();
+        if !admission::forward_matches(&op, &b) {
+            return json(&admission::forward_mismatch());
         }
-        let reply = match path {
-            "/admission/create" => {
-                let c2 = chain.clone();
-                let r = transaction(&storage, move |sql| {
-                    Ok::<_, engine::EvalError>(admission::create(sql, &c2, &b.signed, now))
-                });
-                match tx_or_unavailable(r) {
-                    Ok((reply, fx)) => {
-                        self.effects(fx).await;
-                        reply
-                    }
-                    Err(reply) => reply,
-                }
-            }
-            "/admission/read" => {
-                let r = transaction(&storage, move |sql| {
-                    Ok::<_, engine::EvalError>(admission::read(sql, &chain, &b.signed, &b.session))
-                });
-                tx_or_unavailable(r).unwrap_or_else(|e| e)
-            }
-            "/admission/part-begin" => {
-                // The owner's session whose multipart upload is not yet
-                // created gets it now: the request is authenticated and its
-                // ownership checked first, so no other request creates one.
-                let (id, c2, signed) = (b.session.clone(), chain.clone(), b.signed.clone());
-                if let Ok(Some((key, attempt))) =
-                    transaction(&storage, move |sql| Ok::<_, engine::EvalError>(admission::upload_missing_for(sql, &c2, &signed, &id)))
-                {
-                    self.effects(Effects {
-                        create: Some((key, b.session.clone(), attempt)),
-                        ..Default::default()
-                    })
-                    .await;
-                }
-                let r = transaction(&storage, move |sql| {
-                    Ok::<_, engine::EvalError>(admission::part_begin(
-                        sql,
-                        &chain,
-                        &b.signed,
-                        &b.session,
-                        b.part,
-                        b.content_length,
-                    ))
-                });
-                return match tx_or_unavailable(r) {
-                    Ok(Ok(t)) => json(&j!({"target": t})),
-                    Ok(Err(reply)) | Err(reply) => json(&j!({"reply": reply})),
-                };
-            }
-            "/admission/part-record" => {
-                let Some(t) = b.target else {
-                    return error("bad_internal_request", 400);
-                };
-                let r = transaction(&storage, move |sql| {
-                    Ok::<_, engine::EvalError>(admission::part_record(sql, &chain, &b.signed, &b.session, &t, &b.etag))
-                });
-                tx_or_unavailable(r).unwrap_or_else(|e| e)
-            }
-            "/admission/complete" => {
-                let id = b.session.clone();
-                let r = transaction(&storage, move |sql| {
-                    Ok::<_, engine::EvalError>(admission::complete(sql, &chain, &b.signed, &b.session, now))
-                });
-                match tx_or_unavailable(r) {
-                    Ok((reply, fx)) => {
-                        // The completion is durable work from here: run once
-                        // now, and resumed by the cohort's step until R2's
-                        // outcome is recorded.
-                        if fx.complete.is_some() {
-                            let _ = self.complete_step(&id).await;
-                        }
-                        let _ = storage.set_alarm(500i64).await;
-                        reply
-                    }
-                    Err(reply) => reply,
-                }
-            }
-            "/admission/abort" | "/admission/reopen" => {
-                let attempt = b.attempt.unwrap_or(0);
-                let abort = path == "/admission/abort";
-                let r = transaction(&storage, move |sql| {
-                    Ok::<_, engine::EvalError>(if abort {
-                        admission::abort(sql, &chain, &b.signed, &b.session, attempt, now)
-                    } else {
-                        admission::reopen(sql, &chain, &b.signed, &b.session, attempt, now)
-                    })
-                });
-                match tx_or_unavailable(r) {
-                    Ok((reply, fx)) => {
-                        self.effects(fx).await;
-                        reply
-                    }
-                    Err(reply) => reply,
-                }
-            }
-            "/admission/hotkey" => {
-                let r = transaction(&storage, move |sql| {
-                    Ok::<_, engine::EvalError>(admission::hotkey_view(sql, &chain, &b.signed, b.cohort, &b.hotkey))
-                });
-                tx_or_unavailable(r).unwrap_or_else(|e| e)
-            }
-            _ => return error("not_found", 404),
-        };
+        let reply = self.session_op(&op, &chain, b).await;
         json(&reply)
+    }
+
+    /// One session operation: its first transaction decides, then each
+    /// step's I/O runs and its result is recorded, at most
+    /// [`SESSION_STEPS`] steps.
+    async fn session_op(&self, op: &str, chain: &ChainBinding, b: Forward) -> Reply {
+        let storage = self.state.storage();
+        let now = now_ms();
+        let (c2, b2, op2) = (chain.clone(), b.clone(), op.to_owned());
+        let first = transaction(&storage, move |sql| {
+            Ok::<_, engine::EvalError>(match op2.as_str() {
+                iface::op::CREATE => admission::create(sql, &c2, &b2.signed, now),
+                iface::op::READ => Step::Reply(admission::read(sql, &c2, &b2.signed, &b2.session)),
+                iface::op::URLS => admission::urls(sql, &c2, &b2.signed, &b2.session),
+                iface::op::COMPLETE => admission::complete(sql, &c2, &b2.signed, &b2.session),
+                iface::op::REPAIR => admission::repair(sql, &c2, &b2.signed, &b2.session),
+                iface::op::HOTKEY => Step::Reply(admission::hotkey_view(sql, &c2, &b2.signed, b2.cohort, &b2.hotkey)),
+                _ => Step::Reply(admission::forward_mismatch()),
+            })
+        });
+        let mut step = match tx_or_unavailable(first) {
+            Ok(s) => s,
+            Err(reply) => return reply,
+        };
+        for _ in 0..SESSION_STEPS {
+            step = match step {
+                Step::Reply(r) => return r,
+                Step::Mint(job) => {
+                    let minted = mint_urls(&self.env, &job.entries).await;
+                    let now = now_ms();
+                    return transaction(&storage, move |sql| admission::finish_mint(sql, &job, minted, now))
+                        .unwrap_or_else(|_| unavailable());
+                }
+                Step::Header(job) => {
+                    let settled = self.settle(chain, &job).await;
+                    let (c2, b2, op2) = (chain.clone(), b.clone(), op.to_owned());
+                    let next = transaction(&storage, move |sql| {
+                        Ok::<_, engine::EvalError>(match op2.as_str() {
+                            iface::op::URLS => admission::urls_after(sql, &c2, &b2.signed, &b2.session, &settled),
+                            iface::op::COMPLETE => admission::complete_after(sql, &c2, &b2.signed, &b2.session, &settled),
+                            _ => Step::Reply(admission::read(sql, &c2, &b2.signed, &b2.session)),
+                        })
+                    });
+                    match tx_or_unavailable(next) {
+                        Ok(s) => s,
+                        Err(reply) => return reply,
+                    }
+                }
+                Step::Heads(probes) => {
+                    let who = if op == iface::op::REPAIR { Recorder::Recorded } else { Recorder::Upload };
+                    self.record_heads(probes, who).await;
+                    let b2 = b.clone();
+                    let op2 = op.to_owned();
+                    let next = transaction(&storage, move |sql| {
+                        Ok::<_, engine::EvalError>(match op2.as_str() {
+                            iface::op::REPAIR => admission::repair_after(sql, &b2.session),
+                            _ => admission::complete_reply(sql, &b2.session)
+                                .map_or_else(|e| Step::Reply(admission::reply_error(&e)), Step::Reply),
+                        })
+                    });
+                    match tx_or_unavailable(next) {
+                        Ok(s) => s,
+                        Err(reply) => return reply,
+                    }
+                }
+            };
+        }
+        unavailable()
+    }
+
+    /// Settles one header (its I/O, then [`admission::apply_header`]); a
+    /// header that refused its session is deleted while it keeps the tag
+    /// seen. Arms the alarm when the session may have moved on.
+    async fn settle(&self, chain: &ChainBinding, job: &HeaderJob) -> Settled {
+        let seen = settle_header(&self.env, job).await;
+        let storage = self.state.storage();
+        let (c2, j2, now) = (chain.clone(), job.clone(), now_ms());
+        let settled = match transaction(&storage, move |sql| admission::apply_header(sql, &c2, &j2, seen, now)) {
+            Ok(s) => s,
+            Err(_) => Settled::Platform("store"),
+        };
+        if let Settled::Refused(Some(d)) | Settled::Unclean(d) = &settled {
+            delete_if(&self.env, &storage, d).await;
+        }
+        settled
+    }
+
+    /// Heads probes and records them ([`admission::apply_heads`]); deletes
+    /// the mismatched objects it found. Arms the alarm when a session may
+    /// have completed (its manifest step is next).
+    async fn record_heads(&self, probes: Vec<Probe>, who: Recorder) -> Applied {
+        if probes.is_empty() {
+            return Applied::default();
+        }
+        let seen = heads(&self.env, probes).await;
+        let storage = self.state.storage();
+        let now = now_ms();
+        let applied = transaction(&storage, move |sql| admission::apply_heads(sql, &seen, who, now))
+            .unwrap_or(Applied { deletes: Vec::new(), platform: true });
+        for d in &applied.deletes {
+            delete_if(&self.env, &storage, d).await;
+        }
+        let _ = storage.set_alarm(500i64).await;
+        applied
+    }
+
+    /// An R2 object-create event for `key` (a wakeup only): settles that
+    /// object as a client request would, or deletes an object no live
+    /// session holds.
+    async fn observe(&self, chain: &ChainBinding, key: &str) -> std::result::Result<(), &'static str> {
+        let storage = self.state.storage();
+        let k = key.to_owned();
+        let o = transaction(&storage, move |sql| admission::observe(sql, &k)).map_err(|_| "store_unavailable")?;
+        match o {
+            Observed::Nothing => {}
+            Observed::Delete(k) => {
+                let b = bucket(&self.env)?;
+                if b.delete(k.clone()).await.is_err() {
+                    let now = now_ms();
+                    transaction(&storage, move |sql| admission::object_delete_failed(sql, &k, now)).map_err(|_| "store_unavailable")?;
+                }
+            }
+            Observed::Header(job) => {
+                self.settle(chain, &job).await;
+            }
+            Observed::Heads(probes) => {
+                let who = if probes.iter().any(|p| p.etag.is_some()) { Recorder::Recorded } else { Recorder::Upload };
+                self.record_heads(probes, who).await;
+            }
+        }
+        Ok(())
     }
 
     /// Whether the cohort object's heartbeat is fresh (the coordinator is
@@ -312,106 +634,37 @@ impl EvalCohort {
             .unwrap_or(false)
     }
 
-    /// Writes the cohort snapshot (`internal::CohortSnapshot`) to the upload
-    /// bucket: the cohort response as this object answers it now, and when.
+    /// Writes the cohort snapshot (`internal::CohortSnapshot`) to the
+    /// eval bucket (review round 2: not the admission bucket, which the
+    /// presigning credential can write): the cohort response as this object
+    /// answers it now, and when, with the hotkeys waiting for a repair (the
+    /// gate's exemption from registration, `admission::repair_list`).
     /// Called at every heartbeat (`/kick`) of the configured main authority,
     /// so the snapshot follows the cursor about once a block. A failed write
     /// is left to the next heartbeat; a snapshot over the bound the upload
     /// Worker reads within is not written.
     pub(super) async fn write_cohort_snapshot(&self) {
         let Some(chain) = chain(&self.env) else { return };
-        let Ok(bucket) = self.env.bucket(ADMISSION_BUCKET) else { return };
+        let Ok(bucket) = self.env.bucket(EVAL_BUCKET) else { return };
         let paused = !self.fresh();
         let storage = self.state.storage();
-        let Ok(cohort) = transaction(&storage, move |sql| admission::cohort_info(sql, &chain, paused)) else {
+        let Ok((cohort, (repair, repair_all))) = transaction(&storage, move |sql| {
+            Ok::<_, engine::EvalError>((admission::cohort_info(sql, &chain, paused)?, admission::repair_list(sql)?))
+        }) else {
             return;
         };
         let snap = iface::CohortSnapshot {
             schema: iface::COHORT_SNAPSHOT_SCHEMA.into(),
             written_ms: now_ms(),
             cohort,
+            repair,
+            repair_all,
         };
         let Ok(bytes) = serde_json::to_vec(&snap) else { return };
         if bytes.len() > iface::cohort_snapshot_limit() {
             return;
         }
         let _ = bucket.put(iface::COHORT_SNAPSHOT_KEY, bytes).execute().await;
-    }
-
-    /// Performs a session operation's R2 control effects after its
-    /// transaction committed, then records their results.
-    async fn effects(&self, fx: Effects) {
-        let Ok(bucket) = self.env.bucket(ADMISSION_BUCKET) else {
-            return;
-        };
-        for (key, upload_id) in fx.abort {
-            if let Some(id) = upload_id
-                && let Ok(u) = bucket.resume_multipart_upload(key.clone(), id)
-            {
-                let _ = u.abort().await;
-            }
-            let _ = bucket.delete(key).await;
-        }
-        if let Some((key, session, attempt)) = fx.create
-            && let Ok(u) = bucket.create_multipart_upload(key).execute().await
-        {
-            let id = u.upload_id().await;
-            let storage = self.state.storage();
-            let stored = transaction(&storage, move |sql| {
-                admission::set_upload_id(sql, &session, attempt, &id)
-            });
-            // Another creation stored its upload first (or the record
-            // failed): this one would be orphaned, so it is aborted.
-            if !matches!(stored, Ok(true)) {
-                let _ = u.abort().await;
-            }
-        }
-    }
-
-    /// One completion step of a session in stage `complete`: completes its
-    /// multipart upload. R2's success, or the object found at the envelope's
-    /// length (a completion that succeeded before its outcome was recorded),
-    /// moves it to framing; a definitive refusal (a part that changed or went
-    /// missing, an upload gone with no object) ends it with
-    /// `object_mismatch`; anything else is retried after a backoff.
-    async fn complete_step(&self, id: &str) -> std::result::Result<(), &'static str> {
-        let storage = self.state.storage();
-        let now = now_ms();
-        let sid = id.to_owned();
-        let Some(((key, upload_id, parts), len)) =
-            transaction(&storage, move |sql| admission::completion_begin(sql, &sid, now)).map_err(|_| "completion")?
-        else {
-            return Ok(());
-        };
-        let bucket = self.env.bucket(ADMISSION_BUCKET).map_err(|_| "upload bucket")?;
-        let refused = match bucket.resume_multipart_upload(key.clone(), upload_id) {
-            Ok(u) => match u
-                .complete(parts.into_iter().map(|(n, etag)| worker::UploadedPart::new(n, etag)))
-                .await
-            {
-                Ok(_) => Some(false),
-                Err(e) => admission::completion_refused(&e.to_string()).then_some(true),
-            },
-            Err(e) => admission::completion_refused(&e.to_string()).then_some(true),
-        };
-        // `Some(false)`: completed. Otherwise the object decides: present at
-        // the envelope's length, the upload completed earlier.
-        let outcome = match refused {
-            Some(false) => Some(true),
-            other => match bucket.head(key).await {
-                Ok(Some(o)) if o.size() == len => Some(true),
-                Ok(_) if other == Some(true) => Some(false),
-                _ => None,
-            },
-        };
-        let now = now_ms();
-        let id = id.to_owned();
-        transaction(&storage, move |sql| match outcome {
-            Some(true) => admission::completed(sql, &id, now),
-            Some(false) => admission::completion_failed(sql, &id, now),
-            None => admission::step_retry(sql, &id, false, now),
-        })
-        .map_err(|_| "completion commit")
     }
 
     /// The cohort object's `/template`, `/template/pause` and `/calendar`
@@ -483,44 +736,6 @@ impl EvalCohort {
                     Err(TxError::Operation(e)) => error(e.code(), 400),
                     Err(TxError::Runtime) => error("store_unavailable", 503),
                 }
-            }
-            (Method::Post, "/session/dispatch") => {
-                // The operator's way out of a dispatch whose message was
-                // lost: send it again under its number, or clear it so the
-                // step dispatches afresh (`admission::operator_dispatch`).
-                #[derive(Deserialize)]
-                #[serde(deny_unknown_fields)]
-                struct B {
-                    session: String,
-                    dispatch: u32,
-                    action: String,
-                }
-                let b: B = match super::cf_io::request_json(req, 1024).await {
-                    Ok(b) => b,
-                    Err(e) => return error(e.code(), e.status()),
-                };
-                let clear = match b.action.as_str() {
-                    "clear" => true,
-                    "resend" => false,
-                    _ => return error("bad_action", 400),
-                };
-                let (id, n) = (b.session.clone(), b.dispatch);
-                let found = match transaction(&storage, move |sql| admission::operator_dispatch(sql, &id, n, clear, now)) {
-                    Ok(f) => f,
-                    Err(TxError::Operation(e)) => return error(e.code(), 400),
-                    Err(TxError::Runtime) => return error("store_unavailable", 503),
-                };
-                let Some(d) = found else {
-                    return json(&j!({"outstanding": false}));
-                };
-                if clear {
-                    storage.set_alarm(500i64).await?;
-                    return json(&j!({"outstanding": true, "cleared": true}));
-                }
-                let by = self.incarnation;
-                let sent = self.send_work(d.message(cfg.kick_authority())).await
-                    && transaction(&storage, move |sql| admission::dispatch_resent(sql, &b.session, n, by)).is_ok();
-                json(&j!({"outstanding": true, "resent": sent}))
             }
             (Method::Get, "/calendar") => match transaction(&storage, calendar::view) {
                 Ok(v) => json(&v),
@@ -643,153 +858,150 @@ impl EvalCohort {
         cfg: &engine::EvalConfig,
     ) -> std::result::Result<(), &'static str> {
         match work {
-            engine::Work::AdmissionVerify { session, stage } if stage == "complete" => {
-                self.complete_step(&session).await
-            }
-            engine::Work::AdmissionVerify { session, .. } => self.dispatch(&session, cfg).await,
+            engine::Work::AdmissionVerify { session, stage } if stage == "manifest" => self.manifest_step(&session).await,
+            engine::Work::AdmissionVerify { session, .. } => self.audit_step(&session).await,
+            engine::Work::AdmissionCanary => self.canary_step().await,
+            engine::Work::AdmissionClose => self.close_step().await,
+            engine::Work::AdmissionSweep => self.sweep_step(&cfg.chain).await,
             engine::Work::AdmissionLanes => self.lanes().await,
             engine::Work::AdmissionCleanup => self.cleanup().await,
+            engine::Work::AdmissionReconcile => self.reconcile_step().await,
             engine::Work::OpenNext { label, plan } => self.open_next(cfg, &label, plan).await,
             _ => Ok(()),
         }
     }
 
-    /// Dispatches a session's due framing or blob step to the Queue
-    /// consumer: the dispatch is recorded first (`pending`, under this
-    /// incarnation), then its content-free message is sent and, once the
-    /// Queue accepted it, marked `sent`. Nothing here calls the upload
-    /// Worker or copies a byte, so this object's thread never carries that
-    /// work. A send the Queue refuses clears the dispatch (uncounted) and
-    /// backs the session off; when even that clearing fails, the next
-    /// heartbeat kick sends it again ([`Self::resend_dispatches`]). There
-    /// is no in-object fallback.
-    async fn dispatch(&self, session: &str, cfg: &engine::EvalConfig) -> std::result::Result<(), &'static str> {
+    /// Writes a verifying session's files manifest v2 to the eval bucket
+    /// (a small record the eval Worker builds; no upload byte), then its
+    /// admission run is next.
+    async fn manifest_step(&self, session: &str) -> std::result::Result<(), &'static str> {
         let storage = self.state.storage();
-        let (id, now, by) = (session.to_owned(), now_ms(), self.incarnation);
-        let Some(d) =
-            transaction(&storage, move |sql| admission::dispatch_begin(sql, &id, by, now)).map_err(|_| "dispatch")?
-        else {
-            return Ok(());
-        };
-        let (id, n) = (session.to_owned(), d.dispatch);
-        if self.send_work(d.message(cfg.kick_authority())).await {
-            if transaction(&storage, move |sql| admission::dispatch_sent(sql, &id, n)).is_err() {
-                // Still `pending` and this incarnation's: harmless (the
-                // message is on the Queue); the next kick's re-send makes
-                // it `sent`.
-                self.resend_own.set(true);
+        let id = session.to_owned();
+        let due = transaction(&storage, move |sql| admission::manifest_due(sql, &id));
+        let now = now_ms();
+        let Ok(Some((key, bytes))) = due else {
+            let id = session.to_owned();
+            if due.is_err() {
+                transaction(&storage, move |sql| admission::step_failed(sql, &id, now)).map_err(|_| "manifest commit")?;
             }
             return Ok(());
-        }
-        let now = now_ms();
-        if transaction(&storage, move |sql| admission::dispatch_unsent(sql, &id, n, now)).is_err() {
-            self.resend_own.set(true);
-        }
-        Err("dispatch send")
+        };
+        let bucket = self.env.bucket(EVAL_BUCKET).map_err(|_| "eval bucket")?;
+        let ok = super::cf_io::r2_put(&bucket, &key, &bytes, None).await;
+        let (id, env, now) = (session.to_owned(), admission_env(&self.env), now_ms());
+        transaction(&storage, move |sql| {
+            if ok { admission::manifest_written(sql, &env, &id, now) } else { admission::step_failed(sql, &id, now) }
+        })
+        .map_err(|_| "manifest commit")
     }
 
-    /// Sends one admission work message on the lane-wakeup Queue.
-    async fn send_work(&self, msg: WorkMessage) -> bool {
-        match self.env.queue(&crate::config::binding(eval_do::LANE_QUEUE, crate::config::NETWORK)) {
-            Ok(q) => q.send(msg).await.is_ok(),
-            Err(_) => false,
-        }
-    }
-
-    /// At a heartbeat kick: sends again every outstanding dispatch another
-    /// incarnation of this object recorded, and this incarnation's own
-    /// `pending` ones after one of its sends could not be settled
-    /// (`admission::dispatches_to_resend`; the "work dispatches" notes).
-    /// The kick is the event; nothing here waits on elapsed time.
-    pub(super) async fn resend_dispatches(&self, cfg: &engine::EvalConfig) {
+    /// Audits a session whose admission run met a missing or changed object.
+    async fn audit_step(&self, session: &str) -> std::result::Result<(), &'static str> {
         let storage = self.state.storage();
-        let (by, own) = (self.incarnation, self.resend_own.replace(false));
-        let Ok(list) = transaction(&storage, move |sql| admission::dispatches_to_resend(sql, by, own)) else {
-            self.resend_own.set(own);
-            return;
-        };
-        for d in list {
-            let (id, n) = (d.session.clone(), d.dispatch);
-            let settled = self.send_work(d.message(cfg.kick_authority())).await
-                && transaction(&storage, move |sql| admission::dispatch_resent(sql, &id, n, by)).is_ok();
-            if !settled {
-                self.resend_own.set(true);
-            }
-        }
+        let id = session.to_owned();
+        let probes = transaction(&storage, move |sql| admission::audit_probes(sql, &id)).map_err(|_| "audit")?;
+        let applied = self.record_heads(probes, Recorder::Recorded).await;
+        let (id, now) = (session.to_owned(), now_ms());
+        transaction(&storage, move |sql| admission::audit_done(sql, &id, &applied, now)).map_err(|_| "audit commit")
     }
 
-    /// The cohort object's `/admission-work/*` routes (the Queue consumer's
-    /// takes and reports of framing and blob dispatches), one short
-    /// transaction each; a report that may make the next step due arms the
-    /// alarm.
-    pub(super) async fn work_route(&self, req: &mut Request, path: &str) -> Result<Response> {
-        let Some(chain) = chain(&self.env) else {
-            return error("not_configured", 503);
-        };
-        let b: WorkBody = match super::cf_io::request_json(req, admission::WORK_BODY_BYTES).await {
-            Ok(b) => b,
-            Err(e) => return error(e.code(), e.status()),
-        };
+    /// The upload path's canary (the close's first step, and the retry
+    /// while a fault is outstanding).
+    async fn canary_step(&self) -> std::result::Result<(), &'static str> {
         let storage = self.state.storage();
         let now = now_ms();
-        let env = admission_env(&self.env);
-        let arms = matches!(path, "/admission-work/frame" | "/admission-work/blobs-written" | "/admission-work/blobs-failed");
-        let r = match path {
-            // The take reply is serialized straight from the record (no
-            // intermediate JSON value): the route's footprint holds the
-            // stored record, its parse and this one serialization
-            // (`arena_routes::cohort_work_bytes`).
-            "/admission-work/take" => {
-                let r = transaction(&storage, move |sql| {
-                    admission::take(sql, &b.session, b.dispatch, now).and_then(|t| admission::json_exact(&t))
-                });
-                return match r {
-                    Ok(body) => {
-                        let mut resp = Response::ok(body)?;
-                        resp.headers_mut().set("Content-Type", "application/json")?;
-                        resp.headers_mut().set("Cache-Control", "no-store")?;
-                        Ok(resp)
+        let Some(cohort) = transaction(&storage, move |sql| admission::canary_begin(sql, now)).map_err(|_| "canary")? else {
+            return Ok(());
+        };
+        let outcome = canary(&self.env, cohort).await;
+        // The canary also covers the front every session passes before any
+        // file URL exists: the upload Worker's header route and its
+        // registration read (review finding: their outage must defer the
+        // close too).
+        let outcome = match outcome {
+            Ok(k) => match header_probe(&self.env).await {
+                Ok(()) => Ok(k),
+                Err(code) => match k {
+                    Some(undeleted) => {
+                        let (u, now) = (undeleted, now_ms());
+                        let _ = transaction(&storage, move |sql| admission::object_delete_failed(sql, &u, now));
+                        Err(CanaryFailure::Front(code))
                     }
-                    Err(_) => error("store_unavailable", 503),
-                };
-            }
-            "/admission-work/frame" => {
-                let (Some(key), Some(report)) = (b.key, b.report) else {
-                    return error("bad_internal_request", 400);
-                };
-                transaction(&storage, move |sql| {
-                    admission::frame_reported(sql, &chain, &b.session, b.dispatch, &key, report, now).map(|()| j!({"ok": true}))
-                })
-            }
-            "/admission-work/blobs-created" => transaction(&storage, move |sql| {
-                admission::blobs_created(sql, &b.session, b.dispatch, &b.created, b.manifest).map(|go| j!({"go": go}))
-            }),
-            "/admission-work/blobs-written" | "/admission-work/blobs-failed" => {
-                let failed = (path == "/admission-work/blobs-failed").then(|| b.code.unwrap_or_else(|| "blobs_failed".into()));
-                transaction(&storage, move |sql| {
-                    admission::blobs_reported(sql, &env, &b.session, b.dispatch, failed.as_deref(), now)
-                        .map(|()| j!({"ok": true}))
-                })
-            }
-            // A delivery that ended before it could report (its work scope
-            // refused): recorded for the status only.
-            "/admission-work/undelivered" => {
-                let code = b.code.unwrap_or_default();
-                transaction(&storage, move |sql| {
-                    admission::delivery_failed(sql, &b.session, b.dispatch, &code).map(|()| j!({"ok": true}))
-                })
-            }
-            _ => return error("not_found", 404),
+                    None => Err(CanaryFailure::Front(code)),
+                },
+            },
+            Err(f) => Err(f),
         };
-        match r {
-            Ok(v) => {
-                if arms {
-                    let _ = storage.set_alarm(500i64).await;
-                }
-                json(&v)
+        let now = now_ms();
+        let (result, undeleted) = match outcome {
+            Ok(k) => (Ok(()), k),
+            Err(f) => (Err(f), None),
+        };
+        transaction(&storage, move |sql| {
+            admission::canary_done(sql, result, now)?;
+            if let Some(k) = &undeleted {
+                admission::object_delete_failed(sql, k, now)?;
             }
-            Err(_) => error("store_unavailable", 503),
+            Ok::<_, engine::EvalError>(())
+        })
+        .map_err(|_| "canary commit")
+    }
+
+    /// One batch of the close sweep.
+    async fn close_step(&self) -> std::result::Result<(), &'static str> {
+        let storage = self.state.storage();
+        let now = now_ms();
+        let Some((seq, probes)) = transaction(&storage, move |sql| admission::close_begin(sql, now)).map_err(|_| "close")? else {
+            return Ok(());
+        };
+        let applied = self.record_heads(probes, Recorder::Close).await;
+        let now = now_ms();
+        transaction(&storage, move |sql| admission::close_step_done(sql, seq, &applied, now)).map_err(|_| "close commit")
+    }
+
+    /// The alarm sweep: headers settled, unrecorded files and objects
+    /// awaiting repair headed.
+    async fn sweep_step(&self, chain: &ChainBinding) -> std::result::Result<(), &'static str> {
+        let storage = self.state.storage();
+        let now = now_ms();
+        let Some(sweep) = transaction(&storage, move |sql| admission::sweep_begin(sql, now)).map_err(|_| "sweep")? else {
+            return Ok(());
+        };
+        for job in &sweep.headers {
+            self.settle(chain, job).await;
         }
+        let (recorded, upload): (Vec<Probe>, Vec<Probe>) = sweep.heads.into_iter().partition(|p| p.etag.is_some());
+        self.record_heads(upload, Recorder::Upload).await;
+        self.record_heads(recorded, Recorder::Recorded).await;
+        Ok(())
+    }
+
+    /// One page of the standing reconciliation of `admission/v2/`: every key
+    /// no live session holds is deleted (a stale URL recreated it).
+    async fn reconcile_step(&self) -> std::result::Result<(), &'static str> {
+        let storage = self.state.storage();
+        let now = now_ms();
+        let Some(cursor) = transaction(&storage, move |sql| admission::reconcile_begin(sql, now)).map_err(|_| "reconcile")? else {
+            return Ok(());
+        };
+        let b = bucket(&self.env)?;
+        let mut list = b.list().prefix(layout::ADMISSION_PREFIX.to_owned());
+        if let Some(c) = cursor {
+            list = list.cursor(c);
+        }
+        let page = list.execute().await.map_err(|_| "reconcile list")?;
+        let keys: Vec<String> = page.objects().iter().map(worker::Object::key).collect();
+        let next = if page.truncated() { page.cursor() } else { None };
+        let now = now_ms();
+        let gone = transaction(&storage, move |sql| admission::reconcile_page(sql, &keys, next.as_deref(), now))
+            .map_err(|_| "reconcile commit")?;
+        for k in gone {
+            if b.delete(k.clone()).await.is_err() {
+                let now = now_ms();
+                let _ = transaction(&storage, move |sql| admission::object_delete_failed(sql, &k, now));
+            }
+        }
+        Ok(())
     }
 
     /// Runs the claimable verdicts on fresh scorer instances, at most
@@ -871,55 +1083,32 @@ impl EvalCohort {
         results.into_iter().collect()
     }
 
+    /// Deletes the queued objects; a delete the bucket does not confirm
+    /// backs its row off and the others still run.
     async fn cleanup(&self) -> std::result::Result<(), &'static str> {
         let storage = self.state.storage();
         let now = now_ms();
-        let due = transaction(&storage, move |sql| admission::cleanup_due(sql, eval_do::PARALLEL as i64, now))
-            .map_err(|_| "cleanup due")?;
-        // Uploaded objects and their multipart uploads are in the upload
-        // bucket; the blobs and manifest a session's copies created are in
-        // the eval bucket.
-        let uploads = self.env.bucket(ADMISSION_BUCKET).map_err(|_| "upload bucket")?;
-        let bucket = self.env.bucket(EVAL_BUCKET).map_err(|_| "eval bucket")?;
-        // A delete the bucket does not confirm backs its row off and the
-        // others still run (`admission::cleanup_failed`,
-        // `object_delete_failed`): housekeeping never fails the step.
-        for (id, key, upload_id) in due {
-            if let Some(u) = upload_id
-                && let Ok(m) = uploads.resume_multipart_upload(key.clone(), u)
-            {
-                let _ = m.abort().await;
-            }
-            let mut ok = uploads.delete(key).await.is_ok();
-            if ok {
-                // The blobs and manifest only this session's copies created.
-                let sid = id.clone();
-                let extra = transaction(&storage, move |sql| admission::cleanup_begin(sql, &sid))
-                    .map_err(|_| "cleanup keys")?;
-                for k in extra {
-                    if bucket.delete(k).await.is_err() {
-                        ok = false;
-                        break;
-                    }
-                }
-            }
-            let now = now_ms();
-            if ok {
-                transaction(&storage, move |sql| admission::mark_cleaned(sql, &id)).map_err(|_| "cleanup commit")?;
-            } else {
-                transaction(&storage, move |sql| admission::cleanup_failed(sql, &id, now))
-                    .map_err(|_| "cleanup commit")?;
-            }
-        }
-        // Aborted attempts' objects: the abort's own delete is best effort;
-        // each stays recorded until the bucket confirms it here.
-        let pending =
-            transaction(&storage, move |sql| admission::object_deletes_due(sql, eval_do::PARALLEL as i64, now))
-                .map_err(|_| "object deletes due")?;
+        let pending = transaction(&storage, move |sql| {
+            admission::object_deletes_due(sql, admission::R2_CALLS_PER_STEP as i64, now)
+        })
+        .map_err(|_| "object deletes due")?;
+        let uploads = bucket(&self.env)?;
         for (key, upload_id) in pending {
+            // A key a live session holds (it was recorded, or re-PUT, since
+            // the delete was queued) is never deleted from the queue: that
+            // session's own heads delete an unclean copy conditionally.
+            let k = key.clone();
+            let allowed = transaction(&storage, move |sql| admission::queued_delete_allowed(sql, &k))
+                .map_err(|_| "object delete check")?;
+            if !allowed {
+                let k = key.clone();
+                transaction(&storage, move |sql| admission::object_deleted(sql, &k)).map_err(|_| "object delete commit")?;
+                continue;
+            }
             if let Some(u) = upload_id
                 && let Ok(m) = uploads.resume_multipart_upload(key.clone(), u)
             {
+                // A v1 multipart upload left by the store migration.
                 let _ = m.abort().await;
             }
             let ok = uploads.delete(key.clone()).await.is_ok();
@@ -1019,227 +1208,101 @@ pub fn admission_env(env: &Env) -> AdmissionEnv {
     }
 }
 
-/// Copies `len` bytes at `offset` of `key` in `source` (the upload bucket)
-/// to `dest` in `bucket` (the eval bucket) as a JS stream (no byte enters
-/// Rust).
-async fn copy_range(
-    source: &worker::Bucket,
-    key: &str,
-    offset: u64,
-    len: u64,
-    bucket: &worker::Bucket,
-    dest: &str,
-) -> std::result::Result<(), &'static str> {
-    let src: &JsValue = source.as_ref();
-    let b: &JsValue = bucket.as_ref();
-    let obj = match super::cf_io::settle(adm_get(src, key, Some(offset as f64), Some(len as f64)), None).await {
-        super::cf_io::Settled::Value(v) if !v.is_null() && !v.is_undefined() => v,
-        _ => return Err("slice read"),
+// ------------------------------------------------- the events consumer
+
+/// The admission events Queue's consumer (eval deployment only): each R2
+/// object-create notification, refused past its bound before it is decoded
+/// (`admission::EVENT_MESSAGE_BYTES`), names a key the cohort object then
+/// observes (it heads the object itself: the payload carries no checksum,
+/// and a forged or repeated message costs one head). A message whose key is
+/// not an admission object's is acknowledged and dropped; one the cohort
+/// object could not take is retried.
+pub async fn events(batch: worker::worker_sys::MessageBatch, env: Env, scope: slop_ninja_arena::ScopeRef) -> Result<()> {
+    let Ok(all) = batch.messages() else {
+        let _ = batch.retry_all(JsValue::UNDEFINED);
+        return Ok(());
     };
-    let body = Reflect::get(&obj, &JsValue::from_str("body")).map_err(|_| "slice body")?;
-    let fixed = adm_fixed(&body, len as f64);
-    let put: Function = Reflect::get(b, &JsValue::from_str("put"))
-        .ok()
-        .and_then(|f| f.dyn_into().ok())
-        .ok_or("put")?;
-    let promise: js_sys::Promise = put
-        .call2(b, &JsValue::from_str(dest), &fixed)
-        .ok()
-        .and_then(|p| p.dyn_into().ok())
-        .ok_or("put")?;
-    match super::cf_io::settle(promise, None).await {
-        super::cf_io::Settled::Value(_) => Ok(()),
-        _ => Err("slice put"),
-    }
-}
-
-// ------------------------------------------------- Queue consumer side
-
-/// One admission work delivery of the Queue consumer (its own invocation,
-/// never the cohort object's): takes the dispatch from the cohort object,
-/// frames the object through the upload Worker or copies its slices, and
-/// reports the result. `true` when the delivery is settled (acknowledge it);
-/// `false` when the cohort object could not be reached to take it or record
-/// the result (retry it: a redelivery takes the same dispatch again).
-pub async fn work(env: &Env, w: &WorkMessage) -> bool {
-    let ids = j!({"session": w.session, "dispatch": w.dispatch});
-    let Ok(take) = work_call::<Take>(env, w, "/admission-work/take", &ids.to_string()).await else {
-        return false;
-    };
-    match take {
-        Take::Stale => true,
-        Take::Frame { key, len, spec } => {
-            let body = match frame_call(env, &key, len, &spec).await {
-                // The outcome's own JSON, checked to parse as an outcome,
-                // goes on as is: the object applies it as it would have
-                // applied its own call's answer.
-                Ok(raw) => admission::frame_report_body(&w.session, w.dispatch, &key, &raw),
-                Err((kind, _)) => {
-                    j!({"session": w.session, "dispatch": w.dispatch, "key": key, "report": FrameReport::Failed(kind)})
-                        .to_string()
-                }
-            };
-            work_call::<Value>(env, w, "/admission-work/frame", &body).await.is_ok()
-        }
-        Take::Blobs { key, record } => {
-            let body = match copy_blobs(env, w, &key, &record).await {
-                BlobEnd::Copied => ("/admission-work/blobs-written", ids.to_string()),
-                BlobEnd::Failed(code) => (
-                    "/admission-work/blobs-failed",
-                    j!({"session": w.session, "dispatch": w.dispatch, "code": code}).to_string(),
-                ),
-                BlobEnd::Stale => return true,
-                BlobEnd::Unreachable => return false,
-            };
-            work_call::<Value>(env, w, body.0, &body.1).await.is_ok()
-        }
-    }
-}
-
-/// A delivery of `w` that could not run (its work scope was refused):
-/// best effort, the cohort object records `code` for its status.
-pub async fn undelivered(env: &Env, w: &WorkMessage, code: &str) {
-    let body = j!({"session": w.session, "dispatch": w.dispatch, "code": code}).to_string();
-    let _ = work_call::<Value>(env, w, "/admission-work/undelivered", &body).await;
-}
-
-/// A call to the cohort authority that dispatched `w`, answered within the
-/// admission work bound.
-async fn work_call<T: serde::de::DeserializeOwned>(env: &Env, w: &WorkMessage, path: &str, body: &str) -> std::result::Result<T, ()> {
-    let authority = w.authority.as_deref().unwrap_or(crate::config::ORIGINAL_AUTHORITY);
-    let mut r = eval_do::authority_fetch(env, engine::INSTANCE_MAIN, authority, Method::Post, path, Some(body.to_owned()), None)
-        .await
-        .map_err(|_| ())?;
-    if r.status_code() != 200 {
-        super::cf_io::discard(&mut r);
-        return Err(());
-    }
-    super::cf_io::response_json::<T>(&mut r, admission::WORK_BODY_BYTES).await.map_err(|_| ())
-}
-
-/// How a blob delivery's copies ended.
-enum BlobEnd {
-    /// Every slice and the manifest are in the blob store.
-    Copied,
-    /// A read, head, copy or put failed (its code): reported, and the
-    /// session backs off.
-    Failed(&'static str),
-    /// The dispatch is no longer outstanding: nothing copied.
-    Stale,
-    /// The cohort object could not record the creations: retried.
-    Unreachable,
-}
-
-/// The blob copies of one framed session: the slices the blob store lacks
-/// (each digest once) and whether the manifest is missing are recorded at
-/// the cohort object before anything is copied, so its clean-up knows what
-/// this delivery may create; then the copies and the manifest.
-async fn copy_blobs(env: &Env, w: &WorkMessage, key: &str, rec: &FrameRecord) -> BlobEnd {
-    let (Ok(bucket), Ok(uploads)) = (env.bucket(EVAL_BUCKET), env.bucket(ADMISSION_BUCKET)) else {
-        return BlobEnd::Failed("bucket_binding");
-    };
-    let mut missing: Vec<&admission::Slice> = Vec::new();
-    for sl in &rec.slices {
-        if missing.iter().any(|m| m.sha256 == sl.sha256) {
+    for v in all.iter() {
+        let m: worker::worker_sys::Message = v.unchecked_into();
+        // The message's size is checked on the JS string before any copy
+        // enters this isolate's memory: its UTF-8 form is at least as long
+        // as its UTF-16 length, so a longer string is refused uncopied, and
+        // a copy is at most three bytes per unit (`event_key` then checks
+        // the exact bound).
+        let key = m
+            .body()
+            .ok()
+            .and_then(|b| js_sys::JSON::stringify(&b).ok())
+            .filter(|s| s.length() as usize <= admission::EVENT_MESSAGE_BYTES)
+            .and_then(|s| s.as_string())
+            .and_then(|s| admission::event_key(&s));
+        let Some(key) = key else {
+            let _ = m.ack();
             continue;
-        }
-        match bucket.head(format!("artifacts/blobs/{}", sl.sha256)).await {
-            Ok(Some(_)) => {}
-            Ok(None) => missing.push(sl),
-            Err(_) => return BlobEnd::Failed("blob_head"),
-        }
+        };
+        let delivered = match scope.child_physical(crate::arena_routes::R_QUEUE_ADMISSION, crate::arena_routes::ADMISSION_EVENT_BYTES) {
+            Ok(child) => {
+                let body = j!({"key": key}).to_string();
+                let r = match child.scoped(cohort_fetch(&env, engine::INSTANCE_MAIN, Method::Post, "/admission/observe", Some(body))) {
+                    Ok(f) => match f.await {
+                        Ok(mut r) => {
+                            let ok = r.status_code() == 200;
+                            super::cf_io::discard(&mut r);
+                            ok
+                        }
+                        Err(_) => false,
+                    },
+                    Err(_) => false,
+                };
+                let _ = child.close();
+                r
+            }
+            Err(_) => false,
+        };
+        let _ = if delivered { m.ack() } else { m.retry(JsValue::UNDEFINED) };
     }
-    let manifest_missing = match bucket.head(rec.manifest_key.clone()).await {
-        Ok(o) => o.is_none(),
-        Err(_) => return BlobEnd::Failed("manifest_head"),
-    };
-    let created: Vec<&str> = missing.iter().map(|sl| sl.sha256.as_str()).collect();
-    let body = j!({"session": w.session, "dispatch": w.dispatch, "created": created, "manifest": manifest_missing}).to_string();
-    match work_call::<Value>(env, w, "/admission-work/blobs-created", &body).await {
-        Ok(v) if v.get("go") == Some(&Value::Bool(true)) => {}
-        Ok(_) => return BlobEnd::Stale,
-        Err(()) => return BlobEnd::Unreachable,
-    }
-    for sl in missing {
-        if copy_range(&uploads, key, sl.offset, sl.len, &bucket, &format!("artifacts/blobs/{}", sl.sha256)).await.is_err() {
-            return BlobEnd::Failed("blob_copy");
-        }
-    }
-    let Ok(manifest) = hex::decode(&rec.manifest_hex) else {
-        return BlobEnd::Failed("manifest_hex");
-    };
-    match eval_do::put(env, EVAL_BUCKET, &rec.manifest_key, manifest).await {
-        Ok(_) => BlobEnd::Copied,
-        Err(_) => BlobEnd::Failed("manifest_put"),
-    }
+    Ok(())
 }
 
-/// The upload Worker's framing route, through this Worker's service
-/// binding, within the Queue consumer's wall limit; the answer is read
-/// within the largest outcome a spec-admitted object can produce and
-/// checked to parse as an outcome (its bytes are returned as read). A
-/// failure comes with its kind ([`FrameFailure`]).
-async fn frame_call(env: &Env, key: &str, len: u64, spec: &str) -> std::result::Result<String, (FrameFailure, &'static str)> {
-    use FrameFailure::{Counted, Misconfigured, ObjectRead};
-    let token = interface_token(env).ok_or((Misconfigured, "interface token"))?;
-    let body = serde_json::to_string(&iface::FrameRequest { key: key.to_owned(), len, spec: spec.to_owned() })
-        .map_err(|_| (Counted, "frame request"))?;
-    let url = format!("{}{}", iface::UPLOAD_INTERFACE_ORIGIN, iface::UPLOAD_FRAME_PATH);
-    let req = super::cf_io::internal_request(&url, Method::Post, Some(&body), Some(slop_ninja_arena::limits::QUEUE_MS))
-        .map_err(|_| (Counted, "frame request"))?;
-    req.headers().set(iface::TOKEN_HEADER, token.as_str()).map_err(|_| (Counted, "frame request"))?;
-    let service = env.service(UPLOAD_SERVICE).map_err(|_| (Misconfigured, "upload service"))?;
-    let mut r = service.fetch_request(req).await.map_err(|_| (Counted, "frame call"))?;
-    let status = r.status_code();
-    if status != 200 {
-        // The upload Worker marks its platform's failures (the object read,
-        // the request body unread, an arena refusal): retried uncounted.
-        let marked = r.headers().get(iface::FRAME_FAILURE_HEADER).ok().flatten();
-        let platform = matches!(marked.as_deref(), Some(iface::FRAME_OBJECT_READ | iface::FRAME_PLATFORM));
+/// The header route's link probe (marked by `internal::HEADER_PROBE_HEADER`,
+/// no body): the service binding, the internal host, the shared token, and
+/// the upload Worker's own registration read. The close's canary step runs
+/// it; its failure is the `upload_front_unavailable` fault.
+pub async fn header_probe(env: &Env) -> std::result::Result<(), &'static str> {
+    let token = secret(env, INTERFACE_TOKEN).ok_or("interface token not configured")?;
+    let headers = Headers::new();
+    headers.set(iface::TOKEN_HEADER, token.as_str()).map_err(|_| "header request")?;
+    headers.set(iface::HEADER_PROBE_HEADER, "1").map_err(|_| "header request")?;
+    let mut init = RequestInit::new();
+    init.with_method(Method::Post).with_headers(headers);
+    let url = format!("{}{}", iface::UPLOAD_INTERFACE_ORIGIN, iface::UPLOAD_HEADER_PATH);
+    let req = Request::new_with_init(&url, &init).map_err(|_| "header request")?;
+    let service = env.service(UPLOAD_SERVICE).map_err(|_| "upload service binding missing")?;
+    let mut r = service.fetch_request(req).await.map_err(|_| "header call failed")?;
+    if r.status_code() != 200 {
+        let status = r.status_code();
         super::cf_io::discard(&mut r);
         return Err(match status {
-            503 if platform => (ObjectRead, "frame platform failure"),
-            400 | 404 => (Misconfigured, "frame link"),
-            _ => (Counted, "frame unavailable"),
+            404 => "upload Worker refused the host or token (404)",
+            503 => "upload Worker's registration read is unavailable",
+            _ => "upload Worker answered an error",
         });
     }
-    let raw = super::cf_io::response_bytes(&mut r, slop_ninja_artifact_check::admission::frame_outcome_bound())
-        .await
-        .map_err(|_| (Counted, "frame reply"))?;
-    if serde_json::from_slice::<FrameOutcome>(&raw).is_err() {
-        return Err((Counted, "frame reply"));
-    }
-    String::from_utf8(raw).map_err(|_| (Counted, "frame reply"))
+    let v: Value = super::cf_io::response_json(&mut r, 1024).await.map_err(|_| "header reply")?;
+    if v.get("probe").and_then(Value::as_str) == Some("ok") { Ok(()) } else { Err("header reply") }
 }
 
-/// The eval-to-upload link probe (`GET /eval/admission/link`, status
-/// token): one framing request for the probe key
-/// (`internal::FRAME_PROBE_KEY`), which the upload Worker answers without
-/// reading anything once the binding, the internal host and the shared
-/// token all work. `{"frame": "ok"}`, else the failure.
+/// The eval Worker's links (`GET /eval/admission/link`, status token): the
+/// link probe above, and whether the signer's binding and token are
+/// configured (a mint is a canary, run by the cohort object).
 pub async fn link_probe(env: &Env) -> Value {
-    let probe = async {
-        let token = interface_token(env).ok_or("interface token not configured")?;
-        let body = serde_json::to_string(&iface::FrameRequest {
-            key: iface::FRAME_PROBE_KEY.to_owned(),
-            len: 0,
-            spec: String::new(),
-        })
-        .map_err(|_| "frame request")?;
-        let url = format!("{}{}", iface::UPLOAD_INTERFACE_ORIGIN, iface::UPLOAD_FRAME_PATH);
-        let req = super::cf_io::internal_request(&url, Method::Post, Some(&body), None).map_err(|_| "frame request")?;
-        req.headers().set(iface::TOKEN_HEADER, token.as_str()).map_err(|_| "frame request")?;
-        let service = env.service(UPLOAD_SERVICE).map_err(|_| "upload service binding missing")?;
-        let mut r = service.fetch_request(req).await.map_err(|_| "frame call failed")?;
-        if r.status_code() != 200 {
-            super::cf_io::discard(&mut r);
-            return Err(if r.status_code() == 404 { "upload Worker refused the host or token (404)" } else { "upload Worker answered an error" });
-        }
-        let v: Value = super::cf_io::response_json(&mut r, 1024).await.map_err(|_| "frame reply")?;
-        if v.get("probe").and_then(Value::as_str) == Some("ok") { Ok(()) } else { Err("frame reply") }
+    let header = match header_probe(env).await {
+        Ok(()) => j!("ok"),
+        Err(e) => j!(e),
     };
-    match probe.await {
-        Ok(()) => j!({"frame": "ok"}),
-        Err(e) => j!({"frame": e}),
-    }
+    let signer = j!({
+        "binding": env.service(admission::signer::BINDING).is_ok(),
+        "token": secret(env, admission::signer::TOKEN_SECRET).is_some_and(|t| t.len() >= iface::MIN_TOKEN_BYTES),
+    });
+    j!({"header": header, "signer": signer})
 }

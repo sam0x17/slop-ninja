@@ -14,12 +14,19 @@ use std::path::{Path, PathBuf};
 use anyhow::{Context, Result, bail, ensure};
 use serde::{Deserialize, Serialize};
 use slop_ninja_protocol::submission::{SubmissionOpening, SubmissionUpload};
-use slop_ninja_protocol::{
-    AccountId, Canonical, ChainBinding, Decoder, Digest, Encoder, Nonce, VerifiedArtifact,
-};
+use slop_ninja_protocol::{AccountId, Canonical, ChainBinding, Decoder, Digest, Encoder, Nonce};
 
-pub const OPENING_SCHEMA: &str = "slop_ninja.miner.opening/v1";
-pub const UPLOAD_STATE_SCHEMA: &str = "slop_ninja.miner.upload/v1";
+use crate::object::ObjectHeader;
+
+/// The opening file schema this client writes: it names the object the
+/// opening was made for by its header's SHA-256 and length.
+pub const OPENING_SCHEMA: &str = "slop_ninja.miner.opening/v2";
+/// The earlier schema, which named the object by a whole-object SHA-256 (a
+/// second hash over the same bytes, no longer computed). Such a file still
+/// loads: it matches an object by the content its opening commits to, and
+/// `upload` rewrites it as v2 once it has read that object's header.
+pub const OPENING_SCHEMA_V1: &str = "slop_ninja.miner.opening/v1";
+pub const UPLOAD_STATE_SCHEMA: &str = "slop_ninja.miner.upload/v2";
 
 /// A source of secret nonces.
 pub trait NonceSource {
@@ -43,13 +50,14 @@ pub fn fresh_nonce(source: &mut dyn NonceSource) -> Result<Nonce> {
     Ok(Nonce(bytes))
 }
 
-/// Builds the opening for a verified artifact.
+/// Builds the opening for an object: it commits to the content the
+/// object's header derives.
 pub fn make_opening(
     chain: &ChainBinding,
     cohort: u64,
     hotkey: AccountId,
     registration_block: u64,
-    artifact: &VerifiedArtifact,
+    object: &ObjectHeader,
     source: &mut dyn NonceSource,
 ) -> Result<SubmissionOpening> {
     Ok(SubmissionOpening {
@@ -57,7 +65,7 @@ pub fn make_opening(
         cohort,
         hotkey,
         registration_block,
-        content: artifact.content,
+        content: object.content,
         nonce: fresh_nonce(source)?,
     })
 }
@@ -77,21 +85,26 @@ pub fn decode_opening(bytes: &[u8]) -> Result<SubmissionOpening> {
     Ok(opening)
 }
 
-/// The upload envelope for an opening and its verified artifact.
+/// The upload envelope for an opening and its object: the opening, its
+/// commitment, and the header's SHA-256 and length (the header digest was
+/// taken when the header was read; nothing is hashed here).
 pub fn upload_envelope(
     opening: SubmissionOpening,
-    artifact: &VerifiedArtifact,
+    object: &ObjectHeader,
 ) -> Result<SubmissionUpload> {
     ensure!(
-        artifact.content == opening.content,
+        object.content == opening.content,
         "the artifact's inference content is not the committed content"
     );
-    Ok(SubmissionUpload {
+    let upload = SubmissionUpload {
         commitment: opening.commitment(),
         opening,
-        artifact_sha256: artifact.sha256,
-        artifact_len: artifact.len,
-    })
+        header_sha256: object.sha256,
+        header_len: object.len,
+    };
+    slop_ninja_protocol::Record::validate(&upload)
+        .map_err(|error| anyhow::anyhow!("upload envelope: {error:?}"))?;
+    Ok(upload)
 }
 
 /// Chain submission record of an opening's commitment.
@@ -117,18 +130,22 @@ pub struct OpeningFile {
     pub hotkey: String,
     pub registration_block: u64,
     pub content: String,
-    pub artifact_sha256: String,
-    pub artifact_len: u64,
+    /// SHA-256 of the header bytes of the object the opening was made for
+    /// (absent in a v1 file until `upload` migrates it).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub header_sha256: Option<String>,
+    /// Its header length.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub header_len: Option<u32>,
+    /// The object's whole length.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub object_len: Option<u64>,
     #[serde(default)]
     pub submitted: Option<Submitted>,
 }
 
 impl OpeningFile {
-    pub fn new(
-        opening: &SubmissionOpening,
-        artifact: &VerifiedArtifact,
-        hotkey_ss58: &str,
-    ) -> Self {
+    pub fn new(opening: &SubmissionOpening, object: &ObjectHeader, hotkey_ss58: &str) -> Self {
         Self {
             schema: OPENING_SCHEMA.into(),
             opening: hex::encode(encode_opening(opening)),
@@ -139,16 +156,43 @@ impl OpeningFile {
             hotkey: hotkey_ss58.into(),
             registration_block: opening.registration_block,
             content: opening.content.hex(),
-            artifact_sha256: artifact.sha256.hex(),
-            artifact_len: artifact.len,
+            header_sha256: Some(object.sha256.hex()),
+            header_len: Some(object.len),
+            object_len: Some(object.object_len),
             submitted: None,
         }
+    }
+
+    /// Whether this opening was made for `object`: by its header digest and
+    /// length (v2), or, for a v1 file that names none, by the content its
+    /// opening commits to (which binds every inference file).
+    pub fn fits(&self, object: &ObjectHeader) -> bool {
+        match (&self.header_sha256, self.header_len) {
+            (Some(sha), Some(len)) => *sha == object.sha256.hex() && len == object.len,
+            _ => self.content == object.content.hex(),
+        }
+    }
+
+    /// The v2 record of a v1 file whose opening commits to `object`'s
+    /// content: the header fields filled in; `None` when there is nothing to
+    /// migrate.
+    pub fn migrated(&self, object: &ObjectHeader) -> Option<Self> {
+        if self.schema == OPENING_SCHEMA || self.content != object.content.hex() {
+            return None;
+        }
+        Some(Self {
+            schema: OPENING_SCHEMA.into(),
+            header_sha256: Some(object.sha256.hex()),
+            header_len: Some(object.len),
+            object_len: Some(object.object_len),
+            ..self.clone()
+        })
     }
 
     /// The opening, checked against every repeated field.
     pub fn opening(&self) -> Result<SubmissionOpening> {
         ensure!(
-            self.schema == OPENING_SCHEMA,
+            self.schema == OPENING_SCHEMA || self.schema == OPENING_SCHEMA_V1,
             "unknown opening schema {:?}",
             self.schema
         );
@@ -226,14 +270,15 @@ impl Store {
         Ok(path)
     }
 
-    /// Rewrites an opening file in place (for its submission record). The
-    /// opening itself must be unchanged.
+    /// Rewrites an opening file in place (for its submission record, or its
+    /// migration to the v2 schema). The opening itself must be unchanged.
     pub fn update_opening(&self, path: &Path, file: &OpeningFile) -> Result<()> {
         let stored = load_opening(path)?;
         ensure!(
             stored.opening == file.opening,
             "an opening file's opening never changes"
         );
+        file.opening()?;
         write_private(path, &serde_json::to_vec_pretty(file)?, true)
     }
 

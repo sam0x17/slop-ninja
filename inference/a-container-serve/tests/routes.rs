@@ -1,15 +1,14 @@
 //! `a-scorer`'s routes, through the built binary on loopback: the single-use
-//! binding, the manifest check before any part, the clean work directory, core
-//! dumps off, and that no document text or id reaches standard error,
-//! `/healthz` or a refusal.
+//! binding, the manifest check before any file byte, chunks at exact offsets
+//! and lengths, the clean work directory, core dumps off, and that no document
+//! text or id reaches standard error, `/healthz` or a refusal.
 //!
-//! The binding tests need no model: the parts of a manifest that passes the
-//! spec's file table are made present by writing files under their digests in
-//! the work directory, so the load binds and then fails at assembly. The
-//! scoring test needs R0's files (`A_R0_MODEL_DIR`) and ONNX Runtime 1.31.1
+//! The binding tests need no model: a prepare of a manifest that passes the
+//! spec's file table binds the instance while its files arrive. The scoring
+//! test needs R0's files (`A_R0_MODEL_DIR`) and ONNX Runtime 1.31.1
 //! (`A_ORT_LIB`); without them it prints a notice and passes. Nothing leaves
 //! the host.
-use a_container_serve::artifact::{ArtifactFile, ArtifactFiles, Part, SCHEMA};
+use a_container_serve::artifact::{FileEntry, FilesManifest, MAX_RANGE_BYTES, SCHEMA};
 use serde_json::{Value, json};
 use slop_ninja_artifact_check::{mapping, spec};
 use std::io::{Read, Write};
@@ -164,9 +163,9 @@ impl Scorer {
 }
 
 /// A manifest that passes the spec's file table: the plain class's graph
-/// length, the pinned tokenizer and small JSON files, each with placeholder
-/// part digests derived from `seed`. `calibration_bytes` sets the calibration
-/// file's declared length.
+/// length, the pinned tokenizer and small JSON files, with placeholder digests
+/// derived from `seed`. `calibration_bytes` sets the calibration file's
+/// declared length.
 fn manifest(seed: u8, calibration_bytes: u64, profile_id: &str) -> (Vec<u8>, String) {
     manifest_with_graph(seed, spec::GRAPHS[0].bytes, calibration_bytes, profile_id)
 }
@@ -174,7 +173,6 @@ fn manifest(seed: u8, calibration_bytes: u64, profile_id: &str) -> (Vec<u8>, Str
 /// [`manifest`] with a graph of `graph_bytes`.
 fn manifest_with_graph(seed: u8, graph_bytes: u64, calibration_bytes: u64, profile_id: &str) -> (Vec<u8>, String) {
     let mut files = Vec::new();
-    // Placeholder digests: file k is `k * 1000`, its parts `k * 1000 + 1 + i` (at most 64 parts a file).
     for (k, r) in (0u64..).zip(&spec::ROLES) {
         let bytes = match r.name {
             spec::GRAPH_FILE => graph_bytes,
@@ -186,24 +184,24 @@ fn manifest_with_graph(seed: u8, graph_bytes: u64, calibration_bytes: u64, profi
             "tokenizer.json" => spec::TOKENIZER_SHA256.to_string(),
             _ => format!("{seed:02x}{:062x}", k * 1000),
         };
-        let parts = (0..bytes.div_ceil(spec::PART_BYTES))
-            .map(|i| Part {
-                sha256: format!("{seed:02x}{:062x}", k * 1000 + 1 + i),
-                bytes: spec::PART_BYTES.min(bytes - i * spec::PART_BYTES),
-            })
-            .collect();
-        files.push(ArtifactFile { name: r.name.into(), role: r.scorer_role.into(), bytes, sha256: sha, parts });
+        let key = format!("admission/v2/c1/{}/f/{sha}", "ab".repeat(32));
+        files.push(FileEntry { name: r.name.into(), role: r.scorer_role.into(), bytes, sha256: sha, bucket: "admission".into(), key, etag: Some("\"e\"".into()) });
     }
-    let m = ArtifactFiles {
+    let m = FilesManifest {
         schema: SCHEMA.into(),
         profile_id: profile_id.into(),
         contract: spec::CONTRACT_ID.into(),
         graph: spec::GRAPH_FILE.into(),
         files,
     };
-    let bytes = serde_json::to_vec(&m).unwrap();
-    let package = a_container_serve::profile::sha256_hex(&bytes);
+    let bytes = m.to_bytes();
+    let package = FilesManifest::package_of(&bytes);
     (bytes, package)
+}
+
+/// The index of `name` in the manifest's (file-table) order.
+fn index_of(name: &str) -> usize {
+    spec::ROLES.iter().position(|r| r.name == name).unwrap()
 }
 
 fn profile_id() -> String {
@@ -228,8 +226,8 @@ fn the_scorer_starts_with_a_clean_work_directory_and_no_core_dumps() {
     std::fs::write(work.join("files/old-package/heads.json"), b"{}").unwrap();
     std::fs::write(work.join("unrelated.txt"), b"kept").unwrap();
     let s = Scorer::start(&work, None);
-    assert!(!work.join("blobs/leftover").exists() && !work.join("files").exists());
-    assert!(work.join("blobs").is_dir(), "blobs/ is recreated");
+    assert!(!work.join("blobs").exists() && !work.join("files/old-package").exists());
+    assert!(work.join("files").is_dir(), "files/ is recreated");
     assert!(work.join("unrelated.txt").exists(), "only blobs/ and files/ are cleared");
     let limits = std::fs::read_to_string(format!("/proc/{}/limits", s.child.id())).unwrap();
     let core = limits.lines().find(|l| l.starts_with("Max core file size")).unwrap();
@@ -246,34 +244,34 @@ fn the_scorer_starts_with_a_clean_work_directory_and_no_core_dumps() {
 }
 
 #[test]
-fn manifests_are_refused_before_any_part_is_read() {
+fn manifests_are_refused_before_any_file_byte() {
     let work = Scratch::new("manifest");
     let s = Scorer::start(&work, None);
-    let load = |m: &[u8], p: &str| s.http("POST", &format!("/v1/load?package={p}"), m);
+    let prepare = |m: &[u8], p: &str| s.http("POST", &format!("/v2/prepare?package={p}"), m);
     // Past the JSON budget, from the declared lengths.
     let (m, p) = manifest(1, 300 << 20, &profile_id());
-    let (code, v) = load(&m, &p);
+    let (code, v) = prepare(&m, &p);
     assert_eq!(code, 422, "{v}");
     assert!(v["error"].as_str().unwrap().starts_with("refused json_budget"), "{v}");
     // A free-text profile id.
     let (m, p) = manifest(2, 1000, "notes: /home/example/notes");
-    let (code, v) = load(&m, &p);
+    let (code, v) = prepare(&m, &p);
     assert_eq!(code, 422, "{v}");
     assert!(v["error"].as_str().unwrap().starts_with("refused profile_id"), "{v}");
     assert!(!v.to_string().contains("/home/example"), "the refusal echoes the profile id: {v}");
     // A manifest that is not the package's bytes.
     let (m, _) = manifest(3, 1000, &profile_id());
-    assert_eq!(load(&m, &"0".repeat(64)).0, 422);
-    // A valid manifest without its parts: refused, and the instance stays unbound.
-    let (m, p) = manifest(4, 1000, &profile_id());
-    let (code, v) = load(&m, &p);
-    assert_eq!((code, v["error"].as_str()), (409, Some("missing_parts")), "{v}");
+    assert_eq!(prepare(&m, &"0".repeat(64)).0, 422);
     assert_eq!(s.health()["state"], "empty");
+    // Chunks and loads before any prepare are refused.
+    assert_eq!(s.http("PUT", "/v2/files/1/0", b"x").0, 409);
+    let (m, p) = manifest(4, 1000, &profile_id());
+    assert_eq!(s.http("POST", &format!("/v2/load?package={p}"), b"").0, 409);
     // Bad queries, and specs the scorer does not admit by: 400, not the artifact's refusal.
-    assert_eq!(s.http("POST", "/v1/load?package=ab&cohort=c.1", &m).0, 400);
-    assert_eq!(s.http("POST", "/v1/load?package=ab&cohort=c1&cohort=c2", &m).0, 400);
+    assert_eq!(s.http("POST", "/v2/prepare?package=ab&cohort=c.1", &m).0, 400);
+    assert_eq!(s.http("POST", "/v2/prepare?package=ab&cohort=c1&cohort=c2", &m).0, 400);
     for bad in [spec::Version::V1.spec_sha256(), "0".repeat(64), "v3".into()] {
-        let (code, v) = s.http("POST", &format!("/v1/load?package={p}&spec={bad}"), &m);
+        let (code, v) = s.http("POST", &format!("/v2/prepare?package={p}&spec={bad}"), &m);
         assert_eq!((code, v["error"].as_str()), (400, Some("spec")), "{bad}: {v}");
     }
     assert_eq!(s.health()["state"], "empty");
@@ -281,39 +279,39 @@ fn manifests_are_refused_before_any_part_is_read() {
 }
 
 #[test]
-fn a_load_admits_by_the_spec_it_names_and_binds_it() {
+fn a_prepare_admits_by_the_spec_it_names_and_binds_it() {
     let work = Scratch::new("spec");
     let s = Scorer::start(&work, None);
     let (v2, v3) = (spec::Version::V2.spec_sha256(), spec::Version::V3.spec_sha256());
-    // A tower-class manifest (spec v3 only): a load that names spec v2, or no
-    // spec, refuses it before any part is read; one that names spec v3 checks it.
+    // A tower-class manifest (spec v3 only): a prepare that names spec v2, or
+    // no spec, refuses it before any file byte; one that names spec v3 binds.
     let tower = mapping::profile_id_for(&spec::TOWER_GRAPH, spec::Version::V3);
     let (m, p) = manifest_with_graph(7, spec::TOWER_GRAPH.bytes, 1000, &tower);
     for q in [format!("package={p}"), format!("package={p}&cohort=c1"), format!("package={p}&cohort=c1&spec={v2}")] {
-        let (code, v) = s.http("POST", &format!("/v1/load?{q}"), &m);
+        let (code, v) = s.http("POST", &format!("/v2/prepare?{q}"), &m);
         assert_eq!(code, 422, "{q}: {v}");
         assert!(v["error"].as_str().unwrap().starts_with("refused graph_size"), "{q}: {v}");
     }
-    let (code, v) = s.http("POST", &format!("/v1/load?package={p}&cohort=c1&spec={v3}"), &m);
-    assert_eq!((code, v["error"].as_str()), (409, Some("missing_parts")), "{v}");
-    assert_eq!(s.health()["state"], "empty");
-    // With the parts present the load binds, and the spec is part of the binding.
-    let parsed: ArtifactFiles = serde_json::from_slice(&m).unwrap();
-    for part in parsed.parts() {
-        std::fs::write(work.join("blobs").join(&part.sha256), b"placeholder").unwrap();
-    }
-    assert_eq!(s.http("POST", &format!("/v1/load?package={p}&cohort=c1&spec={v3}"), &m).0, 202);
-    let h = s.wait_for("failed");
-    assert_eq!((h["cohort"].as_str(), h["spec"].as_str()), (Some("c1"), Some(spec::Version::V3.id())), "{h}");
-    assert_eq!(s.http("POST", &format!("/v1/load?package={p}&cohort=c1&spec={v3}"), &m).0, 200);
+    let (code, v) = s.http("POST", &format!("/v2/prepare?package={p}&cohort=c1&spec={v3}"), &m);
+    assert_eq!(code, 201, "{v}");
+    let h = s.health();
+    assert_eq!((h["state"].as_str(), h["cohort"].as_str(), h["spec"].as_str()), (Some("receiving"), Some("c1"), Some(spec::Version::V3.id())), "{h}");
+    // Every chunk is missing; the graph has ceil(len / 64 MiB) of them.
+    let missing = v["missing"].as_array().unwrap();
+    let graph_chunks = spec::TOWER_GRAPH.bytes.div_ceil(MAX_RANGE_BYTES) as usize;
+    assert_eq!(missing.len(), graph_chunks + 5, "{v}");
+    // The same prepare again answers with the same binding; another spec or cohort is refused.
+    assert_eq!(s.http("POST", &format!("/v2/prepare?package={p}&cohort=c1&spec={v3}"), &m).0, 200);
     for q in [format!("package={p}&cohort=c1"), format!("package={p}&cohort=c1&spec={v2}")] {
-        let (code, v) = s.http("POST", &format!("/v1/load?{q}"), &m);
+        let (code, v) = s.http("POST", &format!("/v2/prepare?{q}"), &m);
         assert_eq!((code, v["error"].as_str()), (409, Some("instance_bound")), "{q}: {v}");
     }
+    // A load before every chunk arrived lists what is missing.
+    let (code, v) = s.http("POST", &format!("/v2/load?package={p}&cohort=c1&spec={v3}"), b"");
+    assert_eq!((code, v["error"].as_str()), (409, Some("missing_chunks")), "{v}");
     // Score requests name the package and cohort only.
     let (code, v) = s.http("POST", "/v1/score", &score_body(&p, Some("c1")));
     assert_eq!((code, v["error"].as_str()), (409, Some("package_not_ready")), "{v}");
-    // `/healthz` lists the specs a load may name and the one a load naming none gets.
     let limits = &h["build"]["limits"];
     let named: Vec<&str> = limits["specs"].as_array().unwrap().iter().map(|x| x["sha256"].as_str().unwrap()).collect();
     assert_eq!(named, [v2.as_str(), v3.as_str()], "{limits}");
@@ -322,40 +320,39 @@ fn a_load_admits_by_the_spec_it_names_and_binds_it() {
 }
 
 #[test]
-fn a_bound_instance_refuses_every_other_package_cohort_and_part() {
+fn a_bound_instance_takes_exact_chunks_and_refuses_every_other_package_and_cohort() {
     let work = Scratch::new("bound");
     let s = Scorer::start(&work, None);
     let (m, p) = manifest(5, 1000, &profile_id());
-    let parsed: ArtifactFiles = serde_json::from_slice(&m).unwrap();
-    // The parts are present (placeholders under their digests), so the load binds;
-    // assembly then fails on the first part's digest.
-    for part in parsed.parts() {
-        std::fs::write(work.join("blobs").join(&part.sha256), b"placeholder").unwrap();
-    }
-    let bound_part = parsed.parts()[0].sha256.clone();
-    let (code, v) = s.http("POST", &format!("/v1/load?package={p}&cohort=c1"), &m);
-    assert_eq!(code, 202, "{v}");
-    let h = s.wait_for("failed");
-    assert_eq!((h["package"].as_str(), h["cohort"].as_str()), (Some(p.as_str()), Some("c1")));
-    // Loads: the same binding answers; anything else is refused.
-    assert_eq!(s.http("POST", &format!("/v1/load?package={p}&cohort=c1"), &m).0, 200);
+    let (code, v) = s.http("POST", &format!("/v2/prepare?package={p}&cohort=c1"), &m);
+    assert_eq!(code, 201, "{v}");
+    // Chunks: exactly the chunk's length at an aligned offset in the file.
+    let heads = index_of("heads.json");
+    assert_eq!(s.http("PUT", &format!("/v2/files/{heads}/0"), &[b'h'; 999]).0, 422, "short");
+    assert_eq!(s.http("PUT", &format!("/v2/files/{heads}/0"), &[b'h'; 1001]).0, 422, "long");
+    assert_eq!(s.http("PUT", &format!("/v2/files/{heads}/1"), &[b'h'; 999]).0, 422, "unaligned");
+    assert_eq!(s.http("PUT", "/v2/files/9/0", b"x").0, 422, "no such file");
+    let (code, v) = s.http("PUT", &format!("/v2/files/{heads}/0"), &[b'h'; 1000]);
+    assert_eq!((code, v["written"].as_u64()), (201, Some(1000)), "{v}");
+    assert_eq!(std::fs::read(work.join("files").join(&p).join("heads.json")).unwrap(), vec![b'h'; 1000]);
+    // A retried chunk overwrites.
+    assert_eq!(s.http("PUT", &format!("/v2/files/{heads}/0"), &[b'H'; 1000]).0, 201);
+    let (_, v) = s.http("POST", &format!("/v2/prepare?package={p}&cohort=c1"), &m);
+    let missing: Vec<(u64, u64)> = v["missing"].as_array().unwrap().iter().map(|x| (x[0].as_u64().unwrap(), x[1].as_u64().unwrap())).collect();
+    assert!(!missing.contains(&(heads as u64, 0)), "{v}");
+    // Prepares: the same binding answers; anything else is refused.
     for q in [format!("package={p}&cohort=c2"), format!("package={p}")] {
-        let (code, v) = s.http("POST", &format!("/v1/load?{q}"), &m);
+        let (code, v) = s.http("POST", &format!("/v2/prepare?{q}"), &m);
         assert_eq!((code, v["error"].as_str()), (409, Some("instance_bound")), "{q}: {v}");
     }
     let (m2, p2) = manifest(6, 1000, &profile_id());
-    let (code, v) = s.http("POST", &format!("/v1/load?package={p2}&cohort=c1"), &m2);
+    let (code, v) = s.http("POST", &format!("/v2/prepare?package={p2}&cohort=c1"), &m2);
     assert_eq!((code, v["error"].as_str()), (409, Some("instance_bound")), "{v}");
     // A refused manifest on a bound instance is still `instance_bound`.
-    let (code, _) = s.http("POST", &format!("/v1/load?package={p2}"), b"not json");
+    let (code, _) = s.http("POST", &format!("/v2/prepare?package={p2}"), b"not json");
     assert_eq!(code, 409);
-    // Parts: a part of the bound package counts as present; any other is refused.
-    assert_eq!(s.http("HEAD", &format!("/v1/blobs/{bound_part}"), b"").0, 200);
-    assert_eq!(s.http("PUT", &format!("/v1/blobs/{bound_part}"), b"x").0, 201);
-    let junk = a_container_serve::profile::sha256_hex(b"junk");
-    let (code, v) = s.http("PUT", &format!("/v1/blobs/{junk}"), b"junk");
-    assert_eq!((code, v["error"].as_str()), (409, Some("instance_bound")), "{v}");
-    assert!(!work.join("blobs").join(&junk).exists());
+    let (code, _) = s.http("POST", &format!("/v2/load?package={p2}&cohort=c1"), b"");
+    assert_eq!(code, 409);
     // Scores: another cohort or package is `instance_bound`; the bound one is not ready.
     let mut responses = Vec::new();
     for (pkg, cohort, want) in [
@@ -368,6 +365,7 @@ fn a_bound_instance_refuses_every_other_package_cohort_and_part() {
         assert_eq!((code, v["error"].as_str()), (409, Some(want)), "{v}");
         responses.push(v);
     }
+    let h = s.health();
     let refs: Vec<&Value> = responses.iter().chain([&h]).collect();
     s.assert_no_sentinel(&refs);
     drop(s);
@@ -386,19 +384,25 @@ fn r0_scores_through_the_routes_without_echoing_text_and_stays_bound() {
         return;
     };
     let work = Scratch::new("r0");
-    let parts = work.with_extension("parts");
-    let report = slop_ninja_artifact_check::fs::check_dir_for(&r0, a_container_serve::engine::UNNAMED_LOAD_SPEC).unwrap();
-    let manifest_path = slop_ninja_artifact_check::fs::write_parts(&r0, &report, &parts).unwrap();
-    let m = std::fs::read(&manifest_path).unwrap();
-    let p = a_container_serve::profile::sha256_hex(&m);
+    let (header, report) =
+        slop_ninja_artifact_check::fs::check_dir_with_header(&r0, a_container_serve::engine::UNNAMED_LOAD_SPEC).unwrap();
+    let fm = FilesManifest::for_header(&header, a_container_serve::engine::UNNAMED_LOAD_SPEC, &report.profile_id, |_, sha| {
+        ("eval".into(), slop_ninja_artifact_check::fs::reference_file_key(sha), None)
+    })
+    .unwrap();
+    let m = fm.to_bytes();
+    let p = FilesManifest::package_of(&m);
     let s = Scorer::start(&work, Some(&lib));
-    let parsed: ArtifactFiles = serde_json::from_slice(&m).unwrap();
-    for part in parsed.parts() {
-        let bytes = std::fs::read(parts.join("blobs").join(&part.sha256)).unwrap();
-        assert_eq!(s.http("PUT", &format!("/v1/blobs/{}", part.sha256), &bytes).0, 201);
+    let q = format!("package={p}&cohort=testnet-routes-1");
+    assert_eq!(s.http("POST", &format!("/v2/prepare?{q}"), &m).0, 201);
+    for (i, f) in fm.files.iter().enumerate() {
+        let bytes = std::fs::read(r0.join(&f.name)).unwrap();
+        for (k, chunk) in bytes.chunks(MAX_RANGE_BYTES as usize).enumerate() {
+            let off = k as u64 * MAX_RANGE_BYTES;
+            assert_eq!(s.http("PUT", &format!("/v2/files/{i}/{off}"), chunk).0, 201);
+        }
     }
-    std::fs::remove_dir_all(&parts).unwrap();
-    assert_eq!(s.http("POST", &format!("/v1/load?package={p}&cohort=testnet-routes-1"), &m).0, 202);
+    assert_eq!(s.http("POST", &format!("/v2/load?{q}"), b"").0, 202);
     let ready = s.wait_for("ready");
     let (code, v) = s.http("POST", "/v1/score", &score_body(&p, Some("testnet-routes-1")));
     assert_eq!(code, 200, "{v}");

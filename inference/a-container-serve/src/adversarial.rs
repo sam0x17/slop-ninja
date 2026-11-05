@@ -7,9 +7,9 @@
 //! - **Model cases** write a model directory: the base's files, hard-linked when
 //!   possible, with one file changed. Graph changes keep the graph's length, so
 //!   the length check alone does not refuse them.
-//! - **Manifest cases** write only a parts manifest (`artifact-files.json`) whose
-//!   declared lengths are the attack; the scorer refuses it before reading any
-//!   part, so the parts are never written.
+//! - **Manifest cases** write only a files manifest (`artifact-files.json`) whose
+//!   declared lengths are the attack; the scorer refuses it before any file byte
+//!   arrives, so no file is written.
 //!
 //! The JSON cases change only `manifest.json`, which no other file binds, in its
 //! canonical layout and far inside the byte budget: their attack is the memory a
@@ -27,7 +27,7 @@
 //! the artifact loads and every document gets that per-document status
 //! (attributed to the artifact); `Bounded` means the artifact loads and scores,
 //! and the case is there to measure time against the base.
-use crate::artifact::{ArtifactFile, ArtifactFiles, Part, SCHEMA};
+use crate::artifact::{FileEntry, FilesManifest, SCHEMA};
 use anyhow::{Context, Result, bail, ensure};
 use std::fs;
 use std::ops::Range;
@@ -431,10 +431,9 @@ fn json_case(base: &Path, name: &str) -> Result<Vec<u8>> {
 }
 
 
-/// A parts manifest listing `base`'s files with one declared length changed;
-/// the parts are placeholders, since the scorer refuses the manifest before it
-/// reads a part.
-fn oversize_manifest(base: &Path, name: &str) -> Result<ArtifactFiles> {
+/// A files manifest listing `base`'s files with one declared length changed;
+/// the scorer refuses the manifest before any file byte arrives.
+fn oversize_manifest(base: &Path, name: &str) -> Result<FilesManifest> {
     let (file, bytes) = match name {
         "oversize-protobuf" => (GRAPH, (1u64 << 31) + 1),
         "oversize-heads" => ("heads.json", 64 * 1024 * 1024 + 1),
@@ -445,20 +444,16 @@ fn oversize_manifest(base: &Path, name: &str) -> Result<ArtifactFiles> {
     for (n, role) in FILES {
         let (sha, len) = crate::profile::sha256_file(&base.join(n))?;
         let (sha, len) = if n == file { ("0".repeat(64), bytes) } else { (sha, len) };
-        let part = crate::artifact::MAX_PART_BYTES;
-        let parts = (0..len.div_ceil(part))
-            .map(|i| Part { sha256: format!("{:064x}", i + 1), bytes: part.min(len - i * part) })
-            .collect();
-        files.push(ArtifactFile { name: n.into(), role: role.into(), bytes: len, sha256: sha, parts });
+        let key = slop_ninja_artifact_check::fs::reference_file_key(&sha);
+        files.push(FileEntry { name: n.into(), role: role.into(), bytes: len, sha256: sha, bucket: "eval".into(), key, etag: None });
     }
-    let m = ArtifactFiles {
+    let m = FilesManifest {
         schema: SCHEMA.into(),
         profile_id: slop_ninja_artifact_check::mapping::profile_id_for(base_class(base)?, crate::engine::NEWEST_SPEC),
         contract: "slop_ninja_full_a_contract_v2".into(),
         graph: GRAPH.into(),
         files,
     };
-    m.validate()?;
     Ok(m)
 }
 

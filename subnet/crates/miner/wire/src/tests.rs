@@ -4,6 +4,10 @@ use slop_ninja_protocol::{AccountId, Encoder, TESTNET_GENESIS, domain_hash, obje
 
 use super::*;
 
+/// The pinned request message of the example scope (computed independently
+/// with Python's hashlib, 2026-11-04; the v1 path's value reproduced first).
+const REQUEST_MESSAGE_PIN: &str = "6f1a3bb2058ba6e384a8c39ade8248d9ec8a81d9edab91b67f5a841d63be3640";
+
 const PROTOCOL_GOLDEN: &str = include_str!("../../../protocol/fixtures/golden-reward-v1.txt");
 const CONTRACT_DOC: &str = include_str!("../../../../../docs/testnet/admission-api.md");
 
@@ -27,7 +31,7 @@ fn request_message_is_the_protocol_domain_hash_of_the_encoded_scope() {
     let chain = chain601();
     let hotkey = AccountId([0x22; 32]);
     let content = object_sha256(b"part bytes");
-    let path = path::part("ab", 3);
+    let path = path::urls("ab");
     let scope = RequestScope {
         chain: &chain,
         hotkey: &hotkey,
@@ -50,7 +54,7 @@ fn request_message_is_the_protocol_domain_hash_of_the_encoded_scope() {
     // Pinned so a change of the message is a visible contract change.
     assert_eq!(
         hex::encode(request_message(&scope)),
-        "e2c2cc1c1c7bb3fcd0bae2f2bc08c95743ad055cfbbb670924794b1b0cf86342"
+        REQUEST_MESSAGE_PIN
     );
 }
 
@@ -131,43 +135,11 @@ fn session_id_is_the_upload_record_digest() {
     let cohort = u64::from_le_bytes(payload[4..12].try_into().unwrap());
     let opening = fx::opening(&fx::chain(), cohort, &spec);
     assert_eq!(opening.chain_payload().as_slice(), payload.as_slice());
-    let upload = SubmissionUpload::new(opening, &fx::artifact_bytes(&spec));
+    let upload = SubmissionUpload::new(opening, &fx::header_bytes(&fx::artifact_bytes(&spec))).unwrap();
     assert_eq!(
         session_id(&upload).unwrap().hex(),
         golden("submission.upload.digest")
     );
-}
-
-#[test]
-fn part_plan_covers_the_object_exactly() {
-    let plan = PartPlan::new(10_001, 1_000, 11).unwrap();
-    assert_eq!(plan.count(), 11);
-    assert_eq!(plan.range(0), None);
-    assert_eq!(plan.range(1), Some((0, 1_000)));
-    assert_eq!(plan.range(10), Some((9_000, 1_000)));
-    assert_eq!(plan.range(11), Some((10_000, 1)));
-    assert_eq!(plan.range(12), None);
-    let total: u64 = (1..=plan.count()).map(|n| plan.range(n).unwrap().1).sum();
-    assert_eq!(total, 10_001);
-    let exact = PartPlan::new(4_000, 1_000, 4).unwrap();
-    assert_eq!(exact.count(), 4);
-    assert_eq!(exact.range(4), Some((3_000, 1_000)));
-    assert_eq!(
-        PartPlan::new(10_001, 1_000, 10),
-        Err(PlanError::TooManyParts {
-            needed: 11,
-            max_parts: 10
-        })
-    );
-    assert_eq!(PartPlan::new(0, 1_000, 10), Err(PlanError::EmptyObject));
-    assert_eq!(PartPlan::new(1, 0, 10), Err(PlanError::ZeroPartSize));
-    let recorded = [1u32, 3, 11, 99, 3];
-    assert_eq!(
-        plan.missing(|n| recorded.contains(&n)).collect::<Vec<_>>(),
-        vec![2, 4, 5, 6, 7, 8, 9, 10]
-    );
-    assert_eq!(plan.missing(|_| true).count(), 0);
-    assert_eq!(plan.missing(|_| false).count(), 11);
 }
 
 #[test]
@@ -176,55 +148,14 @@ fn routes_parse_without_copying_and_round_trip_through_the_writers() {
     let cases: Vec<(&str, String, Route<'_>)> = vec![
         ("GET", path::COHORT.into(), Route::ReadCohort),
         ("POST", path::SESSIONS.into(), Route::CreateSession),
-        (
-            "GET",
-            path::session(&id),
-            Route::ReadSession { session: &id },
-        ),
-        (
-            "PUT",
-            path::part(&id, 7),
-            Route::PutPart {
-                session: &id,
-                part: 7,
-            },
-        ),
-        (
-            "POST",
-            path::complete(&id),
-            Route::Complete { session: &id },
-        ),
-        (
-            "DELETE",
-            path::attempt(&id, 2),
-            Route::Abort {
-                session: &id,
-                attempt: 2,
-            },
-        ),
-        (
-            "POST",
-            path::attempt(&id, 3),
-            Route::Reopen {
-                session: &id,
-                attempt: 3,
-            },
-        ),
-        (
-            "GET",
-            path::hotkey(7, "5Fhot"),
-            Route::ReadHotkey {
-                cohort: 7,
-                hotkey: "5Fhot",
-            },
-        ),
+        ("GET", path::session(&id), Route::ReadSession { session: &id }),
+        ("POST", path::urls(&id), Route::Urls { session: &id }),
+        ("POST", path::complete(&id), Route::Complete { session: &id }),
+        ("POST", path::repair(&id), Route::Repair { session: &id }),
+        ("GET", path::hotkey(7, "5Fhot"), Route::ReadHotkey { cohort: 7, hotkey: "5Fhot" }),
     ];
     for (method, route, expected) in &cases {
-        assert_eq!(
-            Route::parse(method, route),
-            Some(*expected),
-            "{method} {route}"
-        );
+        assert_eq!(Route::parse(method, route), Some(*expected), "{method} {route}");
         assert_eq!(expected.signed(), *expected != Route::ReadCohort);
     }
     // The parsed segments borrow the request path.
@@ -232,30 +163,31 @@ fn routes_parse_without_copying_and_round_trip_through_the_writers() {
     let Some(Route::ReadSession { session }) = Route::parse("GET", &text) else {
         panic!()
     };
-    assert!(std::ptr::eq(
-        session.as_ptr(),
-        text[text.len() - 64..].as_ptr()
-    ));
+    assert!(std::ptr::eq(session.as_ptr(), text[text.len() - 64..].as_ptr()));
     // The writers fill a caller's buffer.
     let mut buffer = heapless_like::Buffer::default();
-    path::write_part(&mut buffer, &id, 12).unwrap();
-    assert_eq!(buffer.as_str(), path::part(&id, 12));
+    path::write_urls(&mut buffer, &id).unwrap();
+    assert_eq!(buffer.as_str(), path::urls(&id));
     for (method, bad) in [
-        ("GET", "/admission/v1/sessions".to_owned()),
+        ("GET", "/admission/v2/sessions".to_owned()),
         ("PUT", path::session(&id)),
         ("GET", path::session(&id.to_uppercase())),
         ("GET", path::session("abcd")),
-        ("PUT", format!("{}/parts/01", path::session(&id))),
-        ("PUT", format!("{}/parts/4294967296", path::session(&id))),
-        ("PATCH", path::attempt(&id, 1)),
+        // Version 1's part and attempt routes are gone: no upload byte
+        // reaches a Worker.
+        ("PUT", format!("{}/parts/1", path::session(&id))),
+        ("DELETE", format!("{}/attempts/1", path::session(&id))),
+        ("POST", format!("{}/attempts/2", path::session(&id))),
+        ("GET", path::urls(&id)),
+        ("PUT", path::urls(&id)),
         ("POST", format!("{}/extra", path::complete(&id))),
-        ("GET", "/admission/v1/cohorts/7/hotkeys/".to_owned()),
-        ("GET", "/admission/v1/cohorts/x/hotkeys/5F".to_owned()),
+        ("GET", "/admission/v2/cohorts/7/hotkeys/".to_owned()),
+        ("GET", "/admission/v2/cohorts/x/hotkeys/5F".to_owned()),
         // The hotkey segment is bounded by the SS58 shape.
         ("GET", path::hotkey(7, &"5".repeat(SS58_ACCOUNT_MAX_CHARS + 1))),
         ("GET", path::hotkey(7, "5F0l")),
         ("GET", path::hotkey(7, "5F%20")),
-        ("GET", "/admission/v2/cohort".to_owned()),
+        ("GET", "/admission/v1/cohort".to_owned()),
         ("POST", path::COHORT.to_owned()),
     ] {
         assert_eq!(Route::parse(method, &bad), None, "{method} {bad}");
@@ -295,25 +227,8 @@ mod heapless_like {
 }
 
 #[test]
-fn response_limit_follows_the_part_count() {
-    assert_eq!(response_limit(None), RESPONSE_BASE_BYTES);
-    assert_eq!(
-        response_limit(Some(10_000)),
-        RESPONSE_BASE_BYTES + 10_000 * RESPONSE_PART_BYTES
-    );
-    // The largest compact part record fits its allowance.
-    let record = format!(
-        "{{\"part\":{},\"len\":{},\"sha256\":\"{}\"}}",
-        u32::MAX,
-        u64::MAX,
-        "f".repeat(64)
-    );
-    assert_eq!(record.len(), 122);
-    assert!(record.len() < RESPONSE_PART_BYTES);
-    assert_eq!(
-        response_limit(Some(u32::MAX)),
-        RESPONSE_BASE_BYTES + u32::MAX as usize * RESPONSE_PART_BYTES
-    );
+fn the_response_limit_is_fixed() {
+    assert_eq!(response_limit(), RESPONSE_BASE_BYTES);
 }
 
 #[test]
@@ -368,7 +283,13 @@ fn contract_document_lists_every_code() {
         json::SCHEMA_ERROR,
         path::COHORT,
         path::SESSIONS,
-        "/attempts/",
+        "/urls",
+        "/complete",
+        "/repair",
+        "slop_ninja_upload_url_policy_v1",
+        "x-amz-checksum-sha256",
+        "if-none-match",
+        "repair_needed",
         "last_refusal",
         "artifact_spec",
         "cutoff_block",
@@ -414,7 +335,7 @@ fn json_shapes_round_trip_and_tolerate_new_fields() {
     assert!(!text.contains("missing"));
     let back: json::ErrorBody = serde_json::from_str(&text).unwrap();
     assert_eq!(back, body);
-    let extended = r#"{"schema":"slop_ninja.admission.error/v1","later":1,
+    let extended = r#"{"schema":"slop_ninja.admission.error/v2","later":1,
         "error":{"code":"later_code","message":"m","detail":{"later":true}}}"#;
     let parsed: json::ErrorBody = serde_json::from_str(extended).unwrap();
     assert_eq!(ErrorCode::parse(&parsed.error.code), None);

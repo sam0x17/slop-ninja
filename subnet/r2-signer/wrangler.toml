@@ -1,0 +1,89 @@
+# Slop Ninja internal signer Worker: Wrangler configuration (tracked).
+#
+# Presigns the direct-to-R2 artifact uploads of admission v2
+# (docs/testnet/admission-api.md, "Direct upload"). It holds the two R2 S3
+# credentials: the presigning one, scoped by the user to the admission
+# bucket only, and the separate copy one (admission and public buckets), and
+# never touches an object. It has no route, no workers.dev name, no preview URLs
+# and no R2 binding; its only caller is the eval Worker's service binding
+# (R2_SIGNER_TESTNET). The public upload Worker has no binding to it.
+#
+# Publication at scoring start can use its second route, /copy (the
+# publisher's ARTIFACT_COPY = "server", configuration only): one presigned
+# CopyObject from the admission bucket to the public bucket, signed with the
+# separate copy credential and reached only through the publisher's service
+# binding with a separate token. The tracked default is ARTIFACT_COPY =
+# "stream" (the publisher's own bindings, R2 verifying the digest) until
+# probe G7-x passes and COPY_INTERFACE_TOKEN is installed; "server" is then
+# its own publisher deploy. While the copy credential or token is not
+# installed the route answers 503 and a "server" publisher waits.
+#
+# Deploy only the testnet environment, from a clean pushed main:
+#
+#   WRANGLER_WRITE_LOGS=false WRANGLER_SEND_METRICS=false wrangler deploy \
+#     --env testnet --tag testnet --message "slop-ninja testnet r2-signer <sha8> <mode>"
+#
+# No account ID belongs here. The Secrets Store id is not tracked either:
+# the deploy reads it with a read-only listing and renders a private copy
+# of this file with it (the placeholder below must be replaced, or the
+# deploy fails). Secrets, installed with `wrangler secret put --env testnet`
+# from stdin, never in tracked files:
+#   R2_S3_HOST              the account's S3 host (it carries the account id)
+#   SIGNER_INTERFACE_TOKEN  the token shared with the eval Worker (>= 32 bytes)
+#   COPY_INTERFACE_TOKEN    the token shared with the publisher (>= 32 bytes;
+#                           installed on both Workers in the same change)
+
+name = "slop-ninja-r2-signer-local-testnet"
+main = "build/index.js"
+compatibility_date = "2026-10-01"
+workers_dev = false
+preview_urls = false
+
+[build]
+command = "worker-build --release"
+
+[observability]
+enabled = false
+
+# ------------------------------------------------------------------ testnet
+
+[env.testnet]
+name = "slop-ninja-r2-signer-testnet"
+workers_dev = false
+preview_urls = false
+
+[env.testnet.observability]
+enabled = false
+
+[env.testnet.vars]
+# The private admission bucket the credential is scoped to.
+ADMISSION_BUCKET_NAME = "slop-ninja-admission-testnet"
+# The public bucket the copy route writes to (with the copy credential).
+PUBLIC_BUCKET_NAME = "public-bucket-testnet"
+
+# The R2 S3 credential (the account API token
+# slop-ninja-r2-presign-testnet: Object Read & Write on the admission bucket
+# only). Values live only in Secrets Store.
+[[env.testnet.secrets_store_secrets]]
+binding = "R2_PRESIGN_KEY_ID"
+store_id = "<SECRETS_STORE_ID>"
+secret_name = "SLOP_NINJA_R2_PRESIGN_KEY_ID_TESTNET"
+
+[[env.testnet.secrets_store_secrets]]
+binding = "R2_PRESIGN_SECRET"
+store_id = "<SECRETS_STORE_ID>"
+secret_name = "SLOP_NINJA_R2_PRESIGN_SECRET_TESTNET"
+
+# The copy credential (the account API token slop-ninja-r2-copy-testnet:
+# Object Read & Write on exactly the admission and public buckets). Values
+# live only in Secrets Store. COPY_INTERFACE_TOKEN is installed on this
+# Worker and the publisher in the same change.
+[[env.testnet.secrets_store_secrets]]
+binding = "R2_COPY_KEY_ID"
+store_id = "<SECRETS_STORE_ID>"
+secret_name = "SLOP_NINJA_R2_COPY_KEY_ID_TESTNET"
+
+[[env.testnet.secrets_store_secrets]]
+binding = "R2_COPY_SECRET"
+store_id = "<SECRETS_STORE_ID>"
+secret_name = "SLOP_NINJA_R2_COPY_SECRET_TESTNET"

@@ -12,6 +12,26 @@
 //! agreement of the arm definition, the heads and the graph class.
 //! `heads.json` is also parsed by the scorer's heads runtime.
 //!
+//! **Digests come from the header (decision recorded 2026-11-05, review
+//! finding A5).** The bindings compare the export manifest's file digests
+//! with the header's (`files.digests`) instead of a SHA-256 the check
+//! computed over each file. No artifact spec version moves for it, because
+//! the change is acceptance-neutral on every object a check can meet under
+//! admission v2: each file reaches the admission bucket only through a
+//! presigned PUT whose signed `x-amz-checksum-sha256` is the header's digest,
+//! which R2 verifies at ingest and refuses otherwise (qualification G1),
+//! and every reader takes it by entity-tag-pinned ranged reads at the
+//! recorded length. For such a file the header digest IS the file's
+//! SHA-256, so "manifest digest == header digest" and "manifest digest ==
+//! SHA-256(file)" accept and refuse exactly the same artifacts, fixtures
+//! and refusal corpus included. A local check before upload (`check`) runs
+//! on files the pack wrote and hashed in the same pass; a file changed
+//! locally after that is refused by R2 at upload, never admitted. The
+//! scorer's `guard_verified` takes the header digest likewise, and
+//! `SCORER_GUARD_SHA256` keeps pinning the hashing `guard`, whose body it
+//! matches line for line (a test compares them), until the next spec
+//! version (planned with decision D5) moves the pin.
+//!
 //! No byte cap is set here. A file's length is the header's, checked against
 //! the bounds of the runtimes that read it ([`crate::spec::RoleSpec`]
 //! `max_bytes`) before any byte is read. Under spec v2 and v3 the layout check
@@ -1414,13 +1434,51 @@ struct HeadsTensor {
     values: Vec<f64>,
 }
 
-/// The four JSON role files.
+/// The four JSON role files, with the SHA-256 digests of the three that the
+/// export manifest binds by digest. The digests come from the artifact
+/// header (lowercase hex), which the object store verified against these
+/// exact bytes at ingest; the check compares them and never hashes a file.
 #[derive(Clone, Copy, Debug)]
 pub struct RoleFiles<'a> {
     pub heads: &'a [u8],
     pub contract: &'a [u8],
     pub calibration: &'a [u8],
     pub manifest: &'a [u8],
+    pub digests: RoleDigests<'a>,
+}
+
+/// The header's SHA-256 (lowercase hex) of `heads.json`, `contract.json`
+/// and `calibration.json`.
+#[derive(Clone, Copy, Debug)]
+pub struct RoleDigests<'a> {
+    pub heads: &'a str,
+    pub contract: &'a str,
+    pub calibration: &'a str,
+}
+
+impl<'a> RoleDigests<'a> {
+    /// The digests a header lists for the three files, as owned hex, or the
+    /// missing file.
+    pub fn hex_of(header: &slop_ninja_protocol::ArtifactHeader) -> Result<[String; 3], Refusal> {
+        let of = |name: &'static str| {
+            header
+                .files
+                .iter()
+                .find(|f| f.name == name)
+                .map(|f| hex::encode(f.sha256.0))
+                .ok_or(Refusal::MissingFile(name))
+        };
+        Ok([of(HEADS)?, of(CONTRACT)?, of(CALIBRATION)?])
+    }
+
+    /// Borrows the three hex digests of [`RoleDigests::hex_of`].
+    pub fn of(hex: &'a [String; 3]) -> Self {
+        Self {
+            heads: &hex[0],
+            contract: &hex[1],
+            calibration: &hex[2],
+        }
+    }
 }
 
 /// Content-free facts from the role files.
@@ -1654,9 +1712,10 @@ pub fn check_roles_with(
             .map_err(|e| Refusal::Binding(format!("scorer guard: {e}")))?;
     }
 
-    // Bindings the guards do not make: the export manifest's digests and the
+    // Bindings the guards do not make: the export manifest's digests (against
+    // the header's store-verified digests, so no file is hashed here) and the
     // agreement of the arm definition, the heads and the graph class.
-    let contract_sha = sha256_hex(files.contract);
+    let contract_sha = files.digests.contract.to_owned();
     let bind = |ok: bool, what: &str| {
         if ok {
             Ok(())
@@ -1665,7 +1724,7 @@ pub fn check_roles_with(
         }
     };
     bind(
-        manifest.heads.sha256 == sha256_hex(files.heads),
+        manifest.heads.sha256 == files.digests.heads,
         "export manifest heads digest",
     )?;
     bind(
@@ -1673,7 +1732,7 @@ pub fn check_roles_with(
         "export manifest contract digest",
     )?;
     bind(
-        manifest.calibration.sha256 == sha256_hex(files.calibration),
+        manifest.calibration.sha256 == files.digests.calibration,
         "export manifest calibration digest",
     )?;
     bind(

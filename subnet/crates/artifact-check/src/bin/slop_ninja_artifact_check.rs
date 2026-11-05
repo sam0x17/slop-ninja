@@ -8,7 +8,7 @@
 //! slop_ninja_artifact_check check-object FILE         check an artifact object
 //! slop_ninja_artifact_check graph FILE                walk one ONNX graph: structure digest, parameters
 //! slop_ninja_artifact_check pack DIR OUT              check DIR and write its artifact object to OUT
-//! slop_ninja_artifact_check parts DIR OUT             check DIR and write the scorer's parts layout under OUT
+//! slop_ninja_artifact_check files DIR OUT             check DIR and write the scorer's files layout v2 under OUT (reference packages)
 //! slop_ninja_artifact_check canonical DIR OUT         re-encode DIR's JSON files in their canonical layouts into OUT
 //! ```
 //!
@@ -30,7 +30,7 @@ use serde_json::json;
 use slop_ninja_artifact_check::spec::Version;
 use slop_ninja_artifact_check::{Refusal, fs, onnx, spec, text};
 
-const USAGE: &str = "usage: slop_ninja_artifact_check [--spec v1|v2|v3] (--version | spec | check-dir DIR | check-object FILE | graph FILE | pack DIR OUT | parts DIR OUT | canonical DIR OUT)\n\
+const USAGE: &str = "usage: slop_ninja_artifact_check [--spec v1|v2|v3] (--version | spec | check-dir DIR | check-object FILE | graph FILE | pack DIR OUT | files DIR OUT | canonical DIR OUT)\n\
 --spec: the spec version to check (v1, v2, v3 or a full spec id; default v1)\n\
 exit status: 0 success; 2 refused (prints `refused <code>: <detail>`); 64 usage error";
 
@@ -148,14 +148,14 @@ fn main() -> ExitCode {
             }
             Err(e) => refused(e),
         },
-        (Some("parts"), 3) => {
+        (Some("files"), 3) => {
             let dir = arg(1).unwrap();
-            match fs::check_dir_for(&dir, version)
-                .and_then(|r| fs::write_parts(&dir, &r, &arg(2).unwrap()).map(|p| (r, p)))
+            match fs::check_dir_with_header(&dir, version)
+                .and_then(|(h, r)| fs::write_files(&dir, &h, &r, version, &arg(2).unwrap()).map(|p| (r, p)))
             {
-                Ok((r, p)) => {
+                Ok((r, (p, package))) => {
                     print(
-                        json!({"package_sha256": r.package_sha256, "manifest": p, "content_sha256": r.content_sha256}),
+                        json!({"package_sha256": package, "manifest": p, "content_sha256": r.content_sha256}),
                     );
                     ExitCode::SUCCESS
                 }

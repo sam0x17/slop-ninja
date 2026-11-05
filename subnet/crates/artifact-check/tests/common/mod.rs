@@ -265,7 +265,12 @@ pub struct TestFile {
 }
 
 /// Builds the object for `files` and streams it through [`ObjectCheck`] in
-/// chunks of `chunk` bytes, stopping at the first refusal (spec v1).
+/// chunks of `chunk` bytes, stopping at the first refusal (spec v1). Every
+/// call also runs the hash-free check admission and the scorer use
+/// ([`slop_ninja_artifact_check::check_files_with`]) over the same files and
+/// requires the same verdict and report whenever the header's digests are
+/// the files' true digests (a forged digest is the object store's to refuse
+/// at ingest, never the hash-free check's).
 pub fn check_files(files: &[TestFile], chunk: usize) -> Result<ObjectReport, Refusal> {
     check_files_for(files, chunk, slop_ninja_artifact_check::Version::V1)
 }
@@ -319,5 +324,29 @@ pub fn check_files_for(
             }
         }
     }
-    check.finish()
+    let old = check.finish();
+    let honest = files.iter().all(|f| f.digest.is_none_or(|d| d == f.source.digest()));
+    if honest {
+        let new = slop_ninja_artifact_check::check_files_with(&header, version, None, |file| {
+            let f = files.iter().find(|t| t.name == file.name).expect("listed");
+            let bytes: Vec<u8> = match &f.source {
+                Source::Bytes(b) => b.clone(),
+                Source::Path(p) => std::fs::read(p).expect("read"),
+            };
+            let len = bytes.len() as u64;
+            Ok((std::io::Cursor::new(bytes), len))
+        });
+        match (&old, &new) {
+            (Ok(o), Ok(n)) => {
+                assert_eq!(
+                    (&o.content_sha256, o.graph_class, &o.graph, &o.roles, o.parameters, &o.profile_id),
+                    (&n.content_sha256, n.graph_class, &n.graph, &n.roles, n.parameters, &n.profile_id),
+                    "the hash-free check agrees with the object check"
+                );
+            }
+            (Err(o), Err(n)) => assert_eq!(o.code(), n.code(), "same refusal: {o} / {n}"),
+            (o, n) => panic!("the checks disagree: object {o:?} / hash-free {n:?}"),
+        }
+    }
+    old
 }

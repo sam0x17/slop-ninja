@@ -1,4 +1,5 @@
-//! `slop_ninja_miner`: pack, check, commit, upload, status and next-cohort.
+//! `slop_ninja_miner`: pack, check, commit, upload (straight to R2), repair,
+//! status and next-cohort.
 
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
@@ -16,11 +17,13 @@ use slop_ninja_miner::check::{
 use slop_ninja_miner::client::{
     AdmissionClient, ApiError, RtaoSigner, Transfer, cohort_info, http_client, ss58,
 };
+use slop_ninja_miner::direct::{Progress, PutPolicy};
+use slop_ninja_miner::object::ObjectHeader;
 use slop_ninja_miner::opening::{OpeningFile, OsNonce, Store, default_state_dir, load_opening};
 use slop_ninja_miner::trust::{Source, Trust};
 use slop_ninja_miner::upload::{UploadOptions, UploadOutcome, describe};
+use slop_ninja_miner::wire::is_session_id;
 use slop_ninja_miner::wire::json::{CohortInfo, CommitmentView};
-use slop_ninja_miner::wire::{SessionState, is_session_id};
 use slop_ninja_miner::{chain, commit, object, provenance, public};
 use slop_ninja_protocol::{AccountId, NeuronIdentity};
 
@@ -58,10 +61,12 @@ enum Command {
     Check(CheckArgs),
     /// Make a fresh opening for the admitting cohort and commit its digest on chain.
     Commit(CommitArgs),
-    /// Upload the committed artifact to the coordinator; resumes an interrupted upload.
+    /// Upload the committed artifact: its header and files go straight to R2 under
+    /// presigned URLs the coordinator mints; resumes an interrupted upload per file.
     Upload(UploadArgs),
-    /// Abort this hotkey's upload session (to upload a different object).
-    Abort(AbortArgs),
+    /// Send again the objects of an admitted upload that went missing on the
+    /// coordinator's side (the session's repair_needed list).
+    Repair(RepairArgs),
     /// Show the public status (or the coordinator's cohort read), local openings and the
     /// coordinator's view of this hotkey.
     Status(StatusArgs),
@@ -121,12 +126,26 @@ struct Endpoints {
     #[arg(long, env = "SLOP_NINJA_PUBLIC")]
     public: Option<String>,
     /// The release trust file (testnet-trust.json). Its admission_origins pin
-    /// the coordinators the client may upload to.
+    /// the coordinators the client may upload to; its upload_host_sha256 and
+    /// upload_bucket pin the R2 S3 host (by the SHA-256 of its name) and the
+    /// bucket the presigned URLs may name. Without a trust file that pins
+    /// them, the release's own pins (compiled in) apply.
     #[arg(long, env = "SLOP_NINJA_TRUST")]
     trust: Option<PathBuf>,
-    /// Bound on each request without a part body, in seconds.
+    /// Accept presigned URLs for any R2 S3 host and bucket when no trust
+    /// file pins them, instead of the release's compiled-in pins (for a
+    /// deployment other than the release's; the URL's key, parameters and
+    /// signed headers are still checked in full).
+    #[arg(long)]
+    any_upload_host: bool,
+    /// Bound on each request without an object body, in seconds.
     #[arg(long, default_value_t = 300)]
     http_timeout_secs: u64,
+    /// Testing only: send presigned PUTs to this plain-http loopback origin
+    /// (a local R2 stub), keeping the URL's host header. Refused for any
+    /// other host.
+    #[arg(long, hide = true)]
+    r2_endpoint_override: Option<String>,
 }
 
 #[derive(Args, Clone)]
@@ -196,26 +215,17 @@ struct UploadArgs {
     /// whose payload is the commitment the coordinator observed).
     #[arg(long)]
     opening: Option<PathBuf>,
-    /// Attempts per request for retryable errors.
-    #[arg(long, default_value_t = 6)]
-    attempts: u32,
+    #[command(flatten)]
+    put: PutArgs,
     /// How long to wait for verification after completion, in seconds.
     #[arg(long, default_value_t = 600)]
     wait_secs: u64,
     /// Seconds between session reads while the coordinator verifies.
     #[arg(long, default_value_t = 10)]
     poll_secs: u64,
-    /// Stop after this many parts in this run; run upload again to resume.
+    /// Stop after this many object PUTs in this run; run upload again to resume.
     #[arg(long)]
-    stop_after_parts: Option<u32>,
-    /// Slowest sustained upload rate a part may take, in KiB/s; a part's
-    /// request is bounded by --http-timeout-secs plus its size at this rate.
-    #[arg(long, default_value_t = 32)]
-    min_upload_kib_per_sec: u64,
-    /// If the session was refused (for example object_mismatch), abort its
-    /// attempt and send every part again.
-    #[arg(long)]
-    restart: bool,
+    stop_after_objects: Option<u32>,
     #[command(flatten)]
     endpoints: Endpoints,
     #[command(flatten)]
@@ -224,14 +234,37 @@ struct UploadArgs {
     state: State,
 }
 
+/// How presigned PUTs are retried and bounded.
+#[derive(Args, Clone)]
+struct PutArgs {
+    /// Attempts per request for retryable errors, and per object for PUTs (each
+    /// attempt resends that object from its first byte with a fresh URL).
+    #[arg(long, default_value_t = 6)]
+    attempts: u32,
+    /// Slowest sustained upload rate a PUT may take, in KiB/s: each PUT is bounded
+    /// by --http-timeout-secs plus its size at this rate, and after R2 answers an
+    /// expired URL the client declares the slower of this and its measured rate
+    /// so its next URLs cover the transfer.
+    #[arg(long, default_value_t = 32)]
+    min_upload_kib_per_sec: u64,
+    /// No progress lines on standard error.
+    #[arg(long)]
+    quiet: bool,
+}
+
 #[derive(Args)]
-struct AbortArgs {
-    /// The session id, or a unique prefix of it (default: this hotkey's live
-    /// session in the cohort).
+struct RepairArgs {
+    /// The packed artifact object the session uploaded.
+    #[arg(long)]
+    artifact: PathBuf,
+    /// The session id, or a unique prefix of it (default: this hotkey's session
+    /// in the cohort that lists objects to repair).
     session: Option<String>,
     /// The cohort (default: the admitting one).
     #[arg(long)]
     cohort: Option<u64>,
+    #[command(flatten)]
+    put: PutArgs,
     #[command(flatten)]
     endpoints: Endpoints,
     #[command(flatten)]
@@ -243,6 +276,15 @@ struct StatusArgs {
     /// Cohort to ask the coordinator about (default: the admitting one).
     #[arg(long)]
     cohort: Option<u64>,
+    /// Also send again any recorded object that went missing on the
+    /// coordinator's side, from --artifact (as `repair` does).
+    #[arg(long, requires = "artifact")]
+    repair: bool,
+    /// The packed artifact object, for --repair.
+    #[arg(long)]
+    artifact: Option<PathBuf>,
+    #[command(flatten)]
+    put: PutArgs,
     #[command(flatten)]
     endpoints: Endpoints,
     #[command(flatten)]
@@ -345,6 +387,25 @@ impl Endpoints {
         }
     }
 
+    /// How presigned URLs are checked (the trust file's pinned upload host)
+    /// and where their PUTs go.
+    fn put_policy(&self) -> Result<PutPolicy> {
+        let mut trust = self.trust()?;
+        if !trust.pins_upload() && !self.any_upload_host {
+            trust = Trust::release();
+        }
+        let policy = PutPolicy {
+            pinned_host: trust.upload_host().map(str::to_owned),
+            pinned_host_sha256: trust.upload_host_sha256(),
+            bucket: trust.upload_bucket().map(str::to_owned),
+            endpoint_override: None,
+        };
+        match &self.r2_endpoint_override {
+            Some(endpoint) => policy.with_endpoint_override(endpoint),
+            None => Ok(policy),
+        }
+    }
+
     async fn public_status(&self, http: &reqwest::Client) -> Result<Option<public::PublicStatus>> {
         match &self.public {
             Some(public) => Ok(Some(
@@ -421,14 +482,14 @@ async fn run(command: Command) -> Result<ExitCode> {
         Command::Check(args) => check(args).await,
         Command::Commit(args) => commit_cmd(args).await,
         Command::Upload(args) => upload_cmd(args).await,
-        Command::Abort(args) => abort(args).await,
+        Command::Repair(args) => repair_cmd(args).await,
         Command::Status(args) => status(args).await,
         Command::NextCohort(args) => next_cohort(args).await,
     }
 }
 
 fn pack(args: PackArgs) -> Result<ExitCode> {
-    let verified = match &args.dir {
+    let packed = match &args.dir {
         Some(dir) => object::pack_dir(dir, &args.out)?,
         None => {
             let root = args.root.clone().unwrap_or_else(|| PathBuf::from("."));
@@ -442,15 +503,19 @@ fn pack(args: PackArgs) -> Result<ExitCode> {
         }
     };
     println!("wrote {} (mode 0600)", args.out.display());
-    println!("object sha256 {}  length {}", verified.sha256, verified.len);
-    println!("contract {}", verified.header.contract);
-    println!("inference content {}", verified.content);
-    for line in file_lines(&verified) {
+    println!("header sha256 {}  length {}", packed.sha256, packed.len);
+    println!(
+        "object length {} (each file hashed once, while it was written)",
+        packed.object_len
+    );
+    println!("contract {}", packed.header.contract);
+    println!("inference content {}", packed.content);
+    for line in file_lines(&packed) {
         println!("  {line}");
     }
     // Local paths in the JSON files: a warning, never a refusal; a scan that
     // cannot run is said, and pack still succeeds.
-    match provenance::scan_object(&args.out, &verified) {
+    match provenance::scan_object(&args.out, &packed) {
         Ok(scans) => {
             for scan in scans {
                 match &scan.scan {
@@ -478,10 +543,12 @@ async fn cohort_read(endpoints: &Endpoints) -> Result<slop_ninja_miner::wire::js
 }
 
 async fn check(args: CheckArgs) -> Result<ExitCode> {
-    // An object that does not parse or verify is a refusal (the coordinator
-    // refuses it too); a file that cannot be read is an error.
-    let verified = match object::verify_file_checked(&args.object)? {
-        Ok(verified) => verified,
+    // An object whose header does not decode, or whose length is not its
+    // header's, is a refusal (the coordinator refuses it too); a file that
+    // cannot be read is an error. Only the header is read here; the spec
+    // check reads the files without hashing them.
+    let header = match object::read_header_checked(&args.object)? {
+        Ok(header) => header,
         Err(invalid) => {
             if args.json {
                 println!(
@@ -532,7 +599,7 @@ async fn check(args: CheckArgs) -> Result<ExitCode> {
     }
     let cx = CheckContext {
         object: &args.object,
-        verified: &verified,
+        header: &header,
         expected_contract: contract.as_deref(),
         max_object_len: max,
         artifact_spec: cohort_spec.as_ref(),
@@ -545,16 +612,18 @@ async fn check(args: CheckArgs) -> Result<ExitCode> {
         println!(
             "{}",
             serde_json::to_string_pretty(&serde_json::json!({
-                "object_sha256": verified.sha256.hex(),
-                "object_len": verified.len,
-                "content": verified.content.hex(),
+                "header_sha256": header.sha256.hex(),
+                "header_len": header.len,
+                "object_len": header.object_len,
+                "content": header.content.hex(),
                 "outcome": outcome,
                 "reports": reports,
             }))?
         );
     } else {
-        println!("object sha256 {}  length {}", verified.sha256, verified.len);
-        println!("inference content {}", verified.content);
+        println!("header sha256 {}  length {}", header.sha256, header.len);
+        println!("object length {}", header.object_len);
+        println!("inference content {}", header.content);
         for report in &reports {
             println!("{}: {:?}", report.checker, report.outcome);
             for finding in &report.findings {
@@ -577,7 +646,8 @@ async fn check(args: CheckArgs) -> Result<ExitCode> {
 }
 
 async fn commit_cmd(args: CommitArgs) -> Result<ExitCode> {
-    let artifact = object::verify_file(&args.artifact)?;
+    // Only the header is read: the commitment binds the content it derives.
+    let artifact = object::read_header(&args.artifact)?;
     let http = args.endpoints.http()?;
     let (base, source) = args.endpoints.coordinator(&http).await?;
     let info = cohort_info(&http, &base).await?;
@@ -618,9 +688,9 @@ async fn commit_cmd(args: CommitArgs) -> Result<ExitCode> {
         admitting.output_contract
     );
     ensure!(
-        artifact.len <= admitting.max_object_len,
+        artifact.object_len <= admitting.max_object_len,
         "the object is {} bytes; cohort {} allows {}",
-        artifact.len,
+        artifact.object_len,
         admitting.cohort,
         admitting.max_object_len
     );
@@ -722,8 +792,9 @@ async fn admission_client(
     let http = endpoints.http()?;
     let (base, source) = endpoints.coordinator(&http).await?;
     let signer = wallet.signer().await?;
+    let policy = endpoints.put_policy()?;
     let (client, info) = AdmissionClient::connect(http, base, signer, None).await?;
-    Ok((client, info, source))
+    Ok((client.with_put_policy(policy), info, source))
 }
 
 fn modified(path: &Path) -> Option<std::time::SystemTime> {
@@ -735,7 +806,7 @@ async fn choose_opening(
     store: &Store,
     client: &mut AdmissionClient,
     cohort: u64,
-    artifact: &slop_ninja_protocol::VerifiedArtifact,
+    artifact: &ObjectHeader,
 ) -> Result<PathBuf> {
     let openings = store.openings_for(client.chain().netuid, cohort, &ss58(&client.hotkey()))?;
     ensure!(
@@ -751,7 +822,7 @@ async fn choose_opening(
         })
         .collect();
     dated.sort_by_key(|(path, _, m)| (*m, path.clone()));
-    let (path, note) = pick_opening(&dated, view.commitment.as_ref(), &artifact.sha256.hex(), artifact.len)?;
+    let (path, note) = pick_opening(&dated, view.commitment.as_ref(), artifact)?;
     if let Some(note) = note {
         println!("note: {note}");
     }
@@ -774,11 +845,15 @@ async fn choose_opening(
 fn pick_opening(
     openings: &[(PathBuf, OpeningFile, Option<std::time::SystemTime>)],
     observed: Option<&CommitmentView>,
-    artifact_sha256: &str,
-    artifact_len: u64,
+    artifact: &ObjectHeader,
 ) -> Result<(PathBuf, Option<&'static str>)> {
-    let fits = |f: &OpeningFile| f.artifact_sha256 == artifact_sha256 && f.artifact_len == artifact_len;
-    let confirmed_at = |f: &OpeningFile| f.submitted.as_ref().and_then(|s| s.finalized_commitment_block);
+    let fits = |f: &OpeningFile| f.fits(artifact);
+    let artifact_sha256 = format!("{} (header digest)", artifact.sha256);
+    let confirmed_at = |f: &OpeningFile| {
+        f.submitted
+            .as_ref()
+            .and_then(|s| s.finalized_commitment_block)
+    };
     let newest_confirmed = openings
         .iter()
         .filter_map(|(path, f, m)| confirmed_at(f).map(|b| (b, *m, path, f)))
@@ -800,7 +875,9 @@ fn pick_opening(
         return Ok((path.clone(), note));
     }
     if let Some(o) = observed
-        && let Some((path, f, _)) = openings.iter().find(|(_, f, _)| f.chain_payload == o.payload)
+        && let Some((path, f, _)) = openings
+            .iter()
+            .find(|(_, f, _)| f.chain_payload == o.payload)
     {
         ensure!(
             fits(f),
@@ -810,28 +887,165 @@ fn pick_opening(
         );
         return Ok((path.clone(), None));
     }
-    if let Some((path, _, _)) = openings.iter().rev().find(|(_, f, _)| f.submitted.is_some() && fits(f)) {
+    if let Some((path, _, _)) = openings
+        .iter()
+        .rev()
+        .find(|(_, f, _)| f.submitted.is_some() && fits(f))
+    {
         return Ok((
             path.clone(),
-            Some("the coordinator has observed no commitment matching a local opening yet; using the newest opening for this artifact submitted on chain"),
+            Some(
+                "the coordinator has observed no commitment matching a local opening yet; using the newest opening for this artifact submitted on chain",
+            ),
         ));
     }
     bail!(
         "none of the {} local openings for this cohort is for artifact {artifact_sha256} and matches \
          the commitment the coordinator observed{} or was submitted on chain; pass --opening FILE",
         openings.len(),
-        if observed.is_some() { "" } else { " (it has observed none yet)" }
+        if observed.is_some() {
+            ""
+        } else {
+            " (it has observed none yet)"
+        }
     )
+}
+
+/// Progress lines on standard error: each object's attempt, then its bytes
+/// with rate and time left, at most every two seconds, and the run's total.
+struct CliProgress {
+    state: std::sync::Mutex<ProgressState>,
+}
+
+#[derive(Default)]
+struct ProgressState {
+    run_bytes: u64,
+    run_sent: u64,
+    name: String,
+    len: u64,
+    sent: u64,
+    started: Option<std::time::Instant>,
+    printed: Option<std::time::Instant>,
+}
+
+impl CliProgress {
+    fn new() -> Self {
+        Self {
+            state: std::sync::Mutex::new(ProgressState::default()),
+        }
+    }
+}
+
+fn mb(bytes: u64) -> String {
+    format!("{:.1} MB", bytes as f64 / 1e6)
+}
+
+impl Progress for CliProgress {
+    fn plan(&self, objects: usize, bytes: u64) {
+        if objects == 0 {
+            return;
+        }
+        let mut s = self.state.lock().unwrap();
+        s.run_bytes = s.run_bytes.saturating_add(bytes);
+        eprintln!("sending {objects} object(s), {} straight to R2", mb(bytes));
+    }
+    fn start(&self, name: &str, len: u64, attempt: u32) {
+        let mut s = self.state.lock().unwrap();
+        // A retry resends the object from its first byte.
+        if attempt > 1 {
+            s.run_sent = s.run_sent.saturating_sub(s.sent);
+        }
+        s.name = name.to_owned();
+        s.len = len;
+        s.sent = 0;
+        s.started = Some(std::time::Instant::now());
+        s.printed = None;
+        let again = if attempt > 1 {
+            format!(" (attempt {attempt}, from byte 0)")
+        } else {
+            String::new()
+        };
+        eprintln!("PUT {name}: {}{again}", mb(len));
+    }
+    fn advance(&self, bytes: u64) {
+        let mut s = self.state.lock().unwrap();
+        s.sent = s.sent.saturating_add(bytes);
+        s.run_sent = s.run_sent.saturating_add(bytes);
+        let now = std::time::Instant::now();
+        let due = s
+            .printed
+            .is_none_or(|t| now.duration_since(t) >= Duration::from_secs(2))
+            || s.sent == s.len;
+        if !due {
+            return;
+        }
+        s.printed = Some(now);
+        let secs = s
+            .started
+            .map_or(0.0, |t| now.duration_since(t).as_secs_f64())
+            .max(1e-3);
+        let rate = s.sent as f64 / secs;
+        let left = if rate > 0.0 {
+            s.len.saturating_sub(s.sent) as f64 / rate
+        } else {
+            0.0
+        };
+        let pct = |a: u64, b: u64| {
+            if b == 0 {
+                100.0
+            } else {
+                a as f64 * 100.0 / b as f64
+            }
+        };
+        eprintln!(
+            "  {}: {:.1}% ({} of {}), {}/s, about {:.0} s left; run {:.1}%",
+            s.name,
+            pct(s.sent, s.len),
+            mb(s.sent),
+            mb(s.len),
+            mb(rate as u64),
+            left,
+            pct(s.run_sent.min(s.run_bytes), s.run_bytes)
+        );
+    }
+    fn finish(&self, name: &str, ok: bool, why: &str) {
+        if ok {
+            eprintln!("  {name}: {why}");
+        } else {
+            eprintln!("  {name}: not stored: {why}");
+        }
+    }
+}
+
+impl PutArgs {
+    fn transfer(&self, endpoints: &Endpoints) -> Transfer {
+        Transfer {
+            timeout: endpoints.timeout(),
+            min_upload_rate: self.min_upload_kib_per_sec.saturating_mul(1024),
+        }
+    }
+
+    fn options(&self) -> UploadOptions {
+        let progress: Arc<dyn Progress> = if self.quiet {
+            Arc::new(slop_ninja_miner::direct::Silent)
+        } else {
+            Arc::new(CliProgress::new())
+        };
+        UploadOptions {
+            attempts: self.attempts.max(1),
+            progress,
+            ..UploadOptions::default()
+        }
+    }
 }
 
 async fn upload_cmd(args: UploadArgs) -> Result<ExitCode> {
     let store = args.state.store()?;
-    let artifact = object::verify_file(&args.artifact)?;
+    // Only the header is read: the files are streamed to R2 as they are, and
+    // R2 checks each against the digest pack computed.
+    let artifact = object::read_header(&args.artifact)?;
     let (client, info, source) = admission_client(&args.endpoints, &args.wallet).await?;
-    let mut client = client.with_transfer(Transfer {
-        timeout: args.endpoints.timeout(),
-        min_upload_rate: args.min_upload_kib_per_sec.saturating_mul(1024),
-    });
+    let mut client = client.with_transfer(args.put.transfer(&args.endpoints));
     let opening_path = match &args.opening {
         Some(path) => path.clone(),
         None => {
@@ -843,20 +1057,28 @@ async fn upload_cmd(args: UploadArgs) -> Result<ExitCode> {
             choose_opening(&store, &mut client, cohort, &artifact).await?
         }
     };
-    let opening: OpeningFile = load_opening(&opening_path)?;
+    let mut opening: OpeningFile = load_opening(&opening_path)?;
+    // A v1 opening (it named its object by a whole-object digest) becomes v2
+    // once its object's header is known.
+    if let Some(migrated) = opening.migrated(&artifact) {
+        store.update_opening(&opening_path, &migrated)?;
+        println!(
+            "note: opening {} migrated to the v2 schema",
+            opening_path.display()
+        );
+        opening = migrated;
+    }
     println!(
-        "uploading opening {} to coordinator {} ({})",
+        "uploading opening {} to coordinator {} ({}); objects go straight to R2",
         opening_path.display(),
         client.origin(),
         source.describe()
     );
     let options = UploadOptions {
-        attempts: args.attempts.max(1),
         wait: Duration::from_secs(args.wait_secs),
         poll: Duration::from_secs(args.poll_secs),
-        stop_after_parts: args.stop_after_parts,
-        restart: args.restart,
-        ..UploadOptions::default()
+        stop_after_objects: args.stop_after_objects,
+        ..args.put.options()
     };
     match slop_ninja_miner::upload::upload(
         &mut client,
@@ -873,7 +1095,7 @@ async fn upload_cmd(args: UploadArgs) -> Result<ExitCode> {
             remaining,
         } => {
             println!(
-                "stopped after {uploaded} parts; {remaining} remain. Run upload again to resume."
+                "stopped after {uploaded} objects; {remaining} remain. Run upload again to resume."
             );
             Ok(ExitCode::SUCCESS)
         }
@@ -889,12 +1111,14 @@ async fn upload_cmd(args: UploadArgs) -> Result<ExitCode> {
     }
 }
 
-/// Resolves `given` (a full id, a unique prefix, or nothing for the live
-/// session) among this hotkey's sessions in `cohort`.
+/// Resolves `given` (a full id, a unique prefix, or nothing for the
+/// sessions `pick` selects) among this hotkey's sessions in `cohort`.
 async fn resolve_session(
     client: &mut AdmissionClient,
     cohort: Option<u64>,
     given: Option<&str>,
+    pick: impl Fn(&slop_ninja_miner::wire::json::SessionSummary) -> bool,
+    what: &str,
 ) -> Result<String> {
     if let Some(id) = given.filter(|id| is_session_id(id)) {
         return Ok(id.to_owned());
@@ -906,7 +1130,7 @@ async fn resolve_session(
         .iter()
         .filter(|s| match given {
             Some(prefix) => s.session.starts_with(prefix),
-            None => SessionState::parse(&s.state).is_some_and(|state| !state.ended()),
+            None => pick(s),
         })
         .map(|s| s.session.as_str())
         .collect();
@@ -914,7 +1138,7 @@ async fn resolve_session(
         [one] => Ok((*one).to_owned()),
         [] => bail!(
             "no {} session of this hotkey in cohort {cohort}",
-            given.map_or_else(|| "live".to_owned(), |p| format!("{p:?}"))
+            given.map_or_else(|| what.to_owned(), |p| format!("{p:?}"))
         ),
         many => bail!(
             "{} sessions match in cohort {cohort}; name one: {}",
@@ -924,14 +1148,52 @@ async fn resolve_session(
     }
 }
 
-async fn abort(args: AbortArgs) -> Result<ExitCode> {
-    let (mut client, info, _) = admission_client(&args.endpoints, &args.wallet).await?;
+async fn repair_cmd(args: RepairArgs) -> Result<ExitCode> {
+    let artifact = object::read_header(&args.artifact)?;
+    let (client, info, _) = admission_client(&args.endpoints, &args.wallet).await?;
+    let mut client = client.with_transfer(args.put.transfer(&args.endpoints));
     let cohort = args.cohort.or(info.admitting.as_ref().map(|a| a.cohort));
-    let id = resolve_session(&mut client, cohort, args.session.as_deref()).await?;
-    let session = client.session(&id).await?;
-    let aborted = client.abort(&id, session.attempt).await?;
-    println!("{}", describe(&aborted));
-    Ok(ExitCode::SUCCESS)
+    let id = resolve_session(
+        &mut client,
+        cohort,
+        args.session.as_deref(),
+        // Also a session whose recorded objects are still needed with
+        // nothing listed yet: the repair route checks every recorded
+        // object first, so a loss not noticed yet is found too.
+        |s| !s.repair_needed.is_empty() || holds_recorded(s),
+        "repair-needing",
+    )
+    .await?;
+    run_repair(
+        &mut client,
+        &id,
+        &args.artifact,
+        &artifact,
+        &args.put.options(),
+    )
+    .await
+}
+
+/// A session whose recorded objects the coordinator still needs (it may
+/// have lost one without noticing yet).
+fn holds_recorded(s: &slop_ninja_miner::wire::json::SessionSummary) -> bool {
+    matches!(s.state.as_str(), "verifying" | "verified" | "admitted")
+}
+
+async fn run_repair(
+    client: &mut AdmissionClient,
+    id: &str,
+    path: &Path,
+    artifact: &ObjectHeader,
+    options: &UploadOptions,
+) -> Result<ExitCode> {
+    let session = slop_ninja_miner::upload::repair(client, id, path, artifact, options).await?;
+    println!("{}", describe(&session));
+    Ok(if session.repair_needed.is_empty() {
+        ExitCode::SUCCESS
+    } else {
+        ExitCode::from(EXIT_ERROR)
+    })
 }
 
 async fn status(args: StatusArgs) -> Result<ExitCode> {
@@ -1108,11 +1370,36 @@ async fn status(args: StatusArgs) -> Result<ExitCode> {
         );
         if let Some(live) = &refused.detail.session {
             line.push_str(&format!(
-                "; the live session is {live}: abort it (slop_ninja_miner abort {live}) to upload \
-                 another object for this commitment"
+                "; the live session is {live}: one commitment takes one object. To upload another \
+                 object, commit again (a new nonce); the newer commitment replaces this one"
             ));
         }
         println!("{line}");
+    }
+    if args.repair {
+        let path = args
+            .artifact
+            .as_ref()
+            .expect("clap requires --artifact with --repair");
+        let artifact = object::read_header(path)?;
+        let mut client = client.with_transfer(args.put.transfer(&args.endpoints));
+        let mut code = ExitCode::SUCCESS;
+        // The listed sessions, and those whose recorded objects are still
+        // needed with nothing listed yet (the repair route checks every
+        // recorded object first; `repair` refuses another artifact's).
+        let needing: Vec<String> = view
+            .sessions
+            .iter()
+            .filter(|s| !s.repair_needed.is_empty() || holds_recorded(s))
+            .map(|s| s.session.clone())
+            .collect();
+        if needing.is_empty() {
+            println!("  nothing to repair");
+        }
+        for id in needing {
+            code = run_repair(&mut client, &id, path, &artifact, &args.put.options()).await?;
+        }
+        return Ok(code);
     }
     Ok(ExitCode::SUCCESS)
 }
@@ -1121,7 +1408,11 @@ async fn status(args: StatusArgs) -> Result<ExitCode> {
 fn cohort_report(info: &CohortInfo, base: &url::Url, source: Source) -> String {
     public::cohort_report(
         info,
-        &format!("{} ({})", base.origin().ascii_serialization(), source.describe()),
+        &format!(
+            "{} ({})",
+            base.origin().ascii_serialization(),
+            source.describe()
+        ),
     )
 }
 
@@ -1144,10 +1435,26 @@ async fn next_cohort(args: PublicArgs) -> Result<ExitCode> {
 mod tests {
     use super::*;
     use slop_ninja_miner::opening::Submitted;
+    use slop_ninja_protocol::{ArtifactHeader, Digest};
 
-    fn opening(payload: &str, artifact: &str, confirmed: Option<Option<u64>>) -> OpeningFile {
+    /// An object known by its header digest `tag` (test only).
+    fn obj(tag: u8) -> ObjectHeader {
+        ObjectHeader {
+            header: ArtifactHeader {
+                contract: "c".into(),
+                files: vec![],
+            },
+            bytes: vec![],
+            sha256: Digest([tag; 32]),
+            len: 10,
+            content: Digest([0; 32]),
+            object_len: 100,
+        }
+    }
+
+    fn opening(payload: &str, artifact: u8, confirmed: Option<Option<u64>>) -> OpeningFile {
         OpeningFile {
-            schema: String::new(),
+            schema: slop_ninja_miner::opening::OPENING_SCHEMA.into(),
             opening: String::new(),
             commitment: String::new(),
             chain_payload: payload.into(),
@@ -1156,9 +1463,13 @@ mod tests {
             hotkey: String::new(),
             registration_block: 1,
             content: String::new(),
-            artifact_sha256: artifact.into(),
-            artifact_len: 10,
-            submitted: confirmed.map(|b| Submitted { finalized_commitment_block: b, ..Default::default() }),
+            header_sha256: Some(Digest([artifact; 32]).hex()),
+            header_len: Some(10),
+            object_len: Some(100),
+            submitted: confirmed.map(|b| Submitted {
+                finalized_commitment_block: b,
+                ..Default::default()
+            }),
         }
     }
 
@@ -1181,35 +1492,45 @@ mod tests {
     #[test]
     fn a_replaced_commitment_picks_the_newer_confirmed_opening() {
         let list = vec![
-            (PathBuf::from("c1.json"), opening("p1", "a1", Some(Some(100))), None),
-            (PathBuf::from("c2.json"), opening("p2", "a2", Some(Some(120))), None),
+            (
+                PathBuf::from("c1.json"),
+                opening("p1", 1, Some(Some(100))),
+                None,
+            ),
+            (
+                PathBuf::from("c2.json"),
+                opening("p2", 2, Some(Some(120))),
+                None,
+            ),
         ];
         let seen = observed("p1", 100);
-        let (path, note) = pick_opening(&list, Some(&seen), "a2", 10).unwrap();
+        let (path, note) = pick_opening(&list, Some(&seen), &obj(2)).unwrap();
         assert_eq!(path, PathBuf::from("c2.json"));
         assert!(note.is_some());
-        let err = pick_opening(&list, Some(&seen), "a1", 10).unwrap_err().to_string();
+        let err = pick_opening(&list, Some(&seen), &obj(1))
+            .unwrap_err()
+            .to_string();
         assert!(err.contains("another artifact"), "{err}");
         // Once the coordinator logs the new commitment, it is matched directly.
-        let (path, note) = pick_opening(&list, Some(&observed("p2", 120)), "a2", 10).unwrap();
+        let (path, note) = pick_opening(&list, Some(&observed("p2", 120)), &obj(2)).unwrap();
         assert_eq!((path, note), (PathBuf::from("c2.json"), None));
         // A commitment the coordinator logged at a later block than any local
         // confirmation (made elsewhere) is matched by payload, or refused.
-        let (path, _) = pick_opening(&list, Some(&observed("p1", 130)), "a1", 10).unwrap();
+        let (path, _) = pick_opening(&list, Some(&observed("p1", 130)), &obj(1)).unwrap();
         assert_eq!(path, PathBuf::from("c1.json"));
         // Nothing observed yet: the newest confirmed opening for the artifact.
-        let (path, _) = pick_opening(&list, None, "a2", 10).unwrap();
+        let (path, _) = pick_opening(&list, None, &obj(2)).unwrap();
         assert_eq!(path, PathBuf::from("c2.json"));
         // An inclusion whose read-back gave up (no finalized block) is used
         // only as the fallback for its artifact; a never-submitted opening
         // never.
         let list = vec![
-            (PathBuf::from("d1.json"), opening("q1", "b1", Some(None)), None),
-            (PathBuf::from("d2.json"), opening("q2", "b2", None), None),
+            (PathBuf::from("d1.json"), opening("q1", 3, Some(None)), None),
+            (PathBuf::from("d2.json"), opening("q2", 4, None), None),
         ];
-        let (path, note) = pick_opening(&list, None, "b1", 10).unwrap();
+        let (path, note) = pick_opening(&list, None, &obj(3)).unwrap();
         assert_eq!(path, PathBuf::from("d1.json"));
         assert!(note.is_some());
-        assert!(pick_opening(&list, None, "b2", 10).is_err());
+        assert!(pick_opening(&list, None, &obj(4)).is_err());
     }
 }

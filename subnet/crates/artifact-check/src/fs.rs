@@ -1,8 +1,10 @@
 //! Native helpers: check a model directory or an object file, build the
-//! object from a directory, and write the scorer's parts layout.
+//! object from a directory, and write the scorer's files layout v2 for an
+//! operator-staged reference package.
 //!
-//! A directory is checked by streaming the object it would pack into, so the
-//! directory and object paths run the same checks.
+//! A directory's header is built by hashing each file once (the pack hash,
+//! [`header_for_dir`]); every check after that reads the files against that
+//! header and hashes nothing ([`crate::files`]).
 
 use std::fs;
 use std::io::{Read, Write};
@@ -11,6 +13,8 @@ use std::path::{Path, PathBuf};
 use sha2::{Digest as _, Sha256};
 use slop_ninja_protocol::{ArtifactFile, ArtifactHeader, Digest, Record};
 
+use crate::files::{FilesReport, check_files_for, check_object_files};
+use crate::files_manifest::FilesManifest;
 use crate::mapping::{ObjectCheck, ObjectReport};
 use crate::spec::Version;
 use crate::{Refusal, spec};
@@ -100,26 +104,40 @@ pub fn stream_object(
     Ok(())
 }
 
-/// Checks a model directory as the object it packs into (spec v1).
-pub fn check_dir(dir: &Path) -> Result<ObjectReport, Refusal> {
+/// Checks a model directory (spec v1).
+pub fn check_dir(dir: &Path) -> Result<FilesReport, Refusal> {
     check_dir_for(dir, Version::V1)
 }
 
-/// Checks a model directory as the object it packs into, under `version`.
-pub fn check_dir_for(dir: &Path, version: Version) -> Result<ObjectReport, Refusal> {
+/// Checks a model directory under `version`: its header (one hash per
+/// file), then the files against it (no hash).
+pub fn check_dir_for(dir: &Path, version: Version) -> Result<FilesReport, Refusal> {
     let header = header_for_dir(dir)?;
-    let mut check = ObjectCheck::for_spec(version);
-    stream_object(dir, &header, |b| check.update(b))?;
-    check.finish()
+    check_files_for(dir, &header, version)
 }
 
-/// Checks an object file (spec v1).
-pub fn check_object(path: &Path) -> Result<ObjectReport, Refusal> {
+/// Checks a model directory under `version` and returns its header too.
+pub fn check_dir_with_header(dir: &Path, version: Version) -> Result<(ArtifactHeader, FilesReport), Refusal> {
+    let header = header_for_dir(dir)?;
+    let report = check_files_for(dir, &header, version)?;
+    Ok((header, report))
+}
+
+/// Checks an object file in place (spec v1), hashing nothing.
+pub fn check_object(path: &Path) -> Result<FilesReport, Refusal> {
     check_object_for(path, Version::V1)
 }
 
-/// Checks an object file under `version`.
-pub fn check_object_for(path: &Path, version: Version) -> Result<ObjectReport, Refusal> {
+/// Checks an object file in place under `version`, hashing nothing
+/// ([`check_object_files`]).
+pub fn check_object_for(path: &Path, version: Version) -> Result<FilesReport, Refusal> {
+    check_object_files(path, version)
+}
+
+/// Verifies a whole object file the way a reader that trusts nothing does:
+/// the protocol reader re-hashes the object and every file. A tool for a
+/// downloaded object; admission and scoring never call it.
+pub fn verify_object_for(path: &Path, version: Version) -> Result<ObjectReport, Refusal> {
     let mut f = fs::File::open(path).map_err(|e| io(path, e))?;
     let mut check = ObjectCheck::for_spec(version);
     let mut buf = vec![0u8; CHUNK];
@@ -133,68 +151,196 @@ pub fn check_object_for(path: &Path, version: Version) -> Result<ObjectReport, R
     check.finish()
 }
 
-/// Checks `dir` and writes its object to `out` (created new), under spec v1.
-pub fn pack(dir: &Path, out: &Path) -> Result<ObjectReport, Refusal> {
+/// Writes `dir`'s object to `out` (created new) under spec v1.
+pub fn pack(dir: &Path, out: &Path) -> Result<FilesReport, Refusal> {
     pack_for(dir, out, Version::V1)
 }
 
-/// Checks `dir` under `version` and writes its object to `out` (created new).
-pub fn pack_for(dir: &Path, out: &Path, version: Version) -> Result<ObjectReport, Refusal> {
-    let header = header_for_dir(dir)?;
-    let tmp = out.with_extension("packing");
-    let mut w = fs::File::create_new(&tmp).map_err(|e| io(&tmp, e))?;
-    let mut check = ObjectCheck::for_spec(version);
-    let result = stream_object(dir, &header, |b| {
-        check.update(b)?;
-        w.write_all(b).map_err(|e| io(&tmp, e))
-    })
-    .and_then(|()| check.finish());
-    match result {
-        Ok(report) => {
-            w.sync_all().map_err(|e| io(&tmp, e))?;
-            drop(w);
-            fs::rename(&tmp, out).map_err(|e| io(out, e))?;
-            Ok(report)
+/// The spec's file table for `dir`: every entry must be one of the spec's
+/// six files, and each must be present. Returns `(name, role, path)` sorted
+/// by name. Reads the directory listing only.
+pub fn spec_files_in(dir: &Path) -> Result<Vec<(String, slop_ninja_protocol::FileRole, PathBuf)>, Refusal> {
+    let mut names = Vec::new();
+    for entry in fs::read_dir(dir).map_err(|e| io(dir, e))? {
+        let entry = entry.map_err(|e| io(dir, e))?;
+        let name = entry.file_name().to_string_lossy().into_owned();
+        let kind = entry.file_type().map_err(|e| io(dir, e))?;
+        if !kind.is_file() || spec::role_by_name(&name).is_none() {
+            return Err(Refusal::UndeclaredFile(name));
         }
-        Err(e) => {
-            drop(w);
-            let _ = fs::remove_file(&tmp);
-            Err(e)
+        names.push(name);
+    }
+    for role in &spec::ROLES {
+        if !names.iter().any(|n| n == role.name) {
+            return Err(Refusal::MissingFile(role.name));
         }
     }
+    names.sort();
+    Ok(names
+        .into_iter()
+        .map(|name| {
+            let role = spec::role_by_name(&name).expect("checked").file_role;
+            let path = dir.join(&name);
+            (name, role, path)
+        })
+        .collect())
 }
 
-/// Writes the scorer's layout for a checked object or directory:
-/// `out/blobs/<part sha256>` and `out/artifact-files.json`.
-pub fn write_parts(dir: &Path, report: &ObjectReport, out: &Path) -> Result<PathBuf, Refusal> {
-    let blobs = out.join("blobs");
-    fs::create_dir_all(&blobs).map_err(|e| io(&blobs, e))?;
-    for f in &report.parts_manifest.files {
-        let path = dir.join(&f.name);
-        let mut src = fs::File::open(&path).map_err(|e| io(&path, e))?;
-        for p in &f.parts {
-            let mut buf = Vec::with_capacity(p.bytes as usize);
-            (&mut src)
-                .take(p.bytes)
-                .read_to_end(&mut buf)
-                .map_err(|e| io(&path, e))?;
-            if buf.len() as u64 != p.bytes || crate::sha256_hex(&buf) != p.sha256 {
-                return Err(Refusal::Object(format!(
-                    "{} changed after the check",
-                    f.name
-                )));
-            }
-            let dest = blobs.join(&p.sha256);
-            if !dest.exists() {
-                let tmp = blobs.join(format!("{}.tmp", p.sha256));
-                fs::write(&tmp, &buf).map_err(|e| io(&tmp, e))?;
-                fs::rename(&tmp, &dest).map_err(|e| io(&dest, e))?;
-            }
+/// Writes the object for `dir` to `out` (created new, mode 0600 on Unix)
+/// under the spec's file table and contract, hashing each file exactly
+/// once ([`write_files_once`]). Returns the header and its bytes.
+pub fn write_object_once(dir: &Path, out: &Path) -> Result<(ArtifactHeader, Vec<u8>), Refusal> {
+    write_files_once(spec::CONTRACT_ID, &spec_files_in(dir)?, out)
+}
+
+/// Writes the artifact object for `files` (`(name, role, path)`, any order)
+/// under `contract` to `out`, hashing each file exactly once, in the same
+/// pass that writes it: the header's encoded length is fixed by the names,
+/// roles and contract (each digest and length has a fixed size), so room for
+/// it is reserved first, each file is streamed once into place while it is
+/// hashed, and the header is written last. The digests are of exactly the
+/// bytes written, so no read-back is needed and nothing re-hashes them: the
+/// header is the only record of them, and R2 verifies each uploaded file
+/// against it.
+///
+/// `out` must not exist; the object is written to a sibling temporary file
+/// (mode 0600 on Unix: the object stays private until its cohort closes),
+/// synced, and renamed into place. An empty file, a duplicate name or any
+/// invalid header is refused before a byte is written. Returns the header
+/// and its bytes.
+pub fn write_files_once(
+    contract: &str,
+    files: &[(String, slop_ninja_protocol::FileRole, PathBuf)],
+    out: &Path,
+) -> Result<(ArtifactHeader, Vec<u8>), Refusal> {
+    use std::io::{Seek, SeekFrom};
+    if out.exists() {
+        return Err(Refusal::Object(format!("{} exists; choose another output path", out.display())));
+    }
+    let mut sorted: Vec<&(String, slop_ninja_protocol::FileRole, PathBuf)> = files.iter().collect();
+    sorted.sort_by(|a, b| a.0.cmp(&b.0));
+    for (name, _, path) in &sorted {
+        let len = fs::metadata(path).map_err(|e| io(path, e))?.len();
+        if len == 0 {
+            return Err(Refusal::Object(format!("{name}: the file {} is empty", path.display())));
         }
     }
+    // Every digest and length encodes at a fixed size, so this placeholder
+    // has the final header's exact length; encoding it also validates the
+    // names, roles and contract before anything is written.
+    let placeholder = ArtifactHeader {
+        contract: contract.into(),
+        files: sorted
+            .iter()
+            .map(|(name, role, _)| ArtifactFile { name: name.clone(), role: *role, sha256: Digest([0; 32]), len: 1 })
+            .collect(),
+    };
+    let header_len = placeholder.to_bytes().map_err(|e| Refusal::Object(e.to_string()))?.len();
+    if header_len > slop_ninja_protocol::MAX_ARTIFACT_HEADER_LEN as usize {
+        return Err(Refusal::Object("artifact header length".into()));
+    }
+    let mut tmp_name = out.file_name().map(|n| n.to_os_string()).unwrap_or_default();
+    tmp_name.push(".packing");
+    let tmp = out.with_file_name(tmp_name);
+    let mut options = fs::OpenOptions::new();
+    options.write(true).create_new(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        options.mode(0o600);
+    }
+    let mut w = options.open(&tmp).map_err(|e| io(&tmp, e))?;
+    let result = (|| -> Result<(ArtifactHeader, Vec<u8>), Refusal> {
+        w.write_all(&vec![0u8; 4 + header_len]).map_err(|e| io(&tmp, e))?;
+        let mut entries = Vec::with_capacity(sorted.len());
+        let mut buf = vec![0u8; CHUNK];
+        for (name, role, path) in &sorted {
+            let mut src = fs::File::open(path).map_err(|e| io(path, e))?;
+            // The one hash of this file: the pack hash, over exactly the
+            // bytes written.
+            let mut h = Sha256::new();
+            let mut len = 0u64;
+            loop {
+                let n = src.read(&mut buf).map_err(|e| io(path, e))?;
+                if n == 0 {
+                    break;
+                }
+                h.update(&buf[..n]);
+                w.write_all(&buf[..n]).map_err(|e| io(&tmp, e))?;
+                len += n as u64;
+            }
+            entries.push(ArtifactFile { name: name.clone(), role: *role, sha256: Digest(h.finalize().into()), len });
+        }
+        let header = ArtifactHeader { contract: contract.into(), files: entries };
+        let bytes = header.to_bytes().map_err(|e| Refusal::Object(e.to_string()))?;
+        if bytes.len() != header_len {
+            return Err(Refusal::Object("header length changed while packing".into()));
+        }
+        w.seek(SeekFrom::Start(0)).map_err(|e| io(&tmp, e))?;
+        w.write_all(&(header_len as u32).to_le_bytes()).map_err(|e| io(&tmp, e))?;
+        w.write_all(&bytes).map_err(|e| io(&tmp, e))?;
+        w.sync_all().map_err(|e| io(&tmp, e))?;
+        Ok((header, bytes))
+    })();
+    drop(w);
+    let finished = result.and_then(|v| {
+        if out.exists() {
+            return Err(Refusal::Object(format!("{} exists; choose another output path", out.display())));
+        }
+        fs::rename(&tmp, out).map_err(|e| io(out, e))?;
+        Ok(v)
+    });
+    if finished.is_err() {
+        let _ = fs::remove_file(&tmp);
+    }
+    finished
+}
+
+/// Writes the object for `dir` to `out` (created new) with
+/// [`write_object_once`], then checks it in place under `version` (no
+/// hash). A refused object is removed.
+pub fn pack_for(dir: &Path, out: &Path, version: Version) -> Result<FilesReport, Refusal> {
+    write_object_once(dir, out)?;
+    check_object_files(out, version).inspect_err(|_| {
+        let _ = fs::remove_file(out);
+    })
+}
+
+/// The bucket key of a reference package file in the eval bucket's files
+/// layout v2.
+pub fn reference_file_key(sha256: &str) -> String {
+    format!("artifacts/files/{sha256}")
+}
+
+/// Writes the scorer's files layout v2 for an operator-staged reference
+/// package from a checked directory and its header: `out/files/<sha256>`
+/// (hard links, or copies) and `out/artifact-files.json`, a files manifest
+/// naming the eval bucket and [`reference_file_key`] (no entity tag: the
+/// operator's upload verifies each file's SHA-256 at R2 instead). Returns
+/// the manifest path and the package digest.
+pub fn write_files(
+    dir: &Path,
+    header: &ArtifactHeader,
+    report: &FilesReport,
+    version: Version,
+    out: &Path,
+) -> Result<(PathBuf, String), Refusal> {
+    let files = out.join("files");
+    fs::create_dir_all(&files).map_err(|e| io(&files, e))?;
+    for f in &header.files {
+        let sha = hex::encode(f.sha256.0);
+        let (from, to) = (dir.join(&f.name), files.join(&sha));
+        if !to.exists() && fs::hard_link(&from, &to).is_err() {
+            fs::copy(&from, &to).map_err(|e| io(&from, e))?;
+        }
+    }
+    let m = FilesManifest::for_header(header, version, &report.profile_id, |_, sha| {
+        ("eval".into(), reference_file_key(sha), None)
+    })?;
+    let bytes = m.to_bytes();
     let manifest = out.join("artifact-files.json");
-    fs::write(&manifest, report.parts_manifest.to_bytes()).map_err(|e| io(&manifest, e))?;
-    Ok(manifest)
+    fs::write(&manifest, &bytes).map_err(|e| io(&manifest, e))?;
+    Ok((manifest, FilesManifest::package_of(&bytes)))
 }
 
 /// Writes `dir`'s artifact into `out` (created new) with each JSON role file

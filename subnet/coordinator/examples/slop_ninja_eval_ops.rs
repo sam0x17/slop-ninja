@@ -580,7 +580,7 @@ fn restart(flags: &BTreeMap<String, String>) {
         fail(&format!("{replaced} is already superseded by {by}"));
     }
     if deployed.work {
-        fail(&format!("{replaced} still has work (a closure, a spend settlement, a purge or an admission clean-up)"));
+        fail(&format!("{replaced} still has work (a closure, a spend settlement, a purge, an admission clean-up or admitted objects awaiting the publisher's report)"));
     }
     // The recorded decision the restart runs under (kept in restart.json).
     let decision: String = flag(flags, "decision");
@@ -842,9 +842,16 @@ fn template_out(
     let id = plan["admission"]["artifact_spec"].as_str().map(str::to_owned).unwrap_or_else(|| fail("template: admission.artifact_spec"));
     let bounds = slop_ninja_coordinator::eval::admission::SpecBounds::of_id(&id)
         .unwrap_or_else(|| fail(&format!("template: {id} is not a spec the scorer admits by")));
-    let part = plan["admission"]["part_size"].as_u64().unwrap_or_else(|| fail("template: admission.part_size"));
     plan["admission"]["artifact_spec_sha256"] = json!(bounds.spec_sha256);
-    plan["admission"]["max_parts"] = json!(bounds.object_bytes.div_ceil(part.max(1)));
+    // Admission v2: every object is one presigned PUT under the compiled
+    // upload URL policy; the v1 part fields go.
+    let adm = plan["admission"].as_object_mut().unwrap_or_else(|| fail("template: admission"));
+    adm.remove("part_size");
+    adm.remove("max_parts");
+    adm.insert(
+        "upload_policy".into(),
+        serde_json::to_value(slop_ninja_coordinator::eval::plan::UploadPolicyPlan::v1()).unwrap_or_else(|_| fail("upload policy")),
+    );
     plan["fanout"]["score"]["artifact_spec"] = json!(id);
     plan["fanout"]["score"]["artifact_spec_sha256"] = json!(bounds.spec_sha256);
     plan["fanout"]["score"].as_object_mut().unwrap_or_else(|| fail("template: fanout.score")).remove("artifact_max_mib");

@@ -3,6 +3,12 @@
 version = 4
 
 [[package]]
+name = "anyhow"
+version = "1.0.104"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "330a5ed07fa54e4702c9d6c4174f74427fc0ef6e214bbd677ae50a5099946470"
+
+[[package]]
 name = "async-trait"
 version = "0.1.92"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -296,6 +302,15 @@ name = "hex"
 version = "0.4.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7f24254aa9a54b5c858eaee2f5bccdb46aaf0e486a595ed5fd8f86ba55232a70"
+
+[[package]]
+name = "hmac"
+version = "0.12.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "6c49c37c09c17a53d937dfbb742eb3a961d65a994e6bcdcf37e7399d0cc8ab5e"
+dependencies = [
+ "digest",
+]
 
 [[package]]
 name = "http"
@@ -690,6 +705,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "slop-ninja-artifact-check"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "hex",
+ "ryu",
+ "serde",
+ "serde_json",
+ "sha2",
+ "slop-ninja-protocol",
+]
+
+[[package]]
 name = "slop-ninja-protocol"
 version = "0.1.0"
 dependencies = [
@@ -711,10 +739,20 @@ dependencies = [
  "sha2",
  "slop-ninja-admission-wire",
  "slop-ninja-alerts-wire",
+ "slop-ninja-artifact-check",
  "slop-ninja-protocol",
+ "slop-ninja-r2-presign",
  "wasm-bindgen",
  "wasm-bindgen-futures",
  "worker",
+]
+
+[[package]]
+name = "slop-ninja-r2-presign"
+version = "0.1.0"
+dependencies = [
+ "hmac",
+ "sha2",
 ]
 
 [[package]]

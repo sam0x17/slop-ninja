@@ -648,7 +648,7 @@ pub fn references_after(
 ) -> (ReferencePointer, Option<ReferencePointer>) {
     let refs = &v.manifest.references;
     let pointer = |role: &str, index: u64, content: String, artifact: String| {
-        let path = published(&artifact).then(|| layout::artifact(&parse(&artifact)));
+        let path = published(&artifact).then(|| layout::header(&parse(&artifact)));
         let mut p = ReferencePointer {
             schema: REFERENCE_SCHEMA.into(),
             role: role.into(),

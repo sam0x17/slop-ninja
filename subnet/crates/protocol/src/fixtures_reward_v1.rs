@@ -179,6 +179,18 @@ pub fn artifact_object(content: u8, publisher: u8) -> Vec<u8> {
     .expect("fixture artifact")
 }
 
+/// The header bytes `H` of an artifact object (the bytes after the length
+/// prefix that the prefix counts).
+pub fn header_bytes(object: &[u8]) -> Vec<u8> {
+    let len = u32::from_le_bytes(object[..4].try_into().expect("prefix")) as usize;
+    object[4..4 + len].to_vec()
+}
+
+/// The store-verified header of an artifact object.
+pub fn verified_header(object: &[u8]) -> crate::VerifiedHeader {
+    VerifiedArtifact::from_bytes(object).expect("fixture artifact").verified_header()
+}
+
 /// The verified artifact object of content family `content` by `publisher`.
 pub fn verified(content: u8, publisher: u8) -> VerifiedArtifact {
     VerifiedArtifact::from_bytes(&artifact_object(content, publisher)).expect("fixture artifact")
@@ -328,11 +340,12 @@ pub fn finalized_commitment<'a>(
 pub fn admitted(chain: &ChainBinding, cohort: u64, spec: &Spec, block: u64) -> RosterEntry {
     let opening = opening(chain, cohort, spec);
     let bytes = artifact_bytes(spec);
-    let artifact = VerifiedArtifact::from_bytes(&bytes).expect("fixture artifact");
+    let header = verified_header(&bytes);
     let payload = opening.chain_payload();
     let commitment = finalized_commitment(chain, spec, block, &payload);
-    SubmissionUpload::new(opening, &bytes)
-        .admit(cohort, &commitment, &artifact)
+    SubmissionUpload::new(opening, &header_bytes(&bytes))
+        .expect("fixture header")
+        .admit_header(cohort, &commitment, &header)
         .expect("fixture admission")
 }
 
@@ -521,7 +534,7 @@ pub fn package(
                 commitment_block: r.commitment_block,
                 extrinsic_index: r.extrinsic_index,
                 content: content(s.content),
-                artifact: object_sha256(&artifact_bytes(s)),
+                artifact: verified_header(&artifact_bytes(s)).sha256,
                 gate_failures: s.gate.clone().into_iter().collect(),
                 score: s.score,
                 assigned: if scored { cases } else { 0 },
@@ -2128,12 +2141,12 @@ fn computed_cohort(r: &mut Report) -> Result<()> {
     let checked = c.checked_closure()?;
     for (i, spec) in c.specs.iter().enumerate() {
         let payload = opening(&chain(), c.manifest.cohort, spec).chain_payload();
-        let artifact = VerifiedArtifact::from_bytes(&artifact_bytes(spec))?;
+        let header = VerifiedArtifact::from_bytes(&artifact_bytes(spec))?.verified_header();
         let testnet = chain();
         let commitment = finalized_commitment(&testnet, spec, commitment_block(i), &payload);
         r.code(
             &format!("cohort.closure.entrant.{:02x}", spec.tag),
-            checked.check_entrant(i, &commitment, &artifact),
+            checked.check_entrant(i, &commitment, &header),
         );
     }
     r.code(
@@ -2594,14 +2607,14 @@ fn submission(r: &mut Report) -> Result<()> {
     r.line("submission.commitment", opening.commitment());
     r.line("submission.chain_payload", hex(&opening.chain_payload()));
     let bytes = artifact_bytes(spec);
-    let artifact = VerifiedArtifact::from_bytes(&bytes)?;
-    let upload = SubmissionUpload::new(opening.clone(), &bytes);
+    let artifact = VerifiedArtifact::from_bytes(&bytes)?.verified_header();
+    let upload = SubmissionUpload::new(opening.clone(), &header_bytes(&bytes))?;
     r.record("submission.upload", &upload)?;
     let payload = opening.chain_payload();
     let finalized = finalized_commitment(&chain, spec, commitment_block(0), &payload);
     r.result(
         "submission.admit",
-        upload.admit(cohort, &finalized, &artifact).map(|entry| {
+        upload.admit_header(cohort, &finalized, &artifact).map(|entry| {
             format!(
                 "uid={} block={} extrinsic={} roster_entry={}",
                 entry.identity.uid,
@@ -2615,7 +2628,7 @@ fn submission(r: &mut Report) -> Result<()> {
     tampered[20] ^= 1;
     r.code(
         "submission.admit.tampered_payload",
-        upload.admit(
+        upload.admit_header(
             cohort,
             &FinalizedCommitment {
                 payload: &tampered,
@@ -2626,21 +2639,21 @@ fn submission(r: &mut Report) -> Result<()> {
     );
     r.code(
         "submission.admit.other_artifact",
-        upload.admit(cohort, &finalized, &verified(0x11, 0x16)),
+        upload.admit_header(cohort, &finalized, &verified(0x11, 0x16).verified_header()),
     );
     // An envelope for a different object whose content is not the committed one.
     let other = artifact_object(0x12, spec.tag);
-    let mismatched = SubmissionUpload::new(opening.clone(), &other);
+    let mismatched = SubmissionUpload::new(opening.clone(), &header_bytes(&other))?;
     r.code(
         "submission.admit.uncommitted_content",
-        mismatched.admit(cohort, &finalized, &VerifiedArtifact::from_bytes(&other)?),
+        mismatched.admit_header(cohort, &finalized, &VerifiedArtifact::from_bytes(&other)?.verified_header()),
     );
     let mut other_cohort = opening.clone();
     other_cohort.cohort += 1;
     let other_payload = other_cohort.chain_payload();
     r.code(
         "submission.admit.other_cohort_payload",
-        upload.admit(
+        upload.admit_header(
             cohort,
             &FinalizedCommitment {
                 payload: &other_payload,
@@ -2653,12 +2666,12 @@ fn submission(r: &mut Report) -> Result<()> {
     // account to the opening.
     r.code(
         "submission.admit.into_other_cohort",
-        upload.admit(cohort + 1, &finalized, &artifact),
+        upload.admit_header(cohort + 1, &finalized, &artifact),
     );
     let finney = finney();
     r.code(
         "submission.admit.other_chain",
-        upload.admit(
+        upload.admit_header(
             cohort,
             &FinalizedCommitment {
                 chain: &finney,
@@ -2671,7 +2684,7 @@ fn submission(r: &mut Report) -> Result<()> {
     stranger.hotkey = hotkey(0x12);
     r.code(
         "submission.admit.other_hotkey",
-        upload.admit(
+        upload.admit_header(
             cohort,
             &FinalizedCommitment {
                 committer: stranger,
@@ -2684,7 +2697,7 @@ fn submission(r: &mut Report) -> Result<()> {
     regenerated.registration_block += 1;
     r.code(
         "submission.admit.other_generation",
-        upload.admit(
+        upload.admit_header(
             cohort,
             &FinalizedCommitment {
                 committer: regenerated,
@@ -2695,7 +2708,7 @@ fn submission(r: &mut Report) -> Result<()> {
     );
     r.code(
         "submission.admit.registered_after_commitment",
-        upload.admit(
+        upload.admit_header(
             cohort,
             &FinalizedCommitment {
                 block: spec.identity().registration_block - 1,
@@ -2707,7 +2720,7 @@ fn submission(r: &mut Report) -> Result<()> {
     // A registration in the commitment's own block is admitted.
     r.code(
         "submission.admit.registered_in_commitment_block",
-        upload.admit(
+        upload.admit_header(
             cohort,
             &FinalizedCommitment {
                 block: spec.identity().registration_block,
@@ -2732,7 +2745,7 @@ fn submission(r: &mut Report) -> Result<()> {
         crate::submission::check_published_artifact(
             &c.package,
             &hotkey(spec.tag),
-            &verified(0x11, 0x16),
+            &verified(0x11, 0x16).verified_header(),
         ),
     );
     // A package that names the object but asserts other content.
@@ -2811,7 +2824,7 @@ fn submission(r: &mut Report) -> Result<()> {
     }
     r.code(
         "submission.entrant.other_artifact",
-        checked.check_entrant(0, &finalized, &verified(0x11, 0x16)),
+        checked.check_entrant(0, &finalized, &verified(0x11, 0x16).verified_header()),
     );
     Ok(())
 }

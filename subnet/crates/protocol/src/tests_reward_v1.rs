@@ -406,8 +406,11 @@ fn every_v2_record_round_trips_canonically() -> Result<()> {
         &snapshot,
     )?)?;
     let opening = fx::opening(&chain(), 3, &c.specs[0]);
-    let upload = submission::SubmissionUpload::new(opening, b"artifact");
+    let upload = submission::SubmissionUpload::new(opening.clone(), b"header")?;
     assert_eq!(upload.to_bytes()?.len(), submission::SubmissionUpload::ENCODED_LEN);
+    assert!(submission::SubmissionUpload::new(opening.clone(), b"").is_err());
+    let too_long = vec![0u8; crate::MAX_ARTIFACT_HEADER_LEN as usize + 1];
+    assert!(submission::SubmissionUpload::new(opening, &too_long).is_err());
     round_trip(&upload)?;
     round_trip(&c.authorization.record)?;
     round_trip(&c.renewal.record)?;
@@ -1208,17 +1211,18 @@ fn published_artifacts_open_their_on_chain_commitments() -> Result<()> {
     let checked = c.closure.check(&c.manifest, &c.package, Some(&c.target))?;
     for (i, spec) in c.specs.iter().enumerate() {
         let payload = fx::opening(&chain(), c.manifest.cohort, spec).chain_payload();
-        let artifact = VerifiedArtifact::from_bytes(&fx::artifact_bytes(spec))?;
+        let artifact = VerifiedArtifact::from_bytes(&fx::artifact_bytes(spec))?.verified_header();
         assert_eq!(artifact.content, c.package.entrants[i].content);
+        assert_eq!(artifact.sha256, c.package.entrants[i].artifact);
         let testnet = chain();
         let finalized = fx::finalized_commitment(&testnet, spec, fx::commitment_block(i), &payload);
         checked.check_entrant(i, &finalized, &artifact)?;
         // Admission returned exactly the manifest's roster entry.
         let entry = submission::SubmissionUpload::new(
             fx::opening(&chain(), 3, spec),
-            &fx::artifact_bytes(spec),
-        )
-        .admit(
+            &fx::header_bytes(&fx::artifact_bytes(spec)),
+        )?
+        .admit_header(
             3,
             &submission::FinalizedCommitment {
                 chain: &chain(),
@@ -1233,8 +1237,8 @@ fn published_artifacts_open_their_on_chain_commitments() -> Result<()> {
     }
     // Identical content: a copy publishes a distinct object with the same
     // derived content, so the cluster rule rests on checked content.
-    let alpha = VerifiedArtifact::from_bytes(&fx::artifact_bytes(&c.specs[0]))?;
-    let copy = VerifiedArtifact::from_bytes(&fx::artifact_bytes(&c.specs[5]))?;
+    let alpha = VerifiedArtifact::from_bytes(&fx::artifact_bytes(&c.specs[0]))?.verified_header();
+    let copy = VerifiedArtifact::from_bytes(&fx::artifact_bytes(&c.specs[5]))?.verified_header();
     assert_ne!(alpha.sha256, copy.sha256);
     assert_eq!(alpha.content, copy.content);
     // A package asserting other content for the published object fails.
@@ -1449,8 +1453,8 @@ fn admission_binds_the_committing_account_cohort_and_chain() -> Result<()> {
     let testnet = chain();
     let opening = fx::opening(&testnet, 3, spec);
     let bytes = fx::artifact_bytes(spec);
-    let artifact = VerifiedArtifact::from_bytes(&bytes)?;
-    let upload = submission::SubmissionUpload::new(opening.clone(), &bytes);
+    let artifact = VerifiedArtifact::from_bytes(&bytes)?.verified_header();
+    let upload = submission::SubmissionUpload::new(opening.clone(), &fx::header_bytes(&bytes))?;
     let payload = opening.chain_payload();
     let finalized = submission::FinalizedCommitment {
         chain: &testnet,
@@ -1460,11 +1464,11 @@ fn admission_binds_the_committing_account_cohort_and_chain() -> Result<()> {
         payload: &payload,
     };
     assert_eq!(
-        upload.admit(3, &finalized, &artifact)?,
+        upload.admit_header(3, &finalized, &artifact)?,
         c.manifest.roster[0]
     );
     let admit = |f: &submission::FinalizedCommitment<'_>, cohort| {
-        upload.admit(cohort, f, &artifact).unwrap_err()
+        upload.admit_header(cohort, f, &artifact).unwrap_err()
     };
     let mut other = spec.identity();
     other.hotkey = hotkey(0x12);
@@ -1519,7 +1523,7 @@ fn admission_binds_the_committing_account_cohort_and_chain() -> Result<()> {
     // opening: a moved UID is admitted at its UID at the commitment block.
     let mut moved = spec.identity();
     moved.uid = 0x21;
-    let entry = upload.admit(
+    let entry = upload.admit_header(
         3,
         &submission::FinalizedCommitment {
             committer: moved,
@@ -1771,7 +1775,7 @@ fn validators_check_each_entrant_against_its_finalized_commitment() -> Result<()
     let spec = &c.specs[0];
     let testnet = chain();
     let payload = fx::opening(&testnet, 3, spec).chain_payload();
-    let artifact = VerifiedArtifact::from_bytes(&fx::artifact_bytes(spec))?;
+    let artifact = VerifiedArtifact::from_bytes(&fx::artifact_bytes(spec))?.verified_header();
     let finalized = fx::finalized_commitment(&testnet, spec, fx::commitment_block(0), &payload);
     checked.check_entrant(0, &finalized, &artifact)?;
     let check = |f: submission::FinalizedCommitment<'_>| {
@@ -3306,5 +3310,37 @@ fn an_abandonment_record_round_trips_signs_and_refuses_free_text() -> Result<()>
         let f = submission::CohortAbandonment { fault: bad.to_owned(), ..record.clone() };
         assert!(f.to_bytes().is_err(), "{bad:?}");
     }
+    Ok(())
+}
+
+#[test]
+fn a_verified_header_takes_the_store_digest_and_hashes_nothing() -> Result<()> {
+    let object = fx::artifact_object(0x11, 0x11);
+    let h = fx::header_bytes(&object);
+    let full = VerifiedArtifact::from_bytes(&object)?;
+    let stored = crate::VerifiedHeader::from_stored(&h, full.header_sha256)?;
+    assert_eq!(stored, full.verified_header());
+    assert_eq!(stored, crate::VerifiedHeader::from_bytes(&h)?);
+    assert_eq!(stored.len as usize, h.len());
+    // The digest is the store's: a different stored digest is carried as
+    // given, so the envelope comparison is what refuses it.
+    let other = crate::VerifiedHeader::from_stored(&h, Digest([9; 32]))?;
+    assert_eq!(other.sha256, Digest([9; 32]));
+    assert_eq!(other.content, stored.content);
+    assert!(crate::VerifiedHeader::from_stored(&[], Digest([0; 32])).is_err());
+    assert!(crate::VerifiedHeader::from_stored(&h[..h.len() - 1], full.header_sha256).is_err());
+    let c = computed()?;
+    let spec = &c.specs[0];
+    let testnet = chain();
+    let opening = fx::opening(&testnet, 3, spec);
+    let upload = submission::SubmissionUpload::new(opening.clone(), &fx::header_bytes(&fx::artifact_bytes(spec)))?;
+    let payload = opening.chain_payload();
+    let finalized = fx::finalized_commitment(&testnet, spec, fx::commitment_block(0), &payload);
+    let good = fx::verified_header(&fx::artifact_bytes(spec));
+    assert!(upload.admit_header(3, &finalized, &good).is_ok());
+    let wrong_digest = crate::VerifiedHeader { sha256: Digest([9; 32]), ..good.clone() };
+    assert_eq!(upload.admit_header(3, &finalized, &wrong_digest).unwrap_err(), Error::Mismatch("upload header"));
+    let wrong_len = crate::VerifiedHeader { len: good.len + 1, ..good.clone() };
+    assert_eq!(upload.admit_header(3, &finalized, &wrong_len).unwrap_err(), Error::Mismatch("upload header"));
     Ok(())
 }

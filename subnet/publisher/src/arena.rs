@@ -121,9 +121,6 @@ pub fn cohort_receipts(entrants: u64, tasks: u64, max_attempts: u64) -> u64 {
         .saturating_mul(max_attempts)
 }
 
-/// Bound of a stored `SubmissionUpload` envelope (fixed fields only).
-pub const ADMISSION_RECORD_BOUND: u64 = RECORD_OVERHEAD_BYTES;
-
 /// Bound of a signed authorization or renewal object (fixed fields only),
 /// shared with the coordinator (`slop_ninja_admission_wire::receipts`).
 pub const AUTHORIZATION_OBJECT_BOUND: u64 =

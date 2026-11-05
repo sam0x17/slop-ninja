@@ -439,7 +439,7 @@ fn enc(name: &str, v: &Value) -> Vec<u8> {
     canonical::encode(v, spec::role_by_name(name).unwrap().layout.unwrap())
 }
 
-fn code(r: Result<slop_ninja_artifact_check::ObjectReport, Refusal>) -> String {
+fn code<T>(r: Result<T, Refusal>) -> String {
     match r {
         Ok(_) => "accepted".into(),
         Err(e) => {
@@ -463,11 +463,8 @@ fn spec_v3_admits_what_spec_v2_admits_with_the_same_results() {
         assert_eq!(v3.parameters, v2.parameters, "{var}");
         assert_eq!(v3.roles, v2.roles, "{var}");
         assert_eq!(v3.graph, v2.graph, "{var}");
-        assert_eq!(
-            v3.parts_manifest.profile_id,
-            format!("{}/{}", spec::SPEC_ID_V3, v2.graph_class)
-        );
-        assert_ne!(v3.package_sha256, v2.package_sha256);
+        assert_eq!(v3.profile_id, format!("{}/{}", spec::SPEC_ID_V3, v2.graph_class));
+        assert_ne!(v3.profile_id, v2.profile_id);
     }
 }
 
@@ -508,10 +505,7 @@ fn the_tower_package_passes_spec_v3_and_earlier_versions_refuse_it() {
     );
     assert!(r.parameters > spec::MAX_PARAMETERS && r.parameters <= spec::TOWER_MAX_PARAMETERS);
     assert!(r.roles.json_value_bytes.unwrap() <= spec::MAX_JSON_VALUE_BYTES_TOWER);
-    assert_eq!(
-        r.parts_manifest.profile_id,
-        "slop_ninja_a_artifact_spec_v3/a-tower-f32band-v1"
-    );
+    assert_eq!(r.profile_id, "slop_ninja_a_artifact_spec_v3/a-tower-f32band-v1");
     for v in [Version::V1, Version::V2] {
         assert_eq!(code(fs::check_dir_for(&dir, v)), "graph_size", "{v:?}");
     }

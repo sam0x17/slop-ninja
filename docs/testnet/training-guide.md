@@ -52,8 +52,8 @@ repository is <https://github.com/sam0x17/slop-ninja>. The commands fetch everyt
   encoder instead ([Warm start from R0](#warm-start-from-r0)).
 - **Promotion applies.** An entrant that beats the reference by the margin δ
   and passes the promotion checks becomes the next reference, as the
-  whitepaper's promotion rule says. Its artifact is published with its cohort,
-  like every admitted artifact.
+  whitepaper's promotion rule says. Its artifact was published when its
+  cohort's scoring started, like every admitted artifact.
 - **One replacement outside promotion.** Separately, Slop Ninja may replace
   R0 at most once with a better reference it trains, only if that model passes
   every required gate, announced in advance on the status page.
@@ -280,8 +280,8 @@ any change to it changes their digests.
 ## Steps
 
 All commands run from a new working directory outside the repository, with
-relative paths. The artifact's JSON files are published after the cohort
-closes, so the tools record each local location they write as a portable
+relative paths. The artifact's JSON files are published when the cohort's
+scoring starts, so the tools record each local location they write as a portable
 path: resolved against the working directory, repository-relative inside the
 repository, and only its final component under the ignored `data/` tree or
 outside the repository (a user or home directory name is replaced), so from a

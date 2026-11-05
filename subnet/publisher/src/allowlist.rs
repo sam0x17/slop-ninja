@@ -47,12 +47,18 @@
 //!   score column (the v1 page is rewritten when the v1 index is migrated,
 //!   before any cohort is re-listed, and the key audit deletes one left
 //!   behind);
-//! - artifacts (`v1/artifacts/<sha256>.bin`) and staged reference packages
-//!   (`v1/reference/packages/`, staged by the operator; their own contents,
-//!   such as `R_0`'s calibration table, are reviewed separately) are allowed
-//!   by key.
+//! - published artifacts (the header `artifacts/v2/<sha256>/header` and the
+//!   files `blobs/sha256/<sha256>`, copied at scoring start and named by
+//!   their digests) and staged reference packages (`v1/reference/packages/`,
+//!   staged by the operator; their own contents, such as `R_0`'s calibration
+//!   table, are reviewed separately) are allowed by key.
 //!
-//! Every cohort object other than `summary.json` and `publication.json`
+//! Version 3 moved artifacts to the header-and-files layout published at
+//! scoring start (layout v1's `v1/artifacts/<sha256>.bin` objects are no
+//! longer allowed) and added the scoring-start record `artifacts.json`.
+//!
+//! Every cohort object other than `summary.json`, `publication.json` and
+//! `artifacts.json`
 //! (the signed manifest, package, target and closure, receipt indexes, chunk
 //! maps and bundles, published-content and fingerprint indexes, closure
 //! fingerprints and components) is outside the allow-list: those are
@@ -80,6 +86,8 @@ pub enum Kind {
     ArchivedIndex,
     Summary,
     Publication,
+    /// The scoring-start record (`v1/cohorts/<label>/artifacts.json`).
+    Artifacts,
     Leaderboard,
     Reference,
     ReferencePackage,
@@ -132,6 +140,7 @@ pub fn classify(key: &str) -> Option<Kind> {
         return match rel {
             crate::summary::SUMMARY => Some(Kind::Summary),
             "publication.json" => Some(Kind::Publication),
+            crate::artifacts::ARTIFACTS => Some(Kind::Artifacts),
             _ => None,
         };
     }
@@ -140,11 +149,14 @@ pub fn classify(key: &str) -> Option<Kind> {
         return (layout::safe_label(label) && rel == "cohorts/index.json")
             .then_some(Kind::ArchivedIndex);
     }
-    if let Some(name) = key.strip_prefix("v1/artifacts/") {
-        return name
-            .strip_suffix(".bin")
+    if let Some(rest) = key.strip_prefix("artifacts/v2/") {
+        return rest
+            .strip_suffix("/header")
             .filter(|h| hex64(h))
             .map(|_| Kind::Artifact);
+    }
+    if let Some(h) = key.strip_prefix("blobs/sha256/") {
+        return hex64(h).then_some(Kind::Artifact);
     }
     if let Some(name) = key.strip_prefix("v1/authorizations/") {
         return name
@@ -359,6 +371,30 @@ const PUBLICATION: &[&str] = &[
     "artifacts",
 ];
 
+const ARTIFACTS: &[&str] = &[
+    "schema",
+    "cohort",
+    "label",
+    "publisher",
+    "copy",
+    "entrants",
+];
+
+const START_ENTRY: &[&str] = &[
+    "uid",
+    "hotkey",
+    "commitment",
+    "state",
+    "header",
+    "path",
+    "reason",
+    "files",
+    "files[].sha256",
+    "files[].bytes",
+    "files[].path",
+    "files[].check",
+];
+
 const POINTER: &[&str] = &[
     "schema",
     "role",
@@ -435,6 +471,11 @@ pub fn fields(kind: Kind) -> Option<(&'static str, BTreeSet<String>)> {
             out.extend(prefixed("", PUBLICATION));
             out.extend(prefixed("artifacts[].", ARTIFACT));
             crate::index::PUBLICATION_SCHEMA
+        }
+        Kind::Artifacts => {
+            out.extend(prefixed("", ARTIFACTS));
+            out.extend(prefixed("entrants[].", START_ENTRY));
+            crate::artifacts::ARTIFACTS_SCHEMA
         }
         Kind::Leaderboard => {
             out.extend(prefixed("", LEADERBOARD));
@@ -789,7 +830,7 @@ mod tests {
         // The audit asks for the page's content and deletes a v1 page.
         let keys = vec![
             layout::SITE_INDEX.to_owned(),
-            "v1/artifacts/".to_owned() + &"cd".repeat(32) + ".bin",
+            "blobs/sha256/".to_owned() + &"cd".repeat(32),
         ];
         let plan = audit(&keys, |_| Some(v1.clone().into_bytes()));
         assert_eq!(plan.delete.len(), 1);
@@ -824,6 +865,11 @@ mod tests {
             "v1/cohorts/testnet-c1/published-contents-after.bin",
             "v1/cohorts/../summary.json",
             "v1/artifacts/abc.bin",
+            "v1/artifacts/abababababababababababababababababababababababababababababababab.bin",
+            "artifacts/v2/abc/header",
+            "artifacts/v2/abababababababababababababababababababababababababababababababab/files",
+            "blobs/sha256/abc",
+            "blobs/sha1/abababababababababababababababababababababababababababababababab",
             "v1/authorizations/current.json.bak",
             "v1/reference/packages/zz/x",
             "v1/records/testnet-c1/leaderboard.json",
@@ -838,8 +884,13 @@ mod tests {
             Some(Kind::Summary)
         );
         assert_eq!(
-            classify(&format!("v1/artifacts/{h}.bin")),
+            classify(&format!("artifacts/v2/{h}/header")),
             Some(Kind::Artifact)
+        );
+        assert_eq!(classify(&format!("blobs/sha256/{h}")), Some(Kind::Artifact));
+        assert_eq!(
+            classify("v1/cohorts/testnet-c1/artifacts.json"),
+            Some(Kind::Artifacts)
         );
         assert_eq!(
             classify(&format!("v1/authorizations/{h}.signed")),

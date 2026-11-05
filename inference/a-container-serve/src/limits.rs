@@ -2,15 +2,17 @@
 //! (`slop_ninja_artifact_check`, the version the load names), the output
 //! contract or a recorded measurement; none is tuned.
 //!
-//! - **Per artifact, before any part is read:** the parts manifest must list
-//!   the load's spec's file table with the scorer's roles, the graph must have
-//!   a class's exact length that spec serves, the tokenizer the pinned digest
-//!   and length, the heads at most the heads runtime's limit, and the four JSON
-//!   role files together at most the spec's JSON budget ([`check_manifest`]).
-//! - **Per artifact, after assembly and before ONNX Runtime:** the whole
-//!   admission check by the same spec (`engine::admit`).
+//! - **Per artifact, before any file byte arrives:** the files manifest must
+//!   list the load's spec's file table with the scorer's roles, the graph must
+//!   have a class's exact length that spec serves, the tokenizer the pinned
+//!   digest and length, the heads at most the heads runtime's limit, and the
+//!   four JSON role files together at most the spec's JSON budget
+//!   ([`check_manifest`]).
+//! - **Per artifact, after every chunk arrived and before ONNX Runtime:** the
+//!   whole admission check by the same spec on the header's store-verified
+//!   digests, hashing nothing (`engine::admit`).
 //! - **Per instance:** one artifact, one cohort and one spec (`a_scorer.rs`);
-//!   parts are deleted once assembled, so the disk holds one copy of one
+//!   each file is written once in place, so the disk holds one copy of one
 //!   artifact.
 //! - **Per process:** no core dumps ([`no_core_dumps`]); a panic aborts.
 //! - **Memory:** with the graph's length fixed by its class, the JSON files'
@@ -21,7 +23,7 @@
 //!   limit, else the VM's memory) is below its class's bound. The bound of a
 //!   class is the same under every spec a load may name: they share the JSON
 //!   budget, and each bounds a class's value cost by the class's own value.
-use crate::artifact::ArtifactFiles;
+use crate::artifact::FilesManifest;
 use crate::engine::{NEWEST_SPEC, UNNAMED_LOAD_SPEC, admits_by};
 use anyhow::{Result, anyhow, ensure};
 use serde_json::{Value, json};
@@ -46,7 +48,7 @@ pub const MAX_DOCS: usize = 128;
 /// Most requests handled at once; more get 503.
 pub const MAX_INFLIGHT: usize = 16;
 
-/// Whether `id` is a parts manifest `profile_id` a packer writes: the spec's
+/// Whether `id` is a files manifest `profile_id` a packer writes: the spec's
 /// `<spec id>/<graph class id>` for a version and class the tools define
 /// (`slop_ninja_artifact_check`, `slop_ninja_miner pack`), or the served
 /// profile's id, which `slop_ninja_a_served_profile pack` keeps for R0's own
@@ -58,11 +60,11 @@ pub fn known_profile_id(id: &str) -> bool {
     spec_form || crate::profile::ServedProfile::release_candidate().is_ok_and(|p| p.profile_id == id)
 }
 
-/// Checks a parts manifest against spec `version`'s file table before any
-/// part is read: names, scorer roles, the contract and graph names, every
+/// Checks a files manifest against spec `version`'s file table before any
+/// file byte arrives: names, scorer roles, the contract and graph names, every
 /// declared length (the graph's at a class that version serves), the JSON
 /// budget and the profile id. A refusal reads `refused <code>: <detail>`.
-pub fn check_manifest(m: &ArtifactFiles, version: Version) -> Result<()> {
+pub fn check_manifest(m: &FilesManifest, version: Version) -> Result<()> {
     ensure!(m.contract == spec::CONTRACT_ID, "refused contract_id: {:?} is not {}", m.contract, spec::CONTRACT_ID);
     ensure!(m.graph == spec::GRAPH_FILE, "refused undeclared_file: graph {:?}", m.graph);
     for f in &m.files {
@@ -241,10 +243,10 @@ pub fn memory_fits(max: Option<u64>, class: &GraphClass, sessions: usize) -> boo
 }
 
 /// Whether a container with memory limit `max` can load the artifact a
-/// parts manifest checked by spec `version` ([`check_manifest`]) lists: its
+/// files manifest checked by spec `version` ([`check_manifest`]) lists: its
 /// graph's class's bound. A manifest whose graph has no class that version
 /// serves does not fit.
-pub fn manifest_fits(m: &ArtifactFiles, version: Version, max: Option<u64>, sessions: usize) -> bool {
+pub fn manifest_fits(m: &FilesManifest, version: Version, max: Option<u64>, sessions: usize) -> bool {
     m.files
         .iter()
         .find(|f| f.name == m.graph)
@@ -265,7 +267,7 @@ pub fn report(sessions: usize) -> Value {
         })
         .collect();
     json!({"specs": specs, "unnamed_load_spec": UNNAMED_LOAD_SPEC.id(), "json_budget_bytes": json_budget(),
-        "part_bytes_max": spec::PART_BYTES, "manifest_bytes_max": spec::MAX_MANIFEST_BYTES,
+        "range_bytes_max": crate::artifact::MAX_RANGE_BYTES, "manifest_bytes_max": spec::MAX_MANIFEST_BYTES,
         "graph_bytes_max": max_graph_bytes(), "tokens_max": crate::engine::MAX_TOKENS,
         "score_body_bytes_max": MAX_SCORE_BODY, "docs_max": MAX_DOCS, "inflight_max": MAX_INFLIGHT,
         "memory_bound_bytes": max_memory_bound(sessions), "classes": classes,

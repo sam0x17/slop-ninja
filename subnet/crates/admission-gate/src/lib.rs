@@ -18,8 +18,10 @@
 //!    decode as SS58 and name the signer ([`route_fields`], [`OTHER_HOTKEY`]);
 //!    a creation's media type; a bodiless route's signed digest must be the
 //!    empty string's ([`NOT_EMPTY_DIGEST`]); a declared `Content-Length`
-//!    within the route's bound, and for a part present and within the
-//!    largest object any admission spec allows ([`declared_length`]);
+//!    within the route's bound ([`declared_length`]). No route of contract
+//!    v2 takes an upload byte: every object goes straight to R2 under a
+//!    presigned URL, so the largest body this Worker reads is one
+//!    `SubmissionUpload` record;
 //! 5. the signer must hold a UID on the subnet at the finalized head
 //!    ([`Io::registered`]: the upload Worker's per-isolate roster of the
 //!    subnet's hotkeys, read once a block, so the lookup itself is in
@@ -245,8 +247,6 @@ pub enum Body {
     Upload,
     /// An empty body, read within [`EMPTY_BODY_BYTES`] (its digest signed).
     Empty,
-    /// A part: streamed to R2, never read by this Worker.
-    Part,
 }
 
 /// The route's body kind and interface operation.
@@ -255,11 +255,10 @@ pub fn plan(route: &Route<'_>) -> (Body, &'static str) {
     match route {
         Route::ReadCohort => (Body::None, op::COHORT),
         Route::CreateSession => (Body::Upload, op::CREATE),
-        Route::PutPart { .. } => (Body::Part, op::PART_BEGIN),
         Route::ReadSession { .. } => (Body::Empty, op::READ),
+        Route::Urls { .. } => (Body::Empty, op::URLS),
         Route::Complete { .. } => (Body::Empty, op::COMPLETE),
-        Route::Abort { .. } => (Body::Empty, op::ABORT),
-        Route::Reopen { .. } => (Body::Empty, op::REOPEN),
+        Route::Repair { .. } => (Body::Empty, op::REPAIR),
         Route::ReadHotkey { .. } => (Body::Empty, op::HOTKEY),
     }
 }
@@ -304,14 +303,12 @@ pub fn route_fields(route: &Route<'_>) -> Result<(), Refusal> {
 /// The refusal of a body longer than its route takes.
 pub const BODY_TOO_LARGE: Refusal = Refusal::new(ErrorCode::BadRequest, "the body is larger than this route takes");
 
-/// Step 4 for the declared length: a part's must be present and within the
-/// spec's bound ([`part_length`], returned); any other route's declared
-/// `Content-Length`, when it describes the bytes (no `Content-Encoding`),
-/// must be within the route's bound. The body reader enforces the same
-/// bound on the bytes (a body without a declared length included).
+/// Step 4 for the declared length: a route's declared `Content-Length`,
+/// when it describes the bytes (no `Content-Encoding`), must be within the
+/// route's bound. The body reader enforces the same bound on the bytes (a
+/// body without a declared length included).
 pub fn declared_length(body: Body, content_length: Option<&str>, content_encoding: Option<&str>) -> Result<Option<u64>, Refusal> {
     let bound = match body {
-        Body::Part => return part_length(content_length).map(Some),
         Body::None => return Ok(None),
         Body::Upload => UPLOAD_BODY_BYTES,
         Body::Empty => EMPTY_BODY_BYTES,
@@ -324,23 +321,6 @@ pub fn declared_length(body: Body, content_length: Option<&str>, content_encodin
         Some(n) if !encoded && n > bound as u64 => Err(BODY_TOO_LARGE),
         _ => Ok(None),
     }
-}
-
-/// Step 4 for a part: the declared `Content-Length` must be present (R2
-/// stores a part of known length) and within the largest object any
-/// admission spec allows; the cohort authority then checks the exact length
-/// of that part number under the cohort's own plan.
-pub fn part_length(declared: Option<&str>) -> Result<u64, Refusal> {
-    let n = declared
-        .and_then(|v| v.trim().parse::<u64>().ok())
-        .ok_or(Refusal::new(ErrorCode::PartLengthMismatch, "a part needs its Content-Length"))?;
-    if n == 0 || n > slop_ninja_artifact_check::admission::largest_admission_object() {
-        return Err(Refusal::new(
-            ErrorCode::PartLengthMismatch,
-            "the part is longer than any admitted artifact",
-        ));
-    }
-    Ok(n)
 }
 
 #[cfg(test)]
@@ -390,7 +370,7 @@ mod tests {
     #[test]
     fn a_signed_request_verifies_and_any_change_refuses_it() {
         let kp = pair("//Alice");
-        let r = signed(&kp, "GET", "/admission/v1/sessions/{S}", &[], 100);
+        let r = signed(&kp, "GET", "/admission/v2/sessions/{S}", &[], 100);
         let v = verify(&chain(), &r).unwrap();
         assert_eq!(v.signer.0, kp.public_key_bytes());
         assert_eq!(r.commitment_block, Some(17));
@@ -412,16 +392,16 @@ mod tests {
 
     #[test]
     fn unsigned_and_malformed_requests_are_refused_before_any_io() {
-        let empty = signed_of("POST", "/admission/v1/sessions", &Headers::default());
+        let empty = signed_of("POST", "/admission/v2/sessions", &Headers::default());
         assert_eq!(verify(&chain(), &empty).unwrap_err().code, ErrorCode::BadSignature);
         let kp = pair("//Bob");
-        let mut r = signed(&kp, "POST", "/admission/v1/sessions", b"body", 9);
+        let mut r = signed(&kp, "POST", "/admission/v2/sessions", b"body", 9);
         r.signature = Some("0x00".into());
         assert_eq!(verify(&chain(), &r).unwrap_err().code, ErrorCode::BadSignature);
-        let mut r = signed(&kp, "POST", "/admission/v1/sessions", b"body", 9);
+        let mut r = signed(&kp, "POST", "/admission/v2/sessions", b"body", 9);
         r.hotkey = r.hotkey.map(|h| format!(" {h}"));
         assert_eq!(verify(&chain(), &r).unwrap_err().code, ErrorCode::BadSignature, "parsed as sent");
-        let mut r = signed(&kp, "POST", "/admission/v1/sessions", b"body", 9);
+        let mut r = signed(&kp, "POST", "/admission/v2/sessions", b"body", 9);
         r.valid_until = Some("soon".into());
         assert_eq!(verify(&chain(), &r).unwrap_err().code, ErrorCode::BadRequest);
     }
@@ -438,25 +418,15 @@ mod tests {
         let list = keys::ss58_from_public(a.0, SS58_FORMAT);
         let h = Access::parse(Some("hotkeys"), Some(&format!(" {list} ,")));
         assert!(h.admits(&a) && !h.admits(&b));
-        let r = signed(&bob, "GET", "/admission/v1/sessions/{S}", &[], 5);
+        let r = signed(&bob, "GET", "/admission/v2/sessions/{S}", &[], 5);
         assert_eq!(admit(&h, &chain(), &r).unwrap_err().code, ErrorCode::NotFound);
-    }
-
-    #[test]
-    fn part_lengths_come_from_the_spec() {
-        let max = slop_ninja_artifact_check::admission::largest_admission_object();
-        assert_eq!(part_length(Some("1")).unwrap(), 1);
-        assert_eq!(part_length(Some(&max.to_string())).unwrap(), max);
-        for bad in [None, Some("0"), Some("x"), Some(&*(max + 1).to_string())] {
-            assert_eq!(part_length(bad).unwrap_err().code, ErrorCode::PartLengthMismatch);
-        }
     }
 
     #[test]
     fn header_only_checks_bound_every_route_before_any_io() {
         // Declared lengths: a creation within one record, a bodiless route
-        // none, a part within the spec; an encoded body's length is the
-        // reader's to bound.
+        // none; an encoded body's length is the reader's to bound. No route
+        // takes more than one record: every upload byte goes to R2.
         let n = |v: usize| v.to_string();
         assert_eq!(declared_length(Body::Upload, Some(&n(UPLOAD_BODY_BYTES)), None), Ok(None));
         assert_eq!(declared_length(Body::Upload, Some(&n(UPLOAD_BODY_BYTES + 1)), None), Err(BODY_TOO_LARGE));
@@ -465,17 +435,15 @@ mod tests {
         assert_eq!(declared_length(Body::Empty, Some("0"), None), Ok(None));
         assert_eq!(declared_length(Body::Empty, None, None), Ok(None));
         assert_eq!(declared_length(Body::Empty, Some("1"), None), Err(BODY_TOO_LARGE));
-        assert_eq!(declared_length(Body::Part, Some("5"), None), Ok(Some(5)));
-        assert_eq!(declared_length(Body::Part, None, None).unwrap_err().code, ErrorCode::PartLengthMismatch);
         assert_eq!(UPLOAD_BODY_BYTES, slop_ninja_protocol::submission::SubmissionUpload::ENCODED_LEN);
         // A hotkey segment must decode as SS58.
         let alice = keys::ss58_from_public(pair("//Alice").public_key_bytes(), SS58_FORMAT);
-        let ok = format!("/admission/v1/cohorts/7/hotkeys/{alice}");
+        let ok = format!("/admission/v2/cohorts/7/hotkeys/{alice}");
         assert_eq!(route_fields(&Route::parse("GET", &ok).unwrap()), Ok(()));
         let mut broken = alice.clone();
         broken.pop();
         broken.push(if alice.ends_with('2') { '3' } else { '2' });
-        let bad = format!("/admission/v1/cohorts/7/hotkeys/{broken}");
+        let bad = format!("/admission/v2/cohorts/7/hotkeys/{broken}");
         assert_eq!(route_fields(&Route::parse("GET", &bad).unwrap()).unwrap_err().code, ErrorCode::BadRequest);
     }
 
@@ -499,13 +467,12 @@ mod tests {
     fn every_route_has_a_body_kind_and_an_interface_operation() {
         use slop_ninja_admission_wire::internal::op;
         let routes = [
-            ("GET", "/admission/v1/cohort"),
-            ("POST", "/admission/v1/sessions"),
-            ("PUT", "/admission/v1/sessions/{S}/parts/1"),
-            ("GET", "/admission/v1/sessions/{S}"),
-            ("POST", "/admission/v1/sessions/{S}/complete"),
-            ("DELETE", "/admission/v1/sessions/{S}/attempts/1"),
-            ("POST", "/admission/v1/sessions/{S}/attempts/2"),
+            ("GET", "/admission/v2/cohort"),
+            ("POST", "/admission/v2/sessions"),
+            ("GET", "/admission/v2/sessions/{S}"),
+            ("POST", "/admission/v2/sessions/{S}/urls"),
+            ("POST", "/admission/v2/sessions/{S}/complete"),
+            ("POST", "/admission/v2/sessions/{S}/repair"),
         ];
         let sid = "ab".repeat(32);
         for (m, p) in routes {

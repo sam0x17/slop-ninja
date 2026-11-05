@@ -638,7 +638,9 @@ fn migrations_are_pinned_by_content() {
     // the stuck-states fix round 1's step-error epoch, v19 fix round 2's
     // attempt extensions, budget alert and watermark epoch; v20 the
     // eval-no-skip lane's outage probe and abandonment record; v21 the
-    // reader-allowance lane's framing and blob dispatches.
+    // reader-allowance lane's framing and blob dispatches; v23 the boundary
+    // journal (deployed); v24 the reward-v2 / quant-v1 rule floor; v25
+    // admission contract v2 (direct upload to R2).
     const EVAL: &[&str] = &[
         "bb26853f9d8c37f8",
         "a77de0832bb5add7",
@@ -665,6 +667,8 @@ fn migrations_are_pinned_by_content() {
         "6da42707629d12a8",
         // v24: the reward-v2 / quant-v1 rule floor (quantization lane).
         "e3ef1bff2fbd6125",
+        // v25: admission contract v2 (direct upload to R2).
+        "6bf062a35e8f2a16",
     ];
     // v1-v10 are deployed on both testnet Workers; v11 is the stuck-states
     // lane's; v12 the automatic target handoff's; v13 the signed coordinator

@@ -1,7 +1,8 @@
 //! Spec consistency, the pins on the scorer's sources (heads runtime, load
 //! guard, parts limits) and the parts mapping layout.
 
-use slop_ninja_artifact_check::mapping::{Part, parts_manifest, profile_id};
+use slop_ninja_artifact_check::files_manifest::FilesManifest;
+use slop_ninja_artifact_check::mapping::profile_id;
 use slop_ninja_artifact_check::{HEADS_RUNTIME_SOURCES, ObjectCheck, Refusal, spec, text};
 use slop_ninja_protocol::{ArtifactFile, ArtifactHeader, Digest, FileRole, Record};
 
@@ -65,11 +66,13 @@ fn the_scorer_guard_is_the_one_the_mirror_repeats() {
 #[test]
 fn the_size_bounds_are_the_scorer_and_heads_runtime_limits() {
     let artifact = include_str!("../../../../inference/a-container-serve/src/artifact.rs");
+    // The scorer takes its transfer and per-file bounds from the spec, and
+    // its manifest type and bound from this crate's files manifest v2.
     for line in [
-        "pub const MAX_PART_BYTES: u64 = 64 << 20;",
-        "pub const MAX_MANIFEST_BYTES: usize = 1 << 20;",
-        "const MAX_PARTS_PER_FILE: usize = 64;",
-        "ensure!(is_digest(&f.sha256) && f.bytes > 0",
+        "pub const MAX_RANGE_BYTES: u64 = spec::PART_BYTES;",
+        "pub const MAX_CHUNKS_PER_FILE: u64 = spec::MAX_PARTS_PER_FILE;",
+        "FilesManifest, MAX_MANIFEST_BYTES};",
+        "ensure!(f.bytes > 0 && chunks <= MAX_CHUNKS_PER_FILE",
     ] {
         assert!(
             artifact.contains(line),
@@ -78,6 +81,7 @@ fn the_size_bounds_are_the_scorer_and_heads_runtime_limits() {
     }
     assert_eq!(spec::PART_BYTES, 64 << 20);
     assert_eq!(spec::MAX_MANIFEST_BYTES, 1 << 20);
+    assert_eq!(slop_ninja_artifact_check::files_manifest::MAX_MANIFEST_BYTES as u64, spec::MAX_MANIFEST_BYTES);
     assert_eq!(spec::MAX_PARTS_PER_FILE, 64);
     // The heads runtime (pinned by digest above) refuses larger heads.
     let full_a = std::str::from_utf8(HEADS_RUNTIME_SOURCES[0].1).unwrap();
@@ -201,70 +205,36 @@ fn table() -> Vec<(&'static str, FileRole, u64, [u8; 32])> {
         .collect()
 }
 
-fn parts_of(h: &ArtifactHeader) -> Vec<Vec<Part>> {
-    h.files
-        .iter()
-        .map(|f| {
-            let mut left = f.len;
-            let mut v = Vec::new();
-            while left > 0 {
-                let b = left.min(spec::PART_BYTES);
-                v.push(Part {
-                    sha256: "ab".repeat(32),
-                    bytes: b,
-                });
-                left -= b;
-            }
-            v
-        })
-        .collect()
-}
-
 #[test]
-fn the_parts_manifest_has_the_scorers_layout() {
+fn the_files_manifest_v2_has_the_scorers_order_and_binds_its_package() {
     let h = header(&table());
-    let parts = parts_of(&h);
-    let m = parts_manifest(&h, &parts, &profile_id(&spec::GRAPHS[0])).unwrap();
+    let m = FilesManifest::for_header(&h, slop_ninja_artifact_check::Version::V1, &profile_id(&spec::GRAPHS[0]), |name, sha| {
+        ("admission".into(), format!("admission/v2/c1/{}/f/{sha}", "ab".repeat(32)), Some(format!("\"etag-{name}\"")))
+    })
+    .unwrap();
     let names: Vec<_> = m.files.iter().map(|f| f.name.as_str()).collect();
     let table_order: Vec<_> = spec::ROLES.iter().map(|r| r.name).collect();
     assert_eq!(names, table_order, "scorer file order, not header order");
-    assert_eq!(m.files[0].parts.len(), 9);
-    assert_eq!(
-        m.profile_id,
-        "slop_ninja_a_artifact_spec_v1/a-plain-f32band-v1"
-    );
-    let text = String::from_utf8(m.to_bytes()).unwrap();
-    assert!(
-        text.starts_with("{\n  \"schema\": \"slop_ninja_a_artifact_files_v1\",\n  \"profile_id\"")
-    );
+    assert_eq!(m.profile_id, "slop_ninja_a_artifact_spec_v1/a-plain-f32band-v1");
+    let bytes = m.to_bytes();
+    let text = String::from_utf8(bytes.clone()).unwrap();
+    assert!(text.starts_with("{\n  \"schema\": \"slop_ninja_a_artifact_files_v2\",\n  \"profile_id\""));
     assert!(text.ends_with("}\n"));
-    // Parts that do not cover the file are refused.
-    let mut short = parts.clone();
-    short[0].pop();
-    assert!(parts_manifest(&h, &short, "p").is_err());
-    // More parts than the scorer accepts are refused even when they cover
-    // the file: 65 one-byte parts.
-    let h = with_len("calibration.json", spec::MAX_PARTS_PER_FILE + 1);
-    let calibration = h
-        .files
-        .iter()
-        .position(|f| f.name == "calibration.json")
-        .unwrap();
-    let mut split = parts_of(&h);
-    let one = |n: u64| {
-        (0..n)
-            .map(|_| Part {
-                sha256: "ab".repeat(32),
-                bytes: 1,
-            })
-            .collect::<Vec<_>>()
-    };
-    split[calibration] = one(spec::MAX_PARTS_PER_FILE + 1);
-    assert!(parts_manifest(&h, &split, "p").is_err());
-    let h = with_len("calibration.json", spec::MAX_PARTS_PER_FILE);
-    let mut split = parts_of(&h);
-    split[calibration] = one(spec::MAX_PARTS_PER_FILE);
-    assert!(parts_manifest(&h, &split, "p").is_ok());
+    let package = FilesManifest::package_of(&bytes);
+    let back = FilesManifest::parse(&bytes, &package, slop_ninja_artifact_check::Version::V1).unwrap();
+    assert_eq!(back, m);
+    assert_eq!(back.header().unwrap(), h);
+    // Another digest, a changed byte, a reordered table and an unknown
+    // bucket are refused.
+    assert!(FilesManifest::parse(&bytes, &"0".repeat(64), slop_ninja_artifact_check::Version::V1).is_err());
+    let mut swapped = m.clone();
+    swapped.files.swap(0, 1);
+    let sb = swapped.to_bytes();
+    assert!(FilesManifest::parse(&sb, &FilesManifest::package_of(&sb), slop_ninja_artifact_check::Version::V1).is_err());
+    let mut bucket = m.clone();
+    bucket.files[0].bucket = "public".into();
+    let bb = bucket.to_bytes();
+    assert!(FilesManifest::parse(&bb, &FilesManifest::package_of(&bb), slop_ninja_artifact_check::Version::V1).is_err());
 }
 
 #[test]

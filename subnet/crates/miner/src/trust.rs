@@ -15,6 +15,19 @@
 //! When a trust file pins origins, every other origin is refused, including
 //! one named with `--coordinator`. When it pins exactly one and the miner
 //! names none (no `--coordinator`, no `--public`), the client uses that one.
+//!
+//! The artifact's bytes go straight to R2 under presigned URLs the
+//! coordinator mints. A trust file may also pin the one R2 S3 host those URLs
+//! may name, by name (`upload_host`, `<account>.r2.cloudflarestorage.com`)
+//! or by the SHA-256 of that name (`upload_host_sha256`, lowercase hex: the
+//! release trust file's form, decision D1, so the account id itself is not
+//! in the tracked file; every presigned URL still shows it to its miner),
+//! and the bucket they may name (`upload_bucket`). Without a host pin the
+//! client accepts any R2 S3 host (`*.r2.cloudflarestorage.com`) in a URL
+//! from the authenticated coordinator. Only the pin stops a compromised
+//! coordinator front from pointing uploads at another account's bucket with
+//! the same name and key layout (skeptic K12); the release trust file
+//! carries both pins.
 
 use std::path::Path;
 
@@ -32,12 +45,22 @@ struct TrustFile {
     schema: String,
     #[serde(default)]
     admission_origins: Option<Vec<String>>,
+    #[serde(default)]
+    upload_host: Option<String>,
+    #[serde(default)]
+    upload_host_sha256: Option<String>,
+    #[serde(default)]
+    upload_bucket: Option<String>,
 }
 
-/// The coordinator origins a trust file pins; empty when it pins none.
+/// The coordinator origins a trust file pins (empty when it pins none), and
+/// the R2 S3 host it pins for uploads, if any.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct Trust {
     origins: Vec<Origin>,
+    upload_host: Option<String>,
+    upload_host_sha256: Option<[u8; 32]>,
+    upload_bucket: Option<String>,
 }
 
 /// Where the coordinator URL came from.
@@ -80,7 +103,79 @@ impl Trust {
             );
             origins.push(url.origin());
         }
-        Ok(Self { origins })
+        let upload_host = match file.upload_host {
+            None => None,
+            Some(host) => {
+                let suffix = slop_ninja_r2_presign::check::R2_S3_SUFFIX;
+                ensure!(
+                    slop_ninja_r2_presign::presign::valid_host(&host)
+                        && host.ends_with(suffix)
+                        && host.len() > suffix.len(),
+                    "upload_host {host:?} must be an R2 S3 host (<account>{suffix})"
+                );
+                Some(host)
+            }
+        };
+        let upload_host_sha256 = match file.upload_host_sha256 {
+            None => None,
+            Some(hex_digest) => {
+                let mut d = [0u8; 32];
+                ensure!(
+                    hex_digest.len() == 64
+                        && hex_digest.bytes().all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
+                        && hex::decode_to_slice(&hex_digest, &mut d).is_ok(),
+                    "upload_host_sha256 must be 64 lowercase hex digits"
+                );
+                Some(d)
+            }
+        };
+        let upload_bucket = match file.upload_bucket {
+            None => None,
+            Some(bucket) => {
+                ensure!(
+                    slop_ninja_r2_presign::presign::valid_bucket(&bucket),
+                    "upload_bucket {bucket:?} is not an R2 bucket name"
+                );
+                Some(bucket)
+            }
+        };
+        Ok(Self {
+            origins,
+            upload_host,
+            upload_host_sha256,
+            upload_bucket,
+        })
+    }
+
+    /// The SHA-256 of the R2 S3 host presigned upload URLs must name, when
+    /// pinned by digest.
+    pub fn upload_host_sha256(&self) -> Option<[u8; 32]> {
+        self.upload_host_sha256
+    }
+
+    /// The release's own trust roots (`coordinator/testnet-trust.json`,
+    /// compiled in): the default upload pin when no trust file pins one
+    /// (review round 2, skeptic K12 and decision D1), so a miner run with
+    /// `--coordinator` and no trust file still refuses URLs for any other R2
+    /// host or bucket.
+    pub fn release() -> Self {
+        Self::parse(include_bytes!("../../../coordinator/testnet-trust.json")).expect("the release trust file parses")
+    }
+
+    /// Whether this trust pins the upload host (by name or digest) or the
+    /// bucket.
+    pub fn pins_upload(&self) -> bool {
+        self.upload_host.is_some() || self.upload_host_sha256.is_some() || self.upload_bucket.is_some()
+    }
+
+    /// The bucket presigned upload URLs must name, when pinned.
+    pub fn upload_bucket(&self) -> Option<&str> {
+        self.upload_bucket.as_deref()
+    }
+
+    /// The R2 S3 host presigned upload URLs must name, when pinned.
+    pub fn upload_host(&self) -> Option<&str> {
+        self.upload_host.as_deref()
     }
 
     pub fn pins_any(&self) -> bool {
@@ -200,11 +295,58 @@ mod tests {
     }
 
     #[test]
+    fn an_upload_host_pin_must_be_an_r2_s3_host() {
+        let parse = |host: &str| {
+            let json = serde_json::json!({"schema": TRUST_SCHEMA, "upload_host": host});
+            Trust::parse(json.to_string().as_bytes())
+        };
+        let pinned = parse("acct.r2.cloudflarestorage.com").unwrap();
+        assert_eq!(pinned.upload_host(), Some("acct.r2.cloudflarestorage.com"));
+        for bad in [
+            "r2.cloudflarestorage.com",
+            ".r2.cloudflarestorage.com",
+            "acct.example.com",
+            "ACCT.r2.cloudflarestorage.com",
+        ] {
+            assert!(parse(bad).is_err(), "{bad}");
+        }
+        assert_eq!(trust(&[]).upload_host(), None);
+    }
+
+    /// Decision D1 and skeptic K12: the release trust file pins the R2 S3
+    /// host (by its name's SHA-256, so the tracked file carries no account
+    /// id) and the admission bucket.
+    #[test]
+    fn the_release_trust_file_pins_the_upload_host_and_bucket() {
+        let t = Trust::parse(include_bytes!("../../../coordinator/testnet-trust.json")).unwrap();
+        assert_eq!(t, Trust::release());
+        assert!(t.pins_upload() && t.upload_host_sha256().is_some() && t.upload_bucket().is_some());
+        assert!(!Trust::default().pins_upload());
+        assert!(t.pins_any());
+        assert!(t.upload_host_sha256().is_some(), "the release pins the upload host");
+        assert_eq!(t.upload_host(), None, "never the account id itself in the tracked file");
+        assert_eq!(t.upload_bucket(), Some("slop-ninja-admission-testnet"));
+        let bad = |k: &str, v: &str| {
+            let json = serde_json::json!({"schema": TRUST_SCHEMA, k: v});
+            Trust::parse(json.to_string().as_bytes()).is_err()
+        };
+        assert!(bad("upload_host_sha256", "AB"));
+        assert!(bad("upload_host_sha256", &"G".repeat(64)));
+        assert!(bad("upload_bucket", "Bad_Bucket"));
+    }
+
+    #[test]
     fn a_single_pinned_origin_is_the_default() {
         let one = trust(&["https://testnet-admission.slop.ninja"]);
-        assert_eq!(one.single().unwrap().as_str(), "https://testnet-admission.slop.ninja/");
+        assert_eq!(
+            one.single().unwrap().as_str(),
+            "https://testnet-admission.slop.ninja/"
+        );
         assert!(one.pins(&one.single().unwrap()));
-        assert_eq!(trust(&["https://a.example", "https://b.example"]).single(), None);
+        assert_eq!(
+            trust(&["https://a.example", "https://b.example"]).single(),
+            None
+        );
         assert_eq!(Trust::default().single(), None);
     }
 

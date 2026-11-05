@@ -5,10 +5,11 @@
 //!
 //! One artifact format: the protocol **artifact object**
 //! ([`slop_ninja_protocol::artifact_object`]), which a miner commits to by
-//! its inference-content digest and uploads. The scorer's parts manifest
-//! (`slop_ninja_a_artifact_files_v1`) is derived from the object by an exact,
-//! deterministic mapping ([`mapping`]), so the coordinator never needs a
-//! second upload format.
+//! its inference-content digest. It is uploaded as its header and its
+//! files, each verified by the object store against its committed SHA-256,
+//! and the scorer reads the files by the files manifest v2
+//! ([`files_manifest`]), so nothing on the coordinator's side hashes a file:
+//! [`files`] checks a store-verified header's files without a hash.
 //!
 //! The checks run before any runtime opens a file:
 //!
@@ -39,6 +40,8 @@
 
 pub mod admission;
 pub mod canonical;
+pub mod files;
+pub mod files_manifest;
 pub mod guard;
 pub mod mapping;
 pub mod onnx;
@@ -322,7 +325,8 @@ pub fn sorted_keys(value: serde_json::Value) -> serde_json::Value {
     }
 }
 
-pub use mapping::{ObjectCheck, ObjectReport, PartsManifest, parts_manifest};
+pub use files::{FilesReport, check_files_with, header_from_listing};
+pub use mapping::{ObjectCheck, ObjectReport};
 pub use roles::{
     RoleFiles, RolesReport, check_layout, check_layout_cost, check_roles, check_roles_with,
     check_tokenizer,

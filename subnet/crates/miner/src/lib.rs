@@ -1,7 +1,8 @@
-//! The Slop Ninja miner client (`slop_ninja_miner`): pack an artifact object,
-//! check it, commit its digest on chain through rtao, upload it to the
-//! coordinator under the admission contract (`docs/testnet/admission-api.md`)
-//! and follow its admission.
+//! The Slop Ninja miner client (`slop_ninja_miner`): pack an artifact object
+//! (hashing each file once), check it, commit its content on chain through
+//! rtao, upload its header and files straight to R2 under presigned URLs the
+//! coordinator mints (admission contract v2,
+//! `docs/testnet/admission-api.md`) and follow its admission.
 //!
 //! Linux and macOS only: openings are protected with Unix file modes.
 
@@ -12,6 +13,7 @@ pub mod chain;
 pub mod check;
 pub mod client;
 pub mod commit;
+pub mod direct;
 pub mod object;
 pub mod opening;
 pub mod provenance;

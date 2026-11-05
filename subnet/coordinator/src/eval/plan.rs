@@ -648,7 +648,7 @@ pub struct Incentive {
 pub const INCENTIVE_REFERENCE_MARGIN: &str = "reward_v1_reference_margin/v1";
 
 /// Coordinator admission of a v3 cohort's roster (`crate::eval::admission`,
-/// contract `slop_ninja.admission/v1`). Every value is a versioned plan
+/// contract `slop_ninja.admission/v2`). Every value is a versioned plan
 /// parameter frozen with the plan; the object bound is derived from the
 /// named artifact spec, never declared.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -663,11 +663,19 @@ pub struct AdmissionPlan {
     pub roster_cap: u16,
     /// The selection rule (`earliest_commitment/v1`).
     pub selection: String,
-    /// Upload part size in bytes: at least R2's multipart minimum and at most
-    /// a Worker request body.
-    pub part_size: u64,
-    /// The most parts one object may take (R2 allows 10,000).
-    pub max_parts: u32,
+    /// The upload URL policy each presigned URL's life follows
+    /// (`slop_ninja_upload_url_policy_v1`), frozen with the plan. Required
+    /// in a new plan; absent only in plans frozen before admission v2,
+    /// which mint under that first policy.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub upload_policy: Option<UploadPolicyPlan>,
+    /// Admission v1's upload part size and part count: kept readable only
+    /// so plans frozen under v1 still parse (their digests are bound); a
+    /// new plan carries neither (every object is one presigned PUT).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub part_size: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub max_parts: Option<u32>,
     /// How far past the finalized cursor a request's `valid_until` may reach.
     pub request_validity_blocks: u64,
     /// The operator's own hotkeys (`0x` + 64 hex). Their admitted entrants are
@@ -687,13 +695,27 @@ pub struct AdmissionPlan {
     pub fresh_pool: Option<PoolRef>,
 }
 
-/// R2's multipart part minimum (every part but the last).
-pub const R2_MIN_PART_BYTES: u64 = 5 << 20;
-/// R2's multipart part-count maximum.
-pub const R2_MAX_PARTS: u32 = 10_000;
-/// The Workers request-body limit of the Free and Paid plans ("100 MB"): one
-/// part is one Worker request.
-pub const WORKER_REQUEST_BODY_BYTES: u64 = 100_000_000;
+/// An upload URL policy as a plan names it: its id and its two values,
+/// which must be the compiled policy's of that id
+/// (`slop_ninja_r2_presign::policy`); a value never comes from the plan
+/// alone.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct UploadPolicyPlan {
+    pub id: String,
+    /// The slowest uplink one URL life covers without a declaration (B/s).
+    pub b_min: u64,
+    /// The margin from minting to the request's start, plus clock skew.
+    pub skew_secs: u64,
+}
+
+impl UploadPolicyPlan {
+    /// The compiled policy (`slop_ninja_upload_url_policy_v1`).
+    pub fn v1() -> Self {
+        use slop_ninja_r2_presign::policy;
+        Self { id: policy::POLICY_ID.into(), b_min: policy::B_MIN, skew_secs: policy::SKEW_SECS }
+    }
+}
 
 impl AdmissionPlan {
     pub fn validate(&self) -> Result<(), PlanError> {
@@ -711,13 +733,19 @@ impl AdmissionPlan {
         e(self.roster_cap >= 1 && usize::from(self.roster_cap) <= usize::from(slop_ninja_protocol::MAX_ROSTER), "admission.roster_cap")?;
         e(self.selection == slop_ninja_admission_wire::SELECTION_EARLIEST_COMMITMENT_V1, "admission.selection")?;
         e(
-            (R2_MIN_PART_BYTES..=WORKER_REQUEST_BODY_BYTES).contains(&self.part_size),
-            "admission.part_size (R2's part minimum to a Worker request body)",
+            self.part_size.is_none() && self.max_parts.is_none(),
+            "admission.part_size and admission.max_parts (admission v2 uploads each object in one presigned PUT)",
         )?;
-        e((1..=R2_MAX_PARTS).contains(&self.max_parts), "admission.max_parts (1-10,000)")?;
         e(
-            bounds.object_bytes.div_ceil(self.part_size) <= u64::from(self.max_parts),
-            "admission.max_parts (the spec's largest object fits)",
+            self.upload_policy.as_ref() == Some(&UploadPolicyPlan::v1()),
+            "admission.upload_policy (the compiled slop_ninja_upload_url_policy_v1 values)",
+        )?;
+        // Every object of the spec fits one URL life at B_MIN within R2's
+        // 7 days, and one PUT (a spec beyond needs a new policy version).
+        e(
+            bounds.object_bytes
+                <= slop_ninja_r2_presign::policy::MAX_L_AT_B_MIN.min(slop_ninja_r2_presign::policy::R2_SINGLE_PUT_MAX),
+            "admission.artifact_spec (its largest object exceeds the URL policy or one R2 PUT)",
         )?;
         e(self.request_validity_blocks >= 1, "admission.request_validity_blocks")?;
         let mut hk = Vec::new();

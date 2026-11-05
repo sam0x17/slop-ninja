@@ -1,9 +1,9 @@
-//! More cases against the local mock of the admission contract: every
+//! More cases against the local mock of the admission contract v2: every
 //! request and session refusal not covered in `e2e_mock.rs`, the last refused
-//! request in the hotkey view, attempts that make a replayed abort or reopen
-//! stale, the commitment log at the cutoff, and the transport rules
-//! (`Retry-After`, `parts_missing`, parts changed in transit, redirects and
-//! response limits). Nothing is signed for or sent to a chain.
+//! request in the hotkey view, a replayed signed request that can only mint
+//! URLs for the same keys, the commitment log at the cutoff, and the
+//! transport rules (`Retry-After`, redirects and response limits). Nothing
+//! is signed for or sent to a chain.
 
 mod support;
 
@@ -11,22 +11,23 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicU32, Ordering};
 use std::time::{Duration, Instant};
 
-use bytes::Bytes;
 use slop_ninja_admission_wire::json::LastRefusal;
 use slop_ninja_admission_wire::json::Session;
 use slop_ninja_admission_wire::{
-    ErrorCode, PartPlan, RESPONSE_BASE_BYTES, RequestScope, SessionState, empty_sha256, header,
-    path, request_message,
+    ErrorCode, RESPONSE_BASE_BYTES, RequestScope, SessionState, empty_sha256, header, path,
+    request_message,
 };
 use slop_ninja_miner::check::{ArtifactCheck, CheckContext, SpecCheck};
 use slop_ninja_miner::client::{
     AdmissionClient, ApiError, RequestSigner, base_url, http_client, ss58,
 };
+use slop_ninja_miner::direct::{PutTarget, Silent, put_object};
 use slop_ninja_miner::opening::{OsNonce, Store, make_opening, upload_envelope};
 use slop_ninja_miner::upload::{UploadOptions, UploadOutcome, describe, upload};
 use slop_ninja_miner::{commit, object};
 use slop_ninja_protocol::submission::SubmissionUpload;
 use slop_ninja_protocol::{ChainBinding, Record, object_sha256};
+use slop_ninja_r2_presign::layout::{ObjectId, ObjectKind};
 use support::common::*;
 use support::mock::{CheckHook, Mock};
 
@@ -50,28 +51,40 @@ fn finished(outcome: UploadOutcome) -> Session {
     }
 }
 
-/// Uploads `object` under `envelope` with the low-level client calls, for
-/// envelopes and objects the high-level upload refuses to build.
-async fn raw_upload(
+/// Opens a session for `envelope` and PUTs `header` (the bytes at offset
+/// `offset` of the file at `path`) as its header object with the low-level
+/// calls, for envelopes the high-level upload refuses to build; then asks
+/// for the file URLs, where the coordinator settles the header.
+async fn raw_header(
     client: &mut AdmissionClient,
     envelope: &SubmissionUpload,
-    object: &[u8],
+    path: &std::path::Path,
+    offset: u64,
 ) -> Session {
     let (session, _) = client.create_session(envelope).await.unwrap();
-    let plan = PartPlan::new(object.len() as u64, session.part_size, 10_000).unwrap();
-    for part in 1..=plan.count() {
-        let (offset, len) = plan.range(part).unwrap();
-        let bytes = Bytes::copy_from_slice(&object[offset as usize..(offset + len) as usize]);
-        client
-            .put_part(&session.session, part, bytes)
-            .await
-            .unwrap();
-    }
-    let mut session = client.complete(&session.session).await.unwrap();
-    while session.state() == Some(SessionState::Verifying) {
-        session = client.session(&session.session).await.unwrap();
-    }
-    session
+    let target = PutTarget {
+        id: ObjectId {
+            cohort: envelope.opening.cohort,
+            commitment: envelope.commitment.0,
+            kind: ObjectKind::Header,
+        },
+        sha256: envelope.header_sha256.0,
+        len: u64::from(envelope.header_len),
+        path: path.to_path_buf(),
+        offset,
+        name: "header".into(),
+    };
+    put_object(
+        client.http(),
+        client.put_policy(),
+        &session.uploads[0],
+        &target,
+        Duration::from_secs(10),
+        Arc::new(Silent),
+    )
+    .await
+    .unwrap();
+    client.urls(&session.session).await.unwrap()
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
@@ -212,10 +225,12 @@ async fn completion_refusals_reach_the_session() {
         Some(ErrorCode::ContractMismatch)
     );
     assert!(
-        describe(&session).contains("abort --cohort 7"),
+        describe(&session).contains("commit again"),
         "{}",
         describe(&session)
     );
+    // An artifact doomed by its header is refused before any file is sent.
+    assert_eq!(mock.puts(), 1);
 
     // content_mismatch: the object is not the content the opening commits to.
     let (path_a, art_a) = packed(dir.path(), 0x51, "{}");
@@ -225,32 +240,50 @@ async fn completion_refusals_reach_the_session() {
     let envelope = SubmissionUpload {
         commitment: b.prepared.opening.commitment(),
         opening: b.prepared.opening.clone(),
-        artifact_sha256: art_b.sha256,
-        artifact_len: art_b.len,
+        header_sha256: art_b.sha256,
+        header_len: art_b.len,
     };
     let mut b_client = client(&mock, b.signer.clone()).await;
-    let session = raw_upload(&mut b_client, &envelope, &std::fs::read(&path_b).unwrap()).await;
+    let session = raw_header(&mut b_client, &envelope, &path_b, 4).await;
     assert_eq!(
         session.refusal.unwrap().code(),
         Some(ErrorCode::ContentMismatch)
+    );
+    // The high-level upload refuses to build that envelope at all.
+    let error = upload(
+        &mut b_client,
+        &store,
+        &b.prepared.file,
+        &path_b,
+        &art_b,
+        &quick(),
+    )
+    .await
+    .unwrap_err();
+    assert!(
+        format!("{error:#}").contains("not the artifact this opening was made for"),
+        "{error:#}"
     );
 
     // artifact_invalid: bytes that are not an artifact object.
     let c = entrant(&mock, &store, "//Charlie", 14, &art_a, 2_020);
     let junk: Vec<u8> = (0..2_500u32).map(|i| (i * 7) as u8).collect();
+    let junk_path = dir.path().join("junk");
+    std::fs::write(&junk_path, &junk).unwrap();
     let envelope = SubmissionUpload {
         commitment: c.prepared.opening.commitment(),
         opening: c.prepared.opening.clone(),
-        artifact_sha256: object_sha256(&junk),
-        artifact_len: junk.len() as u64,
+        header_sha256: object_sha256(&junk),
+        header_len: junk.len() as u32,
     };
     let mut c_client = client(&mock, c.signer.clone()).await;
-    let session = raw_upload(&mut c_client, &envelope, &junk).await;
+    let session = raw_header(&mut c_client, &envelope, &junk_path, 0).await;
     let refusal = session.refusal.unwrap();
     assert_eq!(refusal.code(), Some(ErrorCode::ArtifactInvalid));
     assert!(refusal.detail.reason.is_some());
 
-    // check_failed with the artifact spec's own code, which is the code the
+    // check_failed with the artifact spec's own code (here from its
+    // header-only checks, before any file is sent), which is the code the
     // client's check reports for the same object.
     mock.with(|s| s.check_hook = Some(CheckHook::Spec));
     let d = entrant(&mock, &store, "//Dave", 15, &art_a, 2_030);
@@ -272,7 +305,7 @@ async fn completion_refusals_reach_the_session() {
     let local = SpecCheck
         .check(&CheckContext {
             object: &path_a,
-            verified: &art_a,
+            header: &art_a,
             expected_contract: None,
             max_object_len: None,
             artifact_spec: None,
@@ -311,8 +344,8 @@ async fn completion_refusals_reach_the_session() {
         Some("graph_op_not_allowed")
     );
 
-    // A refused envelope stays refused until its attempt is aborted; then it
-    // can be uploaded again (here the checks pass).
+    // A refused envelope stays refused; a new commitment (a new nonce) for
+    // the same object opens a new session that the checks now pass.
     mock.with(|s| s.check_hook = None);
     let again = finished(
         upload(
@@ -327,20 +360,30 @@ async fn completion_refusals_reach_the_session() {
         .unwrap(),
     );
     assert_eq!(again.state(), Some(SessionState::Refused));
+    let renewed = commit::prepare(
+        &store,
+        &chain601(),
+        7,
+        &e.identity,
+        &art_a,
+        &mut OsNonce,
+        true,
+    )
+    .unwrap();
+    mock.commit(e.identity.hotkey, 2_045, 0, &renewed.payload);
     let again = finished(
         upload(
             &mut e_client,
             &store,
-            &e.prepared.file,
+            &renewed.file,
             &path_a,
             &art_a,
-            &restart(),
+            &quick(),
         )
         .await
         .unwrap(),
     );
     assert_eq!(again.state(), Some(SessionState::Verified));
-    assert_eq!(again.attempt, 2);
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
@@ -412,111 +455,6 @@ async fn paused_and_rate_limited_requests_wait_as_told() {
     assert_eq!(error.retry_after(), Some(Duration::from_secs(1)));
 }
 
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn missing_and_damaged_parts_are_sent_again() {
-    let dir = tempfile::tempdir().unwrap();
-    let store = Store::open(&dir.path().join("state")).unwrap();
-    let mock = Mock::start(config(), 1_950).await;
-    let (path_a, art_a) = packed(dir.path(), 0x71, "{}");
-    let parts = art_a.len.div_ceil(1_024) as u32;
-
-    // parts_missing at completion: the listed parts are uploaded, then
-    // completion succeeds.
-    let a = entrant(&mock, &store, "//Alice", 12, &art_a, 2_000);
-    let mut a_client = client(&mock, a.signer.clone()).await;
-    mock.with(|s| s.drop_parts_before_complete = vec![2, 4]);
-    let session = finished(
-        upload(
-            &mut a_client,
-            &store,
-            &a.prepared.file,
-            &path_a,
-            &art_a,
-            &quick(),
-        )
-        .await
-        .unwrap(),
-    );
-    assert_eq!(session.state(), Some(SessionState::Verified));
-    let puts = mock.with(|s| std::mem::take(&mut s.counters.part_puts));
-    assert_eq!((puts[&1], puts[&2], puts[&4]), (1, 2, 2));
-
-    // A part changed in transit where the coordinator hashes the stream:
-    // part_digest_mismatch, resent, verified.
-    let b = entrant(&mock, &store, "//Bob", 13, &art_a, 2_010);
-    let mut b_client = client(&mock, b.signer.clone()).await;
-    mock.with(|s| s.corrupt_part_once = vec![2]);
-    let session = finished(
-        upload(
-            &mut b_client,
-            &store,
-            &b.prepared.file,
-            &path_a,
-            &art_a,
-            &quick(),
-        )
-        .await
-        .unwrap(),
-    );
-    assert_eq!(session.state(), Some(SessionState::Verified));
-    let puts = mock.with(|s| std::mem::take(&mut s.counters.part_puts));
-    assert_eq!(puts[&2], 2);
-
-    // The fallback that records claimed digests: the damaged part is
-    // recorded, a resumed upload would skip it, and the object fails at
-    // completion. The client says how to recover, and --restart sends every
-    // part again in a new attempt.
-    mock.with(|s| {
-        s.fallback_digests = true;
-        s.corrupt_part_once = vec![3];
-    });
-    let c = entrant(&mock, &store, "//Charlie", 14, &art_a, 2_020);
-    let mut c_client = client(&mock, c.signer.clone()).await;
-    let session = finished(
-        upload(
-            &mut c_client,
-            &store,
-            &c.prepared.file,
-            &path_a,
-            &art_a,
-            &quick(),
-        )
-        .await
-        .unwrap(),
-    );
-    assert_eq!(
-        session.refusal.as_ref().unwrap().code(),
-        Some(ErrorCode::ObjectMismatch)
-    );
-    assert!(
-        describe(&session).contains("upload --restart"),
-        "{}",
-        describe(&session)
-    );
-    mock.with(|s| s.counters.part_puts.clear());
-    let session = finished(
-        upload(
-            &mut c_client,
-            &store,
-            &c.prepared.file,
-            &path_a,
-            &art_a,
-            &restart(),
-        )
-        .await
-        .unwrap(),
-    );
-    assert_eq!(
-        session.state(),
-        Some(SessionState::Verified),
-        "{}",
-        describe(&session)
-    );
-    assert_eq!(session.attempt, 2);
-    let puts = mock.with(|s| s.counters.part_puts.clone());
-    assert!((1..=parts).all(|n| puts.get(&n) == Some(&1)), "{puts:?}");
-}
-
 /// Sends a request with exactly these signed headers, as a replaying
 /// observer would.
 async fn send_signed(
@@ -550,37 +488,66 @@ async fn send_signed(
     }
 }
 
+/// A signed `urls` request captured and replayed can only mint more URLs
+/// for the same derived keys: the content each key admits is fixed by R2's
+/// checksum, so a replay moves no byte anywhere else.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn replayed_aborts_and_reopens_are_stale() {
+async fn a_replayed_urls_request_only_mints_urls_for_the_same_keys() {
     let dir = tempfile::tempdir().unwrap();
     let store = Store::open(&dir.path().join("state")).unwrap();
     let mock = Mock::start(config(), 1_950).await;
     let (path_a, art_a) = packed(dir.path(), 0x81, "{}");
     let a = entrant(&mock, &store, "//Alice", 12, &art_a, 2_000);
     let mut a_client = client(&mock, a.signer.clone()).await;
+    let interrupted = upload(
+        &mut a_client,
+        &store,
+        &a.prepared.file,
+        &path_a,
+        &art_a,
+        &UploadOptions {
+            stop_after_objects: Some(1),
+            ..quick()
+        },
+    )
+    .await
+    .unwrap();
+    assert!(matches!(
+        interrupted,
+        UploadOutcome::Interrupted { uploaded: 1, .. }
+    ));
     let envelope = upload_envelope(a.prepared.opening.clone(), &art_a).unwrap();
-    let (session, _) = a_client.create_session(&envelope).await.unwrap();
-    assert_eq!(session.attempt, 1);
-    let id = session.session.clone();
+    let id = envelope.digest().unwrap().hex();
     let http = http_client(Duration::from_secs(30)).unwrap();
     let valid_until = mock.with(|s| s.finalized_block) + 300;
-
-    // The miner aborts attempt 1; an observer keeps the exact request.
-    let abort_1 = send_signed(
+    let urls = send_signed(
         &http,
         &mock.url(),
-        reqwest::Method::DELETE,
-        &path::attempt(&id, 1),
+        reqwest::Method::POST,
+        &path::urls(&id),
         &a.signer,
         valid_until,
     )
     .await;
-    assert_eq!(abort_1().await, 200);
-    assert_eq!(mock.session_state(&id).as_deref(), Some("aborted"));
-    // Repeating it while attempt 1 is current changes nothing.
-    assert_eq!(abort_1().await, 200);
-
-    // The miner reopens (attempt 2) and finishes the upload.
+    let minted = mock.with(|s| s.counters.minted);
+    assert_eq!(urls().await, 200);
+    assert_eq!(urls().await, 200);
+    assert_eq!(
+        mock.with(|s| s.counters.minted),
+        minted + 6,
+        "three file URLs each time"
+    );
+    // Every key it can mint is under this commitment's prefix.
+    let session = a_client.urls(&id).await.unwrap();
+    let prefix = format!("admission/v2/c7/{}/f/", envelope.commitment.hex());
+    assert_eq!(session.uploads.len(), 3);
+    assert!(
+        session
+            .uploads
+            .iter()
+            .all(|u| u.url.contains(&prefix) && u.url.contains(&u.sha256))
+    );
+    // The upload finishes as if nothing happened.
     let session = finished(
         upload(
             &mut a_client,
@@ -593,53 +560,7 @@ async fn replayed_aborts_and_reopens_are_stale() {
         .await
         .unwrap(),
     );
-    assert_eq!(
-        (session.state(), session.attempt),
-        (Some(SessionState::Verified), 2)
-    );
-
-    // The replayed abort of attempt 1 is refused and the upload stands.
-    assert_eq!(abort_1().await, 409);
-    assert_eq!(mock.session_state(&id).as_deref(), Some("verified"));
-    let error = a_client.abort(&id, 1).await.unwrap_err();
-    assert_eq!(error.code(), Some(ErrorCode::StaleAttempt));
-    let detail = &error.body().unwrap().error.detail;
-    assert_eq!(
-        (detail.attempt, detail.session.as_deref()),
-        (Some(2), Some(id.as_str()))
-    );
-
-    // A captured reopen to attempt 2 cannot restart the session after the
-    // miner aborts attempt 2.
-    let reopen_2 = send_signed(
-        &http,
-        &mock.url(),
-        reqwest::Method::POST,
-        &path::attempt(&id, 2),
-        &a.signer,
-        valid_until,
-    )
-    .await;
-    assert_eq!(
-        reopen_2().await,
-        200,
-        "a repeat while attempt 2 is live is a no-op"
-    );
-    assert_eq!(mock.session_state(&id).as_deref(), Some("verified"));
-    a_client.abort(&id, 2).await.unwrap();
-    assert_eq!(reopen_2().await, 409);
-    assert_eq!(mock.session_state(&id).as_deref(), Some("aborted"));
-    assert_eq!(mock.session_attempt(&id), Some(2));
-    // Skipping an attempt is stale too.
-    assert_eq!(
-        a_client.reopen(&id, 4).await.unwrap_err().code(),
-        Some(ErrorCode::StaleAttempt)
-    );
-    let reopened = a_client.reopen(&id, 3).await.unwrap();
-    assert_eq!(
-        (reopened.state(), reopened.attempt),
-        (Some(SessionState::Uploading), 3)
-    );
+    assert_eq!(session.state(), Some(SessionState::Verified));
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
@@ -754,7 +675,7 @@ async fn redirects_are_never_followed_and_bodies_are_bounded() {
             drop(stream);
         }
     });
-    mock.with(|s| s.redirect_parts_to = Some(format!("http://{far_addr}/stolen")));
+    mock.with(|s| s.redirect_urls_to = Some(format!("http://{far_addr}/stolen")));
     let mut a_client = client(&mock, a.signer.clone()).await;
     let error = upload(
         &mut a_client,
@@ -776,7 +697,7 @@ async fn redirects_are_never_followed_and_bodies_are_bounded() {
 
     // A response over the contract's limit is refused, not buffered.
     mock.with(|s| {
-        s.redirect_parts_to = None;
+        s.redirect_urls_to = None;
         s.pad_cohort_bytes = RESPONSE_BASE_BYTES;
     });
     let http = http_client(Duration::from_secs(30)).unwrap();
@@ -805,11 +726,9 @@ async fn a_session_is_only_its_hotkeys() {
     let mut bob_client = client(&mock, dev_signer("//Bob")).await;
     for error in [
         bob_client.session(&session.session).await.unwrap_err(),
-        bob_client.abort(&session.session, 1).await.unwrap_err(),
-        bob_client
-            .put_part(&session.session, 1, Bytes::from_static(b"x"))
-            .await
-            .unwrap_err(),
+        bob_client.urls(&session.session).await.unwrap_err(),
+        bob_client.complete(&session.session).await.unwrap_err(),
+        bob_client.repair(&session.session).await.unwrap_err(),
     ] {
         assert_eq!(error.code(), Some(ErrorCode::Forbidden));
     }
@@ -834,27 +753,49 @@ async fn a_returning_miner_waits_for_its_new_commitment_to_be_logged() {
     mock.register(id);
     // The hotkey's previous commitment, made before cohort 7 opened, and a
     // reader that polled since.
-    let old = make_opening(&chain601(), 6, id.hotkey, id.registration_block, &artifact, &mut OsNonce)
-        .unwrap();
+    let old = make_opening(
+        &chain601(),
+        6,
+        id.hotkey,
+        id.registration_block,
+        &artifact,
+        &mut OsNonce,
+    )
+    .unwrap();
     mock.commit(id.hotkey, 1_899, 0, &old.chain_payload());
     mock.poll();
-    let prepared = commit::prepare(&store, &chain601(), 7, &id, &artifact, &mut OsNonce, true).unwrap();
+    let prepared =
+        commit::prepare(&store, &chain601(), 7, &id, &artifact, &mut OsNonce, true).unwrap();
     let mut c = client(&mock, signer.clone()).await;
 
     // The heartbeat moves the cursor past the last poll: the first answer is
     // not final yet.
     mock.advance(3);
-    let error = upload(&mut c, &store, &prepared.file, &artifact_path, &artifact, &once())
-        .await
-        .unwrap_err();
+    let error = upload(
+        &mut c,
+        &store,
+        &prepared.file,
+        &artifact_path,
+        &artifact,
+        &once(),
+    )
+    .await
+    .unwrap_err();
     assert_eq!(api_code(&error), Some(ErrorCode::CommitmentNotFound));
     // The next poll completes; the cursor runs ahead of it again with no new
     // poll, and the definitive answer still comes back.
     mock.poll();
     mock.advance(5);
-    let error = upload(&mut c, &store, &prepared.file, &artifact_path, &artifact, &once())
-        .await
-        .unwrap_err();
+    let error = upload(
+        &mut c,
+        &store,
+        &prepared.file,
+        &artifact_path,
+        &artifact,
+        &once(),
+    )
+    .await
+    .unwrap_err();
     assert_eq!(api_code(&error), Some(ErrorCode::CommitmentBeforeOpen));
 
     // A new commitment, logged a moment after the upload starts: the upload
@@ -864,14 +805,17 @@ async fn a_returning_miner_waits_for_its_new_commitment_to_be_logged() {
         backoff: Duration::from_millis(50),
         ..once()
     };
-    let fresh = commit::prepare(&store, &chain601(), 7, &id, &artifact, &mut OsNonce, true).unwrap();
-    let logged = |payload: [u8; slop_ninja_protocol::submission::SUBMISSION_PAYLOAD_LEN], block: u64| {
+    let fresh =
+        commit::prepare(&store, &chain601(), 7, &id, &artifact, &mut OsNonce, true).unwrap();
+    let logged = |payload: [u8; slop_ninja_protocol::submission::SUBMISSION_PAYLOAD_LEN],
+                  block: u64| {
         let state = mock.state.clone();
         let hotkey = id.hotkey;
         tokio::spawn(async move {
             tokio::time::sleep(Duration::from_millis(300)).await;
             let mock = Mock {
                 addr: "127.0.0.1:1".parse().unwrap(),
+                r2_addr: "127.0.0.1:1".parse().unwrap(),
                 state,
             };
             mock.commit(hotkey, block, 0, &payload);
@@ -880,9 +824,16 @@ async fn a_returning_miner_waits_for_its_new_commitment_to_be_logged() {
     let late = logged(fresh.payload, 2_005);
     let started = Instant::now();
     let session = finished(
-        upload(&mut c, &store, &fresh.file, &artifact_path, &artifact, &options)
-            .await
-            .unwrap(),
+        upload(
+            &mut c,
+            &store,
+            &fresh.file,
+            &artifact_path,
+            &artifact,
+            &options,
+        )
+        .await
+        .unwrap(),
     );
     late.await.unwrap();
     assert!(started.elapsed() >= Duration::from_millis(250));
@@ -891,12 +842,20 @@ async fn a_returning_miner_waits_for_its_new_commitment_to_be_logged() {
     // Fix round 1, finding 3: a commitment replaced within the window (a new
     // opening for another artifact), uploaded before the reader logs it.
     mock.advance(2);
-    let replaced = commit::prepare(&store, &chain601(), 7, &id, &artifact2, &mut OsNonce, true).unwrap();
+    let replaced =
+        commit::prepare(&store, &chain601(), 7, &id, &artifact2, &mut OsNonce, true).unwrap();
     let late = logged(replaced.payload, 2_020);
     let session = finished(
-        upload(&mut c, &store, &replaced.file, &artifact2_path, &artifact2, &options)
-            .await
-            .unwrap(),
+        upload(
+            &mut c,
+            &store,
+            &replaced.file,
+            &artifact2_path,
+            &artifact2,
+            &options,
+        )
+        .await
+        .unwrap(),
     );
     late.await.unwrap();
     assert_eq!(session.state(), Some(SessionState::Verified));
@@ -908,7 +867,8 @@ async fn a_returning_miner_waits_for_its_new_commitment_to_be_logged() {
     // once the cursor reaches the block the commitment is logged and the
     // upload goes through.
     mock.poll();
-    let lagging = commit::prepare(&store, &chain601(), 7, &id, &artifact, &mut OsNonce, true).unwrap();
+    let lagging =
+        commit::prepare(&store, &chain601(), 7, &id, &artifact, &mut OsNonce, true).unwrap();
     let cursor = mock.with(|s| s.finalized_block);
     // Past the cursor and past every commitment this test logged so far.
     let confirmed_at = cursor.max(2_020) + 10;
@@ -921,13 +881,20 @@ async fn a_returning_miner_waits_for_its_new_commitment_to_be_logged() {
         .await
         .unwrap_err();
     assert_eq!(api_code(&error), Some(ErrorCode::CommitmentNotFound));
-    assert_eq!(mock.with(|s| s.commitment_block_hints.last().copied()), Some(Some(confirmed_at)));
+    assert_eq!(
+        mock.with(|s| s.commitment_block_hints.last().copied()),
+        Some(Some(confirmed_at))
+    );
     mock.advance((confirmed_at - cursor) / 2);
     mock.poll();
     let error = upload(&mut c, &store, &file, &artifact_path, &artifact, &once())
         .await
         .unwrap_err();
-    assert_eq!(api_code(&error), Some(ErrorCode::CommitmentNotFound), "a poll below the block is not final");
+    assert_eq!(
+        api_code(&error),
+        Some(ErrorCode::CommitmentNotFound),
+        "a poll below the block is not final"
+    );
     mock.advance(confirmed_at - mock.with(|s| s.finalized_block));
     mock.commit(id.hotkey, confirmed_at, 0, &lagging.payload);
     mock.poll();

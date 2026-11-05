@@ -14,11 +14,6 @@ use serde_json::Value;
 use slop_ninja_artifact_check::{Refusal, RoleFiles, canonical, check_roles, fs, onnx, spec};
 use slop_ninja_protocol::{Digest, FileRole};
 
-/// R0's deployed scorer package (`profile_id` `a-baseline-rc-s17-f32band-v1`,
-/// packed by `slop_ninja_a_served_profile pack --part-mib 64`).
-const R0_DEPLOYED_PACKAGE_SHA256: &str =
-    "2f88b0d2f7a7e20d31ecd436e7d89e7937921297ba2abb86365c2009d9678559";
-const R0_DEPLOYED_PROFILE_ID: &str = "a-baseline-rc-s17-f32band-v1";
 const R0_GRAPH_SHA256: &str = "08848d95261eea0e0791366298cede77033d92dcac88cfcb08f8367fd6ca4cb7";
 const R0_GRAPH_PARAMETERS: u64 = 150_058_763;
 const R0_HEAD_PARAMETERS: u64 = 244_069;
@@ -65,26 +60,22 @@ fn r0_passes_and_maps_to_its_deployed_package() {
     assert!(!r.roles.span_head);
     assert_eq!((r.graph.nodes, r.graph.initializers), (4712, 150));
     assert_eq!(r.graph.opsets, vec![(String::new(), 17)]);
-    let graph = r
-        .parts_manifest
-        .files
-        .iter()
-        .find(|f| f.name == spec::GRAPH_FILE)
-        .unwrap();
-    assert_eq!(graph.sha256, R0_GRAPH_SHA256);
-    assert_eq!(graph.parts.len(), 9);
-    // The mapping, with the deployed profile id, reproduces the deployed
-    // package byte for byte.
-    let mut deployed = r.parts_manifest.clone();
-    deployed.profile_id = R0_DEPLOYED_PROFILE_ID.into();
-    assert_eq!(
-        slop_ninja_artifact_check_sha(&deployed.to_bytes()),
-        R0_DEPLOYED_PACKAGE_SHA256
-    );
-    eprintln!(
-        "R0 content {} object {} package {}",
-        r.content_sha256, r.object_sha256, r.package_sha256
-    );
+    let header = fs::header_for_dir(&dir).unwrap();
+    let graph = header.files.iter().find(|f| f.name == spec::GRAPH_FILE).unwrap();
+    assert_eq!(hex::encode(graph.sha256.0), R0_GRAPH_SHA256);
+    // Its files manifest v2 (the eval bucket's reference layout) builds and
+    // parses back under its own package digest.
+    let m = slop_ninja_artifact_check::files_manifest::FilesManifest::for_header(
+        &header,
+        slop_ninja_artifact_check::Version::V1,
+        &r.profile_id,
+        |_, sha| ("eval".into(), fs::reference_file_key(sha), None),
+    )
+    .unwrap();
+    let bytes = m.to_bytes();
+    let package = slop_ninja_artifact_check::files_manifest::FilesManifest::package_of(&bytes);
+    assert!(slop_ninja_artifact_check::files_manifest::FilesManifest::parse(&bytes, &package, slop_ninja_artifact_check::Version::V1).is_ok());
+    eprintln!("R0 content {} package v2 {package}", r.content_sha256);
 }
 
 fn slop_ninja_artifact_check_sha(b: &[u8]) -> String {
@@ -215,7 +206,7 @@ fn enc(name: &str, v: &Value) -> Vec<u8> {
     canonical::encode(v, spec::role_by_name(name).unwrap().layout.unwrap())
 }
 
-fn code(r: Result<slop_ninja_artifact_check::ObjectReport, Refusal>) -> String {
+fn code<T>(r: Result<T, Refusal>) -> String {
     match r {
         Ok(_) => "accepted".into(),
         Err(e) => {
@@ -378,11 +369,13 @@ fn r0_mutations_are_refused() {
         r0.bytes("calibration.json"),
         r0.bytes("manifest.json"),
     );
+    let hex = [slop_ninja_artifact_check_sha(&h), slop_ninja_artifact_check_sha(&c), slop_ninja_artifact_check_sha(&k)];
     let roles = RoleFiles {
         heads: &h,
         contract: &c,
         calibration: &k,
         manifest: &m,
+        digests: slop_ninja_artifact_check::roles::RoleDigests::of(&hex),
     };
     assert!(check_roles(&roles, Some(&spec::GRAPHS[0])).is_ok());
     assert_eq!(

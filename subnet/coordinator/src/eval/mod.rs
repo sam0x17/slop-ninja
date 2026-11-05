@@ -22,7 +22,8 @@
 //! - [`v3`]: `reward-v1` cohorts (plan v3) and fingerprint probe builds.
 //! - [`scorer_client`]: what the scoring lanes read from and send to a scorer.
 //! - [`admission`]: coordinator admission of a cohort's roster (contract
-//!   `slop_ninja.admission/v1`): sessions, framing, verdicts and the cutoff.
+//!   `slop_ninja.admission/v2`): sessions recorded from R2's stored
+//!   checksums of direct uploads, verdicts, repair and the cutoff.
 //! - [`commitments`]: the finalized commitment log admission reads.
 //! - [`calendar`]: the standing plan template and the cohort calendar.
 //! - [`succession`]: durable succession between main authorities.

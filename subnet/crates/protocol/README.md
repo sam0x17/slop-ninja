@@ -239,7 +239,10 @@ committing registration, UID included, and the same block and extrinsic index,
 the position that breaks rank-order ties. It also checks the published object
 against the package: its SHA-256 is the package's artifact digest and its
 derived content is the committed content (`check_published_artifact`;
-`ReferenceModel::check_artifact` does the same for hosted references). The commitment binds the content digest rather than the
+`ReferenceModel::check_artifact` does the same for hosted references). That
+digest is also the public result's `ResultEntrant::artifact`, which is what
+the publisher, never reading the private package, checks a published header
+against. The commitment binds the content digest rather than the
 object's bytes, so the published object reaches its on-chain commitment through
 its derived content. Encryption to the coordinator key is a later, separately
 qualified layer around the upload bytes.

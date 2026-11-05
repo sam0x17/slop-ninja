@@ -24,10 +24,11 @@ pub enum ConfigError {
     Digest(&'static str),
     Number(&'static str),
     Url(&'static str),
-    Template(&'static str),
     Format,
+    /// `ARTIFACT_COPY` is neither `stream` nor `server`.
+    Copy,
     Prefix,
-    /// Artifact publication is configured without one of its guards.
+    /// Artifact publication is enabled without one of its guards.
     Guards(&'static str),
     /// A duration below its derived minimum (or one that overflows).
     Duration(&'static str, u64),
@@ -45,13 +46,10 @@ impl core::fmt::Display for ConfigError {
             Self::Digest(v) => write!(f, "{v} must list 64-hex digests"),
             Self::Number(v) => write!(f, "{v} must be an unsigned integer"),
             Self::Url(v) => write!(f, "{v} must be an https URL without credentials"),
-            Self::Template(v) => write!(
-                f,
-                "{v} must contain each of its placeholders once, no other braces, and form a safe key"
-            ),
             Self::Format => f.write_str("ALERT_SINK_FORMAT must be json, slack or discord"),
+            Self::Copy => f.write_str("ARTIFACT_COPY must be stream or server"),
             Self::Prefix => f.write_str("RECORD_LABEL_PREFIX must use the cohort label alphabet"),
-            Self::Guards(v) => write!(f, "ARTIFACT_SOURCE_KEY is set but {v}"),
+            Self::Guards(v) => write!(f, "ARTIFACTS_FROM_EPOCH is set but {v}"),
             Self::Duration(v, min) => {
                 write!(f, "{v} must be at least {min} and fit in milliseconds")
             }
@@ -100,6 +98,48 @@ impl Sink {
     }
 }
 
+/// How publication at scoring start copies an object
+/// (`ARTIFACT_COPY`). Neither hashes a byte on our side.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum CopyMode {
+    /// `"stream"` (the default until a cross-bucket `CopyObject` is
+    /// qualified, probe G7-x): a binding `get` from the admission bucket
+    /// piped into a binding `put` on the public bucket with the object's
+    /// SHA-256, which R2 verifies. The bytes stream inside the runtime and
+    /// never enter Wasm memory; no extra credential is needed. The copy is
+    /// checked by its stored SHA-256.
+    Stream,
+    /// `"server"` (configured once probe G7-x qualified a cross-bucket
+    /// copy): an S3 `CopyObject` inside R2, presigned by
+    /// the internal signer Worker with the separate copy credential (service
+    /// binding `R2_SIGNER_TESTNET`, token `COPY_INTERFACE_TOKEN`), with the
+    /// source etag pinned, the metadata directive `REPLACE` (no stored
+    /// header of the source carries over) and the storage class `STANDARD`.
+    /// `CopyObject` keeps the etag but never carries the stored SHA-256
+    /// (qualification G7), so the copy is checked by its size and by etag
+    /// equality with the admitted source, whose SHA-256 R2 verified at
+    /// upload.
+    Server,
+}
+
+impl CopyMode {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Stream => "stream",
+            Self::Server => "server",
+        }
+    }
+}
+
+/// The settings layout v1 used (closure-time copies from the eval bucket).
+/// Retired: a deployment that still sets one is warned (`config_warning`),
+/// never refused, since the configuration also drives the row copy.
+pub const RETIRED_ARTIFACT_KEYS: [&str; 2] = ["ARTIFACT_SOURCE_KEY", "ADMISSION_RECORD_KEY"];
+pub const RETIRED_PUBLISH_IGNORED: &str =
+    "PUBLISH_ARTIFACTS is retired and ignored: the tracked ARTIFACTS_FROM_EPOCH enables publication at scoring start";
+pub const RETIRED_KEY_IGNORED: &str =
+    "ARTIFACT_SOURCE_KEY or ADMISSION_RECORD_KEY is set: retired with closure-time copies, ignored (publication at scoring start uses ARTIFACTS_FROM_EPOCH)";
+
 #[derive(Clone, Debug)]
 pub struct Config {
     pub chain: ChainBinding,
@@ -122,14 +162,27 @@ pub struct Config {
     /// Hotkeys whose artifacts are never published: the owner, our own
     /// miners and validators, and synthetic rehearsal identities.
     pub operator_hotkeys: BTreeSet<AccountId>,
-    /// Eval-bucket key of an admitted artifact object, with `{sha256}` for
-    /// its digest. Unset: artifacts wait until the admission layout exists.
-    pub artifact_source: Option<String>,
-    /// Eval-bucket key of the canonical `SubmissionUpload` envelope the
-    /// admission route stored for an admitted upload, with `{label}` and
-    /// `{hotkey}` (64-hex). Artifact publication is default-deny: an artifact
-    /// is copied only when this record exists and matches the entrant.
-    pub admission_record: Option<String>,
+    /// Publication at scoring start, on exactly when
+    /// [`Config::artifacts_from_epoch`] is set: each admitted entrant's
+    /// header and files are copied from the private admission bucket to the
+    /// public bucket once its cohort's roster is sealed (`crate::artifacts`).
+    /// Off: nothing is copied and closed cohorts list their artifacts as
+    /// pending.
+    pub publish_artifacts: bool,
+    /// The first chain epoch whose cohorts publish their artifacts at
+    /// scoring start (`ARTIFACTS_FROM_EPOCH`, tracked in `wrangler.toml` like
+    /// the public record's `PUBLISH_FROM_EPOCH`, which it never moves; a
+    /// cohort must be inside both). Tracked, so a routine deploy keeps it:
+    /// with it set, a deploy without the deploy-time guards
+    /// (`PRIVATE_DIGESTS`, `OPERATOR_HOTKEYS`) is refused (`config_refused`
+    /// alerts) instead of silently stopping publication, which would keep
+    /// admitted objects in the admission bucket with no alert (review round
+    /// 2). Empty or unset: publication at scoring start is off.
+    pub artifacts_from_epoch: Option<u64>,
+    /// How the copy is made (`ARTIFACT_COPY`): `stream` (unset, empty or
+    /// `stream`, the tracked default until probe G7-x passes and the copy
+    /// token is installed) or `server` (configuration only).
+    pub artifact_copy: CopyMode,
     /// The coordinator's admission origin the snapshot advertises.
     pub admission_origin: Option<String>,
     /// Extra operator text for the snapshot's notice.
@@ -194,29 +247,6 @@ fn https(name: &'static str, value: Option<String>) -> Result<Option<String>, Co
             Ok(Some(v))
         }
     }
-}
-
-/// A key template: each placeholder exactly once, no other braces, and a
-/// safe relative key once the placeholders are filled.
-fn template(
-    name: &'static str,
-    value: Option<String>,
-    placeholders: &[&str],
-) -> Result<Option<String>, ConfigError> {
-    let Some(t) = value.map(|v| v.trim().to_owned()).filter(|v| !v.is_empty()) else {
-        return Ok(None);
-    };
-    let mut filled = t.clone();
-    for p in placeholders {
-        if t.matches(p).count() != 1 {
-            return Err(ConfigError::Template(name));
-        }
-        filled = filled.replace(p, "x");
-    }
-    if filled.contains(['{', '}']) || !crate::layout::safe_rel(&filled) {
-        return Err(ConfigError::Template(name));
-    }
-    Ok(Some(t))
 }
 
 fn number(
@@ -350,21 +380,25 @@ pub fn parse(get: impl Fn(&str) -> Option<String>) -> Result<Config, ConfigError
             ));
         }
     }
-    let artifact_source = template(
-        "ARTIFACT_SOURCE_KEY",
-        get("ARTIFACT_SOURCE_KEY"),
-        &["{sha256}"],
-    )?;
-    let admission_record = template(
-        "ADMISSION_RECORD_KEY",
-        get("ADMISSION_RECORD_KEY"),
-        &["{label}", "{hotkey}"],
-    )?;
+    let artifacts_from_epoch = match get("ARTIFACTS_FROM_EPOCH") {
+        Some(v) if !v.trim().is_empty() => Some(
+            v.trim()
+                .parse()
+                .map_err(|_| ConfigError::Number("ARTIFACTS_FROM_EPOCH"))?,
+        ),
+        _ => None,
+    };
+    let publish_artifacts = artifacts_from_epoch.is_some();
+    // Retired: enablement is the tracked ARTIFACTS_FROM_EPOCH, which a
+    // routine deploy cannot drop.
+    let retired_publish = get("PUBLISH_ARTIFACTS").is_some();
+    let artifact_copy = match get("ARTIFACT_COPY").as_deref().map(str::trim) {
+        None | Some("") | Some("stream") => CopyMode::Stream,
+        Some("server") => CopyMode::Server,
+        Some(_) => return Err(ConfigError::Copy),
+    };
     // Fail closed: artifact copies need every guard.
-    if artifact_source.is_some() {
-        if admission_record.is_none() {
-            return Err(ConfigError::Guards("ADMISSION_RECORD_KEY is not"));
-        }
+    if publish_artifacts {
         if private_digests.is_empty() {
             return Err(ConfigError::Guards(
                 "PRIVATE_DIGESTS lists no reference digest",
@@ -410,6 +444,9 @@ pub fn parse(get: impl Fn(&str) -> Option<String>) -> Result<Config, ConfigError
         renotify_ms,
     );
     let (sink, sink_warning) = sink(&get)?;
+    let retired = RETIRED_ARTIFACT_KEYS
+        .iter()
+        .any(|k| get(k).is_some_and(|v| !v.trim().is_empty()));
     let heartbeat = if flag(&get, "HEARTBEAT_ENABLED", false)? {
         https("HEARTBEAT_URL", get("HEARTBEAT_URL"))?
     } else {
@@ -436,15 +473,21 @@ pub fn parse(get: impl Fn(&str) -> Option<String>) -> Result<Config, ConfigError
         record_label_prefix,
         private_digests,
         operator_hotkeys,
-        artifact_source,
-        admission_record,
+        publish_artifacts,
+        artifacts_from_epoch,
+        artifact_copy,
         admission_origin,
         notice: get("NOTICE")
             .map(|n| n.trim().to_owned())
             .filter(|n| !n.is_empty()),
         rules,
         sink,
-        warnings: sink_warning.into_iter().map(str::to_owned).collect(),
+        warnings: sink_warning
+            .into_iter()
+            .chain(retired.then_some(RETIRED_KEY_IGNORED))
+            .chain(retired_publish.then_some(RETIRED_PUBLISH_IGNORED))
+            .map(str::to_owned)
+            .collect(),
         renotify_ms,
         heartbeat,
         run_wall_budget_ms: number(&get, "RUN_WALL_BUDGET_MS", CRON_PERIOD_MS)?,
@@ -471,7 +514,8 @@ mod tests {
         assert_eq!(c.publish_from_epoch, None);
         assert_eq!(c.record_label_prefix, None);
         assert_eq!(c.run_wall_budget_ms, CRON_PERIOD_MS);
-        assert!(c.sink.is_none() && c.heartbeat.is_none() && c.artifact_source.is_none());
+        assert!(c.sink.is_none() && c.heartbeat.is_none() && !c.publish_artifacts);
+        assert_eq!(c.artifact_copy, CopyMode::Stream, "stream until G7-x qualifies a cross-bucket copy");
         assert_eq!(c.rules.fallback_ms, 360 * 12 * 1000);
     }
 
@@ -495,10 +539,8 @@ mod tests {
         assert!(with("OPERATOR_HOTKEYS", "zz").is_err());
         assert!(with("RECORD_LABEL_PREFIX", "Testnet/").is_err());
         assert!(with("PUBLISH_FROM_EPOCH", "soon").is_err());
-        assert!(with("ARTIFACT_SOURCE_KEY", "admission/objects/x").is_err());
-        assert!(with("ARTIFACT_SOURCE_KEY", "admission/{sha256}/{sha256}").is_err());
-        assert!(with("ARTIFACT_SOURCE_KEY", "../{sha256}").is_err());
-        assert!(with("ADMISSION_RECORD_KEY", "admission/{label}/x").is_err());
+        assert_eq!(with("ARTIFACT_COPY", "binding").unwrap_err(), ConfigError::Copy);
+        assert!(with("ARTIFACTS_FROM_EPOCH", "yes").is_err());
         assert!(with("ALERT_SINK_URL", "http://example.invalid/hook").is_err());
         assert!(with("ALERT_SINK_URL", "https://user:pw@example.invalid/hook").is_err());
         assert!(with("ADMISSION_ORIGIN", "https://example.invalid/admission").is_err());
@@ -587,30 +629,24 @@ mod tests {
         );
     }
 
-    /// Artifact copies are configured only with every guard: the admission
-    /// record layout, the reference digests and the operator hotkeys.
+    /// Publication at scoring start is enabled only with every guard: the
+    /// reference digests and the operator hotkeys. The copy mode defaults to
+    /// the binding stream; the retired layout-v1 keys only warn.
     #[test]
     fn artifact_publication_fails_closed() {
         let d = "ab".repeat(32);
         let full = [
             ("NETWORK", "testnet"),
             ("SUBNET_NETUID", "601"),
-            ("ARTIFACT_SOURCE_KEY", "admission/objects/{sha256}.bin"),
-            (
-                "ADMISSION_RECORD_KEY",
-                "admission/cohorts/{label}/{hotkey}.upload",
-            ),
+            ("ARTIFACTS_FROM_EPOCH", "80"),
             ("PRIVATE_DIGESTS", d.as_str()),
             ("OPERATOR_HOTKEYS", d.as_str()),
         ];
         let c = parse(vars(&full)).unwrap();
-        assert!(c.artifact_source.is_some() && c.admission_record.is_some());
+        assert!(c.publish_artifacts && c.artifacts_from_epoch == Some(80));
+        assert_eq!(c.artifact_copy, CopyMode::Stream);
         assert_eq!(c.operator_hotkeys.len(), 1);
-        for missing in [
-            "ADMISSION_RECORD_KEY",
-            "PRIVATE_DIGESTS",
-            "OPERATOR_HOTKEYS",
-        ] {
+        for missing in ["PRIVATE_DIGESTS", "OPERATOR_HOTKEYS"] {
             let partial: Vec<_> = full
                 .iter()
                 .copied()
@@ -621,9 +657,33 @@ mod tests {
                 "{missing}"
             );
         }
-        // Without a source the guards are optional: nothing is copied.
+        let mut server = full.to_vec();
+        server.push(("ARTIFACT_COPY", "server"));
+        assert_eq!(parse(vars(&server)).unwrap().artifact_copy, CopyMode::Server);
+        let mut stream = full.to_vec();
+        stream.push(("ARTIFACT_COPY", "stream"));
+        assert_eq!(parse(vars(&stream)).unwrap().artifact_copy, CopyMode::Stream);
+        // Off, the guards are optional: nothing is copied.
         let none = [("NETWORK", "testnet"), ("SUBNET_NETUID", "601")];
-        assert!(parse(vars(&none)).unwrap().artifact_source.is_none());
+        assert!(!parse(vars(&none)).unwrap().publish_artifacts);
+        // A retired layout-v1 key is ignored with a warning, never refused.
+        let mut retired = none.to_vec();
+        retired.push(("ARTIFACT_SOURCE_KEY", "admission/objects/{sha256}.bin"));
+        let c = parse(vars(&retired)).unwrap();
+        assert_eq!(c.warnings, vec![RETIRED_KEY_IGNORED.to_owned()]);
+        // PUBLISH_ARTIFACTS no longer enables anything: the tracked
+        // boundary does, so a routine deploy cannot silently drop it.
+        let mut old = none.to_vec();
+        old.push(("PUBLISH_ARTIFACTS", "true"));
+        let c = parse(vars(&old)).unwrap();
+        assert!(!c.publish_artifacts);
+        assert_eq!(c.warnings, vec![RETIRED_PUBLISH_IGNORED.to_owned()]);
+        let mut empty = none.to_vec();
+        empty.push(("ARTIFACTS_FROM_EPOCH", ""));
+        assert!(!parse(vars(&empty)).unwrap().publish_artifacts);
+        let mut bad = none.to_vec();
+        bad.push(("ARTIFACTS_FROM_EPOCH", "soon"));
+        assert!(parse(vars(&bad)).is_err());
     }
 
     #[test]

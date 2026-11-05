@@ -525,6 +525,20 @@ The validator does not see the hidden evaluation: no documents, labels,
 executions, scores or receipts. It recomputes nothing; what it commits is
 the coordinator's signed row.
 
+**Checking a published model (optional, advisory).** Every admitted artifact
+is public from its cohort's scoring start: its header at
+`artifacts/v2/<header sha256>/header` and each file at
+`blobs/sha256/<file sha256>` on the public host
+([public layout](public-layout.md)). A validator that wants to check one
+hashes the header it downloaded and compares that digest with the entrant's
+`header` in `v1/cohorts/<label>/artifacts.json` and, once the cohort closes,
+its `sha256` in `publication.json` (the publisher checks there that it is the
+header digest the cohort's signed public result names, `ResultEntrant::artifact`
+in `result.signed`), then hashes each file
+against the digest the header lists. The validator built from this tree
+downloads no model and runs no such check; a result of one never changes the
+row.
+
 ## Commit-reveal
 
 Subnet 601 runs native weight commit-reveal. The validator:

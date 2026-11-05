@@ -65,6 +65,10 @@ macro_rules! tagged_enum {
             pub fn tag(self) -> u8 {
                 match self { $(Self::$variant => $tag),* }
             }
+            /// The value with this tag, or `None`.
+            pub fn from_tag(tag: u8) -> Option<Self> {
+                match tag { $($tag => Some(Self::$variant),)* _ => None }
+            }
         }
         impl $crate::codec::Canonical for $name {
             fn encode_to(&self, e: &mut $crate::codec::Encoder) {
@@ -457,7 +461,7 @@ impl ReferenceSet {
 
 canonical_struct! {
     /// One admitted roster entry: a finalized on-chain digest commitment with
-    /// a matching private upload, as [`crate::submission::SubmissionUpload::admit`]
+    /// a matching private upload, as [`crate::submission::SubmissionUpload::admit_header`]
     /// returns it.
     pub struct RosterEntry {
         /// Credited identity: the committing hotkey's registration, with the
@@ -1176,7 +1180,8 @@ canonical_struct! {
         pub extrinsic_index: u32,
         /// Canonical inference-content digest (see [`InferenceContent`]).
         pub content: Digest,
-        /// SHA-256 of the uploaded artifact object, published after the cohort.
+        /// SHA-256 of the artifact's header bytes `H`, which list every
+        /// file's SHA-256 and length; published at scoring start.
         pub artifact: Digest,
         /// Sorted by gate; empty when every enforced gate passed.
         pub gate_failures: Vec<GateFailure>,

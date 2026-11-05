@@ -12,10 +12,11 @@ use rtao_runtime::calls::commitments::SET_COMMITMENT;
 use rtao_runtime::{CallBytes, RuntimeHandle};
 use slop_ninja_miner::chain::{commitment_call, compose};
 use slop_ninja_miner::client::ss58;
+use slop_ninja_miner::object::ObjectHeader;
 use slop_ninja_miner::opening::OpeningFile;
 use slop_ninja_protocol::fixtures_reward_v1 as fx;
 use slop_ninja_protocol::submission::{SUBMISSION_PAYLOAD_LEN, SubmissionOpening};
-use slop_ninja_protocol::{ChainBinding, TESTNET_GENESIS, VerifiedArtifact};
+use slop_ninja_protocol::{ChainBinding, TESTNET_GENESIS};
 
 const PROTOCOL_GOLDEN: &str = include_str!("../../protocol/fixtures/golden-reward-v1.txt");
 const METADATA: &[u8] = include_bytes!("../../../fixtures/runtime-486/testnet-486.v15.scale");
@@ -35,13 +36,17 @@ fn runtime() -> RuntimeHandle {
 }
 
 /// The protocol fixture's first entrant and the cohort its golden payload names.
-fn fixture_opening() -> (SubmissionOpening, VerifiedArtifact) {
+fn fixture_opening() -> (SubmissionOpening, ObjectHeader) {
     let spec = fx::models()[0].spec.clone();
     let payload = hex::decode(protocol_golden("submission.chain_payload")).unwrap();
     let cohort = u64::from_le_bytes(payload[4..12].try_into().unwrap());
     let opening = fx::opening(&fx::chain(), cohort, &spec);
-    let artifact = VerifiedArtifact::from_bytes(&fx::artifact_bytes(&spec)).unwrap();
-    (opening, artifact)
+    let object = fx::artifact_bytes(&spec);
+    let len = u32::from_le_bytes(object[..4].try_into().unwrap()) as usize;
+    let header = ObjectHeader::from_header_bytes(object[4..4 + len].to_vec()).unwrap();
+    assert_eq!(header.object_len, object.len() as u64);
+    assert_eq!(header.content, opening.content);
+    (opening, header)
 }
 
 #[test]

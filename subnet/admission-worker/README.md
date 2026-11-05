@@ -2,20 +2,22 @@
 
 The key-free upload Worker of Slop Ninja testnet admission:
 `slop-ninja-admission-testnet`, served at `https://testnet-admission.slop.ninja`.
-It takes every untrusted request of the admission contract
-`slop_ninja.admission/v1` ([admission API](../../docs/testnet/admission-api.md))
-and holds no signing key: no chain hotkey, and no package, receipt or
-authorization key.
+It fronts every public route of the admission contract
+`slop_ninja.admission/v2` ([admission API](../../docs/testnet/admission-api.md))
+and holds no signing key and no R2 binding: no chain hotkey, no package,
+receipt or authorization key, and no object-store credential. No upload byte
+passes through it: miners PUT the artifact header and each file straight to
+R2 under presigned URLs, which the eval Worker obtains from the internal
+signer Worker (`subnet/r2-signer`).
 
 | Binding or secret | What |
 | --- | --- |
-| `ADMISSION_TESTNET` (R2) | the private upload bucket `admission-bucket-testnet`: uploaded objects only |
 | `EVAL_ADMISSION_TESTNET` (service) | the eval Worker's internal admission interface |
 | `ADMISSION_INTERFACE_TOKEN` (secret) | the token both Workers present on the internal interfaces |
 
 ## Routes
 
-- `/admission/v1/...` (public): every route of the contract. Before it
+- `/admission/v2/...` (public): every route of the contract. Before it
   forwards anything, the Worker runs one front sequence
   (`slop_ninja_admission_gate::decide`, which the miner client's mock also
   runs):
@@ -25,11 +27,9 @@ authorization key.
   3. in `hotkeys` mode, checks the signer is listed;
   4. runs the header-only checks: a hotkey segment must decode as SS58 and
      name the signer, a creation must carry the upload media type, a
-     bodiless route's signed digest must be the empty string's, a declared
-     `Content-Length` must be within the route's bound (one
-     `SubmissionUpload` record for a creation, none for a bodiless route),
-     and a part's must be present and no larger than the largest object any
-     admission spec allows;
+     bodiless route's signed digest must be the empty string's, and a
+     declared `Content-Length` must be within the route's bound (one
+     `SubmissionUpload` record for a creation, none for every other route);
   5. looks the signer up in the isolate's roster (`not_registered` when
      absent): the subnet's hotkeys at the finalized head,
      `SubtensorModule.SubnetworkN(601)` and `Keys(601, uid)` for every uid
@@ -40,24 +40,25 @@ authorization key.
      changes; no version is compared. After a failed load the isolate
      answers `unavailable` for one block without reading again;
   6. reads the body within its route's bound and checks it against
-     `x-sn-content-sha256` (a part's body is not read: it streams to R2).
+     `x-sn-content-sha256`.
 
   `valid_until` is the cohort authority's to check, against its own cursor
   (the Worker's chain head may run ahead of it). The Worker then forwards
-  one bounded message to the eval Worker. A part runs in three arena scopes:
-  the sequence and the cohort authority's `part-begin`, the stream (one
-  page, while the body streams through a `FixedLengthStream` of the part's
-  exact length into the upload bucket's `uploadPart`), then `part-record`;
-  the record carries the signed request again, and the cohort authority
-  re-derives the target from the session. A body of another length answers
-  `part_length_mismatch`.
+  one bounded message to the eval Worker (`/internal/admission/v2/<op>` for
+  `create`, `read`, `urls`, `complete`, `repair` and `hotkey`) and relays its
+  reply byte for byte (the body is passed on as raw JSON, never parsed into
+  a tree).
 
-  The unsigned cohort read is served from the cohort snapshot the eval
-  Worker writes to the upload bucket at every heartbeat
-  (`cohort/v1/current.json`): the Worker keeps it in the edge cache for one
-  block under one key for every URL variant (the query is dropped) and
-  answers `no-store`, with `paused: true` once the snapshot is older than
-  the coordinator's heartbeat freshness. It never reaches the eval Worker.
+  The unsigned cohort read is served from the Worker's edge copy of the
+  cohort snapshot, kept for one block under one key for every URL variant
+  (the query is dropped). On a miss it asks the eval Worker's snapshot
+  operation (`/internal/admission/v2/snapshot`), which answers from the
+  snapshot object the cohort authority writes to the eval bucket at every
+  heartbeat without reaching the cohort object. The same copy carries the
+  gate's repair list (never served to clients): a session read or `repair`
+  by a signer the roster does not pass goes on only when the list names it. The client's answer is `no-store`, with
+  `paused: true` once the snapshot is older than the coordinator's heartbeat
+  freshness. A snapshot that does not parse is never cached.
 
   A signed request costs no RPC call of its own: the roster's reads (two
   head reads, one marker and count read, and one `Keys` read per few
@@ -70,54 +71,66 @@ authorization key.
   `unavailable` with `Retry-After`. An eval answer that refuses the
   forwarded message itself (400 or 413) is `bad_request`; any other eval
   failure is `unavailable`.
-- `POST /internal/upload/v1/frame`: only for the eval Worker's framing step,
-  which addresses the internal host `admission-upload.internal` through its
-  service binding and presents the token (the route class, and so the
-  framing footprint, is given only to `POST` requests for that host). It
-  streams one uploaded object through
-  `slop_ninja_artifact_check::admission::Framer` (one 1 MiB buffer, at most
-  one byte past the declared length) and answers a `FrameOutcome`. A failed
-  object read answers 503 with `x-sn-frame-failure: object-read`, and a
-  framing request this Worker's platform could not take (its body unread,
-  an arena refusal) 503 with `x-sn-frame-failure: platform`: the eval Worker
-  retries both without counting them. A request that does not decode is
-  400. A request for the probe
-  key `probe` answers `{"probe": "ok"}` without reading anything (the eval
-  Worker's `GET /eval/admission/link`).
+- `POST /internal/upload/v2/header`: only for the eval Worker's header
+  check, which addresses the internal host `admission-upload.internal`
+  through its service binding and presents the token (the route class, and
+  so the header footprint, is given only to `POST` requests for that host).
+  The body is the header bytes the eval Worker read from R2 after R2
+  verified them against the envelope's `header_sha256` (at most the
+  protocol's 1 MiB; a declared length above it is refused, 413, before the
+  body is touched), and `x-sn-artifact-spec` names the cohort's spec. The
+  Worker decodes and checks it with
+  `slop_ninja_artifact_check::admission::check_header_bytes` (the declared
+  file count is refused before anything is decoded; no file byte is read
+  and nothing is hashed) and answers 200 with the `HeaderOutcome`, whatever
+  its verdict. An unknown spec answers 400. A body this Worker's platform
+  could not read, or an arena refusal of the route, answers 503 with
+  `x-sn-header-failure: platform`, which the eval Worker retries without
+  counting it. The body `probe` answers `{"probe":"ok"}` without decoding
+  anything (the eval Worker's link check).
 - Anything else answers 404.
 
 `ADMISSION_ROUTES`: `open` (decision D6), `hotkeys` with
 `ADMISSION_HOTKEYS` for drills, or `off`. The tracked value is `hotkeys`
-until the deployed path has been drilled; the drill deploy passes the test
-hotkeys with `--var`, and the switch to `open` is its own commit and deploy.
-
-A part's stream scope has the Worker's arena deadline: 15 minutes,
-borrowed from the longest documented Workers wall limit (a fetch itself has
-none). A part of 64 MiB (the testnet plan's `part_size`) streamed slower
-than about 0.6 Mbit/s outlasts it: the stream scope (one page) then counts
-as abandoned while it streams and recovers when the stream ends (the arena
-runs in `observe` here, so this is counted only).
+until the deployed v2 path has been drilled; the drill deploy passes the
+test hotkeys with `--var`, and the switch to `open` is its own commit and
+deploy.
 
 ## Memory
 
 The one export, `fetch`, is hand-written as the coordinator's are: a glue
 ticket, the arena clock, then the handler in its own bounded scope with the
 route's footprint (`src/routes.rs`), under this crate's
-`memory-model.json` (unmeasured, so the arena runs in `observe`). The
-roster is a 2 MiB static array (every UID a `u16` can name), static data
-below the pool, so it never holds arena pages. Bodies are
-read with the coordinator's bounded readers (`cf_io.rs`, shared as source).
+`memory-model.json` (unmeasured, so the arena runs in `observe`). Every
+footprint is derived from a format: the public route's from the densest JSON
+tree of one 64 KiB roster RPC reply and four 64 KiB values (the contract's
+response limit, the RPC reply bound, the forwarded message), the header
+route's from the protocol's 1 MiB header limit. Bodies are read with the
+coordinator's bounded readers (`cf_io.rs`, shared as source), which admit
+each body's exact block before copying it in. The roster is a 2 MiB static
+array (every UID a `u16` can name), static data below the pool, so it never
+holds arena pages.
 
 ## Checks
 
 ```sh
 cargo test
+cargo test --features arena-witness arena_witness -- --test-threads=1
 cargo clippy --all-targets -- -D warnings
 cargo clippy --target wasm32-unknown-unknown --lib -- -D warnings
 ```
+
+The witnesses run each route's heaviest path at its bound under
+`Mode::Strict` in exactly its footprint: the header route over the worst
+header shapes (a contract string filling the 1 MiB body, the longest names,
+a valid table, garbage, a count above the table), the public route over the
+densest roster reply, a full roster call, a relayed reply at the interface
+bound and the snapshot at its bound. From `subnet/`, `cargo test --test
+no_object_hash` and `--test no_runtime_gates` scan this crate too.
 
 The miner client's `tests/e2e_upload_worker.rs` runs the client against its
 mock fronted by the same front sequence this Worker runs
 (`slop_ninja_admission_gate::decide`); that crate's tests count the I/O
 each refusal costs. Deploy order and probes:
-`subnet/coordinator/TESTNET.md`, "Upload Worker: key-free admission front".
+`subnet/coordinator/TESTNET.md`, "Upload Worker and direct upload
+(admission v2)".

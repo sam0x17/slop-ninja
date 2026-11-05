@@ -1,124 +1,33 @@
-//! End to end against a local mock of the admission contract: pack, check,
-//! commit (the opening and the composed call; nothing is signed for or sent
-//! to a chain), an interrupted and resumed upload, verification, the cutoff,
-//! and every admission refusal the client must show.
+//! End to end against a local mock of the admission contract v2 and of R2's
+//! presigned PUT: pack (each file hashed once), check (no hash), commit (the
+//! opening and the composed call; nothing is signed for or sent to a chain),
+//! an interrupted and resumed direct upload, verification, the cutoff, and
+//! every admission refusal the client must show.
 
 mod support;
 
 use std::os::unix::fs::PermissionsExt;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::sync::Arc;
 use std::time::Duration;
 
 use futures::future::BoxFuture;
-use rtao_primitives::CryptoType;
 use rtao_runtime::RuntimeHandle;
-use rtao_signer::KeypairSigner;
 use slop_ninja_admission_wire::{ErrorCode, SessionState};
 use slop_ninja_miner::check::{CheckContext, Outcome, SpecCheck, StructuralCheck, run_all};
 use slop_ninja_miner::client::{
     AdmissionClient, ApiError, RequestSigner, RtaoSigner, http_client, ss58,
 };
-use slop_ninja_miner::opening::{NonceSource, OsNonce, Store, load_opening, upload_envelope};
+use slop_ninja_miner::opening::{
+    NonceSource, OPENING_SCHEMA, OPENING_SCHEMA_V1, OsNonce, Store, load_opening, upload_envelope,
+};
 use slop_ninja_miner::upload::{UploadOptions, UploadOutcome, describe, upload};
 use slop_ninja_miner::{chain, commit, object};
-use slop_ninja_protocol::{
-    AccountId, ChainBinding, FileRole, NeuronIdentity, TESTNET_GENESIS, VerifiedArtifact,
-};
-use support::mock::{Mock, MockConfig};
+use slop_ninja_protocol::{AccountId, FileRole};
+use support::common::*;
+use support::mock::{Fault, Match, Mock};
 
-const CONTRACT: &str = slop_ninja_artifact_check::spec::CONTRACT_ID;
 const METADATA: &[u8] = include_bytes!("../../../fixtures/runtime-486/testnet-486.v15.scale");
-
-fn chain601() -> ChainBinding {
-    ChainBinding {
-        genesis: TESTNET_GENESIS,
-        netuid: 601,
-        mechanism: 0,
-    }
-}
-
-fn config() -> MockConfig {
-    MockConfig {
-        chain: chain601(),
-        cohort: 7,
-        opened_epoch: 23_169,
-        open_block: 1_900,
-        admission_min: 1,
-        output_contract: CONTRACT.into(),
-        roster_cap: 40,
-        max_object_len: 1 << 20,
-        part_size: 1_024,
-        max_parts: 10_000,
-        request_validity_blocks: 360,
-    }
-}
-
-fn dev_signer(uri: &str) -> Arc<RtaoSigner> {
-    let signer = KeypairSigner::from_uri(uri, CryptoType::Sr25519).expect("dev key");
-    Arc::new(RtaoSigner(Arc::new(signer)))
-}
-
-fn identity(signer: &RtaoSigner, uid: u16) -> NeuronIdentity {
-    NeuronIdentity {
-        uid,
-        hotkey: signer.hotkey(),
-        registration_block: 1_000 + u64::from(uid),
-    }
-}
-
-/// Synthetic model files (no real model), with owner metadata that changes
-/// the object but not its inference content.
-fn model_files(dir: &Path, family: u8, owner: &str) -> Vec<object::PackInput> {
-    std::fs::create_dir_all(dir.join("tok")).unwrap();
-    let graph: Vec<u8> = (0..3_000u32).map(|i| (i as u8) ^ family).collect();
-    std::fs::write(dir.join("model.onnx"), &graph).unwrap();
-    std::fs::write(
-        dir.join("tok/tokenizer.json"),
-        format!("{{\"family\":{family}}}"),
-    )
-    .unwrap();
-    std::fs::write(dir.join("owner.json"), owner).unwrap();
-    [
-        "graph:model.onnx",
-        "tokenizer:tok/tokenizer.json",
-        "owner-metadata:owner.json",
-    ]
-    .iter()
-    .map(|spec| object::PackInput::parse(spec, dir).unwrap())
-    .collect()
-}
-
-fn packed(dir: &Path, family: u8, owner: &str) -> (PathBuf, VerifiedArtifact) {
-    let inputs = model_files(
-        &dir.join(format!("src-{family}-{}", owner.len())),
-        family,
-        owner,
-    );
-    let out = dir.join(format!("artifact-{family}-{}.sna", owner.len()));
-    let verified = object::pack(CONTRACT, &inputs, &out).unwrap();
-    (out, verified)
-}
-
-async fn client(mock: &Mock, signer: Arc<RtaoSigner>) -> AdmissionClient {
-    let http = http_client(Duration::from_secs(30)).unwrap();
-    let base = slop_ninja_miner::client::base_url(&mock.url()).unwrap();
-    AdmissionClient::connect(http, base, signer, Some(&chain601()))
-        .await
-        .unwrap()
-        .0
-}
-
-fn quick() -> UploadOptions {
-    UploadOptions {
-        attempts: 3,
-        backoff: Duration::from_millis(10),
-        wait: Duration::from_secs(5),
-        poll: Duration::from_millis(10),
-        stop_after_parts: None,
-        restart: false,
-    }
-}
 
 fn mode(path: &Path) -> u32 {
     std::fs::metadata(path).unwrap().permissions().mode() & 0o777
@@ -128,6 +37,37 @@ fn api_code(error: &anyhow::Error) -> Option<ErrorCode> {
     error.downcast_ref::<ApiError>().and_then(ApiError::code)
 }
 
+/// The headers every PUT carried: exactly the three signed ones (and the
+/// HTTP stack's own), never another `x-amz-*`, `content-encoding` or chunked
+/// transfer encoding.
+fn assert_only_signed_headers(mock: &Mock) {
+    let all = mock.with(|s| s.r2.put_headers.clone());
+    assert!(!all.is_empty());
+    for names in all {
+        for needed in [
+            "host",
+            "content-length",
+            "if-none-match",
+            "x-amz-checksum-sha256",
+        ] {
+            assert!(
+                names.iter().any(|n| n == needed),
+                "{needed} missing in {names:?}"
+            );
+        }
+        for name in &names {
+            assert!(
+                !name.starts_with("x-amz-") || name == "x-amz-checksum-sha256",
+                "unsigned {name} in {names:?}"
+            );
+            assert!(
+                name != "transfer-encoding" && name != "content-encoding",
+                "{name} in {names:?}"
+            );
+        }
+    }
+}
+
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn pack_check_commit_upload_resume_and_admit() {
     let dir = tempfile::tempdir().unwrap();
@@ -135,11 +75,11 @@ async fn pack_check_commit_upload_resume_and_admit() {
     assert_eq!(mode(store.root()), 0o700);
     assert_eq!(mode(&store.root().join("openings")), 0o700);
 
-    // pack: the streamed object is byte-identical to the protocol's builder.
-    let (artifact_path, artifact) = packed(dir.path(), 0x11, "{\"publisher\":\"alice\"}");
-    let src = dir
-        .path()
-        .join(format!("src-17-{}", "{\"publisher\":\"alice\"}".len()));
+    // pack: the object, written while each file is hashed once, is
+    // byte-identical to the protocol's builder.
+    let owner_text = "{\"publisher\":\"alice\"}";
+    let (artifact_path, artifact) = packed(dir.path(), 0x11, owner_text);
+    let src = dir.path().join(format!("src-17-{}", owner_text.len()));
     let graph = std::fs::read(src.join("model.onnx")).unwrap();
     let tokenizer = std::fs::read(src.join("tok/tokenizer.json")).unwrap();
     let owner = std::fs::read(src.join("owner.json")).unwrap();
@@ -153,14 +93,15 @@ async fn pack_check_commit_upload_resume_and_admit() {
     )
     .unwrap();
     assert_eq!(std::fs::read(&artifact_path).unwrap(), reference);
-    assert_eq!(object::verify_file(&artifact_path).unwrap(), artifact);
+    assert_eq!(object::read_header(&artifact_path).unwrap(), artifact);
+    assert_eq!(artifact.object_len, reference.len() as u64);
 
     // check: the cohort's contract and bound pass; the artifact spec's
     // admission checks refuse this synthetic object (it is not the spec's
     // six-file table), with the code the coordinator would report.
     let cx = CheckContext {
         object: &artifact_path,
-        verified: &artifact,
+        header: &artifact,
         expected_contract: Some(CONTRACT),
         max_object_len: Some(1 << 20),
         artifact_spec: None,
@@ -180,7 +121,8 @@ async fn pack_check_commit_upload_resume_and_admit() {
         "{reports_spec:?}"
     );
 
-    // commit: a fresh opening stored 0600, and the call composed through rtao.
+    // commit: a fresh opening stored 0600 (schema v2: it names the header),
+    // and the call composed through rtao.
     let alice = dev_signer("//Alice");
     let alice_id = identity(&alice, 12);
     let prepared = commit::prepare(
@@ -195,6 +137,11 @@ async fn pack_check_commit_upload_resume_and_admit() {
     .unwrap();
     assert_eq!(mode(&prepared.path), 0o600);
     assert_eq!(load_opening(&prepared.path).unwrap(), prepared.file);
+    assert_eq!(prepared.file.schema, OPENING_SCHEMA);
+    assert_eq!(
+        prepared.file.header_sha256.as_deref(),
+        Some(artifact.sha256.hex().as_str())
+    );
     let runtime = RuntimeHandle::parse(METADATA, 486, 1, 42).unwrap();
     let call = chain::compose(&chain::commitment_call(601, &prepared.payload), &runtime).unwrap();
     assert_eq!(&call.as_bytes()[..6], &[0x12, 0x00, 0x59, 0x02, 0x04, 0x2d]);
@@ -205,7 +152,8 @@ async fn pack_check_commit_upload_resume_and_admit() {
     mock.register(alice_id);
     mock.commit(alice_id.hotkey, 2_000, 3, &prepared.payload);
 
-    // An upload interrupted after two parts...
+    // An upload interrupted after two objects (the header, then the largest
+    // file)...
     let mut first = client(&mock, alice.clone()).await;
     let interrupted = upload(
         &mut first,
@@ -214,22 +162,24 @@ async fn pack_check_commit_upload_resume_and_admit() {
         &artifact_path,
         &artifact,
         &UploadOptions {
-            stop_after_parts: Some(2),
+            stop_after_objects: Some(2),
             ..quick()
         },
     )
     .await
     .unwrap();
-    let parts = artifact.len.div_ceil(1_024) as u32;
     assert_eq!(
         interrupted,
         UploadOutcome::Interrupted {
             uploaded: 2,
-            remaining: parts - 2
+            remaining: 2
         }
     );
-    // ...resumes in a fresh client, through one transient failure.
-    mock.with(|s| s.fail_part_once = vec![3]);
+    assert_eq!(mock.puts(), 2);
+    // ...resumes in a fresh client, through one transient R2 failure (503),
+    // which gets a fresh URL and resends that file from byte 0.
+    mock.with(|s| s.r2.faults = vec![(Match::File, Fault::Status(503, "SlowDown"))]);
+    let recorder = Arc::new(Recorder::default());
     let mut second = client(&mock, alice.clone()).await;
     let outcome = upload(
         &mut second,
@@ -237,7 +187,10 @@ async fn pack_check_commit_upload_resume_and_admit() {
         &prepared.file,
         &artifact_path,
         &artifact,
-        &quick(),
+        &UploadOptions {
+            progress: recorder.clone(),
+            ..quick()
+        },
     )
     .await
     .unwrap();
@@ -250,11 +203,32 @@ async fn pack_check_commit_upload_resume_and_admit() {
         "{}",
         describe(&session)
     );
-    let puts = mock.with(|s| s.counters.part_puts.clone());
-    assert_eq!(puts[&1], 1, "a recorded part is not sent again");
-    assert_eq!(puts[&2], 1);
-    assert_eq!(puts[&3], 2, "the failed part is retried");
-    assert!((4..=parts).all(|n| puts[&n] == 1));
+    let puts = mock.with(|s| s.r2.puts.clone());
+    assert_eq!(puts.len(), 4, "one key per object: {puts:?}");
+    assert_eq!(
+        puts.values().sum::<u32>(),
+        5,
+        "the two sent objects are not sent again; one retry: {puts:?}"
+    );
+    assert_eq!(puts.values().filter(|n| **n == 2).count(), 1);
+    // Progress counted the body bytes it streamed (the retried file twice).
+    let events = recorder.events.lock().unwrap().clone();
+    assert!(
+        events.iter().any(|e| e.ends_with(" 2")),
+        "a second attempt: {events:?}"
+    );
+    assert!(
+        events
+            .iter()
+            .any(|e| e.contains("not stored") || e.contains("false")),
+        "{events:?}"
+    );
+    let sent = recorder.bytes.load(std::sync::atomic::Ordering::Relaxed);
+    assert!(
+        sent > 0 && sent <= mock.with(|s| s.r2.bytes_received),
+        "{sent}"
+    );
+    assert_only_signed_headers(&mock);
     let state_file = store.upload_state_path(&session.session);
     assert_eq!(mode(&state_file), 0o600);
 
@@ -272,10 +246,7 @@ async fn pack_check_commit_upload_resume_and_admit() {
     assert!(
         matches!(again, UploadOutcome::Finished(ref s) if s.state() == Some(SessionState::Verified))
     );
-    assert_eq!(
-        mock.with(|s| s.counters.part_puts.values().sum::<u32>()),
-        parts + 1
-    );
+    assert_eq!(mock.puts(), 5);
 
     // status: the coordinator's view of the hotkey. The coordinator's cursor
     // has moved past the client's validity window, so the first signature
@@ -409,6 +380,8 @@ async fn refusals_reach_the_miner() {
     .await
     .unwrap_err();
     assert_eq!(api_code(&error), Some(ErrorCode::CommitmentMismatch));
+    // Nothing went to R2 for a refused session request.
+    assert_eq!(mock.puts(), 0);
 
     // The newer opening uploads and verifies.
     let done = upload(
@@ -431,8 +404,8 @@ async fn refusals_reach_the_miner() {
     assert_eq!(other.content, artifact.content);
     assert_ne!(other.sha256, artifact.sha256);
     let mut second_file = newer.file.clone();
-    second_file.artifact_sha256 = other.sha256.hex();
-    second_file.artifact_len = other.len;
+    second_file.header_sha256 = Some(other.sha256.hex());
+    second_file.header_len = Some(other.len);
     let error = upload(
         &mut bob_client,
         &store,
@@ -463,27 +436,29 @@ async fn refusals_reach_the_miner() {
         Some(bob_session.session.as_str())
     );
 
-    // Aborting frees the hotkey; reopening an aborted envelope restarts it
-    // empty as the next attempt.
-    let aborted = bob_client
-        .abort(&bob_session.session, bob_session.attempt)
-        .await
-        .unwrap();
-    assert_eq!(aborted.state(), Some(SessionState::Aborted));
-    let UploadOutcome::Finished(bob_session) = upload(
+    // Another object needs another commitment: committing again supersedes
+    // the earlier session, and the new one is ranked by its own position.
+    let bob_other =
+        commit::prepare(&store, &chain601(), 7, &bob_id, &other, &mut OsNonce, true).unwrap();
+    mock.commit(bob_id.hotkey, 2_015, 0, &bob_other.payload);
+    let UploadOutcome::Finished(bob_session2) = upload(
         &mut bob_client,
         &store,
-        &newer.file,
-        &artifact_path,
-        &artifact,
+        &bob_other.file,
+        &other_path,
+        &other,
         &quick(),
     )
     .await
     .unwrap() else {
         panic!()
     };
-    assert_eq!(bob_session.state(), Some(SessionState::Verified));
-    assert_eq!(bob_session.attempt, 2);
+    assert_eq!(bob_session2.state(), Some(SessionState::Verified));
+    assert_eq!(
+        mock.session_state(&bob_session.session).as_deref(),
+        Some("superseded")
+    );
+    let bob_session = bob_session2;
 
     // Wrong cohort: an opening for a later cohort cannot be uploaded now.
     let carol = dev_signer("//Charlie");
@@ -538,8 +513,9 @@ async fn refusals_reach_the_miner() {
     let error = forged.hotkey_view(7).await.unwrap_err();
     assert_eq!(error.code(), Some(ErrorCode::BadSignature));
 
-    // An object over the cohort's bound, refused by the coordinator.
-    mock.with(|s| s.config.max_object_len = artifact.len - 1);
+    // An object over the cohort's bound: refused by the client before it
+    // signs anything.
+    mock.with(|s| s.config.max_object_len = artifact.object_len - 1);
     let carol_7 = commit::prepare(
         &store,
         &chain601(),
@@ -551,9 +527,22 @@ async fn refusals_reach_the_miner() {
     )
     .unwrap();
     mock.commit(carol_id.hotkey, 2_030, 2, &carol_7.payload);
-    let envelope = upload_envelope(carol_7.opening.clone(), &artifact).unwrap();
-    let error = carol_client.create_session(&envelope).await.unwrap_err();
-    assert_eq!(error.code(), Some(ErrorCode::ObjectTooLarge));
+    let creates = mock.with(|s| s.counters.routes.get("create").copied());
+    let error = upload(
+        &mut carol_client,
+        &store,
+        &carol_7.file,
+        &artifact_path,
+        &artifact,
+        &one,
+    )
+    .await
+    .unwrap_err();
+    assert!(format!("{error:#}").contains("allows"), "{error:#}");
+    assert_eq!(
+        mock.with(|s| s.counters.routes.get("create").copied()),
+        creates
+    );
     mock.with(|s| s.config.max_object_len = 1 << 20);
     let done = upload(
         &mut carol_client,
@@ -634,7 +623,7 @@ async fn refusals_reach_the_miner() {
         &artifact_path,
         &artifact,
         &UploadOptions {
-            stop_after_parts: Some(1),
+            stop_after_objects: Some(1),
             ..quick()
         },
     )
@@ -642,12 +631,13 @@ async fn refusals_reach_the_miner() {
     .unwrap();
     assert!(matches!(partial, UploadOutcome::Interrupted { .. }));
 
-    // The cutoff, with a roster cap of one: Bob (block 2010) is admitted
+    // The cutoff, with a roster cap of one: Bob (block 2015) is admitted
     // before Carol (block 2030), who overflows.
     mock.with(|s| s.config.roster_cap = 1);
     mock.close();
     let bob_final = bob_client.session(&bob_session.session).await.unwrap();
     assert_eq!(bob_final.state(), Some(SessionState::Admitted));
+    assert_eq!(bob_final.position.map(|p| p.block), Some(2_015));
     let carol_final = carol_client.session(&carol_session.session).await.unwrap();
     assert_eq!(carol_final.state(), Some(SessionState::Overflow));
     assert_eq!(carol_final.next_cohort, Some(8));
@@ -682,6 +672,9 @@ async fn refusals_reach_the_miner() {
     );
     let envelope = upload_envelope(eve_7.opening.clone(), &artifact).unwrap();
     let error = eve_client.create_session(&envelope).await.unwrap_err();
+    assert_eq!(error.code(), Some(ErrorCode::AfterCutoff));
+    let eve_session = eve_view.sessions[0].session.clone();
+    let error = eve_client.urls(&eve_session).await.unwrap_err();
     assert_eq!(error.code(), Some(ErrorCode::AfterCutoff));
 
     // The overflow entrant must commit again for cohort 8; its cohort-7
@@ -795,4 +788,43 @@ fn openings_stay_private_and_are_never_reused() {
     text["cohort"] = serde_json::json!(8);
     std::fs::write(&first.path, serde_json::to_vec(&text).unwrap()).unwrap();
     assert!(load_opening(&first.path).is_err());
+}
+
+/// An opening file of schema v1 (which named its object by a whole-object
+/// SHA-256) still loads, matches its object by the committed content, and
+/// is migrated in place to v2 once the object's header is known.
+#[test]
+fn a_v1_opening_matches_by_content_and_migrates_in_place() {
+    let dir = tempfile::tempdir().unwrap();
+    let store = Store::open(&dir.path().join("state")).unwrap();
+    let (_, artifact) = packed(dir.path(), 0x32, "{}");
+    let (_, other) = packed(dir.path(), 0x33, "{}");
+    let id = identity(&dev_signer("//Alice"), 12);
+    let prepared =
+        commit::prepare(&store, &chain601(), 7, &id, &artifact, &mut OsNonce, false).unwrap();
+    // Rewrite the stored file as v1 had it.
+    let mut v1: serde_json::Value = serde_json::to_value(&prepared.file).unwrap();
+    let map = v1.as_object_mut().unwrap();
+    map.insert("schema".into(), OPENING_SCHEMA_V1.into());
+    for field in ["header_sha256", "header_len", "object_len"] {
+        map.remove(field);
+    }
+    map.insert("artifact_sha256".into(), "ab".repeat(32).into());
+    map.insert("artifact_len".into(), 12_345.into());
+    std::fs::write(&prepared.path, serde_json::to_vec_pretty(&v1).unwrap()).unwrap();
+    let loaded = load_opening(&prepared.path).unwrap();
+    assert_eq!(loaded.schema, OPENING_SCHEMA_V1);
+    assert!(loaded.header_sha256.is_none());
+    assert!(loaded.fits(&artifact), "matched by the committed content");
+    assert!(!loaded.fits(&other));
+    assert!(
+        loaded.migrated(&other).is_none(),
+        "never migrated to another object"
+    );
+    let migrated = loaded.migrated(&artifact).unwrap();
+    store.update_opening(&prepared.path, &migrated).unwrap();
+    let reloaded = load_opening(&prepared.path).unwrap();
+    assert_eq!(reloaded.schema, OPENING_SCHEMA);
+    assert_eq!(reloaded, prepared.file);
+    assert!(reloaded.migrated(&artifact).is_none());
 }

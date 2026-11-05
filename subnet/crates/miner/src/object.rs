@@ -1,32 +1,32 @@
-//! Packing and verifying artifact objects.
+//! Packing artifact objects and reading their headers.
 //!
 //! The object is the protocol's `u32_le(len(H)) || H || files`
 //! (`slop_ninja_protocol::artifact`). [`pack_dir`] packs a model directory
 //! under the *A* artifact spec's file table (six fixed names and roles, the
-//! spec's output contract); [`pack`] packs any `ROLE:PATH` list. Packing
-//! streams every file twice, once to hash it for the header and once to copy
-//! it, and refuses a file that changed in between. The written object is then
-//! verified by streaming it through the protocol's `ArtifactReader`, so the
-//! object on disk is exactly what the coordinator will read. Nothing is held
-//! in memory beyond one I/O buffer and the header.
+//! spec's output contract); [`pack`] packs any `ROLE:PATH` list.
 //!
-//! The object must stay secret until its cohort closes, so it is written with
-//! mode 0600 like the openings.
+//! **Hash once.** Packing streams each file exactly once into the object
+//! while it hashes those same bytes
+//! (`slop_ninja_artifact_check::fs::write_files_once`): the header's length
+//! is fixed before any digest is known, so room for it is reserved, every
+//! file is written in place and the header goes in last. That pack hash is
+//! the only SHA-256 anyone computes over the model's bytes: the commitment
+//! binds the header's digests, and R2 verifies each uploaded file against
+//! them as it arrives. No later step reads the files back to hash them:
+//! [`read_header`] reads only the length prefix and the header (a range of at
+//! most `4 + MAX_ARTIFACT_HEADER_LEN` bytes) and compares the file's length
+//! on disk with the header's. The header bytes themselves (a file table of at
+//! most 1 MiB, never a model file) are hashed for `header_sha256`, the digest
+//! the upload envelope names.
+//!
+//! The object must stay secret until its cohort's scoring starts, so it is
+//! written with mode 0600 like the openings.
 
-use std::fs::{self, File, OpenOptions};
-use std::io::{BufReader, BufWriter, Read, Write};
-use std::os::unix::fs::OpenOptionsExt;
+use std::fs;
 use std::path::{Path, PathBuf};
 
-use anyhow::{Context, Result, bail, ensure};
-use sha2::{Digest as _, Sha256};
-use slop_ninja_protocol::{
-    ArtifactFile, ArtifactHeader, ArtifactReader, Digest, FileRole, MAX_ARTIFACT_HEADER_LEN,
-    Record, VerifiedArtifact,
-};
-
-/// Size of the streaming read buffer. It bounds memory, not object size.
-const IO_BUFFER: usize = 1 << 20;
+use anyhow::{Context, Result, ensure};
+use slop_ninja_protocol::{ArtifactFile, ArtifactHeader, Digest, FileRole, VerifiedHeader};
 
 /// Role names as the command line spells them.
 pub const ROLES: &[(&str, FileRole)] = &[
@@ -90,214 +90,151 @@ impl PackInput {
     }
 }
 
-fn hash_file(path: &Path) -> Result<(Digest, u64)> {
-    let mut reader = BufReader::with_capacity(
-        IO_BUFFER,
-        File::open(path).with_context(|| format!("open {}", path.display()))?,
-    );
-    let mut hash = Sha256::new();
-    let mut len = 0u64;
-    let mut buffer = vec![0u8; IO_BUFFER];
-    loop {
-        let read = reader.read(&mut buffer)?;
-        if read == 0 {
-            break;
+/// A local artifact object, known by its header alone: what `commit`,
+/// `upload` and `check` need, read without hashing any model byte.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ObjectHeader {
+    pub header: ArtifactHeader,
+    /// The header bytes `H`.
+    pub bytes: Vec<u8>,
+    /// SHA-256 of `H`: the upload envelope's `header_sha256` and the digest
+    /// R2 verifies the header object against.
+    pub sha256: Digest,
+    /// `len(H)`.
+    pub len: u32,
+    /// The derived inference-content digest the commitment binds.
+    pub content: Digest,
+    /// The object's whole length: the prefix, `H` and every file.
+    pub object_len: u64,
+}
+
+impl ObjectHeader {
+    /// From the header bytes `H` (hashing them: a file table, never a model
+    /// file).
+    pub fn from_header_bytes(bytes: Vec<u8>) -> Result<Self> {
+        let verified = VerifiedHeader::from_bytes(&bytes)
+            .map_err(|error| anyhow::anyhow!("invalid artifact header: {error:?}"))?;
+        let files_len = verified
+            .header
+            .files_len()
+            .map_err(|error| anyhow::anyhow!("invalid artifact header: {error:?}"))?;
+        let object_len = (4 + u64::from(verified.len))
+            .checked_add(files_len)
+            .context("artifact length overflows")?;
+        Ok(Self {
+            header: verified.header,
+            bytes,
+            sha256: verified.sha256,
+            len: verified.len,
+            content: verified.content,
+            object_len,
+        })
+    }
+
+    /// Where the files start: after the prefix and `H`.
+    pub fn files_at(&self) -> u64 {
+        4 + u64::from(self.len)
+    }
+
+    /// The object range `(offset, len)` of the first file with `sha256`.
+    pub fn file_range(&self, sha256: &Digest) -> Option<(u64, u64)> {
+        let mut offset = self.files_at();
+        for f in &self.header.files {
+            if f.sha256 == *sha256 {
+                return Some((offset, f.len));
+            }
+            offset += f.len;
         }
-        hash.update(&buffer[..read]);
-        len += read as u64;
+        None
     }
-    Ok((Digest(hash.finalize().into()), len))
+
+    /// The distinct files `(sha256, len)` in header order: one R2 object
+    /// each (two entries with one digest share one object).
+    pub fn distinct_files(&self) -> Vec<&ArtifactFile> {
+        let mut out: Vec<&ArtifactFile> = Vec::with_capacity(self.header.files.len());
+        for f in &self.header.files {
+            if !out.iter().any(|o| o.sha256 == f.sha256) {
+                out.push(f);
+            }
+        }
+        out
+    }
+
+    /// The header as the protocol's verified header.
+    pub fn verified(&self) -> VerifiedHeader {
+        VerifiedHeader {
+            sha256: self.sha256,
+            len: self.len,
+            header: self.header.clone(),
+            content: self.content,
+        }
+    }
 }
 
-/// The header for `inputs`, sorted by name as the protocol requires.
-pub fn header_for(
-    contract: &str,
-    inputs: &[PackInput],
-) -> Result<(ArtifactHeader, Vec<PackInput>)> {
-    let mut sorted = inputs.to_vec();
-    sorted.sort_by(|a, b| a.name.cmp(&b.name));
-    for pair in sorted.windows(2) {
-        ensure!(
-            pair[0].name != pair[1].name,
-            "file {:?} is listed twice",
-            pair[0].name
-        );
-    }
-    let mut files = Vec::with_capacity(sorted.len());
-    for input in &sorted {
-        let (sha256, len) = hash_file(&input.path)?;
-        ensure!(len > 0, "file {} is empty", input.path.display());
-        files.push(ArtifactFile {
-            name: input.name.clone(),
-            role: input.role,
-            sha256,
-            len,
-        });
-    }
-    let header = ArtifactHeader {
-        contract: contract.to_owned(),
-        files,
-    };
-    header
-        .validate()
-        .map_err(|error| anyhow::anyhow!("invalid artifact header: {error:?}"))?;
-    Ok((header, sorted))
-}
-
-/// Writes the artifact object for `inputs` to `out` (which must not exist)
-/// and returns it verified.
-pub fn pack(contract: &str, inputs: &[PackInput], out: &Path) -> Result<VerifiedArtifact> {
+/// Writes the artifact object for `inputs` to `out` (which must not exist),
+/// mode 0600, hashing each file once while writing it.
+pub fn pack(contract: &str, inputs: &[PackInput], out: &Path) -> Result<ObjectHeader> {
     ensure!(!inputs.is_empty(), "nothing to pack");
-    if out.exists() {
-        bail!("{} exists; choose another output path", out.display());
+    let mut names: Vec<&str> = inputs.iter().map(|i| i.name.as_str()).collect();
+    names.sort_unstable();
+    if let Some(pair) = names.windows(2).find(|pair| pair[0] == pair[1]) {
+        anyhow::bail!("file {:?} is listed twice", pair[0]);
     }
-    let (header, sorted) = header_for(contract, inputs)?;
-    let paths: Vec<PathBuf> = sorted.into_iter().map(|input| input.path).collect();
-    write_object(&header, &paths, out)
+    let files: Vec<(String, FileRole, PathBuf)> = inputs
+        .iter()
+        .map(|i| (i.name.clone(), i.role, i.path.clone()))
+        .collect();
+    let (_, bytes) = slop_ninja_artifact_check::fs::write_files_once(contract, &files, out)
+        .map_err(|refused| anyhow::anyhow!("{refused}"))?;
+    ObjectHeader::from_header_bytes(bytes)
 }
 
 /// Packs a model directory under the artifact spec's file table: exactly the
 /// spec's six files, with their fixed roles and the spec's output contract. A
 /// directory with any other entry, or without one of the files, is refused
 /// with the artifact-check code (`undeclared_file`, `missing_file`).
-pub fn pack_dir(dir: &Path, out: &Path) -> Result<VerifiedArtifact> {
-    if out.exists() {
-        bail!("{} exists; choose another output path", out.display());
-    }
-    let header = slop_ninja_artifact_check::fs::header_for_dir(dir)
+pub fn pack_dir(dir: &Path, out: &Path) -> Result<ObjectHeader> {
+    let (_, bytes) = slop_ninja_artifact_check::fs::write_object_once(dir, out)
         .map_err(|refused| anyhow::anyhow!("refused {}: {refused}", refused.code()))?;
-    header
-        .validate()
-        .map_err(|error| anyhow::anyhow!("invalid artifact header: {error:?}"))?;
-    let paths: Vec<PathBuf> = header.files.iter().map(|f| dir.join(&f.name)).collect();
-    write_object(&header, &paths, out)
+    ObjectHeader::from_header_bytes(bytes)
 }
 
-/// Streams `header` and the files at `paths` (in header order) into `out`,
-/// mode 0600, and verifies the result.
-fn write_object(
-    header: &ArtifactHeader,
-    paths: &[PathBuf],
-    out: &Path,
-) -> Result<VerifiedArtifact> {
-    ensure!(
-        paths.len() == header.files.len(),
-        "one path per header file"
-    );
-    let header_bytes = header
-        .to_bytes()
-        .map_err(|error| anyhow::anyhow!("encode header: {error:?}"))?;
-    let header_len = u32::try_from(header_bytes.len())
-        .ok()
-        .filter(|&len| len <= MAX_ARTIFACT_HEADER_LEN)
-        .context("artifact header exceeds the protocol's header bound")?;
+/// Reads an object file's header (the length prefix and `H`, a range read)
+/// and checks the file's length on disk against it. Reads no file body.
+pub fn read_header(path: &Path) -> Result<ObjectHeader> {
+    read_header_checked(path)?.map_err(anyhow::Error::msg)
+}
 
-    let partial = partial_path(out);
-    let result = (|| -> Result<()> {
-        let file = OpenOptions::new()
-            .write(true)
-            .create_new(true)
-            .mode(0o600)
-            .open(&partial)
-            .with_context(|| format!("create {}", partial.display()))?;
-        let mut writer = BufWriter::with_capacity(IO_BUFFER, file);
-        writer.write_all(&header_len.to_le_bytes())?;
-        writer.write_all(&header_bytes)?;
-        let mut buffer = vec![0u8; IO_BUFFER];
-        for (path, entry) in paths.iter().zip(&header.files) {
-            let mut reader = File::open(path)?;
-            let mut hash = Sha256::new();
-            let mut len = 0u64;
-            loop {
-                let read = reader.read(&mut buffer)?;
-                if read == 0 {
-                    break;
-                }
-                hash.update(&buffer[..read]);
-                len += read as u64;
-                writer.write_all(&buffer[..read])?;
-            }
-            ensure!(
-                len == entry.len && Digest(hash.finalize().into()) == entry.sha256,
-                "{} changed while it was packed",
-                path.display()
-            );
-        }
-        let file = writer.into_inner().map_err(|error| error.into_error())?;
-        file.sync_all()?;
-        Ok(())
-    })();
-    if let Err(error) = result {
-        let _ = fs::remove_file(&partial);
-        return Err(error);
-    }
-    let verified = match verify_file(&partial) {
-        Ok(verified) => verified,
-        Err(error) => {
-            let _ = fs::remove_file(&partial);
-            return Err(error);
-        }
+/// Like [`read_header`], but separates the two failures: the outer error is
+/// a file that cannot be read; the inner one an object whose header does not
+/// decode or validate, or whose length is not its header's (a refusal, with
+/// its message).
+pub fn read_header_checked(path: &Path) -> Result<std::result::Result<ObjectHeader, String>> {
+    let on_disk = fs::metadata(path)
+        .with_context(|| format!("open {}", path.display()))?
+        .len();
+    let bytes = match slop_ninja_artifact_check::files::object_header(path) {
+        Ok((_, bytes)) => bytes,
+        Err(refused) => return Ok(Err(format!("artifact object is invalid: {refused}"))),
     };
-    ensure!(
-        verified.header == *header,
-        "packed header did not read back"
-    );
-    fs::rename(&partial, out).with_context(|| format!("rename to {}", out.display()))?;
-    Ok(verified)
-}
-
-fn partial_path(out: &Path) -> PathBuf {
-    let mut name = out
-        .file_name()
-        .map(|n| n.to_os_string())
-        .unwrap_or_default();
-    name.push(".partial");
-    out.with_file_name(name)
-}
-
-/// Streams an object file through the protocol's `ArtifactReader`.
-pub fn verify_file(path: &Path) -> Result<VerifiedArtifact> {
-    verify_file_checked(path)?.map_err(anyhow::Error::msg)
-}
-
-/// Like [`verify_file`], but separates the two failures: the outer error is
-/// a file that cannot be read; the inner one an object that does not parse
-/// or verify (a refusal, with its message).
-pub fn verify_file_checked(path: &Path) -> Result<std::result::Result<VerifiedArtifact, String>> {
-    let mut file = File::open(path).with_context(|| format!("open {}", path.display()))?;
-    let mut reader = ArtifactReader::new();
-    let mut buffer = vec![0u8; IO_BUFFER];
-    loop {
-        let read = file
-            .read(&mut buffer)
-            .with_context(|| format!("read {}", path.display()))?;
-        if read == 0 {
-            break;
-        }
-        if let Err(error) = reader.update(&buffer[..read]) {
-            return Ok(Err(format!("artifact object is invalid: {error:?}")));
-        }
+    let object = match ObjectHeader::from_header_bytes(bytes) {
+        Ok(object) => object,
+        Err(error) => return Ok(Err(format!("artifact object is invalid: {error:#}"))),
+    };
+    if object.object_len != on_disk {
+        return Ok(Err(format!(
+            "artifact object is invalid: {} is {on_disk} bytes; its header describes {}",
+            path.display(),
+            object.object_len
+        )));
     }
-    Ok(reader
-        .finish()
-        .map_err(|error| format!("artifact object is invalid: {error:?}")))
-}
-
-/// Reads exactly `len` bytes at `offset`.
-pub fn read_range(path: &Path, offset: u64, len: u64) -> Result<Vec<u8>> {
-    use std::io::{Seek, SeekFrom};
-    let mut file = File::open(path).with_context(|| format!("open {}", path.display()))?;
-    file.seek(SeekFrom::Start(offset))?;
-    let len = usize::try_from(len).context("part does not fit in memory on this platform")?;
-    let mut out = vec![0u8; len];
-    file.read_exact(&mut out)
-        .with_context(|| format!("read {len} bytes at {offset} of {}", path.display()))?;
-    Ok(out)
+    Ok(Ok(object))
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use slop_ninja_protocol::{Record, VerifiedArtifact};
 
     fn write(dir: &Path, name: &str, bytes: &[u8]) {
         let path = dir.join(name);
@@ -327,9 +264,9 @@ mod tests {
     }
 
     #[test]
-    fn pack_matches_the_protocol_object_and_verifies() {
+    fn pack_matches_the_protocol_object() {
         let dir = tempfile::tempdir().unwrap();
-        let graph: Vec<u8> = (0..(3 * IO_BUFFER as u32 / 2)).map(|i| i as u8).collect();
+        let graph: Vec<u8> = (0..(3u32 << 19)).map(|i| i as u8).collect();
         write(dir.path(), "g/model.onnx", &graph);
         write(dir.path(), "tokenizer.json", b"{}");
         let inputs = vec![
@@ -337,7 +274,7 @@ mod tests {
             PackInput::parse("graph:g/model.onnx", dir.path()).unwrap(),
         ];
         let out = dir.path().join("a.sna");
-        let verified = pack("c-1", &inputs, &out).unwrap();
+        let packed = pack("c-1", &inputs, &out).unwrap();
         let expected = slop_ninja_protocol::artifact_object(
             "c-1",
             &[
@@ -347,19 +284,30 @@ mod tests {
         )
         .unwrap();
         assert_eq!(fs::read(&out).unwrap(), expected);
-        assert_eq!(verified, VerifiedArtifact::from_bytes(&expected).unwrap());
-        assert!(!partial_path(&out).exists());
-        // The object is private until its cohort closes.
+        // The pack-time digests are the protocol reader's (test only: the
+        // reader re-hashes every file).
+        let reread = VerifiedArtifact::from_bytes(&expected).unwrap();
+        assert_eq!(packed.verified(), reread.verified_header());
+        assert_eq!(packed.object_len, expected.len() as u64);
+        assert_eq!(read_header(&out).unwrap(), packed);
+        assert_eq!(packed.bytes, reread.header.to_bytes().unwrap());
+        let (at, len) = packed.file_range(&reread.header.files[1].sha256).unwrap();
+        assert_eq!(&expected[at as usize..(at + len) as usize], b"{}");
+        // The object is private until its cohort's scoring starts.
         use std::os::unix::fs::PermissionsExt;
         assert_eq!(
             fs::metadata(&out).unwrap().permissions().mode() & 0o777,
             0o600
         );
-        // Never overwrites.
+        // Never overwrites, and leaves no temporary file.
         assert!(pack("c-1", &inputs, &out).is_err());
-        // Reads ranges exactly.
-        assert_eq!(read_range(&out, 4, 4).unwrap(), expected[4..8].to_vec());
-        assert!(read_range(&out, expected.len() as u64 - 1, 2).is_err());
+        assert_eq!(fs::read(&out).unwrap(), expected);
+        let mut names: Vec<String> = fs::read_dir(dir.path())
+            .unwrap()
+            .map(|e| e.unwrap().file_name().to_string_lossy().into_owned())
+            .collect();
+        names.sort();
+        assert_eq!(names, ["a.sna", "g", "tokenizer.json"]);
     }
 
     #[test]
@@ -377,7 +325,11 @@ mod tests {
         let empty = PackInput::parse("graph:empty", dir.path()).unwrap();
         assert!(pack("c", &[empty], &out).is_err(), "empty file");
         assert!(pack("", &[a], &out).is_err(), "empty contract");
-        assert!(!out.exists() && !partial_path(&out).exists());
+        let names: Vec<String> = fs::read_dir(dir.path())
+            .unwrap()
+            .map(|e| e.unwrap().file_name().to_string_lossy().into_owned())
+            .collect();
+        assert_eq!(names.len(), 2, "no object or temporary file: {names:?}");
     }
 
     #[test]
@@ -389,10 +341,10 @@ mod tests {
             write(&model, role.name, role.name.as_bytes());
         }
         let out = dir.path().join("a.sna");
-        let verified = pack_dir(&model, &out).unwrap();
-        assert_eq!(verified.header.contract, spec::CONTRACT_ID);
-        assert_eq!(verified.header.files.len(), spec::ROLES.len());
-        for file in &verified.header.files {
+        let packed = pack_dir(&model, &out).unwrap();
+        assert_eq!(packed.header.contract, spec::CONTRACT_ID);
+        assert_eq!(packed.header.files.len(), spec::ROLES.len());
+        for file in &packed.header.files {
             let role = spec::role_by_name(&file.name).unwrap();
             assert_eq!(file.role, role.file_role, "{}", file.name);
         }
@@ -407,18 +359,41 @@ mod tests {
     }
 
     #[test]
-    fn verify_refuses_truncated_and_trailing_objects() {
+    fn read_header_refuses_truncated_and_trailing_objects() {
         let object =
             slop_ninja_protocol::artifact_object("c", &[("m", FileRole::Graph, b"graph")]).unwrap();
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("o");
         fs::write(&path, &object[..object.len() - 1]).unwrap();
-        assert!(verify_file(&path).is_err());
+        assert!(read_header_checked(&path).unwrap().is_err());
         let mut longer = object.clone();
         longer.push(0);
         fs::write(&path, &longer).unwrap();
-        assert!(verify_file(&path).is_err());
+        assert!(read_header_checked(&path).unwrap().is_err());
+        fs::write(&path, &object[..3]).unwrap();
+        assert!(read_header_checked(&path).unwrap().is_err());
         fs::write(&path, &object).unwrap();
-        assert_eq!(verify_file(&path).unwrap().len, object.len() as u64);
+        assert_eq!(read_header(&path).unwrap().object_len, object.len() as u64);
+        // A missing file is an error, not a refusal.
+        assert!(read_header_checked(&dir.path().join("none")).is_err());
+    }
+
+    #[test]
+    fn distinct_files_share_one_object() {
+        let object = slop_ninja_protocol::artifact_object(
+            "c",
+            &[
+                ("a", FileRole::Graph, b"same"),
+                ("b", FileRole::OwnerMetadata, b"same"),
+                ("c", FileRole::Tokenizer, b"other"),
+            ],
+        )
+        .unwrap();
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("o");
+        fs::write(&path, &object).unwrap();
+        let h = read_header(&path).unwrap();
+        let distinct: Vec<&str> = h.distinct_files().iter().map(|f| f.name.as_str()).collect();
+        assert_eq!(distinct, ["a", "c"]);
     }
 }

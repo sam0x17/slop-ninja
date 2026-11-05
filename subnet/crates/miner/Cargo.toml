@@ -4,7 +4,7 @@ version = "0.1.0"
 edition = "2024"
 license = "MIT OR Apache-2.0"
 publish = false
-description = "Slop Ninja miner client: pack, check, commit, upload, status and next-cohort"
+description = "Slop Ninja miner client: pack, check, commit, upload straight to R2, repair, status and next-cohort"
 
 [lib]
 path = "src/lib.rs"
@@ -20,17 +20,17 @@ clap = { version = "4", features = ["derive", "env"] }
 futures = "0.3"
 getrandom = "0.2"
 hex = "0.4"
-reqwest = { version = "0.13.5", default-features = false, features = ["rustls-no-provider", "json", "http2"] }
+reqwest = { version = "0.13.5", default-features = false, features = ["rustls-no-provider", "json", "http2", "stream"] }
 rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12"] }
 rustls-native-certs = "0.8"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
-sha2 = "0.10"
 tokio = { version = "1", features = ["rt", "macros", "time"] }
 url = "2"
 slop-ninja-admission-wire = { path = "wire" }
 slop-ninja-artifact-check = { path = "../artifact-check" }
 slop-ninja-protocol = { path = "../protocol" }
+slop-ninja-r2-presign = { path = "../r2-presign" }
 rtao-client = { git = "https://github.com/sam0x17/rtao", rev = "fa83052d37b39f002f7a4d3cc5c04f25503e1d11" }
 rtao-core = { git = "https://github.com/sam0x17/rtao", rev = "fa83052d37b39f002f7a4d3cc5c04f25503e1d11" }
 rtao-intents = { git = "https://github.com/sam0x17/rtao", rev = "fa83052d37b39f002f7a4d3cc5c04f25503e1d11" }

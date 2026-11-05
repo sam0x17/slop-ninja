@@ -7,6 +7,9 @@
   "receipt_public_key": "6ecf3eadbae4eaaa139c04e2d8699ab976b1b873acf47a45301c9a2d01e4ffaa",
   "authorization_public_key": "6615d6c2dfddb125e94e2e7d3822a1a828654b3a9dd4663abbeae8c87db0b212",
   "admission_origins": ["https://testnet-admission.slop.ninja"],
+  "upload_host_sha256": "393724f3d1701da8e45316bc646d08b9b83c939f0eff4a2dab1b524562de47f5",
+  "upload_bucket": "slop-ninja-admission-testnet",
+  "upload_note": "Presigned upload URLs must name the R2 S3 host whose name hashes (SHA-256) to upload_host_sha256 and this bucket (decision D1). Every minted URL shows its miner the host itself.",
   "earlier_eval_keys": {
     "note": "The eval Worker's own keys before it signed under the T12 roots (until 2026-10-30). No configured validator trusts them; the two cohorts below verify only under them.",
     "package_public_key": "e527c231543888926215ba77a38a6a27c206d8bd63d40fe493f694f7932c6cda",

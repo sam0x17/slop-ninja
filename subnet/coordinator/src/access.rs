@@ -50,6 +50,9 @@ use subtle::ConstantTimeEq;
 /// request arrives on the `workers.dev` name.
 pub const STATUS_INTERNAL_HOST: &str = "status.internal";
 
+/// The publisher's publication report ([`StatusRoute::Publication`], POST).
+pub const PUBLICATION_PATH: &str = "/eval/admission/published";
+
 /// The operator's token: every operator route, and every status route from
 /// any host.
 pub const OPERATOR_TOKEN: &str = "COORDINATOR_OPERATOR_TOKEN";
@@ -75,6 +78,16 @@ pub enum StatusRoute {
     /// `GET /eval/load/status`, `GET /eval/admission/link` and `GET
     /// /eval/authority/<name>/status`: operator reads.
     Operator,
+    /// `POST /eval/admission/published`: the publisher's report of a
+    /// cohort's publication at scoring start (which admitted entrants are
+    /// published or withheld for good, and which objects it found missing).
+    /// The one route outside the status reads the gate guards: the operator
+    /// and the publisher (internal host, its own token) only, never the
+    /// monitor token, so the monitor still changes nothing. Its effect is
+    /// bounded by what the publisher already decides: a recorded publication
+    /// ends an admitted entrant's object retention only once its cohort is
+    /// closed, and a reported loss only starts an audit.
+    Publication,
 }
 
 /// Who presented an accepted token.
@@ -94,8 +107,10 @@ impl Caller {
     /// Whether this caller may read `route`.
     pub const fn may_read(self, route: StatusRoute) -> bool {
         match self {
-            Self::Operator | Self::Monitor => true,
-            Self::Publisher | Self::Shared => matches!(route, StatusRoute::Worker | StatusRoute::Eval),
+            Self::Operator => true,
+            Self::Monitor => !matches!(route, StatusRoute::Publication),
+            Self::Publisher => matches!(route, StatusRoute::Worker | StatusRoute::Eval | StatusRoute::Publication),
+            Self::Shared => matches!(route, StatusRoute::Worker | StatusRoute::Eval),
             Self::Alerts => matches!(route, StatusRoute::Worker),
         }
     }
@@ -115,7 +130,7 @@ impl Caller {
 /// exact: no trailing slash or other spelling maps to a status route.
 pub fn status_route(get: bool, path: &str) -> Option<StatusRoute> {
     if !get {
-        return None;
+        return (path == PUBLICATION_PATH).then_some(StatusRoute::Publication);
     }
     match path {
         "/status" => Some(StatusRoute::Worker),
@@ -422,6 +437,16 @@ mod tests {
             "/signing/revoke",
         ] {
             assert_eq!(status_route(false, p), None, "POST {p}");
+        }
+        // The publisher's publication report: the one POST the gate guards,
+        // open to the operator and the publisher, never the monitor.
+        assert_eq!(status_route(false, PUBLICATION_PATH), Some(StatusRoute::Publication));
+        assert_eq!(status_route(true, PUBLICATION_PATH), None);
+        assert_eq!(status_route(false, "/eval/admission/published/"), None);
+        assert!(Caller::Operator.may_read(StatusRoute::Publication));
+        assert!(Caller::Publisher.may_read(StatusRoute::Publication));
+        for c in [Caller::Monitor, Caller::Alerts, Caller::Shared] {
+            assert!(!c.may_read(StatusRoute::Publication), "{c:?}");
         }
         for p in [
             "/status/",

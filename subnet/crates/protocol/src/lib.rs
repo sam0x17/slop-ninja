@@ -38,7 +38,7 @@ pub mod fixtures_quant;
 
 pub use artifact::{
     ArtifactFile, ArtifactHeader, ArtifactReader, FileRole, MAX_ARTIFACT_HEADER_LEN,
-    VerifiedArtifact, artifact_object,
+    VerifiedArtifact, VerifiedHeader, artifact_object,
 };
 pub use authorization::{
     ActiveTarget, CheckedAuthorization, CheckedRenewal, CheckedRevocation, LAUNCH_RENEW_BY_TEMPOS,

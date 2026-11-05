@@ -74,7 +74,7 @@ pub async fn fetch_status(http: &reqwest::Client, public: &Url) -> Result<Public
         "GET {url}: {}",
         response.status()
     );
-    let bytes = crate::client::read_bounded(&mut response, response_limit(None))
+    let bytes = crate::client::read_bounded(&mut response, response_limit())
         .await
         .with_context(|| format!("GET {url}"))?;
     let status: PublicStatus = serde_json::from_slice(&bytes)
@@ -210,7 +210,7 @@ pub fn next_cohort_report(status: &PublicStatus) -> String {
 }
 
 /// The `next-cohort` report from the coordinator's unsigned cohort read
-/// (`GET /admission/v1/cohort`), for use before the public status host is
+/// (`GET /admission/v2/cohort`), for use before the public status host is
 /// live. `origin` is the coordinator it was read from. Epoch distances are
 /// measured from the cohort read's `confirmed_epoch`; a coordinator that does
 /// not report one gets absolute epochs only.
@@ -220,7 +220,8 @@ pub fn cohort_report(info: &CohortInfo, origin: &str) -> String {
         "coordinator cohort read (unsigned) from {origin}: subnet {}; finalized block {}{}",
         info.chain.netuid,
         info.finalized_block,
-        now.map(|e| format!(", confirmed epoch {e}")).unwrap_or_default()
+        now.map(|e| format!(", confirmed epoch {e}"))
+            .unwrap_or_default()
     )];
     if info.paused {
         lines.push("the coordinator reports admission paused (catching up or unavailable)".into());

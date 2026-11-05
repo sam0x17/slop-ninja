@@ -603,7 +603,7 @@ fn artifacts_for(s: &CohortSummary) -> Vec<ArtifactEntry> {
             sha256: format!("{:02x}", i % 256).repeat(32),
             content: "cc".repeat(32),
             state: if i == 0 { ArtifactState::Published } else { ArtifactState::Pending },
-            path: (i == 0).then(|| format!("v1/artifacts/{}.bin", format!("{:02x}", i % 256).repeat(32))),
+            path: (i == 0).then(|| format!("artifacts/v2/{}/header", format!("{:02x}", i % 256).repeat(32))),
             reason: Some("PRIVATE-DOCUMENT-TEXT".into()),
             hotkey_hex: "ab".repeat(32),
             registration_block: 7,
@@ -646,7 +646,7 @@ fn a_closed_cohort_document_carries_quantized_scores_bands_and_gates_but_no_rank
     assert!(!en[2].gates_passed && en[0].gates_passed);
     assert!(en[0].promoted && !en[1].promoted);
     assert_eq!(en[0].artifact.as_ref().unwrap().state, "published");
-    assert!(en[0].artifact.as_ref().unwrap().download.as_deref().unwrap().starts_with("v1/artifacts/"));
+    assert!(en[0].artifact.as_ref().unwrap().download.as_deref().unwrap().starts_with("artifacts/v2/"));
     assert_eq!(en[1].artifact.as_ref().unwrap().download, None);
     let q = d.quality.as_ref().unwrap();
     assert_eq!(q.cutoff, Some(Cutoff { q: Some("0.86".into()), rule: Some("margin".into()) }));

@@ -561,14 +561,6 @@ pub struct EvalCohort {
     pub(super) state: State,
     pub(super) env: Env,
     schema: std::result::Result<u32, &'static str>,
-    /// This object incarnation's random identifier: the admission work
-    /// dispatches it records carry it, and a heartbeat kick sends again
-    /// those another incarnation recorded (`admission::dispatches_to_resend`).
-    /// A plain integer, so it needs no allocation.
-    pub(super) incarnation: i64,
-    /// One of this incarnation's dispatch sends could not be settled in the
-    /// store: the next kick also re-sends its own `pending` dispatches.
-    pub(super) resend_own: std::cell::Cell<bool>,
 }
 
 fn tx_reply<T: Serialize>(r: std::result::Result<T, TxError<engine::EvalError>>) -> Result<Response> {
@@ -590,11 +582,7 @@ impl DurableObject for EvalCohort {
         let schema = super::sync_scoped(crate::arena_routes::R_COHORT_NEW, crate::arena_routes::CONSTRUCTOR_CONTROL_BYTES, || {
             migrate_storage(&state.storage(), &EVAL_COHORT_SCHEMA)
         });
-        // 53 random bits (exact in an f64) mixed with the clock: distinct
-        // across incarnations, never 0 (no dispatch is ever recorded by 0).
-        let random = (js_sys::Math::random() * 9_007_199_254_740_992.0) as i64;
-        let incarnation = ((random ^ (now_ms() as i64).rotate_left(21)) & i64::MAX).max(1);
-        Self { state, env, schema, incarnation, resend_own: std::cell::Cell::new(false) }
+        Self { state, env, schema }
     }
 
     async fn fetch(&self, mut req: Request) -> Result<Response> {
@@ -661,17 +649,12 @@ impl DurableObject for EvalCohort {
         if path.starts_with("/admission/") {
             return if main { self.admission_route(&mut req, &path).await } else { error("main_instance_only", 404) };
         }
-        // The Queue consumer's admission work: framing and blob dispatches
-        // taken and reported (`cf_admission::work`).
-        if path.starts_with("/admission-work/") {
-            return if main { self.work_route(&mut req, &path).await } else { error("main_instance_only", 404) };
-        }
         if path.starts_with("/commitments/") {
             return if main { self.commitments_route(&mut req, &path).await } else { error("main_instance_only", 404) };
         }
         if matches!(
             path.as_str(),
-            "/template" | "/template/pause" | "/calendar" | "/cost-model" | "/session/refuse" | "/session/dispatch"
+            "/template" | "/template/pause" | "/calendar" | "/cost-model" | "/session/refuse"
         ) {
             return if main { self.template_route(&mut req, &path, cfg).await } else { error("main_instance_only", 404) };
         }
@@ -754,11 +737,6 @@ impl DurableObject for EvalCohort {
                 let running: i64 = storage.get::<i64>("step_until_ms").await.ok().flatten().unwrap_or(0);
                 if moved.1 && running < now as i64 && storage.get_alarm().await?.is_none() {
                     storage.set_alarm(500i64).await?;
-                }
-                // Admission work dispatches this incarnation cannot vouch
-                // for are sent again (the kick is the event).
-                if instance == engine::INSTANCE_MAIN {
-                    self.resend_dispatches(&cfg).await;
                 }
                 // Once every predecessor recorded this authority as successor,
                 // none holds or takes work again: the Worker stops kicking them
@@ -1232,7 +1210,8 @@ impl EvalCohort {
                 tx_reply(transaction(&storage, move |sql| lanes::lane_report(sql, &b.lane, &b.report, now)))
             }
             "/lane/claim" | "/lane/commit" | "/lane/lost" | "/lane/release" | "/lane/renew" | "/lane/not-dispatched"
-            | "/lane/give-back" | "/lane/iso-progress" | "/lane/iso-yield" | "/lane/artifact-failure" => {
+            | "/lane/give-back" | "/lane/iso-progress" | "/lane/iso-yield" | "/lane/artifact-failure"
+            | "/lane/object-missing" | "/lane/object-held" => {
                 let p = path.to_owned();
                 let r = transaction(&storage, move |sql| lanes::scoring_route(sql, &cfg, &p, &body, now));
                 // The commit that finishes scoring arms the cohort alarm at once.
@@ -1345,7 +1324,17 @@ impl EvalCohort {
             let work = transaction(&storage, move |sql| engine::next_work(sql, &c2, now)).map_err(|_| "next_work")?;
             let Some(work) = work else { return Ok(progress) };
             let t0 = now_ms();
-            if matches!(work, Work::AdmissionVerify { .. } | Work::AdmissionLanes | Work::AdmissionCleanup | Work::OpenNext { .. }) {
+            if matches!(
+                work,
+                Work::AdmissionVerify { .. }
+                    | Work::AdmissionLanes
+                    | Work::AdmissionCleanup
+                    | Work::AdmissionCanary
+                    | Work::AdmissionClose
+                    | Work::AdmissionSweep
+                    | Work::AdmissionReconcile
+                    | Work::OpenNext { .. }
+            ) {
                 // An arena refusal faults the admitting or closing cohort the
                 // step serves (none: nothing to fault).
                 let adm_seq = transaction(&storage, crate::eval::admission::current_seq).unwrap_or(0);
@@ -1545,7 +1534,14 @@ impl EvalCohort {
                     transaction(&storage, move |sql| crate::eval::retention::record_notice(sql, &predecessor, after_cohort, now))
                         .map_err(|_| "notice commit")?;
                 }
-                Work::AdmissionVerify { .. } | Work::AdmissionLanes | Work::AdmissionCleanup | Work::OpenNext { .. } => {}
+                Work::AdmissionVerify { .. }
+                | Work::AdmissionLanes
+                | Work::AdmissionCleanup
+                | Work::AdmissionCanary
+                | Work::AdmissionClose
+                | Work::AdmissionSweep
+                | Work::AdmissionReconcile
+                | Work::OpenNext { .. } => {}
                 Work::Probe { seq, code, probe } => {
                     // One bounded probe of a paused cohort's outage. Its start
                     // (the next probe's time, the bound charged if no outcome
@@ -2195,7 +2191,13 @@ impl EvalCohort {
         if sha_hex(&b) != a.package_sha256 {
             return Err("artifact manifest digest");
         }
-        v3::artifact_digests(&b)
+        // An admitted entrant's header digest is the one admission recorded
+        // (R2 verified it at ingest); it is never hashed again here.
+        let storage = self.state.storage();
+        let package = a.package_sha256.clone();
+        let recorded = transaction(&storage, move |sql| crate::eval::admission::recorded_header_sha256(sql, &package))
+            .map_err(|_| "admission store")?;
+        v3::artifact_digests(&b, recorded)
     }
 
     async fn draw_v3(&self, cfg: &EvalConfig, seq: i64, plan: &CohortPlan) -> std::result::Result<(), &'static str> {

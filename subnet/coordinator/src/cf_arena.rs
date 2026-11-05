@@ -71,7 +71,7 @@ export function arena_cohort_class(req) {
   let p = '';
   try { p = new URL(req.url).pathname; } catch (e) { return 0; }
   if (p.startsWith('/commitments/')) return 1;
-  if (p.startsWith('/admission-work/')) return 2;
+  if (p.startsWith('/admission/')) return 2;
   return 0;
 }
 export function arena_hook_shed(req, env) {
@@ -432,7 +432,7 @@ impl EvalCohortExport {
             let _ticket = ticket;
             let (route, control) = match arena_cohort_class(&req) {
                 1 => (arena_routes::R_COHORT_COMMITMENTS, arena_routes::COMMITMENTS_CONTROL_BYTES),
-                2 => (arena_routes::R_COHORT_WORK, arena_routes::cohort_work_bytes()),
+                2 => (arena_routes::R_COHORT_SESSION, arena_routes::cohort_session_bytes()),
                 _ => (arena_routes::R_COHORT_FETCH, arena_routes::COHORT_CONTROL_BYTES),
             };
             let res = in_scope(route, control, move |_s| async move {

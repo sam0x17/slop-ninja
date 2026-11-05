@@ -30,6 +30,11 @@ slop-ninja-admission-wire = { path = "../crates/miner/wire" }
 # The alert post, heartbeat and state machine shared with the alerts relay.
 slop-ninja-alerts-wire = { path = "../alerts-relay/wire" }
 slop-ninja-protocol = { path = "../crates/protocol" }
+# The direct-upload object layout, the public artifact layout and the
+# presigned CopyObject shape of publication at scoring start.
+slop-ninja-r2-presign = { path = "../crates/r2-presign" }
+# The artifact spec's file table bound and the header's declared-count read.
+slop-ninja-artifact-check = { path = "../crates/artifact-check" }
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 futures-util = { version = "0.3", default-features = false, features = ["alloc"] }

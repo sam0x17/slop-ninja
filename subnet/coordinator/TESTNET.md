@@ -848,12 +848,15 @@ public keys, or `signing_keys_error`.
 ### Prepare and deploy
 
 ```sh
-# Private pool and the R0 artifact (content-addressed parts) in the eval bucket.
+# Private pool and the R0 artifact (content-addressed files) in the eval bucket.
 slop_ninja_a_testnet_eval_manifest pool --repo . --pool-id testnet-human-pool-v1 --out-dir <dir>
-slop_ninja_a_served_profile pack --model-dir <release model dir> --out <dir> --part-mib 64
+# Files manifest v2: OUT/files/<sha256> for each key artifacts/files/<sha256>,
+# and the manifest for artifacts/packages/<package>.json. Stage the files
+# only through a checksum-verified path (R2 checks the pack's SHA-256 at
+# ingest; "Deploy set (admission v2)", blockers): wrangler r2 object put
+# sends no checksum.
+slop_ninja_a_served_profile pack --model-dir <release model dir> --out <dir>
 wrangler r2 object put eval-bucket-testnet/pools/testnet-human-pool-v1/<file> --file <file> --remote
-wrangler r2 object put eval-bucket-testnet/artifacts/blobs/<sha256> --file <part> --remote
-wrangler r2 object put eval-bucket-testnet/artifacts/packages/<package>.json --file artifact-files.json --remote
 
 # Scorer binary (pinned rust:1.99.1-slim-bookworm, checkout mounted read-only),
 # copied with the ORT library into the ignored build context.
@@ -3075,75 +3078,78 @@ section.
   carries the epoch arms one step for a due notice (`engine::kick_due`;
   README, "Hidden evaluation (M4)").
 
-### Upload Worker: key-free admission front (2026-11-03)
+### Upload Worker and direct upload (admission v2)
 
 User decisions of 2026-11-03: finding 24 (a key-free upload Worker takes all
-untrusted upload traffic), D6 (protocol bounds only), D12b (testnet
+untrusted admission traffic), D6 (protocol bounds only), D12b (testnet
 promotions without the lookup canary) and the hostname
-`testnet-admission.slop.ninja`.
+`testnet-admission.slop.ninja`. User rule of 2026-11-04: a model is hashed
+exactly once, by the miner at commit; R2 verifies that digest; every upload
+goes straight to R2 under presigned URLs, and no upload byte passes through
+our Workers. The S3 behaviour this relies on was qualified against R2 on
+2026-11-05 (signed checksum verified, `If-None-Match: *` enforced, expiry
+checked when a request starts, unsigned standard headers stored as HTTP
+metadata, multipart and version parameters refused with 501, `CopyObject`
+keeping the etag but not the stored SHA-256).
 
-- **Two Workers.** `slop-ninja-admission-testnet` (`subnet/admission-worker`)
-  serves every public `/admission/v1/` route at the custom domain
+- **Four Workers.** `slop-ninja-admission-testnet` (`subnet/admission-worker`)
+  serves every public `/admission/v2/` route at the custom domain
   `https://testnet-admission.slop.ninja` and nothing else (no `workers.dev`
-  name, no preview URLs). It holds no signing key. Its one secret is
-  `ADMISSION_INTERFACE_TOKEN`, shared with the eval Worker. Its bindings are
-  the private upload bucket `admission-bucket-testnet` (uploaded objects
-  only) and a service binding to `slop-ninja-eval-testnet`. The eval Worker
-  answers 404 to every `/admission/` request and serves the internal
-  interface `/internal/admission/v1/<op>` only for requests addressed to
-  `eval-admission.internal` that carry the token. It binds the same upload
-  bucket and has a service binding back to the upload Worker for framing,
-  used by its Queue consumer only.
+  name, no preview URLs). It holds no signing key, no R2 binding and no
+  binding to the signer; its one secret is `ADMISSION_INTERFACE_TOKEN`,
+  shared with the eval Worker, and its one binding is a service binding to
+  `slop-ninja-eval-testnet`. The eval Worker answers 404 to every
+  `/admission/` request and serves the internal interface
+  `/internal/admission/v2/<op>` only for requests addressed to
+  `eval-admission.internal` that carry that token. It binds the admission
+  bucket, consumes the object-create events, and has service bindings to
+  the upload Worker (header route) and to the internal signer
+  `slop-ninja-r2-signer-testnet` (`subnet/r2-signer`, token
+  `SIGNER_INTERFACE_TOKEN`), which holds the presign credential (Secrets
+  Store, scoped to the admission bucket) and has no route of its own. The
+  publisher reaches the signer's copy route with its own token
+  (`COPY_INTERFACE_TOKEN`) for publication at scoring start.
 - **What runs where.** The upload Worker runs one front sequence
   (`slop_ninja_admission_gate::decide`, the same function the miner
   client's mock runs): it parses the route, verifies the signature (CPU
   only), checks the access mode, runs the header-only checks (the hotkey
   segment decodes as SS58 and names the signer; a bodiless route's signed
   digest is the empty string's; a creation's media type; a declared
-  `Content-Length` within the route's bound; a part's present and no larger
-  than the largest admission-spec object), then looks the signer up in the
-  isolate's roster of the subnet's hotkeys, then reads the body within its
-  bound and checks its digest. Only then does it forward one message. The
-  roster is `SubnetworkN(601)` and `Keys(601, uid)` for every uid below it,
-  read at the finalized head with `state_queryStorageAt` (keys composed by
-  name from V15 metadata, rebuilt when the runtime upgrade marker changes;
-  no version is compared) once a block per isolate, by one request at a
-  time while later ones wait for it; after a failed load the isolate
-  answers `unavailable` for one block without reading again. It is a
-  static array of every UID a `u16` can name, outside the arena. The upload
+  `Content-Length` within one session-creation record), then looks the
+  signer up in the isolate's roster of the subnet's hotkeys, then reads the
+  body within its bound and checks its digest. Only then does it forward one
+  message, and it relays the reply byte for byte. The roster is
+  `SubnetworkN(601)` and `Keys(601, uid)` for every uid below it, read at the
+  finalized head with `state_queryStorageAt` (keys composed by name from V15
+  metadata, rebuilt when the runtime upgrade marker changes; no version is
+  compared) once a block per isolate; after a failed load the isolate
+  answers `unavailable` for one block without reading again. The upload
   Worker never checks `valid_until`: the cohort authority checks it against
-  its own cursor and validity window, so a chain head ahead of a lagging
-  cursor cannot make the two disagree. The cohort authority re-derives the
-  route fields from the signed path, hashes a creation body itself, creates
-  a part's upload only for the authenticated owner (a creation that loses a
-  race, or lands after an abort or supersede, is aborted), and checks every
-  part record against the session (the record carries the signed request
-  again). A part runs in three arena scopes: the front sequence and
-  `part-begin` (4 MiB), the stream (one page, for as long as the miner
-  sends), then `part-record`. Its body streams from the request through a
-  `FixedLengthStream` of the authority's exact part length into the upload
-  bucket and never reaches Rust or the eval Worker; a body of another
-  length is refused `part_length_mismatch`. The cohort authority (sessions,
-  the commitment log, verdicts, the cutoff, `adm_sessions`) stays in the
-  eval Worker. Its Queue consumer (never the cohort object, since the
-  cohort-19 drill) asks the upload Worker to frame the object
-  (`POST /internal/upload/v1/frame`) and receives a bounded `FrameOutcome`:
-  the object digest and length, the header contract, the derived content
-  digest, the manifest and the slices. The eval Worker checks its shape and
-  compares digests. It never decodes an uploaded object. Slices are copied
-  from the upload bucket into the eval bucket's blob store as JS streams.
-- **Cohort snapshot.** The unsigned cohort read never reaches the eval
-  Worker. At every heartbeat (`/kick`) the configured main authority's
-  cohort object writes the cohort response, with the time, to
-  `cohort/v1/current.json` in the upload bucket. The upload Worker serves
-  `GET /admission/v1/cohort` from that object, through one edge-cache copy
-  per location kept for one block (12 s) under one key for every URL
-  variant (the query is dropped), and answers `paused: true` once the
-  snapshot is older than the heartbeat freshness (10 minutes), as the
-  authority itself would. Clients still receive `no-store`. Concurrent cache
-  misses in one location are not coalesced, so the bucket sees about one
-  read a block per edge location. Until the eval Worker has written the
-  first snapshot, the read answers `unavailable` (retry 12 s).
+  its own cursor. The cohort authority (sessions, the commitment log,
+  verdicts, the cutoff) stays in the eval Worker, re-derives the route
+  fields from the signed path, hashes a creation body itself, and asks the
+  signer for presigned PUTs (one signer request per `urls` call) for keys it
+  derives from `(cohort, commitment, kind, digest)`, each binding the
+  committed length and SHA-256 and create-only. Miners PUT the header and
+  each file straight to R2. The eval Worker records objects from R2's
+  `head()` (size, stored SHA-256, entity tag, and the stored-attribute rule
+  `slop_ninja_object_attributes_v1`: no stored HTTP or custom metadata), pipes
+  the header bytes, pinned to their entity tag, into the upload Worker's
+  header route (`POST /internal/upload/v2/header`, at most 1 MiB), and
+  rebuilds the content digest from the returned table. It never decodes an
+  uploaded object and reads no file byte; the scorer loads files by ranged
+  reads pinned to the recorded tags.
+- **Cohort snapshot.** The unsigned cohort read never reaches the cohort
+  object. At every heartbeat the main authority's cohort object writes the
+  cohort response, with the time, to the snapshot key in the admission
+  bucket. The upload Worker serves `GET /admission/v2/cohort` from one
+  edge-cache copy per location kept for one block (12 s) under one key for
+  every URL variant (the query is dropped); on a miss it asks the eval
+  Worker's `snapshot` interface operation, which answers the object's bytes
+  without reaching the cohort object. It answers `paused: true` once the
+  snapshot is older than the heartbeat freshness (10 minutes). Clients
+  receive `no-store`. Until the first snapshot is written the read answers
+  `unavailable` (retry 12 s).
 - **Limits (D6).** Protocol bounds only: a hotkey registered on 601, one
   session per commitment and one artifact per hotkey per cohort, the
   artifact spec's object bound, and Cloudflare's built-in DDoS protection.
@@ -3159,11 +3165,15 @@ promotions without the lookup canary) and the hostname
   block-webhook source. The roster's RPC load and lag under real isolate
   counts are not measured yet (step 6).
 - **Trust file.** `testnet-trust.json` pins
-  `admission_origins: ["https://testnet-admission.slop.ninja"]`. The
-  publisher tracks `ADMISSION_ORIGIN` with the same value and publishes the
-  new trust file. A miner who passes the trust file and neither
-  `--coordinator` nor `--public` uploads to that one pinned origin.
-  Validators read only the keys, which are unchanged.
+  `admission_origins: ["https://testnet-admission.slop.ninja"]`, the R2 S3
+  host presigned URLs may name by the SHA-256 of its name
+  (`upload_host_sha256`, decision D1: the tracked file carries no account
+  id, while every minted URL shows its miner the host) and the bucket
+  (`upload_bucket`). The client refuses a URL on any other host or bucket
+  (skeptic K12). The publisher tracks `ADMISSION_ORIGIN` with the same
+  value and publishes the new trust file. A miner who passes the trust file
+  and neither `--coordinator` nor `--public` uploads to that one pinned
+  origin. Validators read only the keys, which are unchanged.
 - **D12b.** The leaderboard JSON carries `promotion_rule` (`lookup_canary:
   false`, `scope: "testnet-only"`, a note) and the page shows the note. The
   publisher builds the label only for a record bound to the testnet genesis
@@ -3171,104 +3181,260 @@ promotions without the lookup canary) and the hostname
   the canary drill list behave as before, so an operator drill
   (`canary.drill` in the plan) can still flag and block a testnet
   candidate; the note says so.
-- **Framing failures.** A framing call that fails is counted against the
-  session's attempts (the plan's pause bound faults the cohort,
-  `framing_unavailable`), except the upload Worker's platform answers (503
-  with `x-sn-frame-failure`: the object read, a framing request body it
-  could not read, an arena refusal), which are retried uncounted. A link
-  that is not configured (token, service binding, 404 or 400 from the
-  upload Worker) faults the cohort on its first failure; the fault is
-  resumable and cleared by the operator (`frame_begin`). Install a rotated
-  token in both Workers inside one window (step 3 order), so the link never
-  sees one Worker's new token beside the other's old one.
-- **Operator probe.** `GET /eval/admission/link` is an operator probe on
-  the eval Worker's existing `workers.dev` surface (the operator or monitor
-  token from a build with the status gate; the shared status token before
-  it). It sends one framing request for the probe key and
-  answers `{"frame": "ok"}` when the binding, the internal host and the
-  token all work. It reads nothing and returns nothing else.
+- **Header-route failures.** A header-route answer of 503 with
+  `x-sn-header-failure` (the upload Worker could not read the body) is the
+  platform's and retried uncounted; a link that is not configured (token,
+  service binding, 404 or 400 from the upload Worker) is the platform's as
+  well, never the miner's. Three platform faults are persisted and each
+  defers the close until a later success: `signer_unavailable` (a mint the
+  signer could not make), `upload_path_unavailable` (the end-to-end canary,
+  a presigned PUT of our own 64 bytes under `health/`, failed) and
+  `upload_front_unavailable` (a header settle the platform could not run:
+  R2's head or pinned read, the upload Worker's binding, header route or
+  answer; or the canary's link probe, which also exercises the upload
+  Worker's registration read that every signed route needs). Install a
+  rotated interface token in both Workers of a link inside one window, so
+  the link never sees one Worker's new token beside the other's old one.
+- **Lost objects after admission.** An admitted entrant's object that a
+  scoring lane or publication finds absent or changed is the coordinator's
+  fault: the session is audited, the object listed `repair_needed`, and the
+  lane holds (uncounted, retried each admission tick) until the miner's
+  repair is recorded. A session read and `repair` skip the upload Worker's
+  registration check, so a deregistered entrant can still repair. An object
+  found with its committed bytes but a forbidden stored attribute is
+  deleted (only while still unclean) and listed for a clean PUT, in every
+  state; `object_replaced` is kept for other bytes or another tag before
+  admission.
+- **Retention.** Admitted objects stay in the admission bucket until their
+  cohort is closed AND the publisher has reported their publication
+  (`POST /eval/admission/published`, the publisher's binding and token
+  only; recorded as `published`). Scoring lanes read them until the cohort
+  closes, so neither condition alone releases them. The report names the
+  cohort by number and label; the eval Worker routes it to the known
+  authority whose label it is (a predecessor too, after a succession) and
+  answers 404 when that authority holds no such cohort, so the publisher
+  keeps it pending rather than taking it. An authority that still retains
+  admitted objects (unreported, or released but not yet queued for
+  deletion) reports `work: true`, and a successor cannot supersede it
+  until they are released.
+- **A refused public copy.** Both copy modes skip an object already at its
+  public digest key, so a public object the publisher refused
+  (`REFUSED_COPY`: its size, SHA-256 or etag is not the source's) stays
+  refused on every run. To redo it, in a publisher window: confirm the
+  refusal in the publisher's status, delete exactly that key with
+  `wrangler r2 object delete public-bucket-testnet/<key> --remote`,
+  and let the next run copy it again.
+- **Operator probe.** `GET /eval/admission/link` (operator or monitor
+  token) sends the link probe (the `x-sn-header-probe` request header, no
+  body) to the upload Worker's header route and reports whether the signer
+  binding and token are configured: `{"header": "ok", "signer": {...}}`.
+  It reads nothing and returns nothing else.
 
-Deploy order, each one change under `cf-deploy.lock`:
+**Deploy set (admission v2).** None of this is deployed; it lands and
+deploys only as a whole, after the blockers below are cleared. Each
+numbered step is one change in its own `cf-deploy.lock` window, from a
+clean pushed main that contains the currently deployed commit (fetched
+inside the lock; abort if the fetch fails), with the post-deploy probe
+inside the same window. Secrets are installed from stdin and never printed.
 
-0. Pre-deploy check, inside the lock of step 4 before the eval deploy: the
-   admission `objects` block of `/eval/status` shows `in_progress`,
-   `uncleaned` and `pending_object_deletes` all 0 (no session uploading,
-   verifying or verified, none neither admitted nor cleaned, no aborted
-   attempt's delete pending). This build adds the block; the build deployed
-   before it shows only the sessions by state per cohort, so check there
-   that none is `uploading`, `verifying` or `verified` before the deploy,
-   and check the block right after it, before the drill. A count left there
-   names eval-bucket objects to delete by hand (the clean-up would look for
-   them in the upload bucket); a session left verifying is refused by the
-   operator (`/session/refuse`). After the eval deploy every object
-   operation goes to the upload bucket, so a row left from the eval-bucket
-   era would be "deleted" there (R2 succeeds on a missing key) and its
-   eval-bucket object would leak, and a session verifying would frame a
-   missing object. Refuse the deploy if any remains; an operator refusal or
-   a completed clean-up comes first.
-1. Create the private bucket `admission-bucket-testnet` (no public
-   access, no custom domain).
-2. Deploy the upload Worker from `subnet/admission-worker` (`wrangler deploy
-   --env testnet`) in `hotkeys` mode, the tracked value, with the test
-   hotkeys passed as `--var ADMISSION_HOTKEYS:<list>`. Its service binding
-   names the eval Worker, which exists. Refuse the custom domain if
-   `testnet-admission.slop.ninja` has any DNS record. The deploy creates it
-   from the `custom_domain` route with the existing login. Without the
-   token it forwards nothing (every interface call answers `unavailable`)
-   and without a snapshot its cohort read answers `unavailable`. Deploying
-   it first means `wrangler secret put` never creates a placeholder Worker.
-3. Generate one interface token (at least 32 bytes) and install it from
-   stdin with `wrangler secret put ADMISSION_INTERFACE_TOKEN --env testnet`
-   in `subnet/admission-worker`, then with `--env eval-testnet` in
-   `subnet/coordinator`.
-4. Deploy the eval Worker in a quiet window, as for any eval deploy, after
-   the step 0 check. Its new service binding names the upload Worker, which
-   now exists. From this deploy on, the eval Worker has no public admission
-   route, its framing step needs the upload Worker, and its next heartbeat
-   writes the first cohort snapshot.
-5. Deploy the publisher, for the trust file, `ADMISSION_ORIGIN` and the D12b
-   label.
-6. Drill the deployed path in `hotkeys` mode before it opens: one full upload
-   with a test miner wallet, through to `verified` (parts streamed to the
-   upload bucket, completion, framing through the service binding, slices
-   copied to the eval bucket), plus the probes below. Record, in the private
-   drill record, the longest R2 upload id and part tag seen (the interface's
-   R2 allowance, `internal::INTERFACE_BOUNDS_VERSION`, becomes that measured
-   bound in a later version), and the roster's RPC calls per block and its
-   lag under a burst of requests signed by fresh unregistered keys. Only
-   then switch `ADMISSION_ROUTES` to `open`: its own commit and its own
-   one-change deploy of the upload Worker.
+Blockers before step 1 (each recorded in the private status):
 
-Probe: TLS on the custom domain; an unsigned `POST /admission/v1/sessions`
-answers `bad_signature` (401) and a signed request from an unregistered
-hotkey answers `not_registered`, both with nothing forwarded; `GET
-/admission/v1/cohort` answers the cohort from the snapshot, also with a
-query string (one cached copy); `GET /eval/admission/link` answers
-`{"frame": "ok"}`; a public `POST /internal/upload/v1/frame` on the custom
-domain answers 404; the eval Worker's `workers.dev` name answers 404 to
-`/admission/v1/cohort` and to `/internal/admission/v1/create`.
+- Decision D5's spec change (the graph structure digest replaced by a byte
+  comparison against pinned reference structure streams) is approved but
+  not built; until then the structure digest is the one documented hash
+  over model bytes.
+- `COPY_INTERFACE_TOKEN` needs the user's explicit authorization (the
+  signer-secret authorization of 2026-11-05 named `R2_S3_HOST` and
+  `SIGNER_INTERFACE_TOKEN` only).
+- Probe G7-x (a `CopyObject` from the admission bucket to the public
+  bucket with the copy credential: the same etag, no stored SHA-256, HTTP
+  metadata replaced, 412 on a stale `x-amz-copy-source-if-match`, and a
+  681,508,964 B object) has not run. Until it passes, the publisher runs
+  `ARTIFACT_COPY = "stream"` (the tracked default) and the drill publishes
+  by stream; switching to `server` is its own later one-change deploy.
+- The binding read the v2 load path pins with `onlyIf: {etagMatches}` (the
+  unquoted entity tag a binding `head()` returns) is not qualified by any
+  G-probe; step 6's probe reads one staged object that way before anything
+  depends on it.
+- A checksum-verified way to stage reference files (R2 verifying the pack's
+  SHA-256 at ingest, design section 8.1) does not exist yet:
+  `wrangler r2 object put` sends no checksum, and no credential reaches the
+  eval bucket by S3. The user chooses one (an S3 key scoped to the eval
+  bucket used by an S3 client that sends `x-amz-checksum-sha256`, or staging
+  references under the admission bucket through the signer).
 
-Not done here: the deploys, the bucket and the token (live stage); framing
-CPU and memory at the spec's largest object, now in the upload Worker
-(`cpu_ms` is the platform's maximum); the upload Worker's memory model is
-unmeasured (`observe`, as the coordinator's). Earlier admission objects were
-in the eval bucket; none are expected (cohort 13's were deleted, and the
-routes have been off since), and the step 0 check confirms it before the
-eval deploy. Two digest checks wait for the digest-stream path to qualify
-(`crypto.DigestStream` in a pipe, measured on the deployed Workers): the
-upload Worker hashing each part as it streams (today the part record keeps
-the signed, claimed digest, and a part body that differs from it shows only
-at framing as `object_mismatch`, costing the owner that attempt; reaching it
-needs the miner's signed headers within `valid_until`), and the eval Worker
-hashing each slice it copies (today a blob is written under the digest in
-the upload Worker's framing outcome and never rewritten; the scorer refuses
-a mismatched blob, so only a compromised upload Worker could leave a
-poisoned blob that blocks later artifacts sharing that slice). Not
-configured yet, and to be designed against this split: when the
-publisher's artifact copy (`ARTIFACT_SOURCE_KEY`) is configured,
-`closure_artifacts`' `object_key` names keys in the upload bucket, which the
-publisher does not bind; that copy must read from the upload bucket, or the
-eval Worker must copy admitted objects into the eval bucket first.
+Cross-lane hold: from the moment the set lands on main until step 11 is
+done, no other lane deploys the eval Worker, the upload Worker or the
+publisher from main (a routine deploy would ship part of the set out of
+order). Record the hold under Active lanes in `COORDINATION.md` before the
+merge and release it after step 11.
+
+0. **Drain and preflight.** Before the last v1 cohort's transition queues a
+   successor, pause the standing template (`POST /eval/template/pause`), so
+   no cohort is queued under a frozen v1 plan: such a plan names a v1 parts
+   manifest as its reference package, which the v2 lanes refuse
+   (`artifact manifest json`) and the seal refuses (`artifact manifest
+   schema`), so it could not score. Let that cohort close under the v1
+   build. A cohort already queued under a v1 plan cannot be abandoned (only
+   a faulted one can): let it open and close under the v1 build too, with
+   the template paused so nothing queues after it. The pause delays the
+   next cohort and skips none; the template reinstall in step 7 resumes
+   the calendar. Then, inside the
+   lock of each eval window (steps 4 and 6), on the live v1 `GET
+   /eval/status` and `GET /eval/load/status` require: no cohort `queued`;
+   no session `uploading`, `verifying` or `verified`; no admission window
+   `admitting` or `closing`; no `admitted` session in a cohort that has not
+   closed; `objects.uncleaned` and `pending_object_deletes` both 0; no
+   cohort in `scoring`. Refuse the deploy otherwise. The v25 migration
+   refuses in the same states (and also while a v1 blob delete is pending
+   or a created eval-bucket blob of an uncleaned v1 session exists: v25
+   drops the v1 blob tables), leaving the store at its pre-deploy version
+   (v23, or v24 when quant-v1's eval deploy went first: one transaction
+   applies every pending version, so a refusal rolls back all of them),
+   but the deploy must not rely on it. Record, for a manual clean-up once each one's
+   publication is confirmed, the keys of admitted v1 objects and their
+   eval-bucket blobs: no v2 table names them. The cohort response's
+   admission limits record moves from `limits/v1` to `limits/v2` (a new
+   domain, so its digest changes); the signed manifest's limits record
+   (`v3::limits_record`) does not change.
+1. **Signer** (`subnet/r2-signer`, new; nothing calls it yet), its Secrets
+   Store bindings rendered from a read-only store listing. Probe: the
+   Worker exists with no route; nothing else changes.
+   Rollback: delete the Worker (its first dependents are the eval binding,
+   step 6, and the publisher binding, step 10).
+2. **Signer secrets**, one window: `R2_S3_HOST` and
+   `SIGNER_INTERFACE_TOKEN` (authorized 2026-11-05), and
+   `COPY_INTERFACE_TOKEN` only once authorized. The publisher's copy of
+   `COPY_INTERFACE_TOKEN` is installed in its own publisher window (step
+   10), never in this one: a secret put creates a new version of the live
+   Worker, one Worker per window. Until then a `server` copy would answer
+   503 and wait; the tracked mode is `stream`. Rollback: `wrangler secret
+   delete`.
+3. **Resource: the events Queue** `admission-events-queue-testnet`
+   (tagged, recorded in the inventory). Rollback: delete it once no
+   consumer and no notification rule names it.
+4. **Eval secret**: `SIGNER_INTERFACE_TOKEN` on the eval Worker. A secret
+   put creates a new version of the live eval code, so this is its own
+   window with the quiet and authority checks (coordinator signing paused,
+   the journal schema checked, signing resumed before the lock is
+   released) and step 0's preflight inside the lock. Rollback: `wrangler
+   secret delete` (the v1 code ignores it).
+5. **Scorer image and v2 references.** Build `a-scorer` from the landed
+   commit in the pinned toolchain (`rust:1.99.1-slim-bookworm`, checkout
+   read-only), stage it with the ORT library in the ignored build context,
+   and commit the new `SCORER_BINARY_SHA256` (and record the image digest)
+   in the same change as step 6: the lanes speak only the v2 routes
+   (`/v2/prepare`, `/v2/files/<index>/<offset>`, `/v2/load`), and a binary
+   whose digest is not the pin is refused on every instance (S-1 build
+   identity). Stage each reference package as files manifest v2 now
+   (`slop_ninja_a_served_profile pack --model-dir <dir> --out <dir>`,
+   which writes `files/<sha256>` for the keys `artifacts/files/<sha256>`
+   and the manifest for `artifacts/packages/<package>.json`, through the
+   checksum-verified staging the user chose): new eval-bucket keys only,
+   additive, read by nothing live, so step 6's probe can load one.
+6. **Eval Worker** (store v25, admission v2, the v2 lanes, the new scorer
+   image), in a quiet window with coordinator signing paused and the
+   journal schema checked; step 0's preflight repeated inside the lock
+   first. After `wrangler deploy`, wait until `wrangler containers info`
+   shows the new application version settled (Worker code goes live before
+   the Container rollout finishes; no `scheduling` backlog) before the
+   probe. Post-deploy probe: `/eval/status` reports store 25 (and
+   `/eval/load/status` answers, not `migration_failed`); a scorer
+   `/healthz` on a fresh instance; one reference load through the v2 lanes
+   (`/eval/scorer-probe` with a v2 package staged in step 5); one binding
+   read of a staged reference file pinned with `onlyIf: {etagMatches}` to
+   the unquoted entity tag a binding `head()` returns, answering the body
+   (the v2 load path's conditional read: no G-probe qualified it; a refusal
+   here means every v2 load would report `artifact object changed`); the
+   link probe answers `{"header": "ok"}` once step 8 is live (before it,
+   the probe's failure is expected and admission is not open).
+   **Refused migration.** If `/eval/status` (or `/eval/load/status`)
+   answers `migration_failed`, the v25 guard refused and the store stays at
+   its pre-deploy version (v23 or v24; the migration is one transaction):
+   every request to that cohort object answers `migration_failed` until a
+   build that does not migrate is live. Inside the same lock, redeploy the
+   previously deployed commit (the one whose store version that is: the
+   pre-quant build for v23) with `wrangler deploy` (not only `wrangler
+   rollback`: the deploy restores the previous scorer image together with
+   its `SCORER_BINARY_SHA256`, so v1 lanes do not meet a binary their pin
+   refuses), wait for the Container rollout to settle, probe the v1
+   status, and resume signing. Then drain (step 0) and try again.
+   **Rollback floor after a successful migration: store v25.** An earlier
+   build refuses the newer store (`NewerStoredVersion`) and the v1 session
+   tables are gone, so a revert is forward only: a build that keeps
+   `SCHEMA_V25`. This window and the upload Worker's (step 8) are
+   effectively one-way together.
+7. **Template**, one ordered block inside one eval window, before the next
+   cohort opens: reinstall the standing template with
+   `admission.upload_policy` and the v2 `reference.package_sha256` staged
+   in step 5 (until the reinstall the calendar stays paused: a template
+   with v1's `part_size` is refused), then add each reference's header
+   SHA-256 to the publisher's `PRIVATE_DIGESTS` (its content digest is
+   unchanged). Record the new R0 package digest in the inventory.
+   Rollback: reinstall the previous template version (same-authority
+   reinstall).
+8. **Upload Worker** (v2 routes, header route with the out-of-band link
+   probe, the gate's repair list read from the snapshot, no R2 binding),
+   still in `hotkeys` mode with the test hotkeys passed as `--var
+   ADMISSION_HOTKEYS:<list>`. The Worker is already live on
+   `testnet-admission.slop.ninja`: before the redeploy, require that the
+   hostname's only DNS records are the upload Worker's own custom-domain
+   records (compare with the inventory row); never touch the apex, `www`
+   or Email Routing. The cohort snapshot now lives in the eval bucket;
+   after this step, delete the stale `cohort/v1/current.json` from the
+   admission bucket (nothing reads it). Rollback: only together with the
+   eval Worker (v1 calls `/internal/admission/v1/*`, which v25 answers
+   404), so in effect forward only.
+9. **Resource: the R2 object-create notification rule** on
+   `slop-ninja-admission-testnet` for `admission/v2/` into the Queue, now
+   that its consumer is live. Rollback: `wrangler r2 bucket notification
+   delete`, then remove the consumer before deleting the Queue.
+10. **Publisher** (`ADMISSION_TESTNET` read binding, `R2_SIGNER_TESTNET`
+    binding, `ARTIFACT_COPY = "stream"` until G7-x passed, the publication
+    report through `EVAL_WORKER_TESTNET`). For the drill, set the tracked
+    `ARTIFACTS_FROM_EPOCH` to the drill cohort's opening epoch in its own
+    commit (it never moves `PUBLISH_FROM_EPOCH`, the public record's first
+    epoch; a cohort publishes at scoring start only inside both), and pass
+    `PRIVATE_DIGESTS` and `OPERATOR_HOTKEYS` with `--var` on this and every
+    later publisher deploy (with `ARTIFACTS_FROM_EPOCH` set, a deploy
+    without them is refused and alerts `config_refused`). `OPERATOR_HOTKEYS`
+    must not list `slop-ninja-testminer1..3` for the drill (they publish
+    test models; a drill-only exclusion needs the user's OK), or
+    publication withholds every drill entrant. `COPY_INTERFACE_TOKEN`, once
+    authorized, goes on the publisher in its own later window. Rollback:
+    `wrangler rollback` to the previous version (no store change).
+11. **Release and drill.** Release the v2 miner client and the trust file
+    (`upload_host_sha256`, `upload_bucket`; the client also compiles them
+    in as its default pin) before any outside miner is pointed at v2: the
+    v1 client's `/admission/v1` routes answer 404 from step 8 on. Drill the
+    deployed path in `hotkeys` mode with `slop-ninja-testminer1..3` before
+    it opens: full uploads through to `verified` (presigned PUTs,
+    `complete`, the header route, the scorer's ranged loads); a URL naming
+    any host but the pinned one is refused by the client
+    (`upload_host_sha256`, `upload_bucket` in the release trust file); a
+    repair after an admitted object is deleted (the lane holds without
+    starting a Container, `repair_needed` lists it, the snapshot's repair
+    list names the hotkey, the re-PUT resumes it); the canary with the link
+    probe; the close; publication at scoring start (by stream until G7-x
+    passed) and its report recorded by the eval Worker (`published`). Only
+    then switch `ADMISSION_ROUTES` to `open`: its own commit and its own
+    one-change deploy of the upload Worker. Release the cross-lane hold.
+
+Probe (step 8): TLS on the custom domain; an unsigned `POST
+/admission/v2/sessions` answers `bad_signature` (401), and a signed `urls`,
+session read or `repair` from an unregistered hotkey the snapshot's repair
+list does not name answers `not_registered`, all with nothing forwarded; `GET /admission/v2/cohort` answers the cohort from the snapshot,
+also with a query string (one cached copy); `GET /eval/admission/link`
+answers `{"header": "ok", ...}` with the signer configured; a public `POST
+/internal/upload/v2/header` on the custom domain answers 404; the eval
+Worker's `workers.dev` name answers 404 to `/admission/v2/cohort` and to
+`/internal/admission/v2/create`.
+
+Not measured yet: the roster's RPC load and lag under real isolate counts;
+the session, event and admission-step memory footprints on wasm32 (the
+native arena witnesses run them at their bounds); a cross-bucket
+`CopyObject` (probe G7-x) and, for the stream copy, the 681,508,964 B
+graph within one publisher run.
 
 ### Outside-miner admission usability (2026-11-03)
 
@@ -3292,8 +3458,8 @@ tempos later (`engine::advance`), so it still closes at `E + K` when
 `A <= K - transition - W`, with `W` the tempos its work after the cutoff
 needs. `W` gives that work at most half of its tempos (the design note's
 scoring rule), bounded by the measured work of a cohort, plus the largest
-object's submission (a session that completes at the cutoff is framed and
-verified after it), plus the verdict queue of a full roster still verifying
+object's submission (a session that completes at the cutoff is verified
+after it), plus the verdict queue of a full roster still verifying
 at the cutoff (the freeze waits for every such session, `admission::ready`;
 verdicts run from the cohort object's alarm step, `STEP_READS_IN_FLIGHT` = 6
 a round, so `ceil(roster / 6)` rounds, each one fresh instance: the measured
@@ -3340,6 +3506,25 @@ reinstalled only when the window changes. Work that runs past its tempos
 moves the close (and the next opening) later by whole tempos and never skips
 or shortens a cohort. A queued cohort keeps the window it was queued with (a
 reinstall never changes a queued or running cohort).
+
+**Upload sizing under admission v2 (direct to R2, 2026-11-05; branch only,
+not deployed).** `--upload-secs` and `--upload-bytes` keep their meaning, the
+measured time of one whole submission from the end of the step before its
+commitment to its `verified` answer, but under admission v2 that submission
+is: the session request, one presigned R2 `PutObject` per header and file
+from the miner's link straight to R2 (R2 verifies each SHA-256 as it
+arrives), the `complete` request with its metadata comparisons, and the
+verdict run. No upload byte passes through a Worker, so the framing step and
+its allowance (`FRAME_MEASURED_MS`, `frames_per_share`, the framing share of
+the reader) are gone with admission v1, and nothing is hashed on our side.
+The 582 s figure above is v1's (upload through the eval Worker, then
+framing) and stays the input until the first v2 drill measures a direct
+submission of a full-size object; the tool is then rerun with that
+measurement and the template reinstalled only if the window changes. A
+direct upload's own life is bounded by the URL policy
+(`slop_ninja_upload_url_policy_v1`: each URL lives `ceil(L_total / 125,000
+B/s) + 900 s`, 8,537 s for the largest spec v3 object, and a miner always
+gets a fresh one), which bounds no window: a slow link only asks again.
 
 **Resubmissions within a window** (fix round 1, item 3). A newer commitment
 supersedes a hotkey's session and runs a new verdict (one fresh scorer

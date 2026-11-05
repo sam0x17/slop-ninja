@@ -55,9 +55,14 @@ into static public objects. Once a minute it:
    start it, or whose manifest did not open, starts nothing: later cohorts
    wait until one that starts it is listed, retired or refused, or a new
    build accepts the refused one;
-4. publishes artifact objects from the private eval bucket after their cohort
-   closed, default-deny: only an outside entrant's upload with a matching
-   admission record, never a reference, an operator's or a copy;
+4. publishes each admitted entrant's artifact at scoring start
+   (`src/artifacts.rs`): once a cohort's signed manifest seals its roster,
+   the header and files each entrant uploaded directly to the private
+   admission bucket are copied to their digest keys in the public bucket
+   (`artifacts/v2/<sha256>/header`, `blobs/sha256/<sha256>`), files first,
+   never a reference's or an operator's; a closed cohort's record then
+   reports what was published, checked against the result's header
+   digests. No copy happens at closure;
 5. writes the cohort index, the leaderboard (JSON and a static page rendered
    from `site/`) and the reference pointers. A pointer links the reference's
    staged reference package (`v1/reference/packages/<sha256>/`, CC BY-SA 4.0)
@@ -162,12 +167,12 @@ store.
   order, so the coordinator's signed row and the weights revealed on chain
   carry no order beyond the q-rank the published values already imply.
   The promoted entrant is the first head in q-rank whose exact score meets
-  the margin and that passes promotion. Artifact
-  withholding never names a head: a cluster with a statically withheld
-  member is withheld whole.
+  the margin and that passes promotion. Artifacts are published at
+  scoring start, before any score exists, so their withholding never
+  names a head or a cluster.
 - **Only named objects.** The publisher reads only the cohort objects it
-  verifies (never the receipts), and the artifact objects the package
-  binds. The batch shards, batch index, results, summaries, probe vectors,
+  verifies (never the receipts), and the artifact objects the result
+  names. The batch shards, batch index, results, summaries, probe vectors,
   plans, pools and `keys.json` are never read or copied. Binary records
   decode canonically and completely.
 - **Typed snapshot.** The status snapshot is built from named fields only.
@@ -191,40 +196,63 @@ store.
   cohort's records are published, and `last_published_cohort` moves, within
   a run of its package becoming durable (the start of `transition`), not at
   a tempo boundary. `fault` turns on when a step fails.
-- **Artifacts are default-deny.** An entrant's artifact is published only
-  when the admission route stored its upload envelope (the protocol's
-  `SubmissionUpload`, at `ADMISSION_RECORD_KEY`) and that envelope is this
-  entrant's: the chain and cohort, the hotkey and registration, the
-  committed content, commitment and object, and the nonce the signed closure
-  published. Uploading through the route accepts the CC BY-SA 4.0 submission
-  terms. Before that check, an artifact is withheld for good when:
-  - its hotkey is in `OPERATOR_HOTKEYS` (the owner, our miners and
-    validators, synthetic rehearsal identities);
-  - its content or object is listed in `PRIVATE_DIGESTS` (the references'
-    digests);
-  - its content or object is an initial reference (`R_0` or its single
-    replacement) that any manifest the publisher opened named, inside or
-    outside the record; the index keeps the listed cohorts' ones in
-    `initial_references`, so they stay withheld after the manifest chain
-    stops naming them. References are published as reference packages
-    instead, never as entrant artifacts;
-  - it failed the public-copy gate (`public.content`, `public.near.current`,
-    `public.near.predecessor`, `public.near.probe`);
-  - it is in a near-copy cluster with an artifact withheld by one of the
-    checks above, whichever member is the cluster's head (a cluster is
-    withheld whole, so the reasons never single out its best-scoring
-    member).
+- **Artifacts are published at scoring start.** The user's copy model
+  (2026-11-04): models become public when scoring starts. With the tracked
+  `ARTIFACTS_FROM_EPOCH` set, each run looks at every in-record cohort that
+  opened at or after it (and at or after `PUBLISH_FROM_EPOCH`, which it never
+  moves) whose signed manifest exists (the roster is sealed) and that is not yet
+  decided, and for each roster entry still pending:
+  - withholds for good an operator or synthetic hotkey (`OPERATOR_HOTKEYS`);
+  - reads the header object at the commitment's derived key
+    (`admission/v2/c<cohort>/<commitment>/h`): R2's stored SHA-256 is the
+    header digest (a missing checksum is refused and alerted, never a pass);
+    the bytes, at most `MAX_ARTIFACT_HEADER_LEN` and reserved before the read,
+    are decoded once their declared file count is within the artifact spec's
+    table;
+  - withholds for good a header or content digest in `PRIVATE_DIGESTS`, or an
+    initial reference (`R_0` or its single replacement) any manifest named
+    (the index keeps them in `initial_references`; references are published
+    as reference packages instead);
+  - compares each listed file's stored size and SHA-256 with the header (no
+    byte read), then copies the files and last the header, so a public header
+    names public files. `ARTIFACT_COPY = "stream"` (the tracked default until
+    probe G7-x passes and `COPY_INTERFACE_TOKEN` is installed) pipes a binding
+    `get` into a binding `put` carrying the digest, which R2 verifies.
+    `ARTIFACT_COPY = "server"` (configuration, its own deploy) asks the
+    internal signer Worker for a presigned `CopyObject` (source etag pinned,
+    `x-amz-metadata-directive: REPLACE`, storage class `STANDARD`) and sends
+    it, with no byte through this Worker; R2 answering 403 or 501 is a
+    refusal, alerted. Each public copy is
+    then checked by `head()`: its size, and, for a `CopyObject` (which keeps
+    the etag but never carries the stored SHA-256, qualification G7), its
+    etag against the admitted source's; for a stream copy, its stored
+    SHA-256. A public object a run finds already there passes by either.
 
-  Pending artifacts are checked again on every retry, the cluster rule
-  included: a pending member of a cluster whose member is now withheld by a
-  static check (a digest listed after publication, say) is withheld too, by
-  the membership the cohort's summary states, and nothing is copied while
-  that summary is unreadable. A member withheld only after its siblings were
-  published does not withdraw them: a published object is never recalled.
-  A configuration that
-  sets `ARTIFACT_SOURCE_KEY` without `ADMISSION_RECORD_KEY`, a non-empty
-  `PRIVATE_DIGESTS` and a non-empty `OPERATOR_HOTKEYS` is refused. `R_k` is
-  downloadable only when it is a promoted miner artifact published here.
+  Nothing hashes a byte on this path; `subnet/tests/no_object_hash.rs` scans
+  it. The scores do not exist at scoring start, so the public-copy gate and
+  the near-copy clusters no longer decide publication. Uploading through the
+  admission route accepts the CC BY-SA 4.0 submission terms; the roster's
+  signed commitments and the derived keys (which only the coordinator's
+  presigned URLs can fill, with R2-verified bytes) stand for the upload
+  envelope the closure-time copy used to read. The cohort's record
+  `v1/cohorts/<label>/artifacts.json` lists each entry's state, header
+  digest and published keys. Entries wait (an upload not there yet, a store
+  error, the wall budget) and are retried on every run, never skipped or
+  ended by time; a decided cohort is not read again. When the cohort closes,
+  `publication.json` takes each entrant's state from that record: a published
+  header counts only when it is the result's artifact digest (alerted
+  otherwise, `publication_refused`), the static checks still withhold what
+  was not published, and a published object is never recalled. `R_k` is
+  downloadable when it is a promoted miner artifact published here.
+  `ARTIFACT_SOURCE_KEY` and `ADMISSION_RECORD_KEY` (closure-time copies from
+  the eval bucket) are retired: a deployment that still sets one gets a
+  `config_warning`, as does the retired `PUBLISH_ARTIFACTS`. A set
+  `ARTIFACTS_FROM_EPOCH` without a non-empty `PRIVATE_DIGESTS` and
+  `OPERATOR_HOTKEYS` is refused (`config_refused`): the boundary is tracked,
+  so a routine deploy that omits the deploy-time guards is refused and
+  alerted, never a silent stop of publication (which would also keep the
+  admitted objects in the admission bucket, since the eval Worker deletes
+  them only once a closed cohort's publication is reported).
 - **Restarted record.** The public record holds the closed cohorts whose
   manifest opened at or after `PUBLISH_FROM_EPOCH`. Chain epochs only
   increase, so this holds whatever numbering a restarted coordinator uses.
@@ -261,8 +289,9 @@ store.
   A refused cohort is not read again by the same
   build (version and trust roots); a new build retries it.
 - **Read-only on the private side.** R2 bindings cannot be made read-only,
-  so the code writes and deletes only in the public-candidate bucket. The
-  tests check that the private buckets see no write or delete.
+  so the code writes and deletes only in the public-candidate bucket (the
+  receipts and admission buckets are only read). The tests check that the
+  private buckets see no write or delete.
 
 ## Bounded memory
 
@@ -288,8 +317,10 @@ which the measurements exercise and the run does not take.
 - Status bodies are parsed into typed views without a JSON tree. Each may use
   a third of the remaining budget (the body and a growing buffer's copies),
   reserved while it is held.
-- Copies, artifacts included, stream inside the runtime and never enter Wasm
-  memory.
+- Copies, artifacts included, stream inside the runtime (or run inside R2,
+  `ARTIFACT_COPY = "server"`) and never enter Wasm memory. An artifact header
+  is read within `MAX_ARTIFACT_HEADER_LEN`, with its decoded file table (the
+  spec's file count at most, each name at its longest) reserved first.
 
 `tests/arena.rs` measures the real heap peak of verifying cohorts under a
 counting allocator. It checks that the accounting covers that peak.
@@ -614,9 +645,14 @@ wrangler.toml --index <the live v1/cohorts/index.json>` refuses (exit 1) a
 tree whose `RECORD_LABEL_PREFIX` is not the live record's, an earlier
 record's above all (`index::record_check`); `--restart` passes only a new
 prefix, for a restart's commit. The vars set at deploy
-are `PRIVATE_DIGESTS`, `OPERATOR_HOTKEYS`,
-`ARTIFACT_SOURCE_KEY`, `ADMISSION_RECORD_KEY` and
-`NOTICE`. `ADMISSION_ORIGIN` is tracked (`https://testnet-admission.slop.ninja`,
+are `PRIVATE_DIGESTS`, `OPERATOR_HOTKEYS` and `NOTICE` (every publisher
+deploy passes the first two once `ARTIFACTS_FROM_EPOCH` is set; without
+them the configuration is refused). `ARTIFACTS_FROM_EPOCH` is tracked. `ARTIFACT_COPY` (`"stream"` until probe G7-x passes; `"server"`
+after it, as its own deploy) and `ADMISSION_BUCKET_NAME` are
+tracked. The server-side copy also needs the `R2_SIGNER_TESTNET` service
+binding (tracked; deploy the signer first) and the `COPY_INTERFACE_TOKEN`
+secret, shared with the signer; without the token every copy waits with a
+pending reason. `ARTIFACT_COPY = "stream"` needs neither. `ADMISSION_ORIGIN` is tracked (`https://testnet-admission.slop.ninja`,
 the origin `testnet-trust.json` pins). `ALERT_RELAY` is tracked (`"true"`, decision D18). The secrets are
 `COORDINATOR_STATUS_TOKEN` (the publisher's status token for the coordinator
 Worker: that Worker's `STATUS_TOKEN_PUBLISHER`, or the shared pre-split token
@@ -672,14 +708,20 @@ cargo check --manifest-path subnet/publisher/Cargo.toml --target wasm32-unknown-
     `config_warning`, and the relay's `publisher_silent` heartbeat miss);
   - a retried post after a lost answer (one delivery; covered by the relay's
     native tests only);
-  - a stream copy of a full-size artifact (about 610 MB) between buckets.
+  - a server-side `CopyObject` from the admission bucket to the public
+    bucket (qualified within one bucket on 2026-11-05: the etag is kept, the
+    stored SHA-256 is not carried, `REPLACE` drops stored headers; the
+    cross-bucket copy awaits the deployed copy credential);
+  - a stream copy of a full-size artifact file (the tower graph,
+    681,508,964 B) between buckets inside one run's wall budget, for the
+    fallback.
 
   Whether R2 accepts an R2 body stream as a put body without a
   `FixedLengthStream` wrapper is the first thing the live copy confirms.
 - Coordinator follow-ups (its paths belong to the reward-v1 live stream until
   that branch lands):
-  - store each admitted upload's `SubmissionUpload` envelope at the key
-    `ADMISSION_RECORD_KEY` names (W3); until then no artifact is published;
+  - keep admitted objects in the admission bucket until publication at
+    scoring start has decided their entrant (admission v2's retention);
   - refuse plans whose receipt count exceeds the publisher's bound above;
   - a compact status route for the publisher (the active and next cohort,
     the regime, the ledger flag and a journal summary). `/eval/status` lists

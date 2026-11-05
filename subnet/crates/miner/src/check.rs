@@ -1,42 +1,45 @@
 //! Artifact checks.
 //!
 //! [`SpecCheck`] runs the admission checks of the *A* artifact spec through
-//! the artifact-check crate (`slop_ninja_artifact_check`), the same streaming
-//! [`ObjectCheck`](slop_ninja_artifact_check::ObjectCheck) the coordinator
-//! runs at completion: the six-file table, the tokenizer byte match, the role
-//! schemas and bindings, the ONNX pre-parse (custom domains, external data,
-//! operator allow-list), the graph class and the parameter bound. A refusal's
-//! code is the one the coordinator reports in `check_failed`'s
+//! the artifact-check crate (`slop_ninja_artifact_check`) on the object in
+//! place: the six-file table, the tokenizer's pinned digest and length, the
+//! role schemas and bindings (the export manifest's digests compared with the
+//! header's), the ONNX pre-parse (custom domains, external data, operator
+//! allow-list), the graph class and the parameter bound. It hashes no file:
+//! every digest it needs is the header's, which `pack` computed while it
+//! wrote the files (the graph allow-list's structure digest is the one
+//! remaining exception, design decision D5). A file that changed on disk
+//! since `pack` is not caught here: R2 refuses it at upload (`BadDigest`).
+//! A refusal's code is the one the coordinator reports in `check_failed`'s
 //! `detail.check`.
 //!
 //! [`StructuralCheck`] adds what the cohort announces: its output contract and
-//! its object bound. (An object without a graph never gets this far: the
-//! protocol's reader refuses it.)
+//! its object bound. (An object whose header does not decode never gets this
+//! far.)
 //!
 //! When the cohort names another artifact spec than the one compiled in, the
 //! result is [`Outcome::Incomplete`]: this build cannot speak for that spec.
 //!
 //! [`ProvenanceCheck`] warns about JSON strings and keys that read as or
 //! carry a local path ([`crate::provenance`]): the JSON files are published
-//! after the cohort closes. Its warnings never refuse and never leave a check
-//! incomplete, and a scan that cannot run is a note.
+//! when the cohort's scoring starts. Its warnings never refuse and never
+//! leave a check incomplete, and a scan that cannot run is a note.
 
 use std::path::Path;
 
+use crate::object::{ObjectHeader, role_name};
+use crate::provenance::Scan;
 use anyhow::Result;
 use serde::Serialize;
 use slop_ninja_admission_wire::json::ArtifactSpecRef;
 use slop_ninja_artifact_check::Version;
-use slop_ninja_protocol::VerifiedArtifact;
-
-use crate::object::role_name;
-use crate::provenance::Scan;
 
 /// What a check reads.
 #[derive(Clone, Copy, Debug)]
 pub struct CheckContext<'a> {
     pub object: &'a Path,
-    pub verified: &'a VerifiedArtifact,
+    /// The object's header, read without hashing any file.
+    pub header: &'a ObjectHeader,
     /// The cohort's output contract, when known.
     pub expected_contract: Option<&'a str>,
     /// The cohort's `max_object_len`, when known.
@@ -139,7 +142,7 @@ impl ArtifactCheck for StructuralCheck {
 
     fn check(&self, cx: &CheckContext<'_>) -> Result<CheckReport> {
         let mut findings = Vec::new();
-        let header = &cx.verified.header;
+        let header = &cx.header.header;
         if let Some(expected) = cx.expected_contract
             && header.contract != expected
         {
@@ -152,13 +155,13 @@ impl ArtifactCheck for StructuralCheck {
             ));
         }
         if let Some(max) = cx.max_object_len
-            && cx.verified.len > max
+            && cx.header.object_len > max
         {
             findings.push(refusal(
                 "object_too_large",
                 format!(
                     "the object is {} bytes; the cohort allows {max}",
-                    cx.verified.len
+                    cx.header.object_len
                 ),
             ));
         }
@@ -235,17 +238,17 @@ impl ArtifactCheck for SpecCheck {
         }
         match slop_ninja_artifact_check::fs::check_object_for(cx.object, version) {
             Ok(report) => {
-                if report.object_sha256 != cx.verified.sha256.hex() {
+                if report.content_sha256 != cx.header.content.hex() {
                     findings.push(refusal(
                         "object_changed",
-                        "the object changed while it was checked".into(),
+                        "the object's header changed while it was checked".into(),
                     ));
                 }
                 findings.push(note(
                     "admitted_by_spec",
                     format!(
-                        "graph class {}, {} parameters, package {}",
-                        report.graph_class, report.parameters, report.package_sha256
+                        "graph class {}, {} parameters, profile {}",
+                        report.graph_class, report.parameters, report.profile_id
                     ),
                 ));
             }
@@ -282,7 +285,7 @@ impl ArtifactCheck for ProvenanceCheck {
         };
         // A scan that cannot run is a note: this checker never refuses and
         // never makes a check incomplete.
-        let scans = match crate::provenance::scan_object(cx.object, cx.verified) {
+        let scans = match crate::provenance::scan_object(cx.object, cx.header) {
             Ok(scans) => scans,
             Err(error) => {
                 findings.push(note(
@@ -338,8 +341,8 @@ pub fn run_all(
 }
 
 /// Lists the object's files with their roles, for reports.
-pub fn file_lines(verified: &VerifiedArtifact) -> Vec<String> {
-    verified
+pub fn file_lines(object: &ObjectHeader) -> Vec<String> {
+    object
         .header
         .files
         .iter()
@@ -353,14 +356,20 @@ mod tests {
     use slop_ninja_artifact_check::spec;
     use slop_ninja_protocol::{FileRole, artifact_object};
 
-    fn verified(files: &[(&str, FileRole, &[u8])]) -> VerifiedArtifact {
-        VerifiedArtifact::from_bytes(&artifact_object("c-1", files).unwrap()).unwrap()
+    /// The header of an object held in memory (test only).
+    fn header_of(object: &[u8]) -> ObjectHeader {
+        let len = u32::from_le_bytes(object[..4].try_into().unwrap()) as usize;
+        ObjectHeader::from_header_bytes(object[4..4 + len].to_vec()).unwrap()
     }
 
-    fn run(v: &VerifiedArtifact, contract: Option<&str>, max: Option<u64>) -> CheckReport {
+    fn verified(files: &[(&str, FileRole, &[u8])]) -> ObjectHeader {
+        header_of(&artifact_object("c-1", files).unwrap())
+    }
+
+    fn run(v: &ObjectHeader, contract: Option<&str>, max: Option<u64>) -> CheckReport {
         let cx = CheckContext {
             object: Path::new("unused"),
-            verified: v,
+            header: v,
             expected_contract: contract,
             max_object_len: max,
             artifact_spec: None,
@@ -373,7 +382,7 @@ mod tests {
     #[test]
     fn structure_passes_only_with_the_cohort_known() {
         let v = verified(&[("m", FileRole::Graph, b"g")]);
-        let report = run(&v, Some("c-1"), Some(v.len));
+        let report = run(&v, Some("c-1"), Some(v.object_len));
         assert_eq!(report.outcome, Outcome::Pass);
         assert_eq!(run(&v, None, None).outcome, Outcome::Incomplete);
     }
@@ -389,7 +398,10 @@ mod tests {
                 .collect()
         };
         assert_eq!(codes(run(&v, Some("c-2"), None)), ["contract_mismatch"]);
-        assert_eq!(codes(run(&v, None, Some(v.len - 1))), ["object_too_large"]);
+        assert_eq!(
+            codes(run(&v, None, Some(v.object_len - 1))),
+            ["object_too_large"]
+        );
     }
 
     #[test]
@@ -399,10 +411,10 @@ mod tests {
             artifact_object(spec::CONTRACT_ID, &[("model.onnx", FileRole::Graph, b"g")]).unwrap();
         let path = dir.path().join("o");
         std::fs::write(&path, &object).unwrap();
-        let v = VerifiedArtifact::from_bytes(&object).unwrap();
+        let v = header_of(&object);
         let mut cx = CheckContext {
             object: &path,
-            verified: &v,
+            header: &v,
             expected_contract: None,
             max_object_len: None,
             artifact_spec: None,
@@ -459,10 +471,10 @@ mod tests {
         .unwrap();
         let path = dir.path().join("o");
         std::fs::write(&path, &object).unwrap();
-        let v = VerifiedArtifact::from_bytes(&object).unwrap();
+        let v = header_of(&object);
         let cx = CheckContext {
             object: &path,
-            verified: &v,
+            header: &v,
             expected_contract: None,
             max_object_len: None,
             artifact_spec: None,
@@ -532,7 +544,7 @@ mod tests {
         let v = verified(&[("m", FileRole::Graph, b"g")]);
         let cx = CheckContext {
             object: Path::new("unused"),
-            verified: &v,
+            header: &v,
             expected_contract: None,
             max_object_len: None,
             artifact_spec: None,

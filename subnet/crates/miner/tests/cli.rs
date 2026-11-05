@@ -1,10 +1,12 @@
 //! The `slop_ninja_miner` binary against the local mock: argument parsing,
 //! wallet hotkey loading, exit codes, the trust file that pins the
 //! coordinator, `next-cohort` and `status` from the planned public snapshot,
-//! a resumed `upload`, a refused second artifact shown by `status`, `abort` by
-//! id prefix or cohort, and the choice of opening. The commitment is prepared
-//! through the library (the `commit` command needs a chain) and then placed
-//! on the mock's chain table; nothing is submitted anywhere.
+//! a resumed direct `upload` (the objects go to the mock's R2 stub through
+//! the hidden loopback endpoint override), a refused second artifact shown
+//! by `status`, `repair` and `status --repair` after a platform loss, and
+//! the choice of opening. The commitment is prepared through the library
+//! (the `commit` command needs a chain) and then placed on the mock's chain
+//! table; nothing is submitted anywhere.
 
 mod support;
 
@@ -118,7 +120,12 @@ async fn binary_pack_check_upload_and_status() {
         .mode()
         & 0o777;
     assert_eq!(mode, 0o600);
-    let artifact = object::verify_file(&object_path).unwrap();
+    assert!(
+        text(&packed).contains("each file hashed once"),
+        "{}",
+        text(&packed)
+    );
+    let artifact = object::read_header(&object_path).unwrap();
 
     let mock = Mock::start(config(), 1_950).await;
     let url = mock.url();
@@ -230,6 +237,7 @@ async fn binary_pack_check_upload_and_status() {
     mock.register(identity);
     mock.commit(hotkey, 2_000, 4, &prepared.payload);
 
+    let r2 = mock.r2_url();
     let upload = with(
         args(&[
             "upload",
@@ -241,6 +249,8 @@ async fn binary_pack_check_upload_and_status() {
             p(&state),
             "--poll-secs",
             "1",
+            "--r2-endpoint-override",
+            &r2,
         ]),
         &wallet_args,
     );
@@ -258,6 +268,8 @@ async fn binary_pack_check_upload_and_status() {
             "network": "testnet",
             "netuid": 601,
             "admission_origins": [origin],
+            "upload_host": support::mock::S3_HOST,
+            "upload_bucket": support::mock::BUCKET,
         })
         .to_string(),
     )
@@ -276,11 +288,12 @@ async fn binary_pack_check_upload_and_status() {
         text(&other)
     );
 
-    // upload, interrupted after one part, then resumed.
-    let interrupted = run(with(upload.clone(), &["--stop-after-parts", "1"])).await;
+    // upload, interrupted after one object, then resumed.
+    let interrupted = run(with(upload.clone(), &["--stop-after-objects", "1"])).await;
     let out = text(&interrupted);
     assert!(interrupted.status.success(), "{out}");
-    assert!(out.contains("stopped after 1 parts"), "{out}");
+    assert!(out.contains("stopped after 1 objects"), "{out}");
+    assert!(out.contains("objects go straight to R2"), "{out}");
     assert!(
         out.contains(&format!(
             "to coordinator {origin} (pinned by the trust file)"
@@ -290,7 +303,13 @@ async fn binary_pack_check_upload_and_status() {
     let resumed = run(upload.clone()).await;
     let out = text(&resumed);
     assert!(resumed.status.success(), "{out}");
-    assert!(out.contains("(attempt 1) in cohort 7: verified"), "{out}");
+    assert!(out.contains("in cohort 7: verified"), "{out}");
+    // Progress on standard error: each PUT and its bytes.
+    assert!(
+        out.contains("PUT model.onnx") && out.contains("100.0%"),
+        "{out}"
+    );
+    assert_eq!(mock.puts(), 4, "the header, then three files, each once");
     let session_id = out
         .split_whitespace()
         .find(|w| w.len() == 64 && w.bytes().all(|b| b.is_ascii_hexdigit()))
@@ -301,11 +320,11 @@ async fn binary_pack_check_upload_and_status() {
     let second_path = dir.path().join("b.sna");
     let packed = run(pack_args(&second_path, "owner2.json")).await;
     assert!(packed.status.success(), "{}", text(&packed));
-    let second = object::verify_file(&second_path).unwrap();
+    let second = object::read_header(&second_path).unwrap();
     assert_eq!(second.content, artifact.content);
     let mut second_file = prepared.file.clone();
-    second_file.artifact_sha256 = second.sha256.hex();
-    second_file.artifact_len = second.len;
+    second_file.header_sha256 = Some(second.sha256.hex());
+    second_file.header_len = Some(second.len);
     let second_opening = dir.path().join("second-opening.json");
     std::fs::write(&second_opening, serde_json::to_vec(&second_file).unwrap()).unwrap();
     std::fs::set_permissions(&second_opening, std::fs::Permissions::from_mode(0o600)).unwrap();
@@ -319,7 +338,7 @@ async fn binary_pack_check_upload_and_status() {
         "{out}"
     );
 
-    // ...and status shows the refusal, with the live session to abort.
+    // ...and status shows the refusal, with the live session.
     let status = with(
         args(&[
             "status",
@@ -342,26 +361,17 @@ async fn binary_pack_check_upload_and_status() {
         &format!("coordinator {origin} (pinned by the trust file)"),
         "registered: uid 12",
         "commitment at block 2000 extrinsic 4 for cohort 7; matches a local opening",
-        &format!("session {session_id} (attempt 1) in cohort 7: verified"),
+        &format!("session {session_id} in cohort 7: verified"),
         "last refused request: second_artifact",
         &format!("the live session is {session_id}"),
+        "commit again (a new nonce)",
     ] {
         assert!(out.contains(needle), "missing {needle:?} in:\n{out}");
     }
 
-    // abort takes a unique prefix of the id status prints.
-    let abort = with(
-        args(&["abort", "--public", &url, "--trust", p(&trust)]),
-        &wallet_args,
-    );
-    let aborted = run(with(abort.clone(), &[&session_id[..12]])).await;
-    let out = text(&aborted);
-    assert!(aborted.status.success(), "{out}");
-    assert!(out.contains("(attempt 1) in cohort 7: aborted"), "{out}");
-
     // A newer opening that was never committed (a failed submission) does not
     // displace the one the coordinator observed: upload picks that one and
-    // reopens the aborted session as attempt 2.
+    // finds its verified session; nothing is sent again.
     std::thread::sleep(std::time::Duration::from_millis(20));
     commit::prepare(
         &store,
@@ -373,27 +383,17 @@ async fn binary_pack_check_upload_and_status() {
         true,
     )
     .unwrap();
-    let reopened = run(upload.clone()).await;
-    let out = text(&reopened);
-    assert!(reopened.status.success(), "{out}");
-    assert!(out.contains("(attempt 2) in cohort 7: verified"), "{out}");
-
-    // abort --cohort finds the live session itself; upload reopens it again.
-    let aborted = run(with(abort, &["--cohort", "7"])).await;
+    let again = run(upload.clone()).await;
+    let out = text(&again);
+    assert!(again.status.success(), "{out}");
     assert!(
-        text(&aborted).contains("(attempt 2) in cohort 7: aborted"),
-        "{}",
-        text(&aborted)
+        out.contains(&format!("session {session_id} in cohort 7: verified")),
+        "{out}"
     );
-    let reopened = run(upload).await;
-    assert!(
-        text(&reopened).contains("(attempt 3) in cohort 7: verified"),
-        "{}",
-        text(&reopened)
-    );
+    assert_eq!(mock.puts(), 4);
 
     mock.close();
-    let after = run(with(status, &["--cohort", "7"])).await;
+    let after = run(with(status.clone(), &["--cohort", "7"])).await;
     let out = text(&after);
     assert!(after.status.success(), "{out}");
     assert!(
@@ -402,6 +402,78 @@ async fn binary_pack_check_upload_and_status() {
     );
     assert!(out.contains("no cohort is admitting"), "{out}");
     assert!(out.contains("admission closed at cutoff block"), "{out}");
+
+    // A platform loss after admission: status says to repair; repair (by id
+    // prefix) and status --repair send the lost objects again from the local
+    // object, after the close.
+    assert_eq!(mock.lose_objects(&session_id, |key| key.contains("/f/")), 3);
+    let shown = run(with(status.clone(), &["--cohort", "7"])).await;
+    let out = text(&shown);
+    assert!(out.contains("run slop_ninja_miner repair"), "{out}");
+    let repair = with(
+        args(&[
+            "repair",
+            "--artifact",
+            p(&object_path),
+            "--cohort",
+            "7",
+            "--public",
+            &url,
+            "--trust",
+            p(&trust),
+            "--r2-endpoint-override",
+            &r2,
+            &session_id[..12],
+        ]),
+        &wallet_args,
+    );
+    let repaired = run(repair).await;
+    let out = text(&repaired);
+    assert!(repaired.status.success(), "{out}");
+    assert!(
+        out.contains(": admitted") && !out.contains("went missing"),
+        "{out}"
+    );
+    assert_eq!(mock.puts(), 7);
+    assert_eq!(mock.lose_objects(&session_id, |key| key.ends_with("/h")), 1);
+    let fixed = run(with(
+        status,
+        &[
+            "--cohort",
+            "7",
+            "--repair",
+            "--artifact",
+            p(&object_path),
+            "--r2-endpoint-override",
+            &r2,
+            // No trust file here: the release's compiled-in pins would
+            // refuse the mock's host and bucket.
+            "--any-upload-host",
+        ],
+    ))
+    .await;
+    let out = text(&fixed);
+    assert!(fixed.status.success(), "{out}");
+    assert_eq!(mock.puts(), 8);
+    // An endpoint override that is not loopback is refused.
+    let refused = run(args(&[
+        "repair",
+        "--artifact",
+        p(&object_path),
+        "--coordinator",
+        &url,
+        "--r2-endpoint-override",
+        "http://10.0.0.1:9/",
+        "--wallet-path",
+        p(&wallets),
+        "--wallet",
+        "miner",
+        "--hotkey",
+        "h1",
+    ]))
+    .await;
+    assert_eq!(refused.status.code(), Some(2), "{}", text(&refused));
+    assert!(text(&refused).contains("loopback"), "{}", text(&refused));
 
     // A coordinator that cannot be reached (a coordinator outage): status
     // still shows the local openings, then fails on the read (exit 2).

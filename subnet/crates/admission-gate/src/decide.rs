@@ -7,10 +7,14 @@
 //! I/O happens at two points only, each after every check that needs
 //! nothing but the request line and headers: the registration lookup
 //! ([`Io::registered`], answered from the per-isolate roster of the subnet's
-//! hotkeys at the finalized head, read once a block), then the body read
-//! ([`Io::read_body`], within the route's bound). An unsigned, unlisted,
-//! malformed or oversized request costs no I/O; an unregistered one costs
-//! the lookup only.
+//! hotkeys at the finalized head, read once a block; for a session read or
+//! `repair` that it does not pass, the cohort snapshot's repair list,
+//! [`Io::repair_listed`], so a deregistered entrant can still repair), then
+//! the body read ([`Io::read_body`], within the route's bound). An unsigned,
+//! unlisted, malformed or oversized request costs no I/O; an unregistered
+//! one costs the lookup only (and the edge copy of the snapshot for a
+//! session read or a repair), and never reaches the cohort authority unless
+//! the snapshot lists it.
 
 use crate::{
     Access, BODY_TOO_LARGE, Body, CHAIN_UNAVAILABLE, EMPTY_BODY_BYTES, Headers, NOT_REGISTERED, Refusal, SS58_FORMAT,
@@ -52,6 +56,10 @@ pub trait Io {
     /// Whether `who` holds a UID on the subnet at the finalized head.
     /// `Err`: the chain could not be read (the client retries).
     async fn registered(&mut self, who: &AccountId) -> Result<bool, ()>;
+    /// Whether the cohort snapshot lists `who` as waiting for a repair (or
+    /// lists everyone, past its bound): `internal::CohortSnapshot::may_repair`.
+    /// `Err`: the snapshot could not be read.
+    async fn repair_listed(&mut self, who: &AccountId) -> Result<bool, ()>;
     /// The request body, at most `bound` bytes.
     async fn read_body(&mut self, bound: usize) -> Result<Vec<u8>, BodyFailure>;
 }
@@ -63,11 +71,9 @@ pub enum Decision {
     Refuse(Refusal),
     /// The contract's one unsigned read, the cohort response.
     Cohort,
-    /// A part: `part-begin` with this message, then the body (`len` bytes,
-    /// never read by the Worker) streams to R2.
-    Part { forward: Forward, len: u64 },
-    /// One message to the interface operation `op`.
-    Forward { op: &'static str, forward: Forward },
+    /// One message to the interface operation `op` (boxed: the message is
+    /// far larger than the other variants, and one is built per request).
+    Forward { op: &'static str, forward: Box<Forward> },
 }
 
 /// The refusal of a bodiless route whose signed digest is not the empty
@@ -103,10 +109,9 @@ pub async fn decide(io: &mut impl Io, access: &Access, chain: &ChainBinding, r: 
     if let Err(e) = route_fields(&route) {
         return Refuse(e);
     }
-    let declared = match declared_length(body, r.content_length, r.content_encoding) {
-        Ok(n) => n,
-        Err(e) => return Refuse(e),
-    };
+    if let Err(e) = declared_length(body, r.content_length, r.content_encoding) {
+        return Refuse(e);
+    }
     match (body, &route) {
         (Body::Upload, _) if r.content_type.unwrap_or_default().split(';').next().map(str::trim) != Some(UPLOAD_MEDIA_TYPE) => {
             return Refuse(NOT_UPLOAD_MEDIA);
@@ -119,27 +124,29 @@ pub async fn decide(io: &mut impl Io, access: &Access, chain: &ChainBinding, r: 
     {
         return Refuse(OTHER_HOTKEY);
     }
-    // Registration at the finalized head (the roster, in memory).
-    match io.registered(&v.signer).await {
-        Ok(true) => {}
-        Ok(false) => return Refuse(NOT_REGISTERED),
-        Err(()) => return Refuse(CHAIN_UNAVAILABLE),
+    // Registration at the finalized head (the roster, in memory). A
+    // session read or `repair` that it does not pass (an unregistered
+    // signer, or the chain unreadable) goes on only when the cohort
+    // snapshot lists the signer as waiting for a repair: design R4 (repair
+    // is valid in any phase, also for an admitted entrant deregistered
+    // since, and a chain outage never blocks a listed repair), while a
+    // throwaway key's signed traffic never reaches the cohort authority
+    // (review round 2). The authority still authenticates the signer and
+    // requires the session to be the signer's own.
+    let registered = io.registered(&v.signer).await;
+    if registered != Ok(true) {
+        let exempt = matches!(route, Route::ReadSession { .. } | Route::Repair { .. })
+            && io.repair_listed(&v.signer).await == Ok(true);
+        if !exempt {
+            return Refuse(if registered == Ok(false) { NOT_REGISTERED } else { CHAIN_UNAVAILABLE });
+        }
     }
     let mut f = Forward::default();
     match &route {
-        Route::PutPart { session, part } => {
-            let len = declared.unwrap_or(0);
-            f.signed = signed;
-            f.session = (*session).to_owned();
-            f.part = *part;
-            f.content_length = Some(len);
-            return Decision::Part { forward: f, len };
-        }
-        Route::ReadSession { session } | Route::Complete { session } => f.session = (*session).to_owned(),
-        Route::Abort { session, attempt } | Route::Reopen { session, attempt } => {
-            f.session = (*session).to_owned();
-            f.attempt = Some(*attempt);
-        }
+        Route::ReadSession { session }
+        | Route::Complete { session }
+        | Route::Urls { session }
+        | Route::Repair { session } => f.session = (*session).to_owned(),
         Route::ReadHotkey { cohort, hotkey } => {
             f.cohort = *cohort;
             f.hotkey = (*hotkey).to_owned();
@@ -163,7 +170,7 @@ pub async fn decide(io: &mut impl Io, access: &Access, chain: &ChainBinding, r: 
         signed.body = Some(hex::encode(&bytes));
     }
     f.signed = signed;
-    Decision::Forward { op, forward: f }
+    Decision::Forward { op, forward: Box::new(f) }
 }
 
 /// Polls `f` once with a no-op waker: the result of a future whose I/O is
@@ -191,7 +198,11 @@ mod tests {
         chain_down: bool,
         body: Vec<u8>,
         body_fails: Option<BodyFailure>,
+        /// The snapshot lists the signer for a repair.
+        listed: bool,
+        snapshot_down: bool,
         lookups: u32,
+        snapshots: u32,
         reads: u32,
     }
 
@@ -199,6 +210,10 @@ mod tests {
         async fn registered(&mut self, _who: &AccountId) -> Result<bool, ()> {
             self.lookups += 1;
             if self.chain_down { Err(()) } else { Ok(self.registered) }
+        }
+        async fn repair_listed(&mut self, _who: &AccountId) -> Result<bool, ()> {
+            self.snapshots += 1;
+            if self.snapshot_down { Err(()) } else { Ok(self.listed) }
         }
         async fn read_body(&mut self, bound: usize) -> Result<Vec<u8>, BodyFailure> {
             self.reads += 1;
@@ -243,7 +258,7 @@ mod tests {
     fn every_refusal_costs_only_the_io_before_it() {
         let alice = pair("//Alice");
         let sid = "ab".repeat(32);
-        let read_path = format!("/admission/v1/sessions/{sid}");
+        let read_path = format!("/admission/v2/sessions/{sid}");
         let open = Access::Open;
         let reg = || Counting { registered: true, ..Counting::default() };
 
@@ -259,13 +274,54 @@ mod tests {
         assert_eq!((refused(&d), l, b), (ErrorCode::NotFound, 0, 0));
 
         // Unregistered: the lookup only.
-        let (d, l, b) = run(&mut Counting::default(), &open, &r);
+        let urls_path = format!("/admission/v2/sessions/{sid}/urls");
+        let su = signed(&alice, "POST", &urls_path, &[], 100);
+        let ru = Request { method: "POST", path: &urls_path, headers: headers(&su), ..Request::default() };
+        let (d, l, b) = run(&mut Counting::default(), &open, &ru);
         assert_eq!((refused(&d), l, b), (ErrorCode::NotRegistered, 1, 0));
 
         // The chain unreadable: retryable, the lookup only.
         let mut down = Counting { chain_down: true, ..Counting::default() };
-        let (d, l, b) = run(&mut down, &open, &r);
+        let (d, l, b) = run(&mut down, &open, &ru);
         assert_eq!((refused(&d), l, b), (ErrorCode::Unavailable, 1, 0));
+
+        // A session read and `repair` by a registered signer cost the
+        // lookup only; by an unregistered one (or with the chain unreadable)
+        // they go on only when the cohort snapshot lists the signer for a
+        // repair (a deregistered entrant repairs its admitted objects), and
+        // a throwaway key is refused at the gate, never forwarded to the
+        // cohort authority (review round 2).
+        let repair_path = format!("/admission/v2/sessions/{sid}/repair");
+        let sr = signed(&alice, "POST", &repair_path, &[], 100);
+        let rr = Request { method: "POST", path: &repair_path, headers: headers(&sr), ..Request::default() };
+        for (req, want) in [(&r, op::READ), (&rr, op::REPAIR)] {
+            let mut io = reg();
+            let (d, l, _) = run(&mut io, &open, req);
+            assert!(matches!(d, Decision::Forward { op, .. } if op == want), "{d:?}");
+            assert_eq!((l, io.snapshots), (1, 0), "the lookup only");
+            for io in [
+                Counting { listed: true, ..Counting::default() },
+                Counting { listed: true, chain_down: true, ..Counting::default() },
+            ] {
+                let mut io = io;
+                let (d, l, _) = run(&mut io, &open, req);
+                assert!(matches!(d, Decision::Forward { op, .. } if op == want), "{d:?}");
+                assert_eq!((l, io.snapshots), (1, 1));
+            }
+            let mut io = Counting::default();
+            let (d, l, b) = run(&mut io, &open, req);
+            assert_eq!((refused(&d), l, io.snapshots, b), (ErrorCode::NotRegistered, 1, 1, 0), "a throwaway key");
+            let mut io = Counting { chain_down: true, ..Counting::default() };
+            let (d, _, b) = run(&mut io, &open, req);
+            assert_eq!((refused(&d), b), (ErrorCode::Unavailable, 0), "chain down, unlisted: retry");
+            let mut io = Counting { chain_down: true, snapshot_down: true, listed: true, ..Counting::default() };
+            let (d, _, b) = run(&mut io, &open, req);
+            assert_eq!((refused(&d), b), (ErrorCode::Unavailable, 0), "neither readable: retry");
+        }
+        // The list exempts only a session read and a repair.
+        let mut io = Counting { listed: true, ..Counting::default() };
+        let (d, _, _) = run(&mut io, &open, &ru);
+        assert_eq!((refused(&d), io.snapshots), (ErrorCode::NotRegistered, 0));
 
         // Expired by any clock: the authority's to decide against its own
         // cursor, so the gate forwards it (never stricter than the authority).
@@ -276,7 +332,7 @@ mod tests {
         assert_eq!((l, b), (1, 1));
 
         // Oversized by its declared length: no I/O.
-        let create = "/admission/v1/sessions";
+        let create = "/admission/v2/sessions";
         let body = vec![0u8; UPLOAD_BODY_BYTES + 1];
         let s = signed(&alice, "POST", create, &body, 100);
         let too_long = (UPLOAD_BODY_BYTES + 1).to_string();
@@ -309,19 +365,19 @@ mod tests {
         let sid = "ab".repeat(32);
         let open = Access::Open;
         // A bodiless route signed over a non-empty digest.
-        let p = format!("/admission/v1/sessions/{sid}/complete");
+        let p = format!("/admission/v2/sessions/{sid}/complete");
         let s = signed(&alice, "POST", &p, b"x", 100);
         let r = Request { method: "POST", path: &p, headers: headers(&s), ..Request::default() };
         let (d, l, b) = run(&mut Counting { registered: true, ..Counting::default() }, &open, &r);
         assert_eq!((refused(&d), l, b), (ErrorCode::ContentDigestMismatch, 0, 0));
         // A hotkey read for another hotkey.
-        let p = format!("/admission/v1/cohorts/7/hotkeys/{bob}");
+        let p = format!("/admission/v2/cohorts/7/hotkeys/{bob}");
         let s = signed(&alice, "GET", &p, &[], 100);
         let r = Request { method: "GET", path: &p, headers: headers(&s), ..Request::default() };
         let (d, l, b) = run(&mut Counting { registered: true, ..Counting::default() }, &open, &r);
         assert_eq!((refused(&d), l, b), (ErrorCode::Forbidden, 0, 0));
         // The signer's own hotkey read is forwarded.
-        let p = format!("/admission/v1/cohorts/7/hotkeys/{own}");
+        let p = format!("/admission/v2/cohorts/7/hotkeys/{own}");
         let s = signed(&alice, "GET", &p, &[], 100);
         let r = Request { method: "GET", path: &p, headers: headers(&s), ..Request::default() };
         let (d, _, _) = run(&mut Counting { registered: true, ..Counting::default() }, &open, &r);
@@ -329,26 +385,33 @@ mod tests {
     }
 
     #[test]
-    fn a_body_the_platform_could_not_read_is_retried_and_a_part_is_never_read() {
+    fn a_body_the_platform_could_not_read_is_retried_and_no_route_takes_an_upload() {
         let alice = pair("//Alice");
         let sid = "ab".repeat(32);
         let open = Access::Open;
-        let p = format!("/admission/v1/sessions/{sid}");
+        let p = format!("/admission/v2/sessions/{sid}");
         let s = signed(&alice, "GET", &p, &[], 100);
         let r = Request { method: "GET", path: &p, headers: headers(&s), ..Request::default() };
         let mut io = Counting { registered: true, body_fails: Some(BodyFailure::Unavailable), ..Counting::default() };
         let (d, _, _) = run(&mut io, &open, &r);
         let Decision::Refuse(e) = d else { panic!("{d:?}") };
         assert!(e.code.retryable() && e.retry_after.is_some());
-        // A part: the lookup, then the part-begin message; its body is R2's.
-        let p = format!("/admission/v1/sessions/{sid}/parts/3");
+        // Version 1's part route does not exist: refused before any I/O.
+        let p = format!("/admission/v2/sessions/{sid}/parts/3");
         let s = signed(&alice, "PUT", &p, b"part bytes", 100);
         let r = Request { method: "PUT", path: &p, headers: headers(&s), content_length: Some("10"), ..Request::default() };
         let (d, l, b) = run(&mut Counting { registered: true, ..Counting::default() }, &open, &r);
-        let Decision::Part { forward, len } = d else { panic!("{d:?}") };
-        assert_eq!((len, forward.part, forward.content_length, l, b), (10, 3, Some(10), 1, 0));
+        assert!(matches!(d, Decision::Refuse(ref e) if e.code == ErrorCode::BadRequest), "{d:?}");
+        assert_eq!((l, b), (0, 0));
+        // `urls` forwards the session; a body is refused.
+        let p = format!("/admission/v2/sessions/{sid}/urls");
+        let s = signed(&alice, "POST", &p, &[], 100);
+        let r = Request { method: "POST", path: &p, headers: headers(&s), ..Request::default() };
+        let (d, _, _) = run(&mut Counting { registered: true, ..Counting::default() }, &open, &r);
+        let Decision::Forward { op: o, forward } = d else { panic!("{d:?}") };
+        assert_eq!((o, forward.session.as_str()), (op::URLS, sid.as_str()));
         // The cohort read: no I/O here (its storage read is the Worker's).
-        let r = Request { method: "GET", path: "/admission/v1/cohort", ..Request::default() };
+        let r = Request { method: "GET", path: "/admission/v2/cohort", ..Request::default() };
         let (d, l, b) = run(&mut Counting::default(), &open, &r);
         assert_eq!((d, l, b), (Decision::Cohort, 0, 0));
     }

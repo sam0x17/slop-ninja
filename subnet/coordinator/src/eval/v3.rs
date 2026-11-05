@@ -69,7 +69,7 @@ use slop_ninja_protocol::reward_v1::{self, ArchiveProbe, Graded, Measurements};
 use slop_ninja_protocol::submission::{CohortClosure, PublishedOpening, SubmissionOpening};
 use slop_ninja_protocol::{
     AccountId, BatchDesign, CalculationTargetV2, CanaryAudit, ChainBinding, CohortManifestV2, CohortSchedule,
-    Component, ComponentRole, CutoffMode, Digest, EntrantFingerprint, EntrantScore, Fingerprint, Gate, GateFailure,
+    CutoffMode, Digest, EntrantFingerprint, EntrantScore, Fingerprint, Gate, GateFailure,
     HUMAN_FPR_LOOSE_REASON, InferenceContent, MAX_ROSTER, NearStats, NeuronIdentity, Nonce, Origin, OriginMix,
     Probability, ProbeBinding, ProbeMatch, PromotionAudit, PublishedIndex, Record, ReferenceModel, ReferenceScore,
     QuantRecord, QuantizedResult, ReferenceSet, RewardRule, RewardV1Params, RosterEntry, ScorePackageV2, Stratum,
@@ -168,55 +168,66 @@ pub const PACKAGE_REFUSED: &str = "package_refused";
 
 // ---------------------------------------------------------------- artifacts
 
-/// The inference content of a scorer artifact (`slop_ninja_a_artifact_files_v1`):
-/// the contract and each inference component by role, SHA-256 and length. The
-/// export manifest is metadata and excluded; any other role is refused.
-pub fn content_of(manifest_bytes: &[u8]) -> Result<InferenceContent, &'static str> {
-    let v: Value = serde_json::from_slice(manifest_bytes).map_err(|_| "artifact manifest json")?;
-    let field = |o: &Value, k: &str| o.get(k).cloned().unwrap_or(Value::Null);
-    if field(&v, "schema") != "slop_ninja_a_artifact_files_v1" {
+/// The header a scorer artifact's files manifest v2
+/// (`slop_ninja_a_artifact_files_v2`) lists: every file by name, role,
+/// length and SHA-256 (the header's, which R2 verified at ingest for an
+/// admitted entrant, or the pack's for an operator-staged reference).
+/// Nothing is read but the manifest; any other schema is refused.
+pub fn header_of(manifest_bytes: &[u8]) -> Result<slop_ninja_protocol::ArtifactHeader, &'static str> {
+    use slop_ninja_artifact_check::files_manifest::{FILES_SCHEMA_V2, FilesManifest, MAX_MANIFEST_BYTES};
+    if manifest_bytes.len() > MAX_MANIFEST_BYTES {
+        return Err("artifact manifest size");
+    }
+    let m: FilesManifest = serde_json::from_slice(manifest_bytes).map_err(|_| "artifact manifest schema")?;
+    if m.schema != FILES_SCHEMA_V2 {
         return Err("artifact manifest schema");
     }
-    let contract = field(&v, "contract").as_str().ok_or("artifact contract")?.to_owned();
-    let mut components = Vec::new();
-    for f in field(&v, "files").as_array().ok_or("artifact files")? {
-        let role = match field(f, "role").as_str().ok_or("artifact role")? {
-            "encoder_graph" => ComponentRole::Graph,
-            "heads" => ComponentRole::Weights,
-            "tokenizer" => ComponentRole::Tokenizer,
-            "calibration" => ComponentRole::Calibration,
-            "contract" => ComponentRole::OutputSchema,
-            "export_manifest" => continue,
-            _ => return Err("undeclared artifact role"),
-        };
-        let sha = field(f, "sha256").as_str().and_then(parse_digest).ok_or("artifact file digest")?;
-        let len = field(f, "bytes").as_u64().ok_or("artifact file length")?;
-        components.push(Component { role, sha256: sha, len });
-    }
-    components.sort();
-    let c = InferenceContent { contract, components };
-    c.validate().map_err(|_| "inference content")?;
-    Ok(c)
+    m.header().map_err(|_| "artifact header")
 }
 
-/// Content digest and artifact digest (the files manifest's SHA-256) of one artifact.
+/// The inference content of a scorer artifact: the contract and each
+/// inference component of its header by role, SHA-256 and length. The
+/// export manifest is owner metadata and excluded.
+pub fn content_of(manifest_bytes: &[u8]) -> Result<InferenceContent, &'static str> {
+    header_of(manifest_bytes)?.content().map_err(|_| "inference content")
+}
+
+/// Content digest and artifact digest of one artifact. The artifact digest
+/// is the SHA-256 of its canonical header record (`EntrantScore::artifact`,
+/// what `check_published_artifact` compares a published header with); the
+/// package (the files manifest's digest, which the scorer binds) stays the
+/// plan's `package_sha256`. For an admitted entrant it is the header digest
+/// admission recorded (the committed one R2 verified at ingest): nothing on
+/// our side hashes it again.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ArtifactDigests {
     pub content: H,
     pub artifact: H,
 }
 
-pub fn artifact_digests(manifest_bytes: &[u8]) -> Result<ArtifactDigests, &'static str> {
-    let c = content_of(manifest_bytes)?;
-    Ok(ArtifactDigests {
-        content: H(c.digest().map_err(|_| "content digest")?),
-        artifact: H(Digest(sha2_digest(manifest_bytes))),
-    })
+///
+/// `recorded`: the header digest admission recorded for an admitted
+/// entrant (`admission::recorded_header_sha256`). Without one (a reference
+/// or an operator-roster entrant, whose header no upload verified), the
+/// digest of the header record re-encoded from the files manifest, a small
+/// record of our own ([`record_digest`], the lint's one named exception in
+/// this module).
+pub fn artifact_digests(manifest_bytes: &[u8], recorded: Option<Digest>) -> Result<ArtifactDigests, &'static str> {
+    let header = header_of(manifest_bytes)?;
+    let c = header.content().map_err(|_| "inference content")?;
+    let artifact = match recorded {
+        Some(d) => d,
+        None => record_digest(&header.to_bytes().map_err(|_| "artifact header")?),
+    };
+    Ok(ArtifactDigests { content: H(c.digest().map_err(|_| "content digest")?), artifact: H(artifact) })
 }
 
-fn sha2_digest(b: &[u8]) -> [u8; 32] {
+/// The SHA-256 of a small record of our own: a header record that no upload
+/// verified (a reference's or an operator-roster entrant's, re-encoded from
+/// its files manifest), or the batch index.
+fn record_digest(record: &[u8]) -> Digest {
     use sha2::Digest as _;
-    sha2::Sha256::digest(b).into()
+    Digest(sha2::Sha256::digest(record).into())
 }
 
 // ----------------------------------------------------------------- v3 state
@@ -1792,7 +1803,7 @@ pub fn prepare_seal(sql: &impl Sql, cfg: &EvalConfig, seq: i64, inputs: &SealInp
                 .into_iter()
                 .map(|((domain, origin), cases)| Stratum { domain, origin, cases })
                 .collect(),
-            batch: Digest(sha2_digest(&index)),
+            batch: record_digest(&index),
         },
         params: RewardV1Params::new(v.sigma, v.quant_params().map_err(|e| EvalError::Plan(e.0))?),
         references,

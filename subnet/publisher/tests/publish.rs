@@ -6,7 +6,9 @@ mod common;
 
 use common::*;
 use slop_ninja_protocol::{CalculationTargetV2, object_sha256};
+use slop_ninja_protocol::fixtures_reward_v1 as fx;
 use slop_ninja_publisher::arena::Budget;
+use slop_ninja_publisher::artifacts::StartRecord;
 use slop_ninja_publisher::index::{ArtifactState, Publication};
 use slop_ninja_publisher::layout;
 use slop_ninja_publisher::leaderboard::LeaderboardDoc;
@@ -466,7 +468,11 @@ fn nothing_private_is_published() {
     // Only the documented layout.
     for key in &keys {
         assert!(
-            key == layout::SITE_INDEX || key == layout::SITE_STYLE || key.starts_with("v1/"),
+            key == layout::SITE_INDEX
+                || key == layout::SITE_STYLE
+                || key.starts_with("v1/")
+                || key.starts_with("artifacts/v2/")
+                || key.starts_with("blobs/sha256/"),
             "{key} outside the layout"
         );
     }
@@ -698,151 +704,373 @@ fn artifact_of(p: &Publication, uid: u16) -> &slop_ninja_publisher::index::Artif
     p.artifacts.iter().find(|a| a.uid == uid).unwrap()
 }
 
-/// Artifact publication is default-deny, on a roster shaped like the
-/// rehearsal's (cohort 8): an earlier manifest's `R_0` entered as an
-/// ordinary entrant with an identical copy and a near copy, operator and
-/// synthetic entrants without an admission record, an operator hotkey with
-/// one, a mismatched record, and public-copy gate failures. Only admitted
-/// outside entrants are published.
+fn start_of(r: &StartRecord, uid: u16) -> &slop_ninja_publisher::artifacts::StartEntry {
+    r.entrants.iter().find(|e| e.uid == uid).unwrap()
+}
+
+fn closure_key(b: &Built) -> String {
+    format!("{}/{}", dir(&b.label), verify::CLOSURE)
+}
+
+/// Holds the cohort at scoring start: its closure is not written yet.
+fn unclose(b: &Built, x: &Buckets3) -> Vec<u8> {
+    let key = closure_key(b);
+    let bytes = x.receipts.bytes(&key).unwrap();
+    x.receipts.remove(&key);
+    bytes
+}
+
+/// The direct uploads of entrant `uid`, as stored.
+fn uploaded(b: &Built, uid: u16) -> Uploaded {
+    let e = uid_of(b, uid);
+    let spec = b.c.specs.iter().find(|s| fx::hotkey(s.tag) == e.identity.hotkey).unwrap();
+    split(&fx::artifact_bytes(spec))
+}
+
+fn published_keys(x: &Buckets3) -> Vec<String> {
+    x.public
+        .keys()
+        .into_iter()
+        .filter(|k| k.starts_with("artifacts/") || k.starts_with("blobs/"))
+        .collect()
+}
+
+/// Publication at scoring start, on a roster shaped like the rehearsal's
+/// (cohort 8): before the cohort closes, every admitted entrant's header and
+/// files are copied from the admission bucket to their digest keys, except
+/// an operator hotkey's and an earlier manifest's `R_0` entered as an
+/// ordinary entrant (with its identical copy), which are withheld; an
+/// entrant whose file is not uploaded yet waits. No score-dependent rule
+/// withholds anything (the scores do not exist yet). At closure the
+/// publication record reports the same states, each published header
+/// checked against the package's artifact digest, and copies nothing more.
 #[test]
-fn artifact_publication_is_default_deny() {
+fn artifacts_are_published_at_scoring_start() {
     let b = build(0);
     let x = buckets(&b);
+    let closure = unclose(&b, &x);
     let mut cfg = config(Some(0), true);
     // uid 19 is one of ours.
     cfg.operator_hotkeys.insert(uid_of(&b, 19).identity.hotkey);
-    // uid 17's content was `R_0` in an earlier manifest (since replaced).
-    let r0 = uid_of(&b, 17);
+    // uid 17's content was `R_0` in an earlier manifest (since replaced);
+    // uid 22 is an identical copy of it.
     let mut memo = Memo::default();
     memo.references.insert(ReferenceDigests {
-        content: r0.content.hex(),
+        content: uid_of(&b, 17).content.hex(),
         artifact: "00".repeat(32),
     });
-    // uid 20 entered from the operator's plan: no admission record.
-    x.eval
-        .remove(&admission_key(&b.label, &uid_of(&b, 20).identity.hotkey));
-    // uid 21's stored record is another entrant's upload.
-    let other = x
-        .eval
-        .bytes(&admission_key(&b.label, &uid_of(&b, 31).identity.hotkey))
-        .unwrap();
-    x.eval.insert(
-        &admission_key(&b.label, &uid_of(&b, 21).identity.hotkey),
-        other,
-    );
-    // uid 26's object is not uploaded yet.
-    let missing = ARTIFACT_TEMPLATE.replace("{sha256}", &uid_of(&b, 26).artifact.hex());
-    let saved = x.eval.bytes(&missing).unwrap();
-    x.eval.remove(&missing);
+    // uid 26's largest file is not uploaded yet.
+    let cohort = b.c.manifest.cohort;
+    let u26 = uploaded(&b, 26);
+    let (late_sha, late_bytes) = u26.files.iter().max_by_key(|f| f.1.len()).unwrap().clone();
+    let late_key = file_key(cohort, &uid_of(&b, 26).commitment, &late_sha);
+    x.admission.remove(&late_key);
 
     let (report, idx) = run(&cfg, &x, &mut memo);
-    let idx = idx.unwrap();
-    assert_eq!(report.published, vec![b.label.clone()]);
-    let p: Publication = public_json(&x, &layout::publication(&b.label));
-    let reason = |uid| artifact_of(&p, uid).reason.clone().unwrap_or_default();
-    let state = |uid| artifact_of(&p, uid).state;
+    assert!(report.published.is_empty(), "the cohort is not closed");
+    assert!(idx.unwrap().cohorts.iter().all(|c| c.label != b.label));
+    assert!(x.public.bytes(&layout::publication(&b.label)).is_none());
+    let rec: StartRecord = public_json(&x, &layout::artifacts_record(&b.label));
+    assert_eq!(rec.schema, slop_ninja_publisher::artifacts::ARTIFACTS_SCHEMA);
+    assert_eq!(rec.copy, "stream");
+    assert_eq!(rec.entrants.len(), b.c.manifest.roster.len());
     let withheld = [
         (17, publish::WITHHELD_INITIAL),
         (22, publish::WITHHELD_INITIAL),
-        (27, publish::WITHHELD_CLUSTER),
         (19, publish::WITHHELD_OPERATOR),
-        (20, publish::WITHHELD_NOT_ADMITTED),
-        (21, publish::WITHHELD_ADMISSION),
-        (29, publish::WITHHELD_COPY),
-        (30, publish::WITHHELD_COPY),
-        (32, publish::WITHHELD_COPY),
-        (34, publish::WITHHELD_COPY),
     ];
     for (uid, why) in withheld {
-        assert_eq!(state(uid), ArtifactState::Withheld, "uid {uid}");
-        assert_eq!(reason(uid), why, "uid {uid}");
-        let e = uid_of(&b, uid);
-        assert!(
-            x.public.bytes(&layout::artifact(&e.artifact)).is_none(),
-            "uid {uid} published"
-        );
+        let s = start_of(&rec, uid);
+        assert_eq!(s.state, ArtifactState::Withheld, "uid {uid}");
+        assert_eq!(s.reason.as_deref(), Some(why), "uid {uid}");
+        assert!(x.public.bytes(&layout::header(&uid_of(&b, uid).artifact)).is_none(), "uid {uid}");
     }
-    for uid in [18, 23, 28, 24, 25, 31, 35] {
-        assert_eq!(state(uid), ArtifactState::Published, "uid {uid}");
-        let e = uid_of(&b, uid);
-        let published = x.public.bytes(&layout::artifact(&e.artifact)).unwrap();
-        assert_eq!(object_sha256(&published), e.artifact);
+    let mut published = 0;
+    for e in &b.c.package.entrants {
+        let uid = e.identity.uid;
+        if withheld.iter().any(|w| w.0 == uid) || uid == 26 {
+            continue;
+        }
+        let s = start_of(&rec, uid);
+        assert_eq!(s.state, ArtifactState::Published, "uid {uid}: {:?}", s.reason);
+        assert_eq!(s.header.as_deref(), Some(e.artifact.hex().as_str()), "uid {uid}");
+        assert_eq!(s.path.as_deref(), Some(layout::header(&e.artifact).as_str()));
+        let u = uploaded(&b, uid);
+        assert_eq!(x.public.bytes(&layout::header(&e.artifact)).unwrap(), u.header);
+        for (sha, bytes) in &u.files {
+            assert_eq!(&x.public.bytes(&layout::blob(sha)).unwrap(), bytes, "uid {uid}");
+            let f = s.files.iter().find(|f| f.sha256 == sha.hex()).unwrap();
+            assert_eq!((f.bytes, f.path.as_str(), f.check.as_str()), (bytes.len() as u64, layout::blob(sha).as_str(), "sha256"));
+        }
+        published += 1;
     }
-    assert_eq!(state(26), ArtifactState::Pending);
-    assert_eq!(reason(26), publish::WAIT_SOURCE);
-    // The mismatched record alerts; the pending copy alerts after a tempo.
-    assert!(
-        report
-            .refused
-            .iter()
-            .any(|(s, r)| s.starts_with(&b.label) && r == publish::WITHHELD_ADMISSION),
-        "{report:?}"
-    );
-    assert!(
-        report
-            .pending
-            .iter()
-            .any(|(s, r)| s.contains("/artifact-") && r == publish::WAIT_SOURCE),
-        "{report:?}"
-    );
-    // The fixture manifest's own initial reference (`R_0`, the predecessor
-    // of `R_1`) is recorded in the index for every later cohort.
-    let initial = slop_ninja_publisher::index::initial_reference(&b.c.manifest.references).unwrap();
-    assert!(
-        idx.initial_references
-            .iter()
-            .any(|r| r.content == initial.content.hex() && r.artifact == initial.artifact.hex())
-    );
-    let entry = entry_of(&idx, &b.label);
-    assert_eq!(entry.artifacts_pending, 1);
-    assert_eq!(entry.artifacts_withheld, withheld.len() as u32);
+    assert!(published >= 10, "{published}");
+    let s26 = start_of(&rec, 26);
+    assert_eq!(s26.state, ArtifactState::Pending);
+    assert_eq!(s26.reason.as_deref(), Some(slop_ninja_publisher::artifacts::WAIT_FILE));
+    assert!(x.public.bytes(&layout::header(&uid_of(&b, 26).artifact)).is_none(), "a header waits for its files");
+    assert!(report.pending.iter().any(|(s, r)| s.contains("/artifact-") && r == slop_ninja_publisher::artifacts::WAIT_FILE), "{report:?}");
+    assert!(!memo.artifacts_done.contains(&b.label));
+    // Every public object is checked by R2 against its digest as it is
+    // written (the store's stored checksum), never hashed on our side.
+    for key in published_keys(&x) {
+        assert!(x.public.objects.borrow()[&key].sha256.is_some(), "{key}");
+    }
 
-    // The upload lands; a later run publishes it and refreshes the records.
-    x.eval.insert(&missing, saved);
+    // The upload lands: the next run publishes it, and the cohort is done.
+    x.admission.insert_checked(&late_key, late_bytes, late_sha);
+    let (report, _) = run(&cfg, &x, &mut memo);
+    assert_eq!(report.artifacts_copied, 1, "{report:?}");
+    let rec: StartRecord = public_json(&x, &layout::artifacts_record(&b.label));
+    assert_eq!(start_of(&rec, 26).state, ArtifactState::Published);
+    assert!(memo.artifacts_done.contains(&b.label));
+    // Each run reported to the eval Worker: the decided entrants, and the
+    // entrant whose file was absent as missing (the eval Worker audits it
+    // and lists it for the miner's repair); the last report has every
+    // entrant decided.
+    let reports = x.reports.taken.borrow();
+    let commitment_26 = start_of(&rec, 26).commitment.clone();
+    assert!(
+        reports[0].2.iter().any(|e| e.commitment == commitment_26 && e.state == "missing"),
+        "{:?}",
+        reports[0]
+    );
+    assert!(reports.iter().all(|r| r.1 == b.label), "each report names the cohort's label");
+    let last = &reports.last().unwrap().2;
+    assert_eq!(last.len(), rec.entrants.len());
+    assert!(last.iter().all(|e| e.state == "published" || e.state == "withheld"));
+    assert!(last.iter().any(|e| e.commitment == commitment_26 && e.state == "published"));
+    drop(reports);
+    let reads = x.admission.bytes_read.get();
+    let (report, _) = run(&cfg, &x, &mut memo);
+    assert_eq!(report.artifacts_copied, 0);
+    assert_eq!(x.admission.bytes_read.get(), reads, "a decided cohort is not read again");
+
+    // The cohort closes: its record reports what scoring start published,
+    // checked against the package, and copies nothing.
+    let before = published_keys(&x);
+    x.receipts.insert(&closure_key(&b), closure);
     let (report, idx) = run(&cfg, &x, &mut memo);
-    assert!(report.artifacts_copied >= 1, "{report:?}");
-    assert_eq!(entry_of(&idx.unwrap(), &b.label).artifacts_pending, 0);
+    assert_eq!(report.published, vec![b.label.clone()]);
+    assert_eq!(report.artifacts_copied, 0);
+    assert!(report.refused.is_empty(), "{report:?}");
+    assert_eq!(published_keys(&x), before);
     let p: Publication = public_json(&x, &layout::publication(&b.label));
-    assert_eq!(artifact_of(&p, 26).state, ArtifactState::Published);
+    for (uid, why) in withheld {
+        assert_eq!(artifact_of(&p, uid).state, ArtifactState::Withheld, "uid {uid}");
+        assert_eq!(artifact_of(&p, uid).reason.as_deref(), Some(why));
+    }
+    for a in p.artifacts.iter().filter(|a| a.state == ArtifactState::Published) {
+        assert_eq!(a.path.as_deref(), Some(layout::header(&uid_of(&b, a.uid).artifact).as_str()));
+    }
+    let idx = idx.unwrap();
+    let entry = entry_of(&idx, &b.label);
+    assert_eq!((entry.artifacts_withheld, entry.artifacts_pending), (3, 0));
     let doc: LeaderboardDoc = public_json(&x, layout::LEADERBOARD);
     let row = doc.entrants.iter().find(|r| r.entrant.uid == 26).unwrap();
-    assert_eq!(
-        row.artifact.as_ref().unwrap().state,
-        ArtifactState::Published
-    );
+    assert_eq!(row.artifact.as_ref().unwrap().state, ArtifactState::Published);
+    // The fixture manifest's own initial reference (`R_0`, the predecessor
+    // of `R_1`) is recorded in the index for every later cohort.
+    let idx: slop_ninja_publisher::index::CohortIndex = public_json(&x, layout::COHORT_INDEX);
+    let initial = slop_ninja_publisher::index::initial_reference(&b.c.manifest.references).unwrap();
+    assert!(idx.initial_references.iter().any(|r| r.content == initial.content.hex()));
 }
 
-/// Without the admission layout nothing is copied, and the static checks
-/// still withhold what they can.
+/// Without `ARTIFACTS_FROM_EPOCH` nothing is copied, no scoring-start record is
+/// written, and closed cohorts list their artifacts as pending (the static
+/// checks still withhold what they can).
 #[test]
-fn without_the_admission_layout_artifacts_wait() {
+fn without_publication_enabled_nothing_is_copied() {
     let b = build(0);
     let x = buckets(&b);
-    run(&config(Some(0), false), &x, &mut Memo::default())
-        .1
-        .unwrap();
+    let (report, _) = run(&config(Some(0), false), &x, &mut Memo::default());
+    assert_eq!(report.artifacts_copied, 0);
+    assert!(published_keys(&x).is_empty());
+    assert!(x.public.bytes(&layout::artifacts_record(&b.label)).is_none());
+    assert_eq!(x.admission.bytes_read.get(), 0, "the admission bucket is not read");
     let p: Publication = public_json(&x, &layout::publication(&b.label));
     for a in &p.artifacts {
         match a.state {
-            ArtifactState::Pending => {
-                assert_eq!(a.reason.as_deref(), Some(publish::WAIT_LAYOUT))
-            }
+            ArtifactState::Pending => assert_eq!(a.reason.as_deref(), Some(publish::WAIT_DISABLED)),
             ArtifactState::Withheld => {}
             ArtifactState::Published => panic!("uid {} published", a.uid),
         }
     }
-    assert!(
-        x.public
-            .keys()
-            .iter()
-            .all(|k| !k.starts_with("v1/artifacts/"))
-    );
 }
 
-/// A pending artifact is checked again on every retry: a digest listed
-/// private after publication started, or an initial reference recorded in
-/// the public index since, withholds it for good, even once its object is
-/// uploaded.
+/// A cohort before the public record is never published at scoring start.
+#[test]
+fn cohorts_before_the_record_are_not_published_at_scoring_start() {
+    let b = build(0);
+    let x = buckets(&b);
+    unclose(&b, &x);
+    let mut memo = Memo::default();
+    let (report, _) = run(&config(Some(u64::MAX), true), &x, &mut memo);
+    assert_eq!(report.artifacts_copied, 0);
+    assert!(published_keys(&x).is_empty());
+    assert!(memo.artifacts_done.contains(&b.label), "remembered, never read again");
+}
+
+/// Each integrity rule refuses with an alert and waits, and publishes
+/// nothing of that entrant: a header object without R2's stored checksum (a
+/// platform fault, never a pass), a file object whose stored digest or size
+/// is not the header's, a header that declares more files than the spec's
+/// table, and bytes R2 refuses against the digest during the stream.
+#[test]
+fn integrity_faults_are_refused_and_publish_nothing() {
+    for fault in ["no_checksum", "file_digest", "file_size", "too_many_files", "tampered"] {
+        let b = build(0);
+        let x = buckets(&b);
+        unclose(&b, &x);
+        let cfg = config(Some(0), true);
+        let e = uid_of(&b, 31).clone();
+        let cohort = b.c.manifest.cohort;
+        let u = uploaded(&b, 31);
+        let hkey = header_key(cohort, &e.commitment);
+        let (fsha, fbytes) = u.files[0].clone();
+        let fkey = file_key(cohort, &e.commitment, &fsha);
+        let want = match fault {
+            "no_checksum" => {
+                x.admission.insert(&hkey, u.header.clone());
+                slop_ninja_publisher::artifacts::REFUSED_NO_CHECKSUM
+            }
+            "file_digest" => {
+                x.admission.insert_checked(&fkey, fbytes.clone(), slop_ninja_protocol::Digest([1; 32]));
+                slop_ninja_publisher::artifacts::REFUSED_FILE_MISMATCH
+            }
+            "file_size" => {
+                let mut longer = fbytes.clone();
+                longer.push(0);
+                x.admission.insert_checked(&fkey, longer, fsha);
+                slop_ninja_publisher::artifacts::REFUSED_FILE_MISMATCH
+            }
+            "too_many_files" => {
+                let mut h = u.header.clone();
+                let kind = u32::from_le_bytes(h[..4].try_into().unwrap()) as usize;
+                let at = 4 + kind + 2;
+                let contract = u32::from_le_bytes(h[at..at + 4].try_into().unwrap()) as usize;
+                let count_at = at + 4 + contract;
+                h[count_at..count_at + 4].copy_from_slice(&7u32.to_le_bytes());
+                x.admission.insert_checked(&hkey, h, u.header_sha256);
+                slop_ninja_publisher::artifacts::REFUSED_FILE_COUNT
+            }
+            _ => {
+                x.admission.tamper_on_copy.borrow_mut().insert(fkey.clone());
+                slop_ninja_publisher::artifacts::REFUSED_R2
+            }
+        };
+        let (report, _) = run(&cfg, &x, &mut Memo::default());
+        let rec: StartRecord = public_json(&x, &layout::artifacts_record(&b.label));
+        let s = start_of(&rec, 31);
+        assert_eq!(s.state, ArtifactState::Pending, "{fault}");
+        assert_eq!(s.reason.as_deref(), Some(want), "{fault}");
+        assert!(report.refused.iter().any(|(_, r)| r == want), "{fault}: {report:?}");
+        assert!(x.public.bytes(&layout::header(&e.artifact)).is_none(), "{fault}");
+        if fault != "tampered" {
+            assert!(x.public.bytes(&layout::blob(&fsha)).is_none(), "{fault}");
+        }
+        // Other entrants are not held by it.
+        assert_eq!(start_of(&rec, 35).state, ArtifactState::Published, "{fault}");
+    }
+}
+
+/// The server-side copy (`ARTIFACT_COPY = "server"`, the default): each
+/// object is copied inside R2 with the source etag pinned and the metadata
+/// replaced; `CopyObject` keeps the etag but never the stored SHA-256
+/// (qualification G7), so the copy is checked by its size and the source's
+/// etag, even if a checksum showed up. Without the signer binding it waits;
+/// a source replaced since its etag was read is not copied; R2's refusal
+/// (403, or 501 like 403) is refused with an alert, never published.
+#[test]
+fn the_server_side_copy_is_checked_by_etag() {
+    for carry in [true, false] {
+        let b = build(0);
+        let x = buckets(&b);
+        unclose(&b, &x);
+        let mut cfg = config(Some(0), true);
+        cfg.artifact_copy = slop_ninja_publisher::config::CopyMode::Server;
+        // No signer binding: everything waits.
+        let (report, _) = run(&cfg, &x, &mut Memo::default());
+        assert_eq!(report.artifacts_copied, 0);
+        let rec: StartRecord = public_json(&x, &layout::artifacts_record(&b.label));
+        assert_eq!(start_of(&rec, 31).reason.as_deref(), Some(slop_ninja_publisher::artifacts::WAIT_SIGNER));
+        assert!(published_keys(&x).is_empty());
+
+        let server = MemServerCopy {
+            admission: &x.admission,
+            public: &x.public,
+            carry_checksum: carry,
+            refuse: None,
+            calls: std::cell::Cell::new(0),
+        };
+        let mut memo = Memo::default();
+        let (report, _) = run_copying(&cfg, &x, &mut memo, &Budget::worker(), Some(&server));
+        assert!(report.artifacts_copied >= 10, "{report:?}");
+        assert!(server.calls.get() > 0);
+        let rec: StartRecord = public_json(&x, &layout::artifacts_record(&b.label));
+        assert_eq!(rec.copy, "server");
+        let s = start_of(&rec, 31);
+        assert_eq!(s.state, ArtifactState::Published);
+        assert!(s.files.iter().all(|f| f.check == "etag"), "{carry}: {:?}", s.files);
+        let u = uploaded(&b, 31);
+        assert_eq!(x.public.bytes(&layout::header(&u.header_sha256)).unwrap(), u.header);
+        assert!(memo.artifacts_done.contains(&b.label));
+    }
+    for status in [403u16, 501] {
+        let b = build(0);
+        let x = buckets(&b);
+        unclose(&b, &x);
+        let mut cfg = config(Some(0), true);
+        cfg.artifact_copy = slop_ninja_publisher::config::CopyMode::Server;
+        let server = MemServerCopy {
+            admission: &x.admission,
+            public: &x.public,
+            carry_checksum: false,
+            refuse: Some(status),
+            calls: std::cell::Cell::new(0),
+        };
+        let (report, _) =
+            run_copying(&cfg, &x, &mut Memo::default(), &Budget::worker(), Some(&server));
+        assert_eq!(report.artifacts_copied, 0, "{status}");
+        let want = format!("{} ({status})", slop_ninja_publisher::artifacts::REFUSED_SERVER_COPY);
+        assert!(report.refused.iter().any(|(_, r)| *r == want), "{status}: {report:?}");
+        let rec: StartRecord = public_json(&x, &layout::artifacts_record(&b.label));
+        assert_eq!(start_of(&rec, 31).state, ArtifactState::Pending, "{status}");
+        assert!(published_keys(&x).is_empty(), "{status}");
+    }
+}
+
+/// At closure the published header must be the one the package binds: a
+/// scoring-start record whose header for an entrant differs from the
+/// package's artifact digest is refused with an alert, and the entrant is
+/// left pending rather than reported published.
+#[test]
+fn the_closure_checks_the_published_header_against_the_package() {
+    let b = build(0);
+    let x = buckets(&b);
+    let closure = unclose(&b, &x);
+    let cfg = config(Some(0), true);
+    let mut memo = Memo::default();
+    run(&cfg, &x, &mut memo).1.unwrap();
+    let key = layout::artifacts_record(&b.label);
+    let mut rec: StartRecord = public_json(&x, &key);
+    let hotkey = slop_ninja_publisher::ss58::encode(&uid_of(&b, 31).identity.hotkey);
+    let e = rec.entrants.iter_mut().find(|e| e.hotkey == hotkey).unwrap();
+    e.header = Some("ab".repeat(32));
+    x.public.insert(&key, serde_json::to_vec(&rec).unwrap());
+    x.receipts.insert(&closure_key(&b), closure);
+    let (report, _) = run(&cfg, &x, &mut memo);
+    assert_eq!(report.published, vec![b.label.clone()]);
+    assert!(report.refused.iter().any(|(_, r)| r == publish::REFUSED_HEADER), "{report:?}");
+    let p: Publication = public_json(&x, &layout::publication(&b.label));
+    assert_eq!(artifact_of(&p, 31).state, ArtifactState::Pending);
+    assert_eq!(artifact_of(&p, 35).state, ArtifactState::Published);
+}
+
+/// A pending artifact is checked again on every run: a digest listed
+/// private, or an initial reference recorded in the public index, after
+/// publication started withholds it for good, even once its upload lands;
+/// the closed cohort's record follows.
 #[test]
 fn retries_repeat_the_static_checks() {
     for listed_in in ["config", "index"] {
@@ -850,12 +1078,14 @@ fn retries_repeat_the_static_checks() {
         let x = buckets(&b);
         let mut cfg = config(Some(0), true);
         let e = uid_of(&b, 26).clone();
-        let missing = ARTIFACT_TEMPLATE.replace("{sha256}", &e.artifact.hex());
-        let saved = x.eval.bytes(&missing).unwrap();
-        x.eval.remove(&missing);
-        run(&cfg, &x, &mut Memo::default()).1.unwrap();
+        let hkey = header_key(b.c.manifest.cohort, &e.commitment);
+        let saved = x.admission.bytes(&hkey).unwrap();
+        x.admission.remove(&hkey);
+        let mut memo = Memo::default();
+        run(&cfg, &x, &mut memo).1.unwrap();
         let p: Publication = public_json(&x, &layout::publication(&b.label));
         assert_eq!(artifact_of(&p, 26).state, ArtifactState::Pending);
+        assert_eq!(artifact_of(&p, 26).reason.as_deref(), Some(slop_ninja_publisher::artifacts::WAIT_HEADER));
         match listed_in {
             "config" => {
                 cfg.private_digests.insert(e.artifact);
@@ -873,101 +1103,58 @@ fn retries_repeat_the_static_checks() {
                     .insert(layout::COHORT_INDEX, serde_json::to_vec(&idx).unwrap());
             }
         }
-        x.eval.insert(&missing, saved);
-        let (report, _) = run(&cfg, &x, &mut Memo::default());
+        x.admission.insert_checked(&hkey, saved, e.artifact);
+        let (report, _) = run(&cfg, &x, &mut memo);
         assert_eq!(report.artifacts_copied, 0, "{listed_in}");
         let p: Publication = public_json(&x, &layout::publication(&b.label));
-        let a = artifact_of(&p, 26);
-        assert_eq!(a.state, ArtifactState::Withheld, "{listed_in}");
-        assert!(x.public.bytes(&layout::artifact(&e.artifact)).is_none());
+        assert_eq!(artifact_of(&p, 26).state, ArtifactState::Withheld, "{listed_in}");
+        assert!(x.public.bytes(&layout::header(&e.artifact)).is_none());
     }
 }
 
-/// A retry applies the cluster rule too: when a pending member of cluster
-/// `{18, 23, 28}` is listed private after publication started, its pending
-/// siblings are withheld with it, whichever member is listed; and while the
-/// cohort summary that states the membership is unreadable nothing in the
-/// cohort is copied.
+/// The record's own initial reference is withheld under any entrant's name,
+/// by content or by artifact digest, and so is a listed private digest.
 #[test]
-fn a_retry_withholds_a_cluster_whole() {
-    let cluster = [18, 23, 28];
-    for summary in ["kept", "missing", "altered"] {
-        for listed in cluster {
-            let b = build(0);
-            let x = buckets(&b);
-            let mut cfg = config(Some(0), true);
-            let keys: Vec<String> = cluster
-                .iter()
-                .map(|&u| ARTIFACT_TEMPLATE.replace("{sha256}", &uid_of(&b, u).artifact.hex()))
-                .collect();
-            let saved: Vec<Vec<u8>> = keys
-                .iter()
-                .map(|k| {
-                    let v = x.eval.bytes(k).unwrap();
-                    x.eval.remove(k);
-                    v
-                })
-                .collect();
-            run(&cfg, &x, &mut Memo::default()).1.unwrap();
-            let p: Publication = public_json(&x, &layout::publication(&b.label));
-            for uid in cluster {
-                assert_eq!(
-                    artifact_of(&p, uid).state,
-                    ArtifactState::Pending,
-                    "uid {uid}"
-                );
-            }
-            let summary_key = layout::join(
-                &layout::cohort_dir(&b.label),
-                slop_ninja_publisher::summary::SUMMARY,
-            );
-            match summary {
-                "missing" => x.public.remove(&summary_key),
-                "altered" => {
-                    let mut s = x.public.bytes(&summary_key).unwrap();
-                    s.push(b'\n');
-                    x.public.insert(&summary_key, s);
-                }
-                _ => {}
-            }
-            cfg.private_digests.insert(uid_of(&b, listed).artifact);
-            for (k, v) in keys.iter().zip(saved) {
-                x.eval.insert(k, v);
-            }
-            let (report, _) = run(&cfg, &x, &mut Memo::default());
-            let case = format!("{summary}, uid {listed} listed");
-            assert_eq!(report.artifacts_copied, 0, "{case}");
-            let p: Publication = public_json(&x, &layout::publication(&b.label));
-            for uid in cluster {
-                let a = artifact_of(&p, uid);
-                let expected = match (uid == listed, summary) {
-                    (true, _) => (ArtifactState::Withheld, publish::WITHHELD_LISTED),
-                    (false, "kept") => (ArtifactState::Withheld, publish::WITHHELD_CLUSTER),
-                    (false, _) => (ArtifactState::Pending, publish::WAIT_SUMMARY),
-                };
-                assert_eq!(
-                    (a.state, a.reason.as_deref().unwrap_or_default()),
-                    expected,
-                    "{case}: uid {uid}"
-                );
-                assert!(
-                    x.public
-                        .bytes(&layout::artifact(&uid_of(&b, uid).artifact))
-                        .is_none(),
-                    "{case}: uid {uid} published"
-                );
-            }
-            if summary != "kept" {
-                assert!(
-                    report
-                        .pending
-                        .iter()
-                        .any(|(_, r)| r.starts_with(publish::WAIT_SUMMARY)),
-                    "{case}: {report:?}"
-                );
-            }
-        }
-    }
+fn the_initial_reference_is_never_published() {
+    let b = build(0);
+    let x = buckets(&b);
+    let cfg = config(Some(0), true);
+    let opts = Options {
+        keys: &cfg.keys,
+        chain: &cfg.chain,
+    };
+    let v = block_on(verify::verify_cohort(
+        &x.receipts,
+        &dir(&b.label),
+        &b.label,
+        &opts,
+        &Budget::worker(),
+    ))
+    .unwrap();
+    let initial = slop_ninja_publisher::index::initial_reference(&v.manifest.references).unwrap();
+    let refs = std::iter::once(ReferenceDigests::of(&initial)).collect();
+    let e = uid_of(&b, 31);
+    let r = v.result.entrants.iter().find(|r| r.uid == 31).unwrap();
+    let f = publish::EntrantFacts::of(r, &v);
+    assert_eq!(publish::static_withhold(&f, &cfg, &refs), None);
+    let mut by_content = f.clone();
+    by_content.content = initial.content;
+    assert_eq!(
+        publish::static_withhold(&by_content, &cfg, &refs),
+        Some(publish::WITHHELD_INITIAL)
+    );
+    let mut by_artifact = f.clone();
+    by_artifact.artifact = initial.artifact;
+    assert_eq!(
+        publish::static_withhold(&by_artifact, &cfg, &refs),
+        Some(publish::WITHHELD_INITIAL)
+    );
+    let mut listed = cfg.clone();
+    listed.private_digests.insert(e.artifact);
+    assert_eq!(
+        publish::static_withhold(&f, &listed, &refs),
+        Some(publish::WITHHELD_LISTED)
+    );
 }
 
 /// The summary is a function of the public result alone: the publisher
@@ -1059,136 +1246,6 @@ fn a_result_the_closure_does_not_name_is_refused() {
     let (report, _) = run(&config(Some(0), false), &x, &mut Memo::default());
     assert!(report.published.is_empty(), "{report:?}");
     assert!(x.public.bytes(&layout::join(&layout::cohort_dir(&b.label), "summary.json")).is_none());
-}
-
-/// The artifact withholding names no cluster head: a cluster with a
-/// statically withheld member is withheld whole, so the published states and
-/// reasons are the same whether the withheld member is the head (its
-/// best-scoring member) or not. In the fixture, cluster `{18, 23, 28}` has
-/// head 18; each run makes one member an operator hotkey.
-#[test]
-fn a_cluster_is_withheld_whole_whichever_member_is_withheld() {
-    let b = build(0);
-    let head = uid_of(&b, 18).identity.hotkey;
-    let cluster = [18, 23, 28];
-    for &uid in &cluster {
-        assert_eq!(uid_of(&b, uid).cluster_head, Some(head), "uid {uid}");
-    }
-    let mut seen = Vec::new();
-    for operator in cluster {
-        let x = buckets(&b);
-        let mut cfg = config(Some(0), true);
-        cfg.operator_hotkeys
-            .insert(uid_of(&b, operator).identity.hotkey);
-        let (report, _) = run(&cfg, &x, &mut Memo::default());
-        assert_eq!(report.published, vec![b.label.clone()], "{operator}");
-        let p: Publication = public_json(&x, &layout::publication(&b.label));
-        let mut others = Vec::new();
-        for uid in cluster {
-            let a = artifact_of(&p, uid);
-            assert_eq!(a.state, ArtifactState::Withheld, "{operator}: uid {uid}");
-            let why = if uid == operator {
-                publish::WITHHELD_OPERATOR
-            } else {
-                publish::WITHHELD_CLUSTER
-            };
-            assert_eq!(a.reason.as_deref(), Some(why), "{operator}: uid {uid}");
-            assert!(
-                x.public
-                    .bytes(&layout::artifact(&uid_of(&b, uid).artifact))
-                    .is_none(),
-                "{operator}: uid {uid} published"
-            );
-            if uid != operator {
-                others.push((a.state, a.reason.clone()));
-            }
-        }
-        // Outside the cluster nothing moved: another cluster's members and
-        // the singletons are decided as without the operator hotkey.
-        let rest: Vec<_> = p
-            .artifacts
-            .iter()
-            .filter(|a| !cluster.contains(&a.uid))
-            .map(|a| (a.uid, a.state, a.reason.clone()))
-            .collect();
-        seen.push((others, rest));
-    }
-    assert!(
-        seen.windows(2).all(|w| w[0] == w[1]),
-        "the public artifact column differs by which member is withheld"
-    );
-}
-
-/// The record's own initial reference is withheld under any entrant's name,
-/// by content or by artifact digest, and so is a listed private digest.
-#[test]
-fn the_initial_reference_is_never_published() {
-    use slop_ninja_protocol::Record;
-    let b = build(0);
-    let x = buckets(&b);
-    let cfg = config(Some(0), true);
-    let opts = Options {
-        keys: &cfg.keys,
-        chain: &cfg.chain,
-    };
-    let v = block_on(verify::verify_cohort(
-        &x.receipts,
-        &dir(&b.label),
-        &b.label,
-        &opts,
-        &Budget::worker(),
-    ))
-    .unwrap();
-    let initial = slop_ninja_publisher::index::initial_reference(&v.manifest.references).unwrap();
-    let refs = std::iter::once(ReferenceDigests::of(&initial)).collect();
-    let e = uid_of(&b, 31);
-    let r = v.result.entrants.iter().find(|r| r.uid == 31).unwrap();
-    let f = publish::EntrantFacts::of(r, &v);
-    let outcome = Some(&r.outcome);
-    assert_eq!(publish::static_withhold(&f, outcome, &cfg, &refs), None);
-    let mut by_content = f.clone();
-    by_content.content = initial.content;
-    assert_eq!(
-        publish::static_withhold(&by_content, outcome, &cfg, &refs),
-        Some(publish::WITHHELD_INITIAL)
-    );
-    let mut by_artifact = f.clone();
-    by_artifact.artifact = initial.artifact;
-    assert_eq!(
-        publish::static_withhold(&by_artifact, outcome, &cfg, &refs),
-        Some(publish::WITHHELD_INITIAL)
-    );
-    let mut listed = cfg.clone();
-    listed.private_digests.insert(e.artifact);
-    assert_eq!(
-        publish::static_withhold(&f, outcome, &listed, &refs),
-        Some(publish::WITHHELD_LISTED)
-    );
-    // The admission record must be this entrant's own upload.
-    assert!(
-        f.admitted_by(
-            &slop_ninja_protocol::submission::SubmissionUpload::from_bytes(
-                &x.eval
-                    .bytes(&admission_key(&b.label, &e.identity.hotkey))
-                    .unwrap()
-            )
-            .unwrap(),
-            &cfg
-        )
-    );
-    let mut wrong_nonce = f.clone();
-    wrong_nonce.nonce = Some(slop_ninja_protocol::Nonce([9; 32]));
-    assert!(
-        !wrong_nonce.admitted_by(
-            &slop_ninja_protocol::submission::SubmissionUpload::from_bytes(
-                &x.eval
-                    .bytes(&admission_key(&b.label, &e.identity.hotkey))
-                    .unwrap()
-            )
-            .unwrap(),
-            &cfg
-        )
-    );
 }
 
 /// Stores a signed authorization object in the receipts bucket at its
@@ -1938,7 +1995,7 @@ fn two_cohorts() -> (Built, Built, Buckets3) {
     let b = build(0);
     let next = build_at(b.c.manifest.cohort + 1);
     let x = buckets(&b);
-    store(&next, &x.receipts, &x.eval);
+    store(&next, &x.receipts, &x.admission);
     (b, next, x)
 }
 
@@ -2230,7 +2287,7 @@ fn a_refused_first_cohort_is_listed_in_its_place_by_a_later_build() {
     assert_eq!(first.c.manifest.references.index, 0);
     assert!(first.c.manifest.references.predecessor.is_none());
     let x = buckets_unseeded(&first);
-    store(&second, &x.receipts, &x.eval);
+    store(&second, &x.receipts, &x.admission);
     let good = tamper_package(&x, &first);
     let cfg = config(Some(0), false);
     let mut memo = Memo::default();
@@ -2300,7 +2357,7 @@ fn a_refused_first_cohort_starts_the_record_for_a_promoted_successor() {
     assert!(publish::starts_record(&first.c.manifest.references));
     assert!(!publish::starts_record(&second.c.manifest.references));
     let x = buckets_unseeded(&first);
-    store(&second, &x.receipts, &x.eval);
+    store(&second, &x.receipts, &x.admission);
     let good = tamper_package(&x, &first);
     let cfg = config(Some(0), false);
     let mut memo = Memo::default();
@@ -2339,7 +2396,7 @@ fn a_refused_cohort_that_cannot_start_the_record_does_not_start_it() {
     let first = build_at(3);
     let second = build_at(4);
     let x = buckets_unseeded(&first);
-    store(&second, &x.receipts, &x.eval);
+    store(&second, &x.receipts, &x.admission);
     tamper_package(&x, &first);
     let cfg = config(Some(0), false);
     let mut memo = Memo::default();
@@ -2457,4 +2514,34 @@ fn every_public_write_runs_the_allow_list_check() {
         )
         .retryable()
     );
+}
+
+/// A cohort whose every entrant is decided at scoring start counts as done
+/// only once the eval Worker took the publication report (it records the
+/// publication, which later ends the admitted objects' retention); while
+/// the report is refused, every run sends it again.
+#[test]
+fn scoring_start_publication_is_done_only_once_the_eval_worker_took_the_report() {
+    let b = build(0);
+    let x = buckets(&b);
+    let _closure = unclose(&b, &x);
+    let cfg = config(Some(0), true);
+    let mut memo = Memo::default();
+    x.reports.refuse.set(true);
+    let (report, _) = run(&cfg, &x, &mut memo);
+    assert!(!memo.artifacts_done.contains(&b.label));
+    assert!(
+        report.pending.iter().any(|(_, r)| r == slop_ninja_publisher::artifacts::WAIT_REPORT),
+        "{report:?}"
+    );
+    assert!(x.reports.taken.borrow().is_empty());
+    x.reports.refuse.set(false);
+    let (report, _) = run(&cfg, &x, &mut memo);
+    assert_eq!(report.artifacts_copied, 0, "the copies were made by the first run");
+    assert!(memo.artifacts_done.contains(&b.label));
+    let taken = x.reports.taken.borrow();
+    assert_eq!(taken.len(), 1);
+    assert_eq!(taken[0].0, b.c.manifest.cohort);
+    assert_eq!(taken[0].1, b.label);
+    assert_eq!(taken[0].2.len(), b.c.manifest.roster.len());
 }

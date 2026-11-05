@@ -24,6 +24,9 @@ pub struct ObjectMeta {
     pub size: u64,
     /// The SHA-256 the store recorded at upload, when one was supplied.
     pub sha256: Option<Digest>,
+    /// The store's etag, unquoted (a single-part R2 object's: the MD5 R2
+    /// computed of its bytes; publication compares it, never recomputes it).
+    pub etag: Option<String>,
 }
 
 /// Content-free store failures: a code and the key involved.
@@ -40,6 +43,10 @@ pub enum StoreError {
     /// A public write the allow-list refuses
     /// ([`crate::allowlist::check_object`]): nothing was written.
     NotAllowed,
+    /// R2 refused a request outright with this status (403, or 501
+    /// `NotImplemented`, a refusal like 403; qualification G11): a fresh
+    /// attempt alone cannot fix it.
+    Refused(u16),
 }
 
 impl core::fmt::Display for StoreError {
@@ -52,6 +59,7 @@ impl core::fmt::Display for StoreError {
             Self::Short => f.write_str("object body shorter or longer than its stored size"),
             Self::Integrity => f.write_str("copied bytes differ from the verified digest"),
             Self::NotAllowed => f.write_str("outside the public allow-list; nothing written"),
+            Self::Refused(status) => write!(f, "R2 refused the request ({status})"),
         }
     }
 }
@@ -139,8 +147,10 @@ impl<'a, S: Store> PublicStore<'a, S> {
         self.0.put(key, bytes, put).await
     }
 
-    /// Streams `src_key` of `src` to artifact key `dst_key`; any other key
-    /// is refused, and so is a copy whose SHA-256 the store would not check.
+    /// Streams `src_key` of `src` to artifact key `dst_key` (a published
+    /// header or file, [`crate::layout::header`], [`crate::layout::blob`]);
+    /// any other key is refused, and so is a copy whose SHA-256 the store
+    /// would not check (R2 verifies it; nothing here hashes the bytes).
     pub async fn copy_artifact_from(
         &self,
         src: &S,
@@ -201,6 +211,12 @@ pub struct Stored {
     pub sha256: Option<Digest>,
 }
 
+/// A content-derived stand-in for R2's etag in the native test store: equal
+/// bytes give equal etags, as a single-part R2 object's MD5 does.
+pub fn mem_etag(bytes: &[u8]) -> String {
+    hex::encode(&object_sha256(bytes).0[..16])
+}
+
 /// An in-memory store for native tests, with read counters and fault hooks.
 #[derive(Default)]
 pub struct MemStore {
@@ -234,6 +250,20 @@ impl MemStore {
         );
     }
 
+    /// Inserts `bytes` with the SHA-256 the store recorded, as R2 does for a
+    /// presigned PUT whose checksum it verified.
+    pub fn insert_checked(&self, key: &str, bytes: Vec<u8>, sha256: Digest) {
+        self.objects.borrow_mut().insert(
+            key.to_owned(),
+            Stored {
+                bytes,
+                content_type: "application/octet-stream".into(),
+                cache: None,
+                sha256: Some(sha256),
+            },
+        );
+    }
+
     pub fn bytes(&self, key: &str) -> Option<Vec<u8>> {
         self.objects.borrow().get(key).map(|s| s.bytes.clone())
     }
@@ -255,6 +285,7 @@ impl Store for MemStore {
         Ok(self.objects.borrow().get(key).map(|s| ObjectMeta {
             size: s.bytes.len() as u64,
             sha256: s.sha256,
+            etag: Some(mem_etag(&s.bytes)),
         }))
     }
 

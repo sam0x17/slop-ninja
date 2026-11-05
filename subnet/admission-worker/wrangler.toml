@@ -1,8 +1,10 @@
 # Slop Ninja upload Worker: Wrangler configuration (tracked).
 #
-# The key-free Worker that takes all untrusted admission upload traffic
-# (contract slop_ninja.admission/v1, docs/testnet/admission-api.md). It holds
-# no signing key. Deploy only the testnet environment:
+# The key-free Worker that fronts every public admission route (contract
+# slop_ninja.admission/v2, docs/testnet/admission-api.md). It holds no
+# signing key and no R2 binding: no upload byte passes through it (miners
+# PUT every artifact object straight to R2 under presigned URLs). Deploy
+# only the testnet environment:
 #
 #   WRANGLER_WRITE_LOGS=false WRANGLER_SEND_METRICS=false wrangler deploy \
 #     --env testnet --tag testnet --message "slop-ninja testnet admission <sha8> <mode>"
@@ -33,7 +35,7 @@ enabled = false
 [env.testnet]
 name = "slop-ninja-admission-testnet"
 # The custom domain is the only public ingress: no workers.dev name, no
-# preview URLs. The internal framing route is reached only through the eval
+# preview URLs. The internal header route is reached only through the eval
 # Worker's service binding (the internal host and the interface token).
 workers_dev = false
 preview_urls = false
@@ -44,9 +46,10 @@ routes = [
 [env.testnet.observability]
 enabled = false
 
-# Framing streams one uploaded object through SHA-256 four times; the
-# platform's largest CPU limit, not a tuned value (framing CPU at the spec's
-# largest object is not measured yet).
+# The platform's largest CPU limit, not a tuned value: this Worker's CPU (a
+# metadata parse after a runtime upgrade, one header decode of at most
+# 1 MiB, an sr25519 verification per request) is not measured yet. No route
+# reads an upload byte.
 [env.testnet.limits]
 cpu_ms = 300000
 
@@ -71,18 +74,14 @@ RPC_URL = "https://test.finney.opentensor.ai"
 # switch to "open" is its own commit and its own one-change deploy.
 ADMISSION_ROUTES = "hotkeys"
 
-# Uploaded objects only (private: no public access, no custom domain): the
-# parts this Worker streams and the objects it frames, and the cohort
-# snapshot the eval Worker writes (cohort/v1/current.json), which this
-# Worker serves as the unsigned cohort read. The eval Worker binds
-# the same bucket for the multipart control operations, slice copies and
-# deletes. Create it before the first deploy:
-#   wrangler r2 bucket create admission-bucket-testnet
-[[env.testnet.r2_buckets]]
-binding = "ADMISSION_TESTNET"
-bucket_name = "admission-bucket-testnet"
+# No R2 binding: the unsigned cohort read is served from this Worker's
+# one-block edge copy of the cohort snapshot, refreshed through the eval
+# Worker's snapshot operation (slop_ninja_admission_wire::internal::op::SNAPSHOT).
+# A test (front::tests::the_worker_holds_no_object_store) refuses a bucket
+# binding here.
 
-# The eval Worker's internal admission interface (no public route).
+# The eval Worker's internal admission interface (no public route): every
+# forwarded request and the snapshot refresh.
 [[env.testnet.services]]
 binding = "EVAL_ADMISSION_TESTNET"
 service = "slop-ninja-eval-testnet"

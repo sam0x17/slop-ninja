@@ -1,0 +1,13 @@
+[package]
+name = "slop-ninja-r2-presign"
+version = "0.1.0"
+edition = "2024"
+license = "MIT OR Apache-2.0"
+publish = false
+description = "Allocation-free AWS SigV4 presigning of R2 PutObject URLs, the direct-upload object layout and the upload URL policy"
+
+# no_std outside tests: nothing here can allocate, so the signer Worker, the
+# eval Worker and the miner client share it inside any memory arena.
+[dependencies]
+hmac = { version = "0.12", default-features = false }
+sha2 = { version = "0.10", default-features = false }

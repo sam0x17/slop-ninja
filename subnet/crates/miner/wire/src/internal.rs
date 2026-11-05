@@ -1,27 +1,36 @@
 //! The internal interface between the two admission Workers (feature
 //! `json`): the key-free upload Worker `slop-ninja-admission-testnet`, which
-//! alone serves the public `/admission/v1/` routes, and the key-holding eval
-//! Worker, which keeps the cohort authority's state and verdicts.
+//! alone serves the public `/admission/v2/` routes, and the key-holding eval
+//! Worker, which keeps the cohort authority's state and verdicts. No upload
+//! byte crosses either Worker: miners PUT straight to R2 under presigned
+//! URLs that the internal signer Worker mints for the eval Worker.
 //!
-//! - **Eval Worker to the upload bucket** (the cohort snapshot): the cohort
-//!   authority writes the contract's unsigned cohort response, with the time
-//!   it was written, to [`COHORT_SNAPSHOT_KEY`] in the upload bucket at every
-//!   heartbeat. The upload Worker serves `GET /admission/v1/cohort` from that
-//!   object (and its one-block edge copy), so no unsigned request reaches the
-//!   eval Worker.
+//! - **The cohort snapshot**: the cohort authority writes the contract's
+//!   unsigned cohort response, with the time it was written and the
+//!   hotkeys whose sessions wait for a repair, to [`COHORT_SNAPSHOT_KEY`]
+//!   in the eval bucket (no presigning credential reaches it) at every
+//!   heartbeat. The
+//!   upload Worker has no R2 binding: it serves `GET /admission/v2/cohort`
+//!   from its one-block edge copy of that object, and refreshes the copy
+//!   through the interface operation [`op::SNAPSHOT`], which the eval Worker
+//!   answers from the object itself without reaching the cohort object. So
+//!   no unsigned request reaches the cohort authority, and the eval Worker
+//!   sees at most one snapshot read per block per edge location.
 //! - **Upload Worker to eval Worker** (`UPLOAD → EVAL`, the upload Worker's
 //!   service binding): a request it has decoded and checked (signature, body
 //!   digest, registration on the subnet, the spec-derived size bound) is
 //!   forwarded as one bounded JSON message, [`Forward`], to
 //!   `EVAL_INTERFACE_ORIGIN` + [`EVAL_PATH_PREFIX`] + the operation. The eval
-//!   Worker answers with the cohort authority's [`Reply`] (or, for a part,
-//!   the [`PartTarget`] the body streams to).
+//!   Worker answers with the cohort authority's [`Reply`].
 //! - **Eval Worker to upload Worker** (`EVAL → UPLOAD`, the eval Worker's
-//!   service binding): the cohort authority's framing step asks the upload
-//!   Worker to frame one uploaded object ([`FrameRequest`] to
-//!   `UPLOAD_INTERFACE_ORIGIN` + [`UPLOAD_FRAME_PATH`]); the answer is
-//!   `slop_ninja_artifact_check::admission::FrameOutcome`. The eval Worker
-//!   never decodes an uploaded object.
+//!   service binding): the cohort authority asks the upload Worker to decode
+//!   and check one uploaded header (its bytes, at most
+//!   `MAX_ARTIFACT_HEADER_LEN`, read from R2 by the eval Worker, to
+//!   `UPLOAD_INTERFACE_ORIGIN` + [`UPLOAD_HEADER_PATH`] with the spec id in
+//!   [`SPEC_HEADER`]); the answer is
+//!   `slop_ninja_artifact_check::admission::HeaderOutcome`. The eval Worker
+//!   never decodes an uploaded header itself, and recomputes the content
+//!   digest from the returned table.
 //!
 //! Neither interface has a public route. Each Worker serves its interface
 //! only for requests addressed to its internal origin (a host name no
@@ -47,9 +56,11 @@ pub const UPLOAD_INTERFACE_HOST: &str = "admission-upload.internal";
 /// The header carrying the shared interface token.
 pub const TOKEN_HEADER: &str = "x-sn-interface-token";
 /// Path prefix of the eval Worker's interface: `<prefix><op>`.
-pub const EVAL_PATH_PREFIX: &str = "/internal/admission/v1/";
-/// The upload Worker's framing route.
-pub const UPLOAD_FRAME_PATH: &str = "/internal/upload/v1/frame";
+pub const EVAL_PATH_PREFIX: &str = "/internal/admission/v2/";
+/// The upload Worker's header-check route.
+pub const UPLOAD_HEADER_PATH: &str = "/internal/upload/v2/header";
+/// The header naming the cohort's artifact spec id on a header check.
+pub const SPEC_HEADER: &str = "x-sn-artifact-spec";
 
 /// The eval Worker's interface operations: the cohort authority's
 /// `/admission/<op>` routes, one per public route step.
@@ -60,21 +71,27 @@ pub mod op {
     pub const COHORT: &str = "cohort";
     pub const CREATE: &str = "create";
     pub const READ: &str = "read";
-    /// Before a part's body streams: the target it streams to.
-    pub const PART_BEGIN: &str = "part-begin";
-    /// After it streamed: the part's R2 tag.
-    pub const PART_RECORD: &str = "part-record";
+    /// Fresh presigned URLs for the objects not yet recorded.
+    pub const URLS: &str = "urls";
     pub const COMPLETE: &str = "complete";
-    pub const ABORT: &str = "abort";
-    pub const REOPEN: &str = "reopen";
+    /// A URL for a recorded object that went missing.
+    pub const REPAIR: &str = "repair";
     pub const HOTKEY: &str = "hotkey";
-    /// Every operation the interface serves.
-    pub const ALL: &[&str] = &[CREATE, READ, PART_BEGIN, PART_RECORD, COMPLETE, ABORT, REOPEN, HOTKEY];
+    /// Every operation the interface forwards to the cohort object.
+    pub const ALL: &[&str] = &[CREATE, READ, URLS, COMPLETE, REPAIR, HOTKEY];
+    /// The cohort snapshot's bytes ([`super::CohortSnapshot`], at most
+    /// [`super::cohort_snapshot_limit`]): `POST` with the body `{}` and the
+    /// interface token, answered by the eval Worker from
+    /// [`super::COHORT_SNAPSHOT_KEY`] in the upload bucket, 200 with the
+    /// object's exact bytes, or 503 while it is not written. Not in [`ALL`]:
+    /// it never reaches the cohort object. The upload Worker calls it only
+    /// on an edge-cache miss of the cohort read.
+    pub const SNAPSHOT: &str = "snapshot";
 }
 
 /// A signed request as the upload Worker forwards it: method and path
 /// exactly as sent, the four signature headers, and for a body read whole,
-/// its SHA-256 (a part's digest is the claimed one; the part streams to R2).
+/// its SHA-256.
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Signed {
     pub method: String,
@@ -83,7 +100,7 @@ pub struct Signed {
     pub valid_until: Option<String>,
     pub content_sha256: Option<String>,
     pub signature: Option<String>,
-    /// SHA-256 of a body the upload Worker read whole (hex); `None` for a part.
+    /// SHA-256 of a body the upload Worker read whole (hex).
     #[serde(default)]
     pub body_sha256: Option<String>,
     /// A small body, hex (session creation only).
@@ -107,54 +124,32 @@ pub struct Forward {
     #[serde(default)]
     pub session: String,
     #[serde(default)]
-    pub attempt: Option<u32>,
-    #[serde(default)]
-    pub part: u32,
-    /// A part's declared `Content-Length`.
-    #[serde(default)]
-    pub content_length: Option<u64>,
-    #[serde(default)]
     pub cohort: u64,
     #[serde(default)]
     pub hotkey: String,
-    /// `part-record`: the target the part streamed to and its R2 tag.
-    #[serde(default)]
-    pub target: Option<PartTarget>,
-    #[serde(default)]
-    pub etag: String,
 }
 
-/// The room of a [`Forward`]'s JSON beside a creation body: every field
-/// at its format bound (method and path as [`crate::Route::parse`] accepts
+/// The room of a [`Forward`]'s JSON beside a creation body: every field at
+/// its format bound (method and path as [`crate::Route::parse`] accepts
 /// them, the four signature headers as the gate's `verify` parses them, a
-/// session id, the route's integers, an SS58 hotkey, an object key and a
-/// SHA-256), under 2 KiB (tested), plus R2's multipart upload id and part
-/// tag, which R2 documents no length for: they get the rest. That remainder
-/// is an allowance, not a derived bound (version
-/// [`INTERFACE_BOUNDS_VERSION`]): the live drill records the longest upload
-/// id and tag R2 returns, and a later version replaces the allowance with
-/// that measured bound. A forward over the bound is refused, never cut.
-pub const FORWARD_FIELDS_BYTES: usize = 8 * 1024;
+/// session id, the route's integers and an SS58 hotkey), measured under
+/// 2 KiB (tested); no field comes from R2 any more, so the bound is the
+/// format's alone (version [`INTERFACE_BOUNDS_VERSION`]). A forward over the
+/// bound is refused, never cut.
+pub const FORWARD_FIELDS_BYTES: usize = 2 * 1024;
 
 /// The version of this module's message bounds ([`FORWARD_FIELDS_BYTES`],
-/// [`FRAME_REQUEST_BYTES`]); a change to any of them is a new version.
-pub const INTERFACE_BOUNDS_VERSION: &str = "admission-interface-bounds-2026-11-03-r2";
+/// [`HEADER_REQUEST_BYTES`], [`cohort_snapshot_limit`]); a change to any of
+/// them is a new version. v3: the snapshot's repair list.
+pub const INTERFACE_BOUNDS_VERSION: &str = "admission-interface-bounds-2026-11-05-v3";
 
 /// The bound of one forwarded message: [`FORWARD_FIELDS_BYTES`] and a
 /// session-creation body as hex ([`crate::UPLOAD_RECORD_BYTES`]).
 pub const FORWARD_BYTES: usize = FORWARD_FIELDS_BYTES + 2 * crate::UPLOAD_RECORD_BYTES;
 
-/// Where one part's body streams: the attempt's object key and multipart
-/// upload, the part number, its exact length and declared digest.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-pub struct PartTarget {
-    pub key: String,
-    pub upload_id: String,
-    pub attempt: u32,
-    pub part: u32,
-    pub len: u64,
-    pub sha256: String,
-}
+/// The bound of a header-check request body: one header, at most the
+/// protocol's `MAX_ARTIFACT_HEADER_LEN`, as raw bytes.
+pub const HEADER_REQUEST_BYTES: usize = slop_ninja_protocol::MAX_ARTIFACT_HEADER_LEN as usize;
 
 /// A reply the upload Worker sends as is: HTTP status and JSON body.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -171,66 +166,30 @@ impl Reply {
     }
 }
 
-/// The eval Worker's answer to `part-begin`: the target, or the reply that
-/// refuses the part.
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-pub struct PartBegin {
-    #[serde(default)]
-    pub target: Option<PartTarget>,
-    #[serde(default)]
-    pub reply: Option<Reply>,
-}
-
-/// The framing step's request to the upload Worker: the object's key, the
-/// length its envelope declares, and the cohort's artifact spec id.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-pub struct FrameRequest {
-    pub key: String,
-    pub len: u64,
-    pub spec: String,
-}
-
-/// The longest object key the framing route reads:
-/// `admission/<label>/<session>/a<attempt>.object` with the protocol's
-/// longest cohort label, a 64-hex session id and a `u32` attempt.
-pub const OBJECT_KEY_MAX_BYTES: usize =
-    "admission/".len() + slop_ninja_protocol::MAX_LABEL_LEN + 1 + 64 + "/a".len() + 10 + ".object".len();
 /// The longest artifact spec id: `slop_ninja_a_artifact_spec_v` and a
-/// version number of at most three digits (the upload Worker's tests check
-/// every spec it defines against it).
+/// version number of at most three digits.
 pub const SPEC_ID_MAX_BYTES: usize = "slop_ninja_a_artifact_spec_v".len() + 3;
 
-/// The bound of a [`FrameRequest`] body, from its format: the field names
-/// and punctuation (`{"key":"`, `","len":`, `,"spec":"`, `"}`), the longest
-/// object key, a `u64` and the longest spec id (no field needs escaping:
-/// keys and spec ids are ASCII without quotes or backslashes). Tested
-/// exact.
-pub const FRAME_REQUEST_BYTES: usize =
-    r#"{"key":""#.len() + OBJECT_KEY_MAX_BYTES + r#"","len":"#.len() + 20 + r#","spec":""#.len() + SPEC_ID_MAX_BYTES + r#""}"#.len();
+/// The header of an answer from the upload Worker's header route that failed
+/// for its own platform's reason (its arena refused the scope, the body
+/// could not be read): retried without counting against the miner. The
+/// route is reached only through the eval Worker's binding with the token,
+/// so no untrusted request can produce it.
+pub const HEADER_FAILURE_HEADER: &str = "x-sn-header-failure";
 
-/// The framing key of the link probe: a framing request for it, addressed
-/// and authenticated as the eval Worker's, is answered `{"probe": "ok"}`
-/// without reading anything, so the eval Worker can check the service
-/// binding and the shared token without an upload ([`is_object_key`] never
-/// admits it).
-pub const FRAME_PROBE_KEY: &str = "probe";
+/// The request header that marks a header-route call as the eval Worker's
+/// link probe (out of band, never in the body: a miner's header bytes can
+/// never be taken for the probe). The upload Worker answers it without
+/// reading the body: `{"probe": "ok"}` once its own registration read (the
+/// roster at the finalized head, the read every signed route needs) works,
+/// so the canary also covers the front's chain read.
+pub const HEADER_PROBE_HEADER: &str = "x-sn-header-probe";
 
-/// The header of a framing answer that failed for the one reason that is
-/// the platform's, the object read from R2 ([`FRAME_OBJECT_READ`], status
-/// 503). The eval Worker counts every other framing failure against the
-/// session's attempts.
-pub const FRAME_FAILURE_HEADER: &str = "x-sn-frame-failure";
-/// [`FRAME_FAILURE_HEADER`]'s value for a failed object read.
-pub const FRAME_OBJECT_READ: &str = "object-read";
-/// [`FRAME_FAILURE_HEADER`]'s value for any other failure of the upload
-/// Worker's own platform (its arena refused the framing scope, the request
-/// body could not be read): retried without counting, as an object read.
-/// The framing route is reached only through the eval Worker's binding with
-/// the token, so no untrusted request can produce it.
-pub const FRAME_PLATFORM: &str = "platform";
-
-/// The upload bucket key of the cohort snapshot ([`CohortSnapshot`]). Not
-/// an uploaded object's key ([`is_object_key`] never admits it).
+/// The eval bucket key of the cohort snapshot ([`CohortSnapshot`]). It is
+/// written to the eval bucket, which neither R2 S3 credential reaches, so a
+/// compromised signer cannot rewrite the cohort response every miner reads
+/// (review round 2). Not an uploaded object's key (no `admission/v2/` key
+/// parses as it).
 pub const COHORT_SNAPSHOT_KEY: &str = "cohort/v1/current.json";
 /// The schema of [`CohortSnapshot`].
 pub const COHORT_SNAPSHOT_SCHEMA: &str = "slop_ninja.admission.cohort_snapshot/v1";
@@ -241,29 +200,57 @@ pub const COHORT_SNAPSHOT_SCHEMA: &str = "slop_ninja.admission.cohort_snapshot/v
 pub const COHORT_SNAPSHOT_FRESH_MS: u64 = 600_000;
 
 /// The cohort response as the cohort authority wrote it, and when (its
-/// clock, milliseconds).
+/// clock, milliseconds), with the repair list the upload Worker's gate
+/// reads ([`CohortSnapshot::may_repair`]).
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct CohortSnapshot {
     pub schema: String,
     pub written_ms: u64,
     pub cohort: crate::json::CohortInfo,
+    /// The hotkeys (64 hex) of the sessions waiting for the miner's repair
+    /// (stage `repair`: an admitted entrant's, or a verifying session's), at
+    /// most [`REPAIR_LIST_MAX`]. The gate requires registration on the
+    /// subnet for a session read or a repair unless the signer is listed, so
+    /// an entrant deregistered since admission can still repair (design R4)
+    /// while a throwaway key's signed traffic never reaches the cohort
+    /// authority (review round 2). Not served to clients.
+    #[serde(default)]
+    pub repair: Vec<String>,
+    /// More sessions wait for a repair than [`REPAIR_LIST_MAX`] can name:
+    /// every signer may then read and repair unregistered, as if listed (the
+    /// list never refuses a repair it could not name).
+    #[serde(default)]
+    pub repair_all: bool,
 }
 
+/// The most hotkeys [`CohortSnapshot::repair`] names: one roster
+/// (`slop_ninja_protocol::MAX_ROSTER`), the most entrants one cohort admits.
+/// Past it the snapshot says [`CohortSnapshot::repair_all`] instead.
+pub const REPAIR_LIST_MAX: usize = slop_ninja_protocol::MAX_ROSTER as usize;
+
+/// The repair list's bytes at its bound: [`REPAIR_LIST_MAX`] quoted 64-hex
+/// hotkeys and the commas between them.
+pub const REPAIR_LIST_BYTES: usize = REPAIR_LIST_MAX * (64 + 2) + (REPAIR_LIST_MAX - 1);
+
 /// The snapshot's envelope around the cohort response, from its format:
-/// `{"schema":"<schema>","written_ms":<u64>,"cohort":` and the closing
-/// brace (tested exact).
+/// `{"schema":"<schema>","written_ms":<u64>,"cohort":`, then
+/// `,"repair":[<list>],"repair_all":false}` with the list at its bound
+/// (tested exact).
 pub const COHORT_SNAPSHOT_ENVELOPE_BYTES: usize = r#"{"schema":""#.len()
     + COHORT_SNAPSHOT_SCHEMA.len()
     + r#"","written_ms":"#.len()
     + 20
     + r#","cohort":"#.len()
+    + r#","repair":["#.len()
+    + REPAIR_LIST_BYTES
+    + r#"],"repair_all":false"#.len()
     + "}".len();
 
 /// The bound the upload Worker reads a snapshot within: the cohort response
 /// at the client's limit for it ([`crate::response_limit`] before the
 /// cohort's parameters are known) and the envelope.
-pub fn cohort_snapshot_limit() -> usize {
-    crate::response_limit(None) + COHORT_SNAPSHOT_ENVELOPE_BYTES
+pub const fn cohort_snapshot_limit() -> usize {
+    crate::response_limit() + COHORT_SNAPSHOT_ENVELOPE_BYTES
 }
 
 impl CohortSnapshot {
@@ -277,16 +264,12 @@ impl CohortSnapshot {
         }
         self.cohort
     }
-}
 
-/// Whether `key` names an uploaded object: the only keys the framing route
-/// reads (`admission/<label>/<session>/a<attempt>.object`, written by the
-/// eval Worker's session records).
-pub fn is_object_key(key: &str) -> bool {
-    key.starts_with("admission/")
-        && key.ends_with(".object")
-        && !key.contains("..")
-        && key.bytes().all(|b| b.is_ascii_alphanumeric() || matches!(b, b'/' | b'-' | b'_' | b'.'))
+    /// Whether `hotkey` may read its session or repair without being
+    /// registered: listed, or the list could not name everyone.
+    pub fn may_repair(&self, hotkey: &slop_ninja_protocol::AccountId) -> bool {
+        self.repair_all || self.repair.contains(&hex::encode(hotkey.0))
+    }
 }
 
 /// The shortest interface token accepted (as the coordinator's bearer
@@ -323,12 +306,12 @@ mod tests {
     }
 
     #[test]
-    fn a_forward_at_its_format_bounds_fits_with_room_for_r2s_values() {
+    fn a_forward_at_its_format_bounds_fits_its_bound() {
         let sid = "ab".repeat(32);
-        let path = format!("/admission/v1/sessions/{sid}/attempts/{}", u32::MAX);
+        let path = format!("/admission/v2/sessions/{sid}/complete");
         let hotkey = "5".repeat(crate::SS58_ACCOUNT_MAX_CHARS);
         let signed = Signed {
-            method: "DELETE".into(),
+            method: "POST".into(),
             path,
             hotkey: Some(hotkey.clone()),
             valid_until: Some(u64::MAX.to_string()),
@@ -338,43 +321,17 @@ mod tests {
             body: Some("ff".repeat(crate::UPLOAD_RECORD_BYTES)),
             commitment_block: Some(u64::MAX),
         };
-        let key = format!("admission/{}/{sid}/a{}.object", "l".repeat(64), u32::MAX);
-        let mut f = Forward {
-            signed,
-            session: sid,
-            attempt: Some(u32::MAX),
-            part: u32::MAX,
-            content_length: Some(u64::MAX),
-            cohort: u64::MAX,
-            hotkey,
-            target: Some(PartTarget {
-                key,
-                upload_id: String::new(),
-                attempt: u32::MAX,
-                part: u32::MAX,
-                len: u64::MAX,
-                sha256: "f".repeat(64),
-            }),
-            etag: String::new(),
-        };
+        let f = Forward { signed, session: sid, cohort: u64::MAX, hotkey };
         let fields = serde_json::to_string(&f).unwrap().len() - 2 * crate::UPLOAD_RECORD_BYTES;
-        assert!(fields < 2 * 1024, "{fields}");
-        // R2's upload id and part tag share the remaining room.
-        let room = (FORWARD_FIELDS_BYTES - fields) / 2;
-        f.target.as_mut().unwrap().upload_id = "u".repeat(room);
-        f.etag = "e".repeat(room);
+        assert!(fields < FORWARD_FIELDS_BYTES, "{fields}");
         assert!(serde_json::to_string(&f).unwrap().len() <= FORWARD_BYTES);
-        assert!(!is_object_key(FRAME_PROBE_KEY));
+        assert_eq!(HEADER_REQUEST_BYTES, 1 << 20);
     }
 
     #[test]
-    fn a_frame_request_at_its_format_bounds_is_exactly_its_bound() {
-        let key = format!("admission/{}/{}/a{}.object", "l".repeat(slop_ninja_protocol::MAX_LABEL_LEN), "ab".repeat(32), u32::MAX);
-        assert_eq!(key.len(), OBJECT_KEY_MAX_BYTES);
-        assert!(is_object_key(&key));
-        let f = FrameRequest { key, len: u64::MAX, spec: format!("slop_ninja_a_artifact_spec_v{}", 999) };
-        assert_eq!(serde_json::to_string(&f).unwrap().len(), FRAME_REQUEST_BYTES);
-        assert!(!is_object_key(COHORT_SNAPSHOT_KEY));
+    fn the_snapshot_read_never_reaches_the_cohort_object() {
+        assert!(!op::ALL.contains(&op::SNAPSHOT) && !op::ALL.contains(&op::COHORT));
+        assert!(serde_json::from_str::<Forward>("{}").is_ok(), "the snapshot request body parses as an empty forward");
     }
 
     #[test]
@@ -387,19 +344,29 @@ mod tests {
         }))
         .unwrap();
         let info_len = serde_json::to_string(&info).unwrap().len();
-        let max = CohortSnapshot { schema: COHORT_SNAPSHOT_SCHEMA.into(), written_ms: u64::MAX, cohort: info.clone() };
+        let listed = slop_ninja_protocol::AccountId([0xab; 32]);
+        let max = CohortSnapshot {
+            schema: COHORT_SNAPSHOT_SCHEMA.into(),
+            written_ms: u64::MAX,
+            cohort: info.clone(),
+            repair: vec![hex::encode(listed.0); REPAIR_LIST_MAX],
+            repair_all: false,
+        };
         assert_eq!(serde_json::to_string(&max).unwrap().len(), info_len + COHORT_SNAPSHOT_ENVELOPE_BYTES);
-        let snap = CohortSnapshot { schema: COHORT_SNAPSHOT_SCHEMA.into(), written_ms: 1_000, cohort: info };
+        assert!(max.may_repair(&listed) && !max.may_repair(&slop_ninja_protocol::AccountId([1; 32])));
+        let all = CohortSnapshot { repair: Vec::new(), repair_all: true, ..max };
+        assert!(all.may_repair(&slop_ninja_protocol::AccountId([1; 32])));
+        let snap = CohortSnapshot {
+            schema: COHORT_SNAPSHOT_SCHEMA.into(),
+            written_ms: 1_000,
+            cohort: info,
+            repair: Vec::new(),
+            repair_all: false,
+        };
+        assert!(!snap.may_repair(&listed));
         assert!(!snap.clone().serve(1_000 + COHORT_SNAPSHOT_FRESH_MS - 1).paused);
         assert!(snap.clone().serve(1_000 + COHORT_SNAPSHOT_FRESH_MS).paused);
         assert!(!snap.serve(0).paused, "a clock behind the write");
     }
 
-    #[test]
-    fn object_keys_are_the_session_records_shape() {
-        assert!(is_object_key("admission/testnet-r0-19/0a1b/a1.object"));
-        assert!(!is_object_key("artifacts/blobs/00"));
-        assert!(!is_object_key("admission/../pool/x.object"));
-        assert!(!is_object_key("admission/x y.object"));
-    }
 }

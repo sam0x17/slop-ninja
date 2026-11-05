@@ -42,6 +42,8 @@ serde_json = { version = "=1.0.154", features = ["float_roundtrip", "raw_value"]
 sha2 = "=0.10.9"
 # The artifact spec's admission checks, run on every artifact before ONNX Runtime opens it.
 slop-ninja-artifact-check = { path = "../../subnet/crates/artifact-check" }
+# The artifact header a load admits by (its store-verified digests).
+slop-ninja-protocol = { path = "../../subnet/crates/protocol" }
 tiny_http = "=0.12.0"
 tokenizers = { version = "=0.22.2", default-features = false, features = ["onig"] }
 

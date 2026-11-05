@@ -513,7 +513,19 @@ impl<'a> Sim<'a> {
                 // Predecessor notices are driven by the retention tests.
                 Work::RetentionNotice { .. } => break,
                 // Admission I/O is driven by the admission tests themselves.
-                Work::AdmissionVerify { .. } | Work::AdmissionLanes | Work::AdmissionCleanup => break,
+                // The paced admission work an empty bucket answers at once
+                // (`cf_admission`'s sweep and reconciliation steps).
+                Work::AdmissionSweep => {
+                    tx(self.db, |s| crate::eval::admission::sweep_begin(s, now)).unwrap();
+                }
+                Work::AdmissionReconcile => {
+                    tx(self.db, |s| crate::eval::admission::reconcile_page(s, &[], None, now)).unwrap();
+                }
+                Work::AdmissionVerify { .. }
+                | Work::AdmissionLanes
+                | Work::AdmissionCleanup
+                | Work::AdmissionCanary
+                | Work::AdmissionClose => break,
                 Work::AdmissionSettle { key, .. } => {
                     tx(self.db, |s| crate::eval::admission::charge_settled(s, &key)).unwrap();
                 }
@@ -662,7 +674,7 @@ impl<'a> Sim<'a> {
     fn artifact_digests(&self, a: &super::plan::ArtifactJson) -> v3::ArtifactDigests {
         let b = &self.eval[&a.manifest_key];
         assert_eq!(lane_logic::sha_hex(b), a.package_sha256);
-        v3::artifact_digests(b).unwrap()
+        v3::artifact_digests(b, None).unwrap()
     }
 
     fn seal_v3(&mut self, seq: i64) {
@@ -733,6 +745,15 @@ impl<'a> Sim<'a> {
         self.rcpt.insert(format!("{prefix}/chunk-map.json"), b"{}".to_vec());
         self.rcpt.insert(format!("{prefix}/package.signed"), b.package.to_bytes().unwrap());
         self.rcpt.insert(format!("{prefix}/result.signed"), b.result.to_bytes().unwrap());
+        // Every entrant's header, as publication at scoring start copies it,
+        // checks against the package: the files manifest v2 lists the header
+        // whose digest the package binds (`EntrantScore::artifact`).
+        for a in &cohort.plan.entrants {
+            let header = v3::header_of(&self.eval[&a.manifest_key]).unwrap();
+            let vh = slop_ninja_protocol::VerifiedHeader::from_bytes(&header.to_bytes().unwrap()).unwrap();
+            let hotkey = a.owner.identity().unwrap().hotkey;
+            slop_ninja_protocol::submission::check_published_artifact(&b.package, &hotkey, &vh).unwrap();
+        }
         tx(self.db, |s| v3::commit_package(s, seq, &b, 6, now)).unwrap();
         self.packages_v3.push(b);
     }
@@ -2651,7 +2672,7 @@ fn the_v3_cohort_store_migrates_in_place_to_v7() {
         )
         .unwrap();
     let report = sql::migrate(&db, &EVAL_COHORT_SCHEMA).unwrap();
-    assert_eq!((report.from, report.to), (3, 24));
+    assert_eq!((report.from, report.to), (3, 25));
     let st = status(&db, 5);
     assert_eq!(st["cohorts"][0]["phase"], "closed");
     assert_eq!(st["cohorts"][0]["jobs"][0]["status"], "done", "the jobs table was rebuilt with its rows");
@@ -2987,21 +3008,34 @@ fn plan_v3(cohort: u64, label: &str, n: u32, reference: super::plan::ArtifactJso
     p
 }
 
-/// A synthetic scorer artifact: its files manifest goes to the sim's eval
-/// bucket; `files` names each inference file's distinguishing tag.
+/// A synthetic scorer artifact: its files manifest v2 goes to the sim's
+/// eval bucket; `files` names each inference file's distinguishing tag
+/// (graph, heads, tokenizer, calibration, contract), and the export
+/// manifest's digest is the owner's.
 fn v3_artifact(sim: &mut Sim<'_>, owner: super::plan::IdentityJson, files: [u8; 5]) -> super::plan::ArtifactJson {
-    let roles = ["encoder_graph", "heads", "tokenizer", "calibration", "contract"];
-    let file_list: Vec<Value> = roles
+    let tag_of = |role: &str| match role {
+        "encoder_graph" => Some(files[0]),
+        "heads" => Some(files[1]),
+        "tokenizer" => Some(files[2]),
+        "calibration" => Some(files[3]),
+        "contract" => Some(files[4]),
+        _ => None,
+    };
+    let file_list: Vec<Value> = slop_ninja_artifact_check::spec::ROLES
         .iter()
-        .zip(files)
-        .map(|(role, tag)| json!({"name": format!("{role}.bin"), "role": role, "bytes": 100 + u64::from(tag),
-            "sha256": hex::encode([tag; 32]), "parts": []}))
-        .chain(std::iter::once(json!({"name": "manifest.json", "role": "export_manifest", "bytes": 7,
-            "sha256": hex::encode([owner.uid as u8; 32]), "parts": []})))
+        .map(|r| {
+            let (bytes, sha) = match tag_of(r.scorer_role) {
+                Some(tag) => (100 + u64::from(tag), hex::encode([tag; 32])),
+                None => (7, hex::encode([owner.uid as u8; 32])),
+            };
+            json!({"name": r.name, "role": r.scorer_role, "bytes": bytes, "sha256": sha, "bucket": "eval",
+                "key": format!("artifacts/files/{sha}"), "etag": null})
+        })
         .collect();
-    let m = json!({"schema": "slop_ninja_a_artifact_files_v1", "profile_id": "synthetic", "contract": "slop_ninja_full_a_contract_v2",
-        "graph": "encoder_graph.bin", "files": file_list});
-    let bytes = serde_json::to_vec(&m).unwrap();
+    let m = json!({"schema": "slop_ninja_a_artifact_files_v2", "profile_id": "synthetic", "contract": "slop_ninja_full_a_contract_v2",
+        "graph": slop_ninja_artifact_check::spec::GRAPH_FILE, "files": file_list});
+    let mut bytes = serde_json::to_vec_pretty(&m).unwrap();
+    bytes.push(b'\n');
     let sha = lane_logic::sha_hex(&bytes);
     let key = format!("artifacts/packages/{sha}.json");
     sim.eval.insert(key.clone(), bytes);
@@ -4113,6 +4147,58 @@ fn a_predecessor_with_closure_settle_or_purge_work_records_no_successor() {
     assert!(!tx(&db, |s| engine::has_work(s, &retired)).unwrap(), "nothing left for kicks that stop");
 }
 
+/// A predecessor records no successor while an admitted entrant's objects
+/// are retained (`admission::objects_retained`): the publisher's report not
+/// yet recorded, or its deletes not yet queued. Once superseded it is no
+/// longer kicked, so objects released after that would wait for good.
+#[test]
+fn a_predecessor_retaining_admitted_objects_records_no_successor() {
+    use crate::config::{Authority, Supersede};
+    let retired = predecessor_cfg();
+    let db = Sqlite::open();
+    sql::migrate(&db, &EVAL_COHORT_SCHEMA).unwrap();
+    let mut p = plan(10);
+    p.label = "testnet-rv1-x".into();
+    let seq = open_cohort(&db, &p, 10, 1_000_000);
+    let req = Supersede::of(&Authority::named("r0b", p.cohort + 1).unwrap()).unwrap();
+    db.conn
+        .execute(
+            "UPDATE cohorts SET phase = 'closed', reserved_microusd = 1, settled_microusd = 1, purged_ms = 1,
+                v3 = NULL, closure_digest = NULL WHERE seq = ?1",
+            rusqlite::params![seq],
+        )
+        .unwrap();
+    db.conn
+        .execute(
+            "INSERT INTO adm_cohorts (seq, cohort, state, open_block) VALUES (?1, ?2, 'frozen', 1)",
+            rusqlite::params![seq, p.cohort as i64],
+        )
+        .unwrap();
+    db.conn
+        .execute(
+            "INSERT INTO adm_sessions (session, seq, cohort, hotkey, upload, commitment, content, header_sha256,
+                header_len, state, created_ms, updated_ms)
+             VALUES ('s1', ?1, ?2, 'hk', '{}', 'c', 'x', 'h', 1, 'admitted', 1, 1)",
+            rusqlite::params![seq, p.cohort as i64],
+        )
+        .unwrap();
+    let refused = |db: &Sqlite| tx(db, |s| super::succession::supersede(s, &retired, &req, 1_000_000)).unwrap();
+    for (case, columns) in [("unpublished", "published = 0"), ("published, deletes not queued", "published = 1")] {
+        db.conn.execute(&format!("UPDATE adm_sessions SET {columns}"), []).unwrap();
+        assert!(tx(&db, |s| engine::blocking_work(s, &retired)).unwrap(), "{case}");
+        let rows = dump(&db);
+        assert_eq!(refused(&db), Err("predecessor_work"), "{case}");
+        assert_eq!(dump(&db), rows, "{case}: a refusal writes nothing");
+    }
+    let due = |db: &Sqlite| tx(db, |s| engine::has_due_work(s, &retired, 1_000_000)).unwrap();
+    let retained_due = due(&db);
+    db.conn.execute("UPDATE adm_sessions SET cleaned = 1", []).unwrap();
+    assert!(!tx(&db, |s| engine::blocking_work(s, &retired)).unwrap());
+    assert_eq!(due(&db), retained_due, "retained objects alone never re-arm the step alarm");
+    let v = refused(&db).unwrap();
+    assert_eq!(v["superseded_by"], "r0b");
+}
+
 /// A superseded authority queues nothing, even with the configuration it
 /// read before a successor's supersede committed (an operator plan awaits the
 /// ledger, and a calendar open its predecessors, between its admit and its
@@ -4191,8 +4277,9 @@ fn a_plan_naming_a_spec_binds_and_publishes_the_v2_limits_record() {
         artifact_spec_sha256: v3_sha.clone(),
         roster_cap: 2,
         selection: "earliest_commitment/v1".into(),
-        part_size: 5 << 20,
-        max_parts: 100,
+        upload_policy: None,
+        part_size: Some(5 << 20),
+        max_parts: Some(100),
         request_validity_blocks: 360,
         operator_hotkeys: Vec::new(),
         operator_coldkeys: Vec::new(),
@@ -6438,8 +6525,9 @@ fn standing_of(prefix: &str, mut p: CohortPlan, probes: Vec<super::plan::ProbeRe
         artifact_spec_sha256: b.spec_sha256.clone(),
         roster_cap: 2,
         selection: slop_ninja_admission_wire::SELECTION_EARLIEST_COMMITMENT_V1.into(),
-        part_size: 64 << 20,
-        max_parts: 64,
+        upload_policy: Some(super::plan::UploadPolicyPlan::v1()),
+        part_size: None,
+        max_parts: None,
         request_validity_blocks: 360,
         operator_hotkeys: Vec::new(),
         operator_coldkeys: Vec::new(),
@@ -6966,7 +7054,7 @@ fn store_v23_seeds_the_boundary_journal_from_cohort_history_without_work_times()
         )
         .unwrap();
     let report = sql::migrate(&db, &EVAL_COHORT_SCHEMA).unwrap();
-    assert_eq!((report.from, report.to), (22, 24));
+    assert_eq!((report.from, report.to), (22, 25));
     let got: Vec<(u64, Option<u64>, Option<u64>)> = journal(&db).iter().map(|r| (r.epoch, r.block, r.observed_ms)).collect();
     assert_eq!(
         got,

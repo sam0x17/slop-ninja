@@ -14,12 +14,13 @@
 //! artifact spec `--spec` names (`v2`, `v3` or a full spec id; the spec the cohort
 //! names, which the scorer admits the cohort's loads by), else with spec v2, the spec
 //! a load that names none is admitted by (`engine::UNNAMED_LOAD_SPEC`). It then
-//! writes the spec's parts layout (64 MiB parts under `OUT/blobs/` and the artifact
-//! files manifest `OUT/artifact-files.json`) and prints the package digest (the
-//! manifest's SHA-256). The manifest's `profile_id` is that spec's
-//! (`<spec id>/<graph class id>`), so the digest depends on the spec, except for the
-//! served profile's own files (R0), which keep the served profile's id under any
-//! spec, so R0's deployed package digest is reproduced. Nothing leaves the host.
+//! writes the eval bucket's reference files layout v2 (each file once under
+//! `OUT/files/<sha256>` and the files manifest v2 `OUT/artifact-files.json`, naming
+//! the eval bucket key `artifacts/files/<sha256>`) and prints the package digest (the
+//! manifest's SHA-256). The operator uploads each file with R2 verifying its SHA-256.
+//! The manifest's `profile_id` is that spec's (`<spec id>/<graph class id>`), except
+//! for the served profile's own files (R0), which keep the served profile's id under
+//! any spec. Nothing leaves the host.
 use a_container_serve::engine::{UNNAMED_LOAD_SPEC, spec_arg};
 use a_container_serve::profile::{ServedProfile, sha256_hex};
 use anyhow::{Context, Result, bail, ensure};
@@ -67,23 +68,20 @@ fn main() -> Result<()> {
                 }
             }
             let (model, out) = (model.context("--model-dir")?, out.context("--out")?);
-            let mut report = slop_ninja_artifact_check::fs::check_dir_for(&model, spec)
+            let (header, mut report) = slop_ninja_artifact_check::fs::check_dir_with_header(&model, spec)
                 .map_err(|e| anyhow::anyhow!("refused {}: {e}", e.code()))?;
             if profile.check_dir(&model).is_ok() {
-                report.parts_manifest.profile_id = profile.profile_id.clone();
+                report.profile_id = profile.profile_id.clone();
             }
-            let path = slop_ninja_artifact_check::fs::write_parts(&model, &report, &out)
+            let (path, package) = slop_ninja_artifact_check::fs::write_files(&model, &header, &report, spec, &out)
                 .map_err(|e| anyhow::anyhow!("refused {}: {e}", e.code()))?;
-            let bytes = std::fs::read(&path)?;
-            let m = &report.parts_manifest;
-            let parts: std::collections::BTreeSet<&str> =
-                m.files.iter().flat_map(|f| f.parts.iter().map(|p| p.sha256.as_str())).collect();
-            println!("package_sha256 {}", sha256_hex(&bytes));
-            println!("parts {} (files {})", parts.len(), m.files.len());
+            ensure!(sha256_hex(&std::fs::read(&path)?) == package, "manifest digest");
+            println!("package_sha256 {package}");
+            println!("files {}", header.files.len());
             println!("graph_class {} ({})", report.graph_class, report.spec);
             println!("content_sha256 {}", report.content_sha256);
-            let graph = m.files.iter().find(|f| f.name == m.graph).context("graph")?;
-            println!("model_sha256 {}", graph.sha256);
+            let graph = header.files.iter().find(|f| f.name == slop_ninja_artifact_check::spec::GRAPH_FILE).context("graph")?;
+            println!("model_sha256 {}", hex::encode(graph.sha256.0));
         }
         _ => bail!("usage: slop_ninja_a_served_profile show | sums | verify [--model-dir DIR] [--release-dir DIR] | pack [--spec v2|v3] --model-dir DIR --out DIR"),
     }

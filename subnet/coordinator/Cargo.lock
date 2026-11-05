@@ -2295,6 +2295,7 @@ dependencies = [
  "slop-ninja-artifact-check",
  "slop-ninja-gen-core",
  "slop-ninja-protocol",
+ "slop-ninja-r2-presign",
  "slop-ninja-scorer-tokens",
  "subtle",
  "wasm-bindgen",
@@ -2318,6 +2319,14 @@ name = "slop-ninja-protocol"
 version = "0.1.0"
 dependencies = [
  "ed25519-dalek",
+ "sha2",
+]
+
+[[package]]
+name = "slop-ninja-r2-presign"
+version = "0.1.0"
+dependencies = [
+ "hmac",
  "sha2",
 ]
 

@@ -530,15 +530,17 @@ pub fn metadata_request(id: u64, at: &str) -> String {
     request(id, "state_call", json!(["Metadata_metadata_at_version", "0x0f000000", at]))
 }
 
+/// The `result` of a JSON-RPC reply to call `id`, moved out of the parsed
+/// reply (never cloned, so a reply's tree is held once).
 fn result(id: u64, body: &[u8]) -> Result<Json, ReadError> {
-    let v: Json = serde_json::from_slice(body).map_err(|_| ReadError("rpc_json"))?;
+    let mut v: Json = serde_json::from_slice(body).map_err(|_| ReadError("rpc_json"))?;
     if v.get("id").and_then(Json::as_u64) != Some(id) {
         return Err(ReadError("rpc_id"));
     }
     if v.get("error").is_some_and(|e| !e.is_null()) {
         return Err(ReadError("rpc_error"));
     }
-    v.get("result").cloned().ok_or(ReadError("rpc_result"))
+    v.get_mut("result").map(Json::take).ok_or(ReadError("rpc_result"))
 }
 
 fn is_hash(t: &str) -> bool {

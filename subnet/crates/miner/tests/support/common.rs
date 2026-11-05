@@ -9,10 +9,12 @@ use std::time::Duration;
 use rtao_primitives::CryptoType;
 use rtao_signer::KeypairSigner;
 use slop_ninja_miner::client::{AdmissionClient, RequestSigner, RtaoSigner, base_url, http_client};
+use slop_ninja_miner::direct::{Progress, PutPolicy};
+use slop_ninja_miner::object::ObjectHeader;
 use slop_ninja_miner::opening::{OsNonce, Store};
 use slop_ninja_miner::upload::UploadOptions;
 use slop_ninja_miner::{commit, object};
-use slop_ninja_protocol::{ChainBinding, NeuronIdentity, TESTNET_GENESIS, VerifiedArtifact};
+use slop_ninja_protocol::{ChainBinding, NeuronIdentity, TESTNET_GENESIS};
 
 use super::mock::{Mock, MockConfig};
 
@@ -36,8 +38,6 @@ pub fn config() -> MockConfig {
         output_contract: CONTRACT.into(),
         roster_cap: 40,
         max_object_len: 1 << 20,
-        part_size: 1_024,
-        max_parts: 10_000,
         request_validity_blocks: 360,
     }
 }
@@ -57,7 +57,7 @@ pub fn identity(signer: &RtaoSigner, uid: u16) -> NeuronIdentity {
 
 /// A synthetic artifact object (no real model): `family` changes the
 /// inference content, `owner` only the owner metadata.
-pub fn packed(dir: &Path, family: u8, owner: &str) -> (PathBuf, VerifiedArtifact) {
+pub fn packed(dir: &Path, family: u8, owner: &str) -> (PathBuf, ObjectHeader) {
     let src = dir.join(format!("src-{family}-{owner_len}", owner_len = owner.len()));
     std::fs::create_dir_all(src.join("tok")).unwrap();
     let graph: Vec<u8> = (0..3_000u32).map(|i| (i as u8) ^ family).collect();
@@ -81,6 +81,14 @@ pub fn packed(dir: &Path, family: u8, owner: &str) -> (PathBuf, VerifiedArtifact
     (out, verified)
 }
 
+/// The put policy that sends PUTs to the mock's R2 stub (URLs still name
+/// the mock's S3 host and are checked in full).
+pub fn stub_policy(mock: &Mock) -> PutPolicy {
+    PutPolicy::default()
+        .with_endpoint_override(&mock.r2_url())
+        .unwrap()
+}
+
 pub async fn client(mock: &Mock, signer: Arc<dyn RequestSigner>) -> AdmissionClient {
     let http = http_client(Duration::from_secs(30)).unwrap();
     let base = base_url(&mock.url()).unwrap();
@@ -88,6 +96,39 @@ pub async fn client(mock: &Mock, signer: Arc<dyn RequestSigner>) -> AdmissionCli
         .await
         .unwrap()
         .0
+        .with_put_policy(stub_policy(mock))
+}
+
+/// Records every progress event (test only).
+#[derive(Default)]
+pub struct Recorder {
+    pub events: std::sync::Mutex<Vec<String>>,
+    pub bytes: std::sync::atomic::AtomicU64,
+}
+
+impl Progress for Recorder {
+    fn plan(&self, objects: usize, bytes: u64) {
+        self.events
+            .lock()
+            .unwrap()
+            .push(format!("plan {objects} {bytes}"));
+    }
+    fn start(&self, name: &str, len: u64, attempt: u32) {
+        self.events
+            .lock()
+            .unwrap()
+            .push(format!("start {name} {len} {attempt}"));
+    }
+    fn advance(&self, bytes: u64) {
+        self.bytes
+            .fetch_add(bytes, std::sync::atomic::Ordering::Relaxed);
+    }
+    fn finish(&self, name: &str, ok: bool, why: &str) {
+        self.events
+            .lock()
+            .unwrap()
+            .push(format!("finish {name} {ok} {why}"));
+    }
 }
 
 pub fn quick() -> UploadOptions {
@@ -96,15 +137,8 @@ pub fn quick() -> UploadOptions {
         backoff: Duration::from_millis(10),
         wait: Duration::from_secs(5),
         poll: Duration::from_millis(10),
-        stop_after_parts: None,
-        restart: false,
-    }
-}
-
-pub fn restart() -> UploadOptions {
-    UploadOptions {
-        restart: true,
-        ..quick()
+        stop_after_objects: None,
+        ..UploadOptions::default()
     }
 }
 
@@ -127,7 +161,7 @@ pub fn entrant(
     store: &Store,
     uri: &str,
     uid: u16,
-    artifact: &VerifiedArtifact,
+    artifact: &ObjectHeader,
     block: u64,
 ) -> Entrant {
     let signer = dev_signer(uri);

@@ -160,14 +160,16 @@ ONNX Runtime library and the binary only; no model.
 - **Admitted by the cohort's spec.** Each load admits by the artifact spec it
   names by digest (`spec=`, the digest `slop_ninja_artifact_check spec`
   prints and a cohort's `artifact_spec` names), which is its cohort's. The
-  scorer admits by spec v2 or v3 (`engine::admits_by`; spec v1 bounds no
+  scorer admits by spec v2, v3 or v4 (`engine::admits_by`; spec v1 bounds no
   JSON file), and a load that names no spec is admitted by spec v2
   (`engine::UNNAMED_LOAD_SPEC`), the spec testnet cohorts name. Spec v3
-  (`engine::NEWEST_SPEC`) admits every artifact spec v2 admits (every artifact
+  admits every artifact spec v2 admits (every artifact
   spec v1 admits whose JSON files fit the JSON budget, plus span-head
-  artifacts) and span tower artifacts, so a tower-class artifact is admitted
-  only by a load that names spec v3. `slop_ninja_a_served_profile pack
-  [--spec v2|v3] --model-dir DIR --out DIR` admits a model directory by the
+  artifacts) and span tower artifacts, and spec v4 (`engine::NEWEST_SPEC`)
+  admits exactly what v3 admits, stating the graph class rule as the byte
+  comparison, so a tower-class artifact is admitted
+  only by a load that names spec v3 or v4. `slop_ninja_a_served_profile pack
+  [--spec v2|v3|v4] --model-dir DIR --out DIR` admits a model directory by the
   spec `--spec` names (the cohort's), else by spec v2 as a load that names
   none is, and writes its files and manifest. The manifest's `profile_id`
   names that spec, so the package digest depends on it; for R0's own files it
@@ -181,8 +183,9 @@ ONNX Runtime library and the binary only; no model.
   Once every chunk is written, and before ONNX Runtime opens anything, it runs
   the spec's whole admission check on the files with the header's digests
   (`engine::admit`), graph pre-parse included; the role binding and the load
-  guards compare digests with the header and hash no file (the graph's
-  structure digest is the one remaining hash, decision D5). A refusal fails the load with `refused <code>: <detail>`.
+  guards compare digests with the header and hash no file, and the graph's
+  class is a byte comparison of its structure stream with the class's
+  reference stream, compiled into the binary (decision D5). A refusal fails the load with `refused <code>: <detail>`.
 - **Guards.** R0's form (export v2, heads v1, no span head) keeps the release
   guard (`engine.rs` `guard`, unchanged and pinned by spec v1). Every other
   form takes the shared load guard (`src/load_guard.rs`), which spec v2 and v3
@@ -323,6 +326,14 @@ bound(class) = base + sessions x coefficient(class) x graph bytes(class) + reque
   process on October 29, 2026 (free memory plus the process's resident set
   with four sessions of R0, 12,078,473,216 bytes) less the other terms at four
   sessions of the class, divided by three. A test recomputes both.
+- **Reference structure streams, not reserved.** The graph classes' reference
+  structure streams (decision D5) are read-only data compiled into the
+  binary, 5,107,056 bytes for the three classes, added after the base was
+  measured. A load reads one class's stream, at most its `structure_bytes`
+  (1,860,300 for the tower class), once and in order, during the graph walk.
+  The pages are clean and backed by the executable, so the kernel can drop
+  them under memory pressure and read them again; the bound reserves nothing
+  for them. The next measurement of the base takes them in.
 
 | Sessions | Bound (plain, span) | Bound (tower) |
 |---:|---:|---:|
@@ -363,14 +374,14 @@ change spec v2's value budget, so it waits for a later spec version.
 
 ### Deployment prerequisites
 
-- **Loads that name spec v3.** The coordinator's loads (the lane client's
+- **Loads that name spec v3 or v4.** The coordinator's loads (the lane client's
   `load_path` in `subnet/coordinator/src/eval/scorer_client.rs`, which the
   operator probe also uses) name the digest of the spec the cohort's plan
   names (`fanout.score.artifact_spec`), and the operator probe the one its
   request names (`artifact_spec`); a plan or probe that names none is
   admitted by spec v2. The client names a digest only when `/healthz` lists
   it, and compares the binding's `spec` before reusing an instance. A
-  tower-class artifact is admitted only by a load naming spec v3, whose
+  tower-class artifact is admitted only by a load naming spec v3 or v4, whose
   bounds (the plan's `artifact_spec`, with its digest frozen in the plan)
   also size the artifact.
 - **Rehearsal artifacts and the reference chain.** A load that names no spec
@@ -404,11 +415,11 @@ heads runtime.
 cargo build --release --locked --manifest-path inference/a-container-serve/Cargo.toml \
   --bin slop_ninja_a_local_score
 slop_ninja_a_local_score --model-dir ./my-artifact --docs docs.jsonl --out results.jsonl \
-  --ort-lib /path/to/libonnxruntime.so.1.31.1 [--spec v2|v3] [--spans] [--sessions N] [--threads N]
+  --ort-lib /path/to/libonnxruntime.so.1.31.1 [--spec v2|v3|v4] [--spans] [--sessions N] [--threads N]
 ```
 
 `--spec` is the spec the cohort names, the one the hidden scorer admits the
-cohort's artifacts by; without it, the newest (spec v3).
+cohort's artifacts by; without it, the newest (spec v4).
 
 Each line of `docs.jsonl` is `{"id", "text"}`, optionally with `"involved"`
 (true when AI was involved) and `"share"` (0 to 1). Each output line is the

@@ -15,6 +15,7 @@ use serde::Serialize;
 use slop_ninja_protocol::{ArtifactHeader, ArtifactReader, FileRole, Record};
 
 use crate::Refusal;
+use crate::files::{graph_walk, walked_class};
 use crate::onnx::{GraphReport, GraphScan};
 use crate::roles::{RoleDigests, RoleFiles, RolesReport, check_roles_with, check_tokenizer};
 use crate::spec::{self, GraphClass, Version};
@@ -319,10 +320,9 @@ impl ObjectCheck {
         };
         if f.name == spec::GRAPH_FILE {
             // The header check found the class of this length; its parameter
-            // bound applies from the walk's first payload.
-            let class = self.version.graph_class_by_len(f.len);
-            let policy = class.map_or(spec::GRAPH_POLICY, spec::graph_policy);
-            self.graph = Some(GraphScan::new(f.len, policy));
+            // bound applies from the walk's first payload, and its reference
+            // structure stream is compared as the walk goes.
+            self.graph = Some(graph_walk(self.version, f.len));
         }
         if let Some(j) = JSON_ROLES.iter().position(|n| *n == f.name) {
             // Allocated at its first byte, at exactly the declared length.
@@ -384,22 +384,12 @@ impl ObjectCheck {
             .graph_report
             .take()
             .ok_or(Refusal::MissingFile(spec::GRAPH_FILE))?;
-        let class = self
-            .version
-            .graph_class(&graph.structure_sha256)
-            .ok_or_else(|| Refusal::GraphNotAllowed {
-                structure_sha256: graph.structure_sha256.clone(),
-            })?;
         let graph_len = header
             .files
             .iter()
             .find(|f| f.name == spec::GRAPH_FILE)
-            .map(|f| f.len);
-        if graph_len != Some(class.bytes) {
-            return Err(Refusal::GraphNotAllowed {
-                structure_sha256: graph.structure_sha256.clone(),
-            });
-        }
+            .map_or(0, |f| f.len);
+        let class = walked_class(self.version, graph_len, &graph)?;
         if !self.version.serves(class) {
             return Err(Refusal::GraphClassNotServed(class.id));
         }

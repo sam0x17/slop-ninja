@@ -15,8 +15,8 @@
 //! and each file's digest from the header). Admission never re-reads or
 //! re-hashes a file: [`VerifiedHeader`] is built from `H` and the digest the
 //! store verified, and every file is checked by comparing the store's
-//! verified checksum and size with the header. So the miner's pack-time
-//! per-file hash is the only SHA-256 over model bytes, and the store's
+//! verified checksum and size with the header. So, from pack on, the miner's
+//! pack-time per-file hash is the only SHA-256 over model bytes, and the store's
 //! ingest check the only verification.
 //!
 //! [`ArtifactReader`] streams a reassembled object, checks every file against

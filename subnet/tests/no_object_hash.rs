@@ -22,12 +22,13 @@
 //! record that no upload verified, a reference's or an operator-roster
 //! entrant's, or the batch index; an admitted entrant's artifact digest is
 //! the one admission recorded), the miner's upload-host pin (a host
-//! name's digest, decision D1). The one remaining hash over model bytes is the graph allow-list's
-//! structure digest (`onnx.rs`). Decision D5 (approved 2026-11-05) replaces
-//! it with a byte comparison against each class's pinned reference
-//! structure stream in the next artifact spec version; until that spec
-//! ships, the scan pins that it is exactly one hasher so no second one
-//! joins it.
+//! name's digest, decision D1). No hash runs over model bytes: the graph
+//! allow-list compares the graph's structure stream byte for byte with the
+//! class's pinned reference stream (decision D5, approved 2026-11-05), so the
+//! graph walk (`onnx.rs`), the class check that drives it and the reference
+//! streams' lookup hold no hasher at all, of any algorithm: there the scan
+//! matches every hasher name ([`ANY_HASHER`]), not only SHA-256, and
+//! artifact-check's one hash crate is `sha2`.
 //!
 //! Test code (after a file's first `#[cfg(test)]`) and comments are skipped.
 //! Run with `cargo test --test no_object_hash`.
@@ -50,6 +51,16 @@ const HASHES: &[&str] = &[
     "file_sha256(",
     "hash_file(",
     "verify_object_for(",
+];
+
+/// Any hasher at all, whatever its algorithm or crate, matched
+/// case-insensitively: `hash` alone covers `Hasher`, `DefaultHasher`,
+/// `Hash::hash`, `std::hash`, `HashMap`, `ahash`, `xxhash` and `siphash`.
+/// The graph walk and the class decision hold none of these (decision D5).
+const ANY_HASHER: &[&str] = &[
+    "hash", "blake", "md5", "md-5", "crc", "xxh", "sha1", "sha2", "sha3", "sha256", "sha512", "fnv", "murmur",
+    "keccak", "highway", "checksum", "hmac", "poly1305", "adler", "fletcher", "digest(", "digest::", "digest<",
+    "::digest", "update_digest",
 ];
 
 fn root() -> PathBuf {
@@ -100,6 +111,38 @@ fn without(text: &str, allowed: &[&str]) -> String {
     out
 }
 
+/// Lines of `text` naming any hasher ([`ANY_HASHER`]).
+fn any_hasher(what: &str, text: &str) -> Vec<String> {
+    let mut found = Vec::new();
+    for (n, line) in text.lines().enumerate() {
+        let lower = line.to_ascii_lowercase();
+        for h in ANY_HASHER {
+            if lower.contains(h) {
+                found.push(format!("{what}:{}: hasher {h:?} in `{}`", n + 1, line.trim()));
+            }
+        }
+    }
+    found
+}
+
+/// The `use` declarations of `text` that import any hasher.
+fn hasher_imports(what: &str, text: &str) -> Vec<String> {
+    let uses: String = text.lines().filter(|l| l.trim_start().starts_with("use ")).collect::<Vec<_>>().join("\n");
+    any_hasher(what, &uses)
+}
+
+/// The `[dependencies]` entries of a crate manifest that name a hash crate.
+fn hash_dependencies(manifest: &str) -> Vec<String> {
+    let start = manifest.find("[dependencies]").expect("a [dependencies] table");
+    let rest = &manifest[start + "[dependencies]".len()..];
+    let deps = &rest[..rest.find("\n[").unwrap_or(rest.len())];
+    deps.lines()
+        .map(|l| l.split('#').next().unwrap_or(""))
+        .filter_map(|l| l.split_once('=').map(|(k, _)| k.trim().to_owned()))
+        .filter(|k| !k.is_empty() && !any_hasher("dep", k).is_empty())
+        .collect()
+}
+
 fn violations(what: &str, text: &str) -> Vec<String> {
     let mut found = Vec::new();
     for (n, line) in text.lines().enumerate() {
@@ -131,9 +174,42 @@ fn nothing_after_the_commit_hashes_model_bytes() {
     let roles = production(&r.join("crates/artifact-check/src/roles.rs"));
     let binding = body(&roles, "pub fn check_roles_with(");
     scan("artifact-check/roles.rs check_roles_with", binding.to_owned());
-    // The graph allow-list's structure digest: decision D5, exactly one hasher.
+    // The graph allow-list (decision D5): the walk and its byte comparison
+    // with the class's reference structure stream, the walk's construction
+    // and the class decision, the reference streams' lookup and the object
+    // check's graph path. Zero hashers: the whole walk module is scanned.
+    scan("artifact-check/onnx.rs", production(&r.join("crates/artifact-check/src/onnx.rs")));
+    let spec = production(&r.join("crates/artifact-check/src/spec.rs"));
+    scan("artifact-check/spec.rs reference_structure", body(&spec, "pub fn reference_structure(").to_owned());
+    scan("artifact-check/spec.rs graph_policy", body(&spec, "pub const fn graph_policy(").to_owned());
+    let mapping = production(&r.join("crates/artifact-check/src/mapping.rs"));
+    for sig in ["    fn start_file(", "    fn files(", "pub fn check_header_for(", "pub fn check_listing("] {
+        scan(&format!("artifact-check/mapping.rs {sig}"), body(&mapping, sig).to_owned());
+    }
+    // The class decision in the object check: everything after the
+    // protocol reader's own verification (a tool path that holds a whole
+    // object; admission and scoring never use it) is hash-free.
+    let finish = body(&mapping, "    pub fn finish(mut self)");
+    let after_reader = &finish[finish.find("let header = self").expect("the header after the reader")..];
+    scan("artifact-check/mapping.rs ObjectCheck::finish", after_reader.to_owned());
+    // Zero hashers of any algorithm (D5): the walk module, the class
+    // decision and the reference lookup name none, and neither the walk nor
+    // the files check imports one. SHA-256 (`sha2`) is artifact-check's one
+    // hash crate (the pack writer and small records).
+    let mut any_found = Vec::new();
     let onnx = production(&r.join("crates/artifact-check/src/onnx.rs"));
-    assert_eq!(onnx.matches("Sha256::new()").count(), 1, "onnx.rs must hold exactly the one structure hasher (D5)");
+    any_found.extend(any_hasher("artifact-check/onnx.rs (any hasher)", &onnx));
+    let files = production(&r.join("crates/artifact-check/src/files.rs"));
+    any_found.extend(hasher_imports("artifact-check/files.rs imports", &files));
+    for sig in ["pub fn graph_walk(", "pub fn walked_class("] {
+        any_found.extend(any_hasher(&format!("artifact-check/files.rs {sig} (any hasher)"), body(&files, sig)));
+    }
+    for sig in ["pub fn reference_structure(", "pub const fn graph_policy("] {
+        any_found.extend(any_hasher(&format!("artifact-check/spec.rs {sig} (any hasher)"), body(&spec, sig)));
+    }
+    let check_manifest = std::fs::read_to_string(r.join("crates/artifact-check/Cargo.toml")).unwrap();
+    assert_eq!(hash_dependencies(&check_manifest), ["sha2"], "artifact-check's only hash crate is sha2");
+    assert!(body(&production(&r.join("crates/artifact-check/src/files.rs")), "pub fn graph_walk(").contains("GraphScan::against("), "the graph class check compares with the reference stream");
 
     // The signer: the canary body (64 bytes of our own) is the one record it hashes.
     let mint = production(&r.join("r2-signer/src/mint.rs"));
@@ -219,6 +295,7 @@ fn nothing_after_the_commit_hashes_model_bytes() {
     let routes = routes.replace("use sha2::{Digest, Sha256};", "");
     scan("a_scorer.rs routes", routes);
 
+    report.extend(any_found);
     assert!(report.is_empty(), "hashing after the commit (the miner's pack hash is the only one):\n{}", report.join("\n"));
 }
 
@@ -287,6 +364,7 @@ fn the_miner_hashes_each_file_once_at_pack() {
     let manifest = std::fs::read_to_string(r.join("crates/miner/Cargo.toml")).unwrap();
     let deps = &manifest[manifest.find("[dependencies]").unwrap()..manifest.find("[dev-dependencies]").unwrap()];
     assert!(!deps.contains("sha2"), "the miner has no hash dependency of its own");
+    assert!(hash_dependencies(&manifest).is_empty(), "the miner has no hash crate of its own");
 
     assert!(report.is_empty(), "the miner hashes model bytes after pack:\n{}", report.join("\n"));
 }
@@ -303,6 +381,19 @@ fn the_lint_sees_a_hash_and_ignores_comments_and_tests() {
     std::fs::write(&f, "fn a() {} // Sha256 in a comment\n#[cfg(test)]\nfn t() { Sha256::new(); }\n").unwrap();
     assert!(violations("a", &production(&f)).is_empty());
     std::fs::remove_dir_all(&dir).unwrap();
+    // Any algorithm, not only SHA-256 (review of D5): a std hasher or a
+    // hash crate in the walk is caught, a walk without one is not.
+    let std_hasher = "let mut h = std::collections::hash_map::DefaultHasher::new(); std::hash::Hash::hash(part, &mut h);";
+    assert!(violations("x", std_hasher).is_empty(), "the SHA-256 list alone misses it");
+    assert!(!any_hasher("x", std_hasher).is_empty());
+    assert!(!any_hasher("x", "let d = blake3::hash(part);").is_empty());
+    assert!(!any_hasher("x", "let c = crc32fast::hash(part);").is_empty());
+    assert!(!any_hasher("x", "let d = Md5::digest(part);").is_empty());
+    assert!(any_hasher("x", "self.reference.get(self.pos..end) == Some(part)").is_empty());
+    assert!(!hasher_imports("x", "use std::hash::Hasher;\nfn a() {}").is_empty());
+    assert!(hasher_imports("x", "use slop_ninja_protocol::{Digest, Record};").is_empty());
+    let m = "[dependencies]\nhex = \"0.4\"\nsha2 = \"0.10\" # pack\nblake3 = \"1\"\n\n[dev-dependencies]\nmd5 = \"0.7\"\n";
+    assert_eq!(hash_dependencies(m), ["sha2", "blake3"]);
     let src = "fn keep() { x(); }\nfn drop_me() { Sha256::new(); }\n";
     assert!(violations("s", &without(src, &["fn drop_me("])).is_empty());
 }

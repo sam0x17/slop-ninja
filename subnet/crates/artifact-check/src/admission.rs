@@ -23,7 +23,7 @@ use crate::spec::{self, Version};
 // ------------------------------------------------------------- spec bounds
 
 /// The object bound admission derives from a cohort's artifact spec
-/// (spec v2 or v3): the largest file total and the largest object any
+/// (spec v2, v3 or v4): the largest file total and the largest object any
 /// artifact of the spec can have. Nothing here is tuned: the graph term is
 /// the largest served class's fixed length, the tokenizer is pinned, the
 /// JSON role files share the spec's own budget, and the header is bounded by
@@ -79,8 +79,9 @@ pub fn files_bytes(v: Version) -> Option<u64> {
 
 /// The specs an admission run can load by: every admission run names the
 /// cohort's spec digest on its load (`AScorer` `/admit`), so a scorer that
-/// lists the spec admits by it (spec v3 admits the span tower class).
-pub const ADMISSION_SPECS: &[&str] = &[spec::SPEC_ID_V2, spec::SPEC_ID_V3];
+/// lists the spec admits by it (spec v3 admits the span tower class; spec v4
+/// admits what v3 admits, its graph class rule stated as a byte comparison).
+pub const ADMISSION_SPECS: &[&str] = &[spec::SPEC_ID_V2, spec::SPEC_ID_V3, spec::SPEC_ID_V4];
 
 /// Specs the scorer admits a load by: those that bound the JSON role files.
 fn engine_admits(v: Version) -> bool {

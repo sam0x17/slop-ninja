@@ -1041,7 +1041,8 @@ authoritative for uploads; the snapshot is a published mirror and can lag it.
 - **Hash once.** The scorer Container receives each file in 64 MiB chunks at
   their offsets, read from R2 by ranged reads pinned to the recorded entity
   tag, and loads them with no hash; the spec's role binding and load guards
-  compare the header's digests. The one remaining hash over model bytes is
-  the graph allow-list's structure digest (decision D5, open). A source test
-  (`no_object_hash`) fails if any other hash reaches the admission, scoring or
-  check paths.
+  compare the header's digests, and the graph allow-list compares the graph's
+  structure stream byte for byte with the class's pinned reference stream
+  (decision D5). No hash runs over model bytes after the miner's `pack`; a
+  source test (`no_object_hash`) fails if one reaches the admission, scoring
+  or check paths.

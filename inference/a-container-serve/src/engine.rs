@@ -53,13 +53,15 @@ pub const WIDTH: usize = 768;
 pub const TOKEN_STATES: &str = "token_states";
 /// Graph output with the span tower's normed token states, `[batch, seq, 768]`.
 pub const TOWER_STATES: &str = "span_tower_token_states";
-/// The newest artifact spec the scorer admits by. Spec v3 admits every
-/// artifact spec v2 admits, which is every artifact spec v1 admits whose JSON
-/// role files fit its JSON budget plus the span class, and the tower class; its
-/// classes are every class a load can be admitted under, so the memory model
-/// and `/healthz` cover them. The adversarial set and the local scorer's
-/// default use it.
-pub const NEWEST_SPEC: Version = Version::V3;
+/// The newest artifact spec the scorer admits by. Spec v4 admits exactly what
+/// spec v3 admits (its graph class rule is stated as a byte comparison with
+/// the class's reference structure stream), and v3 admits every artifact spec
+/// v2 admits, which is every artifact spec v1 admits whose JSON role files fit
+/// its JSON budget plus the span class, and the tower class; its classes are
+/// every class a load can be admitted under, so the memory model and
+/// `/healthz` cover them. The adversarial set and the local scorer's default
+/// use it.
+pub const NEWEST_SPEC: Version = Version::V4;
 
 /// The spec a load that names none is admitted by: spec v2, the spec testnet
 /// cohort templates name. A load for a cohort that names another spec names
@@ -70,22 +72,23 @@ pub const NEWEST_SPEC: Version = Version::V3;
 pub const UNNAMED_LOAD_SPEC: Version = Version::V2;
 
 /// Whether the scorer admits by `v`: a version that bounds the JSON role
-/// files' bytes and value cost, which the memory model needs (spec v2 and v3;
+/// files' bytes and value cost, which the memory model needs (spec v2 to v4;
 /// spec v1 bounds neither).
 pub fn admits_by(v: Version) -> bool {
     v.max_json_bytes().is_some() && v.max_json_value_bytes().is_some()
 }
 
-/// A tool's `--spec` value: `v2`, `v3` or a full spec id, of a spec the
+/// A tool's `--spec` value: `v2`, `v3`, `v4` or a full spec id, of a spec the
 /// scorer admits by ([`admits_by`]).
 pub fn spec_arg(id: &str) -> Result<Version> {
     match id {
         "v2" => Ok(Version::V2),
         "v3" => Ok(Version::V3),
+        "v4" => Ok(Version::V4),
         id => Version::from_id(id)
             .filter(|v| admits_by(*v))
             .with_context(|| {
-                format!("--spec {id}: not a spec the scorer admits by (v2, v3 or a full spec id)")
+                format!("--spec {id}: not a spec the scorer admits by (v2, v3, v4 or a full spec id)")
             }),
     }
 }

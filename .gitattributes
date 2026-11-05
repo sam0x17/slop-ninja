@@ -18,3 +18,6 @@ datasets/**/*.zst -text -diff
 
 # Synthetic layout fixtures (profile v2 tests): exact bytes, trailing whitespace included.
 grammar/crates/grammar-a-form/tests/fixtures/*.txt -text whitespace=-trailing-space,-blank-at-eof
+
+# Pinned reference structure streams of the A graph classes (binary, compared byte for byte).
+subnet/crates/artifact-check/structure/*.structure binary

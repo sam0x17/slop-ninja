@@ -1596,9 +1596,9 @@ pub fn check_roles_with(
     check_contract(&contract)?;
     let heads: HeadsView = parse(HEADS, files.heads)?;
     // The heads schema decides the export and calibration schemas it pairs
-    // with: heads v2 from spec v2 on, heads v3 from spec v3 on, else heads v1.
+    // with: heads v2 from spec v2 on, heads v3 from spec v3 on (v3 and v4), else heads v1.
     let heads_v2 = heads.schema == spec::HEADS_SCHEMA_V2 && version != Version::V1;
-    let heads_v3 = heads.schema == spec::HEADS_SCHEMA_V3 && version == Version::V3;
+    let heads_v3 = heads.schema == spec::HEADS_SCHEMA_V3 && version.has_tower();
     let (export_schema, calibration_schema, supervision_keys, token_input): (_, _, &[&str], _) =
         if heads_v3 {
             (
@@ -1763,7 +1763,7 @@ pub fn check_roles_with(
     // checked before the span tower runtime).
     let reads_token_states = match version {
         Version::V1 => span_head,
-        Version::V2 | Version::V3 => span_head || (token_head && !heads_v3),
+        Version::V2 | Version::V3 | Version::V4 => span_head || (token_head && !heads_v3),
     };
     if let Some(class) = class {
         if class.span_head != reads_token_states {
@@ -1773,7 +1773,7 @@ pub fn check_roles_with(
                     class.id,
                     if class.span_head { "needs" } else { "has no" }
                 ),
-                Version::V2 | Version::V3 => format!(
+                Version::V2 | Version::V3 | Version::V4 => format!(
                     "graph class {} {} heads that read token states",
                     class.id,
                     if class.span_head { "needs" } else { "takes no" }

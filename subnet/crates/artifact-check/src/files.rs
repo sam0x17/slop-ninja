@@ -12,17 +12,16 @@
 //! - every file present at exactly its declared length (a length check, not
 //!   a read);
 //! - the graph's streaming pre-parse ([`GraphScan`]) and its allow-listed
-//!   class;
+//!   class: its structure stream compared byte for byte with the pinned
+//!   reference stream of the class of its length ([`graph_walk`]);
 //! - the four JSON role files read at exactly their declared lengths, their
 //!   schemas and the scorer's load guards, with the export manifest's
 //!   digests compared against the header's ([`RoleDigests`]).
 //!
-//! **The one remaining hash** is the graph allow-list's structure digest: a
-//! SHA-256 of the graph's structure stream, every byte except the FLOAT
-//! initializer payloads ([`crate::onnx`]). Replacing it with a byte
-//! comparison against each class's pinned reference structure stream is the
-//! user's decision D5 (design section 15); until then it is the one
-//! documented exception, named in the `no_object_hash` lint.
+//! Nothing here hashes a model byte. The graph class check compares the
+//! structure stream (every byte except the FLOAT initializer payloads,
+//! [`crate::onnx`]) with the class's reference stream as the walk reads it;
+//! the payloads never reach the comparison (decision D5).
 
 use std::io::Read;
 
@@ -33,7 +32,34 @@ use crate::Refusal;
 use crate::mapping::{check_header_for, profile_id_for};
 use crate::onnx::{GraphReport, GraphScan};
 use crate::roles::{RoleDigests, RoleFiles, RolesReport, check_roles_with};
-use crate::spec::{self, Version};
+use crate::spec::{self, GraphClass, Version};
+
+/// The graph walk for a graph file of `len` bytes under `version`: the
+/// parameter bound of the version's class of that length, and a byte
+/// comparison of the structure stream with that class's reference stream. A
+/// length of no class walks under the plain and span classes' bound and
+/// compares with nothing ([`walked_class`] then refuses it).
+pub fn graph_walk(version: Version, len: u64) -> GraphScan<'static> {
+    match version.graph_class_by_len(len) {
+        Some(class) => match spec::reference_structure(class) {
+            Some(reference) => GraphScan::against(len, spec::graph_policy(class), reference),
+            None => GraphScan::new(len, spec::graph_policy(class)),
+        },
+        None => GraphScan::new(len, spec::GRAPH_POLICY),
+    }
+}
+
+/// The allow-listed class of a graph of `len` bytes that passed
+/// [`graph_walk`]: the version's class of that length, when the structure
+/// stream equals its reference stream. Every class has its own length, so this
+/// is the one class whose structure the graph can have.
+pub fn walked_class(version: Version, len: u64, graph: &GraphReport) -> Result<&'static GraphClass, Refusal> {
+    let class = version.graph_class_by_len(len);
+    match class {
+        Some(c) if graph.structure_match == Some(true) => Ok(c),
+        _ => Err(Refusal::GraphNotAllowed { class: class.map(|c| c.id), difference: graph.structure_difference }),
+    }
+}
 
 /// What a checked artifact is: no digest in it was computed by the check.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize)]
@@ -91,9 +117,7 @@ pub fn check_files_with<R: Read>(
             return Err(Refusal::Object(format!("{}: stored length differs from the header", f.name)));
         }
         if f.name == spec::GRAPH_FILE {
-            let class = version.graph_class_by_len(f.len);
-            let policy = class.map_or(spec::GRAPH_POLICY, spec::graph_policy);
-            let mut scan = GraphScan::new(f.len, policy);
+            let mut scan = graph_walk(version, f.len);
             let mut buf = vec![0u8; 1 << 20];
             let mut seen = 0u64;
             loop {
@@ -120,13 +144,8 @@ pub fn check_files_with<R: Read>(
         // the pinned one (check_header_for); its bytes are not read here.
     }
     let graph = graph.ok_or(Refusal::MissingFile(spec::GRAPH_FILE))?;
-    let class = version
-        .graph_class(&graph.structure_sha256)
-        .ok_or_else(|| Refusal::GraphNotAllowed { structure_sha256: graph.structure_sha256.clone() })?;
-    let graph_len = header.files.iter().find(|f| f.name == spec::GRAPH_FILE).map(|f| f.len);
-    if graph_len != Some(class.bytes) {
-        return Err(Refusal::GraphNotAllowed { structure_sha256: graph.structure_sha256.clone() });
-    }
+    let graph_len = header.files.iter().find(|f| f.name == spec::GRAPH_FILE).map_or(0, |f| f.len);
+    let class = walked_class(version, graph_len, &graph)?;
     if !version.serves(class) {
         return Err(Refusal::GraphClassNotServed(class.id));
     }

@@ -2510,13 +2510,23 @@ fn copies_of_published_artifacts_and_plans_without_operator_hotkeys_never_unlock
     v3p.fanout.as_mut().unwrap().score.artifact_spec = Some(b3.spec_id.into());
     let parsed = plan::CohortPlan::parse(&serde_json::to_vec(&v3p).unwrap(), cfg().ceilings).unwrap();
     assert_eq!(parsed.load_spec_sha256(), Some(b3.spec_sha256.as_str()));
-    assert_eq!(ADMISSION_SPECS, &[spec::SPEC_ID_V2, spec::SPEC_ID_V3]);
-    // The v3 object bound fits one URL life and one PUT (no part count).
+    assert_eq!(ADMISSION_SPECS, &[spec::SPEC_ID_V2, spec::SPEC_ID_V3, spec::SPEC_ID_V4]);
+    // The v3 object bound fits one URL life and one PUT (no part count);
+    // spec v4's is v3's (it admits what v3 admits).
     assert!(b3.object_bytes <= policy::MAX_L_AT_B_MIN.min(policy::R2_SINGLE_PUT_MAX));
+    let b4 = SpecBounds::of(Version::V4).unwrap();
+    assert_eq!((b4.graph_bytes, b4.files_bytes, b4.object_bytes), (b3.graph_bytes, b3.files_bytes, b3.object_bytes));
+    let mut v4p = v3p.clone();
+    let a = v4p.admission.as_mut().unwrap();
+    a.artifact_spec = b4.spec_id.into();
+    a.artifact_spec_sha256 = b4.spec_sha256.clone();
+    v4p.fanout.as_mut().unwrap().score.artifact_spec = Some(b4.spec_id.into());
+    let parsed = plan::CohortPlan::parse(&serde_json::to_vec(&v4p).unwrap(), cfg().ceilings).unwrap();
+    assert_eq!(parsed.load_spec_sha256(), Some(b4.spec_sha256.as_str()));
     // A spec no admission run loads by is refused.
-    let mut v4 = v3p;
-    v4.admission.as_mut().unwrap().artifact_spec = "slop_ninja_a_artifact_spec_v4".into();
-    assert!(plan::CohortPlan::parse(&serde_json::to_vec(&v4).unwrap(), cfg().ceilings).is_err());
+    let mut v5 = v3p;
+    v5.admission.as_mut().unwrap().artifact_spec = "slop_ninja_a_artifact_spec_v5".into();
+    assert!(plan::CohortPlan::parse(&serde_json::to_vec(&v5).unwrap(), cfg().ceilings).is_err());
     // A plan with a fresh pool must name the operator's coldkeys too.
     let mut p = admission_plan(1, 2);
     p.admission.as_mut().unwrap().operator_coldkeys.clear();
@@ -2526,7 +2536,7 @@ fn copies_of_published_artifacts_and_plans_without_operator_hotkeys_never_unlock
 #[test]
 fn an_admission_run_names_its_cohorts_spec_to_the_scorer() {
     let limits = AdmitLimits { artifact_max_bytes: 1 << 30, load_wait_ms: 600_000, inactivity_ms: 60_000, doc_timeout_ms: 120_000 };
-    for v in [Version::V2, Version::V3] {
+    for v in [Version::V2, Version::V3, Version::V4] {
         let run = LaneRun {
             hotkey: "0x01".into(),
             commitment: "0x02".into(),

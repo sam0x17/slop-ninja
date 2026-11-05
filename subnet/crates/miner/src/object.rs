@@ -9,8 +9,10 @@
 //! while it hashes those same bytes
 //! (`slop_ninja_artifact_check::fs::write_files_once`): the header's length
 //! is fixed before any digest is known, so room for it is reserved, every
-//! file is written in place and the header goes in last. That pack hash is
-//! the only SHA-256 anyone computes over the model's bytes: the commitment
+//! file is written in place and the header goes in last. From pack on, that
+//! pack hash is the only SHA-256 anyone computes over the model's bytes (the
+//! repository's graph exporter, run before pack, checks its own output
+//! against the class's structure digest): the commitment
 //! binds the header's digests, and R2 verifies each uploaded file against
 //! them as it arrives. No later step reads the files back to hash them:
 //! [`read_header`] reads only the length prefix and the header (a range of at

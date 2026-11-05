@@ -124,9 +124,9 @@ fn versions_are_named_by_id_and_digest() {
         assert_eq!(Version::named(v.id(), &v.spec_sha256()), Some(v));
         assert_eq!(Version::named(v.id(), &"0".repeat(64)), None);
     }
-    // Spec v3 (tests/spec_v3.rs) is the newest version.
+    // Spec v4 (tests/spec_v4.rs) is the newest version.
     assert_eq!(Version::from_id(spec::SPEC_ID_V2), Some(Version::V2));
-    assert_eq!(Version::LATEST, Version::V3);
+    assert_eq!(Version::LATEST, Version::V4);
 }
 
 /// A header with the six files: the graph at `graph_len`, the pinned

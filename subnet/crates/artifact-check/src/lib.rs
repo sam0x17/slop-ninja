@@ -1,7 +1,9 @@
-//! Slop Ninja *A* artifact spec (`slop_ninja_a_artifact_spec_v1`, `_v2` and
-//! `_v3`, [`spec::Version`]) and its admission checks. Spec v2 adds the span
-//! class and heads v2 token heads; spec v3 adds the span tower class and heads
-//! v3. Everything below holds for every version unless a version is named.
+//! Slop Ninja *A* artifact spec (`slop_ninja_a_artifact_spec_v1` to `_v4`,
+//! [`spec::Version`]) and its admission checks. Spec v2 adds the span class
+//! and heads v2 token heads; spec v3 adds the span tower class and heads v3;
+//! spec v4 states the graph class rule as a byte comparison with pinned
+//! reference structure streams. Everything below holds for every version
+//! unless a version is named.
 //!
 //! One artifact format: the protocol **artifact object**
 //! ([`slop_ninja_protocol::artifact_object`]), which a miner commits to by
@@ -28,8 +30,9 @@
 //!   own heads runtime.
 //! - **Graph** ([`onnx`]): a streaming protobuf pre-parse that refuses custom
 //!   operator domains, external data, unknown fields and operators outside
-//!   the allow-list, counts parameters against the bound, and computes the
-//!   structure digest that must match an allow-listed, served graph class.
+//!   the allow-list, counts parameters against the bound, and compares the
+//!   graph's structure stream byte for byte with the pinned reference stream
+//!   of the allow-listed, served class of its length. No graph byte is hashed.
 //!
 //! [`text`] records the canonical text profile as the scorer implements it.
 //!
@@ -183,9 +186,13 @@ pub enum Refusal {
         count: u64,
         max: u64,
     },
-    /// The structure digest matches no allow-listed graph class.
+    /// The graph's structure stream equals no allow-listed class's reference
+    /// stream: `class` is the class of its length, if any, and `difference`
+    /// the stream offset of the first byte that differs from that class's
+    /// reference.
     GraphNotAllowed {
-        structure_sha256: String,
+        class: Option<&'static str>,
+        difference: Option<u64>,
     },
     /// The heads and the graph class disagree (span head with a plain graph,
     /// or the reverse).
@@ -282,11 +289,17 @@ impl std::fmt::Display for Refusal {
             Refusal::TooManyParameters { count, max } => {
                 write!(f, "{count} parameters exceed the bound of {max}")
             }
-            Refusal::GraphNotAllowed { structure_sha256 } => {
+            Refusal::GraphNotAllowed { class: Some(id), difference: Some(at) } => {
                 write!(
                     f,
-                    "graph structure {structure_sha256} is not an allow-listed graph class"
+                    "graph structure differs from class {id}'s reference structure at stream byte {at}"
                 )
+            }
+            Refusal::GraphNotAllowed { class: Some(id), difference: None } => {
+                write!(f, "graph structure differs from class {id}'s reference structure")
+            }
+            Refusal::GraphNotAllowed { class: None, .. } => {
+                write!(f, "graph is not of an allow-listed graph class's length")
             }
             Refusal::GraphClass(d) => write!(f, "graph class: {d}"),
         }

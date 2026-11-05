@@ -167,9 +167,9 @@ fn versions_are_named_by_id_and_digest() {
         assert_eq!(Version::named(v.id(), &v.spec_sha256()), Some(v));
         assert_eq!(Version::named(v.id(), &"0".repeat(64)), None);
     }
-    assert_eq!(Version::from_id("slop_ninja_a_artifact_spec_v4"), None);
-    assert_eq!(Version::LATEST, Version::V3);
-    assert_eq!(Version::ALL.len(), 3);
+    assert_eq!(Version::from_id("slop_ninja_a_artifact_spec_v5"), None);
+    assert_eq!(Version::LATEST, Version::V4);
+    assert_eq!(Version::ALL.len(), 4);
 }
 
 #[test]
@@ -882,7 +882,11 @@ fn the_tower_export_walks_to_its_class() {
     use std::io::Read;
     let len = std::fs::metadata(&path).unwrap().len();
     assert_eq!(len, spec::TOWER_GRAPH.bytes);
-    let mut scan = GraphScan::new(len, spec::graph_policy(&spec::TOWER_GRAPH));
+    let mut scan = GraphScan::against(
+        len,
+        spec::graph_policy(&spec::TOWER_GRAPH),
+        spec::reference_structure(&spec::TOWER_GRAPH).unwrap(),
+    );
     let mut f = std::fs::File::open(&path).unwrap();
     let mut buf = vec![0u8; CHUNK];
     loop {
@@ -893,7 +897,8 @@ fn the_tower_export_walks_to_its_class() {
         scan.update(&buf[..n]).unwrap();
     }
     let r = scan.finish().unwrap();
-    assert_eq!(r.structure_sha256, spec::TOWER_GRAPH.structure_sha256);
+    assert_eq!(r.structure_match, Some(true));
+    assert_eq!(r.structure_bytes, spec::TOWER_STRUCTURE_BYTES);
     assert_eq!(r.parameters, spec::TOWER_GRAPH_PARAMETERS);
     // Under the plain and span classes' bound the walk refuses it.
     let mut scan = GraphScan::new(len, spec::GRAPH_POLICY);

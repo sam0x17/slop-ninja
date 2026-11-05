@@ -457,7 +457,7 @@ impl EvalCohort {
                 // Not this authority's cohort: never a 200, so the publisher
                 // keeps the report pending (its status shows it) instead of
                 // taking it as recorded.
-                Ok(v) if v["known"] == false => error("cohort_unknown", 404),
+                Ok(v) if v.get("known").and_then(|k| k.as_bool()) == Some(false) => error("cohort_unknown", 404),
                 Ok(v) => {
                     let _ = storage.set_alarm(500i64).await;
                     json(&v)

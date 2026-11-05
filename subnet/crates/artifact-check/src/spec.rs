@@ -12,6 +12,12 @@
 //! span tower class ([`TOWER_GRAPH`]): heads v3 whose token head reads the
 //! tower's normed states (export v4, calibration v3), with its own parameter
 //! and JSON value bounds, so that v3 admits every artifact v2 admits.
+//! Spec v4 keeps every v3 value and states the graph class rule as a byte
+//! comparison of the graph's structure stream with the class's pinned
+//! reference stream ([`reference_structure`]) instead of a digest of it, so
+//! nothing hashes a graph byte. It admits exactly what v3 admits. Every
+//! version's check runs the comparison: each class's v1 to v3 digest is its
+//! reference stream's digest.
 
 use serde_json::{Value, json};
 use slop_ninja_protocol::FileRole;
@@ -28,41 +34,48 @@ pub const SPEC_ID_V2: &str = "slop_ninja_a_artifact_spec_v2";
 /// Spec identifier of spec v3.
 pub const SPEC_ID_V3: &str = "slop_ninja_a_artifact_spec_v3";
 
+/// Spec identifier of spec v4.
+pub const SPEC_ID_V4: &str = "slop_ninja_a_artifact_spec_v4";
+
 /// A spec version. The checks take the version they apply; the functions
 /// without a version (`spec_json`, `spec_sha256`, `ObjectCheck::new`,
 /// `fs::check_dir`, `mapping::check_header`, `roles::check_roles`,
 /// [`graph_class`], [`graph_class_by_len`]) are spec v1 (the last two also
-/// spec v2, which defines the same classes).
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+/// spec v2, which defines the same classes). Versions are ordered by age.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum Version {
     V1,
     V2,
     V3,
+    V4,
 }
 
 impl Version {
     /// The newest version.
-    pub const LATEST: Version = Version::V3;
-    pub const ALL: [Version; 3] = [Version::V1, Version::V2, Version::V3];
+    pub const LATEST: Version = Version::V4;
+    pub const ALL: [Version; 4] = [Version::V1, Version::V2, Version::V3, Version::V4];
 
     pub fn id(self) -> &'static str {
         match self {
             Version::V1 => SPEC_ID,
             Version::V2 => SPEC_ID_V2,
             Version::V3 => SPEC_ID_V3,
+            Version::V4 => SPEC_ID_V4,
         }
     }
 
     /// The graph classes this version defines, in record order: spec v1 and
-    /// v2 the two classes of [`GRAPHS`], spec v3 also [`TOWER_GRAPH`].
+    /// v2 the two classes of [`GRAPHS`], spec v3 and v4 also [`TOWER_GRAPH`].
     pub fn classes(self) -> &'static [GraphClass] {
         match self {
             Version::V1 | Version::V2 => &GRAPHS,
-            Version::V3 => &GRAPHS_V3,
+            Version::V3 | Version::V4 => &GRAPHS_V3,
         }
     }
 
-    /// The class of this version with the structure digest, if any.
+    /// The class of this version whose spec v1 to v3 structure digest is
+    /// `structure_sha256`, if any. A record lookup: no check computes the
+    /// digest of a graph (see [`reference_structure`]).
     pub fn graph_class(self, structure_sha256: &str) -> Option<&'static GraphClass> {
         self.classes()
             .iter()
@@ -84,12 +97,12 @@ impl Version {
     }
 
     /// Whether the scorer serves `class` under this version. Spec v1 serves
-    /// the plain class only; spec v2 and v3 serve every class they define.
+    /// the plain class only; spec v2 and later serve every class they define.
     pub fn serves(self, class: &GraphClass) -> bool {
         self.classes().contains(class)
             && match self {
                 Version::V1 => class.served,
-                Version::V2 | Version::V3 => true,
+                Version::V2 | Version::V3 | Version::V4 => true,
             }
     }
 
@@ -97,7 +110,7 @@ impl Version {
     pub fn max_json_bytes(self) -> Option<u64> {
         match self {
             Version::V1 => None,
-            Version::V2 | Version::V3 => Some(MAX_JSON_BYTES_V2),
+            Version::V2 | Version::V3 | Version::V4 => Some(MAX_JSON_BYTES_V2),
         }
     }
 
@@ -107,7 +120,7 @@ impl Version {
     pub fn max_json_value_bytes(self) -> Option<u64> {
         match self {
             Version::V1 => None,
-            Version::V2 | Version::V3 => {
+            Version::V2 | Version::V3 | Version::V4 => {
                 self.classes().iter().map(|g| g.max_json_value_bytes).min()
             }
         }
@@ -115,13 +128,19 @@ impl Version {
 
     /// The bound on the JSON role files' summed value cost for an artifact of
     /// `class`, if any. Spec v2 bounds every class by [`MAX_JSON_VALUE_BYTES_V2`];
-    /// spec v3 bounds each class by its own value, which is v2's for the plain
-    /// and span classes.
+    /// spec v3 and v4 bound each class by its own value, which is v2's for the
+    /// plain and span classes.
     pub fn max_json_value_bytes_for(self, class: &GraphClass) -> Option<u64> {
         match self {
             Version::V1 => None,
-            Version::V2 | Version::V3 => Some(class.max_json_value_bytes),
+            Version::V2 | Version::V3 | Version::V4 => Some(class.max_json_value_bytes),
         }
+    }
+
+    /// Whether this version admits heads v3 on the span tower class (spec v3
+    /// and later).
+    pub fn has_tower(self) -> bool {
+        self >= Version::V3
     }
 
     pub fn spec_json(self) -> Value {
@@ -129,6 +148,7 @@ impl Version {
             Version::V1 => spec_json(),
             Version::V2 => spec_json_v2(),
             Version::V3 => spec_json_v3(),
+            Version::V4 => spec_json_v4(),
         }
     }
 
@@ -277,9 +297,17 @@ pub const TOKENIZER_BYTES: u64 = 3_583_228;
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct GraphClass {
     pub id: &'static str,
-    /// Structure digest (see [`crate::onnx`]).
+    /// The spec v1 to v3 structure digest (see [`crate::onnx`]): SHA-256 of
+    /// the digest tag and the class's reference structure stream. Recorded,
+    /// never computed by a check.
     pub structure_sha256: &'static str,
-    /// Exact file length. The structure digest keeps every byte except the
+    /// Length of the class's reference structure stream
+    /// ([`reference_structure`]).
+    pub structure_bytes: u64,
+    /// SHA-256 of the reference structure stream file as shipped, which the
+    /// spec v4 record pins. Recorded, never computed by a check.
+    pub structure_stream_sha256: &'static str,
+    /// Exact file length. The structure stream keeps every byte except the
     /// initializer float payloads, whose lengths it also keeps, so a class
     /// fixes the length of its graph file.
     pub bytes: u64,
@@ -342,6 +370,8 @@ pub const GRAPHS: [GraphClass; 2] = [
     GraphClass {
         id: "a-plain-f32band-v1",
         structure_sha256: PLAIN_STRUCTURE_SHA256,
+        structure_bytes: PLAIN_STRUCTURE_BYTES,
+        structure_stream_sha256: PLAIN_STRUCTURE_STREAM_SHA256,
         bytes: 601_028_257,
         served: true,
         outputs: PLAIN_OUTPUTS,
@@ -354,6 +384,8 @@ pub const GRAPHS: [GraphClass; 2] = [
     GraphClass {
         id: "a-span-f32band-v1",
         structure_sha256: SPAN_STRUCTURE_SHA256,
+        structure_bytes: SPAN_STRUCTURE_BYTES,
+        structure_stream_sha256: SPAN_STRUCTURE_STREAM_SHA256,
         bytes: 601_028_403,
         served: false,
         outputs: SPAN_OUTPUTS,
@@ -372,6 +404,8 @@ pub const GRAPHS: [GraphClass; 2] = [
 pub const TOWER_GRAPH: GraphClass = GraphClass {
     id: "a-tower-f32band-v1",
     structure_sha256: TOWER_STRUCTURE_SHA256,
+    structure_bytes: TOWER_STRUCTURE_BYTES,
+    structure_stream_sha256: TOWER_STRUCTURE_STREAM_SHA256,
     bytes: 681_508_964,
     served: true,
     outputs: TOWER_OUTPUTS,
@@ -395,6 +429,35 @@ pub const SPAN_STRUCTURE_SHA256: &str =
 /// heads, seed-17 S2c-lr3e-5 tower).
 pub const TOWER_STRUCTURE_SHA256: &str =
     "0b1feeb0b90d79d77999993958fdbfd0b033a6d1d9c29d6b08605451839e3b9c";
+
+/// The reference structure streams, shipped with the spec in
+/// `subnet/crates/artifact-check/structure/` and compiled into every build
+/// that runs the graph check (the scorer and the miner's `check`):
+/// `slop_ninja_artifact_check structure FILE OUT` writes a graph's stream.
+/// R0's graph gives the plain class's, the span-head export of R0's weights
+/// the span class's, and S2c's tower export the tower class's.
+pub const PLAIN_STRUCTURE_BYTES: u64 = 1_623_305;
+pub const PLAIN_STRUCTURE_STREAM_SHA256: &str =
+    "69b149ce63a044efa0de648bd34f8d179f694e89e8ef9bd2ad4dd828faa692a3";
+pub const SPAN_STRUCTURE_BYTES: u64 = 1_623_451;
+pub const SPAN_STRUCTURE_STREAM_SHA256: &str =
+    "e8172eedeb643e33eeea850cb4c138907f9fe258f92071a0cf1dfcb4caf6a68b";
+pub const TOWER_STRUCTURE_BYTES: u64 = 1_860_300;
+pub const TOWER_STRUCTURE_STREAM_SHA256: &str =
+    "55abdd78664fa52446f3beeeef16e8f4f7a82334f0809992a4c8731030865fbc";
+
+/// The pinned reference structure stream of `class`: a graph is of the class
+/// when its structure stream ([`crate::onnx`]) equals this byte for byte.
+/// `None` for a class this build does not define.
+pub fn reference_structure(class: &GraphClass) -> Option<&'static [u8]> {
+    let stream: &'static [u8] = match class.id {
+        "a-plain-f32band-v1" => include_bytes!("../structure/a-plain-f32band-v1.structure"),
+        "a-span-f32band-v1" => include_bytes!("../structure/a-span-f32band-v1.structure"),
+        "a-tower-f32band-v1" => include_bytes!("../structure/a-tower-f32band-v1.structure"),
+        _ => return None,
+    };
+    Some(stream)
+}
 
 /// The spec v1 and v2 class with this structure digest
 /// ([`Version::graph_class`] for any version).
@@ -892,5 +955,31 @@ pub fn spec_json_v3() -> Value {
             "load_guard": "shared load guard"}));
     }
     v["tower_runtime_sha256"] = json!(TOWER_RUNTIME_SHA256);
+    crate::sorted_keys(v)
+}
+
+/// Spec v4 as one JSON value: spec v3's record with the graph class rule
+/// stated as a byte comparison of the structure stream with each class's
+/// pinned reference stream, which the record pins by length and SHA-256. Every
+/// other value is v3's.
+pub fn spec_json_v4() -> Value {
+    let mut v = spec_json_v3();
+    v["schema"] = json!(SPEC_ID_V4);
+    if let Some(g) = v["graph"].as_object_mut() {
+        g.remove("structure_digest");
+    }
+    v["graph"]["structure_stream"] = json!({
+        "id": crate::onnx::STRUCTURE_STREAM_ID,
+        "stream": "the graph file's bytes with the payload of every FLOAT initializer data field (raw_data or float_data of a GraphProto.initializer) removed; each field's tag and length prefix stay",
+        "class_rule": "the stream equals the class's reference_structure byte for byte; nothing is hashed",
+    });
+    if let Some(classes) = v["graph"]["classes"].as_array_mut() {
+        for (c, g) in classes.iter_mut().zip(GRAPHS_V3.iter()) {
+            if let Some(o) = c.as_object_mut() {
+                o.remove("structure_sha256");
+            }
+            c["reference_structure"] = json!({"bytes": g.structure_bytes, "sha256": g.structure_stream_sha256});
+        }
+    }
     crate::sorted_keys(v)
 }

@@ -1412,7 +1412,7 @@ pub mod inject {
 pub fn spec_tokenizer_sha256(v: slop_ninja_artifact_check::spec::Version) -> &'static str {
     use slop_ninja_artifact_check::spec::{TOKENIZER_SHA256, Version};
     match v {
-        Version::V1 | Version::V2 | Version::V3 => TOKENIZER_SHA256,
+        Version::V1 | Version::V2 | Version::V3 | Version::V4 => TOKENIZER_SHA256,
     }
 }
 

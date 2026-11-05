@@ -143,7 +143,7 @@ mod tests {
         assert!(valid_cohort(&"c".repeat(96)) && !valid_cohort(&"c".repeat(97)));
         // A spec is named by its digest; a load that names none is admitted by spec v2.
         assert_eq!(UNNAMED_LOAD_SPEC, Version::V2);
-        for v in [Version::V2, Version::V3] {
+        for v in [Version::V2, Version::V3, Version::V4] {
             let d = v.spec_sha256();
             assert_eq!(load_query(&format!("package=ab&cohort=c1&spec={d}")), Ok(bs("ab", Some("c1"), v)));
             assert_eq!(load_query(&format!("spec={d}&package=ab")), Ok(bs("ab", None, v)));
@@ -156,5 +156,6 @@ mod tests {
             assert_eq!(load_query(&format!("package=ab&spec={bad}")), Err(QueryError::Spec), "{bad}");
         }
         assert_eq!(spec_by_digest(&Version::V3.spec_sha256()), Some(Version::V3));
+        assert_eq!(spec_by_digest(&Version::V4.spec_sha256()), Some(Version::V4));
     }
 }

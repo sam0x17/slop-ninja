@@ -55,8 +55,8 @@ A miner submits one **artifact object**: the protocol encoding from
   presigned R2 `PutObject` that binds its committed SHA-256: the header's for
   `H`, each file's own for the file. R2 verifies every object against that
   digest as it arrives. The miner's `pack` hashes each file once; nothing
-  after it hashes a model byte (the one exception is the graph's structure
-  digest, below, until decision D5). Anyone can rebuild the object by
+  after it hashes a model byte (the graph class check is a byte comparison,
+  [Structure stream](#structure-stream)). Anyone can rebuild the object by
   concatenating `u32_le(len(H))`, `H` and the files in header order.
 
 The header contract must be `slop_ninja_full_a_contract_v2`. The object holds
@@ -133,8 +133,8 @@ also checks every file against its header digest.
    [Lengths](#lengths)). All of these are decided from the header alone,
    before any file byte is read.
 3. **Graph pre-parse** while the graph streams (see the next section).
-4. **Graph class.** The structure digest must equal an allow-listed class
-   that the scorer serves.
+4. **Graph class.** The graph's structure stream must equal, byte for byte,
+   the pinned reference stream of the served class of its length.
 5. **Role schemas and bindings** (see [Role schemas](#role-schemas)). The
    export manifest's digests of the heads, contract and calibration files,
    and the load guard's contract digest, are compared with the header's
@@ -158,7 +158,7 @@ the runtime that reads the file:
 
 | File | Length | Source |
 |---|---|---|
-| `a-fp32band.onnx` | exactly a served class's length (601,028,257 for the plain class) | the structure digest keeps every byte except the initializer float payloads, and keeps their lengths, so a class fixes its file length |
+| `a-fp32band.onnx` | exactly a served class's length (601,028,257 for the plain class) | the structure stream keeps every byte except the initializer float payloads, and keeps their lengths, so a class fixes its file length |
 | `tokenizer.json` | exactly 3,583,228 | the pinned tokenizer |
 | `heads.json` | 1 to 67,108,864 (64 MiB) | the heads runtime refuses larger heads (`full_a.rs` `FullAHeads::from_json`) |
 | the other three JSON files | 1 to 4,294,967,296 (64 ranges of 64 MiB) | the scorer refuses an empty file and more than 64 ranges per file (`artifact.rs` `MAX_CHUNKS_PER_FILE`) |
@@ -216,29 +216,53 @@ opset 17:
 `ReduceSum`, `Reshape`, `Shape`, `Sigmoid`, `Sin`, `Slice`, `Softmax`,
 `Split`, `Squeeze`, `Sub`, `Tanh`, `Transpose`, `Unsqueeze`, `Where`.
 
-### Structure digest
+### Structure stream
 
-The structure digest is `slop_ninja_onnx_structure_v2`:
+The structure stream (`slop_ninja_onnx_structure_stream_v1`) is the graph
+file's bytes with the payload of every FLOAT initializer data field removed:
+the `raw_data` or `float_data` of `GraphProto.initializer` tensors. Each
+field's tag and length prefix stay in the stream. Float tensors inside
+`Constant` nodes stay like every other byte.
+
+A graph is of a class when its structure stream equals the class's pinned
+reference stream byte for byte. The walk compares the stream as it produces
+it, with the reference of the class of the graph's length (every class has its
+own length); the removed payloads never reach the comparison, though the walk
+still reads them to check that every value is finite. Nothing is hashed
+(decision D5): `subnet/tests/no_object_hash.rs` fails if a hash reaches the
+walk, the class check or the scorer's and the miner's paths to them. A
+refusal (`graph_not_allowed`) names the class of the graph's length and the
+stream offset of the first differing byte. The repository's graph exporter
+(`export_a_onnx.py`), a miner tool run before pack, still checks its own
+output against the class's structure digest; that check runs before the
+commitment and is the miner's own, so from pack on nothing hashes a model
+byte but the pack itself.
+
+The reference streams ship with the spec in
+`subnet/crates/artifact-check/structure/`, compiled into the scorer and the
+miner. `slop_ninja_artifact_check structure FILE OUT` writes a graph's stream;
+each class's stream is its reference export's:
+
+| Class | Reference stream bytes | SHA-256 of the stream file |
+|---|---|---|
+| `a-plain-f32band-v1` | 1,623,305 | `69b149ce63a044efa0de648bd34f8d179f694e89e8ef9bd2ad4dd828faa692a3` |
+| `a-span-f32band-v1` | 1,623,451 | `e8172eedeb643e33eeea850cb4c138907f9fe258f92071a0cf1dfcb4caf6a68b` |
+| `a-tower-f32band-v1` | 1,860,300 | `55abdd78664fa52446f3beeeef16e8f4f7a82334f0809992a4c8731030865fbc` |
+
+Spec v1 to v3 state the same rule as a digest, `slop_ninja_onnx_structure_v2`:
 
 ```
-SHA-256( "slop_ninja_onnx_structure_v2\0" || graph bytes with the payload of every FLOAT initializer data field removed )
+SHA-256( "slop_ninja_onnx_structure_v2\0" || structure stream )
 ```
 
-The removed payloads are the `raw_data` or `float_data` of
-`GraphProto.initializer` tensors. Each field's tag and length prefix stay in
-the stream. Float tensors inside `Constant` nodes are hashed like every other
-byte.
+Each class's digest in those records is its reference stream's (a spec test
+recomputes it from the shipped stream), so the byte comparison, which every
+version's check runs, accepts exactly the graphs the digest accepts. Spec v4
+states the rule as the comparison and pins the streams by length and SHA-256
+([Spec v4](#spec-v4)).
 
-This digest is the one hash our side still computes over uploaded bytes:
-every byte of the graph except its initializer float payloads, in the
-scorer's admission check and the miner's `check`. Decision D5 of the
-direct-upload design proposes replacing it with a byte comparison against
-each class's pinned reference structure stream (the same acceptance set,
-under a new spec version); until the user decides, `subnet/tests/no_object_hash.rs`
-names it as the single exception.
-
-Two graphs share a structure digest exactly when their bytes are identical
-apart from their initializer float values. Identical means the same:
+Two graphs have the same structure stream exactly when their bytes are
+identical apart from their initializer float values. Identical means the same:
 
 - operators, node order, names and attributes;
 - shapes and integer constants;
@@ -263,8 +287,8 @@ copied from, such as a norm or layer that was frozen or never trained. The
 [exporter](#export) refuses such a model before it traces the graph and names
 the equal tensors.
 
-The walk also refuses a tensor with a repeated `data_type` (a payload hashed
-as one type and read as another), and counts a tensor whose packed
+The walk also refuses a tensor with a repeated `data_type` (a payload left out
+of the stream as one type and read as another), and counts a tensor whose packed
 `float_data` is split over several fields once.
 
 ### Allow-listed graph classes
@@ -337,7 +361,7 @@ there. It then refuses a model in which two of the tensors that become
 initializers (the encoder tensors the graph reads, the head tensors with that
 placeholder row, the heads' text mean and scale, and the tower tensors) have
 equal values, and names them, because the export would merge them
-([Structure digest](#structure-digest)).
+([Structure stream](#structure-stream)).
 
 After export, it validates every output against the unbanded torch model with
 ONNX Runtime, on synthetic token ids of 64 to 2,048 tokens. It writes a record
@@ -801,25 +825,55 @@ whether or not spans are asked: about 18 to 20% of the encoder's CPU time.
   v1 refuse it (`graph_size`). Its digests are in
   [Reference packages](reference-packages.md).
 
-## Spec v4 (planned, not defined)
+## Spec v4
 
-Admission v2 made the spec checks hash-free under v1 to v3 without changing
-what they accept: the files check compares stored digests with the header,
-and the role binding and load guard take the header's digests. A spec v4
-would carry the remaining changes that do alter a spec record: the structure
-digest replaced by a byte comparison (D5, above), and the guard pin and the
-scorer mapping schema moved to the files manifest v2. It is not defined in
-this tree: it changes every `profile_id` the coordinator, the miner and the
-scorer write, so it lands with D5's decision, as one version in all of them.
+Spec v4 (`slop_ninja_a_artifact_spec_v4`) keeps every spec v3 value and
+admits exactly what spec v3 admits. Its record states the graph class rule as
+the byte comparison ([Structure stream](#structure-stream)):
+
+| | Spec v3 | Spec v4 |
+|---|---|---|
+| `graph.structure_digest` | `slop_ninja_onnx_structure_v2` | removed |
+| `graph.structure_stream` | none | `slop_ninja_onnx_structure_stream_v1`: the stream's definition and the rule that it equals the class's reference stream byte for byte |
+| Each class | `structure_sha256` | `reference_structure`: the reference stream's length and SHA-256 |
+| Parts manifest `profile_id` | `slop_ninja_a_artifact_spec_v3/<class>` | `slop_ninja_a_artifact_spec_v4/<class>` |
+
+Every check of every version runs the comparison, so v1 to v3 also hash no
+graph byte; v4 is the record that says so. Admission lists v2, v3 and v4
+(`ADMISSION_SPECS`), the scorer admits by all three and reports v4 as its
+newest, and the miner's `check` defaults to v4 when no cohort names a spec.
+`tests/spec_v4.rs` compares the v4 record with v3's key by key, pins the v1 to
+v3 digests, and, with the reference model directories, checks that each
+reference artifact gets the same report under every version that defines its
+class, that a structure-byte mutation (an operator name, the producer name)
+is refused under each, and that a weight change is admitted.
+`tests/structure.rs` runs both rules over a synthetic corpus and every
+single-byte mutation of it and finds them equal.
+
+The guard pin and the scorer mapping schema could later move to the files
+manifest v2; that is not part of spec v4 and would need its own version.
 
 ## Tests
 
 `cargo test -p slop-ninja-artifact-check`, from the `subnet/` workspace, runs
 on Linux x86_64, CPU only, with no model calls. Use `--release` with the R0
 variables: the R0 tests stream the 601 MB graph about 20 times, which takes
-seconds in release and minutes in a debug build. The tests have seven parts,
+seconds in release and minutes in a debug build. The tests have nine parts,
 and `tests/cli.rs` checks the binary's exit statuses.
 
+- **Spec v4** (`tests/spec_v4.rs`). Spec v1 to v3 keep their digests; the v4
+  record differs from v3's only in how the graph class rule is stated; v4 has
+  v3's classes and bounds. With `A_R0_MODEL_DIR`, `A_SPAN_MODEL_DIR` and
+  `A_TOWER_MODEL_DIR`, each reference artifact gets the same report under
+  every version of its class, a structure-byte mutation (an operator name,
+  the producer name) is refused `graph_not_allowed` under each, and a weight
+  change is admitted.
+- **Structure stream** (`tests/structure.rs`). Each shipped reference stream
+  has its record's length and SHA-256, and its spec v1 to v3 digest is the
+  class's. Over synthetic graphs, every chunking and every single-byte
+  mutation, the byte comparison accepts exactly what the digest accepts; a
+  mutated structure byte is refused at its stream offset; the stream holds no
+  initializer float payload byte.
 - **Spec v3** (`tests/spec_v3.rs`). Spec v1's and v2's records and digests
   are unchanged; spec v3's record differs from v2's only in the keys listed
   under [Spec v3](#spec-v3), and its plain and span classes carry exactly
@@ -885,7 +939,7 @@ and `tests/cli.rs` checks the binary's exit statuses.
   file's price. With `A_R0_MODEL_DIR`, R0's four files too.
 
 - **Synthetic graphs.** Each refusal class above is exercised. The structure
-  digest is shown to be invariant to initializer float values and sensitive
+  stream is shown to be invariant to initializer float values and sensitive
   to float constants, shapes, names, integer constants and opsets. Results do
   not depend on chunk size. The parameter bound is enforced before the
   payload is read, and split `float_data` is counted once. A repeated
@@ -979,5 +1033,5 @@ of your own, such as the
   is another structure and needs a new class.
 - **Equal weights leave the class.** The class digests assume every weight
   is its own initializer, and the exporter merges weights with equal values
-  ([Structure digest](#structure-digest)). The exporter refuses such a model;
+  ([Structure stream](#structure-stream)). The exporter refuses such a model;
   the checker sees only the resulting length, `graph_size`.

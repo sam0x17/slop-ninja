@@ -185,11 +185,12 @@ The trust file is `subnet/coordinator/testnet-trust.json` in the checkout.
 
 `slop_ninja_artifact_check --version` prints every artifact spec id the build
 defines, with its digest. The checker checks spec v1 unless you put
-`--spec v2` or `--spec v3` before the command; use the spec your cohort
+`--spec v2`, `--spec v3` or `--spec v4` before the command; use the spec your cohort
 names, which is the spec the hidden scorer admits your artifact by. The checker
 also has `check-dir DIR` and `check-object FILE`
 (the admission checks on a directory or a packed object), `graph FILE` (the
-structure digest and parameter count of one graph) and `spec` (the whole spec
+graph's class, by a byte comparison of its structure stream with the class's
+reference stream, and its parameter count) and `spec` (the whole spec
 as JSON). Its `pack DIR OUT` and `files DIR OUT` are operator tools: to pack
 an artifact, use `slop_ninja_miner pack`, which refuses an existing output and
 writes the object with mode 0600.
@@ -320,7 +321,9 @@ often decide admission:
   with equal values, which changes the structure. Export in the pinned
   environment the spec names (Python 3.12, torch 2.9.1, transformers 4.57.6;
   the exporter refuses others), and confirm
-  the structure digest with `slop_ninja_artifact_check graph a-fp32band.onnx`.
+  the class with `slop_ninja_artifact_check --spec v4 graph a-fp32band.onnx`
+  (`graph_class` names it when the structure matches; otherwise
+  `structure_difference` is the stream offset of the first differing byte).
   Spec v2 also serves the span class `a-span-f32band-v1` (the plain graph
   plus its final-norm token states) with heads that read those states: a
   spans-v1 token head in heads v2, exported as export v3 (the form of Slop
@@ -910,7 +913,7 @@ locally; the coordinator reports them inside `check_failed` (in
 | `schema`, `binding` | a role schema violation, or files that do not agree (digests, thresholds, rosters, arm) | regenerate the JSON files from one fit |
 | `graph_custom_domain`, `graph_external_data` | a custom operator domain, or external data | export with the release exporter |
 | `graph_op_not_allowed`, `graph_dtype_not_allowed`, `graph_unknown_field`, `graph_unsupported`, `graph_malformed` | the graph uses an operator, element type or protobuf feature outside the allow-list, or does not parse | export with the release exporter |
-| `graph_not_allowed`, `graph_class`, `graph_size` | the graph is not an allow-listed class, or does not match the role files | export the plain class in the pinned environment and check its structure digest |
+| `graph_not_allowed`, `graph_class`, `graph_size` | the graph is not an allow-listed class, or does not match the role files | export the plain class in the pinned environment and check its class with `slop_ninja_artifact_check graph` (the refusal names the class of the graph's length and the first differing structure byte) |
 | `graph_class_not_served` | the span class under spec v1 | check with `--spec v2` if your cohort names spec v2; otherwise export `--variant plain` |
 | `too_many_parameters` | more parameters than the graph class's bound (160,000,000; spec v3's tower class 173,549,185) | use the allow-listed architecture |
 | `json_budget` | the JSON files together exceed spec v2's 256 MiB, or the coordinator's own budget | remove oversized free-text provenance |

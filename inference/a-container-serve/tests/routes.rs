@@ -314,7 +314,8 @@ fn a_prepare_admits_by_the_spec_it_names_and_binds_it() {
     assert_eq!((code, v["error"].as_str()), (409, Some("package_not_ready")), "{v}");
     let limits = &h["build"]["limits"];
     let named: Vec<&str> = limits["specs"].as_array().unwrap().iter().map(|x| x["sha256"].as_str().unwrap()).collect();
-    assert_eq!(named, [v2.as_str(), v3.as_str()], "{limits}");
+    let v4 = spec::Version::V4.spec_sha256();
+    assert_eq!(named, [v2.as_str(), v3.as_str(), v4.as_str()], "{limits}");
     assert_eq!(limits["unnamed_load_spec"], spec::Version::V2.id());
     drop(s);
 }

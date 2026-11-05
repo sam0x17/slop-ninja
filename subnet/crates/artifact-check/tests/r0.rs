@@ -26,11 +26,13 @@ fn env_path(name: &str) -> Option<PathBuf> {
     p
 }
 
-fn scan_file(path: &PathBuf) -> Result<onnx::GraphReport, Refusal> {
+/// Walks the graph at `path`, comparing its structure stream with `class`'s
+/// reference stream.
+fn scan_file(path: &PathBuf, class: &spec::GraphClass) -> Result<onnx::GraphReport, Refusal> {
     use std::io::Read;
     let mut f = std::fs::File::open(path).expect("graph");
     let len = f.metadata().unwrap().len();
-    let mut s = onnx::GraphScan::new(len, spec::GRAPH_POLICY);
+    let mut s = onnx::GraphScan::against(len, spec::GRAPH_POLICY, spec::reference_structure(class).unwrap());
     let mut buf = vec![0u8; 1 << 20];
     loop {
         let n = f.read(&mut buf).unwrap();
@@ -53,7 +55,8 @@ fn r0_passes_and_maps_to_its_deployed_package() {
         std::fs::metadata(dir.join(spec::GRAPH_FILE)).unwrap().len(),
         spec::GRAPHS[0].bytes
     );
-    assert_eq!(r.graph.structure_sha256, spec::PLAIN_STRUCTURE_SHA256);
+    assert_eq!(r.graph.structure_match, Some(true));
+    assert_eq!(r.graph.structure_bytes, spec::PLAIN_STRUCTURE_BYTES);
     assert_eq!(r.graph.parameters, R0_GRAPH_PARAMETERS);
     assert_eq!(r.roles.heads_parameters, R0_HEAD_PARAMETERS);
     assert_eq!(r.parameters, R0_GRAPH_PARAMETERS + R0_HEAD_PARAMETERS);
@@ -507,8 +510,8 @@ fn huge_graph_prefix(n: u64) -> (Vec<u8>, u64) {
 #[test]
 fn the_export_reproduces_the_allow_listed_structures() {
     if let Some(p) = env_path("A_EXPORT_PLAIN") {
-        let r = scan_file(&p).expect("plain export walks");
-        assert_eq!(r.structure_sha256, spec::PLAIN_STRUCTURE_SHA256);
+        let r = scan_file(&p, &spec::GRAPHS[0]).expect("plain export walks");
+        assert_eq!(r.structure_match, Some(true));
         assert_eq!(r.parameters, R0_GRAPH_PARAMETERS);
         assert_eq!(std::fs::metadata(&p).unwrap().len(), spec::GRAPHS[0].bytes);
         let (d, _) = Source::Path(p).digest();
@@ -523,8 +526,8 @@ fn the_export_reproduces_the_allow_listed_structures() {
         );
     }
     if let Some(p) = env_path("A_EXPORT_SPAN") {
-        let r = scan_file(&p).expect("span export walks");
-        assert_eq!(r.structure_sha256, spec::SPAN_STRUCTURE_SHA256);
+        let r = scan_file(&p, &spec::GRAPHS[1]).expect("span export walks");
+        assert_eq!(r.structure_match, Some(true));
         assert_eq!(r.outputs, 7);
         assert_eq!(r.parameters, R0_GRAPH_PARAMETERS);
         assert_eq!(std::fs::metadata(&p).unwrap().len(), spec::GRAPHS[1].bytes);

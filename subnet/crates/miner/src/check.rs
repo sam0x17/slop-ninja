@@ -5,11 +5,12 @@
 //! place: the six-file table, the tokenizer's pinned digest and length, the
 //! role schemas and bindings (the export manifest's digests compared with the
 //! header's), the ONNX pre-parse (custom domains, external data, operator
-//! allow-list), the graph class and the parameter bound. It hashes no file:
-//! every digest it needs is the header's, which `pack` computed while it
-//! wrote the files (the graph allow-list's structure digest is the one
-//! remaining exception, design decision D5). A file that changed on disk
-//! since `pack` is not caught here: R2 refuses it at upload (`BadDigest`).
+//! allow-list), the graph class and the parameter bound. It hashes no file
+//! byte: every digest it needs is the header's, which `pack` computed while
+//! it wrote the files, and the graph class check compares the graph's
+//! structure stream byte for byte with the class's reference stream, which
+//! this build ships (design decision D5). A file that changed on disk since
+//! `pack` is not caught here: R2 refuses it at upload (`BadDigest`).
 //! A refusal's code is the one the coordinator reports in `check_failed`'s
 //! `detail.check`.
 //!

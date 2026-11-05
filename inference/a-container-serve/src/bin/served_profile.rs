@@ -3,7 +3,7 @@
 //! slop_ninja_a_served_profile show
 //! slop_ninja_a_served_profile sums
 //! slop_ninja_a_served_profile verify [--model-dir DIR] [--release-dir DIR]
-//! slop_ninja_a_served_profile pack [--spec v2|v3] --model-dir DIR --out DIR
+//! slop_ninja_a_served_profile pack [--spec v2|v3|v4] --model-dir DIR --out DIR
 //!
 //! `sums` prints `sha256sum -c` lines for the served files. `verify --model-dir` hashes
 //! every served file in DIR, including the graph. `verify --release-dir` checks the
@@ -11,7 +11,7 @@
 //! `sha256sum -c SHA256SUMS` in the package to check its own files.
 //!
 //! `pack` packs an artifact for a cohort: it checks the model directory with the
-//! artifact spec `--spec` names (`v2`, `v3` or a full spec id; the spec the cohort
+//! artifact spec `--spec` names (`v2`, `v3`, `v4` or a full spec id; the spec the cohort
 //! names, which the scorer admits the cohort's loads by), else with spec v2, the spec
 //! a load that names none is admitted by (`engine::UNNAMED_LOAD_SPEC`). It then
 //! writes the eval bucket's reference files layout v2 (each file once under
@@ -83,7 +83,7 @@ fn main() -> Result<()> {
             let graph = header.files.iter().find(|f| f.name == slop_ninja_artifact_check::spec::GRAPH_FILE).context("graph")?;
             println!("model_sha256 {}", hex::encode(graph.sha256.0));
         }
-        _ => bail!("usage: slop_ninja_a_served_profile show | sums | verify [--model-dir DIR] [--release-dir DIR] | pack [--spec v2|v3] --model-dir DIR --out DIR"),
+        _ => bail!("usage: slop_ninja_a_served_profile show | sums | verify [--model-dir DIR] [--release-dir DIR] | pack [--spec v2|v3|v4] --model-dir DIR --out DIR"),
     }
     Ok(())
 }

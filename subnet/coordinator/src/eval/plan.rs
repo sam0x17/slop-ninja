@@ -1643,13 +1643,14 @@ pub(crate) mod tests {
         assert!(load_spec_sha256_of(Version::V1.id()).is_none());
         assert_eq!(load_spec_sha256_of(Version::V2.id()), Some(Version::V2.spec_sha256()));
         assert_eq!(load_spec_sha256_of(Version::V3.id()), Some(Version::V3.spec_sha256()));
-        assert!(load_spec_sha256_of("slop_ninja_a_artifact_spec_v4").is_none() && load_spec_sha256_of("v3").is_none());
+        assert_eq!(load_spec_sha256_of(Version::V4.id()), Some(Version::V4.spec_sha256()));
+        assert!(load_spec_sha256_of("slop_ninja_a_artifact_spec_v5").is_none() && load_spec_sha256_of("v3").is_none());
         // The digests the live scorer lists in /healthz (scorer go-live, 2026-11-02).
         assert_eq!(Version::V2.spec_sha256(), "0f25e636ba52b45269c0a4d0520c2f01550b51325bb6399d4ddae418c8384b50");
         assert_eq!(Version::V3.spec_sha256(), "0bb326a93b1f4669018dadac3186f08bcc0ac527983eed0c75ce1e889e970d25");
         // The size bound comes from the class and JSON bounds without the
         // spec record, and equals the admission bounds'.
-        for v in [Version::V2, Version::V3] {
+        for v in [Version::V2, Version::V3, Version::V4] {
             assert_eq!(
                 crate::eval::admission::files_bytes(v),
                 crate::eval::admission::SpecBounds::of(v).map(|b| b.files_bytes)

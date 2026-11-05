@@ -1,6 +1,6 @@
 //! The ONNX pre-parse on synthetic graphs: accepted structure, the structure
-//! digest's invariance to initializer float values only, and every refusal
-//! class.
+//! stream's invariance to initializer float values only, and every refusal
+//! class. `tests/structure.rs` covers the comparison with a reference stream.
 
 mod common;
 
@@ -10,6 +10,13 @@ use slop_ninja_artifact_check::{Refusal, spec};
 
 fn scan(bytes: &[u8]) -> Result<onnx::GraphReport, Refusal> {
     onnx::scan(bytes, spec::GRAPH_POLICY)
+}
+
+/// The graph's structure stream.
+fn stream(bytes: &[u8]) -> Vec<u8> {
+    let mut s = GraphScan::keeping(bytes.len() as u64, spec::GRAPH_POLICY);
+    s.update(bytes).unwrap();
+    s.finish_keeping().unwrap().1
 }
 
 #[test]
@@ -25,16 +32,19 @@ fn small_graph_passes_and_counts_parameters() {
 }
 
 #[test]
-fn structure_digest_ignores_initializer_float_values_only() {
-    let a = scan(&small_graph([1., 2., 3., 4.], 0.5)).unwrap();
-    let b = scan(&small_graph([-7., 0., 1e-30, 9.], 0.5)).unwrap();
-    assert_eq!(a.structure_sha256, b.structure_sha256);
+fn structure_stream_ignores_initializer_float_values_only() {
+    let a = stream(&small_graph([1., 2., 3., 4.], 0.5));
+    let b = stream(&small_graph([-7., 0., 1e-30, 9.], 0.5));
+    assert_eq!(a, b);
     // A float constant (a Constant node tensor, like a band mask or a mask
     // polarity scalar) is structure.
-    let constant = scan(&small_graph([1., 2., 3., 4.], -2.)).unwrap();
-    assert_ne!(constant.structure_sha256, a.structure_sha256);
+    let constant = stream(&small_graph([1., 2., 3., 4.], -2.));
+    assert_ne!(constant, a);
     // Constants still count as parameters and must be finite.
-    assert_eq!(constant.parameters, a.parameters);
+    assert_eq!(
+        scan(&small_graph([1., 2., 3., 4.], -2.)).unwrap().parameters,
+        scan(&small_graph([1., 2., 3., 4.], 0.5)).unwrap().parameters
+    );
     // A shape, an integer constant, a name or an opset changes it.
     let shape = small_graph_with(
         [1., 2., 3., 4.],
@@ -61,12 +71,9 @@ fn structure_digest_ignores_initializer_float_values_only() {
         )
     };
     for other in [shape, name, opset, int_const(1)] {
-        assert_ne!(scan(&other).unwrap().structure_sha256, a.structure_sha256);
+        assert_ne!(stream(&other), a);
     }
-    assert_ne!(
-        scan(&int_const(1)).unwrap().structure_sha256,
-        scan(&int_const(2)).unwrap().structure_sha256
-    );
+    assert_ne!(stream(&int_const(1)), stream(&int_const(2)));
 }
 
 #[test]
@@ -378,7 +385,8 @@ fn split_float_data_is_counted_once() {
 
 #[test]
 fn a_repeated_data_type_is_refused() {
-    // FLOAT then INT64: a payload hashed as one type and read as another.
+    // FLOAT then INT64: a payload left out of the structure stream as one
+    // type and read as another.
     let mut t = Vec::new();
     uint(&mut t, 1, 2);
     uint(&mut t, 2, 1);

@@ -130,6 +130,16 @@ pub fn memory_limit() -> Option<u64> {
 /// 215 documents). The JSON terms come from the spec: its byte budget and the
 /// class's value budget (a bound on what any parse of the files holds, checked
 /// before the first parse).
+///
+/// One term is outside the formula: the served classes' reference structure
+/// streams (decision D5), read-only data compiled into the binary after
+/// [`BASE_BYTES`] was measured, 5,107,056 bytes for the three classes. A load
+/// reads one class's stream, at most its `structure_bytes` (1,860,300 for the
+/// tower class), once and in order, during the graph walk. Those pages are
+/// clean and backed by the executable, so the kernel can drop them under
+/// memory pressure and read them again; they are not memory a load needs to
+/// hold, and the bound reserves nothing for them. The next measurement of
+/// [`BASE_BYTES`] takes them in (a test pins the figures).
 pub mod measured {
     /// Process baseline: the one-session peak minus one session (R0).
     pub const BASE_BYTES: u64 = 359_321_600;
@@ -309,6 +319,20 @@ mod tests {
     }
 
     #[test]
+    fn the_reference_streams_are_the_documented_read_only_term() {
+        // The figures in `measured`'s docs and the README's memory model.
+        let mut sum = 0;
+        for g in served_classes() {
+            let stream = spec::reference_structure(g).expect("every served class has a reference stream");
+            assert_eq!(stream.len() as u64, g.structure_bytes, "{}", g.id);
+            assert!(g.structure_bytes <= spec::TOWER_GRAPH.structure_bytes, "{}", g.id);
+            sum += g.structure_bytes;
+        }
+        assert_eq!(spec::TOWER_GRAPH.structure_bytes, 1_860_300);
+        assert_eq!(sum, 5_107_056);
+    }
+
+    #[test]
     fn the_spec_value_budgets_are_the_reference_remainders() {
         // Spec v2's budget, at the larger of the plain and span graphs, which share it.
         assert_eq!(
@@ -331,8 +355,8 @@ mod tests {
 
     #[test]
     fn every_spec_a_load_may_name_has_the_newest_specs_class_bounds() {
-        // Spec v2 and v3; spec v1 bounds no JSON file.
-        assert_eq!(load_specs().collect::<Vec<_>>(), [Version::V2, Version::V3]);
+        // Spec v2 to v4; spec v1 bounds no JSON file.
+        assert_eq!(load_specs().collect::<Vec<_>>(), [Version::V2, Version::V3, Version::V4]);
         assert!(admits_by(UNNAMED_LOAD_SPEC) && NEWEST_SPEC == Version::LATEST);
         for v in load_specs() {
             assert_eq!(v.max_json_bytes(), Some(json_budget()), "{}", v.id());
@@ -344,11 +368,12 @@ mod tests {
                 assert_eq!(class_of_len_for(v, g.bytes), Some(g));
             }
         }
-        // The tower class is served only under spec v3.
+        // The tower class is served only under spec v3 and v4.
         assert_eq!(class_of_len_for(Version::V2, spec::TOWER_GRAPH.bytes), None);
         assert_eq!(class_of_len_for(Version::V3, spec::TOWER_GRAPH.bytes), Some(&spec::TOWER_GRAPH));
+        assert_eq!(class_of_len_for(Version::V4, spec::TOWER_GRAPH.bytes), Some(&spec::TOWER_GRAPH));
         let r = report(REFERENCE_SESSIONS);
-        assert_eq!(r["specs"].as_array().map(Vec::len), Some(2));
+        assert_eq!(r["specs"].as_array().map(Vec::len), Some(3));
         assert_eq!(r["unnamed_load_spec"], UNNAMED_LOAD_SPEC.id());
     }
 
@@ -366,7 +391,7 @@ mod tests {
                 assert!(known_profile_id(&mapping::profile_id_for(g, v)));
             }
         }
-        // The tower class is a spec v3 class only.
+        // The tower class is a spec v3 and v4 class only.
         for v in [spec::Version::V1, spec::Version::V2] {
             assert!(!known_profile_id(&mapping::profile_id_for(&spec::TOWER_GRAPH, v)));
         }

@@ -9,16 +9,26 @@
 //! floating-point parameters and refuses as soon as the count passes the
 //! bound, before the payload of the offending tensor is read.
 //!
-//! **Structure digest** (`slop_ninja_onnx_structure_v2`): SHA-256 of the
-//! domain tag followed by the graph file's bytes with the payload of every
-//! `FLOAT` *initializer* data field (`raw_data` or `float_data` of a
-//! `GraphProto.initializer`) removed. The field's tag and length prefix stay,
-//! so the hashed stream is unambiguous and fixes the file length. Two graphs
-//! share a structure digest exactly when they are byte-identical apart from
-//! their initializer float values: same operators, order, names, attributes,
-//! shapes, integer constants, opsets and producer fields, and the same float
-//! constants (`Constant` node tensors such as rotary tables, band masks,
-//! mask-polarity scalars and the attention scale). Only the weights are free.
+//! **Structure stream** (`slop_ninja_onnx_structure_stream_v1`): the graph
+//! file's bytes with the payload of every `FLOAT` *initializer* data field
+//! (`raw_data` or `float_data` of a `GraphProto.initializer`) removed. The
+//! field's tag and length prefix stay, so the stream is unambiguous and fixes
+//! the file length. Two graphs have the same structure stream exactly when
+//! they are byte-identical apart from their initializer float values: same
+//! operators, order, names, attributes, shapes, integer constants, opsets and
+//! producer fields, and the same float constants (`Constant` node tensors such
+//! as rotary tables, band masks, mask-polarity scalars and the attention
+//! scale). Only the weights are free.
+//!
+//! The graph class check compares the stream byte for byte with the class's
+//! pinned reference stream ([`GraphScan::against`]) as the walk produces it.
+//! Nothing is hashed: the walk holds no hasher, and the removed payloads are
+//! never passed to the comparison (the walk still reads them, to check that
+//! every value is finite). Spec v1 to v3 state the same rule as a digest,
+//! `slop_ninja_onnx_structure_v2`: SHA-256 of [`STRUCTURE_DIGEST_TAG`]
+//! followed by the stream. Each class's digest is its reference stream's
+//! (a spec test recomputes it from the shipped stream), so the comparison
+//! accepts exactly the graphs the digest accepts.
 //!
 //! The walk is a push parser: [`GraphScan::update`] takes chunks of any size
 //! and holds only a frame stack (its depth is bounded by the schema, since
@@ -27,15 +37,18 @@
 
 use std::collections::BTreeMap;
 
-use sha2::{Digest as _, Sha256};
-
 use crate::Refusal;
 
-/// Name of the structure digest.
+/// Name of the structure digest that spec v1 to v3 state the class rule by.
 pub const STRUCTURE_DIGEST_ID: &str = "slop_ninja_onnx_structure_v2";
 
-/// Domain tag of the structure digest.
+/// Domain tag of that digest: the digest is SHA-256 of the tag followed by
+/// the structure stream. Nothing here computes it; the spec tests recompute
+/// each class's from its reference stream.
 pub const STRUCTURE_DIGEST_TAG: &[u8] = b"slop_ninja_onnx_structure_v2\0";
+
+/// Name of the structure stream, which spec v4 states the class rule by.
+pub const STRUCTURE_STREAM_ID: &str = "slop_ninja_onnx_structure_stream_v1";
 
 /// ONNX `TensorProto.DataType` values.
 pub mod dtype {
@@ -88,8 +101,15 @@ pub struct GraphPolicy<'a> {
 /// Content-free facts about a graph that passed the walk.
 #[derive(Clone, Debug, PartialEq, Eq, serde::Serialize)]
 pub struct GraphReport {
-    /// Hex SHA-256 structure digest.
-    pub structure_sha256: String,
+    /// Length of the structure stream: the file without its initializer
+    /// float payloads.
+    pub structure_bytes: u64,
+    /// Whether the structure stream equals the reference stream the walk
+    /// compared it with ([`GraphScan::against`]); `None` without one.
+    pub structure_match: Option<bool>,
+    /// The stream offset of the first byte that differs from the reference
+    /// (or where the shorter of the two ends), when they differ.
+    pub structure_difference: Option<u64>,
     /// `FLOAT` tensor elements in initializers and constant attributes.
     pub parameters: u64,
     pub ir_version: u64,
@@ -145,13 +165,13 @@ impl Msg {
 enum Field {
     /// A nested message.
     Sub(Msg),
-    /// A string or bytes value that is hashed and otherwise ignored.
+    /// A string or bytes value that is compared and otherwise ignored.
     Skip,
     /// A string compared with the allow-list (domain or operator type).
     Capture(Slot),
     /// A single varint scalar, kept in a slot.
     Scalar(Slot),
-    /// A varint scalar that is only hashed.
+    /// A varint scalar that is only compared.
     Varint,
     /// A repeated varint: packed or not.
     RepeatedVarint(Slot),
@@ -288,7 +308,7 @@ struct TensorAcc {
     /// Parameters counted for this tensor at its first payload field.
     counted: Option<u64>,
     /// A `GraphProto.initializer`: its float payload is left out of the
-    /// structure digest. Constant attribute tensors are hashed.
+    /// structure stream. Constant attribute tensors are in it.
     initializer: bool,
 }
 
@@ -326,14 +346,14 @@ struct Frame {
 
 #[derive(Debug)]
 enum Sink {
-    /// Hash and drop.
+    /// Structure bytes, otherwise dropped.
     Skip,
-    /// Hash and keep up to `cap` bytes into the slot.
+    /// Structure bytes, of which up to `cap` are kept in the slot.
     Capture(Slot, usize),
-    /// Packed varints: hash, decode each into the slot.
+    /// Packed varints: structure bytes, each value decoded into the slot.
     PackedVarint(Slot, u64, u32),
     /// Packed fixed-width values or `raw_data`: `float` checks that every
-    /// value is finite, `elide` drops the bytes from the hash.
+    /// value is finite, `elide` leaves the bytes out of the structure stream.
     Data { float: bool, elide: bool },
 }
 
@@ -346,6 +366,53 @@ enum State {
     Bytes(Sink, u64),
 }
 
+/// Where the structure stream goes. It is fed every byte of the file except
+/// the initializer float payloads, in file order, and nothing else: it is
+/// compared with a reference stream, kept for a tool that writes one, or only
+/// counted.
+#[derive(Debug, Default)]
+struct Structure<'p> {
+    /// Bytes of the stream so far.
+    len: u64,
+    /// The reference stream it is compared with.
+    reference: Option<&'p [u8]>,
+    /// The stream offset of the first byte that differs from the reference
+    /// (or where one of the two ends first), once found.
+    difference: Option<u64>,
+    /// The stream itself.
+    kept: Option<Vec<u8>>,
+}
+
+impl Structure<'_> {
+    fn feed(&mut self, part: &[u8]) {
+        let at = self.len;
+        self.len += part.len() as u64;
+        if let (Some(reference), None) = (self.reference, self.difference) {
+            // No difference so far, so `at` is within the reference.
+            let rest = &reference[at as usize..];
+            let n = part.len().min(rest.len());
+            if part[..n] != rest[..n] {
+                let i = part.iter().zip(rest).position(|(a, b)| a != b).unwrap_or(n);
+                self.difference = Some(at + i as u64);
+            } else if n < part.len() {
+                self.difference = Some(at + n as u64);
+            }
+        }
+        if let Some(kept) = &mut self.kept {
+            kept.extend_from_slice(part);
+        }
+    }
+
+    /// Whether the whole stream equals the reference, if there is one.
+    fn matches(&mut self) -> Option<bool> {
+        let reference = self.reference?;
+        if self.difference.is_none() && self.len != reference.len() as u64 {
+            self.difference = Some(self.len);
+        }
+        Some(self.difference.is_none())
+    }
+}
+
 /// The streaming walk over one graph file of known length.
 pub struct GraphScan<'p> {
     policy: GraphPolicy<'p>,
@@ -353,7 +420,7 @@ pub struct GraphScan<'p> {
     pos: u64,
     stack: Vec<Frame>,
     state: State,
-    hasher: Sha256,
+    structure: Structure<'p>,
     capture_cap: usize,
     /// Bytes of a float value split across chunks.
     carry: [u8; 4],
@@ -367,8 +434,29 @@ fn malformed(what: &str) -> Refusal {
 }
 
 impl<'p> GraphScan<'p> {
-    /// Starts a walk over a graph file of `len` bytes.
+    /// Starts a walk over a graph file of `len` bytes. The report counts the
+    /// structure stream and compares it with nothing.
     pub fn new(len: u64, policy: GraphPolicy<'p>) -> Self {
+        Self::with_structure(len, policy, Structure::default())
+    }
+
+    /// Starts a walk that compares the structure stream byte for byte with
+    /// `reference` as it goes ([`GraphReport::structure_match`]). A
+    /// difference is not a refusal of the walk: the caller decides what it
+    /// means once the walk has passed.
+    pub fn against(len: u64, policy: GraphPolicy<'p>, reference: &'p [u8]) -> Self {
+        Self::with_structure(len, policy, Structure { reference: Some(reference), ..Structure::default() })
+    }
+
+    /// Starts a walk that keeps the structure stream, for a tool that writes
+    /// a class's reference stream ([`GraphScan::finish_keeping`]). It holds
+    /// the whole stream in memory: the file less its initializer float
+    /// payloads.
+    pub fn keeping(len: u64, policy: GraphPolicy<'p>) -> Self {
+        Self::with_structure(len, policy, Structure { kept: Some(Vec::new()), ..Structure::default() })
+    }
+
+    fn with_structure(len: u64, policy: GraphPolicy<'p>, structure: Structure<'p>) -> Self {
         let capture_cap = policy
             .ops
             .iter()
@@ -376,8 +464,6 @@ impl<'p> GraphScan<'p> {
             .map(|s| s.len())
             .max()
             .unwrap_or(0);
-        let mut hasher = Sha256::new();
-        hasher.update(STRUCTURE_DIGEST_TAG);
         Self {
             policy,
             len,
@@ -388,12 +474,14 @@ impl<'p> GraphScan<'p> {
                 acc: FrameAcc::default(),
             }],
             state: State::Tag(0, 0),
-            hasher,
+            structure,
             capture_cap,
             carry: [0; 4],
             carry_len: 0,
             report: GraphReport {
-                structure_sha256: String::new(),
+                structure_bytes: 0,
+                structure_match: None,
+                structure_difference: None,
                 parameters: 0,
                 ir_version: 0,
                 opsets: Vec::new(),
@@ -421,7 +509,13 @@ impl<'p> GraphScan<'p> {
     }
 
     /// Ends the walk: the whole file must have been consumed.
-    pub fn finish(mut self) -> Result<GraphReport, Refusal> {
+    pub fn finish(self) -> Result<GraphReport, Refusal> {
+        self.finish_keeping().map(|(report, _)| report)
+    }
+
+    /// [`GraphScan::finish`], also returning the structure stream a
+    /// [`GraphScan::keeping`] walk kept (empty for any other walk).
+    pub fn finish_keeping(mut self) -> Result<(GraphReport, Vec<u8>), Refusal> {
         if let Some(r) = self.failed.take() {
             return Err(r);
         }
@@ -444,8 +538,10 @@ impl<'p> GraphScan<'p> {
         {
             return Err(malformed("model without a default-domain opset"));
         }
-        self.report.structure_sha256 = hex::encode(self.hasher.finalize());
-        Ok(self.report)
+        self.report.structure_bytes = self.structure.len;
+        self.report.structure_match = self.structure.matches();
+        self.report.structure_difference = self.structure.difference;
+        Ok((self.report, self.structure.kept.take().unwrap_or_default()))
     }
 
     fn top(&mut self) -> &mut Frame {
@@ -481,7 +577,7 @@ impl<'p> GraphScan<'p> {
                 }
                 _ => {
                     let b = chunk[i];
-                    self.hasher.update([b]);
+                    self.structure.feed(&[b]);
                     i += 1;
                     self.pos += 1;
                     self.byte(b)?;
@@ -614,7 +710,7 @@ impl<'p> GraphScan<'p> {
             Slot::TensorDataType => {
                 let t = acc.tensor.as_mut().expect("tensor frame");
                 // A second data_type would relabel a payload after the walk
-                // decided how to hash it.
+                // decided whether it belongs to the structure stream.
                 if t.data_type.is_some() {
                     return Err(malformed("repeated tensor data_type"));
                 }
@@ -674,7 +770,8 @@ impl<'p> GraphScan<'p> {
 
     fn start_len(&mut self, f: Field, len: u64) -> Result<(), Refusal> {
         let end = self.top().end;
-        if len > end - self.pos {
+        // A length prefix can itself run past its message's end.
+        if self.pos > end || len > end - self.pos {
             return Err(malformed("length past the end of its message"));
         }
         match f {
@@ -753,7 +850,7 @@ impl<'p> GraphScan<'p> {
     /// Counts a `FLOAT` tensor's elements when its first payload field
     /// starts, so the bound is enforced before the payload is read. A tensor
     /// whose packed `float_data` is split over several fields is counted
-    /// once. Returns whether the payload is left out of the structure digest
+    /// once. Returns whether the payload is left out of the structure stream
     /// (initializers only).
     fn count_parameters_at_payload(&mut self) -> Result<bool, Refusal> {
         let max = self.policy.max_parameters;
@@ -797,18 +894,19 @@ impl<'p> GraphScan<'p> {
             unreachable!()
         };
         match sink {
-            Sink::Skip => self.hasher.update(part),
+            Sink::Skip => self.structure.feed(part),
             Sink::Data { float, elide } => {
                 let (float, elide) = (*float, *elide);
                 if float {
                     self.check_finite(part)?;
                 }
+                // An elided payload never reaches the structure stream.
                 if !elide {
-                    self.hasher.update(part);
+                    self.structure.feed(part);
                 }
             }
             Sink::Capture(slot, cap) => {
-                self.hasher.update(part);
+                self.structure.feed(part);
                 let (slot, cap) = (*slot, *cap);
                 let acc = &mut self.stack.last_mut().expect("frame").acc;
                 let c = match slot {
@@ -822,7 +920,7 @@ impl<'p> GraphScan<'p> {
                 }
             }
             Sink::PackedVarint(slot, v, shift) => {
-                self.hasher.update(part);
+                self.structure.feed(part);
                 let slot = *slot;
                 let (mut v0, mut s0) = (*v, *shift);
                 for &b in part {

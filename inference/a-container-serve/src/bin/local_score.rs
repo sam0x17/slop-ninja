@@ -3,14 +3,14 @@
 //!
 //! ```text
 //! slop_ninja_a_local_score --model-dir DIR --docs DOCS.jsonl [--out OUT.jsonl]
-//!     [--spec v2|v3] [--spans] [--sessions N] [--threads N] [--ort-lib PATH] [--reference FILE]
+//!     [--spec v2|v3|v4] [--spans] [--sessions N] [--threads N] [--ort-lib PATH] [--reference FILE]
 //! ```
 //!
 //! The model directory holds the six artifact files. It is admitted with an
 //! artifact spec the hidden scorer admits by (the same checks, before ONNX Runtime
-//! opens the graph): `--spec`, `v2`, `v3` or a full spec id, which should be the
+//! opens the graph): `--spec`, `v2`, `v3`, `v4` or a full spec id, which should be the
 //! spec your cohort names, the one the hidden scorer admits that cohort's
-//! artifacts by; without it, the newest (spec v3). It is then loaded with the
+//! artifacts by; without it, the newest (spec v4). It is then loaded with the
 //! same guards, graph contract and heads runtime as `a-scorer`. Each line of
 //! `DOCS.jsonl` is `{"id", "text"}`, optionally with labels: `"involved"` (true when any AI was involved) and `"share"` (the
 //! AI-written fraction, 0 to 1). Each output line is the hidden scorer's
@@ -48,7 +48,7 @@ use std::sync::atomic::{AtomicUsize, Ordering::SeqCst};
 use std::time::Instant;
 
 const USAGE: &str = "usage: slop_ninja_a_local_score --model-dir DIR --docs DOCS.jsonl [--out OUT.jsonl] \
-[--spec v2|v3] [--spans] [--sessions N] [--threads N] [--ort-lib PATH] [--reference FILE]";
+[--spec v2|v3|v4] [--spans] [--sessions N] [--threads N] [--ort-lib PATH] [--reference FILE]";
 
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]

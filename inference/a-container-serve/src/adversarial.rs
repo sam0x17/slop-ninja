@@ -236,7 +236,7 @@ pub fn float_initializer_payloads(b: &[u8]) -> Result<Vec<Range<usize>>> {
 
 /// The initializer the class names `model.encoder.head.norm.weight`: the weight
 /// of the LayerNormalization whose output is `h`. Initializer names are part
-/// of the structure digest, so every admitted plain or span graph has it.
+/// of the structure stream, so every admitted plain or span graph has it.
 pub const HEAD_NORM_WEIGHT: &str = "model.encoder.head.norm.weight";
 
 /// Every value of the FLOAT initializer named `name` set to `v`, in place.

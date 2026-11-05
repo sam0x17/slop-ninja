@@ -3239,10 +3239,6 @@ inside the same window. Secrets are installed from stdin and never printed.
 
 Blockers before step 1 (each recorded in the private status):
 
-- Decision D5's spec change (the graph structure digest replaced by a byte
-  comparison against pinned reference structure streams) is approved but
-  not built; until then the structure digest is the one documented hash
-  over model bytes.
 - `COPY_INTERFACE_TOKEN` needs the user's explicit authorization (the
   signer-secret authorization of 2026-11-05 named `R2_S3_HOST` and
   `SIGNER_INTERFACE_TOKEN` only).

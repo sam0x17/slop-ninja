@@ -56,7 +56,7 @@ Testnet subnet 601 is the rehearsal. It has no monetary value.
 | Signed release binaries (Linux x86_64) | not yet live: the miner client and the artifact checker, built from the public repository, signed and smoke-tested when the release is published |
 | Validator release binaries | not in the first release: the validator client is changing, and a validator release follows later; until then, build from source with the [validator guide](validator-guide.md) |
 | Coordinator unsigned cohort read (`check`, `commit`, `status`, `next-cohort`), at `https://testnet-admission.slop.ninja` (pinned in `testnet-trust.json`) | live |
-| Coordinator signed admission routes (`upload`, `abort`, hotkey status) | not yet open to outside hotkeys (their signed requests are answered `not_found`); do not commit until they are |
+| Coordinator signed admission routes (used by `upload`, `repair` and the hotkey view of `status`; the artifact goes straight to R2 under presigned URLs they return) | not yet open to outside hotkeys (their signed requests are answered `not_found`); do not commit until they are |
 | Public status host: status snapshot, cohort index, signed packages, leaderboard, published artifacts | not yet live |
 | Validator package fetcher | not yet live |
 | Validators committing the launch burn row | live since November 3, 2026: both Slop Ninja validators commit and reveal it on subnet 601 each tempo, under a launch authorization that does not expire |

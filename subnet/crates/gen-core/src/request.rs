@@ -243,7 +243,7 @@ pub fn build(m: &Manifest, lib: &Library, a: &GenAssignment, target: &GenTarget<
     let limit = max_tokens(m, entry, a.effort, a.kind, n, window.1);
     let visible_bound = window.1.saturating_mul(m.stream_bound.word_bytes_max.saturating_add(2));
     let line_bound = visible_bound.saturating_add(m.stream_bound.envelope_bytes);
-    let (tier, body) = match entry.vendor {
+    let (tier, mut body) = match entry.vendor {
         Vendor::Openai => {
             let mut b = json!({
                 "model": entry.id,
@@ -309,6 +309,12 @@ pub fn build(m: &Manifest, lib: &Library, a: &GenAssignment, target: &GenTarget<
             (Tier::Standard, b)
         }
     };
+    // Canonical JSON with sorted keys in every build: serde_json's map keeps
+    // insertion order when any crate in the build enables `preserve_order`
+    // (rtao's clients do), and the body's bytes are its `request_sha256` and
+    // the shape `standard_retry` edits. Without that feature the map is
+    // already sorted and this does nothing.
+    body.sort_all_objects();
     let body = serde_json::to_string(&body).map_err(|_| Refused("request json"))?;
     if body.len() > crate::iface::CALL_BODY_BYTES {
         return Err(Refused("request (body over the interface bound)"));
@@ -395,8 +401,14 @@ mod tests {
         GenTarget::Rewrite { domain: "wikipedia", parent: PARENT, span: s.clone(), context: Some((0..s.start - 1, s.end + 1..PARENT.len())) }
     }
 
+    /// The parsed body, after checking that the bytes are canonical: the
+    /// body re-serialized with every object's keys sorted is the body
+    /// itself, whatever map order serde_json has in this build.
     fn body(r: &VendorRequest) -> Value {
-        serde_json::from_str(&r.body).unwrap()
+        let mut v: Value = serde_json::from_str(&r.body).unwrap();
+        v.sort_all_objects();
+        assert_eq!(serde_json::to_string(&v).unwrap(), r.body, "{} body is not canonical", r.model);
+        v
     }
 
     #[test]
@@ -428,8 +440,10 @@ mod tests {
                 assert_eq!(std.tier, Tier::Standard);
                 assert!(body(&std).get("service_tier").is_none());
                 // The in-place removal is the canonical body without the member.
+                // (`remove` is a swap-remove under `preserve_order`; re-sort.)
                 let mut v = body(&r);
                 v.as_object_mut().unwrap().remove("service_tier");
+                v.sort_all_objects();
                 assert_eq!(std.body, serde_json::to_string(&v).unwrap());
                 assert_ne!(std.request_sha256, r.request_sha256);
             }

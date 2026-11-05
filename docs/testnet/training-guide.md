@@ -27,7 +27,7 @@ admitting cohort's contract and size bound, or between windows with the next
 cohort's when the read names them (note `next_cohort`), and exits 0 on a
 pass; otherwise it exits 3. `commit` needs only that unsigned read and the
 chain, so while a cohort admits it signs and submits an on-chain commitment
-for any registered hotkey. `upload`, `abort` and the hotkey view of `status`
+for any registered hotkey. `upload`, `repair` and the hotkey view of `status`
 need the coordinator's signed admission routes, which are not yet open to
 outside hotkeys: their signed requests are answered `not_found` (exit 1)
 ([What is live](miner-guide.md#what-is-live)). Do not commit until those

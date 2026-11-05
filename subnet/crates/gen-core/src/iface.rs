@@ -188,7 +188,18 @@ mod tests {
         g.refusal = Some(crate::sse::RefusalCategory::Unstated);
         g.retry_after_ms = Some(0);
         g.first_token_ms = Some(0);
-        let keys = |v: serde_json::Value| v.as_object().map(|o| o.keys().cloned().collect::<Vec<_>>().join(",")).unwrap_or_default();
+        // Each schema's member names, sorted: serde_json's map keeps insertion
+        // (field) order when another crate in the build enables
+        // `preserve_order`, and the pin is of the names, not their order.
+        let keys = |v: serde_json::Value| {
+            v.as_object()
+                .map(|o| {
+                    let mut k = o.keys().cloned().collect::<Vec<_>>();
+                    k.sort_unstable();
+                    k.join(",")
+                })
+                .unwrap_or_default()
+        };
         let call = GenCall { request: r.clone(), accepted_models: vec![], timeout_ms: 0 };
         let health = crate::plan::Health::default();
         let schema = [keys(serde_json::to_value(&r).unwrap()), keys(serde_json::to_value(&call).unwrap()), keys(serde_json::to_value(&g).unwrap()), keys(serde_json::to_value(&health).unwrap())].join(";");

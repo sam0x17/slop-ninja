@@ -230,14 +230,19 @@ patch `5f2477f5`; timelock encryption (`generate_commit_v2`) and the epoch
 schedule are unchanged. Its `COMPAT.md` records no validated spec range, and its
 client only logs when a runtime is outside that evidence.
 
-Slop Ninja pins that revision. The adapter has no spec gate: each signed
-operation is resolved by name against the live metadata at every attempt, and
-only an operation without a type-correct encoding is deferred (see
-[`subnet/README.md`](../subnet/README.md#runtime-upgrades)). rtao's weight
-scheduler at this pin still composes calls and reads its storage through
-compiled descriptors and supports one commit-reveal version; the adapter
-records those upstream limits as deferrals, and a changed storage item stops
-rtao's finalized observation and recovery until rtao reads it by name. This report
+Slop Ninja pinned that revision for M2 and now pins rtao `0c128160` (tag
+`snapshot-2026-11-03.2`), which vendors the same Finney 477–486 metadata and
+also records no validated spec range (see
+[`subnet/README.md`](../subnet/README.md#rtao-pin)). The adapter has no spec
+gate: each signed operation is resolved by name against the live metadata at
+every attempt, and only an operation without a type-correct encoding is
+deferred (see [`subnet/README.md`](../subnet/README.md#runtime-upgrades)).
+rtao's weight scheduler at the current pin composes its calls and reads its
+storage through compiled descriptors while the live shape matches and by name
+otherwise, and follows a changed commit-reveal tag only under runtime code rtao
+reviewed or under which one of the validator's own commitments revealed; the
+adapter records the remaining upstream limits as deferrals, and only a storage
+item neither path can read stops rtao's finalized observation and recovery. This report
 observes one runtime. It certifies nothing, and a later runtime needs no
 re-certification. Subtensor main is already at 487 (`8d7f4212`), which, as of
 that commit, only bumps the version from v486; re-running this diff when 487

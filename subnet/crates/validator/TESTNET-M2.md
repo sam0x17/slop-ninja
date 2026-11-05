@@ -100,8 +100,8 @@ crash hook and the `slop_ninja_drill_proxy` binary. Production builds omit it.
 The M2 live runs used drill builds throughout, from
 `m2-live/scripts/release.sh` into `m2-live/bin/<label>/`.
 
-Build rtao's CLI at the same pin from the local read-only clone at
-`b5553a76`, also under the lock. `--offline` uses the already fetched
+Build rtao's CLI at the workspace pin from a local read-only clone at that
+commit, also under the lock. `--offline` uses the already fetched
 dependencies, and nothing is written into the clone:
 
 ```sh
@@ -115,10 +115,10 @@ flock /home/operator/workspace/slop_ninja/data/locks/cargo.lock \
 install -m 0755 $CT/debug/rtao ~/.local/bin/
 ```
 
-`git rev-parse HEAD` must print `b5553a76ff67f0f54350472ef0306f225e8a4c44`.
-That was the M2 runs' pin. The workspace now pins rtao
-`0c12816009baa65eec3135bac9a9dbcc8eaba77d` (tag `snapshot-2026-11-03.2`);
-build the CLI for a new run from a clone at that commit.
+`git rev-parse HEAD` must print the workspace pin,
+`0c12816009baa65eec3135bac9a9dbcc8eaba77d` (tag `snapshot-2026-11-03.2`).
+The M2 runs used a clone at their pin,
+`b5553a76ff67f0f54350472ef0306f225e8a4c44`.
 
 The rtao commands below follow rtao's book at that revision. Before you sign
 anything, run each one with `--help` on the installed CLI and confirm the

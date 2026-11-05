@@ -312,6 +312,26 @@ pub struct EvalView {
     pub epoch_live: Option<bool>,
     /// Admitted entrants per cohort (`admission.cohorts[].admitted`).
     pub admitted: Vec<(u64, u64)>,
+    /// The subnet's UID-to-hotkey map as of a tempo boundary (`uid_map`,
+    /// rule [`UID_MAP_RULE`]): `None` when absent, refused by the
+    /// coordinator, or not whole and well formed.
+    pub uid_map: Option<UidMapView>,
+}
+
+/// The coordinator's UID map rule this publisher reads.
+pub const UID_MAP_RULE: &str = "slop_ninja.eval.uid_map/v1";
+
+/// The subnet's UID-to-hotkey map (public chain facts from the
+/// coordinator's commitment log) as of the tempo boundary `epoch`, whose
+/// first block is `block`: rows in strictly ascending UID order, each
+/// hotkey once, at most `contract::uid_map::ROWS` rows. Commitments after
+/// `block` are left out, but one at or before it that the coordinator logs
+/// later can still change the map under the same `epoch` and `block`.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct UidMapView {
+    pub epoch: u64,
+    pub block: u64,
+    pub rows: Vec<(u16, [u8; 32])>,
 }
 
 /// The coordinator's calendar view (`/eval/status` `calendar`): the current
@@ -511,6 +531,53 @@ struct EvalJson {
     receipt_retention: RetentionJson,
     calendar: Option<CalendarJson>,
     admission: Option<AdmissionJson>,
+    uid_map: Option<UidMapJson>,
+}
+
+#[derive(Deserialize, Default)]
+#[serde(default)]
+struct UidMapJson {
+    rule: Option<String>,
+    epoch: Option<u64>,
+    block: Option<u64>,
+    rows: Option<Vec<UidRowJson>>,
+}
+
+#[derive(Deserialize, Default)]
+#[serde(default)]
+struct UidRowJson {
+    uid: Option<u64>,
+    hotkey: Option<String>,
+}
+
+/// The map only when it is whole: the known rule, its boundary, rows within
+/// the contract's bound in strictly ascending UID order, each hotkey 64 hex
+/// characters and named once. Anything else drops the whole map (a partial
+/// map could resolve a UID to the wrong hotkey).
+fn uid_map_view(j: UidMapJson) -> Option<UidMapView> {
+    if j.rule.as_deref() != Some(UID_MAP_RULE) {
+        return None;
+    }
+    let rows = j.rows?;
+    if rows.len() > crate::dashboard::contract::uid_map::ROWS {
+        return None;
+    }
+    let mut out: Vec<(u16, [u8; 32])> = Vec::with_capacity(rows.len());
+    let mut keys = std::collections::BTreeSet::new();
+    for r in rows {
+        let uid = u16::try_from(r.uid?).ok()?;
+        let mut key = [0u8; 32];
+        let hex_key = r.hotkey?;
+        if hex_key.len() != 64 || !hex_key.bytes().all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b)) {
+            return None;
+        }
+        hex::decode_to_slice(&hex_key, &mut key).ok()?;
+        if out.last().is_some_and(|(u, _)| *u >= uid) || !keys.insert(key) {
+            return None;
+        }
+        out.push((uid, key));
+    }
+    Some(UidMapView { epoch: j.epoch?, block: j.block?, rows: out })
 }
 
 #[derive(Deserialize, Default)]
@@ -939,6 +1006,7 @@ fn eval_view(j: EvalJson) -> EvalView {
             })
             .unwrap_or_default(),
         epoch: j.observed.epoch.and_then(|e| e.index),
+        uid_map: j.uid_map.and_then(uid_map_view),
         watermark_epoch: j.watermark_epoch,
         active_tempos: j.observed.active_tempos,
         cohorts,

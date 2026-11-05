@@ -320,6 +320,38 @@ pub struct NowDoc {
     /// The coordinator's latest weight commit on chain, `None` before the
     /// publisher reports it.
     pub weights: Option<Weights>,
+    /// The subnet's UID-to-hotkey map as of a tempo boundary, `None` before
+    /// the publisher reports it. A map that does not parse drops alone; the
+    /// rest of the document is kept.
+    #[serde(deserialize_with = "lenient_uids")]
+    pub uids: Option<Uids>,
+}
+
+/// The subnet's UID-to-hotkey map, as public chain facts: for each UID, the
+/// hotkey of its latest registration that committed on the subnet, as of the
+/// tempo boundary `epoch` (first block `block`). Rows in strictly ascending
+/// UID order, each hotkey once. A UID whose new holder has not committed yet
+/// still names its earlier holder. A closed object.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Uids {
+    pub epoch: u64,
+    pub block: u64,
+    pub rows: Vec<UidRow>,
+}
+
+/// One UID and its hotkey (SS58).
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct UidRow {
+    pub uid: u16,
+    pub hotkey: String,
+}
+
+/// Reads the UID map, or `None` for anything that is not one (the map is
+/// dropped, not the document).
+fn lenient_uids<'de, D: serde::Deserializer<'de>>(d: D) -> Result<Option<Uids>, D::Error> {
+    Ok(serde_json::from_value(serde_json::Value::deserialize(d)?).unwrap_or(None))
 }
 
 /// The coordinator's latest commit-reveal weight commit: public chain facts

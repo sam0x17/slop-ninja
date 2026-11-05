@@ -193,6 +193,127 @@ fn the_log_answers_latest_and_last_before_the_cutoff() {
     assert_eq!(db.count("commit_log"), 3);
 }
 
+fn log_at(db: &Sqlite, n: u8, block: u64, uid: Option<u16>, registration_block: Option<u64>) {
+    let e = LogEntry {
+        hotkey: who(n),
+        block,
+        block_hash: format!("0x{}", hex::encode([block as u8; 32])),
+        extrinsic: 0,
+        payload: payload(n),
+        uid,
+        registration_block,
+    };
+    tx(db, |s| record(s, &e, 1)).unwrap();
+}
+
+fn map_rows(v: &serde_json::Value) -> Vec<(u64, String)> {
+    v["rows"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|r| (r["uid"].as_u64().unwrap(), r["hotkey"].as_str().unwrap().to_owned()))
+        .collect()
+}
+
+#[test]
+fn the_uid_map_follows_the_latest_registration_up_to_the_boundary() {
+    let db = Sqlite::open();
+    tx(&db, |s| crate::sql::migrate(s, &EVAL_COHORT_SCHEMA)).unwrap();
+    let h = |n: u8| hex::encode(who(n).0);
+    // Hotkey 1 holds UID 3, commits twice.
+    log_at(&db, 1, 100, Some(3), Some(50));
+    log_at(&db, 1, 150, Some(3), Some(50));
+    // Hotkey 2 held UID 4, then UID 4 was re-registered by hotkey 5.
+    log_at(&db, 2, 110, Some(4), Some(60));
+    log_at(&db, 5, 160, Some(4), Some(140));
+    // Hotkey 6 held UID 7, then moved to UID 8: UID 7 drops it.
+    log_at(&db, 6, 120, Some(7), Some(70));
+    log_at(&db, 6, 170, Some(8), Some(165));
+    // Hotkey 9 held UID 9, then committed with no UID: dropped.
+    log_at(&db, 9, 130, Some(9), Some(80));
+    log_at(&db, 9, 175, None, None);
+    // After the boundary: hotkey 10 takes UID 3; not read yet.
+    log_at(&db, 10, 400, Some(3), Some(390));
+    // After the boundary, holders move: hotkey 1 to UID 5, hotkey 5 to no
+    // UID. The boundary's map still names them under their old UIDs.
+    log_at(&db, 1, 380, Some(5), Some(370));
+    log_at(&db, 5, 390, None, None);
+    let v = tx(&db, |s| uid_map(s, 12, 360)).unwrap();
+    assert_eq!((v["rule"].as_str(), v["epoch"].as_u64(), v["block"].as_u64()), (Some(UID_MAP_RULE), Some(12), Some(360)));
+    assert_eq!(map_rows(&v), vec![(3, h(1)), (4, h(5)), (8, h(6))]);
+    // The next boundary reads the later registration of UID 3 and the moves.
+    let v = tx(&db, |s| uid_map(s, 13, 720)).unwrap();
+    assert_eq!(map_rows(&v), vec![(3, h(10)), (5, h(1)), (8, h(6))]);
+    // Before any commitment: an empty map, not null.
+    let v = tx(&db, |s| uid_map(s, 1, 99)).unwrap();
+    assert!(map_rows(&v).is_empty());
+    assert!(v.get("refused").is_none());
+}
+
+#[test]
+fn a_tied_uid_is_left_out_and_an_invalid_log_row_refuses_the_map() {
+    let db = Sqlite::open();
+    tx(&db, |s| crate::sql::migrate(s, &EVAL_COHORT_SCHEMA)).unwrap();
+    let h = |n: u8| hex::encode(who(n).0);
+    log_at(&db, 1, 100, Some(3), Some(50));
+    // Three hotkeys tie for UID 4 (same registration and commitment block).
+    for n in [2, 5, 6] {
+        log_at(&db, n, 120, Some(4), Some(60));
+    }
+    log_at(&db, 9, 130, Some(9), Some(80));
+    let v = tx(&db, |s| uid_map(s, 2, 360)).unwrap();
+    assert_eq!(map_rows(&v), vec![(3, h(1)), (9, h(9))]);
+    // A row that breaks the log's invariants refuses the map whole; the
+    // call itself still answers.
+    tx(&db, |s| {
+        s.exec(
+            "INSERT INTO commit_log (hotkey, block, block_hash, extrinsic, payload, uid, registration_block, logged_ms)
+             VALUES ('zz', 140, '0x00', 0, '00', 11, 90, 1)",
+            &[],
+        )
+    })
+    .unwrap();
+    let v = tx(&db, |s| uid_map(s, 2, 360)).unwrap();
+    assert!(v["rows"].is_null());
+    assert_eq!(v["refused"], "invalid_log");
+    assert_eq!((v["epoch"].as_u64(), v["block"].as_u64()), (Some(2), Some(360)));
+}
+
+#[test]
+fn a_uid_map_over_its_bound_is_refused_whole() {
+    let db = Sqlite::open();
+    tx(&db, |s| crate::sql::migrate(s, &EVAL_COHORT_SCHEMA)).unwrap();
+    for uid in 0..=UID_MAP_ROWS as u16 {
+        let e = LogEntry {
+            hotkey: AccountId([&[(uid >> 8) as u8, uid as u8][..], &[7; 30]].concat().try_into().unwrap()),
+            block: 100,
+            block_hash: "0x00".into(),
+            extrinsic: 0,
+            payload: payload(1),
+            uid: Some(uid),
+            registration_block: Some(10),
+        };
+        tx(&db, |s| record(s, &e, 1)).unwrap();
+    }
+    let v = tx(&db, |s| uid_map(s, 1, 360)).unwrap();
+    assert!(v["rows"].is_null());
+    assert_eq!(v["refused"], "over_bound");
+    assert_eq!(v["uids"].as_u64(), Some(UID_MAP_ROWS as u64 + 1));
+    // At the bound exactly, the map is whole.
+    tx(&db, |s| s.exec("DELETE FROM commit_log WHERE uid = 0", &[])).unwrap();
+    let v = tx(&db, |s| uid_map(s, 1, 360)).unwrap();
+    assert_eq!(map_rows(&v).len(), UID_MAP_ROWS);
+}
+
+#[test]
+fn the_uid_map_bound_equals_the_dashboard_contracts() {
+    assert_eq!(UID_MAP_ROWS, dashboard_contract::uid_map::ROWS);
+}
+
+#[path = "../../../dashboard-feed/src/contract.rs"]
+#[allow(dead_code)]
+mod dashboard_contract;
+
 fn reply(id: u64, result: serde_json::Value) -> String {
     serde_json::json!({"jsonrpc": "2.0", "id": id, "result": result}).to_string()
 }

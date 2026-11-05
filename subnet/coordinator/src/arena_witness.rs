@@ -317,6 +317,48 @@ fn arena_witness_cohort_routes_fit_their_footprints() {
     assert!(home.live > 0, "the cached plan lives in the plans home");
 }
 
+/// `/status` with a full UID map (`eval::commitments::UID_MAP_ROWS` UIDs,
+/// each committed several times and one re-registered) fits the cohort
+/// control footprint: the map is counted before any row is read and holds
+/// one row per UID.
+#[test]
+fn arena_witness_status_with_a_full_uid_map_fits() {
+    use crate::eval::commitments::{self, LogEntry, UID_MAP_ROWS};
+    use crate::sql::Sql;
+    use slop_ninja_protocol::AccountId;
+    set_mode(Mode::Enforce);
+    let db = Sqlite::open();
+    tx(&db, |s| sql::migrate(s, &EVAL_COHORT_SCHEMA)).expect("migrate");
+    let hash = format!("0x{}", "ab".repeat(32));
+    tx(&db, |s| {
+        s.exec(
+            "UPDATE eval_obs SET epoch_index = 30, epoch_block = 10810, epoch_block_hash = ?, last_epoch_block = 10800 WHERE id = 1",
+            &[hash.clone().into()],
+        )
+    })
+    .expect("epoch");
+    for uid in 0..UID_MAP_ROWS as u16 {
+        for (n, block) in [(0u8, 100u64), (0, 200), (0, 300), (1, 400)] {
+            // The last commitment under each UID is a later registration's.
+            let e = LogEntry {
+                hotkey: AccountId([&[n, (uid >> 8) as u8, uid as u8][..], &[0x5a; 29]].concat().try_into().expect("32 bytes")),
+                block,
+                block_hash: hash.clone(),
+                extrinsic: 1,
+                payload: vec![0x51; 64],
+                uid: Some(uid),
+                registration_block: Some(if n == 0 { 50 } else { 350 }),
+            };
+            tx(&db, |s| commitments::record(s, &e, 1)).expect("logged");
+        }
+    }
+    let rows = witness(R_COHORT_FETCH.route(), COHORT_CONTROL_BYTES, || {
+        let v = tx(&db, |s| engine::status(s, 3_000)).expect("status");
+        v["uid_map"]["rows"].as_array().map_or(0, Vec::len)
+    });
+    assert_eq!(rows, UID_MAP_ROWS);
+}
+
 /// A plan naming spec v3 with its frozen digest: `/plan` validation
 /// rebuilds the spec record once to compare the digest and fits the route's
 /// footprint; what a scoring lane's report reads per call (the plan's frozen

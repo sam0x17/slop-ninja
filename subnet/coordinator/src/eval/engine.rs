@@ -4233,6 +4233,13 @@ pub fn status(sql: &impl Sql, now_ms: u64) -> R<Value> {
             .map(|r| Ok(json!({"kind": text(r, 0)?, "after_ms": int(r, 1)?, "code": text(r, 2)?})))
             .collect::<R<Vec<Value>>>()?,
         "pool_rows_used": used, "receipt_retention": crate::eval::retention::status(sql)?, "cohorts": out,
+        // The subnet's UID-to-hotkey map as of the stored tempo boundary,
+        // from the commitment log (public chain facts; the publisher's
+        // dashboard source). `null` before a boundary is observed.
+        "uid_map": match &o.epoch {
+            Some(e) => crate::eval::commitments::uid_map(sql, e.index, e.last_epoch_block)?,
+            None => Value::Null,
+        },
     }))
 }
 

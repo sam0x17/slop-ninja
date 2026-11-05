@@ -412,6 +412,104 @@ pub fn record(sql: &impl Sql, e: &LogEntry, now_ms: u64) -> R<()> {
     Ok(())
 }
 
+// ------------------------------------------------------------ UID map
+
+/// The rule of the status's `uid_map` (what the publisher reads for the
+/// dashboard's UID-to-hotkey map).
+pub const UID_MAP_RULE: &str = "slop_ninja.eval.uid_map/v1";
+
+/// The most UIDs the map holds: the chain's initial `MaxAllowedUids`
+/// (`SubtensorInitialMaxAllowedUids`, 256, in the subtensor runtime the
+/// project pins), which is also the testnet subnet's recorded
+/// `MaxAllowedUids`. While a subnet's `MaxAllowedUids` stays at or below it,
+/// UIDs run below 256 and no subnet holds more distinct UIDs. A log naming
+/// more is refused whole (`over_bound`), counted before any row is read,
+/// never truncated. Equal to the dashboard contract's `uid_map::ROWS`.
+pub const UID_MAP_ROWS: usize = 256;
+
+/// The subnet's UID-to-hotkey map as of the last observed tempo boundary
+/// block `boundary`, from the commitment log alone (public chain facts the
+/// reader already resolved: each commitment's UID and registration block at
+/// its own block). For each UID: the hotkey of its latest registration
+/// (the highest registration block, then the latest commitment under it).
+/// A hotkey whose later commitment (at or before `boundary`) held another
+/// UID or none is dropped from the earlier UID. A UID whose new holder has
+/// not committed since its registration still shows its earlier holder:
+/// the map is "the latest committing holder", not a metagraph read.
+/// Commitments whose own chain block is after `boundary` are left out. The
+/// map is not fixed once its boundary is published: the reader logs a
+/// commitment some minutes after its block, and it only polls while a
+/// cohort admits, so a commitment at or before `boundary` that is logged
+/// later (made just before the boundary, or between admission windows and
+/// logged by the next window's poll, when it still resolves) adds or
+/// changes rows under the same `epoch` and `block`.
+///
+/// `{rule, epoch, block, rows: [{uid, hotkey}]}` sorted by UID (hotkeys as
+/// 64 lowercase hex), or with `rows: null` and `refused: "over_bound"` and
+/// the UID count when the log names more than [`UID_MAP_ROWS`] UIDs, or
+/// `refused: "invalid_log"` when a log row has no u16 UID or 32-byte hex
+/// hotkey. A UID that two hotkeys tie for (an inconsistent log) is left out.
+pub fn uid_map(sql: &impl Sql, epoch: u64, boundary: u64) -> R<Json> {
+    let b = bind_u64(boundary)?;
+    let count = sql
+        .exec(
+            "SELECT COUNT(DISTINCT uid) FROM commit_log
+             WHERE uid IS NOT NULL AND registration_block IS NOT NULL AND block <= ?",
+            std::slice::from_ref(&b),
+        )?
+        .first()
+        .map_or(Ok(0), |r| uint(r, 0))?;
+    if count > UID_MAP_ROWS as u64 {
+        return Ok(json!({"rule": UID_MAP_RULE, "epoch": epoch, "block": boundary, "rows": null,
+            "refused": "over_bound", "uids": count}));
+    }
+    // Two grouped passes (each UID's latest registration, then its latest
+    // commitment under it), then the holder's later commitments by the
+    // primary key: no pass is quadratic in the log.
+    let rows = sql.exec(
+        "WITH reg AS (
+             SELECT uid, MAX(registration_block) AS r FROM commit_log
+             WHERE uid IS NOT NULL AND registration_block IS NOT NULL AND block <= ? GROUP BY uid),
+         pick AS (
+             SELECT c.uid AS uid, c.registration_block AS r, MAX(c.block) AS b FROM commit_log c
+             JOIN reg ON c.uid = reg.uid AND c.registration_block = reg.r
+             WHERE c.block <= ? GROUP BY c.uid, c.registration_block)
+         SELECT c.uid, c.hotkey FROM commit_log c
+         JOIN pick p ON c.uid = p.uid AND c.registration_block = p.r AND c.block = p.b
+         WHERE NOT EXISTS (
+             SELECT 1 FROM commit_log e WHERE e.hotkey = c.hotkey AND e.block > c.block AND e.block <= ?
+               AND (e.uid IS NULL OR e.uid <> c.uid))
+         ORDER BY c.uid, c.hotkey",
+        &[b.clone(), b.clone(), b],
+    )?;
+    let mut out: Vec<(u16, String)> = Vec::with_capacity(rows.len().min(UID_MAP_ROWS));
+    let mut tied: Option<u16> = None;
+    // A row that breaks the log's invariants (`record` writes a u16 UID and
+    // a 64-hex hotkey) refuses the map whole rather than failing the status
+    // that carries it: the map is optional to its readers.
+    let invalid = || json!({"rule": UID_MAP_RULE, "epoch": epoch, "block": boundary, "rows": null,
+        "refused": "invalid_log"});
+    for r in &rows {
+        let Some(uid) = int(r, 0).ok().and_then(|u| u16::try_from(u).ok()) else {
+            return Ok(invalid());
+        };
+        let Some(hotkey) = text(r, 1).ok().filter(|h| crate::eval::plan::parse_hex32(h).is_some()) else {
+            return Ok(invalid());
+        };
+        if out.last().is_some_and(|(u, _)| *u == uid) {
+            out.pop();
+            tied = Some(uid);
+            continue;
+        }
+        if tied == Some(uid) {
+            continue;
+        }
+        out.push((uid, hotkey.to_owned()));
+    }
+    let rows: Vec<Json> = out.iter().map(|(uid, hotkey)| json!({"uid": uid, "hotkey": hotkey})).collect();
+    Ok(json!({"rule": UID_MAP_RULE, "epoch": epoch, "block": boundary, "rows": rows}))
+}
+
 // ------------------------------------------------------------ runtime store
 
 /// Stores the runtime the reader decodes with, with the

@@ -146,7 +146,12 @@ mod tests {
         assert_eq!(status(&cohort, Stored::Present { size: bound }), 200);
         assert_eq!(status(&cohort, Stored::Present { size: bound + 1 }), 502);
         let now = Doc::Now("a");
-        assert_eq!(status(&now, Stored::Present { size: 64 * 1024 + 1 }), 502);
+        // Rule v2: the small bound plus a full UID map.
+        assert_eq!(status(&now, Stored::Present { size: 64 * 1024 + 1 }), 200);
+        assert_eq!(status(&now, Stored::Present { size: crate::contract::bounds::NOW as u64 }), 200);
+        assert_eq!(status(&now, Stored::Present { size: crate::contract::bounds::NOW as u64 + 1 }), 502);
+        let index = Doc::Index;
+        assert_eq!(status(&index, Stored::Present { size: 64 * 1024 + 1 }), 502);
         assert_eq!(status(&now, Stored::Missing), 404);
         assert_eq!(status(&now, Stored::Error), 503);
         assert_eq!(headers(&now)[1].1, "public, max-age=60");

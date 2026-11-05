@@ -855,6 +855,73 @@ fn clean_now_holds_the_weights_rule() {
     assert_eq!(cleaned("pending", 0, None), None);
 }
 
+/// The coordinator's UID map, as of a boundary within the document's head:
+/// SS58 hotkeys in UID order, checked by the allow-list and the website's
+/// types; a map that is not whole, or past the head, is dropped whole and
+/// never refuses the document; a full map fits the `now` bound.
+#[test]
+fn uids_carry_the_coordinators_map_within_the_head() {
+    let hx = |n: u8| hex::encode([n; 32]);
+    let ss = |n: u8| crate::ss58::encode(&AccountId([n; 32]));
+    let with = |map: Value| {
+        let mut e = eval_json(118, "scoring", LOG_SCORING, json!({}));
+        e["uid_map"] = map;
+        observed(e)
+    };
+    let good = json!({"rule": crate::status::UID_MAP_RULE, "epoch": 118, "block": block_of(118),
+        "rows": [{"uid": 3, "hotkey": hx(1)}, {"uid": 9, "hotkey": hx(2)}]});
+    let o = with(good.clone());
+    let mut memo = saved_at(118);
+    rolled(&o, &mut memo, time_of(118));
+    let d = now_of(&o, &memo);
+    let v = checked(&Doc::Now("a"), &d);
+    round_trips::<web_model::NowDoc>(&v);
+    assert_eq!(
+        v["uids"],
+        json!({"epoch": 118, "block": block_of(118), "rows": [{"uid": 3, "hotkey": ss(1)}, {"uid": 9, "hotkey": ss(2)}]})
+    );
+    // Not whole or not this rule: no map, and the document is still written.
+    let bad = |f: &dyn Fn(&mut Value)| {
+        let mut m = good.clone();
+        f(&mut m);
+        let d = now_of(&with(m), &memo);
+        checked(&Doc::Now("a"), &d);
+        d.uids
+    };
+    assert_eq!(bad(&|m| m["rule"] = json!("slop_ninja.eval.uid_map/v0")), None, "another rule");
+    assert_eq!(bad(&|m| m["rows"] = Value::Null), None, "refused by the coordinator");
+    assert_eq!(bad(&|m| m["rows"][1]["uid"] = json!(3)), None, "a repeated UID");
+    assert_eq!(bad(&|m| m["rows"][1]["uid"] = json!(2)), None, "UIDs out of order");
+    assert_eq!(bad(&|m| m["rows"][1]["uid"] = json!(70_000)), None, "a UID outside u16");
+    assert_eq!(bad(&|m| m["rows"][1]["hotkey"] = json!(hx(1))), None, "a repeated hotkey");
+    assert_eq!(bad(&|m| m["rows"][1]["hotkey"] = json!(hx(0xab).to_uppercase())), None, "not lowercase hex");
+    assert_eq!(bad(&|m| m["rows"][1]["hotkey"] = json!("ab")), None, "not 32 bytes");
+    assert_eq!(bad(&|m| m["epoch"] = json!(119)), None, "an epoch past the boundary");
+    assert_eq!(bad(&|m| m["block"] = json!(block_of(119))), None, "a block past the head");
+    let over: Vec<Value> = (0..=contract::uid_map::ROWS as u16)
+        .map(|u| json!({"uid": u, "hotkey": hex::encode([&[(u >> 8) as u8, u as u8][..], &[1; 30]].concat())}))
+        .collect();
+    assert_eq!(bad(&|m| m["rows"] = json!(over)), None, "more rows than the contract allows");
+    // A coordinator built before the map: no field, no change.
+    let d = now_of(&observed(eval_json(118, "scoring", LOG_SCORING, json!({}))), &memo);
+    assert_eq!(d.uids, None);
+    round_trips::<web_model::NowDoc>(&checked(&Doc::Now("a"), &d));
+    // A full map of the longest rows fits the `now` bound.
+    let full: Vec<Value> = (0..contract::uid_map::ROWS as u16)
+        .map(|u| json!({"uid": u16::MAX - (contract::uid_map::ROWS as u16 - 1) + u,
+            "hotkey": hex::encode([&[(u >> 8) as u8, u as u8][..], &[0xff; 30]].concat())}))
+        .collect();
+    let mut m = good.clone();
+    m["rows"] = json!(full);
+    let d = now_of(&with(m), &memo);
+    assert_eq!(d.uids.as_ref().map(|u| u.rows.len()), Some(contract::uid_map::ROWS));
+    let bytes = serde_json::to_vec(&d).unwrap();
+    let map = serde_json::to_vec(&d.uids).unwrap();
+    assert!(map.len() <= contract::uid_map::ROWS * contract::uid_map::ROW_BYTES, "{} bytes", map.len());
+    assert!(bytes.len() <= contract::bounds::NOW);
+    check(&Doc::Now("a").key(), &bytes).unwrap();
+}
+
 #[test]
 fn no_private_status_field_reaches_a_document() {
     let c = chain();
@@ -944,7 +1011,7 @@ fn a_full_roster_fits_the_bound_and_a_larger_document_is_refused() {
     // Over a bound: refused before it is parsed.
     let o = observed(eval_json(118, "scoring", LOG_SCORING, json!({})));
     let mut padded = serde_json::to_vec(&now_of(&o, &Memo::default())).unwrap();
-    padded.resize(contract::bounds::SMALL + 1, b' ');
+    padded.resize(contract::bounds::NOW + 1, b' ');
     let err = check(&Doc::Now("a").key(), &padded).unwrap_err();
     assert!(err.contains("exceed the bound"), "{err}");
     // Keys outside the grammar.
@@ -1145,6 +1212,7 @@ fn the_allow_list_is_exactly_the_contract() {
     let point = json!({"epoch": 1, "block": 2, "at": 60, "basis": "observed"});
     now["cohort"]["bounds"]["cutoff"] = point.clone();
     now["weights"] = json!({"epoch": 1, "commit_block": 2, "commit_index": 3, "reveal": "revealed", "reveal_block": 4});
+    now["uids"] = json!({"epoch": 1, "block": 2, "rows": [{"uid": 3, "hotkey": "5F"}]});
     let rows = listed(&s, &idx, o.eval.as_ref());
     let mut cohort = value(&cohort_doc(&s, &rows, 1, Some(&sm), &arts, 118, time_of(118)));
     cohort["cohort"]["quantization"] = json!({"rule": "r", "width": "0.01"});

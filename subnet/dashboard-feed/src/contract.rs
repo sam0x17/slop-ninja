@@ -1,5 +1,5 @@
 //! The `dashboard/v1` object grammar and byte bounds (rule
-//! `slop_ninja.dashboard.read_bounds/v1`), in one file that both the
+//! `slop_ninja.dashboard.read_bounds/v2`), in one file that both the
 //! publisher (which writes the objects) and the dashboard feed Worker (which
 //! serves them to the website through a service binding) compile verbatim:
 //! the publisher includes it with `#[path]`, so the two can never disagree on
@@ -22,8 +22,10 @@
 //! contract, never tuned; the website's `data::bounds` carries the same
 //! values:
 //!
-//! - `index` and `now`: fixed fields plus a few protocol strings of at most
-//!   4,096 bytes (`MAX_STRING_LEN`): 64 KiB;
+//! - `index`: fixed fields plus a few protocol strings of at most 4,096
+//!   bytes (`MAX_STRING_LEN`): 64 KiB;
+//! - `now`: the same 64 KiB plus the UID map, at most [`uid_map::ROWS`]
+//!   rows of at most [`uid_map::ROW_BYTES`] (v2);
 //! - a cohort document: a 64 KiB fixed part (header, phases, plan, band
 //!   list) plus one row of at most 4 KiB per entrant for up to 4,096
 //!   entrants;
@@ -42,11 +44,29 @@ pub const MECHANISMS: &[&str] = &["a", "b", "c"];
 pub const MAX_LABEL_LEN: usize = 4096;
 
 /// The bounds rule these values belong to.
-pub const BOUNDS_RULE: &str = "slop_ninja.dashboard.read_bounds/v1";
+pub const BOUNDS_RULE: &str = "slop_ninja.dashboard.read_bounds/v2";
+
+/// The `now` document's UID-to-hotkey map (`uids.rows[]`).
+pub mod uid_map {
+    /// The most rows: the chain's initial `MaxAllowedUids` (256 in the
+    /// subtensor runtime the project pins; the testnet subnet's recorded
+    /// value). The coordinator refuses a larger map whole rather than
+    /// truncating it (`slop_ninja.eval.uid_map/v1`), and the publisher and
+    /// the website drop one.
+    pub const ROWS: usize = 256;
+    /// The longest SS58 address of a 32-byte account: a two-byte network
+    /// prefix, the account and a two-byte checksum (36 bytes) in base58.
+    pub const SS58_MAX_LEN: usize = 50;
+    /// The longest row with its separator: a five-digit UID and the longest
+    /// address.
+    pub const ROW_BYTES: usize = r#"{"uid":65535,"hotkey":""},"#.len() + SS58_MAX_LEN;
+}
 
 pub mod bounds {
-    /// `index.json` and `m/<key>/now.json`.
+    /// `index.json`.
     pub const SMALL: usize = 64 * 1024;
+    /// `m/<key>/now.json`: the small bound plus the UID map (v2).
+    pub const NOW: usize = SMALL + super::uid_map::ROWS * super::uid_map::ROW_BYTES;
     /// `m/<key>/cohorts/<label>.json`: 4,096 entrant rows of 4 KiB.
     pub const ROSTER: usize = 64 * 1024 + 4096 * 4096;
     /// `m/<key>/cohorts/index.json`: 16,384 rows of 1 KiB.
@@ -96,7 +116,8 @@ impl Doc {
     /// The largest object of this kind, in bytes.
     pub fn bound(&self) -> usize {
         match self {
-            Doc::Index | Doc::Now(_) => bounds::SMALL,
+            Doc::Index => bounds::SMALL,
+            Doc::Now(_) => bounds::NOW,
             Doc::Cohort(..) => bounds::ROSTER,
             Doc::Cohorts(_) => bounds::INDEX,
             Doc::Month(..) => bounds::MONTH,
@@ -165,7 +186,7 @@ mod contract_tests {
     fn keys_round_trip_and_bounds_follow_the_kind() {
         for (key, bound, age) in [
             ("dashboard/v1/index.json", bounds::SMALL, 60),
-            ("dashboard/v1/m/a/now.json", bounds::SMALL, 60),
+            ("dashboard/v1/m/a/now.json", bounds::NOW, 60),
             ("dashboard/v1/m/b/cohorts/index.json", bounds::INDEX, 60),
             ("dashboard/v1/m/a/cohorts/testnet-r0-c12.json", bounds::ROSTER, 300),
             ("dashboard/v1/m/c/months/2026-11.json", bounds::MONTH, 300),
@@ -207,5 +228,11 @@ mod contract_tests {
         }
         let long = format!("dashboard/v1/m/a/cohorts/{}.json", "a".repeat(MAX_LABEL_LEN + 1));
         assert_eq!(Doc::parse_key(&long), None);
+    }
+
+    #[test]
+    fn the_now_bound_holds_a_full_uid_map() {
+        assert_eq!(uid_map::ROW_BYTES, 76);
+        assert_eq!(bounds::NOW, 64 * 1024 + 256 * 76);
     }
 }

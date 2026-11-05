@@ -33,7 +33,7 @@ or a DNS change.
 | Key | Schema | Bound | Cache |
 |---|---|---|---|
 | `index.json` | `slop_ninja.dashboard.index/v1` | 64 KiB | 60 s |
-| `m/<key>/now.json` | `slop_ninja.dashboard.now/v1` | 64 KiB | 60 s |
+| `m/<key>/now.json` | `slop_ninja.dashboard.now/v1` | 64 KiB + 256 × 76 B | 60 s |
 | `m/<key>/cohorts/index.json` | `slop_ninja.dashboard.cohorts/v1` | 64 KiB + 16,384 × 1 KiB | 60 s |
 | `m/<key>/cohorts/<label>.json` | `slop_ninja.dashboard.cohort/v1` | 64 KiB + 4,096 × 4 KiB | 300 s |
 | `m/<key>/months/<YYYY-MM>.json` | `slop_ninja.dashboard.month/v1` (not written yet) | the cohort list's bound | 300 s |
@@ -41,12 +41,15 @@ or a DNS change.
 `<key>` is `a`, `b` or `c`. Only `a` is written today. `<label>` uses the
 cohort label alphabet `[a-z0-9._-]`: 1 to 4,096 bytes, never `.`, `..` or
 `index`. `<YYYY-MM>` is a UTC month from `01` to `12`. The grammar and the
-bounds (rule `slop_ninja.dashboard.read_bounds/v1`) are defined in one
+bounds (rule `slop_ninja.dashboard.read_bounds/v2`) are defined in one
 source file, `subnet/dashboard-feed/src/contract.rs`, which the feed and the
 publisher both compile. Each bound follows from bounded fields: fixed
-fields plus a few protocol strings for `index` and `now`, at most 4,096
-entrant rows of 4 KiB each for a cohort, and 16,384 cohort rows of 1 KiB each
-for the list. The publisher refuses to write a document over its bound and
+fields plus a few protocol strings for `index` and `now`, plus for `now`
+the UID map's at most 256 rows of at most 76 bytes (a five-digit UID and
+the longest SS58 address of a 32-byte account, 50 characters, with the
+row's JSON), at most 4,096 entrant rows of 4 KiB each for a cohort, and
+16,384 cohort rows of 1 KiB each for the list. Rule v2 added the UID map's
+term to `now`; the website's `data::bounds` carries the same values. The publisher refuses to write a document over its bound and
 raises an alert. The feed answers 502 for a stored object over its bound.
 
 ## Common header
@@ -226,6 +229,34 @@ netuid}`, `generated_at` (unix seconds, floored to the minute) and
   head is dropped and `revealed` then reads `pending`; a `reveal_block`
   beside any other outcome is dropped. The object is closed: an unknown key
   refuses the document. A website built before this field ignores it.
+- `uids{epoch, block, rows[{uid, hotkey}]}` or `null`: the subnet's
+  UID-to-hotkey map as of the tempo boundary `epoch` (its first block
+  `block`), so a visitor can name a miner by UID. Public chain facts only,
+  from the coordinator's commitment log (`uid_map` below): for each UID, the
+  SS58 hotkey of its latest registration that has committed on the subnet
+  at or before the boundary. A hotkey whose later commitment held another
+  UID or none is left out of the earlier UID; a UID whose new holder has not
+  committed yet still names its earlier holder, so the map is "the latest
+  committing holder", not a full metagraph read, and a miner that never
+  committed is absent. Commitments whose chain block is after the boundary
+  are left out, but the map is not fixed once its `epoch` is published: the
+  coordinator logs a commitment some minutes after its block, and only
+  while a cohort admits, so a commitment at or before the boundary that is
+  logged later (one made just before the boundary, or one made between
+  admission windows, which appears only after the next window's poll logs
+  it, if it still resolves) can add or change rows under the same `epoch`
+  and `block`. Rows are in strictly ascending UID
+  order, each hotkey once, at most 256 rows (the chain's initial
+  `MaxAllowedUids`, the testnet subnet's recorded value; the coordinator
+  refuses a larger map whole and the publisher then writes `null`). Both
+  sides keep the map whole or drop it whole (a partial map could resolve a
+  UID to the wrong hotkey): it is dropped when `epoch` is after
+  `clock.boundary_epoch` (`clock.confirmed_epoch` when the boundary is
+  unknown), when `block` is after `clock.confirmed_block`, when UIDs repeat
+  or are out of order, when a hotkey repeats or is not SS58, and when it has
+  more rows than the bound. A map that does not parse (an unknown key, a
+  missing field, a UID outside `u16`) drops alone; the document is kept. A
+  website built before this field ignores it.
 
 A cohort in its admission window, with every boundary credited:
 
@@ -351,3 +382,16 @@ value `null`.
   `calendar.template.paused`.
 - `observed.epoch.last_epoch_block`, `observed.epoch_live`, and
   `admission.cohorts[].admitted`.
+- `uid_map{rule, epoch, block, rows[{uid, hotkey}]}` (rule
+  `slop_ninja.eval.uid_map/v1`, `eval::commitments::uid_map`): the stored
+  boundary's epoch and first block and, for each UID in the commitment log
+  at or before that block, the hotkey (64 lowercase hex) of its highest
+  registration block, then its latest commitment under it, unless that
+  hotkey later committed under another UID or none. The log is counted
+  first: more than 256 UIDs answers `rows: null`, `refused: "over_bound"`
+  and the count, never a truncated map; a log row without a u16 UID or a
+  32-byte hex hotkey answers `rows: null`, `refused: "invalid_log"` rather
+  than failing the status. `null` before a boundary is
+  observed. The publisher reads the map only whole under that rule
+  (ascending UIDs, distinct hotkeys, at most 256 rows) and encodes the
+  hotkeys as SS58; anything else leaves `uids` `null`.

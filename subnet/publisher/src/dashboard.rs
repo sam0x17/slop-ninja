@@ -447,6 +447,34 @@ pub struct NowDoc {
     pub sources_ok: Option<bool>,
     /// The coordinator's latest weight commit, from its signing status.
     pub weights: Option<Weights>,
+    /// The subnet's UID-to-hotkey map as of a tempo boundary, from the
+    /// coordinator's commitment log.
+    pub uids: Option<Uids>,
+}
+
+/// The subnet's UID-to-hotkey map as public chain facts: for each UID, the
+/// hotkey of its latest registration that committed on the subnet, as of
+/// the tempo boundary `epoch` (first block `block`). Rows in strictly
+/// ascending UID order, each hotkey once, at most
+/// [`contract::uid_map::ROWS`] rows. A UID whose new holder has not
+/// committed yet still names its earlier holder. Not fixed per boundary: a
+/// commitment at or before the boundary that the coordinator logs later
+/// (it logs minutes after the block, and only while a cohort admits) can
+/// change the map under the same `epoch` and `block`.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Uids {
+    pub epoch: u64,
+    pub block: u64,
+    pub rows: Vec<UidRow>,
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct UidRow {
+    pub uid: u16,
+    /// SS58 (prefix 42).
+    pub hotkey: String,
 }
 
 /// The coordinator's latest commit-reveal weight commit, as public chain
@@ -729,6 +757,12 @@ const NOW_PATHS: &[&str] = &[
     "weights.commit_index",
     "weights.reveal",
     "weights.reveal_block",
+    "uids",
+    "uids.epoch",
+    "uids.block",
+    "uids.rows",
+    "uids.rows[].uid",
+    "uids.rows[].hotkey",
 ];
 
 const ROW: &[&str] = &[
@@ -1214,6 +1248,7 @@ fn row_points(r: &mut CohortRow) -> Vec<Pt<'_>> {
 /// cohort counts to the clock's boundary epoch.
 pub fn clean_now(d: &mut NowDoc) {
     clean_weights(d);
+    clean_uids(d);
     let c = &mut d.cohort;
     let earliest = Some((c.expected.close_epoch, c.expected.close_block));
     clean_bounds(&mut c.bounds, &c.phases, earliest);
@@ -1259,6 +1294,31 @@ fn clean_weights(d: &mut NowDoc) {
         } else if w.reveal_block.is_none() {
             w.reveal = REVEAL_PENDING.into();
         }
+    }
+}
+
+/// The website's rule for `uids`: the whole map is dropped without a chain
+/// head, when its boundary is past the head (its epoch after the clock's
+/// boundary epoch, or the confirmed epoch without one; its block after the
+/// confirmed block), when it has more than [`contract::uid_map::ROWS`] rows,
+/// when its UIDs are not strictly ascending, or when a hotkey repeats or is
+/// empty. A partial map could resolve a UID to the wrong hotkey, so no row
+/// drops alone.
+fn clean_uids(d: &mut NowDoc) {
+    let (Some(head), Some(epoch)) = (d.clock.confirmed_block, d.clock.boundary_epoch.or(d.clock.confirmed_epoch)) else {
+        d.uids = None;
+        return;
+    };
+    let ok = d.uids.as_ref().is_none_or(|m| {
+        let mut keys = BTreeSet::new();
+        m.epoch <= epoch
+            && m.block <= head
+            && m.rows.len() <= contract::uid_map::ROWS
+            && m.rows.windows(2).all(|w| w[0].uid < w[1].uid)
+            && m.rows.iter().all(|r| !r.hotkey.is_empty() && keys.insert(r.hotkey.as_str()))
+    });
+    if !ok {
+        d.uids = None;
     }
 }
 
@@ -2178,10 +2238,28 @@ pub fn now_doc(
         advisory: None,
         sources_ok: Some(sources_ok),
         weights: None,
+        uids: o.eval.as_ref().and_then(|e| e.uid_map.as_ref()).map(uids),
     };
     d.weights = weights(o, d.clock.confirmed_block, d.clock.confirmed_epoch);
     clean_now(&mut d);
     d
+}
+
+/// The coordinator's UID map with SS58 hotkeys ([`clean_uids`] then checks
+/// it against the document's head).
+fn uids(m: &crate::status::UidMapView) -> Uids {
+    Uids {
+        epoch: m.epoch,
+        block: m.block,
+        rows: m
+            .rows
+            .iter()
+            .map(|(uid, key)| UidRow {
+                uid: *uid,
+                hotkey: crate::ss58::encode(&slop_ninja_protocol::AccountId(*key)),
+            })
+            .collect(),
+    }
 }
 
 /// The newest operation of the coordinator's signing journal (by epoch, then

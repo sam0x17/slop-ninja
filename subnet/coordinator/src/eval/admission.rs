@@ -1332,6 +1332,22 @@ pub struct Minted {
     pub valid_secs: u32,
 }
 
+/// The signer's reply to `entries` (`slop_ninja_r2_presign::wire`), one
+/// [`Minted`] per entry in order: refused unless every entry is `Ok`, for
+/// the entry's length and with a nonzero life.
+pub fn minted_from_reply(reply: &[u8], entries: &[mint::Entry]) -> Result<Vec<Minted>, &'static str> {
+    let decoded = mint::decode_reply(reply, entries.len()).ok_or("signer reply")?;
+    let mut out = Vec::with_capacity(entries.len());
+    for (e, got) in entries.iter().zip(decoded) {
+        let got = got.ok_or("signer reply")?;
+        if got.status != mint::Status::Ok || got.content_length != e.len || got.valid_secs == 0 {
+            return Err("signer refused an entry");
+        }
+        out.push(Minted { url: got.url.to_owned(), checksum: got.checksum.to_owned(), signed_at: got.signed_at, valid_secs: got.valid_secs });
+    }
+    Ok(out)
+}
+
 /// One signer request (`slop_ninja_r2_presign::wire`): at most one header
 /// and the spec's file table, so one `urls` call is one request.
 #[derive(Clone, Debug, PartialEq, Eq)]

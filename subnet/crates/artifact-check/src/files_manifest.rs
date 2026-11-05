@@ -3,8 +3,9 @@
 //!
 //! Each file is listed with its name, scorer role, length and SHA-256 (the
 //! header's, verified by the object store at ingest), and where it is
-//! stored: the bucket (`admission` for a miner's admitted artifact, `eval`
-//! for an operator-staged reference package), the key, and the object's
+//! stored: the bucket (`admission` for a miner's admitted artifact and for
+//! an operator-staged reference file under `reference/v2/files/`; `eval`
+//! for a reference file kept in the eval bucket), the key, and the object's
 //! entity tag when one was recorded. A load reads each file by ranged,
 //! entity-tag-pinned reads and never hashes it. The manifest's exact bytes
 //! are the package: their SHA-256 (a small record's) is the package digest
@@ -29,6 +30,97 @@ pub const MAX_KEY_BYTES: usize = 1024;
 /// single-part tag is 32 hex digits; a multipart one adds `-<count>`), with
 /// room for quotes.
 pub const MAX_ETAG_BYTES: usize = 64;
+
+/// Where operator-staged reference files are stored (the staging rule
+/// `slop_ninja_reference_staging_v1`): the admission bucket, beside admitted
+/// artifacts, under their own prefix. The signer presigns each PUT there
+/// bound to the file's length and SHA-256, so R2 verifies every reference
+/// file as it does a miner's.
+pub const REFERENCE_BUCKET: &str = "admission";
+/// The prefix of reference file keys (`slop_ninja_r2_presign::layout::
+/// REFERENCE_PREFIX`; the coordinator's tests check that the two agree).
+pub const REFERENCE_FILES_PREFIX: &str = "reference/v2/files/";
+
+/// The bucket key of a reference package file:
+/// `reference/v2/files/<sha256>` in [`REFERENCE_BUCKET`].
+pub fn reference_file_key(sha256: &str) -> String {
+    format!("{REFERENCE_FILES_PREFIX}{sha256}")
+}
+
+/// The longest profile id a staged reference manifest may carry: a
+/// protocol label (`MAX_LABEL_LEN`) in label characters (ASCII letters,
+/// digits and `._:/-`), so it needs no JSON escape. `pack` writes either
+/// `<spec id>/<graph class id>` or the served profile's id, both labels.
+pub const REFERENCE_PROFILE_ID_BYTES: usize = slop_ninja_protocol::MAX_LABEL_LEN;
+
+/// Whether `text` is a non-empty run of at most `max` label characters
+/// (ASCII letters, digits and `._:/-`): the staged reference profile id and
+/// entity tag rule, which needs no JSON escape.
+pub fn reference_label_ok(text: &str, max: usize) -> bool {
+    !text.is_empty() && text.len() <= max && text.bytes().all(|b| b.is_ascii_alphanumeric() || b"._:/-".contains(&b))
+}
+
+/// The longest pinned reference manifest, counted from its exact
+/// pretty-JSON layout: the frame with the fixed schema, contract and graph
+/// strings and the longest profile id, and per file of the spec's table its
+/// name and scorer role, at most 20 digits of length, the digest, the
+/// reference bucket and key, and an entity tag of at most
+/// [`MAX_ETAG_BYTES`] label characters. Every location is fixed by the
+/// staging rule, so this is far below the scorer's general
+/// [`MAX_MANIFEST_BYTES`]. The unpinned manifest (no `etag` fields) the
+/// operator commits is shorter, so this also bounds the commit body.
+pub const REFERENCE_MANIFEST_MAX_BYTES: usize = reference_manifest_max();
+
+const fn reference_manifest_max() -> usize {
+    let frame = "{\n  \"schema\": \"\",\n  \"profile_id\": \"\",\n  \"contract\": \"\",\n  \"graph\": \"\",\n  \"files\": [\n  ]\n}\n";
+    let entry = "    {\n      \"name\": \"\",\n      \"role\": \"\",\n      \"bytes\": ,\n      \"sha256\": \"\",\n      \"bucket\": \"\",\n      \"key\": \"\",\n      \"etag\": \"\"\n    },\n";
+    let mut n = frame.len() + FILES_SCHEMA_V2.len() + REFERENCE_PROFILE_ID_BYTES + spec::CONTRACT_ID.len() + spec::GRAPH_FILE.len();
+    let per_file = entry.len() + 20 + 64 + REFERENCE_BUCKET.len() + REFERENCE_FILES_PREFIX.len() + 64 + MAX_ETAG_BYTES;
+    let mut i = 0;
+    while i < spec::ROLES.len() {
+        n += per_file + spec::ROLES[i].name.len() + spec::ROLES[i].scorer_role.len();
+        i += 1;
+    }
+    n
+}
+const _: () = assert!(REFERENCE_MANIFEST_MAX_BYTES <= MAX_MANIFEST_BYTES);
+
+/// Why an unpinned reference manifest is outside the staging rule.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ReferenceRefusal {
+    /// The profile id is not a label of at most
+    /// [`REFERENCE_PROFILE_ID_BYTES`].
+    ProfileId,
+    /// A file is not in [`REFERENCE_BUCKET`] at [`reference_file_key`] with
+    /// no entity tag.
+    Location,
+}
+
+impl ReferenceRefusal {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::ProfileId => "profile_id",
+            Self::Location => "location",
+        }
+    }
+}
+
+/// The staging rule's checks of an unpinned reference manifest beyond its
+/// shape (which [`FilesManifest::parse_unbound`] checks): the profile id
+/// rule and every file at its reference location with no entity tag. The
+/// eval Worker's commit and the operator's client run the same check, the
+/// client before any upload.
+pub fn check_unpinned_reference(m: &FilesManifest) -> Result<(), ReferenceRefusal> {
+    if !reference_label_ok(&m.profile_id, REFERENCE_PROFILE_ID_BYTES) {
+        return Err(ReferenceRefusal::ProfileId);
+    }
+    for f in &m.files {
+        if f.bucket != REFERENCE_BUCKET || f.key != reference_file_key(&f.sha256) || f.etag.is_some() {
+            return Err(ReferenceRefusal::Location);
+        }
+    }
+    Ok(())
+}
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -119,6 +211,18 @@ impl FilesManifest {
         }
         if package_digest(bytes) != package {
             return Err(Refusal::Object("files manifest bytes do not hash to the package digest".into()));
+        }
+        Self::parse_unbound(bytes, version)
+    }
+
+    /// Parses manifest bytes and checks their shape and file table under
+    /// `version`, without binding them to a package digest: for a staging
+    /// request whose package is fixed only once its entity tags are pinned
+    /// (`slop_ninja_reference_staging_v1`). Refused above [`MAX_MANIFEST_BYTES`] before
+    /// any parse.
+    pub fn parse_unbound(bytes: &[u8], version: Version) -> Result<Self, Refusal> {
+        if bytes.len() > MAX_MANIFEST_BYTES {
+            return Err(Refusal::Object("files manifest too large".into()));
         }
         let m: Self = serde_json::from_slice(bytes).map_err(|e| Refusal::Object(format!("files manifest: {e}")))?;
         m.check_shape()?;

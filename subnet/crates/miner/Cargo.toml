@@ -13,6 +13,13 @@ path = "src/lib.rs"
 name = "slop_ninja_miner"
 path = "src/main.rs"
 
+# Operator tool: reference staging (slop_ninja_reference_staging_v1; stages a
+# packed reference package through the eval Worker's operator routes with
+# R2-verified PUTs).
+[[bin]]
+name = "slop_ninja_reference_stage"
+path = "src/bin/slop_ninja_reference_stage.rs"
+
 [dependencies]
 anyhow = "1"
 bytes = "1"

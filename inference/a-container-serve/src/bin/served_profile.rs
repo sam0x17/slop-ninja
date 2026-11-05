@@ -14,10 +14,13 @@
 //! artifact spec `--spec` names (`v2`, `v3`, `v4` or a full spec id; the spec the cohort
 //! names, which the scorer admits the cohort's loads by), else with spec v2, the spec
 //! a load that names none is admitted by (`engine::UNNAMED_LOAD_SPEC`). It then
-//! writes the eval bucket's reference files layout v2 (each file once under
-//! `OUT/files/<sha256>` and the files manifest v2 `OUT/artifact-files.json`, naming
-//! the eval bucket key `artifacts/files/<sha256>`) and prints the package digest (the
-//! manifest's SHA-256). The operator uploads each file with R2 verifying its SHA-256.
+//! writes the reference files layout v2 (each file once under `OUT/files/<sha256>` and
+//! the unpinned files manifest v2 `OUT/artifact-files.json`, naming the admission
+//! bucket key `reference/v2/files/<sha256>`) and prints that manifest's SHA-256. The
+//! operator stages it with `slop_ninja_reference_stage` (`slop_ninja_reference_staging_v1`): each
+//! file goes up under a presigned PUT that binds its SHA-256, so R2 verifies it, and
+//! the eval Worker pins each file's entity tag and writes the package manifest, whose
+//! digest (printed by the stage tool) is the package a template names.
 //! The manifest's `profile_id` is that spec's (`<spec id>/<graph class id>`), except
 //! for the served profile's own files (R0), which keep the served profile's id under
 //! any spec. Nothing leaves the host.
@@ -76,7 +79,7 @@ fn main() -> Result<()> {
             let (path, package) = slop_ninja_artifact_check::fs::write_files(&model, &header, &report, spec, &out)
                 .map_err(|e| anyhow::anyhow!("refused {}: {e}", e.code()))?;
             ensure!(sha256_hex(&std::fs::read(&path)?) == package, "manifest digest");
-            println!("package_sha256 {package}");
+            println!("unpinned_manifest_sha256 {package}");
             println!("files {}", header.files.len());
             println!("graph_class {} ({})", report.graph_class, report.spec);
             println!("content_sha256 {}", report.content_sha256);

@@ -847,12 +847,17 @@ public keys, or `signing_keys_error`.
 ```sh
 # Private pool and the R0 artifact (content-addressed files) in the eval bucket.
 slop_ninja_a_testnet_eval_manifest pool --repo . --pool-id testnet-human-pool-v1 --out-dir <dir>
-# Files manifest v2: OUT/files/<sha256> for each key artifacts/files/<sha256>,
-# and the manifest for artifacts/packages/<package>.json. Stage the files
-# only through a checksum-verified path (R2 checks the pack's SHA-256 at
-# ingest; "Deploy set (admission v2)", blockers): wrangler r2 object put
-# sends no checksum.
-slop_ninja_a_served_profile pack --model-dir <release model dir> --out <dir>
+# Reference package (slop_ninja_reference_staging_v1):
+# pack writes OUT/files/<sha256> and the unpinned files manifest naming the
+# admission bucket keys reference/v2/files/<sha256>; the stage tool PUTs
+# each file under a presigned URL that binds its SHA-256 (R2 verifies it),
+# then the eval Worker pins each file's entity tag and writes
+# artifacts/packages/<package>.json. The printed package_sha256 is what a
+# template's reference.package_sha256 names. Needs the live eval Worker to
+# carry the reference routes, the signer, and SIGNER_INTERFACE_TOKEN on both.
+slop_ninja_a_served_profile pack --spec <the template's spec> --model-dir <release model dir> --out <dir>
+slop_ninja_reference_stage --eval-url $EVAL_URL --operator-token-file $S/eval_operator_token \
+  --dir <dir> --spec <the template's spec> --out <dir>/staged.json
 wrangler r2 object put eval-bucket-testnet/pools/testnet-human-pool-v1/<file> --file <file> --remote
 
 # Scorer binary (pinned rust:1.99.1-slim-bookworm, checkout mounted read-only),
@@ -3267,12 +3272,22 @@ Blockers before step 1 (each recorded in the private status):
   unquoted entity tag a binding `head()` returns) is not qualified by any
   G-probe; step 6's probe reads one staged object that way before anything
   depends on it.
-- A checksum-verified way to stage reference files (R2 verifying the pack's
-  SHA-256 at ingest, design section 8.1) does not exist yet:
-  `wrangler r2 object put` sends no checksum, and no credential reaches the
-  eval bucket by S3. The user chooses one (an S3 key scoped to the eval
-  bucket used by an S3 client that sends `x-amz-checksum-sha256`, or staging
-  references under the admission bucket through the signer).
+- Reference files are staged under `slop_ninja_reference_staging_v1`
+  (`src/eval/reference.rs`): in the admission bucket under
+  `reference/v2/files/<sha256>` (outside the `admission/v2/` event prefix
+  and every admission sweep), each by a presigned PUT the signer binds to the pack's length and SHA-256 (entry
+  kind `Reference`), so R2 verifies it as it does a miner's upload. The
+  eval Worker's operator routes mint the URLs (`POST
+  /eval/reference/v2/urls`) and, after the PUTs, head every file, pin its
+  entity tag and write the pinned manifest (`POST
+  /eval/reference/v2/commit?spec=<id>`); the operator tool is
+  `slop_ninja_reference_stage`. Staging therefore needs steps 1, 2, 4 and 6
+  live: it runs after the eval deploy, before the template install (step 7
+  names the packages it prints). A reference file in the admission bucket
+  is within the presign credential's reach (Object Read & Write on that
+  bucket): a signer compromise could read or delete it, and the load's
+  entity-tag pin turns a replaced or deleted file into a reference load
+  failure (the cohort pauses), never into other bytes.
 
 Cross-lane hold: from the moment the set lands on main until step 11 is
 done, no other lane deploys the eval Worker, the upload Worker or the
@@ -3337,12 +3352,11 @@ merge and release it after step 11.
    in the same change as step 6: the lanes speak only the v2 routes
    (`/v2/prepare`, `/v2/files/<index>/<offset>`, `/v2/load`), and a binary
    whose digest is not the pin is refused on every instance (S-1 build
-   identity). Stage each reference package as files manifest v2 now
-   (`slop_ninja_a_served_profile pack --model-dir <dir> --out <dir>`,
-   which writes `files/<sha256>` for the keys `artifacts/files/<sha256>`
-   and the manifest for `artifacts/packages/<package>.json`, through the
-   checksum-verified staging the user chose): new eval-bucket keys only,
-   additive, read by nothing live, so step 6's probe can load one.
+   identity). Pack each reference package now (`slop_ninja_a_served_profile
+   pack --spec <the template's spec> --model-dir <dir> --out <dir>`, which
+   writes `files/<sha256>` and the unpinned manifest naming
+   `reference/v2/files/<sha256>` in the admission bucket); it is staged
+   after step 6 (staging needs the new eval Worker's routes).
 6. **Eval Worker** (store v25, v26 and v27, admission v2, the v2 lanes, the new scorer
    image), in a quiet window with coordinator signing paused and the
    journal schema checked; step 0's preflight repeated inside the lock
@@ -3353,14 +3367,21 @@ merge and release it after step 11.
    generation v2's private tables only and v27 the commitment snapshot's
    not-served backoff columns, in the same transaction; and
    `/eval/load/status` answers, not `migration_failed`); a scorer
-   `/healthz` on a fresh instance; one reference load through the v2 lanes
-   (`/eval/scorer-probe` with a v2 package staged in step 5); one binding
-   read of a staged reference file pinned with `onlyIf: {etagMatches}` to
-   the unquoted entity tag a binding `head()` returns, answering the body
-   (the v2 load path's conditional read: no G-probe qualified it; a refusal
-   here means every v2 load would report `artifact object changed`); the
-   link probe answers `{"header": "ok"}` once step 8 is live (before it,
-   the probe's failure is expected and admission is not open).
+   `/healthz` on a fresh instance; an unauthenticated `POST
+   /eval/reference/v2/urls` answers 401; the link probe answers
+   `{"header": "ok"}` once step 8 is live (before it, the probe's failure
+   is expected and admission is not open).
+   **Reference staging, after the probe, in its own window** (the
+   template stays paused; nothing live reads the new keys): stage each
+   package packed in step 5 with `slop_ninja_reference_stage` (see "Prepare
+   and deploy") and record the printed `package_sha256` values for step 7.
+   Then probe one reference load through the v2 lanes (`/eval/scorer-probe`
+   with a staged package and its `manifest_key`); that load reads each
+   file by ranges pinned with `onlyIf: {etagMatches}` to the unquoted
+   entity tag the commit recorded from a binding `head()` (the v2 load
+   path's conditional read: no G-probe qualified it; a refusal here means
+   every v2 load would report `artifact object changed`, so stop before
+   step 7).
    **Refused migration.** If `/eval/status` (or `/eval/load/status`)
    answers `migration_failed`, the v25 guard refused and the store stays at
    its pre-deploy version (v23 or v24; the migration is one transaction):

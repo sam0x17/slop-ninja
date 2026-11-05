@@ -291,3 +291,18 @@ them; the artifact-check crate's own tests run R0 through the same checks.
 Not qualified here: the live `commit` submission path, R2's behaviour on real
 presigned PUTs (design gates G0 to G13), and an upload to the real
 coordinator, whose admission v2 routes are being built on the same branch.
+
+## Operator tool: `slop_ninja_reference_stage`
+
+Not a miner command. The operator stages a reference package (`R_k`) with it
+(`slop_ninja_reference_staging_v1`): after `slop_ninja_a_served_profile pack --spec <spec>
+--model-dir <dir> --out <dir>`, `slop_ninja_reference_stage --eval-url <origin>
+--operator-token-file <file> --dir <dir> --spec <spec> [--trust <file>]
+[--out <record>]` asks the eval Worker for one presigned PUT per file, checks
+each URL as `upload` does (the pinned R2 host and bucket, exactly the key
+`reference/v2/files/<sha256>`, the seven SigV4 parameters and the three
+headers), streams each file from disk (R2 verifies its SHA-256), then asks the
+eval Worker to pin every file's entity tag and write the package manifest. It
+prints the package digest and manifest key. The token is sent only as the
+`Authorization` header; URLs are never printed.
+

@@ -57,6 +57,7 @@ export function arena_route_class(req) {
   if (p === '/hook') return 1;
   if (p === '/status') return 3;
   if (p === '/fault/clear' || p.startsWith('/signing/')) return 4;
+  if (p.startsWith('/eval/reference/')) return 10;
   if (p.startsWith('/eval/')) return 5;
   if (p.startsWith('/internal/admission/') && u.host === 'eval-admission.internal') return 9;
   return 0;
@@ -266,10 +267,10 @@ pub(super) fn arena_status() -> serde_json::Value {
     v
 }
 
-const ROUTE_IDS: [u8; 27] = {
+const ROUTE_IDS: [u8; 28] = {
     use arena_routes::id::*;
     [
-        HOOK, HOOK_CONTINUATION, STATUS, OPERATOR, EVAL, OTHER, SCHEDULED, QUEUE, QUEUE_ADMISSION, ADMISSION, JOURNAL_NEW, JOURNAL_FETCH, JOURNAL_AUTO, COHORT_NEW, COHORT_FETCH,
+        HOOK, HOOK_CONTINUATION, STATUS, OPERATOR, EVAL, OTHER, SCHEDULED, QUEUE, QUEUE_ADMISSION, ADMISSION, REFERENCE, JOURNAL_NEW, JOURNAL_FETCH, JOURNAL_AUTO, COHORT_NEW, COHORT_FETCH,
         COHORT_ALARM, COHORT_SEAL, COHORT_DRAW, COHORT_PACKAGE, COHORT_CLOSE, COHORT_LOAD_SEAL, COHORT_COMMITMENTS, COHORT_ADMISSION, COHORT_WORK, HOME_STATE,
         HOME_RUNTIMES, HOME_PLANS,
     ]
@@ -297,6 +298,7 @@ pub fn fetch(req: web_sys::Request, env: Env, ctx: worker_sys::Context) -> js_sy
         4 => (arena_routes::R_OPERATOR, arena_routes::WORKER_CONTROL_BYTES),
         5 => (arena_routes::R_EVAL, arena_routes::WORKER_CONTROL_BYTES),
         9 => (arena_routes::R_ADMISSION, arena_routes::WORKER_CONTROL_BYTES),
+        10 => (arena_routes::R_REFERENCE, arena_routes::REFERENCE_CONTROL_BYTES),
         _ => (arena_routes::R_OTHER, arena_routes::WORKER_CONTROL_BYTES),
     };
     wasm_bindgen_futures::future_to_promise(async move {

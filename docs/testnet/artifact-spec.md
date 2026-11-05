@@ -90,7 +90,7 @@ is no second upload format.
 | `profile_id` | `slop_ninja_a_artifact_spec_v1/<graph class id>` (the spec version's id) |
 | `contract` | the header contract |
 | `graph` | `a-fp32band.onnx` |
-| `files` | the six files in the table order above (the scorer's order, not the header's), each with the header's name, size and SHA-256, the scorer role, and where it is stored: `bucket` (`admission` for a miner's upload, `eval` for an operator-staged reference package), `key` and the `etag` admission recorded |
+| `files` | the six files in the table order above (the scorer's order, not the header's), each with the header's name, size and SHA-256, the scorer role, and where it is stored: `bucket` (`admission` for a miner's upload and for an operator-staged reference file under `reference/v2/files/<sha256>`; `eval` for a reference file kept in the eval bucket), `key` and the `etag` admission recorded |
 | bytes | `serde_json` pretty printing with a final newline |
 
 The package digest is the SHA-256 of the manifest bytes (a small record).

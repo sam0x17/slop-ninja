@@ -18,8 +18,11 @@ each file straight to R2; no upload byte passes through any Slop Ninja Worker.
   public upload Worker has no binding to it, so a compromised public Worker
   cannot mint (`subnet/tests/credential_placement.rs` checks the configs).
 - **What it signs.** `PUT` only, for keys it derives itself
-  (`slop_ninja_r2_presign::layout`): the header object, the file objects, and
-  the upload-path canary under `health/`. Each URL binds `content-length`,
+  (`slop_ninja_r2_presign::layout`): the header object, the file objects,
+  the upload-path canary under `health/`, and the operator's reference files
+  under `reference/v2/files/<sha256>` (`slop_ninja_reference_staging_v1`: entry kind
+  `Reference`, cohort and commitment zero, minted only for the eval
+  Worker's operator route `POST /eval/reference/v2/urls`). Each URL binds `content-length`,
   `host`, `if-none-match: *` and `x-amz-checksum-sha256`; the payload is
   unsigned, so the signer never sees a body. It never signs GET, HEAD, DELETE,
   POST or multipart requests, and never a copy for the eval Worker.

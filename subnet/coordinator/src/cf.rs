@@ -933,6 +933,8 @@ mod lanes_do;
 mod admission_do;
 #[path = "cf_gen.rs"]
 mod gen_do;
+#[path = "cf_reference.rs"]
+mod reference_do;
 #[path = "cf_arena.rs"]
 mod arena_exports;
 #[path = "cf_io.rs"]
@@ -2188,6 +2190,8 @@ async fn fetch(req: Request, env: Env, ctx: Context, scope: &ScopeRef) -> Result
         (Method::Post, "/signing/kick") => signing_admin(req, env, "kick").await,
         (Method::Post, "/signing/restart") => signing_admin(req, env, "restart").await,
         (Method::Post, "/signing/revoke") => signing_admin(req, env, "revoke").await,
+        // Reference staging (operator token; its own arena route).
+        (_, p) if p.starts_with(crate::eval::reference::PREFIX) => reference_do::route(req, env).await,
         (_, p) if p.starts_with("/eval/") => eval_route(req, env).await,
         // The public admission routes are the upload Worker's; this Worker
         // serves only the internal interface its service binding reaches.

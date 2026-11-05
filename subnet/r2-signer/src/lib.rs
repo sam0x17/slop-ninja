@@ -8,7 +8,11 @@
 //! the committed length, the committed SHA-256 (R2 verifies it as the body
 //! arrives) and create-only. Its only caller is the eval Worker, through a
 //! service binding with `SIGNER_INTERFACE_TOKEN`, after the cohort authority
-//! has authorized the request. It never touches an object: no R2 binding,
+//! has authorized the request. The same route, for the eval Worker's
+//! operator route only, presigns the operator's reference files
+//! (`slop_ninja_reference_staging_v1`: `reference/v2/files/<sha256>` in
+//! the admission bucket, bound to the pack's length and SHA-256, so R2
+//! verifies each one as it does a miner's). It never touches an object: no R2 binding,
 //! no route, no `workers.dev` name, no preview URLs; the public upload
 //! Worker has no binding to it.
 //!

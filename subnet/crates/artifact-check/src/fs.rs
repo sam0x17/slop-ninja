@@ -306,18 +306,17 @@ pub fn pack_for(dir: &Path, out: &Path, version: Version) -> Result<FilesReport,
     })
 }
 
-/// The bucket key of a reference package file in the eval bucket's files
-/// layout v2.
-pub fn reference_file_key(sha256: &str) -> String {
-    format!("artifacts/files/{sha256}")
-}
+pub use crate::files_manifest::{REFERENCE_BUCKET, REFERENCE_FILES_PREFIX, reference_file_key};
 
 /// Writes the scorer's files layout v2 for an operator-staged reference
 /// package from a checked directory and its header: `out/files/<sha256>`
 /// (hard links, or copies) and `out/artifact-files.json`, a files manifest
-/// naming the eval bucket and [`reference_file_key`] (no entity tag: the
-/// operator's upload verifies each file's SHA-256 at R2 instead). Returns
-/// the manifest path and the package digest.
+/// naming [`REFERENCE_BUCKET`] and [`reference_file_key`] with no entity
+/// tags. That manifest is the staging request, not yet the package: the
+/// eval Worker's commit route (`POST /eval/reference/v2/commit`) heads each
+/// staged file, pins its entity tag, and writes the pinned manifest, whose
+/// digest is the package the template names. Returns the manifest path and
+/// the unpinned manifest's digest.
 pub fn write_files(
     dir: &Path,
     header: &ArtifactHeader,
@@ -335,7 +334,7 @@ pub fn write_files(
         }
     }
     let m = FilesManifest::for_header(header, version, &report.profile_id, |_, sha| {
-        ("eval".into(), reference_file_key(sha), None)
+        (REFERENCE_BUCKET.into(), reference_file_key(sha), None)
     })?;
     let bytes = m.to_bytes();
     let manifest = out.join("artifact-files.json");

@@ -138,7 +138,7 @@ pub fn check_upload(upload: &Upload, target: &PutTarget, policy: &PutPolicy) -> 
 /// Whether `host` is the host the trust file pins by digest. The one hash
 /// the client computes besides the envelope digest: over a host name (a
 /// few dozen bytes of the URL), never a model byte.
-fn pinned_host_digest_ok(host: &str, pin: &[u8; 32]) -> bool {
+pub(crate) fn pinned_host_digest_ok(host: &str, pin: &[u8; 32]) -> bool {
     slop_ninja_protocol::object_sha256(host.as_bytes()).0 == *pin
 }
 
@@ -316,7 +316,35 @@ pub async fn put_object(
     progress: Arc<dyn Progress>,
 ) -> Result<PutOk, PutError> {
     check_upload(upload, target, policy).map_err(PutError::Fatal)?;
-    let on_disk = std::fs::metadata(&target.path)
+    let body = Body { path: &target.path, offset: target.offset, len: target.len, sha256: &target.sha256, name: &target.name };
+    send_put(http, policy, &upload.url, &body, timeout, progress).await
+}
+
+/// What one PUT sends: the byte range of a local file, its committed
+/// length and SHA-256, and its name for reports.
+#[derive(Clone, Copy, Debug)]
+pub struct Body<'a> {
+    pub path: &'a Path,
+    pub offset: u64,
+    pub len: u64,
+    pub sha256: &'a [u8; 32],
+    pub name: &'a str,
+}
+
+/// One PUT of `target` to the already checked presigned `url`: exactly
+/// the three headers of [`put_headers`] and the object's byte range
+/// streamed from disk. Callers check the URL against the key they derive
+/// first ([`check_upload`]; reference staging's own check in
+/// [`crate::reference`]).
+pub async fn send_put(
+    http: &reqwest::Client,
+    policy: &PutPolicy,
+    url: &str,
+    target: &Body<'_>,
+    timeout: Duration,
+    progress: Arc<dyn Progress>,
+) -> Result<PutOk, PutError> {
+    let on_disk = std::fs::metadata(target.path)
         .map_err(|e| PutError::Fatal(format!("{}: {e}", target.path.display())))?
         .len();
     if target
@@ -329,8 +357,7 @@ pub async fn put_object(
             target.path.display()
         )));
     }
-    let url =
-        Url::parse(&upload.url).map_err(|e| PutError::Fatal(format!("presigned URL: {e}")))?;
+    let url = Url::parse(url).map_err(|e| PutError::Fatal(format!("presigned URL: {e}")))?;
     let host = url.host_str().unwrap_or_default().to_owned();
     // For error messages: the object and the host, never the presigned
     // query (a bearer capability until it expires) or the path.
@@ -344,10 +371,10 @@ pub async fn put_object(
             to
         }
     };
-    let (length, if_none_match, checksum) = put_headers(target.len, &target.sha256);
+    let (length, if_none_match, checksum) = put_headers(target.len, target.sha256);
     let sent = Arc::new(std::sync::atomic::AtomicU64::new(0));
     let body = reqwest::Body::wrap_stream(body_stream(
-        target.path.clone(),
+        target.path.to_path_buf(),
         target.offset,
         target.len,
         progress,

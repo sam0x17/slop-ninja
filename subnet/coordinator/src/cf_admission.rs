@@ -69,7 +69,7 @@ const REPLY_BYTES: usize = 2 * slop_ninja_admission_wire::RESPONSE_BASE_BYTES;
 pub const READER_BODY_BYTES: usize = 2 * crate::rpc::MAX_LARGE_RESPONSE_BYTES;
 /// R2 heads one step keeps in flight: Workers' six simultaneous outgoing
 /// connections per invocation.
-const HEADS_IN_FLIGHT: usize = 6;
+pub(super) const HEADS_IN_FLIGHT: usize = 6;
 /// The longest chain of one session operation's steps: a header settle,
 /// the files' mint (or a heads batch and its answer).
 const SESSION_STEPS: usize = 4;
@@ -208,7 +208,7 @@ async fn relay(r: &mut Response) -> Result<Response> {
 
 // ------------------------------------------------------------------ R2 I/O
 
-fn bucket(env: &Env) -> std::result::Result<worker::Bucket, &'static str> {
+pub(super) fn bucket(env: &Env) -> std::result::Result<worker::Bucket, &'static str> {
     env.bucket(ADMISSION_BUCKET).map_err(|_| "admission bucket")
 }
 
@@ -218,7 +218,7 @@ fn field(v: &JsValue, k: &str) -> JsValue {
 
 /// R2's `head()` of `key`: its stored size, SHA-256, entity tag and whether
 /// its attributes are the allowed ones (`admission::attrs_clean`).
-async fn head(b: &worker::Bucket, key: &str) -> Head {
+pub(super) async fn head(b: &worker::Bucket, key: &str) -> Head {
     let v = match super::cf_io::settle(adm_head(b.as_ref(), key), None).await {
         super::cf_io::Settled::Value(v) => v,
         _ => return Head::Error,
@@ -340,7 +340,7 @@ async fn settle_header(env: &Env, job: &HeaderJob) -> HeaderSeen {
 /// One signer request (`slop_ninja_r2_presign::wire`) through the service
 /// binding with the shared token: every entry minted, or the platform's
 /// failure (`signer_unavailable`).
-async fn mint_urls(env: &Env, entries: &[mint::Entry]) -> std::result::Result<Vec<Minted>, &'static str> {
+pub(super) async fn mint_urls(env: &Env, entries: &[mint::Entry]) -> std::result::Result<Vec<Minted>, &'static str> {
     let token = secret(env, admission::signer::TOKEN_SECRET).ok_or("signer token")?;
     let mut buf = vec![0u8; mint::request_len(entries.len())];
     let n = mint::encode_request(entries, &mut buf).ok_or("signer request")?;
@@ -359,16 +359,7 @@ async fn mint_urls(env: &Env, entries: &[mint::Entry]) -> std::result::Result<Ve
         return Err("signer status");
     }
     let bytes = super::cf_io::response_bytes(&mut r, mint::reply_max(entries.len())).await.map_err(|_| "signer reply")?;
-    let reply = mint::decode_reply(&bytes, entries.len()).ok_or("signer reply")?;
-    let mut out = Vec::with_capacity(entries.len());
-    for (e, got) in entries.iter().zip(reply) {
-        let got = got.ok_or("signer reply")?;
-        if got.status != mint::Status::Ok || got.content_length != e.len || got.valid_secs == 0 {
-            return Err("signer refused an entry");
-        }
-        out.push(Minted { url: got.url.to_owned(), checksum: got.checksum.to_owned(), signed_at: got.signed_at, valid_secs: got.valid_secs });
-    }
-    Ok(out)
+    admission::minted_from_reply(&bytes, entries)
 }
 
 /// The upload path's end-to-end canary (skeptic K4): the signer mints a

@@ -33,6 +33,7 @@ pub mod id {
     pub const JOURNAL_FETCH: u8 = 11;
     pub const JOURNAL_AUTO: u8 = 12;
     pub const QUEUE_ADMISSION: u8 = 13;
+    pub const REFERENCE: u8 = 14;
     pub const COHORT_NEW: u8 = 20;
     pub const COHORT_FETCH: u8 = 21;
     pub const COHORT_ALARM: u8 = 22;
@@ -82,6 +83,9 @@ pub const R_QUEUE_ADMISSION: Route = Route::new(id::QUEUE_ADMISSION, "worker/que
 /// only; no public route): the route holds one forwarded message and the
 /// cohort object's reply. No part body reaches this Worker.
 pub const R_ADMISSION: AsyncRoute = AsyncRoute::new(id::ADMISSION, "worker/admission", UNBOUNDED_FETCH_MS);
+/// Reference staging's operator routes (`/eval/reference/`,
+/// [`REFERENCE_CONTROL_BYTES`]).
+pub const R_REFERENCE: AsyncRoute = AsyncRoute::new(id::REFERENCE, "worker/reference", UNBOUNDED_FETCH_MS);
 /// A Durable Object constructor's storage migration: synchronous.
 pub const R_JOURNAL_NEW: Route = Route::new(id::JOURNAL_NEW, "journal/new");
 pub const R_JOURNAL_FETCH: AsyncRoute = AsyncRoute::new(id::JOURNAL_FETCH, "journal/fetch", UNBOUNDED_FETCH_MS);
@@ -269,6 +273,33 @@ pub const ADMISSION_STEP_BYTES: usize = (2
         + slop_ninja_r2_presign::wire::reply_max(1)))
 .div_ceil(MIB)
     * MIB;
+/// A reference staging request (`crate::eval::reference`): a Worker
+/// route's control (the workers-rs request and response, the signer call),
+/// which holds the request's own heap. `commit`: the body at its bound (one
+/// unpinned reference manifest), its parse (its strings at most the body's
+/// bytes), the pinned manifest's serialization and one head per file of the
+/// spec's table. `urls`: the body and its entries (below the commit body),
+/// the signer's reply to the whole table and its decoded URLs (each at most
+/// the reply), and the answer, both as owned uploads (their strings at most
+/// its serialization, [`crate::eval::reference::URLS_REPLY_BYTES`]) and
+/// serialized. Unmeasured: the heap is held to half the control (twice the
+/// larger route's sum, the admission step's margin); both routes have a
+/// `Mode::Strict` witness in this footprint
+/// (`arena_witness_reference_{commit,urls}_fits_its_footprint`).
+pub const REFERENCE_CONTROL_BYTES: usize = WORKER_CONTROL_BYTES;
+const REFERENCE_COMMIT_HEAP_BYTES: usize = 2 * crate::eval::reference::COMMIT_BODY_BYTES
+    + crate::eval::reference::MANIFEST_MAX_BYTES
+    + crate::eval::reference::MAX_FILES * PROBE_BYTES;
+const REFERENCE_URLS_HEAP_BYTES: usize = 2 * crate::eval::reference::URLS_BODY_BYTES
+    + 2 * slop_ninja_r2_presign::wire::reply_max(crate::eval::reference::MAX_FILES)
+    + 2 * crate::eval::reference::URLS_REPLY_BYTES
+    + crate::eval::reference::MAX_FILES * core::mem::size_of::<slop_ninja_admission_wire::json::Upload>();
+pub const REFERENCE_HEAP_BYTES: usize = if REFERENCE_COMMIT_HEAP_BYTES > REFERENCE_URLS_HEAP_BYTES {
+    REFERENCE_COMMIT_HEAP_BYTES
+} else {
+    REFERENCE_URLS_HEAP_BYTES
+};
+const _: () = assert!(2 * REFERENCE_HEAP_BYTES <= REFERENCE_CONTROL_BYTES / 2);
 /// One probe's heap at its format bounds: the session id (64), the key
 /// (`layout::MAX_KEY_LEN`), an entity tag (`files_manifest::MAX_ETAG_BYTES`)
 /// and the struct, rounded up to a power of two.
@@ -673,6 +704,15 @@ const _: () = {
     let beside = scope_bytes(JOURNAL_CONTROL_BYTES) + scope_bytes(CONTINUATION_CONTROL_BYTES);
     assert!(static_upper + glue + homes + scope_bytes(JOURNAL_AUTO_BYTES) + beside <= model::LINEAR_MEMORY_BYTES);
     assert!(JOURNAL_AUTO_BYTES <= model::LARGEST_ROUTE_BYTES);
+    // A reference staging request beside the eval Worker's package fit and
+    // its admitting fit below: the operator may stage while a cohort packages
+    // or admits.
+    assert!(REFERENCE_CONTROL_BYTES <= model::LARGEST_ROUTE_BYTES);
+    let homes = scope_bytes(HOME_STATE_BYTES) + scope_bytes(HOME_PLANS_BYTES);
+    assert!(
+        static_upper + glue + homes + model::LARGEST_ROUTE_BYTES + scope_bytes(COHORT_CONTROL_BYTES) + scope_bytes(REFERENCE_CONTROL_BYTES)
+            <= model::LINEAR_MEMORY_BYTES
+    );
     // The eval Worker while a cohort admits: its homes, the alarm with an
     // admission step, a commitment-reader round, an ordinary cohort request
     // and an admission session operation at their footprints, and the Queue
@@ -687,7 +727,9 @@ const _: () = {
         + scope_bytes(cohort_session_bytes());
     let consumer = crate::eval::admission::EVENTS_MAX_CONCURRENCY
         * (scope_bytes(QUEUE_CONTROL_BYTES) + scope_bytes(ADMISSION_EVENT_BYTES));
-    assert!(static_upper + glue + homes + object + consumer <= model::LINEAR_MEMORY_BYTES);
+    // An operator's reference staging request in the same isolate.
+    let staging = scope_bytes(REFERENCE_CONTROL_BYTES);
+    assert!(static_upper + glue + homes + object + consumer + staging <= model::LINEAR_MEMORY_BYTES);
 };
 
 #[cfg(test)]

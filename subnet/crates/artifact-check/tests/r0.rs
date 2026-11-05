@@ -66,13 +66,13 @@ fn r0_passes_and_maps_to_its_deployed_package() {
     let header = fs::header_for_dir(&dir).unwrap();
     let graph = header.files.iter().find(|f| f.name == spec::GRAPH_FILE).unwrap();
     assert_eq!(hex::encode(graph.sha256.0), R0_GRAPH_SHA256);
-    // Its files manifest v2 (the eval bucket's reference layout) builds and
-    // parses back under its own package digest.
+    // Its files manifest v2 (the reference layout in the admission bucket)
+    // builds and parses back under its own package digest.
     let m = slop_ninja_artifact_check::files_manifest::FilesManifest::for_header(
         &header,
         slop_ninja_artifact_check::Version::V1,
         &r.profile_id,
-        |_, sha| ("eval".into(), fs::reference_file_key(sha), None),
+        |_, sha| (fs::REFERENCE_BUCKET.into(), fs::reference_file_key(sha), None),
     )
     .unwrap();
     let bytes = m.to_bytes();

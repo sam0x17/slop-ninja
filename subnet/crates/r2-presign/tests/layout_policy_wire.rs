@@ -30,6 +30,28 @@ fn keys_round_trip_and_are_bounded() {
     assert_eq!(&layout::canary_body(&[9; 32])[32..], &[9; 32]);
 }
 
+/// Reference staging (`slop_ninja_reference_staging_v1`): one key per file digest, outside the event and
+/// canary prefixes, parsed back only in its canonical form.
+#[test]
+fn reference_keys_are_digest_keys_outside_the_admission_prefixes() {
+    let key = layout::reference_key(&[0xab; 32]);
+    assert_eq!(key.as_str(), format!("reference/v2/files/{}", "ab".repeat(32)));
+    assert!(!key.overflowed());
+    assert!(!key.as_str().starts_with(layout::ADMISSION_PREFIX));
+    assert!(!key.as_str().starts_with(layout::HEALTH_PREFIX));
+    assert_eq!(layout::parse_reference_key(key.as_str()), Some([0xab; 32]));
+    assert_eq!(ObjectId::parse(key.as_str()), None);
+    for bad in [
+        "reference/v2/files/",
+        "reference/v2/files/ab",
+        "reference/v1/files/abababababababababababababababababababababababababababababababab",
+        "reference/v2/files/ABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABAB",
+        "reference/v2/files/abababababababababababababababababababababababababababababababab/",
+    ] {
+        assert_eq!(layout::parse_reference_key(bad), None, "{bad}");
+    }
+}
+
 /// The policy's values (design section 3.3).
 #[test]
 fn url_policy_v1_values() {
@@ -52,8 +74,9 @@ fn signer_messages_round_trip() {
     let entries = [
         Entry { op: Op::Header, cohort: 5, commitment: [1; 32], sha256: [2; 32], len: 900, valid_secs: 901 },
         Entry { op: Op::File, cohort: 5, commitment: [1; 32], sha256: [3; 32], len: 681_508_964, valid_secs: 8_537 },
+        Entry { op: Op::Reference, cohort: 0, commitment: [0; 32], sha256: [4; 32], len: 681_508_964, valid_secs: 8_537 },
     ];
-    let mut buf = [0u8; wire::request_len(2)];
+    let mut buf = [0u8; wire::request_len(3)];
     assert_eq!(wire::encode_request(&entries, &mut buf), Some(buf.len()));
     let back: Vec<Entry> = wire::decode_request(&buf, 7).unwrap().map(Option::unwrap).collect();
     assert_eq!(back, entries);

@@ -10,6 +10,10 @@
 //!   single-PUT limit.
 //! - **Canary** entries: the fixed canary body's length and digest only, on
 //!   the `health/` prefix, so the canary cannot mint a miner key.
+//! - **Reference** entries (`slop_ninja_reference_staging_v1`): an operator-staged
+//!   reference file, length `1..=` the same largest admission object, on
+//!   `reference/v2/files/<sha256>`; `cohort` and `commitment` must be zero,
+//!   so a reference entry cannot address a miner key either.
 //! - Validity `1..=604,800` s (R2's range). The eval side computes it under
 //!   the cohort's URL policy; the signer refuses only what R2 would.
 //!
@@ -63,6 +67,12 @@ fn entry_status(e: &Entry, max_file: u64) -> Result<(), Status> {
     let len_ok = match e.op {
         Op::Header => (1..=u64::from(MAX_ARTIFACT_HEADER_LEN)).contains(&e.len),
         Op::File => (1..=max_file).contains(&e.len),
+        Op::Reference => {
+            if e.cohort != 0 || e.commitment != [0; 32] {
+                return Err(Status::Malformed);
+            }
+            (1..=max_file).contains(&e.len)
+        }
         Op::Canary => {
             let digest: [u8; 32] = Sha256::digest(layout::canary_body(&e.commitment)).into();
             if e.len != CANARY_LEN as u64 || digest != e.sha256 {
@@ -116,6 +126,7 @@ pub fn mint(req: &[u8], cfg: &Config<'_>, now_unix: u64, out: &mut [u8]) -> Resu
             Op::Header => ObjectId { cohort: e.cohort, commitment: e.commitment, kind: ObjectKind::Header }.key(),
             Op::File => ObjectId { cohort: e.cohort, commitment: e.commitment, kind: ObjectKind::File(e.sha256) }.key(),
             Op::Canary => layout::health_key(e.cohort, &e.commitment),
+            Op::Reference => layout::reference_key(&e.sha256),
         };
         let target = Target { host: cfg.host, bucket: cfg.bucket, key: key.as_str() };
         let binding = Binding { len: e.len, sha256: e.sha256 };
@@ -231,6 +242,27 @@ mod tests {
         assert_eq!(got[0].0, Status::Ok);
         assert!(check_put_url(&got[0].1, Some(CFG.host), None, layout::health_key(9, &nonce).as_str()).is_ok());
         assert_eq!((got[1].0, got[2].0), (Status::Canary, Status::Canary));
+    }
+
+    #[test]
+    fn references_mint_only_their_digest_key_with_zero_cohort_and_commitment() {
+        let ok = Entry { op: Op::Reference, cohort: 0, commitment: [0; 32], sha256: [8; 32], len: 681_508_964, valid_secs: 8_537 };
+        let got = run(&[
+            ok,
+            Entry { cohort: 9, ..ok },
+            Entry { commitment: [7; 32], ..ok },
+            Entry { len: 0, ..ok },
+            Entry { len: max_file_len() + 1, ..ok },
+            Entry { len: max_file_len(), ..ok },
+        ]);
+        let s: Vec<Status> = got.iter().map(|g| g.0).collect();
+        assert_eq!(s, [Status::Ok, Status::Malformed, Status::Malformed, Status::Length, Status::Length, Status::Ok]);
+        let key = layout::reference_key(&[8; 32]);
+        assert!(check_put_url(&got[0].1, Some(CFG.host), Some(CFG.bucket), key.as_str()).is_ok());
+        // Never a miner key: the derived admission keys do not match.
+        let fk = ObjectId { cohort: 0, commitment: [0; 32], kind: ObjectKind::File([8; 32]) }.key();
+        assert!(check_put_url(&got[0].1, Some(CFG.host), Some(CFG.bucket), fk.as_str()).is_err());
+        assert!(got[0].1.contains("x-amz-checksum-sha256"));
     }
 
     #[test]

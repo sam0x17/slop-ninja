@@ -29,7 +29,10 @@
 //!   interface token check);
 //! - the [`receipts`] module (feature `json`): the private receipts-bucket
 //!   contract the coordinator and the publisher share (pointer checks and
-//!   bounds, the receipt-retirement marker).
+//!   bounds, the receipt-retirement marker);
+//! - the [`reference`] module (feature `json`): the reference staging
+//!   routes' paths and shapes, shared by the eval Worker and the operator's
+//!   `slop_ninja_reference_stage`.
 //!
 //! Every deployment bound is a parameter the coordinator announces, never a
 //! constant here.
@@ -456,6 +459,8 @@ pub mod internal;
 pub mod json;
 #[cfg(feature = "json")]
 pub mod receipts;
+#[cfg(feature = "json")]
+pub mod reference;
 
 #[cfg(test)]
 mod tests;

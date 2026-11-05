@@ -24,6 +24,11 @@ pub enum Op {
     /// The upload-path canary: `commitment` is the nonce, and `sha256` and
     /// `len` must be the fixed canary body's.
     Canary = 3,
+    /// An operator-staged reference file (`slop_ninja_reference_staging_v1`): the key
+    /// is `layout::reference_key(sha256)`, bound to `sha256` and `len`;
+    /// `cohort` and `commitment` must be zero. The eval Worker asks for it
+    /// only on its operator route.
+    Reference = 4,
 }
 
 impl Op {
@@ -32,6 +37,7 @@ impl Op {
             1 => Some(Self::Header),
             2 => Some(Self::File),
             3 => Some(Self::Canary),
+            4 => Some(Self::Reference),
             _ => None,
         }
     }

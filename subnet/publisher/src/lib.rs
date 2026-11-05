@@ -38,6 +38,7 @@ pub mod allowlist;
 pub mod arena;
 pub mod config;
 pub mod dashboard;
+pub mod durable;
 pub mod index;
 pub mod layout;
 pub mod leaderboard;

@@ -150,6 +150,38 @@ pub fn status_body_bound(remaining: u64) -> u64 {
     remaining / 3
 }
 
+/// How one body is read: at most `limit` bytes into a buffer of
+/// `capacity`, with `reserve` bytes held from the budget meanwhile.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct BodyPlan {
+    pub limit: u64,
+    pub capacity: u64,
+    pub reserve: u64,
+}
+
+/// The plan for a body of `declared` length (its `content-length`), or
+/// `None` when that length exceeds the status bound. A declared body is
+/// read into one buffer of its length and reserves only that, so bodies
+/// read at once each hold their own size; a longer stream is refused. An
+/// undeclared body may take the status bound and reserves a doubling
+/// buffer's old copy too.
+pub fn body_plan(declared: Option<u64>, remaining: u64) -> Option<BodyPlan> {
+    let bound = status_body_bound(remaining);
+    match declared {
+        Some(n) if n > bound => None,
+        Some(n) => Some(BodyPlan {
+            limit: n,
+            capacity: n,
+            reserve: n,
+        }),
+        None => Some(BodyPlan {
+            limit: bound,
+            capacity: 0,
+            reserve: bound.saturating_mul(3),
+        }),
+    }
+}
+
 /// Bound of a published-contents record of `count` digests.
 pub fn contents_bound(count: u64) -> u64 {
     RECORD_OVERHEAD_BYTES.saturating_add(count.saturating_mul(32))
@@ -257,6 +289,34 @@ impl Drop for Hold<'_> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_declared_body_reserves_its_length() {
+        assert_eq!(
+            body_plan(Some(10), 300),
+            Some(BodyPlan {
+                limit: 10,
+                capacity: 10,
+                reserve: 10
+            })
+        );
+        assert_eq!(body_plan(Some(100), 300).map(|p| p.reserve), Some(100));
+        assert_eq!(body_plan(Some(101), 300), None);
+        assert_eq!(
+            body_plan(None, 300),
+            Some(BodyPlan {
+                limit: 100,
+                capacity: 0,
+                reserve: 300
+            })
+        );
+        // Two small declared bodies fit at once in one budget.
+        let b = Budget::new(300);
+        let first = body_plan(Some(10), b.remaining()).unwrap();
+        let _a = b.reserve(first.reserve).unwrap();
+        let second = body_plan(Some(10), b.remaining()).unwrap();
+        assert!(b.reserve(second.reserve).is_ok());
+    }
 
     #[test]
     fn reservations_sum_and_release() {

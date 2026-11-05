@@ -11,16 +11,17 @@ use futures_util::StreamExt;
 use futures_util::future::{Either, select};
 use serde::{Deserialize, Serialize};
 use worker::{
-    Bucket, Data, Date, Delay, DurableObject, Env, Headers, HttpMetadata, Method, Request,
-    RequestInit, Response, ResponseBody, Result, ScheduleContext, ScheduledEvent, State,
+    Bucket, ByteStream, Data, Date, Delay, DurableObject, Env, Headers, HttpMetadata, Method,
+    Request, RequestInit, Response, ResponseBody, Result, ScheduleContext, ScheduledEvent, State,
     console_error, console_log, durable_object, event,
 };
 
-use crate::alerts::{self, AlertState, Posted, PublisherObs};
+use crate::alerts::{self, Posted, PublisherObs};
 use crate::arena::{self, Budget};
 use crate::config::{self, Config, Sink};
+use crate::durable::{Begin, Begun, Durable, Lease, Save};
 use crate::layout::{self, Cache};
-use crate::publish::{Buckets, Keepalive, Memo, Report, Run};
+use crate::publish::{Buckets, Keepalive, Report, Run};
 use crate::status::{self, Observed, SnapshotInputs};
 use crate::store::{ObjectMeta, PublicStore, Put, Store, StoreError};
 use slop_ninja_alerts_wire as wire;
@@ -255,28 +256,85 @@ async fn bounded_parse<T>(
     budget: &Budget,
     parse: impl Fn(&[u8]) -> Option<T>,
 ) -> Option<T> {
-    let bound = arena::status_body_bound(budget.remaining());
-    // The body, and a doubling buffer's old copy while it grows.
-    let _hold = budget.reserve(bound.saturating_mul(3)).ok()?;
-    let declared = response
-        .headers()
+    let declared = declared_length(response.headers());
+    let stream = response.stream().ok()?;
+    bounded_read(declared, stream, budget, |b| parse(b).ok_or(()))
+        .await
+        .ok()
+}
+
+fn declared_length(headers: &Headers) -> Option<u64> {
+    headers
         .get("content-length")
         .ok()
         .flatten()
-        .and_then(|v| v.trim().parse::<u64>().ok());
-    if declared.is_some_and(|n| n > bound) {
-        return None;
+        .and_then(|v| v.trim().parse::<u64>().ok())
+}
+
+/// Why a body was not read: each reason is short and holds none of the
+/// body's content, so it can be logged.
+#[derive(Debug)]
+enum BodyRefused<E> {
+    /// The declared length exceeds the status bound.
+    Declared(u64),
+    /// The budget could not hold the body's reservation.
+    Budget(arena::Refused),
+    Stream,
+    /// The stream ran past this many bytes (the declared length, or the
+    /// status bound).
+    Longer(u64),
+    Parse(E),
+}
+
+impl<E: std::fmt::Display> std::fmt::Display for BodyRefused<E> {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        match self {
+            Self::Declared(n) => write!(f, "declared length {n} exceeds the bound"),
+            Self::Budget(r) => write!(
+                f,
+                "reservation of {} refused ({} of {} held)",
+                r.want, r.held, r.limit
+            ),
+            Self::Stream => f.write_str("body stream failed"),
+            Self::Longer(n) => write!(f, "body longer than {n} bytes"),
+            Self::Parse(e) => write!(f, "parse: {e}"),
+        }
     }
-    let mut out = Vec::with_capacity(declared.unwrap_or(0) as usize);
-    let mut stream = response.stream().ok()?;
+}
+
+/// Reads a body by its plan ([`arena::body_plan`]), reserving it while
+/// held, and parses it.
+async fn bounded_read<T, E>(
+    declared: Option<u64>,
+    mut stream: ByteStream,
+    budget: &Budget,
+    parse: impl Fn(&[u8]) -> std::result::Result<T, E>,
+) -> std::result::Result<T, BodyRefused<E>> {
+    let plan = arena::body_plan(declared, budget.remaining())
+        .ok_or(BodyRefused::Declared(declared.unwrap_or(0)))?;
+    let _hold = budget.reserve(plan.reserve).map_err(BodyRefused::Budget)?;
+    let mut out = Vec::with_capacity(plan.capacity as usize);
     while let Some(chunk) = stream.next().await {
-        let chunk = chunk.ok()?;
-        if (out.len() + chunk.len()) as u64 > bound {
-            return None;
+        let chunk = chunk.map_err(|_| BodyRefused::Stream)?;
+        if (out.len() + chunk.len()) as u64 > plan.limit {
+            return Err(BodyRefused::Longer(plan.limit));
         }
         out.extend_from_slice(&chunk);
     }
-    parse(&out)
+    parse(&out).map_err(BodyRefused::Parse)
+}
+
+/// A state call's body, read like a status body within the state object's
+/// one budget (its fetches interleave at await points, so bodies read at
+/// once share it) and parsed with `serde_json`, the encoding the run wrote
+/// it in ([`crate::durable::parse_body`]).
+async fn state_body<T: for<'d> Deserialize<'d>>(
+    req: &mut Request,
+    budget: &Budget,
+) -> std::result::Result<T, BodyRefused<serde_json::Error>> {
+    let declared = declared_length(req.headers());
+    let stream = req.stream().map_err(|_| BodyRefused::Stream)?;
+    bounded_read(declared, stream, budget, crate::durable::parse_body).await
 }
 
 async fn status_read<T>(
@@ -548,53 +606,6 @@ async fn deliver_due(
 
 // ------------------------------------------------------- state and lease
 
-#[derive(Clone, Debug, Default, Serialize, Deserialize)]
-struct Durable {
-    alerts: AlertState,
-    memo: Memo,
-    /// The last publication pass's own conditions, alerted by the next
-    /// run's first phase.
-    publisher: PublisherObs,
-    last_published: Option<u64>,
-    /// Due alert events the last alert phase left undelivered, and the start
-    /// of the first run of the current series that left some (sent in the
-    /// relay heartbeat).
-    #[serde(default)]
-    undelivered: u64,
-    #[serde(default)]
-    undelivered_since_ms: Option<u64>,
-    /// The dashboard's boundary-latched values and rebuild cursor.
-    #[serde(default)]
-    dashboard: crate::dashboard::Memo,
-}
-
-#[derive(Clone, Debug, Serialize, Deserialize)]
-struct Lease {
-    holder: String,
-    until_ms: u64,
-}
-
-#[derive(Serialize, Deserialize)]
-struct Begin {
-    holder: String,
-    now_ms: u64,
-}
-
-/// `/begin`'s answer: the state, and whether the previous holder left its
-/// lease behind (it stopped before `/end`).
-#[derive(Serialize, Deserialize)]
-struct Begun {
-    state: Durable,
-    interrupted: bool,
-}
-
-#[derive(Serialize, Deserialize)]
-struct Save {
-    holder: String,
-    now_ms: u64,
-    state: Durable,
-}
-
 /// Holds the alert state and the publisher's memo, and serializes runs: a
 /// run works only while it holds the lease, which it renews between steps,
 /// so overlapping cron invocations never publish or post twice, and a run
@@ -602,11 +613,16 @@ struct Save {
 #[durable_object(fetch)]
 pub struct PublisherState {
     state: State,
+    /// Accounts every state call body held at once ([`state_body`]).
+    budget: Budget,
 }
 
 impl DurableObject for PublisherState {
     fn new(state: State, _env: Env) -> Self {
-        Self { state }
+        Self {
+            state,
+            budget: Budget::worker(),
+        }
     }
 
     async fn fetch(&self, mut req: Request) -> Result<Response> {
@@ -614,7 +630,10 @@ impl DurableObject for PublisherState {
         let lease: Option<Lease> = storage.get("lease").await?;
         match (req.method(), req.path().as_str()) {
             (Method::Post, "/begin") => {
-                let b: Begin = req.json().await?;
+                let b: Begin = match state_body(&mut req, &self.budget).await {
+                    Ok(b) => b,
+                    Err(why) => return refuse_body(&req.path(), &why),
+                };
                 if lease
                     .as_ref()
                     .is_some_and(|l| l.holder != b.holder && l.until_ms > b.now_ms)
@@ -635,7 +654,10 @@ impl DurableObject for PublisherState {
                 Response::from_json(&Begun { state, interrupted })
             }
             (Method::Post, "/renew") => {
-                let b: Begin = req.json().await?;
+                let b: Begin = match state_body(&mut req, &self.budget).await {
+                    Ok(b) => b,
+                    Err(why) => return refuse_body(&req.path(), &why),
+                };
                 if lease.as_ref().is_none_or(|l| l.holder != b.holder) {
                     return Response::error("lease_lost", 409);
                 }
@@ -651,7 +673,10 @@ impl DurableObject for PublisherState {
                 Response::ok("")
             }
             (Method::Post, path @ ("/checkpoint" | "/end")) => {
-                let e: Save = req.json().await?;
+                let e: Save = match state_body(&mut req, &self.budget).await {
+                    Ok(e) => e,
+                    Err(why) => return refuse_body(path, &why),
+                };
                 if lease.as_ref().is_none_or(|l| l.holder != e.holder) {
                     return Response::error("lease_lost", 409);
                 }
@@ -678,6 +703,12 @@ impl DurableObject for PublisherState {
 
 /// One call to the state object: `Some` with the parsed answer on 200
 /// (`/begin`), `Some(())`-like `null` for the others.
+/// Logs why a state call's body was refused and answers 400.
+fn refuse_body(path: &str, why: &BodyRefused<serde_json::Error>) -> Result<Response> {
+    console_error!("publisher state: {path} body refused: {why}");
+    Response::error("bad_body", 400)
+}
+
 async fn state_call<T: Serialize, R: for<'d> Deserialize<'d>>(
     env: &Env,
     path: &str,
@@ -1011,6 +1042,9 @@ async fn scheduled(_event: ScheduledEvent, env: Env, ctx: ScheduleContext) {
         let pass = crate::dashboard::publish(&out, &public, &inputs, &mut durable.dashboard, save, &within).await;
         durable.publisher.refused.extend(pass.refused);
     }
+    // Every refusal of this run, the dashboard's included: the count the
+    // final save carries to the next run's `publication_refused` alerts.
+    let refused = durable.publisher.refused.len();
     let ended: Option<()> = state_call(
         &env,
         "/end",
@@ -1021,12 +1055,17 @@ async fn scheduled(_event: ScheduledEvent, env: Env, ctx: ScheduleContext) {
         },
     )
     .await;
+    if ended.is_none() {
+        console_error!(
+            "publisher: final state not saved; this run's refusals are not carried to the alerts"
+        );
+    }
     console_log!(
         "publisher: published {:?}, retired before publication {:?}, {} artifacts copied, {} refused, {} pending, {} unverifiable, {} ms",
         report.published,
         report.retired_unpublished,
         report.artifacts_copied,
-        report.refused.len(),
+        refused,
         report.pending.len(),
         report.unverifiable.len(),
         now_ms().saturating_sub(started)

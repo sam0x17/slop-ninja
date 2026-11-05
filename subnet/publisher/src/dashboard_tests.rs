@@ -1284,6 +1284,9 @@ fn the_work_percent_is_saved_before_it_is_published() {
     let mut m = stored.clone();
     let p = run(&mut m, &at(450), time_of(118) + 60_000, false);
     assert!(p.written.is_empty() && !p.refused.is_empty(), "{p:?}");
+    // The run keeps the saved memo, so its final save (which carries the
+    // refusal to the alerts) holds no boundary value that was never saved.
+    assert_eq!(m, stored);
     // The next run reads the boundary from the same saved memo, saves, and
     // publishes; later runs in the tempo keep that value.
     let mut m = stored.clone();

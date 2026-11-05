@@ -788,10 +788,12 @@ pub struct Memo {
     /// on when hidden work fails, so its time is not published finer.
     #[serde(default)]
     pub hold: Option<String>,
-    /// The minute (unix seconds) each recent boundary was first observed, for
+    /// The minute (unix seconds) each recent boundary was first observed by
+    /// a run whose save succeeded (a failed save restores the memo), for
     /// a stage seen at it ([`visible_phases`]). Pruned to the current and
-    /// the previous cohort.
-    #[serde(default)]
+    /// the previous cohort. Its keys read from numbers or decimal strings
+    /// ([`crate::durable::u64_keys`]): the state calls carry it as JSON.
+    #[serde(default, with = "crate::durable::u64_keys")]
     pub seen: BTreeMap<u64, u64>,
     /// The inputs of the cohort documents last written in full
     /// ([`cohorts_key`]); a change rebuilds them.
@@ -1896,10 +1898,14 @@ pub async fn publish<S: Store>(
     let mut pass = Pass::default();
     let s = &i.settings;
     let e = i.observed.eval.as_ref();
+    let saved = memo.clone();
     if let Some(e) = e {
         roll(memo, s, e, i.now_ms);
     }
     if !checkpoint(memo).await {
+        // The memo stays what the state object holds, so the run's final
+        // save can still carry this refusal to the next run's alerts.
+        *memo = saved;
         pass.refused.push(("dashboard".into(), "dashboard state not saved; nothing written".into()));
         return pass;
     }

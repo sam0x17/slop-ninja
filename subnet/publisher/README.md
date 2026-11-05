@@ -135,6 +135,7 @@ client reads and the alert posts the relay reads are the same code.
 | `store` | the object-store seam, with an in-memory store for tests |
 | `dashboard` | the public dashboard's `dashboard/v1` documents, their allow-list and bounds (the key grammar and bounds are `../dashboard-feed/src/contract.rs`, shared with the feed Worker) |
 | `cf` | Workers entry points (`wasm32` only): cron, R2 adapter, status reads, the `PublisherState` Durable Object |
+| `durable` | the Durable Object state and its state-call bodies: JSON both ways (parsed with `serde_json`, never the runtime's `Request::json`), `u64` map keys read from a number or its decimal string |
 
 Everything but `cf` is plain Rust and is tested natively over an in-memory
 store.
@@ -574,7 +575,9 @@ work stage. The stage and its phases are shown as of the last observed
 tempo boundary. The work percent and a cohort fault's pause class are read
 by the first observation of a boundary that follows the saved one in
 sequence, saved to the Durable Object state before any document carries
-them (nothing is written when that save fails), and kept until the next
+them (nothing is written when that save fails: the run keeps the saved
+memo, and the refusal, carried by the run's final save, raises
+`publication_refused` and counts in the run log's refused total), and kept until the next
 boundary; a fresh or lost state, or a jump past several boundaries, leaves
 them out for that tempo. While the coordinator's status is unreadable, only
 `index.json` and `now.json` are written. Cohort documents are rebuilt only

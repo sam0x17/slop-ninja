@@ -89,7 +89,7 @@ wrangler secret put COORDINATOR_OPERATOR_TOKEN --env testnet < $S/operator_token
 wrangler secret put AUTHORIZATION_SIGNING_KEY --env testnet < <authorization seed file>
 ```
 
-### Status token split (the status gate; not yet deployed)
+### Status token split (the status gate)
 
 A build with the status gate (README, "The status gate") serves every status
 read on the workers.dev name (`/status`, `/eval/status`, `/eval/load/status`,
@@ -115,6 +115,18 @@ now. The publisher runs rules v14 from main `2bb1a42b` (an active cohort's
 public phase is `admission` or `evaluating`; `status_access_warning` is
 loaded) and still presents the shared token. Every main commit that contains eval-no-skip also contains the
 gate, so the next eval or coordinator deploy is step 3 below.
+
+Step 3 ran on 2026-11-04 with the copy-model deploys from main `f6fa1934`
+(eval 17:55Z, coordinator 18:08Z, each in its own window). On both Workers
+the monitor token now reads `/status` (`access.caller` `monitor`, the three
+token flags and `tokens_distinct` true) and, on the eval Worker,
+`/eval/load/status`; the shared token gets 401 there on the workers.dev name;
+the forged-host and absolute-URL probes got Cloudflare's 403, never a 200.
+Private readers now read through the monitor token. The publisher (rules
+v15 since 18:04Z) and the relay still present the shared token through
+their service bindings, so steps 4 and 5 remain, and
+`status_access_warning` fires once the shared token has stayed a tempo
+beside the consumer tokens.
 
 Every secret put, bulk upload or delete deploys a new Worker version, like a
 code deploy. On 2026-10-30 the first signing step after a secret upload
@@ -264,14 +276,11 @@ that follows is then a no-op.
 ## Operate
 
 ```sh
-# status (content-free JSON; 401 without the token). The build deployed on
-# 2026-11-04 predates the status gate and takes only the shared status token:
-printf 'Authorization: Bearer %s\n' "$(cat $S/status_token)" |
-  curl -sS --header @- $COORDINATOR_URL/status
-# From a build with the status gate (README, "The status gate") the shared
-# token gets 401 on the workers.dev name; the operator token or the read-only
-# monitor token reads it there:
-printf 'Authorization: Bearer %s\n' "$(cat $S/operator_token)" |
+# status (content-free JSON; 401 without a token). The deployed build has the
+# status gate (README, "The status gate"): on the workers.dev name the shared
+# token gets 401, and the read-only monitor token (unattended readers) or the
+# operator token reads it:
+printf 'Authorization: Bearer %s\n' "$(cat $S/status_token_monitor)" |
   curl -sS --header @- $COORDINATOR_URL/status
 
 # clear a durable fault (operator token), optionally re-anchoring the cursor
@@ -3457,6 +3466,16 @@ batch index v3 names the screen (`input_screen`
 `pool_token_bound_empty_text_and_scorer_tokens_v2`) and the table
 (`token_count`: table id and digest, tokenizer digest, limit).
 
+Live state (2026-11-04): step 1 ran (eval-testnet from main `f6fa1934`,
+17:55Z; the eval rollback floor). Cohort 19 left `generating` and sealed
+under the earlier build before the deploy gate allowed the deploy, so its
+generated documents were not screened. Steps 2 and 3 have not run: the ops
+tool cuts a probe version only in a chain-record restart (`restart` refuses
+unless every cohort of the authority is closed or abandoned and the new
+authority's name differs from the current one's), and the standing r0
+calendar always holds a cohort in its transition or queued. The installed r0
+template is unchanged (cohort 20 is queued from it).
+
 Rebuilding the table (only if the pinned tokenizer changes, which also
 changes the artifact spec): `subnet/crates/scorer-tokens/reference`, run
 natively with the scorer's tokenizers build, writes it (`table`), the
@@ -3464,9 +3483,9 @@ crate's golden cases (`golden`), and compares the compiled-in count with
 the scorer's library over every code point, synthetic documents around
 the limit (`sweep`) and pool shards (`parity`, counts only).
 
-### Public allow-list and the copy model (2026-11-04, not live)
+### Public allow-list and the copy model (2026-11-04)
 
-Landed, not deployed. Validators other than the coordinator commit its
+Validators other than the coordinator commit its
 signed row (`CoordinatorRow`, signed with the authorization key, never the
 hotkey) and receive nothing computed from the hidden evaluation; the public
 host carries only allow-listed objects (`publisher/src/allowlist.rs`).
@@ -3558,6 +3577,29 @@ host carries only allow-listed objects (`publisher/src/allowlist.rs`).
   unsettled commit or reveal, journal backed up first, never a build older
   than rtao `0c128160`. Keep its old fetch cache (`cohorts/`,
   `authorizations/`) until the release is accepted: a rollback needs it.
+- **Live record (2026-11-04, main `f6fa1934`).** Each its own deploy, the
+  deploy lock held through its probe. (1) eval-testnet 17:55Z, once cohort
+  19 reached its transition (the deploy gate refuses while a cohort
+  generates, seals, scores or packages): eval store 19 -> 20, chain journal
+  12 -> 13. (2) The publisher 18:04Z (rules v15, allow-list v2,
+  `PUBLISH_RECEIPTS = "false"`): its first runs migrated the index to v2,
+  rewrote the page without score or rank columns, wrote `leaderboard/v3` and
+  re-listed cohorts 15 to 18 with `cohort_summary/v2`, one a run. (3) The
+  coordinator 18:08Z (journal 13; signing paused 97 s): `signing.row_record`
+  named a record of the installed authorization at once (epoch 114,
+  `snapshot_derived_epoch` 114, nothing pending); the private pointer
+  carries `row`, and the publisher's copy names the same object under `v1/`
+  (same digest and length). (4) The key audit with deletion (allow-list v2
+  ops binary from the deployed tree): 72 keys deleted, all coordinator-private
+  cohort objects of the earlier layout and three publication documents of
+  the earlier record; the read-back plan deletes nothing. (5) validator2's
+  row mirror runs on a user timer every 3 minutes; a fetch against it
+  reported `ready`. (6) validator2 moved to main's validator with `[fetch]`
+  from the mirror in a settled window (18:45Z, journal backed up first); it
+  installed the coordinator-row bundle at startup (`package_verified`, one
+  entry), adopted its queued epoch-115 operation without a duplicate,
+  committed it at block 8373242 and its reveal compared with
+  `weights_match` true at block 8373297.
 - **Open.** Quantization: every published band, cluster and drop bit, and
   the row, are derived from exact scores until the specification is
   approved (`QUANTIZED-SCORE` marks); the near-equal drop is a bit finer

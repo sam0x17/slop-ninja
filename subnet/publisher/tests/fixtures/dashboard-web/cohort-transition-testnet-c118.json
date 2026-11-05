@@ -14,15 +14,21 @@
   "state": "published",
   "opened": {
    "epoch": 2290,
-   "at": 1792911360
+   "block": 8392780,
+   "at": 1792911360,
+   "basis": "observed"
   },
   "admission_closed": {
    "epoch": 2306,
-   "at": 1792980660
+   "block": 8398540,
+   "at": 1792980660,
+   "basis": "observed"
   },
   "published": {
    "epoch": 2310,
-   "at": 1792998000
+   "block": 8399980,
+   "at": 1792998000,
+   "basis": "observed"
   },
   "closed": null,
   "mode": "no_target",
@@ -35,43 +41,108 @@
    "width": "0.01"
   },
   "leaderboard": true,
-  "ended_class": null
+  "ended_class": null,
+  "bounds": {
+   "open": {
+    "epoch": 2290,
+    "block": 8392780,
+    "at": 1792911360,
+    "basis": "observed"
+   },
+   "cutoff": {
+    "epoch": 2306,
+    "block": 8398540,
+    "at": 1792980660,
+    "basis": "observed"
+   },
+   "close": null
+  },
+  "tempo_blocks": 360,
+  "anchor": {
+   "epoch": 2290,
+   "block": 8392780
+  }
  },
  "phases": [
   {
    "stage": "admission_open",
    "epoch": 2290,
-   "at": 1792911360
+   "block": 8392780,
+   "at": 1792911360,
+   "basis": "observed",
+   "tempos": {
+    "elapsed": 16,
+    "counted": 16,
+    "required": 16
+   }
   },
   {
    "stage": "admission_closing",
    "epoch": 2306,
-   "at": 1792980660
+   "block": 8398540,
+   "at": 1792980660,
+   "basis": "observed",
+   "tempos": {
+    "elapsed": 0,
+    "counted": null,
+    "required": null
+   }
   },
   {
    "stage": "generating",
    "epoch": 2306,
-   "at": 1792980660
+   "block": 8398540,
+   "at": 1792980660,
+   "basis": "observed",
+   "tempos": {
+    "elapsed": 1,
+    "counted": null,
+    "required": null
+   }
   },
   {
    "stage": "sealing",
    "epoch": 2307,
-   "at": 1792984980
+   "block": 8398900,
+   "at": 1792984980,
+   "basis": "observed",
+   "tempos": {
+    "elapsed": 0,
+    "counted": null,
+    "required": null
+   }
   },
   {
    "stage": "scoring",
    "epoch": 2307,
-   "at": 1792984980
+   "block": 8398900,
+   "at": 1792984980,
+   "basis": "observed",
+   "tempos": {
+    "elapsed": 2,
+    "counted": null,
+    "required": null
+   }
   },
   {
    "stage": "packaging",
    "epoch": 2309,
-   "at": 1792993680
+   "block": 8399620,
+   "at": 1792993680,
+   "basis": "observed",
+   "tempos": {
+    "elapsed": 1,
+    "counted": null,
+    "required": null
+   }
   },
   {
    "stage": "transition",
    "epoch": 2310,
-   "at": 1792998000
+   "block": 8399980,
+   "at": 1792998000,
+   "basis": "observed",
+   "tempos": null
   }
  ],
  "plan": {

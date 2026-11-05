@@ -586,6 +586,27 @@ its last document while its inputs stay the same. Their summary and
 publication reads are reserved from the run's memory budget. A refused write
 is alerted like a refused publication.
 
+Every stage carries a start (its phase's boundary point: epoch, boundary
+block, time to the minute and how the time is known) and stops where the next
+phase starts, with its tempos (elapsed, credited, required). The points come
+from the eval engine's resolved boundaries (`/eval/status`
+`cohorts[].boundaries`, from its boundary journal), so stages before this
+publisher ran are dated too; a boundary the engine has no record of reads as
+not recorded, and one it has records around but cannot date as
+`unresolved`. Every block agrees with a reference: the clock's boundary in
+`now.json`, and in the cohort list and documents each row's `anchor` (the
+clock's boundary projected to the cohort's opening at the clock's tempo);
+without one no block is written. `dashboard::check` also refuses a
+`now.json` stage dated after the clock's boundary and a cohort document stage
+after the close. A coordinator that reports no boundaries falls back to the
+boundary-step records and the minutes this publisher observed boundaries in
+sequence. Before writing, the builders drop any point that fails the
+contract's checks (a block off the boundary arithmetic, a time off the
+minute, after the document or going backwards, a basis outside the contract,
+wrong tempos), and `dashboard::check` refuses a document those checks would
+still change. Rule `slop_ninja.dashboard.publisher/v2` rebuilds every cohort
+document once.
+
 ## Configuration
 
 See `wrangler.toml`. `PUBLISH_FROM_EPOCH` and `RECORD_LABEL_PREFIX` are

@@ -29,7 +29,10 @@
    {
     "stage": "admission_open",
     "epoch": 2293,
-    "at": 1792924380
+    "block": null,
+    "at": 1792924380,
+    "basis": "observed",
+    "tempos": null
    }
   ],
   "tempos": {
@@ -117,7 +120,22 @@
    ]
   },
   "results": false,
-  "mode": "target"
+  "mode": "target",
+  "bounds": {
+   "open": {
+    "epoch": 2293,
+    "block": null,
+    "at": 1792924380,
+    "basis": "observed"
+   },
+   "cutoff": null,
+   "close": {
+    "epoch": 2315,
+    "block": null,
+    "at": null,
+    "basis": "earliest"
+   }
+  }
  },
  "next": {
   "cohort": 119,

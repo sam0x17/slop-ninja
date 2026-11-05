@@ -18,11 +18,11 @@ const B0: u64 = 8_000_000;
 const T0_MS: u64 = 1_790_000_000_000;
 
 fn block_of(epoch: u64) -> u64 {
-    B0 + epoch * (TEMPO + 1)
+    B0 + epoch * TEMPO
 }
 
 fn time_of(epoch: u64) -> u64 {
-    T0_MS + epoch * (TEMPO + 1) * 12_000
+    T0_MS + epoch * TEMPO * 12_000
 }
 
 fn chain() -> ChainBinding {
@@ -133,9 +133,13 @@ fn rolled(o: &Observed, memo: &mut Memo, now_ms: u64) {
     roll(memo, &settings(&c), o.eval.as_ref().unwrap(), now_ms);
 }
 
+/// `now.json` written within the tempo of the status's boundary (an hour
+/// after it), so every boundary time it carries is no later than the
+/// document.
 fn now_of(o: &Observed, memo: &Memo) -> NowDoc {
     let c = chain();
-    now_doc(&settings(&c), o, None, None, memo, time_of(110))
+    let x = o.eval.as_ref().and_then(|e| e.epoch).unwrap_or(110);
+    now_doc(&settings(&c), o, None, None, memo, time_of(x) + 3_600_000)
 }
 
 fn value(v: &impl Serialize) -> Value {
@@ -145,8 +149,17 @@ fn value(v: &impl Serialize) -> Value {
 /// The document round-trips through the website's types unchanged: no field
 /// the website would drop, none it lacks.
 fn round_trips<T: Serialize + for<'d> Deserialize<'d>>(v: &Value) {
+    // The website skips some absent values when it serializes: a `null` and
+    // a missing key read the same on both sides.
+    fn strip(v: &Value) -> Value {
+        match v {
+            Value::Object(m) => Value::Object(m.iter().filter(|(_, x)| !x.is_null()).map(|(k, x)| (k.clone(), strip(x))).collect()),
+            Value::Array(a) => Value::Array(a.iter().map(strip).collect()),
+            _ => v.clone(),
+        }
+    }
     let parsed: T = serde_json::from_value(v.clone()).expect("the website's types parse it");
-    assert_eq!(&value(&parsed), v, "round trip through the website's model");
+    assert_eq!(strip(&value(&parsed)), strip(v), "round trip through the website's model");
 }
 
 fn checked(doc: &Doc, v: &impl Serialize) -> Value {
@@ -974,17 +987,23 @@ fn the_allow_list_is_exactly_the_contract() {
     now["cohort"]["progress"]["admission"] = json!({"admitted": 1, "roster_cap": 2});
     now["cohort"]["tempos"] = json!({"credited": 1, "required": 2});
     now["best"]["quantization"] = json!({"rule": "r", "width": "0.01"});
+    let point = json!({"epoch": 1, "block": 2, "at": 60, "basis": "observed"});
+    now["cohort"]["bounds"]["cutoff"] = point.clone();
     let rows = listed(&s, &idx, o.eval.as_ref());
     let mut cohort = value(&cohort_doc(&s, &rows, 1, Some(&sm), &arts, 118, time_of(118)));
     cohort["cohort"]["quantization"] = json!({"rule": "r", "width": "0.01"});
-    cohort["cohort"]["admission_closed"] = json!({"epoch": 1, "at": 60});
+    cohort["cohort"]["admission_closed"] = point.clone();
+    for b in ["open", "cutoff", "close"] {
+        cohort["cohort"]["bounds"][b] = point.clone();
+    }
+    cohort["phases"][0]["tempos"] = json!({"elapsed": 1, "counted": 1, "required": 1});
     cohort["quality"]["cutoff"] = json!({"q": null, "rule": null});
     let mut list = value(&cohorts_doc(&s, &idx, &rows, time_of(118)));
     list["records"] = json!([{"first_label": "testnet-rv1-a"}]);
     for r in list["cohorts"].as_array_mut().unwrap() {
         r["quantization"] = json!({"rule": "r", "width": "0.01"});
-        r["admission_closed"] = json!({"epoch": 1, "at": 60});
-        r["published"] = json!({"epoch": 1, "at": 60});
+        r["admission_closed"] = point.clone();
+        r["published"] = point.clone();
     }
     for (doc, v) in [(Doc::Now("a"), &now), (Doc::Cohort("a", "c".into()), &cohort), (Doc::Cohorts("a"), &list)] {
         assert_eq!(crate::allowlist::paths(v), allowed_paths(&doc), "{doc:?}");
@@ -1036,7 +1055,7 @@ fn results_published_is_dated_by_its_boundary_not_by_the_package_commit() {
     let idx = index_with(&[(6, "testnet-r0-c6", None, 1), (7, "testnet-r0-c7", None, 1)]);
     let closed = at(124, json!(121));
     let rows = listed(&s, &idx, closed.eval.as_ref());
-    assert_eq!(rows[1].row.published, Some(Mark { epoch: Some(121), at: None }));
+    assert_eq!(rows[1].row.published, Some(Mark { epoch: Some(121), ..Default::default() }));
     let doc = cohort_doc(&s, &rows, 1, None, &[], 124, time_of(124));
     let text = serde_json::to_string(&doc).unwrap();
     assert!(!text.contains(&commit_minute.to_string()), "{text}");
@@ -1137,7 +1156,7 @@ fn the_closing_step_survives_the_calendar_moving_on() {
     // The closed cohort 6 carries its own closing boundary in the list.
     let idx = index_with(&[(6, "testnet-r0-c6", None, 1)]);
     let rows = listed(&s, &idx, o.eval.as_ref());
-    assert_eq!(rows[0].row.admission_closed, Some(Mark { epoch: Some(94), at: None }));
+    assert_eq!(rows[0].row.admission_closed, Some(Mark { epoch: Some(94), ..Default::default() }));
 }
 
 /// The summaries and publication records of `entries` in a public bucket.
@@ -1298,4 +1317,386 @@ fn the_work_percent_is_saved_before_it_is_published() {
     let mut lost = Memo::default();
     run(&mut lost, &at(950), time_of(118) + 55 * 60_000, true);
     assert_eq!(pct(), None);
+}
+
+// ------------------------------------------------------------ stage times
+
+/// One `boundaries[]` entry of the engine's status for epoch `e`: its block,
+/// the time `at` with `basis` (`None` for none), and the credited count the
+/// fixture's clock gives it (40 at the opening at 100, one per boundary).
+fn bnd(e: u64, at: Option<u64>, basis: Option<&str>) -> Value {
+    json!({"epoch": e, "block": block_of(e), "block_basis": "observed", "at_ms": at,
+           "at_basis": basis, "active": 40 + e - 100})
+}
+
+/// The boundaries the engine reports for cohort 7 up to `x`: observed times
+/// at the opening and from 116 on, a derived one between.
+fn boundaries_to(x: u64) -> Value {
+    let mut v = vec![bnd(100, Some(time_of(100) + 95_000), Some("observed"))];
+    for e in 101..=x {
+        let basis = if e < 116 { "derived" } else { "observed" };
+        v.push(bnd(e, Some(time_of(e) + 20_000), Some(basis)));
+    }
+    Value::Array(v)
+}
+
+/// Every stage is dated by the engine's resolved boundaries, with no memo
+/// at all (a publisher that started late): its block, its boundary time to
+/// the minute, how that time is known, and its tempos; the current stage
+/// counts to the observed boundary; the bounds name the opening, the cutoff
+/// and the earliest close.
+#[test]
+fn stages_are_dated_from_the_engine_boundaries_with_blocks_and_tempos() {
+    let mut e = eval_json(118, "scoring", LOG_SCORING, json!({"boundaries": boundaries_to(118), "window_closed_epoch": 116}));
+    e["cohorts"][1]["log"].as_array_mut().unwrap().insert(1, json!({"phase": "admission", "at_ms": time_of(116) + 95_000, "epoch": 116}));
+    let o = observed(e);
+    let memo = Memo::default();
+    let d = now_of(&o, &memo);
+    let v = checked(&Doc::Now("a"), &d);
+    round_trips::<web_model::NowDoc>(&v);
+    type Dated<'a> = (&'a str, Option<u64>, Option<u64>, Option<u64>, Option<&'a str>);
+    let got: Vec<Dated<'_>> = d
+        .cohort
+        .phases
+        .iter()
+        .map(|p| (p.stage.as_str(), p.epoch, p.block, p.at, p.basis.as_deref()))
+        .collect();
+    let at = |e: u64, plus: u64| Some(minute(time_of(e) + plus));
+    assert_eq!(
+        got,
+        [
+            ("admission_open", Some(100), Some(block_of(100)), at(100, 95_000), Some("observed")),
+            ("admission_closing", Some(116), Some(block_of(116)), at(116, 20_000), Some("observed")),
+            ("generating", Some(117), Some(block_of(117)), at(117, 20_000), Some("observed")),
+            ("sealing", Some(118), Some(block_of(118)), at(118, 20_000), Some("observed")),
+            ("scoring", Some(118), Some(block_of(118)), at(118, 20_000), Some("observed")),
+        ]
+    );
+    type Counts = Option<(Option<u64>, Option<u64>, Option<u64>)>;
+    let t: Vec<Counts> =
+        d.cohort.phases.iter().map(|p| p.tempos.as_ref().map(|t| (t.elapsed, t.counted, t.required))).collect();
+    assert_eq!(
+        t,
+        [
+            Some((Some(16), Some(16), Some(16))),
+            Some((Some(1), Some(1), None)),
+            Some((Some(1), Some(1), None)),
+            Some((Some(0), Some(0), None)),
+            Some((Some(0), Some(0), None)),
+        ]
+    );
+    let b = d.cohort.bounds.as_ref().unwrap();
+    assert_eq!(b.open.as_ref().map(|m| (m.epoch, m.block)), Some((Some(100), Some(block_of(100)))));
+    assert_eq!(b.cutoff.as_ref().map(|m| m.epoch), Some(Some(116)));
+    let close = b.close.as_ref().unwrap();
+    assert_eq!((close.epoch, close.block, close.at, close.basis.as_deref()), (d.cohort.expected.close_epoch, d.cohort.expected.close_block, None, Some("earliest")));
+    // No work commit's own time (the fixture logs each at the boundary plus
+    // 95 s) reaches a work stage.
+    for p in &d.cohort.phases[2..] {
+        assert_ne!(p.at, at(p.epoch.unwrap() - 1, 95_000), "{}", p.stage);
+        assert_ne!(p.at, at(p.epoch.unwrap(), 95_000), "{}", p.stage);
+    }
+}
+
+/// A boundary the engine has no time for reads as not recorded (no time, no
+/// basis), keeping its block; a derived time says so.
+#[test]
+fn a_boundary_without_a_record_reads_before_tracking_and_derived_times_say_so() {
+    let mut bs = boundaries_to(118);
+    bs[0] = bnd(100, None, None);
+    bs[17]["at_basis"] = json!("derived");
+    let o = observed(eval_json(118, "scoring", LOG_SCORING, json!({"boundaries": bs})));
+    let d = now_of(&o, &Memo::default());
+    checked(&Doc::Now("a"), &d);
+    let first = &d.cohort.phases[0];
+    assert_eq!((first.block, first.at, first.basis.as_deref()), (Some(block_of(100)), None, None));
+    let generating = d.cohort.phases.iter().find(|p| p.stage == "generating").unwrap();
+    assert_eq!((generating.at, generating.basis.as_deref()), (Some(minute(time_of(117) + 20_000)), Some("derived")));
+    // From a coordinator without the journal, the publisher's own boundary
+    // minute stays the fallback, marked observed, without a block.
+    let o = observed(eval_json(118, "scoring", LOG_SCORING, json!({})));
+    let mut memo = saved_at(118);
+    rolled(&o, &mut memo, time_of(118) + 30_000);
+    let d = now_of(&o, &memo);
+    checked(&Doc::Now("a"), &d);
+    let last = d.cohort.phases.last().unwrap();
+    assert_eq!((last.block, last.at, last.basis.as_deref()), (None, Some(minute(time_of(118) + 30_000)), Some("observed")));
+    assert_eq!(d.cohort.phases[1].at, None, "boundary 117 was never seen by this publisher");
+}
+
+/// The results stage needs `max(transition, opened + K - published)`
+/// credited tempos: with publication late in the template the K rule
+/// governs.
+#[test]
+fn transition_required_is_effective() {
+    let mut log = LOG_SCORING.to_vec();
+    log.extend([("packaging", 119), ("transition", 121)]);
+    let o = observed(eval_json(
+        121,
+        "transition",
+        &log,
+        json!({"opened_active": 50, "published_active": 61, "reward_v1": {"published_epoch": 121}, "boundaries": boundaries_to(124)}),
+    ));
+    let mut o = o;
+    let e = o.eval.as_mut().unwrap();
+    *e = parse_eval(&{
+        let mut v = eval_json(124, "transition", &log, json!({"opened_active": 50, "published_active": 61,
+            "reward_v1": {"published_epoch": 121}, "boundaries": boundaries_to(124)}));
+        v["observed"]["active_tempos"] = json!(64);
+        v
+    });
+    let d = now_of(&o, &Memo::default());
+    checked(&Doc::Now("a"), &d);
+    // Opened at 50 with K = 22 and published at 61: 72 - 61 = 11 > the
+    // 2-tempo minimum; 3 credited since publication.
+    assert_eq!(d.cohort.tempos, Some(Tempos { credited: Some(3), required: Some(11) }));
+    let last = d.cohort.phases.last().unwrap();
+    assert_eq!(last.tempos, Some(PhaseTempos { elapsed: Some(3), counted: Some(3), required: Some(11) }));
+}
+
+/// A closed cohort's document carries its bounds and its tempo length; the
+/// list's marks carry blocks and bases but no bounds; the close is an
+/// instant.
+#[test]
+fn cohort_documents_carry_bounds_and_their_tempo_length() {
+    let c = chain();
+    let s = settings(&c);
+    let idx = index_with(&[(6, "testnet-r0-c6", None, 1)]);
+    let mut e = eval_json(118, "scoring", LOG_SCORING, json!({}));
+    let c6: Vec<Value> = [78, 94, 95, 96, 98, 99, 100].iter().map(|&x| bnd(x, Some(time_of(x) + 20_000), Some("observed"))).collect();
+    e["cohorts"][0]["boundaries"] = Value::Array(c6);
+    let o = observed(e);
+    let rows = listed(&s, &idx, o.eval.as_ref());
+    let d = cohort_doc(&s, &rows, 0, None, &[], 118, time_of(118));
+    let v = checked(&Doc::Cohort("a", "testnet-r0-c6".into()), &d);
+    round_trips::<web_model::CohortDoc>(&v);
+    assert_eq!(d.cohort.tempo_blocks, Some(TEMPO));
+    let b = d.cohort.bounds.as_ref().unwrap();
+    let close = b.close.as_ref().unwrap();
+    assert_eq!((close.epoch, close.block, close.basis.as_deref()), (Some(100), Some(block_of(100)), Some("observed")));
+    assert_eq!(b.cutoff.as_ref().map(|m| m.epoch), Some(Some(94)));
+    assert_eq!(d.phases.last().map(|p| (p.stage.as_str(), p.tempos.is_none())), Some(("closed", true)));
+    assert!(d.phases.iter().all(|p| p.at.is_some() && p.block.is_some()), "{:?}", d.phases);
+    let list = cohorts_doc(&s, &idx, &rows, time_of(118));
+    let v = checked(&Doc::Cohorts("a"), &list);
+    round_trips::<web_model::CohortsDoc>(&v);
+    let r = &list.cohorts[0];
+    assert_eq!((r.bounds.clone(), r.tempo_blocks), (None, Some(TEMPO)));
+    assert_eq!(r.anchor, Some(Anchor { epoch: Some(78), block: Some(block_of(78)) }), "the clock projected to the opening");
+    assert_eq!(r.opened.as_ref().map(|m| (m.block, m.basis.as_deref())), Some((Some(block_of(78)), Some("observed"))));
+    // A block off the clock's arithmetic (a tempo change, or a block inside
+    // a tempo) drops on its own; the others keep theirs.
+    let mut e = eval_json(118, "scoring", LOG_SCORING, json!({}));
+    let mut c6: Vec<Value> = [78, 94, 95, 96, 98, 99, 100].iter().map(|&x| bnd(x, Some(time_of(x) + 20_000), Some("observed"))).collect();
+    c6[0]["block"] = json!(block_of(78) + 16 * 2);
+    e["cohorts"][0]["boundaries"] = Value::Array(c6);
+    let o = observed(e);
+    let rows = listed(&s, &idx, o.eval.as_ref());
+    let d = cohort_doc(&s, &rows, 0, None, &[], 118, time_of(118));
+    checked(&Doc::Cohort("a", "testnet-r0-c6".into()), &d);
+    assert_eq!(d.cohort.tempo_blocks, Some(TEMPO));
+    assert_eq!(d.phases[0].block, None);
+    assert_eq!(d.phases[1].block, Some(block_of(94)));
+    // Without the clock's boundary there is no anchor and no block.
+    let mut e = eval_json(118, "scoring", LOG_SCORING, json!({}));
+    e["cohorts"][0]["boundaries"] = Value::Array(
+        [78, 94, 95, 96, 98, 99, 100].iter().map(|&x| bnd(x, Some(time_of(x) + 20_000), Some("observed"))).collect(),
+    );
+    let mut o = observed(e);
+    o.eval.as_mut().unwrap().boundary_block = None;
+    let rows = listed(&s, &idx, o.eval.as_ref());
+    let d = cohort_doc(&s, &rows, 0, None, &[], 118, time_of(118));
+    checked(&Doc::Cohort("a", "testnet-r0-c6".into()), &d);
+    assert_eq!((d.cohort.tempo_blocks, d.cohort.anchor.clone()), (None, None));
+    assert!(d.phases.iter().all(|p| p.block.is_none() && p.at.is_some()));
+}
+
+/// Values a correct build never writes are dropped by the builder's checks
+/// and refused by [`check`]: a block inside a tempo, a time off the minute or
+/// after the document, a basis outside the contract, wrong tempos, a time
+/// field outside the contract, and times that go backwards.
+#[test]
+fn stage_times_outside_the_contract_are_refused() {
+    let o = observed(eval_json(118, "scoring", LOG_SCORING, json!({"boundaries": boundaries_to(118)})));
+    let good = checked(&Doc::Now("a"), &now_of(&o, &Memo::default()));
+    let key = Doc::Now("a").key();
+    let refused = |mutate: &dyn Fn(&mut Value)| {
+        let mut v = good.clone();
+        mutate(&mut v);
+        check(&key, &serde_json::to_vec(&v).unwrap()).is_err()
+    };
+    let ph = |v: &mut Value, i: usize, k: &str, x: Value| v["cohort"]["phases"][i][k] = x;
+    assert!(refused(&|v| ph(v, 2, "block", json!(block_of(117) + 5))), "a block inside a tempo");
+    assert!(refused(&|v| ph(v, 2, "at", json!(minute(time_of(117)) + 7))), "off the minute");
+    assert!(refused(&|v| ph(v, 2, "at", json!(minute(time_of(140))))), "after the document");
+    assert!(refused(&|v| ph(v, 2, "basis", json!("guessed"))));
+    assert!(refused(&|v| ph(v, 2, "basis", json!("earliest"))));
+    assert!(refused(&|v| ph(v, 2, "at", json!(minute(time_of(99))))), "backwards");
+    assert!(refused(&|v| ph(v, 2, "started_ms", json!(1))), "a time field outside the contract");
+    assert!(refused(&|v| v["cohort"]["phases"][2]["tempos"]["elapsed"] = json!(3)));
+    assert!(refused(&|v| v["cohort"]["phases"][2]["tempos"]["counted"] = json!(4)));
+    assert!(refused(&|v| v["cohort"]["phases"][2]["tempos"]["required"] = json!(4)));
+    assert!(refused(&|v| v["cohort"]["phases"][2]["tempos"]["at_ms"] = json!(4)));
+    assert!(refused(&|v| v["cohort"]["bounds"]["close"]["basis"] = json!("observed")));
+    assert!(refused(&|v| v["cohort"]["bounds"]["close"]["epoch"] = json!(200)));
+    assert!(refused(&|v| v["cohort"]["bounds"]["open"]["epoch"] = json!(101)));
+    assert!(refused(&|v| v["cohort"]["bounds"]["open"]["observed_ms"] = json!(1)));
+    assert!(!refused(&|_| {}));
+    // The builder's own checks drop rather than refuse. In `now.json` a block
+    // off the clock's boundary arithmetic is dropped on its own ...
+    let mut d = now_of(&o, &Memo::default());
+    assert_eq!(d.cohort.phases[1].stage, "generating");
+    d.cohort.phases[1].block = Some(block_of(117) + 5);
+    clean_now(&mut d);
+    let blocks: Vec<bool> = d.cohort.phases.iter().map(|p| p.block.is_some()).collect();
+    assert_eq!(blocks, [true, false, true, true]);
+    assert!(d.cohort.phases.iter().all(|p| p.at.is_some()), "times stay");
+    // ... and in a cohort document a block off the row's anchor drops on its
+    // own.
+    let c = chain();
+    let s = settings(&c);
+    let idx = index_with(&[(6, "testnet-r0-c6", None, 1)]);
+    let mut e = eval_json(118, "scoring", LOG_SCORING, json!({}));
+    let c6: Vec<Value> = [78, 94, 95, 96, 98, 99, 100].iter().map(|&x| bnd(x, Some(time_of(x) + 20_000), Some("observed"))).collect();
+    e["cohorts"][0]["boundaries"] = Value::Array(c6);
+    let o = observed(e);
+    let rows = listed(&s, &idx, o.eval.as_ref());
+    let good = cohort_doc(&s, &rows, 0, None, &[], 118, time_of(118));
+    let mut d = good.clone();
+    d.phases[2].block = Some(block_of(95) + 5);
+    clean_cohort(&mut d);
+    assert_eq!(d.phases[2].block, None);
+    assert!(d.phases.iter().all(|p| p.at.is_some()));
+    assert!(d.cohort.opened.as_ref().unwrap().block.is_some());
+    // Leak review 1: every block of a cohort document shifted together (or
+    // with no anchor, or a phase moved inside a tempo) is refused.
+    let key = Doc::Cohort("a", "testnet-r0-c6".into()).key();
+    let doc_refused = |mutate: &dyn Fn(&mut Value)| {
+        let mut v = value(&good);
+        mutate(&mut v);
+        check(&key, &serde_json::to_vec(&v).unwrap()).is_err()
+    };
+    assert!(!doc_refused(&|_| {}));
+    let shift = |v: &mut Value| {
+        fn walk(v: &mut Value) {
+            match v {
+                Value::Object(m) => {
+                    for (k, x) in m.iter_mut() {
+                        if k == "block" && x.is_u64() {
+                            *x = json!(x.as_u64().unwrap() + 5);
+                        } else if k != "anchor" {
+                            walk(x);
+                        }
+                    }
+                }
+                Value::Array(a) => a.iter_mut().for_each(walk),
+                _ => {}
+            }
+        }
+        walk(v);
+    };
+    assert!(doc_refused(&shift), "all blocks shifted against the anchor");
+    assert!(doc_refused(&|v| v["cohort"]["anchor"] = Value::Null), "blocks without an anchor");
+    assert!(doc_refused(&|v| v["cohort"]["tempo_blocks"] = json!(122)), "a self-declared tempo");
+    // Correctness review 5: a row mark that disagrees with the phase at its
+    // epoch is refused by the publisher, as the website would drop it.
+    assert!(doc_refused(&|v| v["cohort"]["opened"]["at"] = json!(minute(time_of(78)) - 60)));
+    // Leak review 2: a stage after the cohort's close.
+    assert!(doc_refused(&|v| {
+        let extra = json!({"stage": "scoring", "epoch": 100, "block": null, "at": null, "basis": null, "tempos": null});
+        v["phases"].as_array_mut().unwrap().push(extra);
+    }));
+}
+
+/// Leak review 2: `now.json` never dates a stage or a recorded bound after
+/// the clock's boundary.
+#[test]
+fn now_refuses_a_stage_after_the_clocks_boundary() {
+    let o = observed(eval_json(118, "scoring", LOG_SCORING, json!({"boundaries": boundaries_to(118)})));
+    let good = checked(&Doc::Now("a"), &now_of(&o, &Memo::default()));
+    let key = Doc::Now("a").key();
+    let refused = |mutate: &dyn Fn(&mut Value)| {
+        let mut v = good.clone();
+        mutate(&mut v);
+        check(&key, &serde_json::to_vec(&v).unwrap()).is_err()
+    };
+    let x = good["clock"]["boundary_epoch"].as_u64().unwrap();
+    let n = good["cohort"]["phases"].as_array().unwrap().len();
+    assert!(refused(&|v| {
+        v["cohort"]["phases"][n - 1]["epoch"] = json!(x + 1);
+        v["cohort"]["phases"][n - 1]["block"] = json!(block_of(x + 1));
+        v["cohort"]["phases"][n - 1]["tempos"] = Value::Null;
+    }));
+    assert!(refused(&|v| {
+        v["cohort"]["bounds"]["close"]["basis"] = json!("observed");
+        v["cohort"]["bounds"]["close"]["at"] = json!(minute(time_of(x)));
+    }));
+    // The earliest close is a future estimate by design.
+    assert!(good["cohort"]["bounds"]["close"]["epoch"].as_u64().unwrap() > x);
+}
+
+/// Correctness review 3: a boundary the engine could not date (records on
+/// both sides, none supporting a time) is `unresolved`, not before tracking.
+#[test]
+fn an_underivable_boundary_is_unresolved() {
+    let mut b = boundaries_to(118);
+    let arr = b.as_array_mut().unwrap();
+    let k = arr.iter().position(|x| x["epoch"] == 117).unwrap();
+    arr[k] = json!({"epoch": 117, "block": null, "block_basis": null, "at_ms": null, "at_basis": null,
+                    "active": null, "at_reason": "not_derivable"});
+    let k0 = arr.iter().position(|x| x["epoch"] == 100).unwrap();
+    arr[k0] = json!({"epoch": 100, "block": null, "block_basis": null, "at_ms": null, "at_basis": null,
+                     "active": null, "at_reason": "before_tracking"});
+    let o = observed(eval_json(118, "scoring", LOG_SCORING, json!({"boundaries": b})));
+    let d = now_of(&o, &Memo::default());
+    checked(&Doc::Now("a"), &d);
+    let at = |st: &str| d.cohort.phases.iter().find(|p| p.stage == st).map(|p| (p.at, p.basis.clone())).unwrap();
+    assert_eq!(at("generating"), (None, Some("unresolved".into())), "seen at 117");
+    assert_eq!(at("admission_open"), (None, None), "before tracking: no basis");
+}
+
+/// Correctness review 4: an admission that ends without reaching its
+/// minimum (abandoned) counts its credited tempos by the records, never the
+/// minimum.
+#[test]
+fn an_abandoned_admission_counts_by_the_records() {
+    let log = [("admission", 100), ("abandoned", 117)];
+    let mut b = boundaries_to(118);
+    for x in b.as_array_mut().unwrap() {
+        // Only every other boundary credited after 104.
+        let e = x["epoch"].as_u64().unwrap();
+        x["active"] = json!(40 + (e - 100).min(4) + (e.saturating_sub(104)) / 2);
+    }
+    let o = observed(eval_json(118, "abandoned", &log, json!({"boundaries": b})));
+    let c = o.eval.as_ref().unwrap().cohorts.iter().find(|c| c.cohort == 7).unwrap();
+    let mut phases = visible_phases(c, 118, None, &BTreeMap::new());
+    assert_eq!(phases.iter().map(|p| p.stage.as_str()).collect::<Vec<_>>(), ["admission_open", "ended"]);
+    with_tempos(c, &mut phases, None);
+    let t = phases[0].tempos.clone().unwrap();
+    // The end commits inside epoch 117 and is seen at 118: 18 epochs, of
+    // which 4 + 14 / 2 = 11 credited.
+    assert_eq!(t.elapsed, Some(18));
+    assert_eq!(t.counted, Some(11), "credited by the records, not the 16-tempo minimum");
+}
+
+/// The website's fixtures satisfy the same stage-time checks the publisher
+/// runs before writing.
+#[test]
+fn the_websites_fixtures_pass_the_stage_time_checks() {
+    fn ok<T: Clone + PartialEq + std::fmt::Debug + for<'d> Deserialize<'d>>(name: &str, text: &str, clean: fn(&mut T)) {
+        let d: T = serde_json::from_str(text).unwrap();
+        let mut c = d.clone();
+        clean(&mut c);
+        assert_eq!(c, d, "{name}");
+    }
+    macro_rules! fixtures {
+        ($t:ty, $f:expr, $($name:literal),+) => {
+            $(ok::<$t>($name, include_str!(concat!("../tests/fixtures/dashboard-web/", $name, ".json")), $f);)+
+        };
+    }
+    fixtures!(NowDoc, clean_now, "now-admission", "now-closing", "now-building", "now-scoring", "now-transition",
+        "now-queued", "now-idle", "now-paused", "now-hold", "now-epoch-only");
+    fixtures!(CohortsDoc, clean_cohorts, "cohorts-scoring");
+    fixtures!(CohortDoc, clean_cohort, "cohort-scoring-testnet-c117", "cohort-scoring-testnet-c112",
+        "cohort-transition-testnet-c118", "cohort-no-scores-testnet-c117");
 }

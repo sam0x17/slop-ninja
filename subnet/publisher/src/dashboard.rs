@@ -46,7 +46,7 @@ pub use contract::Doc;
 
 /// Bumped whenever a document's derivation changes, so every cohort
 /// document is rebuilt once ([`Memo::cohorts_key`]).
-pub const RULES: &str = "slop_ninja.dashboard.publisher/v1";
+pub const RULES: &str = "slop_ninja.dashboard.publisher/v2";
 
 /// The `cohort/v1` bar stages in order, with their kind (progress-hero
 /// spec, section 2).
@@ -152,8 +152,39 @@ pub struct Pause {
 #[serde(deny_unknown_fields)]
 pub struct Phase {
     pub stage: String,
+    /// The tempo boundary the stage started at (its stop is the next
+    /// phase's start).
     pub epoch: Option<u64>,
+    /// That boundary's first block.
+    pub block: Option<u64>,
+    /// That boundary's time, to the minute.
     pub at: Option<u64>,
+    /// How `at` is known: `observed`, `derived`, `unresolved` (no time: the
+    /// engine has records around the boundary but none supports one, or a
+    /// check removed it) or `None` (no time: before tracking began).
+    pub basis: Option<String>,
+    pub tempos: Option<PhaseTempos>,
+}
+
+/// A stage's tempos: epochs from its start to its stop (to the observed
+/// boundary for the current stage), credited tempos among them, and the
+/// template's requirement for a schedule stage.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct PhaseTempos {
+    pub elapsed: Option<u64>,
+    pub counted: Option<u64>,
+    pub required: Option<u64>,
+}
+
+/// A cohort's opening, admission cutoff and close as boundary points; the
+/// close of a running cohort is its earliest close (`basis: earliest`).
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct CohortBounds {
+    pub open: Option<Mark>,
+    pub cutoff: Option<Mark>,
+    pub close: Option<Mark>,
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -234,6 +265,7 @@ pub struct CohortNow {
     pub plan: Option<Plan>,
     pub results: bool,
     pub mode: Option<String>,
+    pub bounds: Option<CohortBounds>,
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -299,7 +331,22 @@ pub struct NowDoc {
 #[serde(deny_unknown_fields)]
 pub struct Mark {
     pub epoch: Option<u64>,
+    pub block: Option<u64>,
     pub at: Option<u64>,
+    /// `observed`, `derived`, `unresolved`, `earliest` (a bound's earliest
+    /// close only) or `None` (see [`Phase::basis`]).
+    pub basis: Option<String>,
+}
+
+/// The clock's tempo boundary projected to a listed cohort's opening at the
+/// tempo in force (`clock.boundary_block - (clock.boundary_epoch - epoch) *
+/// tempo_blocks`): the reference every block of the row and its
+/// document must agree with. Stable while the tempo is.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Anchor {
+    pub epoch: Option<u64>,
+    pub block: Option<u64>,
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -320,6 +367,12 @@ pub struct CohortRow {
     pub quantization: Option<Quantization>,
     pub leaderboard: bool,
     pub ended_class: Option<String>,
+    /// Cohort documents only (`None` in the list).
+    pub bounds: Option<CohortBounds>,
+    /// The clock's tempo length, with [`CohortRow::anchor`] the reference of
+    /// every block of the row (and its document). Without both, no block.
+    pub tempo_blocks: Option<u64>,
+    pub anchor: Option<Anchor>,
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -442,13 +495,24 @@ const INDEX_PATHS: &[&str] = &[
     "mechanisms[].stage_set",
 ];
 
-const PHASE: &[&str] = &["stage", "epoch", "at"];
+const PHASE: &[&str] = &[
+    "stage",
+    "epoch",
+    "block",
+    "at",
+    "basis",
+    "tempos",
+    "tempos.elapsed",
+    "tempos.counted",
+    "tempos.required",
+];
 const STAGE_PLAN: &[&str] = &["stage", "kind", "expected_tempos", "earliest_epoch", "earliest_block"];
 const TEMPLATE: &[&str] = &["k_tempos", "admission_tempos", "transition_tempos", "work_window_tempos"];
 const QUANT: &[&str] = &["rule", "width"];
 const OWNER: &[&str] = &["uid", "hotkey"];
 const ARTIFACT: &[&str] = &["state", "download"];
-const MARK: &[&str] = &["epoch", "at"];
+const MARK: &[&str] = &["epoch", "block", "at", "basis"];
+const BOUNDS: &[&str] = &["open", "cutoff", "close"];
 
 const NOW_PATHS: &[&str] = &[
     "mechanism",
@@ -490,6 +554,7 @@ const NOW_PATHS: &[&str] = &[
     "cohort.plan.stages",
     "cohort.results",
     "cohort.mode",
+    "cohort.bounds",
     "next",
     "next.cohort",
     "next.earliest_open_epoch",
@@ -528,6 +593,11 @@ const ROW: &[&str] = &[
     "quantization",
     "leaderboard",
     "ended_class",
+    "bounds",
+    "tempo_blocks",
+    "anchor",
+    "anchor.epoch",
+    "anchor.block",
 ];
 
 const ENTRANT: &[&str] = &[
@@ -595,6 +665,10 @@ pub fn allowed_paths(doc: &Doc) -> BTreeSet<String> {
             add("best.owner", OWNER);
             add("best.quantization", QUANT);
             add("best.artifact", ARTIFACT);
+            add("cohort.bounds", BOUNDS);
+            for b in BOUNDS {
+                add(&format!("cohort.bounds.{b}"), MARK);
+            }
         }
         Doc::Cohorts(_) => {
             add("", &["mechanism", "cohorts", "records", "records[].first_label", "record_prefix"]);
@@ -613,6 +687,10 @@ pub fn allowed_paths(doc: &Doc) -> BTreeSet<String> {
             }
             add("cohort.promoted", OWNER);
             add("cohort.quantization", QUANT);
+            add("cohort.bounds", BOUNDS);
+            for b in BOUNDS {
+                add(&format!("cohort.bounds.{b}"), MARK);
+            }
             add("phases[]", PHASE);
             add("plan.template", TEMPLATE);
             add("plan.stages[]", STAGE_PLAN);
@@ -720,13 +798,316 @@ pub fn check(key: &str, bytes: &[u8]) -> Result<Doc, String> {
             return Err(format!("{key}: pause class outside the closed list"));
         }
     }
+    if let Doc::Now(_) = doc {
+        // No stage or bound dated after the boundary the clock reports: a
+        // stage is shown as of the last boundary, so a later epoch would
+        // show a change before its boundary (the work-timing guard).
+        let c = &v["cohort"];
+        let clock = v["clock"]["boundary_epoch"].as_u64().or(v["clock"]["confirmed_epoch"].as_u64());
+        let late = |p: &Value| p["epoch"].as_u64().is_some_and(|e| clock.is_none_or(|x| e > x));
+        let phases = c["phases"].as_array().map(Vec::as_slice).unwrap_or_default();
+        let bounds = ["open", "cutoff", "close"]
+            .iter()
+            .map(|b| &c["bounds"][*b])
+            .filter(|m| m["basis"].as_str() != Some("earliest"));
+        if phases.iter().chain(bounds).any(late) {
+            return Err(format!("{key}: a stage dated after the clock's boundary"));
+        }
+    }
     if let Doc::Cohort(..) = doc {
         let state = v["cohort"]["state"].as_str().unwrap_or_default();
         if !matches!(state, "published" | "closed") && (!v["entrants"].is_null() || !v["quality"].is_null()) {
             return Err(format!("{key}: entrants before results"));
         }
+        let phases = v["phases"].as_array().map(Vec::as_slice).unwrap_or_default();
+        if let Some(end) = phases.iter().position(|p| matches!(p["stage"].as_str(), Some("closed" | "ended")))
+            && end + 1 < phases.len()
+        {
+            return Err(format!("{key}: a stage after the cohort's end"));
+        }
     }
+    // Stage times: the document parses into the contract's types (no field
+    // outside them, such as a work commit's own time) and the checks of
+    // [`clean_now`], [`clean_cohorts`] and [`clean_cohort`] change nothing.
+    fn unchanged<T: Clone + PartialEq + for<'d> Deserialize<'d>>(v: Value, clean: fn(&mut T)) -> Result<(), &'static str> {
+        let d: T = serde_json::from_value(v).map_err(|_| "not the contract's shape")?;
+        let mut c = d.clone();
+        clean(&mut c);
+        if c == d { Ok(()) } else { Err("stage times or blocks fail the contract's checks") }
+    }
+    match doc {
+        Doc::Now(_) => unchanged::<NowDoc>(v, clean_now),
+        Doc::Cohorts(_) => unchanged::<CohortsDoc>(v, clean_cohorts),
+        Doc::Cohort(..) => unchanged::<CohortDoc>(v, clean_cohort),
+        _ => Ok(()),
+    }
+    .map_err(|why| format!("{key}: {why}"))?;
     Ok(doc)
+}
+
+// ------------------------------------------------------------ stage times
+//
+// The contract's checks of boundary points (PLAN section 9; the website's
+// `clean.rs` runs the same): every block agrees with a reference boundary
+// (the clock's, or a listed cohort's anchor projected from it) at the
+// clock's tempo, so it can only be a tempo-boundary block, and without a
+// reference no block is kept; every time is on the minute, no later than
+// the document and never going backwards with the epoch; equal epochs carry
+// equal points; and each value says how it is known. The builders run these
+// checks before writing, and [`check`] refuses a document they would change.
+//
+// What the checks cannot verify: that a time is the boundary's time rather
+// than another minute inside the same tempo. That rests on the producer
+// (the engine's boundary journal holds only boundary observations and
+// boundary-step records, never a work commit's time) and is stated in the
+// contract.
+
+/// A boundary point's fields, for the checks.
+struct Pt<'a> {
+    epoch: Option<u64>,
+    block: &'a mut Option<u64>,
+    at: &'a mut Option<u64>,
+    basis: &'a mut Option<String>,
+    /// A phase (phase epochs never go back).
+    phase: bool,
+    /// A bound's close, which may be an earliest estimate.
+    earliest_ok: bool,
+}
+
+fn pt_phase(p: &mut Phase) -> Pt<'_> {
+    Pt {
+        epoch: p.epoch,
+        block: &mut p.block,
+        at: &mut p.at,
+        basis: &mut p.basis,
+        phase: true,
+        earliest_ok: false,
+    }
+}
+
+fn pt_mark(m: &mut Mark, earliest_ok: bool) -> Pt<'_> {
+    Pt {
+        epoch: m.epoch,
+        block: &mut m.block,
+        at: &mut m.at,
+        basis: &mut m.basis,
+        phase: false,
+        earliest_ok,
+    }
+}
+
+/// `at` only with `observed` or `derived`; `earliest` only on a close and
+/// without `at`; a time removed (or never derivable) is `unresolved`, so it
+/// never reads as before tracking; nothing without an epoch.
+fn couple(p: &mut Pt<'_>) {
+    if p.epoch.is_none() {
+        (*p.block, *p.at, *p.basis) = (None, None, None);
+        return;
+    }
+    match p.basis.as_deref() {
+        Some("earliest") if p.earliest_ok => *p.at = None,
+        Some("observed" | "derived") if p.at.is_some() => {}
+        Some("observed" | "derived" | "unresolved") => (*p.at, *p.basis) = (None, Some("unresolved".into())),
+        _ => (*p.at, *p.basis) = (None, None),
+    }
+}
+
+/// The point checks over every point of one document. `tempo` is the tempo
+/// length the blocks must follow and `reference` a boundary (epoch, block)
+/// every block must agree with; without both, no block is kept.
+fn clean_points(pts: &mut [Pt<'_>], generated_at: Option<u64>, tempo: Option<u64>, reference: Option<(u64, u64)>) {
+    for p in pts.iter_mut() {
+        couple(p);
+        if p.at.is_some_and(|a| a % 60 != 0 || generated_at.is_none_or(|g| a > g)) {
+            *p.at = None;
+            couple(p);
+        }
+    }
+    // Phase epochs never go back, and every point at one boundary (phases,
+    // marks and bounds alike, except an earliest estimate) carries its one
+    // point.
+    let phases: Vec<usize> = (0..pts.len()).filter(|&i| pts[i].phase).collect();
+    let back = phases
+        .windows(2)
+        .any(|w| matches!((pts[w[0]].epoch, pts[w[1]].epoch), (Some(x), Some(y)) if y < x));
+    let firm: Vec<usize> = (0..pts.len()).filter(|&i| pts[i].basis.as_deref() != Some("earliest")).collect();
+    let split = firm.iter().enumerate().any(|(k, &i)| {
+        firm[k + 1..].iter().any(|&j| {
+            let (a, b) = (&pts[i], &pts[j]);
+            a.epoch.is_some() && a.epoch == b.epoch && (*a.block, *a.at, &*a.basis) != (*b.block, *b.at, &*b.basis)
+        })
+    });
+    if back || split {
+        for p in pts.iter_mut() {
+            (*p.block, *p.at) = (None, None);
+        }
+    }
+    // Times never go back as the epoch grows.
+    let timed: Vec<(u64, u64)> = pts.iter().filter_map(|p| Some((p.epoch?, (*p.at)?))).collect();
+    if timed.iter().any(|(e1, a1)| timed.iter().any(|(e2, a2)| e1 < e2 && a1 > a2)) {
+        for p in pts.iter_mut() {
+            *p.at = None;
+        }
+    }
+    // Every block is a boundary block: it agrees with the reference at the
+    // tempo; with no reference or tempo, none is kept.
+    // `tempo_blocks` is the chain's boundary interval: consecutive tempo
+    // boundaries are that many blocks apart (the live journal: 360).
+    let step = tempo.filter(|t| *t > 0).map(i128::from);
+    for p in pts.iter_mut() {
+        let ok = match (step, reference, p.epoch, *p.block) {
+            (Some(st), Some((re, rb)), Some(e), Some(b)) => {
+                i128::from(b) - i128::from(rb) == (i128::from(e) - i128::from(re)) * st
+            }
+            _ => false,
+        };
+        if !ok {
+            *p.block = None;
+        }
+    }
+    for p in pts.iter_mut() {
+        couple(p);
+    }
+}
+
+/// The stage tempos checks: `elapsed` is the epochs to the next phase's
+/// start (to `current` for the last phase of a running cohort), `counted`
+/// at most that, `required` only on the schedule stages and within the
+/// template. A phase that fails loses its tempos.
+fn clean_tempos(phases: &mut [Phase], current: Option<u64>, plan: Option<&Plan>) {
+    let template = plan.map(|p| &p.template);
+    let next_epochs: Vec<Option<u64>> = (0..phases.len()).map(|i| phases.get(i + 1).and_then(|n| n.epoch)).collect();
+    let n = phases.len();
+    for (i, p) in phases.iter_mut().enumerate() {
+        let Some(t) = &p.tempos else { continue };
+        let instant = matches!(p.stage.as_str(), "closed" | "ended");
+        let stop = if i + 1 < n { next_epochs[i] } else { current.filter(|_| !instant) };
+        let expected = stop.zip(p.epoch).and_then(|(s, e)| s.checked_sub(e));
+        let required_ok = match p.stage.as_str() {
+            "admission_open" => t.required.is_none() || t.required == template.and_then(|t| t.admission_tempos),
+            "transition" => t.required.is_none_or(|r| {
+                template.is_some_and(|t| t.transition_tempos.is_some_and(|tt| r >= tt) && t.k_tempos.is_some_and(|k| r <= k))
+            }),
+            _ => t.required.is_none(),
+        };
+        let ok = !instant
+            && expected.is_some()
+            && t.elapsed == expected
+            && t.counted.is_none_or(|c| Some(c) <= t.elapsed)
+            && required_ok;
+        if !ok {
+            p.tempos = None;
+        }
+    }
+}
+
+/// The bound checks: the opening and cutoff are those phases' boundaries;
+/// the close is an earliest estimate exactly while the cohort runs, and
+/// then the expected close (`earliest`, epoch and block; `None` where no
+/// estimate may appear).
+fn clean_bounds(b: &mut Option<CohortBounds>, phases: &[Phase], earliest: Option<(Option<u64>, Option<u64>)>) {
+    let Some(bounds) = b.as_mut() else { return };
+    let epoch_of = |st: &str| phases.iter().find(|p| p.stage == st).map(|p| p.epoch);
+    if bounds.open.as_ref().is_some_and(|o| epoch_of("admission_open") != Some(o.epoch)) {
+        bounds.open = None;
+    }
+    if let (Some(c), Some(pe)) = (&bounds.cutoff, epoch_of("admission_closing"))
+        && c.epoch != pe
+    {
+        bounds.cutoff = None;
+    }
+    let running = !phases.last().is_some_and(|p| matches!(p.stage.as_str(), "closed" | "ended"));
+    if let Some(c) = &bounds.close {
+        let est = c.basis.as_deref() == Some("earliest");
+        let ok = if est {
+            running && earliest.is_some_and(|(e, blk)| e == c.epoch && blk == c.block)
+        } else {
+            !running && epoch_of("closed").is_some_and(|e| e == c.epoch)
+        };
+        if !ok {
+            bounds.close = None;
+        }
+    }
+}
+
+fn bound_points(b: &mut Option<CohortBounds>) -> Vec<Pt<'_>> {
+    let Some(b) = b.as_mut() else { return Vec::new() };
+    let CohortBounds { open, cutoff, close } = b;
+    let mut out = Vec::new();
+    out.extend(open.as_mut().map(|m| pt_mark(m, false)));
+    out.extend(cutoff.as_mut().map(|m| pt_mark(m, false)));
+    out.extend(close.as_mut().map(|m| pt_mark(m, true)));
+    out
+}
+
+fn row_points(r: &mut CohortRow) -> Vec<Pt<'_>> {
+    let CohortRow {
+        opened,
+        admission_closed,
+        published,
+        closed,
+        ..
+    } = r;
+    [opened, admission_closed, published, closed]
+        .into_iter()
+        .filter_map(|m| m.as_mut().map(|m| pt_mark(m, false)))
+        .collect()
+}
+
+/// [`clean_points`], [`clean_tempos`] and [`clean_bounds`] over `now.json`:
+/// blocks follow the clock's tempo and boundary; the last phase of a running
+/// cohort counts to the clock's boundary epoch.
+pub fn clean_now(d: &mut NowDoc) {
+    let c = &mut d.cohort;
+    let earliest = Some((c.expected.close_epoch, c.expected.close_block));
+    clean_bounds(&mut c.bounds, &c.phases, earliest);
+    clean_tempos(&mut c.phases, d.clock.boundary_epoch, c.plan.as_ref());
+    if c.stage == "transition"
+        && let (Some(t), Some(p)) = (&c.tempos, &c.plan)
+        && t.required.is_some_and(|r| {
+            p.template.transition_tempos.is_some_and(|tt| r < tt) || p.template.k_tempos.is_some_and(|k| r > k)
+        })
+    {
+        c.tempos = None;
+    }
+    let reference = d.clock.boundary_epoch.zip(d.clock.boundary_block);
+    let CohortNow { phases, bounds, .. } = c;
+    let mut pts: Vec<Pt<'_>> = phases.iter_mut().map(pt_phase).collect();
+    pts.extend(bound_points(bounds));
+    clean_points(&mut pts, d.generated_at, d.clock.tempo_blocks, reference);
+}
+
+/// A row's reference boundary, when its anchor is whole.
+fn anchor_of(r: &CohortRow) -> Option<(u64, u64)> {
+    r.anchor.as_ref().and_then(|a| a.epoch.zip(a.block))
+}
+
+/// The checks over the cohort list: each row's marks against its anchor at
+/// the clock's tempo; bounds are not list fields.
+pub fn clean_cohorts(d: &mut CohortsDoc) {
+    for r in &mut d.cohorts {
+        r.bounds = None;
+        let (tempo, reference) = (r.tempo_blocks, anchor_of(r));
+        clean_points(&mut row_points(r), d.generated_at, tempo, reference);
+    }
+}
+
+/// The checks over one cohort document: its phases, row marks and bounds
+/// against the row's anchor at the clock's tempo; no earliest estimate
+/// appears.
+pub fn clean_cohort(d: &mut CohortDoc) {
+    clean_bounds(&mut d.cohort.bounds, &d.phases, None);
+    clean_tempos(&mut d.phases, None, d.plan.as_ref());
+    let (tempo, reference) = (d.cohort.tempo_blocks, anchor_of(&d.cohort));
+    let CohortRow { bounds, .. } = &mut d.cohort;
+    let mut bounds = bounds.take();
+    {
+        let mut pts: Vec<Pt<'_>> = d.phases.iter_mut().map(pt_phase).collect();
+        pts.extend(row_points(&mut d.cohort));
+        pts.extend(bound_points(&mut bounds));
+        clean_points(&mut pts, d.generated_at, tempo, reference);
+    }
+    d.cohort.bounds = bounds;
 }
 
 /// The dashboard bucket: every write runs [`check`], and nothing else is
@@ -922,7 +1303,9 @@ pub fn visible_phases(
         if out.iter().any(|p| p.stage == stage) || bar.zip(last_bar).is_some_and(|(b, l)| b <= l) {
             continue;
         }
-        let at = if step_time && seen == e {
+        // Without the engine's boundary journal: the boundary step's own
+        // record, or the minute the publisher first saw the boundary.
+        let fallback = if step_time && seen == e {
             m.at_ms.map(minute)
         } else {
             seen_at.get(&seen).copied()
@@ -931,11 +1314,7 @@ pub fn visible_phases(
         if bar.is_some() {
             last_bar = bar;
         }
-        out.push(Phase {
-            stage: stage.into(),
-            epoch: Some(seen),
-            at,
-        });
+        out.push(dated(c, stage, seen, fallback));
     }
     // The closing step.
     let w = window.filter(|w| w.cohort == c.cohort);
@@ -954,18 +1333,158 @@ pub fn visible_phases(
             let e = e.max(out[i].epoch.unwrap_or(0));
             let fits = out.get(i + 1).is_none_or(|n| n.epoch.is_some_and(|ne| ne >= e));
             if fits {
-                out.insert(
-                    i + 1,
-                    Phase {
-                        stage: "admission_closing".into(),
-                        epoch: Some(e),
-                        at: seen_at.get(&e).copied(),
-                    },
-                );
+                out.insert(i + 1, dated(c, "admission_closing", e, seen_at.get(&e).copied()));
             }
         }
     }
+    // Stages that start at one boundary carry that boundary's one point.
+    for j in 1..out.len() {
+        if out[j].epoch == out[j - 1].epoch {
+            let (block, at, basis) = (out[j - 1].block, out[j - 1].at, out[j - 1].basis.clone());
+            let p = &mut out[j];
+            (p.block, p.at, p.basis) = (block, at, basis);
+        }
+    }
     out
+}
+
+/// Stage `stage` starting at boundary `epoch`, dated by the engine's
+/// resolved boundary (its block, its time to the minute and how that time
+/// is known). `fallback` is the time for a coordinator that reports no
+/// boundary journal (the boundary step's own record or the minute the
+/// publisher first saw the boundary). A work commit's own time is never
+/// read.
+fn dated(c: &CohortView, stage: &str, epoch: u64, fallback: Option<u64>) -> Phase {
+    let b = c.dash.boundaries.get(&epoch);
+    let (at, basis) = if c.dash.boundaries.is_empty() {
+        (fallback, fallback.map(|_| "observed".to_owned()))
+    } else {
+        // The engine's journal is the only source: a boundary it has no time
+        // for is unresolved when the journal has rows around it, otherwise
+        // not recorded (before tracking began).
+        match b.and_then(|b| Some((b.at_ms.map(minute)?, b.at_basis.clone()?))) {
+            Some((at, basis)) => (Some(at), Some(basis)),
+            None if b.is_some_and(|b| b.at_reason.as_deref() == Some("not_derivable")) => {
+                (None, Some("unresolved".to_owned()))
+            }
+            None => (None, None),
+        }
+    };
+    Phase {
+        stage: stage.into(),
+        epoch: Some(epoch),
+        block: b.and_then(|b| b.block),
+        at,
+        basis,
+        tempos: None,
+    }
+}
+
+/// The credited-tempo count after boundary `e`: the cohort's own record at
+/// its opening and publication, else the boundary journal's.
+fn active_at(c: &CohortView, e: u64) -> Option<u64> {
+    match () {
+        _ if c.opened_epoch == Some(e) && c.opened_active.is_some() => c.opened_active,
+        _ if c.dash.published_epoch == Some(e) && c.dash.published_active.is_some() => c.dash.published_active,
+        _ => c.dash.boundaries.get(&e).and_then(|b| b.active),
+    }
+}
+
+/// The tempos the results stage needs before the close: the engine closes
+/// once `transition_tempos` are credited after publication and `k_tempos`
+/// after the opening, so `max(transition, opened + k - published)`, at most
+/// `k`.
+fn effective_required(c: &CohortView) -> Option<u64> {
+    let (k, _, t) = template(c)?;
+    let by_k = c
+        .opened_active
+        .zip(c.dash.published_active)
+        .and_then(|(o, p)| o.checked_add(k)?.checked_sub(p));
+    Some(by_k.map_or(t, |v| v.max(t)).min(k))
+}
+
+/// Each phase's tempos: epochs to the next phase's start (to `current`'s
+/// boundary for the last phase of the current cohort), credited tempos in
+/// that span, and the requirement of a schedule stage. An instant (a close,
+/// an end) carries none.
+fn with_tempos(c: &CohortView, phases: &mut [Phase], current: Option<(u64, Option<u64>)>) {
+    let a = template(c).map(|(_, a, _)| a);
+    let n = phases.len();
+    for i in 0..n {
+        phases[i].tempos = None;
+        let stage = phases[i].stage.clone();
+        let Some(start) = phases[i].epoch else { continue };
+        if matches!(stage.as_str(), "closed" | "ended") {
+            continue;
+        }
+        let required = match stage.as_str() {
+            "admission_open" => a,
+            "transition" => effective_required(c),
+            _ => None,
+        };
+        let (stop, counted) = if let Some(next) = phases.get(i + 1) {
+            let by_records = next
+                .epoch
+                .and_then(|s| active_at(c, s)?.checked_sub(active_at(c, start)?));
+            let counted = match stage.as_str() {
+                // The window closes at the first boundary that reaches the
+                // minimum, and each boundary credits at most one tempo; an
+                // admission that ended otherwise (abandoned) counts by the
+                // records.
+                "admission_open" if matches!(next.stage.as_str(), "admission_closing" | "generating") => a,
+                _ => by_records,
+            };
+            (next.epoch, counted)
+        } else if let Some((x, now_active)) = current {
+            let counted = now_active.and_then(|v| v.checked_sub(active_at(c, start)?));
+            let counted = match stage.as_str() {
+                "admission_open" => counted.zip(a).map(|(v, a)| v.min(a)),
+                "transition" => counted.zip(required).map(|(v, r)| v.min(r)),
+                _ => counted,
+            };
+            (Some(x), counted)
+        } else {
+            (None, None)
+        };
+        let Some(elapsed) = stop.and_then(|s| s.checked_sub(start)) else { continue };
+        phases[i].tempos = Some(PhaseTempos {
+            elapsed: Some(elapsed),
+            counted: counted.filter(|v| *v <= elapsed),
+            required,
+        });
+    }
+}
+
+fn mark_of(p: &Phase) -> Mark {
+    Mark {
+        epoch: p.epoch,
+        block: p.block,
+        at: p.at,
+        basis: p.basis.clone(),
+    }
+}
+
+/// The opening, cutoff and close of a cohort from its phases; a running
+/// cohort's close is `earliest_close` (epoch and block, `basis: earliest`).
+fn cohort_bounds(phases: &[Phase], earliest_close: Option<(u64, Option<u64>)>) -> Option<CohortBounds> {
+    if phases.is_empty() {
+        return None;
+    }
+    let find = |st: &str| phases.iter().find(|p| p.stage == st).map(mark_of);
+    let ended = phases.last().is_some_and(|p| p.stage == "ended");
+    let close = find("closed").or_else(|| {
+        earliest_close.filter(|_| !ended).map(|(e, b)| Mark {
+            epoch: Some(e),
+            block: b,
+            at: None,
+            basis: Some("earliest".into()),
+        })
+    });
+    Some(CohortBounds {
+        open: find("admission_open"),
+        cutoff: find("admission_closing"),
+        close,
+    })
 }
 
 /// The cohort shown as current at boundary `x`: the newest cohort of the
@@ -1163,10 +1682,15 @@ fn bounds(c: &CohortView, phases: &[Phase], stage: &str, e: &EvalView, x: u64, c
             credited: credited_open.map(|v| v.min(a)),
             required: Some(a),
         }),
-        "transition" => Some(Tempos {
-            credited: credited(c.dash.published_active).map(|v| v.min(t)),
-            required: Some(t),
-        }),
+        // The results stage needs its own minimum and the cohort's K
+        // credited tempos since the opening ([`effective_required`]).
+        "transition" => {
+            let r = effective_required(c).unwrap_or(t);
+            Some(Tempos {
+                credited: credited(c.dash.published_active).map(|v| v.min(r)),
+                required: Some(r),
+            })
+        }
         _ => None,
     };
     let mut prev: Option<u64> = None;
@@ -1301,7 +1825,7 @@ pub fn now_doc(
     let block = |epoch: u64| -> Option<u64> {
         let (bb, be) = boundary?;
         let d = epoch.checked_sub(be)?;
-        bb.checked_add(d.checked_mul(tempo.checked_add(1)?)?)
+        bb.checked_add(d.checked_mul(tempo)?)
     };
     let sources_ok = o.coordinator.is_some() && o.eval_worker.is_some() && e.is_some();
     let age_ms = o.eval_worker.as_ref().and_then(|w| w.confirmed_age_ms);
@@ -1392,6 +1916,9 @@ pub fn now_doc(
                     as_of_epoch: Some(x),
                 });
             }
+            let mut phases = phases;
+            with_tempos(c, &mut phases, Some((x, e.active_tempos)));
+            cohort.bounds = cohort_bounds(&phases, cohort.expected.close_epoch.map(|e| (e, block(e))));
             cohort.phases = phases;
             let close = cohort.expected.close_epoch;
             // A later cohort opens at the boundary that closes this one, at
@@ -1443,7 +1970,7 @@ pub fn now_doc(
         };
     }
     let latest_cohort = idx.and_then(|i| i.cohorts.last()).map(|c| c.label.clone());
-    NowDoc {
+    let mut d = NowDoc {
         schema: Doc::Now("a").schema().into(),
         network: "testnet".into(),
         chain: chain(s.chain),
@@ -1459,7 +1986,9 @@ pub fn now_doc(
         notice,
         advisory: None,
         sources_ok: Some(sources_ok),
-    }
+    };
+    clean_now(&mut d);
+    d
 }
 
 /// `index.json`: A live on chain mechanism `chain.mechanism`, B and C
@@ -1500,10 +2029,20 @@ pub struct Listed<'a> {
 }
 
 fn mark(phases: &[Phase], stage: &str) -> Option<Mark> {
-    phases.iter().find(|p| p.stage == stage).map(|p| Mark {
-        epoch: p.epoch,
-        at: p.at,
-    })
+    phases.iter().find(|p| p.stage == stage).map(mark_of)
+}
+
+/// The mark at `epoch` (an index entry's own epoch), dated by the phase
+/// `stage` when it starts at that boundary, else by any phase starting
+/// there (equal epochs carry equal points), else undated.
+fn mark_at(phases: &[Phase], stage: &str, epoch: u64) -> Mark {
+    mark(phases, stage)
+        .filter(|m| m.epoch == Some(epoch))
+        .or_else(|| phases.iter().find(|p| p.epoch == Some(epoch)).map(mark_of))
+        .unwrap_or(Mark {
+            epoch: Some(epoch),
+            ..Default::default()
+        })
 }
 
 /// The phases of a listed cohort: from its phase log when the status still
@@ -1515,21 +2054,24 @@ fn mark(phases: &[Phase], stage: &str) -> Option<Mark> {
 /// carried.
 fn phases_of(view: Option<&CohortView>, entry: Option<&CohortEntry>, x: u64) -> Vec<Phase> {
     match view {
-        Some(v) if !v.dash.log.is_empty() => visible_phases(v, x, None, &BTreeMap::new()),
+        Some(v) if !v.dash.log.is_empty() => {
+            let mut p = visible_phases(v, x, None, &BTreeMap::new());
+            with_tempos(v, &mut p, None);
+            p
+        }
         _ => entry
             .map(|c| {
-                vec![
-                    Phase {
-                        stage: "admission_open".into(),
-                        epoch: Some(c.opened_epoch),
-                        at: None,
-                    },
-                    Phase {
-                        stage: "closed".into(),
-                        epoch: Some(c.closed_epoch),
-                        at: None,
-                    },
-                ]
+                let undated = |stage: &str, epoch| Phase {
+                    stage: stage.into(),
+                    epoch: Some(epoch),
+                    ..Default::default()
+                };
+                let mut p = vec![undated("admission_open", c.opened_epoch), undated("closed", c.closed_epoch)];
+                if let Some(v) = view {
+                    p = p.into_iter().map(|q| dated(v, &q.stage, q.epoch.unwrap_or(0), None)).collect();
+                    with_tempos(v, &mut p, None);
+                }
+                p
             })
             .unwrap_or_default(),
     }
@@ -1550,16 +2092,10 @@ pub fn listed<'a>(s: &Settings<'_>, idx: &'a CohortIndex, e: Option<&'a EvalView
                 cohort: c.cohort,
                 label: c.label.clone(),
                 state: "closed".into(),
-                opened: Some(Mark {
-                    epoch: Some(c.opened_epoch),
-                    at: mark(&phases, "admission_open").and_then(|m| m.at),
-                }),
+                opened: Some(mark_at(&phases, "admission_open", c.opened_epoch)),
                 admission_closed: mark(&phases, "admission_closing"),
                 published: mark(&phases, "transition"),
-                closed: Some(Mark {
-                    epoch: Some(c.closed_epoch),
-                    at: mark(&phases, "closed").and_then(|m| m.at),
-                }),
+                closed: Some(mark_at(&phases, "closed", c.closed_epoch)),
                 mode: None,
                 promoted: c.promoted.as_ref().map(|h| Owner {
                     uid: None,
@@ -1571,6 +2107,9 @@ pub fn listed<'a>(s: &Settings<'_>, idx: &'a CohortIndex, e: Option<&'a EvalView
                 quantization: None,
                 leaderboard: true,
                 ended_class: None,
+                bounds: None,
+                tempo_blocks: None,
+                anchor: None,
             },
             entry: Some(c),
             view,
@@ -1587,7 +2126,7 @@ pub fn listed<'a>(s: &Settings<'_>, idx: &'a CohortIndex, e: Option<&'a EvalView
                 state: "retired_unpublished".into(),
                 opened: Some(Mark {
                     epoch: Some(r.opened_epoch),
-                    at: None,
+                    ..Default::default()
                 }),
                 ..Default::default()
             },
@@ -1620,13 +2159,31 @@ pub fn listed<'a>(s: &Settings<'_>, idx: &'a CohortIndex, e: Option<&'a EvalView
             });
         }
     }
+    // Every row's reference: the clock's boundary projected to its opening.
+    let clock = e.and_then(|e| e.epoch.zip(e.boundary_block));
+    for l in &mut out {
+        let epoch = l.row.opened.as_ref().and_then(|m| m.epoch);
+        l.row.anchor = anchor(clock, s.tempo_blocks, epoch);
+        l.row.tempo_blocks = l.row.anchor.as_ref().map(|_| s.tempo_blocks);
+    }
     out.sort_by_key(|l| l.row.cohort);
     out
 }
 
+/// The clock's boundary `(epoch, block)` projected back to `epoch` at
+/// `tempo`: `None` without either, or for an epoch after the clock's.
+fn anchor(clock: Option<(u64, u64)>, tempo: u64, epoch: Option<u64>) -> Option<Anchor> {
+    let ((x, bb), e) = (clock?, epoch?);
+    let block = bb.checked_sub(x.checked_sub(e)?.checked_mul(tempo)?)?;
+    Some(Anchor {
+        epoch: Some(e),
+        block: Some(block),
+    })
+}
+
 /// `m/a/cohorts/index.json`.
 pub fn cohorts_doc(s: &Settings<'_>, idx: &CohortIndex, rows: &[Listed<'_>], now_ms: u64) -> CohortsDoc {
-    CohortsDoc {
+    let mut d = CohortsDoc {
         schema: Doc::Cohorts("a").schema().into(),
         network: "testnet".into(),
         chain: chain(s.chain),
@@ -1643,7 +2200,9 @@ pub fn cohorts_doc(s: &Settings<'_>, idx: &CohortIndex, rows: &[Listed<'_>], now
             })
             .collect(),
         record_prefix: idx.record_prefix.clone(),
-    }
+    };
+    clean_cohorts(&mut d);
+    d
 }
 
 /// `m/a/cohorts/<label>.json` for row `i` of `rows`: a closed cohort with its
@@ -1722,7 +2281,8 @@ pub fn cohort_doc(
         })
     });
     let testnet = crate::leaderboard::PromotionRule::of(&slop_ninja_admission_wire::json::Chain::from_binding(s.chain)).is_some();
-    CohortDoc {
+    row.bounds = cohort_bounds(&phases, None);
+    let mut d = CohortDoc {
         schema: Doc::Cohort("a", String::new()).schema().into(),
         network: "testnet".into(),
         chain: chain(s.chain),
@@ -1740,7 +2300,9 @@ pub fn cohort_doc(
         promotion_rule: (testnet && results).then(|| TESTNET_PROMOTION_RULE.into()),
         previous,
         next,
-    }
+    };
+    clean_cohort(&mut d);
+    d
 }
 
 /// The inputs of every cohort document except the summaries and artifact

@@ -12,6 +12,8 @@
 //! snapshot never carries spend, generation, model, lane, job or document
 //! data, fault details, or the ledger: faults are one boolean.
 
+use std::collections::BTreeMap;
+
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use slop_ninja_admission_wire::json::{Chain, NextCohort};
@@ -189,6 +191,29 @@ pub struct CohortDash {
     pub self_clearing: Option<bool>,
     /// The phase log (`log[]`), in order, without notes.
     pub log: Vec<PhaseMark>,
+    /// The time the cohort opened (`opened_ms`, the opening boundary step).
+    pub opened_ms: Option<u64>,
+    /// The admission cutoff's block (`cutoff_block`).
+    pub cutoff_block: Option<u64>,
+    /// The tempo boundaries the cohort's dates use, by epoch
+    /// (`boundaries[]`, resolved from the engine's boundary journal). Empty
+    /// from coordinators that do not report them.
+    pub boundaries: BTreeMap<u64, BoundaryView>,
+}
+
+/// One resolved tempo boundary of `boundaries[]`: its block and time, each
+/// with how it is known (`observed` or `derived`), and the credited-tempo
+/// count the journal records at it.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct BoundaryView {
+    pub block: Option<u64>,
+    pub block_basis: Option<String>,
+    pub at_ms: Option<u64>,
+    pub at_basis: Option<String>,
+    pub active: Option<u64>,
+    /// Why `at_ms` is `None`: `before_tracking` (no journal row at or below
+    /// it) or `not_derivable` (rows around it, none supporting a time).
+    pub at_reason: Option<String>,
 }
 
 /// One `log[]` entry: the phase the cohort was in, the stored epoch and the
@@ -610,6 +635,23 @@ struct CohortJson {
     reward_v1: Option<CohortRewardJson>,
     window_closed_epoch: Option<u64>,
     log: Vec<LogJson>,
+    opened_ms: Option<u64>,
+    cutoff_block: Option<u64>,
+    boundaries: Vec<BoundaryJson>,
+}
+
+/// A `boundaries[]` entry; a basis outside `observed`/`derived` drops its
+/// value.
+#[derive(Deserialize, Default)]
+#[serde(default)]
+struct BoundaryJson {
+    epoch: Option<u64>,
+    block: Option<u64>,
+    block_basis: Option<String>,
+    at_ms: Option<u64>,
+    at_basis: Option<String>,
+    active: Option<u64>,
+    at_reason: Option<String>,
 }
 
 #[derive(Deserialize, Default)]
@@ -838,6 +880,24 @@ fn eval_view(j: EvalJson) -> EvalView {
                                 epoch: l.epoch,
                                 at_ms: l.at_ms,
                             })
+                        })
+                        .collect(),
+                    opened_ms: c.opened_ms,
+                    cutoff_block: c.cutoff_block,
+                    boundaries: c
+                        .boundaries
+                        .into_iter()
+                        .filter_map(|b| {
+                            let basis = |v: Option<u64>, k: Option<String>| match k.as_deref() {
+                                Some("observed" | "derived") if v.is_some() => (v, k),
+                                _ => (None, None),
+                            };
+                            let (block, block_basis) = basis(b.block, b.block_basis);
+                            let (at_ms, at_basis) = basis(b.at_ms, b.at_basis);
+                            let at_reason = b
+                                .at_reason
+                                .filter(|r| at_ms.is_none() && matches!(r.as_str(), "before_tracking" | "not_derivable"));
+                            Some((b.epoch?, BoundaryView { block, block_basis, at_ms, at_basis, active: b.active, at_reason }))
                         })
                         .collect(),
                 },

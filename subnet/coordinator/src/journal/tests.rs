@@ -655,6 +655,7 @@ fn migrations_are_pinned_by_content() {
         "942dc264582d1a0c",
         "f5758f190c598abd",
         "8b761151f0241d00",
+        "6da42707629d12a8",
     ];
     // v1-v10 are deployed on both testnet Workers; v11 is the stuck-states
     // lane's; v12 the automatic target handoff's; v13 the signed coordinator

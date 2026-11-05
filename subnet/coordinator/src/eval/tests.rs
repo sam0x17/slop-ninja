@@ -65,7 +65,9 @@ fn kick_at(db: &Sqlite, index: u64, now: u64) -> Vec<String> {
         epoch: Some(EpochObservation {
             block,
             index,
-            last_epoch_block: 990 + index * 361,
+            // Three blocks before the watermark: a tick within one sweep
+            // of the boundary.
+            last_epoch_block: 997 + index * 361,
         }),
         // A live observation: the watermark is the head.
         head_epoch: Some(index),
@@ -2648,7 +2650,7 @@ fn the_v3_cohort_store_migrates_in_place_to_v7() {
         )
         .unwrap();
     let report = sql::migrate(&db, &EVAL_COHORT_SCHEMA).unwrap();
-    assert_eq!((report.from, report.to), (3, 22));
+    assert_eq!((report.from, report.to), (3, 23));
     let st = status(&db, 5);
     assert_eq!(st["cohorts"][0]["phase"], "closed");
     assert_eq!(st["cohorts"][0]["jobs"][0]["status"], "done", "the jobs table was rebuilt with its rows");
@@ -3920,9 +3922,10 @@ impl Objects {
     }
 }
 
-/// Every table of a store but its observation row.
+/// Every table of a store but its chain observation (the observation row
+/// and the boundary journal, which every tick may extend).
 fn dump_but_observation(db: &Sqlite) -> Vec<(String, Vec<String>)> {
-    dump(db).into_iter().filter(|(t, _)| t != "eval_obs").collect()
+    dump(db).into_iter().filter(|(t, _)| t != "eval_obs" && t != "boundary_log").collect()
 }
 
 /// Heartbeats across the switch, routed as the Worker routes them: before
@@ -6769,4 +6772,182 @@ fn a_cohort_queued_before_a_probe_cut_runs_on_its_own_lanes_after_the_cut() {
     assert!(!cut_names.is_empty() && cut_names.iter().all(|n| n.contains("/main/probe-cut/")), "{cut_names:?}");
     let own = names(before);
     assert!(own.iter().all(|n| !n.contains("probe-cut") && !cut_names.contains(n)), "{own:?}");
+}
+
+// ------------------------------------------------------------ boundary journal
+
+fn journal(db: &Sqlite) -> Vec<super::boundaries::BoundaryRow> {
+    tx(db, super::boundaries::rows).unwrap()
+}
+
+fn boundary_of(st: &Value, epoch: u64) -> Value {
+    st["cohorts"][0]["boundaries"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|b| b["epoch"] == epoch)
+        .cloned()
+        .unwrap_or_else(|| panic!("no boundary {epoch}: {}", st["cohorts"][0]["boundaries"]))
+}
+
+/// Each new epoch the engine stores is journaled once, at its first
+/// observation, with its boundary block and liveness; a later tick in the
+/// same epoch changes nothing, a jump credits nothing, and the status dates
+/// the cohort's boundaries from the journal.
+#[test]
+fn the_boundary_journal_records_each_boundary_at_its_first_observation() {
+    let db = Sqlite::open();
+    sql::migrate(&db, &EVAL_COHORT_SCHEMA).unwrap();
+    let t = |e: u64| 1_790_000_000_000 + e * 361 * 12_000;
+    let bytes = serde_json::to_vec(&plan(20)).unwrap();
+    tx(&db, |s| engine::queue(s, &cfg(), &bytes, t(10))).unwrap();
+    for e in 10..=12 {
+        kick_at(&db, e, t(e) + 20_000);
+    }
+    kick_at(&db, 12, t(12) + 600_000);
+    let rows = journal(&db);
+    type Seen = (u64, Option<u64>, Option<u64>, Option<bool>);
+    let got: Vec<Seen> = rows.iter().map(|r| (r.epoch, r.block, r.observed_ms, r.live)).collect();
+    // Epoch 10 (before the opening, named by no record) is pruned once two
+    // later rows exist.
+    assert_eq!(
+        got,
+        (11..=12).map(|e| (e, Some(997 + e * 361), Some(t(e) + 20_000), Some(true))).collect::<Vec<_>>(),
+        "the first observation of each epoch, never a later tick's"
+    );
+    assert_eq!(rows[0].credited, Some(true));
+    // A jump of three credits nothing.
+    kick_at(&db, 15, t(15) + 30_000);
+    let r15 = *journal(&db).last().unwrap();
+    assert_eq!((r15.epoch, r15.credited, r15.live), (15, Some(false), Some(true)));
+    let st = status(&db, t(15) + 60_000);
+    let c = &st["cohorts"][0];
+    assert_eq!(c["opened_epoch"], 11);
+    assert_eq!(c["opened_ms"], t(11) + 20_000);
+    let b = boundary_of(&st, 11);
+    assert_eq!((b["block"].clone(), b["block_basis"].clone()), (json!(997 + 11 * 361), json!("observed")));
+    assert_eq!((b["at_ms"].clone(), b["at_basis"].clone()), (json!(t(11) + 20_000), json!("observed")));
+    // The running cohort also carries the stored epoch's boundary.
+    assert_eq!(boundary_of(&st, 15)["at_basis"], "observed");
+}
+
+/// Correctness review 2: coordinator silence that ends 40 minutes into a
+/// tempo. The first tick of that epoch is live (the head is in it), but its
+/// time is 40 minutes after the boundary: the journal keeps the tick's
+/// watermark block, and the status dates the boundary back by the block lag
+/// (derived), never as observed.
+#[test]
+fn a_first_tick_late_in_its_tempo_is_not_the_boundarys_observed_time() {
+    let db = Sqlite::open();
+    sql::migrate(&db, &EVAL_COHORT_SCHEMA).unwrap();
+    let t = |e: u64| 1_790_000_000_000 + e * 361 * 12_000;
+    let bytes = serde_json::to_vec(&plan(20)).unwrap();
+    tx(&db, |s| engine::queue(s, &cfg(), &bytes, t(10))).unwrap();
+    kick_at(&db, 10, t(10) + 20_000);
+    kick_at(&db, 11, t(11) + 20_000);
+    // Silence through the boundary to 12; the next tick is 200 blocks in.
+    let boundary = 997 + 12 * 361;
+    let at = BlockRef { number: boundary + 200, hash: Id([12; 32]) };
+    let k = Kick {
+        confirmed: Some(at),
+        epoch: Some(EpochObservation { block: at, index: 12, last_epoch_block: boundary }),
+        head_epoch: Some(12),
+    };
+    let late = t(12) + 40 * 60_000;
+    tx(&db, |s| engine::observe(s, &k, late)).unwrap();
+    let r = *journal(&db).last().unwrap();
+    assert_eq!((r.epoch, r.seen_block, r.live), (12, Some(boundary + 200), Some(true)));
+    let st = status(&db, late + 60_000);
+    let b = boundary_of(&st, 12);
+    assert_eq!(b["at_basis"], "derived", "{b}");
+    assert_eq!(b["at_ms"], late - 200 * 12_000, "{b}");
+    assert_eq!(boundary_of(&st, 11)["at_basis"], "observed");
+}
+
+/// Store v23 seeds the journal from the records an existing store keeps (a
+/// cohort-19-shaped history): the opening, the window close and the stored
+/// epoch's block. Work commits and notes logged with the cohort's phase are
+/// never seeded, and no status time equals a work commit's own time.
+#[test]
+fn store_v23_seeds_the_boundary_journal_from_cohort_history_without_work_times() {
+    static UP_TO_V22: sql::Schema = sql::Schema {
+        family: EVAL_COHORT_SCHEMA.family,
+        migrations: EVAL_COHORT_SCHEMA.migrations.split_at(22).0,
+    };
+    let db = Sqlite::open();
+    sql::migrate(&db, &UP_TO_V22).unwrap();
+    let b = |e: u64| 990 + e * 361;
+    let t = |e: u64| 1_793_000_000_000 + e * 361 * 12_000;
+    let plan_json = serde_json::to_string(&plan(20)).unwrap();
+    db.conn
+        .execute(
+            "INSERT INTO cohorts (seq, label, cohort, plan, plan_sha256, phase, phase_since_ms, queued_ms, opened_epoch,
+                opened_block, opened_ms, opened_active, published_epoch, published_active)
+             VALUES (1, 'testnet-r0-c19', 19, ?1, 'ab', 'transition', 1, 1, 113, ?2, ?3, 50, 119, 55)",
+            rusqlite::params![plan_json, b(113) as i64, (t(113) + 40_000) as i64],
+        )
+        .unwrap();
+    db.conn
+        .execute(
+            "INSERT INTO adm_cohorts (seq, cohort, state, open_block, cutoff_block, closed_at_epoch, frozen_epoch)
+             VALUES (1, 19, 'frozen', ?1, ?2, 114, 114)",
+            rusqlite::params![b(113) as i64, b(114) as i64],
+        )
+        .unwrap();
+    let work: &[(&str, u64, u64, &str)] = &[
+        ("admission", 113, t(113) + 40_000, "opened at an epoch boundary; admitting"),
+        ("admission", 114, t(114) + 30_000, "admission closed at a boundary; the roster freezes later"),
+        ("generating", 114, t(114) + 900_000, "roster frozen"),
+        ("sealing", 115, t(115) + 1_000_000, "sealed"),
+        ("scoring", 115, t(115) + 1_100_000, "scoring"),
+        ("admission", 116, t(116) + 700_000, "roster_freeze_refused:probe (a note, not a step)"),
+        ("packaging", 117, t(117) + 1_300_000, "packaging"),
+        ("transition", 118, t(118) + 1_500_000, "package committed"),
+    ];
+    for (phase, e, at, note) in work {
+        db.conn
+            .execute(
+                "INSERT INTO phase_log (seq, phase, at_ms, epoch_index, note) VALUES (1, ?1, ?2, ?3, ?4)",
+                rusqlite::params![phase, *at as i64, *e as i64, note],
+            )
+            .unwrap();
+    }
+    db.conn
+        .execute(
+            "UPDATE eval_obs SET epoch_index = 120, epoch_block = ?1, epoch_block_hash = ?2, last_epoch_block = ?3,
+                epoch_ms = ?4, epoch_live = 1, active_tempos = 56 WHERE id = 1",
+            rusqlite::params![(b(120) + 40) as i64, format!("0x{}", hex::encode([7u8; 32])), b(120) as i64, (t(120) + 3_000_000) as i64],
+        )
+        .unwrap();
+    let report = sql::migrate(&db, &EVAL_COHORT_SCHEMA).unwrap();
+    assert_eq!((report.from, report.to), (22, 23));
+    let got: Vec<(u64, Option<u64>, Option<u64>)> = journal(&db).iter().map(|r| (r.epoch, r.block, r.observed_ms)).collect();
+    assert_eq!(
+        got,
+        [
+            (113, Some(b(113)), Some(t(113) + 40_000)),
+            (114, Some(b(114)), Some(t(114) + 30_000)),
+            (120, Some(b(120)), None),
+        ],
+        "boundary steps and the stored epoch's block only"
+    );
+    let st = status(&db, t(120) + 3_100_000);
+    assert_eq!(st["cohorts"][0]["cutoff_block"], b(114));
+    let points = st["cohorts"][0]["boundaries"].as_array().unwrap().clone();
+    let epochs: Vec<u64> = points.iter().map(|p| p["epoch"].as_u64().unwrap()).collect();
+    assert_eq!(epochs, (113..=120).collect::<Vec<_>>());
+    for p in &points {
+        let e = p["epoch"].as_u64().unwrap();
+        assert_eq!(p["block"], b(e), "{p}");
+        let basis = if matches!(e, 113 | 114 | 120) { "observed" } else { "derived" };
+        assert_eq!(p["block_basis"], basis, "{p}");
+        let at = p["at_ms"].as_u64().unwrap_or_else(|| panic!("{p}"));
+        assert!(work[2..].iter().all(|(_, _, w, _)| *w != at), "a work commit's time leaked: {p}");
+        if e > 114 {
+            // From the last observed boundary time at the nominal block time.
+            assert_eq!(at, t(114) + 30_000 + (e - 114) * 361 * 12_000, "{p}");
+            assert_eq!(p["at_basis"], "derived");
+        }
+    }
+    assert_eq!(boundary_of(&st, 113)["active"], Value::Null, "a seed records no credited count");
 }

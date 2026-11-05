@@ -817,15 +817,23 @@ pub fn observe(sql: &impl Sql, kick: &Kick, now_ms: u64) -> R<Vec<String>> {
             _ => {
                 let live = kick.head_epoch == Some(e.index);
                 let same = before.epoch.is_some_and(|b| b.index == e.index);
+                let mut credited = None;
                 if let Some(b) = before.epoch
                     && e.index > b.index
                 {
                     let credit = u64::from(e.index == b.index + 1 && before_live && live);
+                    credited = Some(credit == 1);
                     sql.exec(
                         "UPDATE eval_obs SET active_tempos = active_tempos + ?,
                             uncredited_tempos = uncredited_tempos + ? WHERE id = 1",
                         &[bind_u64(credit)?, bind_u64(e.index - b.index - credit)?],
                     )?;
+                }
+                // The first storing of a new epoch: the boundary journal
+                // records its block, this observation's time and liveness.
+                if before.epoch.is_none_or(|b| e.index > b.index) {
+                    let active_after = before.active_tempos + u64::from(credited == Some(true));
+                    crate::eval::boundaries::record(sql, e.index, e.last_epoch_block, now_ms, live, credited, active_after, e.block.number)?;
                 }
                 // An epoch observed live once stays so for later observations
                 // of the same epoch (a watermark a few blocks behind the head
@@ -3829,6 +3837,7 @@ pub fn note_step(sql: &impl Sql, seq: i64, ms: u64) -> R<()> {
 pub fn status(sql: &impl Sql, now_ms: u64) -> R<Value> {
     let o = observed(sql)?;
     let held = crate::eval::retention::held_seqs(sql)?;
+    let journal = crate::eval::boundaries::rows(sql)?;
     let mut out = Vec::new();
     for c in cohorts(sql)? {
         let q = |query: &str| -> R<Vec<Row>> { Ok(sql.exec(query, &[i(c.seq)])?) };
@@ -3926,9 +3935,29 @@ pub fn status(sql: &impl Sql, now_ms: u64) -> R<Value> {
         // The boundary its coordinator admission window closed at (the
         // dashboard's closing step), for every cohort, not only the
         // calendar's current one.
-        let window_closed_epoch = q("SELECT closed_at_epoch FROM adm_cohorts WHERE seq = ?")?
-            .first()
-            .and_then(|r| opt_int(r, 0));
+        let adm = q("SELECT closed_at_epoch, cutoff_block FROM adm_cohorts WHERE seq = ?")?;
+        let window_closed_epoch = adm.first().and_then(|r| opt_int(r, 0));
+        let cutoff_block = adm.first().and_then(|r| opt_int(r, 1));
+        // The tempo boundaries this cohort's dates use, resolved against the
+        // boundary journal (`eval::boundaries`): blocks and boundary times
+        // only, never a work commit's own time.
+        let marks = &q("SELECT opened_epoch, published_epoch, closed_epoch, opened_ms FROM cohorts WHERE seq = ?")?[0];
+        let u = |v: Option<i64>| v.and_then(|v| u64::try_from(v).ok());
+        let log_epochs: Vec<u64> = q("SELECT epoch_index FROM phase_log WHERE seq = ? AND epoch_index IS NOT NULL")?
+            .iter()
+            .filter_map(|r| u(opt_int(r, 0)))
+            .collect();
+        let running = !matches!(c.phase.as_str(), "closed" | "abandoned");
+        let epochs = crate::eval::boundaries::cohort_epochs(
+            &[u(opt_int(marks, 0)), u(window_closed_epoch), u(opt_int(marks, 1)), u(opt_int(marks, 2))],
+            &log_epochs,
+            o.epoch.map(|e| e.index).filter(|_| running),
+        );
+        let boundaries: Vec<Value> =
+            crate::eval::boundaries::resolve(&journal, &epochs, crate::eval::calendar::NOMINAL_BLOCK_SECS * 1000)
+                .iter()
+                .map(crate::eval::boundaries::BoundaryPoint::json)
+                .collect();
         let retention = crate::eval::retention::cohort_status(sql, c.seq, &held)?;
         let v3 = if c.plan.is_v3() {
             let st = crate::eval::v3::state(sql, c.seq)?;
@@ -3948,6 +3977,7 @@ pub fn status(sql: &impl Sql, now_ms: u64) -> R<Value> {
             "packaged_epoch": opt_int(row, 13), "closed_epoch": opt_int(row, 14),
             "opened_active": c.opened_active, "packaged_active": c.packaged_active,
             "published_active": published_active, "window_closed_epoch": window_closed_epoch,
+            "opened_ms": opt_int(marks, 3), "cutoff_block": cutoff_block, "boundaries": boundaries,
             "roster_cap": c.plan.admission.as_ref().map(|a| a.roster_cap),
             "progress": json!({"generation": {"ready": int(generated, 1)?, "total": int(generated, 0)?},
                 "scoring": {"done": int(scored, 0)?, "total": int(scored, 1)?}}),

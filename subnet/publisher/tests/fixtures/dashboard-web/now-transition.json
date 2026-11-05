@@ -29,37 +29,86 @@
    {
     "stage": "admission_open",
     "epoch": 2290,
-    "at": 1792911360
+    "block": 8392800,
+    "at": 1792911360,
+    "basis": "observed",
+    "tempos": {
+     "elapsed": 16,
+     "counted": 16,
+     "required": 16
+    }
    },
    {
     "stage": "admission_closing",
     "epoch": 2306,
-    "at": 1792980660
+    "block": 8398560,
+    "at": 1792980660,
+    "basis": "observed",
+    "tempos": {
+     "elapsed": 0,
+     "counted": null,
+     "required": null
+    }
    },
    {
     "stage": "generating",
     "epoch": 2306,
-    "at": 1792980660
+    "block": 8398560,
+    "at": 1792980660,
+    "basis": "observed",
+    "tempos": {
+     "elapsed": 1,
+     "counted": null,
+     "required": null
+    }
    },
    {
     "stage": "sealing",
     "epoch": 2307,
-    "at": 1792984980
+    "block": 8398920,
+    "at": 1792984980,
+    "basis": "derived",
+    "tempos": {
+     "elapsed": 0,
+     "counted": null,
+     "required": null
+    }
    },
    {
     "stage": "scoring",
     "epoch": 2307,
-    "at": 1792984980
+    "block": 8398920,
+    "at": 1792984980,
+    "basis": "derived",
+    "tempos": {
+     "elapsed": 2,
+     "counted": null,
+     "required": null
+    }
    },
    {
     "stage": "packaging",
     "epoch": 2309,
-    "at": 1792993680
+    "block": 8399640,
+    "at": 1792993680,
+    "basis": "observed",
+    "tempos": {
+     "elapsed": 1,
+     "counted": null,
+     "required": null
+    }
    },
    {
     "stage": "transition",
     "epoch": 2310,
-    "at": 1792998000
+    "block": 8400000,
+    "at": 1792998000,
+    "basis": "observed",
+    "tempos": {
+     "elapsed": 0,
+     "counted": 0,
+     "required": 2
+    }
    }
   ],
   "tempos": {
@@ -68,9 +117,9 @@
   },
   "expected": {
    "stage_end_epoch": 2312,
-   "stage_end_block": 8400722,
+   "stage_end_block": 8400720,
    "close_epoch": 2312,
-   "close_block": 8400722,
+   "close_block": 8400720,
    "packaging_deadline_epoch": null
   },
   "progress": {
@@ -139,17 +188,37 @@
      "kind": "end",
      "expected_tempos": 0,
      "earliest_epoch": 2312,
-     "earliest_block": 8400722
+     "earliest_block": 8400720
     }
    ]
   },
   "results": true,
-  "mode": "target"
+  "mode": "target",
+  "bounds": {
+   "open": {
+    "epoch": 2290,
+    "block": 8392800,
+    "at": 1792911360,
+    "basis": "observed"
+   },
+   "cutoff": {
+    "epoch": 2306,
+    "block": 8398560,
+    "at": 1792980660,
+    "basis": "observed"
+   },
+   "close": {
+    "epoch": 2312,
+    "block": 8400720,
+    "at": null,
+    "basis": "earliest"
+   }
+  }
  },
  "next": {
   "cohort": 119,
   "earliest_open_epoch": 2312,
-  "earliest_open_block": 8400722,
+  "earliest_open_block": 8400720,
   "admission_tempos": 16
  },
  "best": {

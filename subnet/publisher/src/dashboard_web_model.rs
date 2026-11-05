@@ -1,8 +1,9 @@
 //! A copy of the website's dashboard contract types (repository slop_ninja_web,
-//! branch `dashboard`, `src/model.rs`), compiled only into the publisher's
+//! branch `tracker`, `src/model.rs`), compiled only into the publisher's
 //! tests: every document the publisher writes must round-trip through these
-//! types unchanged (no field the website drops, none it lacks). Refresh it
-//! verbatim when the website's model changes.
+//! types unchanged (no field the website drops, none it lacks; a `null` and
+//! an absent key are the same value). Refresh it verbatim (everything below
+//! this header) when the website's model changes.
 
 #![allow(dead_code)]
 
@@ -68,15 +69,48 @@ pub struct Pause {
     pub class: Option<String>,
 }
 
-/// A stage change, dated by the tempo boundary at which it was observed.
+/// How a boundary point's time is known: seen live by the coordinator at
+/// that boundary, computed from the evaluation engine's boundary records,
+/// `unresolved` (no time: the engine has records around the boundary but
+/// none supports one, or a check removed it), or (for a future boundary
+/// only) the earliest it can be. No basis and no time: before tracking
+/// began.
+pub const BASES: &[&str] = &["observed", "derived", "unresolved", "earliest"];
+
+/// The tempos one stage spanned, from its start boundary to its stop
+/// boundary (to the last observed boundary for the current stage). A closed
+/// object: any other key refuses the document.
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(default)]
+#[serde(default, deny_unknown_fields)]
+pub struct PhaseTempos {
+    /// Epochs from the start boundary to the stop boundary.
+    pub elapsed: Option<u64>,
+    /// Credited tempos in that span (only tempos the coordinator observed
+    /// live are credited).
+    pub counted: Option<u64>,
+    /// The template's requirement, for the two schedule stages only.
+    pub required: Option<u64>,
+}
+
+/// A stage change, dated by the tempo boundary at which it was observed.
+/// Stages are contiguous at boundaries: a stage stops where the next one
+/// starts. A closed object: a time field outside the contract (a minute
+/// inside a tempo, a block inside a tempo) refuses the document.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default, deny_unknown_fields)]
 pub struct Phase {
     pub stage: String,
     /// The tempo boundary (epoch) at which the stage was first observed.
     pub epoch: Option<u64>,
-    /// That boundary's observed wall-clock time, to the minute.
+    /// That boundary's first block (the chain's `LastEpochBlock`), never a
+    /// block inside a tempo.
+    pub block: Option<u64>,
+    /// That boundary's wall-clock time, to the minute.
     pub at: Option<u64>,
+    /// `observed`, `derived` or `unresolved` (see [`BASES`]); `None` with no
+    /// time and no record.
+    pub basis: Option<String>,
+    pub tempos: Option<PhaseTempos>,
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -209,6 +243,12 @@ pub struct CohortNow {
     #[serde(deserialize_with = "lenient_bool")]
     pub results: bool,
     pub mode: Option<String>,
+    /// The cohort's opening, admission cutoff and close boundaries.
+    pub bounds: Option<Bounds>,
+    /// The frozen roster's hotkeys, sorted by hotkey string (never in roster
+    /// or score order), from the freeze on. `None` until the publisher is
+    /// cleared to emit it.
+    pub roster: Option<Vec<String>>,
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -279,12 +319,41 @@ pub struct NowDoc {
     pub sources_ok: Option<bool>,
 }
 
+/// A tempo boundary: its epoch, its first block, its time to the minute and
+/// how that time is known. A closed object, like [`Phase`].
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(default)]
+#[serde(default, deny_unknown_fields)]
 pub struct Mark {
     pub epoch: Option<u64>,
-    /// The boundary's observed time, to the minute.
+    /// The boundary's first block, never a block inside a tempo.
+    pub block: Option<u64>,
+    /// The boundary's time, to the minute.
     pub at: Option<u64>,
+    /// `observed`, `derived`, `unresolved`, or `earliest` (an earliest
+    /// close: no time).
+    pub basis: Option<String>,
+}
+
+/// The clock's tempo boundary projected back to a cohort's opening at the
+/// tempo in force: the reference every block of the row and its document
+/// must agree with. A closed object.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct Anchor {
+    pub epoch: Option<u64>,
+    pub block: Option<u64>,
+}
+
+/// A cohort's three boundaries. `close` is `earliest` until the cohort
+/// closes or ends.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct Bounds {
+    pub open: Option<Mark>,
+    /// The admission cutoff; `None` for a cohort without coordinator
+    /// admission.
+    pub cutoff: Option<Mark>,
+    pub close: Option<Mark>,
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -309,6 +378,15 @@ pub struct CohortRow {
     /// Whether `cohorts/<label>.json` carries this cohort's leaderboard.
     pub leaderboard: bool,
     pub ended_class: Option<String>,
+    /// Cohort documents only: the cohort's boundaries.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub bounds: Option<Bounds>,
+    /// The clock's tempo length; with `anchor`, the reference of every block
+    /// of the row (and its document). Without both, no block is kept.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub tempo_blocks: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub anchor: Option<Anchor>,
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]

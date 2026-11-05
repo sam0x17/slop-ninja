@@ -29,8 +29,11 @@
 //! - [`retention`]: detailed receipt deletion after N+1 and N+2 complete.
 //! - [`probe_cut`]: the operator's preparation of a same-authority probe
 //!   cut and the template reinstall naming its version.
+//! - [`boundaries`]: the boundary journal that dates every stage by tempo
+//!   boundaries for the public dashboard.
 
 pub mod admission;
+pub mod boundaries;
 pub mod calendar;
 pub mod chain;
 pub mod commitments;

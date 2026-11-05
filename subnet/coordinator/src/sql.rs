@@ -910,5 +910,12 @@ pub const EVAL_COHORT_SCHEMA: Schema = Schema {
             version: 22,
             statements: crate::eval::calendar::SCHEMA_V22,
         },
+        // v23: the boundary journal (each tempo boundary's block, first
+        // observation time and liveness), seeded from the store's own
+        // boundary-step records, so the dashboard dates every stage.
+        Migration {
+            version: 23,
+            statements: crate::eval::boundaries::SCHEMA_V23,
+        },
     ],
 };

@@ -15,19 +15,27 @@
    "state": "closed",
    "opened": {
     "epoch": 2029,
-    "at": 1791780720
+    "block": 8298559,
+    "at": 1791780720,
+    "basis": "observed"
    },
    "admission_closed": {
     "epoch": 2045,
-    "at": 1791850020
+    "block": 8304319,
+    "at": 1791850020,
+    "basis": "observed"
    },
    "published": {
     "epoch": 2049,
-    "at": 1791867360
+    "block": 8305759,
+    "at": 1791867360,
+    "basis": "observed"
    },
    "closed": {
     "epoch": 2051,
-    "at": 1791876000
+    "block": 8306479,
+    "at": 1791876000,
+    "basis": "observed"
    },
    "mode": "no_target",
    "promoted": null,
@@ -39,7 +47,13 @@
     "width": "0.01"
    },
    "leaderboard": true,
-   "ended_class": null
+   "ended_class": null,
+   "bounds": null,
+   "tempo_blocks": 360,
+   "anchor": {
+    "epoch": 2029,
+    "block": 8298559
+   }
   },
   {
    "cohort": 107,
@@ -47,19 +61,27 @@
    "state": "closed",
    "opened": {
     "epoch": 2051,
-    "at": 1791876000
+    "block": 8306501,
+    "at": 1791876000,
+    "basis": "observed"
    },
    "admission_closed": {
     "epoch": 2067,
-    "at": 1791945300
+    "block": 8312261,
+    "at": 1791945300,
+    "basis": "observed"
    },
    "published": {
     "epoch": 2071,
-    "at": 1791962640
+    "block": 8313701,
+    "at": 1791962640,
+    "basis": "observed"
    },
    "closed": {
     "epoch": 2073,
-    "at": 1791971340
+    "block": 8314421,
+    "at": 1791971340,
+    "basis": "observed"
    },
    "mode": "no_target",
    "promoted": null,
@@ -71,7 +93,13 @@
     "width": "0.01"
    },
    "leaderboard": true,
-   "ended_class": null
+   "ended_class": null,
+   "bounds": null,
+   "tempo_blocks": 360,
+   "anchor": {
+    "epoch": 2051,
+    "block": 8306501
+   }
   },
   {
    "cohort": 108,
@@ -79,19 +107,27 @@
    "state": "closed",
    "opened": {
     "epoch": 2073,
-    "at": 1791971340
+    "block": 8314443,
+    "at": 1791971340,
+    "basis": "observed"
    },
    "admission_closed": {
     "epoch": 2089,
-    "at": 1792040640
+    "block": 8320203,
+    "at": 1792040640,
+    "basis": "observed"
    },
    "published": {
     "epoch": 2093,
-    "at": 1792057980
+    "block": 8321643,
+    "at": 1792057980,
+    "basis": "observed"
    },
    "closed": {
     "epoch": 2095,
-    "at": 1792066620
+    "block": 8322363,
+    "at": 1792066620,
+    "basis": "observed"
    },
    "mode": "margin",
    "promoted": {
@@ -106,7 +142,13 @@
     "width": "0.01"
    },
    "leaderboard": true,
-   "ended_class": null
+   "ended_class": null,
+   "bounds": null,
+   "tempo_blocks": 360,
+   "anchor": {
+    "epoch": 2073,
+    "block": 8314443
+   }
   },
   {
    "cohort": 109,
@@ -114,13 +156,17 @@
    "state": "retired_unpublished",
    "opened": {
     "epoch": 2095,
-    "at": 1792066620
+    "block": 8322385,
+    "at": 1792066620,
+    "basis": "observed"
    },
    "admission_closed": null,
    "published": null,
    "closed": {
     "epoch": 2117,
-    "at": 1792161900
+    "block": 8330305,
+    "at": 1792161900,
+    "basis": "observed"
    },
    "mode": "no_target",
    "promoted": null,
@@ -132,7 +178,13 @@
     "width": "0.01"
    },
    "leaderboard": false,
-   "ended_class": null
+   "ended_class": null,
+   "bounds": null,
+   "tempo_blocks": 360,
+   "anchor": {
+    "epoch": 2095,
+    "block": 8322385
+   }
   },
   {
    "cohort": 110,
@@ -140,19 +192,27 @@
    "state": "closed",
    "opened": {
     "epoch": 2117,
-    "at": 1792161900
+    "block": 8330327,
+    "at": 1792161900,
+    "basis": "observed"
    },
    "admission_closed": {
     "epoch": 2133,
-    "at": 1792231260
+    "block": 8336087,
+    "at": 1792231260,
+    "basis": "observed"
    },
    "published": {
     "epoch": 2137,
-    "at": 1792248540
+    "block": 8337527,
+    "at": 1792248540,
+    "basis": "observed"
    },
    "closed": {
     "epoch": 2139,
-    "at": 1792257240
+    "block": 8338247,
+    "at": 1792257240,
+    "basis": "observed"
    },
    "mode": "no_target",
    "promoted": null,
@@ -164,7 +224,13 @@
     "width": "0.01"
    },
    "leaderboard": true,
-   "ended_class": null
+   "ended_class": null,
+   "bounds": null,
+   "tempo_blocks": 360,
+   "anchor": {
+    "epoch": 2117,
+    "block": 8330327
+   }
   },
   {
    "cohort": 111,
@@ -172,19 +238,27 @@
    "state": "closed",
    "opened": {
     "epoch": 2139,
-    "at": 1792257240
+    "block": 8338269,
+    "at": 1792257240,
+    "basis": "observed"
    },
    "admission_closed": {
     "epoch": 2155,
-    "at": 1792326540
+    "block": 8344029,
+    "at": 1792326540,
+    "basis": "observed"
    },
    "published": {
     "epoch": 2159,
-    "at": 1792343880
+    "block": 8345469,
+    "at": 1792343880,
+    "basis": "observed"
    },
    "closed": {
     "epoch": 2161,
-    "at": 1792352520
+    "block": 8346189,
+    "at": 1792352520,
+    "basis": "observed"
    },
    "mode": "margin",
    "promoted": {
@@ -199,7 +273,13 @@
     "width": "0.01"
    },
    "leaderboard": true,
-   "ended_class": null
+   "ended_class": null,
+   "bounds": null,
+   "tempo_blocks": 360,
+   "anchor": {
+    "epoch": 2139,
+    "block": 8338269
+   }
   },
   {
    "cohort": 112,
@@ -207,11 +287,15 @@
    "state": "ended",
    "opened": {
     "epoch": 2161,
-    "at": 1792352520
+    "block": null,
+    "at": null,
+    "basis": null
    },
    "admission_closed": {
     "epoch": 2177,
-    "at": 1792421820
+    "block": null,
+    "at": 1792421820,
+    "basis": "observed"
    },
    "published": null,
    "closed": null,
@@ -225,7 +309,10 @@
     "width": "0.01"
    },
    "leaderboard": false,
-   "ended_class": "operator_hold"
+   "ended_class": "operator_hold",
+   "bounds": null,
+   "tempo_blocks": null,
+   "anchor": null
   },
   {
    "cohort": 113,
@@ -233,19 +320,27 @@
    "state": "closed",
    "opened": {
     "epoch": 2183,
-    "at": 1792447860
+    "block": 8354153,
+    "at": 1792447860,
+    "basis": "observed"
    },
    "admission_closed": {
     "epoch": 2199,
-    "at": 1792517160
+    "block": 8359913,
+    "at": 1792517160,
+    "basis": "observed"
    },
    "published": {
     "epoch": 2203,
-    "at": 1792534500
+    "block": 8361353,
+    "at": 1792534500,
+    "basis": "observed"
    },
    "closed": {
     "epoch": 2205,
-    "at": 1792543140
+    "block": 8362073,
+    "at": 1792543140,
+    "basis": "observed"
    },
    "mode": "no_target",
    "promoted": null,
@@ -257,7 +352,13 @@
     "width": "0.01"
    },
    "leaderboard": true,
-   "ended_class": null
+   "ended_class": null,
+   "bounds": null,
+   "tempo_blocks": 360,
+   "anchor": {
+    "epoch": 2183,
+    "block": 8354153
+   }
   },
   {
    "cohort": 114,
@@ -265,19 +366,27 @@
    "state": "closed",
    "opened": {
     "epoch": 2205,
-    "at": 1792543140
+    "block": 8362095,
+    "at": 1792543140,
+    "basis": "observed"
    },
    "admission_closed": {
     "epoch": 2221,
-    "at": 1792612440
+    "block": 8367855,
+    "at": 1792612440,
+    "basis": "observed"
    },
    "published": {
     "epoch": 2225,
-    "at": 1792629780
+    "block": 8369295,
+    "at": 1792629780,
+    "basis": "observed"
    },
    "closed": {
     "epoch": 2227,
-    "at": 1792638420
+    "block": 8370015,
+    "at": 1792638420,
+    "basis": "observed"
    },
    "mode": "margin",
    "promoted": {
@@ -292,7 +401,13 @@
     "width": "0.01"
    },
    "leaderboard": true,
-   "ended_class": null
+   "ended_class": null,
+   "bounds": null,
+   "tempo_blocks": 360,
+   "anchor": {
+    "epoch": 2205,
+    "block": 8362095
+   }
   },
   {
    "cohort": 116,
@@ -300,19 +415,27 @@
    "state": "closed",
    "opened": {
     "epoch": 2249,
-    "at": 1792733760
+    "block": 8377979,
+    "at": 1792733760,
+    "basis": "observed"
    },
    "admission_closed": {
     "epoch": 2265,
-    "at": 1792803060
+    "block": 8383739,
+    "at": 1792803060,
+    "basis": "observed"
    },
    "published": {
     "epoch": 2269,
-    "at": 1792820400
+    "block": 8385179,
+    "at": 1792820400,
+    "basis": "observed"
    },
    "closed": {
     "epoch": 2271,
-    "at": 1792829040
+    "block": 8385899,
+    "at": 1792829040,
+    "basis": "observed"
    },
    "mode": "no_target",
    "promoted": null,
@@ -324,7 +447,13 @@
     "width": "0.01"
    },
    "leaderboard": true,
-   "ended_class": null
+   "ended_class": null,
+   "bounds": null,
+   "tempo_blocks": 360,
+   "anchor": {
+    "epoch": 2249,
+    "block": 8377979
+   }
   },
   {
    "cohort": 117,
@@ -332,19 +461,27 @@
    "state": "closed",
    "opened": {
     "epoch": 2271,
-    "at": 1792829040
+    "block": 8385921,
+    "at": 1792829040,
+    "basis": "observed"
    },
    "admission_closed": {
     "epoch": 2287,
-    "at": 1792898340
+    "block": 8391681,
+    "at": 1792898340,
+    "basis": "observed"
    },
    "published": {
     "epoch": 2291,
-    "at": 1792915680
+    "block": 8393121,
+    "at": 1792915680,
+    "basis": "observed"
    },
    "closed": {
     "epoch": 2293,
-    "at": 1792924380
+    "block": 8393841,
+    "at": 1792924380,
+    "basis": "observed"
    },
    "mode": "margin",
    "promoted": {
@@ -359,7 +496,13 @@
     "width": "0.01"
    },
    "leaderboard": true,
-   "ended_class": null
+   "ended_class": null,
+   "bounds": null,
+   "tempo_blocks": 360,
+   "anchor": {
+    "epoch": 2271,
+    "block": 8385921
+   }
   }
  ],
  "records": [

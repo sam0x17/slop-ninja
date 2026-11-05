@@ -40,7 +40,8 @@
   },
   "plan": null,
   "results": false,
-  "mode": "target"
+  "mode": "target",
+  "bounds": null
  },
  "next": null,
  "best": {

@@ -1389,6 +1389,34 @@ so after an outage and its catch-up the same cohort resumes and advances at
 later boundaries, its admission and transition windows never compressed into
 the replay.
 
+**Boundary journal (store v23).** Each new epoch the engine stores is
+journaled once, at its first observation (`boundary_log`: the boundary's
+first block, the observation time, whether it was live, whether it credited
+a tempo, the credited count after it, and the watermark block the tick read
+it at); a later tick in the same epoch changes nothing. An observation is
+the boundary's observed time only when that watermark is within one
+fallback sweep of the boundary (`TICK_SWEEP_SECS`, the eval Worker's
+one-minute cron, checked against `wrangler.toml` by a test); a first tick
+later in the tempo, after silence, is dated back by its block lag and
+reported as derived. The v23 migration seeds the journal from the store's own
+boundary-step records (openings, admission window closes, the end of
+admission without coordinator admission, closes, and the stored epoch's
+block); work commits, notes and the openings of load cohorts and probe
+builds never seed it. `/eval/status` gives each cohort `opened_ms`,
+`cutoff_block` and `boundaries[]`: every epoch its dates use (opening,
+window close, publication, close, each phase-log epoch and the boundary
+after it, and the stored epoch while it runs), resolved by
+`eval::boundaries::resolve` to an observed or derived block and time
+(linear between journal rows, or from one side at the nominal block time,
+or by epoch across a tempo change), or `null` with `at_reason`
+(`before_tracking` or `not_derivable`). The public dashboard dates every
+stage by these points; no work commit's own time reaches them. Rows no
+cohort record names are pruned once per stored epoch, keeping the nearest
+anchors of every referenced epoch, so the journal is bounded by the records
+the store keeps and a closed cohort's derived dates never move.
+Store v23 is a rollback floor like v21: an earlier build refuses the newer
+store, so roll back with a forward revert that keeps `SCHEMA_V23`.
+
 **Phases.**
 
 | Phase | Moves on |

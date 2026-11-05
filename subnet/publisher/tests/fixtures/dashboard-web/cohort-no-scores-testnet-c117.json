@@ -14,19 +14,27 @@
   "state": "closed",
   "opened": {
    "epoch": 2271,
-   "at": 1792829040
+   "block": 8385921,
+   "at": 1792829040,
+   "basis": "observed"
   },
   "admission_closed": {
    "epoch": 2287,
-   "at": 1792898340
+   "block": 8391681,
+   "at": 1792898340,
+   "basis": "observed"
   },
   "published": {
    "epoch": 2291,
-   "at": 1792915680
+   "block": 8393121,
+   "at": 1792915680,
+   "basis": "observed"
   },
   "closed": {
    "epoch": 2293,
-   "at": 1792924380
+   "block": 8393841,
+   "at": 1792924380,
+   "basis": "observed"
   },
   "mode": "margin",
   "promoted": {
@@ -38,48 +46,125 @@
   "best_score": null,
   "quantization": null,
   "leaderboard": true,
-  "ended_class": null
+  "ended_class": null,
+  "bounds": {
+   "open": {
+    "epoch": 2271,
+    "block": 8385921,
+    "at": 1792829040,
+    "basis": "observed"
+   },
+   "cutoff": {
+    "epoch": 2287,
+    "block": 8391681,
+    "at": 1792898340,
+    "basis": "observed"
+   },
+   "close": {
+    "epoch": 2293,
+    "block": 8393841,
+    "at": 1792924380,
+    "basis": "observed"
+   }
+  },
+  "tempo_blocks": 360,
+  "anchor": {
+   "epoch": 2271,
+   "block": 8385921
+  }
  },
  "phases": [
   {
    "stage": "admission_open",
    "epoch": 2271,
-   "at": 1792829040
+   "block": 8385921,
+   "at": 1792829040,
+   "basis": "observed",
+   "tempos": {
+    "elapsed": 16,
+    "counted": 16,
+    "required": 16
+   }
   },
   {
    "stage": "admission_closing",
    "epoch": 2287,
-   "at": 1792898340
+   "block": 8391681,
+   "at": 1792898340,
+   "basis": "observed",
+   "tempos": {
+    "elapsed": 0,
+    "counted": null,
+    "required": null
+   }
   },
   {
    "stage": "generating",
    "epoch": 2287,
-   "at": 1792898340
+   "block": 8391681,
+   "at": 1792898340,
+   "basis": "observed",
+   "tempos": {
+    "elapsed": 1,
+    "counted": null,
+    "required": null
+   }
   },
   {
    "stage": "sealing",
    "epoch": 2288,
-   "at": 1792902720
+   "block": 8392041,
+   "at": 1792902720,
+   "basis": "derived",
+   "tempos": {
+    "elapsed": 0,
+    "counted": null,
+    "required": null
+   }
   },
   {
    "stage": "scoring",
    "epoch": 2288,
-   "at": 1792902720
+   "block": 8392041,
+   "at": 1792902720,
+   "basis": "derived",
+   "tempos": {
+    "elapsed": 2,
+    "counted": null,
+    "required": null
+   }
   },
   {
    "stage": "packaging",
    "epoch": 2290,
-   "at": 1792911360
+   "block": 8392761,
+   "at": 1792911360,
+   "basis": "observed",
+   "tempos": {
+    "elapsed": 1,
+    "counted": null,
+    "required": null
+   }
   },
   {
    "stage": "transition",
    "epoch": 2291,
-   "at": 1792915680
+   "block": 8393121,
+   "at": 1792915680,
+   "basis": "observed",
+   "tempos": {
+    "elapsed": 2,
+    "counted": null,
+    "required": 2
+   }
   },
   {
    "stage": "closed",
    "epoch": 2293,
-   "at": 1792924380
+   "block": 8393841,
+   "at": 1792924380,
+   "basis": "observed",
+   "tempos": null
   }
  ],
  "plan": {

@@ -14,11 +14,15 @@
   "state": "ended",
   "opened": {
    "epoch": 2161,
-   "at": 1792352520
+   "block": null,
+   "at": null,
+   "basis": null
   },
   "admission_closed": {
    "epoch": 2177,
-   "at": 1792421820
+   "block": null,
+   "at": 1792421820,
+   "basis": "observed"
   },
   "published": null,
   "closed": null,
@@ -32,23 +36,57 @@
    "width": "0.01"
   },
   "leaderboard": false,
-  "ended_class": "operator_hold"
+  "ended_class": "operator_hold",
+  "bounds": {
+   "open": {
+    "epoch": 2161,
+    "block": null,
+    "at": null,
+    "basis": null
+   },
+   "cutoff": {
+    "epoch": 2177,
+    "block": null,
+    "at": 1792421820,
+    "basis": "observed"
+   },
+   "close": null
+  },
+  "tempo_blocks": null,
+  "anchor": null
  },
  "phases": [
   {
    "stage": "admission_open",
    "epoch": 2161,
-   "at": 1792352520
+   "block": null,
+   "at": null,
+   "basis": null,
+   "tempos": {
+    "elapsed": 16,
+    "counted": 16,
+    "required": 16
+   }
   },
   {
    "stage": "admission_closing",
    "epoch": 2177,
-   "at": 1792421820
+   "block": null,
+   "at": 1792421820,
+   "basis": "observed",
+   "tempos": {
+    "elapsed": 0,
+    "counted": null,
+    "required": null
+   }
   },
   {
    "stage": "generating",
    "epoch": 2177,
-   "at": 1792421820
+   "block": null,
+   "at": 1792421820,
+   "basis": "observed",
+   "tempos": null
   }
  ],
  "plan": {

@@ -939,5 +939,12 @@ pub const EVAL_COHORT_SCHEMA: Schema = Schema {
             version: 26,
             statements: crate::eval::gen_v2::SCHEMA_V26,
         },
+        // v27: the commitment snapshot's not-served answers in a row and its
+        // backoff, so a lagging node pauses the closing cohort only at the
+        // plan's pause bound, as a resolution stage does.
+        Migration {
+            version: 27,
+            statements: crate::eval::commitments::SCHEMA_V27,
+        },
     ],
 };

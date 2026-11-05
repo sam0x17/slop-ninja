@@ -3083,6 +3083,159 @@ fn a_hash_stage_a_lagging_node_holds_pauses_until_the_hash_is_served() {
     assert_eq!(cleared.len(), 1);
 }
 
+/// Snapshot-retry review (11-05): at the cutoff snapshot a lagging node's
+/// answers (unknown-block refusals, answers without state) pause the
+/// closing cohort only at the plan's pause bound, as a resolution stage's
+/// do, with a growing backoff and the archive endpoint between them; the
+/// first read that answers resumes the same cohort. An explicit
+/// discarded-state refusal still pauses it at once.
+#[test]
+fn a_lagging_node_at_the_snapshot_pauses_the_closing_cohort_only_at_the_bound() {
+    use crate::chain::Value as V;
+    let fault = |db: &Sqlite| tx(db, |s| engine::cohort(s, 1)).unwrap().fault;
+    let metadata: &[u8] = include_bytes!("../../../fixtures/runtime-486/testnet-486.v15.scale");
+    let rt = crate::chain::ChainRuntime::parse(metadata, 486, 1).unwrap();
+    let db = db_with_open_cohort(2);
+    let m = miner(1, 3, 1, 0x11);
+    m.commit(&db, OPEN_BLOCK + 1, 0);
+    m.create(&db);
+    upload_all(&db, &m);
+    frame_ok(&db, &m);
+    admit_all(&db);
+    let cutoff = OPEN_BLOCK + 360;
+    close_at(&db, cutoff);
+    let (c, wanted) = tx(&db, snapshot_needs).unwrap().unwrap();
+    assert_eq!((c, wanted.clone()), (cutoff, vec![account(1)]));
+    // The snapshot block's hash is read and the stored runtime wrote it.
+    let snap = Id([0x5b; 32]);
+    let entry = rt.core().storage_entry("System", "LastRuntimeUpgrade").unwrap();
+    let mut marker = Vec::new();
+    rt.core()
+        .encode_id(
+            entry.value_type,
+            &V::record(vec![("spec_version".into(), V::Int(486)), ("spec_name".into(), V::str("node-subtensor"))]),
+            &mut marker,
+        )
+        .unwrap();
+    tx(&db, |s| {
+        commitments::store_runtime(s, 486, 1, metadata, cutoff - 1, &hex::encode(&marker))?;
+        s.exec(
+            "INSERT INTO adm_snapshot_blocks (cutoff_block, block_hash) VALUES (?, ?)",
+            &[bind_u64(cutoff)?, s_(snap.to_hex())],
+        )?;
+        Ok::<_, EvalError>(())
+    })
+    .unwrap();
+    let needs = commitments::Needs { poll: false, snapshot: Some((cutoff, wanted)) };
+    let at = BlockRef { number: cutoff + 2, hash: Id([0x0c; 32]) };
+    let plan_at = |db: &Sqlite, now: u64| tx(db, |s| commitments::plan(s, Some(&rt), 601, Some(at), &needs, 1_000, now)).unwrap();
+    let reply_to = |round: &commitments::Round, body: serde_json::Value| -> Vec<commitments::ReadResult> {
+        round
+            .reads
+            .iter()
+            .map(|r| {
+                let mut v = body.clone();
+                v["jsonrpc"] = "2.0".into();
+                v["id"] = r.id.into();
+                commitments::ReadResult { tag: r.tag.clone(), id: r.id, reply: Some(v.to_string()) }
+            })
+            .collect()
+    };
+    let not_imported = serde_json::json!({"error": {"code": 4003, "message": "Client error: UnknownBlock: Header was not found in the database"}});
+    let no_state = serde_json::json!({"result": [{"block": snap.to_hex(), "changes": []}]});
+    let tries = |db: &Sqlite| tx(db, commitments::status).unwrap()["snapshot_absent_tries"].as_i64().unwrap();
+    let bound = tx(&db, window).unwrap().unwrap().failures_before_pause;
+    assert!(bound > 1, "the plan's bound leaves room for a lagging node");
+    let mut now = NOW + 10;
+    for n in 1..=bound {
+        let round = plan_at(&db, now);
+        assert_eq!(round.reads.len(), 1, "answer {n}: the snapshot is due");
+        assert!(round.reads[0].tag.starts_with("snapvals@"));
+        assert_eq!(round.reads[0].archive, n > 1, "answer {n}: archive after the first answer without state");
+        let body = if n % 2 == 1 { &not_imported } else { &no_state };
+        tx(&db, |s| commitments::ingest(s, Some(&rt), 601, &reply_to(&round, body.clone()), now)).unwrap();
+        assert_eq!(tries(&db), i64::from(n));
+        if n < bound {
+            assert_eq!(fault(&db), None, "answer {n} is below the bound");
+            assert!(plan_at(&db, now + backoff_ms(n) - 1).reads.is_empty(), "answer {n}: backing off");
+        }
+        now += backoff_ms(n);
+    }
+    assert_eq!(fault(&db).as_deref(), Some(commitments::SNAPSHOT_DISCARDED), "paused at the bound");
+    assert_eq!(tx(&db, commitments::status).unwrap()["state_discarded"], 0, "nothing was discarded");
+    assert_eq!(tx(&db, |s| freeze_wait(s, 1)).unwrap(), Some("commitment snapshot pending"));
+    // The snapshot keeps being read while paused; the first answer resumes
+    // the same cohort and ends the run.
+    let round = plan_at(&db, now);
+    assert!(round.reads[0].tag.starts_with("snapvals@") && round.reads[0].archive);
+    let served = serde_json::json!({"result": [{"block": snap.to_hex(), "changes": [[commitments::marker_key(), format!("0x{}", hex::encode(&marker))]]}]});
+    tx(&db, |s| commitments::ingest(s, Some(&rt), 601, &reply_to(&round, served), now)).unwrap();
+    assert_eq!(fault(&db), None, "the snapshot was served");
+    assert_eq!(tries(&db), 0);
+    let round = plan_at(&db, now);
+    assert!(!round.reads[0].archive, "read from the RPC endpoint again");
+    // An explicit discarded-state refusal pauses at once and is counted.
+    let gone = serde_json::json!({"error": {"code": 4003, "message": "UnknownBlock: State already discarded for 0x5b"}});
+    tx(&db, |s| commitments::ingest(s, Some(&rt), 601, &reply_to(&round, gone), now)).unwrap();
+    assert_eq!(fault(&db).as_deref(), Some(commitments::SNAPSHOT_DISCARDED), "discarded pauses at once");
+    assert_eq!(tx(&db, commitments::status).unwrap()["state_discarded"], 1);
+    // The registration-block stage of the snapshot (`snapregs`) treats a
+    // lagging node the same way. The values stage answers with the miner's
+    // uid (and no commitment), which resumes the cohort and leaves only
+    // its registration block to read.
+    let encode = |pallet: &str, item: &str, v: &V| {
+        let entry = rt.core().storage_entry(pallet, item).unwrap();
+        let mut out = Vec::new();
+        rt.core().encode_id(entry.value_type, v, &mut out).unwrap();
+        format!("0x{}", hex::encode(out))
+    };
+    let (ck, uk) = (
+        commitments::commitment_key(&rt, 601, &account(1)).unwrap(),
+        commitments::uids_key(&rt, 601, &account(1)).unwrap(),
+    );
+    let uid = encode(crate::chain::SUBTENSOR, "Uids", &V::Int(i128::from(m.uid)));
+    let round = plan_at(&db, now);
+    assert!(round.reads[0].tag.starts_with("snapvals@"));
+    let with_uid = serde_json::json!({"result": [{"block": snap.to_hex(), "changes": [
+        [ck, serde_json::Value::Null], [uk, uid], [commitments::marker_key(), format!("0x{}", hex::encode(&marker))]
+    ]}]});
+    tx(&db, |s| commitments::ingest(s, Some(&rt), 601, &reply_to(&round, with_uid), now)).unwrap();
+    assert_eq!(fault(&db), None, "the values stage was served");
+    let round = plan_at(&db, now);
+    assert_eq!(round.reads.len(), 1);
+    assert!(round.reads[0].tag.starts_with("snapregs@"), "the registration block is read next");
+    assert!(!round.reads[0].archive);
+    for n in 1..=bound {
+        let round = plan_at(&db, now);
+        assert_eq!(round.reads.len(), 1, "registration answer {n}: the snapshot is due");
+        assert!(round.reads[0].tag.starts_with("snapregs@"));
+        assert_eq!(round.reads[0].archive, n > 1, "registration answer {n}: archive after the first answer without state");
+        let body = if n % 2 == 1 { &not_imported } else { &no_state };
+        tx(&db, |s| commitments::ingest(s, Some(&rt), 601, &reply_to(&round, body.clone()), now)).unwrap();
+        assert_eq!(tries(&db), i64::from(n));
+        assert_eq!(tx(&db, commitments::status).unwrap()["state_discarded"], 1, "registration answer {n} is not discarded");
+        if n < bound {
+            assert_eq!(fault(&db), None, "registration answer {n} is below the bound");
+            assert!(plan_at(&db, now + backoff_ms(n) - 1).reads.is_empty(), "registration answer {n}: backing off");
+        }
+        now += backoff_ms(n);
+    }
+    assert_eq!(fault(&db).as_deref(), Some(commitments::SNAPSHOT_DISCARDED), "registrations paused at the bound");
+    // The registration block served: the same cohort resumes and the
+    // snapshot is complete.
+    let round = plan_at(&db, now);
+    assert!(round.reads[0].tag.starts_with("snapregs@") && round.reads[0].archive);
+    let rk = commitments::registration_key(&rt, 601, m.uid).unwrap();
+    let reg = encode(crate::chain::SUBTENSOR, "BlockAtRegistration", &V::Int(i128::from(m.registration_block)));
+    let served = serde_json::json!({"result": [{"block": snap.to_hex(), "changes": [
+        [rk, reg], [commitments::marker_key(), format!("0x{}", hex::encode(&marker))]
+    ]}]});
+    tx(&db, |s| commitments::ingest(s, Some(&rt), 601, &reply_to(&round, served), now)).unwrap();
+    assert_eq!(fault(&db), None, "the registration block was served");
+    assert_eq!(tries(&db), 0);
+    assert!(plan_at(&db, now).reads.is_empty(), "the snapshot is complete");
+}
+
 fn s_(v: impl Into<String>) -> crate::sql::SqlValue {
     crate::sql::SqlValue::Text(v.into())
 }
@@ -3107,7 +3260,7 @@ fn store_v21_restarts_the_reader_call_maxima_and_keeps_the_failure_count() {
     let max = tx(&db, |q| q.exec("SELECT plan_ms_max FROM commit_reader WHERE id = 1", &[])).unwrap();
     assert_eq!(crate::sql::int(&max[0], 0).unwrap(), 3000);
     let report = tx(&db, |s| crate::sql::migrate(s, &EVAL_COHORT_SCHEMA)).unwrap();
-    assert_eq!((report.from, report.to), (20, 26));
+    assert_eq!((report.from, report.to), (20, 27));
     let c = calls(&db);
     assert_eq!((c["plan_ms_max"].as_i64(), c["ingest_ms_max"].as_i64(), c["failed"].as_i64()), (Some(0), Some(0), Some(1)));
     assert_eq!(c["plan_ms_last"], 80);
@@ -3989,7 +4142,7 @@ fn store_v25_refuses_a_live_v1_admission_then_replaces_the_session_tables() {
         )
         .unwrap();
     let report = tx(&db, |s| crate::sql::migrate(s, &EVAL_COHORT_SCHEMA)).unwrap();
-    assert_eq!((report.from, report.to), (24, 26));
+    assert_eq!((report.from, report.to), (24, 27));
     let queued: std::collections::BTreeSet<(String, Option<String>)> =
         tx(&db, |s| object_deletes_due(s, 10, crate::wire::MAX_SAFE_INTEGER)).unwrap().into_iter().collect();
     let want: std::collections::BTreeSet<(String, Option<String>)> = ["d", "e"]

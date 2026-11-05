@@ -3374,6 +3374,22 @@ pub fn waiting_on_state(sql: &impl Sql, hotkey: &AccountId, block: u64, tries: u
     Ok(())
 }
 
+/// The closing cohort at `cutoff` met its snapshot's `tries`-th answer in a
+/// row that served no state (a lagging node's not-served refusal, or an
+/// answer without state; [`commitments`]'s `snapshot_absent`): whether that
+/// reaches the plan's pause bound, at which the cohort pauses
+/// (`snapshot_state_discarded`, resumable), as a resolution stage's
+/// ([`waiting_on_state`]). `false` when no cohort is closing at `cutoff`.
+pub fn snapshot_pause_due(sql: &impl Sql, cutoff: u64, tries: u32) -> R<bool> {
+    let rows = sql.exec(
+        "SELECT seq FROM adm_cohorts WHERE cutoff_block = ? AND state = 'closing'",
+        &[bind_u64(cutoff)?],
+    )?;
+    let Some(r) = rows.first() else { return Ok(false) };
+    let c = engine::cohort(sql, int(r, 0)?)?;
+    Ok(window_of(sql, &c)?.is_some_and(|w| pause_due(tries, w.failures_before_pause)))
+}
+
 /// The admitting or closing cohort's sequence number (0 when none), the
 /// cohort an admission step's arena refusal faults.
 pub fn current_seq(sql: &impl Sql) -> R<i64> {

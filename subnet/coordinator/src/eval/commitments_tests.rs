@@ -863,10 +863,39 @@ fn a_snapshot_under_another_runtime_is_decoded_with_the_metadata_at_its_block() 
     // but is not counted as discarded state.
     let round = tx(&db, |s| plan(s, Some(&rt), NETUID, Some(at), &needs, BUDGET, 3)).unwrap();
     assert!(round.reads[0].tag.starts_with("snapvals@"), "the snapshot keeps being read");
+    assert!(!round.reads[0].archive, "a discarded answer alone sets no backoff or archive routing");
     tx(&db, |s| ingest(s, Some(&rt), NETUID, &error_reply(&round, "UnknownBlock: Header was not found"), 3)).unwrap();
     assert_eq!(tx(&db, status).unwrap()["state_discarded"], 1, "a block not served yet is not discarded");
-    let round = tx(&db, |s| plan(s, Some(&rt), NETUID, Some(at), &needs, BUDGET, 4)).unwrap();
+    // It is read again after the backoff, as a resolution stage is, and
+    // from the archive endpoint when one is configured; meanwhile a plan
+    // reads nothing for it and parses no runtime for it.
+    let due = 3 + crate::eval::admission::backoff_ms(1);
+    let round = tx(&db, |s| plan(s, Some(&rt), NETUID, Some(at), &needs, BUDGET, due - 1)).unwrap();
+    assert!(round.reads.is_empty(), "backing off");
+    assert!(!tx(&db, |s| wants_round(s, &needs, due - 1)).unwrap());
+    assert!(tx(&db, |s| wants_round(s, &needs, due)).unwrap());
+    let round = tx(&db, |s| plan(s, Some(&rt), NETUID, Some(at), &needs, BUDGET, due)).unwrap();
     assert!(round.reads[0].tag.starts_with("snapvals@"), "and is read again");
+    assert!(round.reads[0].archive, "from the archive endpoint");
+    // An answer without state (no upgrade marker) is a lagging node too:
+    // the backoff grows and nothing is counted as discarded.
+    let results = answer(&round, |_| serde_json::json!([{"block": snap.to_hex(), "changes": []}]));
+    tx(&db, |s| ingest(s, Some(&rt), NETUID, &results, due)).unwrap();
+    assert_eq!(tx(&db, status).unwrap()["state_discarded"], 1, "an answer without state is not discarded");
+    let again = due + crate::eval::admission::backoff_ms(2);
+    assert!(crate::eval::admission::backoff_ms(2) > crate::eval::admission::backoff_ms(1));
+    assert!(tx(&db, |s| plan(s, Some(&rt), NETUID, Some(at), &needs, BUDGET, again - 1)).unwrap().reads.is_empty());
+    let round = tx(&db, |s| plan(s, Some(&rt), NETUID, Some(at), &needs, BUDGET, again)).unwrap();
+    assert!(round.reads[0].tag.starts_with("snapvals@") && round.reads[0].archive);
+    // A read that answers ends the run: the next plan reads at once, from
+    // the RPC endpoint.
+    let results = answer(&round, |_| {
+        serde_json::json!([{"block": snap.to_hex(), "changes": [[ck, hx(&value)], [uk, hx(&uid)], [marker_key(), hx(&up487)]]}])
+    });
+    tx(&db, |s| ingest(s, Some(&rt), NETUID, &results, again)).unwrap();
+    assert_eq!(db.count("adm_snapshot"), 1, "the snapshot was decoded");
+    let tries = tx(&db, |s| s.exec("SELECT absent_tries, retry_ms FROM adm_snapshot_blocks", &[])).unwrap();
+    assert_eq!((int(&tries[0], 0).unwrap(), int(&tries[0], 1).unwrap()), (0, 0));
 }
 
 /// Each block's delivery drives the reader, so invocations overlap: while a

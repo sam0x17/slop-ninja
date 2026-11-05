@@ -2192,20 +2192,35 @@ store v25; [admission API](../../docs/testnet/admission-api.md)):
   block also reads `LastRuntimeUpgrade` there: a resolution stage or a
   snapshot read under another runtime reads the metadata at its own block
   and is read again, so a runtime upgrade never makes a commitment
-  unresolvable. A read the RPC endpoint answers as discarded state is sent
-  again to `ARCHIVE_RPC_URL` when the deployment sets one (each call
-  reserved in the budget), and only the archive's answer is ingested.
+  unresolvable. A read the RPC endpoint refuses, as discarded state or as
+  a block its answering node has not imported yet, is sent again to
+  `ARCHIVE_RPC_URL` when the deployment sets one (each call reserved in
+  the budget), and only the archive's answer is ingested. A block not
+  served yet (an unknown-block error or missing header without the
+  discarded wording, or an answer without state: a lagging node behind a
+  load-balanced endpoint; for a resolution stage also a `null` block
+  hash) is never final: a resolution stage or a snapshot state read is
+  read again after a growing backoff, from `ARCHIVE_RPC_URL` first
+  when set, and its cohort pauses only at the plan's
+  `failures_before_pause` such answers in a row
+  (`commitment_state_unavailable` while a session waits on the
+  resolution, `snapshot_state_discarded` for the snapshot; both
+  resumable, and the reader status shows `state_absent_pending` and
+  `snapshot_absent_tries`); the snapshot's block-hash read at
+  `cutoff_block - 1`, after a `null` hash or a refusal, is read again
+  every round, without a backoff or a pause; a key listing is read again
+  at its own block.
   Failures stay local: a value or event list that does not decode, an
   extrinsic that committed for several hotkeys (`shared_extrinsic`) and
   state no endpoint keeps (`state_discarded`) end that commitment's
   resolution as unresolvable and never abort the round, and a session that
   opens it gets `commitment_unresolvable` with the reason, so the miner
   commits again; a key listing whose block is gone restarts at the head; a
-  snapshot whose block is gone pauses the closing cohort
-  (`snapshot_state_discarded`, resumable) and is read again each round, and
-  the first read that answers resumes the same cohort. Later state is never
-  substituted. The cutoff snapshot also reads each hotkey's `Owner` (its
-  coldkey at the cutoff).
+  snapshot whose block is gone pauses the closing cohort at once
+  (`snapshot_state_discarded`, resumable) and is read again each round.
+  The first snapshot read that answers resumes the same cohort; nothing is
+  skipped, and later state is never substituted. The cutoff snapshot also
+  reads each hotkey's `Owner` (its coldkey at the cutoff).
 - **Fresh stock** is drawn only when the frozen roster holds an admitted
   outside entrant (a hotkey not in the plan's `operator_hotkeys`, not owned
   at the cutoff by a coldkey in `operator_coldkeys` (an owner that does not

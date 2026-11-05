@@ -196,7 +196,14 @@ reserved in the shared RPC budget first:
   coldkey) and then `BlockAtRegistration` at the hash of `cutoff_block - 1`: the state the
   last block before the cutoff left. That is exactly the hotkey's last
   commitment before the cutoff block and the registration that held then.
-  The roster does not freeze before the snapshot is read.
+  The roster does not freeze before the snapshot is read. A snapshot read
+  that serves no state without saying it is discarded (a lagging or
+  load-balanced node) is repeated after a growing backoff, from the
+  archive endpoint when one is configured, and pauses the closing cohort
+  only after the plan's `failures_before_pause` such answers in a row;
+  state every configured endpoint reports discarded pauses it at once.
+  Either pause is resumable: the first read that answers resumes the same
+  cohort, and nothing is skipped.
 - Opening a session uses the hotkey's latest logged commitment; while a newer
   one the poll saw is still being resolved, opening answers
   `commitment_not_found` (retryable). The close uses the snapshot.

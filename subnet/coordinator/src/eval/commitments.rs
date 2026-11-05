@@ -37,13 +37,16 @@
 //! node no longer keeps (its explicit "state discarded" error,
 //! [`Refusal::Discarded`]) ends a resolution as unresolvable and restarts a
 //! pinned key listing at the current block; at the snapshot it pauses the
-//! closing cohort ([`SNAPSHOT_DISCARDED`]) until a read answers. An
+//! closing cohort at once ([`SNAPSHOT_DISCARDED`]) until a read answers. An
 //! unknown-block answer without that wording ([`Refusal::NotServed`]: a
 //! node behind a load-balanced endpoint that has not imported the block
-//! yet) is never final: a resolution stage is read again after a backoff,
-//! as an answer without state is ([`state_absent`]), and a key listing is
-//! read again at its own block. The Worker reads a refused read again from
-//! `ARCHIVE_RPC_URL` when one is configured before either applies. A
+//! yet) is never final: a resolution stage or the snapshot is read again
+//! after a backoff, as an answer without state is ([`state_absent`],
+//! [`snapshot_absent`]), from the archive endpoint once one such answer
+//! came, and pauses its cohort only at the plan's pause bound; a key
+//! listing is read again at its own block. The Worker reads a refused read
+//! again from `ARCHIVE_RPC_URL` when one is configured before either
+//! applies. A
 //! commitment whose extrinsic also committed for another hotkey on the
 //! subnet (a batch) has no position the protocol
 //! orders and is unresolvable ([`SHARED_EXTRINSIC`]). Every read at a past
@@ -94,7 +97,8 @@ pub const KEYS_PAGE: u32 = 1000;
 /// The note of a commitment whose extrinsic committed for several hotkeys.
 pub const SHARED_EXTRINSIC: &str = "shared_extrinsic";
 /// The fault of a closing cohort whose snapshot block's state no endpoint
-/// read served: discarded, or not served yet by the answering node.
+/// read served: discarded (at once), or not served yet by the answering
+/// node in the plan's pause bound of answers in a row.
 pub const SNAPSHOT_DISCARDED: &str = "snapshot_state_discarded";
 /// Calls one runtime read takes (version, metadata, marker).
 pub const RUNTIME_READS: usize = 3;
@@ -208,6 +212,15 @@ pub const SCHEMA_V17: &[&str] = &[
     "ALTER TABLE commit_reader ADD COLUMN ingest_ms_max INTEGER NOT NULL DEFAULT 0",
 ];
 
+/// v27: the snapshot's answers without state in a row, per cutoff
+/// (`absent_tries`, cleared by the first read that answers), and the time
+/// its next read is due (`retry_ms`): a lagging node's not-served answer
+/// backs off as a resolution stage's does ([`snapshot_absent`]).
+pub const SCHEMA_V27: &[&str] = &[
+    "ALTER TABLE adm_snapshot_blocks ADD COLUMN absent_tries INTEGER NOT NULL DEFAULT 0",
+    "ALTER TABLE adm_snapshot_blocks ADD COLUMN retry_ms INTEGER NOT NULL DEFAULT 0",
+];
+
 /// Records what the Worker reports of its previous calls ([`Prior`]).
 pub fn note_prior(sql: &impl Sql, prior: &Prior) -> R<()> {
     if let Some(ms) = prior.plan_ms {
@@ -235,7 +248,12 @@ pub fn note_prior(sql: &impl Sql, prior: &Prior) -> R<()> {
 /// Whether a plan could need a round now (anything the reader is for, or a
 /// resolution due): only then does the plan parse the stored runtime.
 pub fn wants_round(sql: &impl Sql, needs: &Needs, now_ms: u64) -> R<bool> {
-    if needs.poll || needs.snapshot.is_some() {
+    if needs.poll {
+        return Ok(true);
+    }
+    if let Some((cutoff, _)) = &needs.snapshot
+        && snapshot_due(sql, *cutoff, now_ms)?
+    {
         return Ok(true);
     }
     let due = sql.exec(
@@ -656,8 +674,8 @@ pub struct Read {
     pub body: String,
     pub large: bool,
     /// Read from the archive endpoint when the deployment configures one
-    /// (`ARCHIVE_RPC_URL`): an earlier answer for this resolution stage
-    /// served no state for its block.
+    /// (`ARCHIVE_RPC_URL`): an earlier answer for this resolution stage, or
+    /// for the snapshot, served no state for its block.
     pub archive: bool,
 }
 
@@ -764,17 +782,23 @@ fn reader_row(sql: &impl Sql) -> R<crate::sql::Row> {
 /// A snapshot row: the hotkey, its UID at the cutoff, and whether its
 /// registration block is read.
 type SnapshotRow = (AccountId, Option<u16>, bool);
+/// The snapshot block's hash, once read, with its answers without state in
+/// a row and the time its next read is due ([`SCHEMA_V27`]).
+type SnapshotBlock = (String, u32, u64);
 /// A commitment being resolved: hotkey, block, stage, block hash, UID.
 type Pending = (AccountId, u64, String, Option<String>, Option<u16>, bool);
 
-fn snapshot_stage(sql: &impl Sql, cutoff: u64) -> R<(Option<String>, Vec<SnapshotRow>)> {
-    let hash = sql
+fn snapshot_stage(sql: &impl Sql, cutoff: u64) -> R<(Option<SnapshotBlock>, Vec<SnapshotRow>)> {
+    let hash = match sql
         .exec(
-            "SELECT block_hash FROM adm_snapshot_blocks WHERE cutoff_block = ?",
+            "SELECT block_hash, absent_tries, retry_ms FROM adm_snapshot_blocks WHERE cutoff_block = ?",
             &[bind_u64(cutoff)?],
         )?
         .first()
-        .and_then(|r| opt_text(r, 0));
+    {
+        Some(r) => Some((text(r, 0)?.to_owned(), u32::try_from(uint(r, 1)?).unwrap_or(u32::MAX), uint(r, 2)?)),
+        None => None,
+    };
     let rows = sql.exec(
         "SELECT hotkey, uid, done FROM adm_snapshot WHERE cutoff_block = ? ORDER BY hotkey",
         &[bind_u64(cutoff)?],
@@ -913,10 +937,16 @@ pub fn plan(
         });
         true
     };
-    // The snapshot at the cutoff (its state is the most perishable).
+    // The snapshot at the cutoff (its state is the most perishable), unless
+    // its last answer served no state and its backoff has not passed
+    // ([`snapshot_absent`]); after such an answer it is read from the
+    // archive endpoint when one is configured, as a resolution stage is.
     if let Some((cutoff, hotkeys)) = &needs.snapshot {
         let (hash, rows) = snapshot_stage(sql, *cutoff)?;
+        let before = round.reads.len();
+        let absent = hash.as_ref().is_some_and(|b| b.1 > 0);
         match hash {
+            Some((_, _, retry_ms)) if retry_ms > now_ms => {}
             None => {
                 let before = cutoff.saturating_sub(1);
                 push(
@@ -926,7 +956,7 @@ pub fn plan(
                     false,
                 );
             }
-            Some(h) => {
+            Some((h, _, _)) => {
                 let at_hash = Id::parse(&h).map_err(|_| EvalError::State("snapshot hash"))?;
                 let have: Vec<&AccountId> = rows.iter().map(|r| &r.0).collect();
                 let missing: Vec<&AccountId> = hotkeys.iter().filter(|h| !have.contains(h)).collect();
@@ -961,6 +991,9 @@ pub fn plan(
                     }
                 }
             }
+        }
+        if absent && round.reads.len() > before && let Some(r) = round.reads.last_mut() {
+            r.archive = true;
         }
     }
     // Resolution of new commitments, oldest first.
@@ -1716,15 +1749,15 @@ fn snapshot_hash(sql: &impl Sql, cutoff: u64) -> R<Option<Id>> {
         .and_then(|h| Id::parse(&h).ok()))
 }
 
-/// No endpoint read (the RPC endpoint and, when configured, the archive
-/// endpoint) served the snapshot block's state: it is discarded, or not
-/// served yet by the answering node. `discarded` counts the answer in the
-/// reader's `state_discarded` (an explicit discarded-state refusal, or an
-/// answer without state); a lagging node's unknown-block refusal
-/// ([`Refusal::NotServed`]) is not counted. Either way the closing cohort pauses
-/// (`snapshot_state_discarded`, resumable) and the snapshot keeps being
-/// read; the first read that answers resumes the same cohort
-/// ([`snapshot_answered`]). Nothing is substituted or expired.
+/// The closing cohort at `cutoff` pauses (`snapshot_state_discarded`,
+/// resumable) and the snapshot keeps being read; the first read that
+/// answers resumes the same cohort ([`snapshot_answered`]). Nothing is
+/// substituted or expired. Raised at once by an explicit discarded-state
+/// refusal from every endpoint read (the RPC endpoint and, when configured,
+/// the archive endpoint), counted in the reader's `state_discarded`
+/// (`discarded`), and by a runtime read at the snapshot's block refused so;
+/// an answer that served no state without saying it is gone pauses only at
+/// the plan's bound ([`snapshot_absent`]) and is not counted.
 fn snapshot_discarded(sql: &impl Sql, cutoff: u64, discarded: bool, now_ms: u64) -> R<()> {
     if discarded {
         sql.exec("UPDATE commit_reader SET discarded = discarded + 1 WHERE id = 1", &[])?;
@@ -1739,11 +1772,56 @@ fn snapshot_discarded(sql: &impl Sql, cutoff: u64, discarded: bool, now_ms: u64)
     Ok(())
 }
 
-/// A snapshot read answered with the state (after an earlier read found it
-/// discarded, for example once an archive endpoint is configured): the
-/// closing cohort's `snapshot_state_discarded` pause ends by itself, and the
-/// same cohort freezes. Nothing is skipped or substituted.
+/// A snapshot read that served no state for its block without saying it is
+/// gone: a lagging or load-balanced node's unknown-block refusal
+/// ([`Refusal::NotServed`]), or an answer without state ([`Writer::Absent`]).
+/// As at a resolution stage ([`state_absent`]) it is never final and not
+/// counted as discarded: the snapshot is read again after a backoff that
+/// grows with these answers in a row (`adm_snapshot_blocks.absent_tries`,
+/// `retry_ms`; every read is still charged to the reader's per-minute
+/// share), from the archive endpoint when the deployment configures one
+/// ([`Read::archive`]). The closing cohort pauses
+/// (`snapshot_state_discarded`, resumable) at every multiple of the plan's
+/// pause bound ([`crate::eval::admission::snapshot_pause_due`]), and the
+/// first read that answers resumes it ([`snapshot_answered`]). Nothing is
+/// skipped, substituted or expired.
+fn snapshot_absent(sql: &impl Sql, cutoff: u64, now_ms: u64) -> R<()> {
+    let rows = sql.exec(
+        "UPDATE adm_snapshot_blocks SET absent_tries = absent_tries + 1 WHERE cutoff_block = ? RETURNING absent_tries",
+        &[bind_u64(cutoff)?],
+    )?;
+    let Some(r) = rows.first() else { return Ok(()) };
+    let tries = u32::try_from(int(r, 0)?).unwrap_or(u32::MAX);
+    sql.exec(
+        "UPDATE adm_snapshot_blocks SET retry_ms = ? WHERE cutoff_block = ?",
+        &[bind_u64(now_ms.saturating_add(crate::eval::admission::backoff_ms(tries)))?, bind_u64(cutoff)?],
+    )?;
+    if crate::eval::admission::snapshot_pause_due(sql, cutoff, tries)? {
+        snapshot_discarded(sql, cutoff, false, now_ms)?;
+    }
+    Ok(())
+}
+
+/// Whether the snapshot at `cutoff` is due a read: its block hash is not
+/// read yet, or the backoff after its last answer without state passed.
+fn snapshot_due(sql: &impl Sql, cutoff: u64, now_ms: u64) -> R<bool> {
+    let rows = sql.exec(
+        "SELECT retry_ms FROM adm_snapshot_blocks WHERE cutoff_block = ?",
+        &[bind_u64(cutoff)?],
+    )?;
+    Ok(rows.first().map(|r| uint(r, 0)).transpose()?.is_none_or(|t| t <= now_ms))
+}
+
+/// A snapshot read answered with the state (after earlier reads found it
+/// discarded or not served, for example once an archive endpoint is
+/// configured or the lagging node caught up): its answers without state in
+/// a row end, the closing cohort's `snapshot_state_discarded` pause ends by
+/// itself, and the same cohort freezes. Nothing is skipped or substituted.
 fn snapshot_answered(sql: &impl Sql, cutoff: u64, now_ms: u64) -> R<()> {
+    sql.exec(
+        "UPDATE adm_snapshot_blocks SET absent_tries = 0, retry_ms = 0 WHERE cutoff_block = ? AND absent_tries > 0",
+        &[bind_u64(cutoff)?],
+    )?;
     let rows = sql.exec(
         "SELECT c.label FROM adm_cohorts a JOIN cohorts c ON c.seq = a.seq
          WHERE a.cutoff_block = ? AND a.state = 'closing' AND c.fault = ?",
@@ -1780,12 +1858,19 @@ fn ingest_snap_values(
     let Some(at) = snapshot_hash(sql, cutoff)? else {
         return Ok(false);
     };
-    // Discarded or not served yet: the resumable pause, as an answer
-    // without state; the snapshot keeps being read. Only an explicit
-    // discarded-state refusal is counted as discarded.
-    if let Some(why) = refusal(r) {
-        snapshot_discarded(sql, cutoff, why == Refusal::Discarded, now_ms)?;
-        return Ok(true);
+    // Discarded: the resumable pause at once, counted. Not served yet (a
+    // lagging node): read again after a backoff, pausing only at the
+    // plan's bound ([`snapshot_absent`]).
+    match refusal(r) {
+        Some(Refusal::Discarded) => {
+            snapshot_discarded(sql, cutoff, true, now_ms)?;
+            return Ok(true);
+        }
+        Some(Refusal::NotServed) => {
+            snapshot_absent(sql, cutoff, now_ms)?;
+            return Ok(true);
+        }
+        None => {}
     }
     // The request's keys, in request order: (CommitmentOf, Uids) per hotkey.
     let Some(body) = r.reply.as_deref() else {
@@ -1815,10 +1900,11 @@ fn ingest_snap_values(
             refresh_at(sql, &at, cutoff.saturating_sub(1), &marker)?;
             return Ok(true);
         }
-        // No state served for the snapshot block: pause, never decode
+        // No state served for the snapshot block (a lagging node, as at a
+        // resolution stage): read again after a backoff, never decode
         // nothing as "no commitment".
         Writer::Absent => {
-            snapshot_discarded(sql, cutoff, true, now_ms)?;
+            snapshot_absent(sql, cutoff, now_ms)?;
             return Ok(true);
         }
     }
@@ -1878,12 +1964,19 @@ fn ingest_snap_regs(
     let Some(at) = snapshot_hash(sql, cutoff)? else {
         return Ok(false);
     };
-    // Discarded or not served yet: the resumable pause, as an answer
-    // without state; the snapshot keeps being read. Only an explicit
-    // discarded-state refusal is counted as discarded.
-    if let Some(why) = refusal(r) {
-        snapshot_discarded(sql, cutoff, why == Refusal::Discarded, now_ms)?;
-        return Ok(true);
+    // Discarded: the resumable pause at once, counted. Not served yet (a
+    // lagging node): read again after a backoff, pausing only at the
+    // plan's bound ([`snapshot_absent`]).
+    match refusal(r) {
+        Some(Refusal::Discarded) => {
+            snapshot_discarded(sql, cutoff, true, now_ms)?;
+            return Ok(true);
+        }
+        Some(Refusal::NotServed) => {
+            snapshot_absent(sql, cutoff, now_ms)?;
+            return Ok(true);
+        }
+        None => {}
     }
     let rows = sql.exec(
         "SELECT hotkey, uid FROM adm_snapshot WHERE cutoff_block = ? AND done = 0 AND uid IS NOT NULL",
@@ -1907,10 +2000,11 @@ fn ingest_snap_regs(
             refresh_at(sql, &at, cutoff.saturating_sub(1), &marker)?;
             return Ok(true);
         }
-        // No state served for the snapshot block: pause, never decode
+        // No state served for the snapshot block (a lagging node, as at a
+        // resolution stage): read again after a backoff, never decode
         // nothing as "no commitment".
         Writer::Absent => {
-            snapshot_discarded(sql, cutoff, true, now_ms)?;
+            snapshot_absent(sql, cutoff, now_ms)?;
             return Ok(true);
         }
     }
@@ -1973,6 +2067,21 @@ pub fn status(sql: &impl Sql) -> R<Json> {
             // at each window's opening; null before the first since v21).
             "maxima_cohort": opt_int(x, 14),
         },
+        // The closing cohort's snapshot answers without state in a row
+        // (read again after a backoff; the cohort pauses at the plan's
+        // bound), 0 when none.
+        "snapshot_absent_tries": int(
+            &sql.exec(
+                "SELECT COALESCE(MAX(b.absent_tries), 0) FROM adm_snapshot_blocks b
+                 JOIN adm_cohorts a ON a.cutoff_block = b.cutoff_block AND a.state = 'closing'",
+                &[],
+            )?
+            .first()
+            .cloned()
+            .unwrap_or_default(),
+            0,
+        )
+        .unwrap_or(0),
         // Pending resolutions whose reads have served no state yet (read
         // again after a backoff, never ended for it).
         "state_absent_pending": int(

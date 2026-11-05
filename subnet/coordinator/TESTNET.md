@@ -3343,14 +3343,15 @@ merge and release it after step 11.
    and the manifest for `artifacts/packages/<package>.json`, through the
    checksum-verified staging the user chose): new eval-bucket keys only,
    additive, read by nothing live, so step 6's probe can load one.
-6. **Eval Worker** (store v25 and v26, admission v2, the v2 lanes, the new scorer
+6. **Eval Worker** (store v25, v26 and v27, admission v2, the v2 lanes, the new scorer
    image), in a quiet window with coordinator signing paused and the
    journal schema checked; step 0's preflight repeated inside the lock
    first. After `wrangler deploy`, wait until `wrangler containers info`
    shows the new application version settled (Worker code goes live before
    the Container rollout finishes; no `scheduling` backlog) before the
-   probe. Post-deploy probe: `/eval/status` reports store 26 (v26 adds
-   generation v2's private tables only, in the same transaction; and
+   probe. Post-deploy probe: `/eval/status` reports store 27 (v26 adds
+   generation v2's private tables only and v27 the commitment snapshot's
+   not-served backoff columns, in the same transaction; and
    `/eval/load/status` answers, not `migration_failed`); a scorer
    `/healthz` on a fresh instance; one reference load through the v2 lanes
    (`/eval/scorer-probe` with a v2 package staged in step 5); one binding
@@ -3371,10 +3372,10 @@ merge and release it after step 11.
    its `SCORER_BINARY_SHA256`, so v1 lanes do not meet a binary their pin
    refuses), wait for the Container rollout to settle, probe the v1
    status, and resume signing. Then drain (step 0) and try again.
-   **Rollback floor after a successful migration: store v26.** An earlier
+   **Rollback floor after a successful migration: store v27.** An earlier
    build refuses the newer store (`NewerStoredVersion`) and the v1 session
    tables are gone, so a revert is forward only: a build that keeps
-   `SCHEMA_V25` and `SCHEMA_V26`. This window and the upload Worker's (step 8) are
+   `SCHEMA_V25`, `SCHEMA_V26` and `SCHEMA_V27`. This window and the upload Worker's (step 8) are
    effectively one-way together.
 7. **Template**, one ordered block inside one eval window, before the next
    cohort opens: reinstall the standing template with

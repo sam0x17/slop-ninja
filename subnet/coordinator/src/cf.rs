@@ -2521,8 +2521,8 @@ async fn commitments_drive(env: &Env, d: &Deployment, budget: Budget) {
                     reply.ok().and_then(|b| String::from_utf8(b).ok())
                 }
             };
-            // A resolution read whose earlier answer served no state goes to
-            // the archive endpoint first when one is configured.
+            // A resolution or snapshot read whose earlier answer served no
+            // state goes to the archive endpoint first when one is configured.
             let first = match &archive {
                 Some(url) if read.archive => url.as_str(),
                 _ => d.rpc_url.as_str(),

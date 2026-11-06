@@ -384,12 +384,18 @@ timelock encoder supports a single commit--reveal version, so a different
 on-chain version defers commits~\cite{nativeadapter}. The production native
 validator and the serverless coordinator, which is itself the lead validator,
 remain unfinished, as does finalized-RPC recovery qualification. The shared
-protocol crate implements the \texttt{reward-v1} calculation, the public-copy
-gate and near-copy relation, private submission records, the launch and
-reward-intent leases, the cohort phase checks, and the check of a package
-against the target its holder has active, as exact computation that reproduces
-byte for byte on native and wasm32 targets~\cite{protocolcrate}. On testnet the
-coordinator's evaluation service runs \texttt{reward-v1} cohorts, building probe
+protocol crate implements the \texttt{reward-v2} calculation over
+\texttt{quant-v1} quantized scores with the per-cohort bit budget, the
+public-copy gate and near-copy relation, private submission records, the launch
+and reward-intent authorizations, which never expire, with their signed
+revocations, the coordinator's signed row record, the cohort phase checks, and
+the check of a row against the target its holder has active, as exact
+computation that reproduces byte for byte on native and wasm32
+targets~\cite{protocolcrate}. Direct R2 admission with publication at scoring
+start, \texttt{reward-v2} with quantized scores, and generation that takes half
+of a cohort's text from frontier models are implemented but not yet deployed:
+on testnet the coordinator's evaluation service still runs \texttt{reward-v1}
+cohorts, building probe
 versions and fingerprints, keeping the published-artifact index, measuring the
 gates, and signing packages, and the coordinator and the native validator
 verify them and commit the resulting rows (the
@@ -397,9 +403,8 @@ verify them and commit the resulting rows (the
 Not yet implemented are signed corrections; the commitment call's chain
 encoding and on-chain admission, so the operator declares each roster; the
 lookup canary's statistic, since testnet has no anchors and its flags come
-only from drills; scoring audit draws for promotion candidates alone, since
-every executed entrant scores them; per-tempo authorization renewals;
-authorization of the burn row by a package without a cohort target; rebuilding the published-artifact
+only from drills; scoring the canary's audit draws for promotion candidates
+only (today every executed entrant scores them); rebuilding the published-artifact
 index instead of trusting the coordinator's copy; binding that index by digest,
 since every active-target bundle embeds the whole index, which outgrows the
 coordinator's single stored value at about 5,000 published artifacts, about 130

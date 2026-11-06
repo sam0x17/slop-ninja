@@ -57,29 +57,45 @@ One lead validator, operated by Slop Ninja, serves as the coordinator.
 The protocol below states requirements, and Section~\ref{implementation-status}
 records which parts run today: the coordinator is specified to run entirely
 serverlessly but remains unfinished, and testnet cohorts still run in a
-separate evaluation service. Miners commit artifact digests on chain and
-upload their models privately; the coordinator scores every entrant and the
-reference model on a fresh hidden batch of paired cases each day, then
-publishes the entrants' models, licensed CC BY-SA 4.0, and signed per-miner
-scores; Slop Ninja publishes its own reference models on the same terms,
+separate evaluation service. Under the protocol, miners commit artifact digests
+on chain and upload their model files straight to the coordinator's private R2
+storage, which checks each file's declared SHA-256 on arrival. The coordinator publishes
+the entrants' models, licensed CC BY-SA 4.0, when scoring starts, and scores
+every entrant and the current and previous reference models (when a previous
+one exists) on a fresh hidden batch of paired cases each day; Slop Ninja publishes its own reference models on the same terms,
 without evaluation text. Each batch is a fifth human-only, and on mainnet its human text comes
 from Common Crawl pages captured before November 30, 2022, a historical-human
 proxy drawn with capped domain shares that limit lookup by memorizing models and
 checked by era gates; testnet uses a smaller public stock and, for cohorts
-without a working outside entrant, reuses only documents already exposed.
+without a working outside entrant, reuses only documents already exposed. The
+protocol takes half of each batch's generated text from frontier models and half
+from open models on Workers AI; Section~\ref{implementation-status} records
+which of these steps testnet runs today.
 Testnet starts from the first reference and may replace it once, announced in
-advance, with the next qualified reference; mainnet later opens a fresh record
+advance, with the next qualified reference, which takes its place with no
+predecessor; mainnet later opens a fresh record
 of cohorts with the reference testnet then holds. Otherwise the
-reference changes only when an entrant beats it by a margin; until an entrant
-first does, miner rewards burn, which under the documented emission rules also withholds the subnet's
-TAO-side emission but not validator or owner alpha. Every validator independently derives the canonical native weight row
-with the same exact rules: subnet 78's geometric split of credit across score
-bands and ranks, extended with a fallback cutoff for cohorts in which no entrant
-beats the reference by the margin, no credit for copies of published models,
-a miner's own included, and one credit shared among near-duplicate entries; other validators receive no held-out data. The coordinator also signs, submits, and
+reference changes only when an entrant whose released score reaches the margin
+cutoff also beats it by the margin in exact score and passes the promotion
+checks. Rewards are paid on released scores: until a
+cohort first has an entrant whose released score reaches the margin cutoff, or a
+fallback cutoff once a previous reference exists, miner rewards burn, which under the documented emission rules also withholds the subnet's
+TAO-side emission but not validator or owner alpha. Exact scores never leave the
+coordinator: it releases only quantized scores, drawn with seeded noise under a
+per-cohort privacy budget, and derives the canonical native weight row from them
+with exact rules: subnet 78's geometric split of credit across score
+bands and ranks, extended with a fallback cutoff for cohorts in which no gated
+entrant's released score reaches the margin cutoff, no credit for detected copies of earlier
+published models, a miner's own included, one credit shared among near-duplicate entries, and
+equal credit among equal quantized scores. The coordinator signs that row and publishes it
+off chain; every other validator verifies and commits it, receives no held-out
+data or exact score, and may check models or the row only in an advisory way.
+The coordinator also signs, submits, and
 recovers its own native weight commitments within the serverless service.
-Validators re-commit the active row every tempo through native commit--reveal
-in parallel, without waiting for the coordinator's row. A cohort lasts at least
+Validators commit the active signed row every tempo through native commit--reveal
+in parallel, without waiting for the coordinator's own chain row, and keep
+committing it through coordinator silence, since the authorization they commit
+under never expires. A cohort lasts at least
 20 tempos, about a day, ends with a transition that issues no new challenges,
 and is paid during the following cohort. Slow work, missed wakeups, and
 coordinator outages preserve the same cohort for recovery, and no record or

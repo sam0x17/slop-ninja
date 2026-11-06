@@ -3,8 +3,9 @@
 An \textit{A} miner trains a versioned text model for origin, share, span, and
 attribution outputs. The artifact contains the weights, tokenizer, calibration,
 and execution contract needed to run every output it declares. The miner commits only its
-digest on chain and uploads the artifact privately to the coordinator, which
-publishes it once the cohort ends. A published artifact, the miner's own
+digest on chain and uploads the artifact's files straight to the coordinator's
+private R2 storage through presigned URLs, never through a Slop Ninja Worker;
+the coordinator publishes the artifact when the cohort's scoring starts. A published artifact, the miner's own
 included, earns nothing when entered again, so a miner earns again only with a
 model that differs measurably from every published one or improves on its
 source by half the promotion margin (Section~\ref{public-copies}).
@@ -25,35 +26,45 @@ the owner's emission entitlement.
 
 One lead validator, operated by Slop Ninja, serves as the \emph{coordinator}.
 This validator is the serverless service: it administers the daily frozen
-evaluation cohorts, runs their models and the reference models, and
-publishes a signed package of per-miner scores and the public inputs needed
-to calculate rewards. It also calculates, signs, submits, and recovers its own
-native weight commitments, then certifies its finalized row. These tasks all
+evaluation cohorts, runs their models and the reference models, and alone
+computes the reward outcome. It signs a private score package of exact
+measurements, which never leaves its storage, and a public quantized result
+from which anyone can recompute the native weight row. It derives that row,
+signs it as a row record, and publishes the record off chain as soon as it is
+signed. It also signs, submits, and recovers its own native weight
+commitments, then certifies its finalized row. These tasks all
 run within the serverless deployment.
-Every validator verifies the package and its receipt index, independently
-applies the frozen reward rules, and derives the canonical
-native weight rows. The same package and registration bindings must produce
-identical integer UID/weight entries. Each validator uses its own key, nonce,
-and recovery journal to commit and reveal those rows in parallel with the
-others. No validator waits for the coordinator's reveal or finalized
-row before committing. Held-out documents, labels, individual predictions, customer text,
-and private model weights remain outside the public package. Other validators
-do not reproduce the coordinator's hidden model scoring.
-Section~\ref{cohorts} defines the package bindings, native submission rules,
+Every other validator verifies the signed row record and its authorization
+under pinned keys and commits that row, using its own key, nonce, and recovery
+journal to commit and reveal it in parallel with the others. Its only
+change to the row uses its own finalized snapshot: the units the row burns
+through the coordinator's recorded owner hotkey, and the units of any
+registration that snapshot no longer holds, go to the UID of that snapshot's
+owner hotkey, which burns them. No validator waits for the coordinator's reveal or finalized
+row before committing. Held-out documents, labels, individual predictions,
+exact scores, receipts, customer text, and private model weights never go to
+miners, other validators, or the public; held-out passages leave the
+coordinator only in its generation requests to hosted model providers
+(Section~\ref{cohort-batch}). Other validators do not reproduce its hidden
+model scoring. A validator may recompute the row from the public result, check models
+in its own way, and publish its own scores; those checks are advisory, never
+change the row it commits, and never pause its commitments.
+Section~\ref{cohorts} defines the row record, native submission rules,
 and per-validator recovery requirements.
 
-This pilot trusts the coordinator to execute and score honestly. Validator
-recomputation checks reward arithmetic over the published scores; it cannot
-establish that the reported predictions are real. After its own row finalizes,
+This pilot trusts the coordinator to execute, score, and derive rows honestly.
+Recomputing the row from the public quantized result checks reward arithmetic
+over the released scores; it cannot establish that the reported predictions are
+real. After its own row finalizes,
 the coordinator publishes a certificate for audit against the same
-score package and derived row. Its certificate authenticates those bindings
+score package and row. Its certificate authenticates those bindings
 without creating a validator quorum or a submission prerequisite.
 The coordinator also decides when measured quality justifies offering paid
 inference, and which workloads the service may accept. Commercial activation
 does not revise a cohort's scores.
 
-Dependence on other validators is confined to their timely native weight
-delivery. Scoring, cohort advancement, and customer service require no validator
+Dependence on other validators is confined to their timely native delivery of
+the coordinator's weight row. Scoring, cohort advancement, and customer service require no validator
 quorum and do not depend on other validators' acknowledgments, availability,
 software updates, or migration completion. Each validator submits and recovers
 independently; delayed validator rows affect native reward allocation

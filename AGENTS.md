@@ -23,7 +23,7 @@ Dev-iter ones) and passes a package-corpus scan. Paid A serves a published,
 qualified artifact (R0 once its public package is published).
 Update the whitepaper's baseline evidence at meaningful evaluated milestones,
 not after every experiment. Keep both A and B's measured limits explicit.
-Whitepaper draft 0.60 and `docs/cloudflare-subnet-draft.md` describe the current plan: launch A
+Whitepaper draft 0.61 and `docs/cloudflare-subnet-draft.md` describe the current plan: launch A
 alone; B transformation and C (shared contributions to the grammar B uses)
 activate separately, each by its own decision, and C may activate before B so
 the grammar can grow first. A reads raw text; the native CFG is a later B input
@@ -110,25 +110,60 @@ the personal revision workflow remain future qualifications.
 C credits accepted grammar contributions once. It supports the grammar later B
 uses and activates by its own decision, which may precede B's; B's revised
 mechanism mapping must then also place C's credit. Pilot scoring is coordinator-led.
-A rewards use `reward-v1` (whitepaper Section 5), selected on
-2026-10-30; its lagged-payout, fallback-assumption, unregistered-credit and
-reference-failure defaults remain to be confirmed with the implementation. The baseline is the public reference model R_k, re-run on each
-cohort's batch with its predecessor R_{k-1}; the top eligible entrant becomes
-R_{k+1}, published after the cohort, only when it beats R_k, otherwise R_k stays.
-Eligibility needs the gates and q >= delta = max(1%, 2 x pooled paired SE) of
-headroom, frozen per manifest; promotion uses the same delta. Port SN78's band
-mechanism faithfully: r = 0.85 across and within bands, band width w = 2 x pooled
-paired SE (about 8% of headroom at 1k cases, 4% at 4k; SN78's literal 2.5 points
-would be about 48%), near-equal drop epsilon = w/250, largest-remainder u16 row,
+A rewards use `reward-v2`: the `reward-v1` band rule selected on
+2026-10-30 (whitepaper Section 5), computed from quantized scores under
+`quant-v1` (approved 2026-11-04); its lagged-payout, fallback-assumption,
+unregistered-credit and reference-failure defaults remain to be confirmed with
+the implementation. The baseline is the public reference model R_k, re-run on each
+cohort's batch with its predecessor R_{k-1}. An entrant beats R_k when it
+passes the gates and its quantized score reaches the margin cutoff: R_k's
+quantized score plus delta = max(1%, 2 x pooled paired SE) of R_k's headroom,
+rounded up onto the grid, with delta frozen per manifest. Retained clusters are
+those whose heads are at or above the cutoff. After the cohort, the first
+retained head in rank order that also passes every promotion check (an
+exact-score margin of delta over R_k, the strict false-positive tier and the
+lookup canary) becomes R_{k+1}; if none does, R_k stays and credits are
+unchanged. Promotion therefore needs both the rounded quantized cutoff and the
+exact margin. Port SN78's band
+mechanism: r = 0.85 across and within bands, band width w = 2 x pooled
+paired SE before rounding to the grid (about 7% of the 0.062 launch-batch
+headroom at 1k cases, 3.4% at 4k), largest-remainder u16 row,
 exact integer/rational arithmetic, parameters frozen in the signed manifest.
-Copies earn nothing: an entrant with the content digest of any published
-artifact, or within isotonic-aligned RMS <= 0.025 of R_k or R_{k-1} on the batch
+Exact scores stay inside the coordinator. Every released score is quantized on
+a grid no finer than the larger of twice R_k's measured SE and the noise scale,
+after a secret
+offset and seeded discrete-Laplace noise, both keyed by inference content so
+identical copies share one draw. The noise gives epsilon 2 per cohort
+(versioned), split equally over every executed entrant's quantized score
+(a withheld entrant's is charged but never released) and the references';
+given the grid width and which entrants are withheld (both unnoised), it
+protects one batch document within one cohort, and it adds across
+cohorts and across documents that reuse one passage. Cutoff,
+bands, positions, credits, units and the row use quantized scores alone:
+thresholds and band edges round up onto the grid (so at testnet's full roster,
+where R_k's utility is about 0.85 and the grid is 0.03, the cutoff is one grid
+step above R_k's quantized score, about a fifth of testnet's headroom and well
+above delta, and a band is
+one grid step: wider than 2 x SE and coarser than SN78's literal 2.5 points),
+equal
+quantized scores share credit, ties and equal remainders go in roster order, and
+there is no near-equal drop. Promotion's margin test and the public-copy gate's
+score clause read exact scores privately and release only their outcomes. Gates
+release one bit each; an entrant failing the minimum-success gate is released as
+withheld. These gate, withheld, cluster and promotion outcomes and the grid
+width are unnoised functions of exact scores and hidden data, outside epsilon.
+A versioned per-cohort bit budget counts them with every other released value
+and is checked at plan validation, seal and publication; it caps what is
+released but is not a differential-privacy guarantee.
+Copies earn nothing: an entrant with the content digest of any artifact
+published by an earlier cohort or as a reference, or within isotonic-aligned RMS <= 0.025 of R_k or R_{k-1} on the batch
 or of any fingerprinted artifact on the private probe without scoring more than
 w/2 above it, fails the public-copy gate. Weight soups of published models are
 legitimate new models; output averages of two encoders do not fit one graph. Near-duplicate clusters (identical content, or within
 the same distance on the batch) get one credit split equally. If nobody beats R_k, score against
-C_N = S(R_{k-1}) + 0.15 x (max_N - S(R_{k-1})) without advancing the reference;
-with no R_{k-1}, or nobody above S(R_{k-1}), keep the previous target live, or
+C_N = S(R_{k-1}) + 0.15 x (max_N - S(R_{k-1})), computed on quantized scores
+and rounded up onto the grid, without advancing the reference;
+with no R_{k-1}, or nobody above R_{k-1}'s quantized score, keep the previous target live, or
 burn to the owner UID if none exists. Unregistered credit burns; a reference
 failure holds the package for a signed correction. Each cohort scores about 1k
 (testnet) or 4k (mainnet, floor 2k) fresh paired cases per model, mixed 20/55/25
@@ -138,6 +173,9 @@ entrant on its own cohort's humans and strict for promotion on the canary's
 fresh CC draw; 7-cohort pooling is monitoring only. A fresh-stock pure-human
 negative is scored once and may be a rewrite source up to 4 times, uses at least
 7 cohorts apart, including in its own cohort; outputs must be batch-invariant.
+Generated challenge documents are counted under the scorer's pinned tokenizer
+when they arrive and again before the seal; one over the scorer's input limit
+is generated again or gives way to a spare, and is never sealed.
 Testnet cohorts without an admitted outside entrant with a working artifact draw
 only already-exposed documents (redrawn freely, parent limits kept); the
 coordinator enforces this. Mainnet human stock is pre-cutoff CommonCrawl
@@ -147,14 +185,31 @@ prevented. Two lookup-canary flags block a candidate and the next qualifying
 retained cluster head is promoted; a signed operator review may later clear it without
 changing past promotions.
 The mainnet owner/validator/miner emission split is open; testnet 601's split is
-operator configuration only. The
-coordinator publishes a signed package of individual miner scores and sufficient
-public components for every validator to independently derive the native row.
-Held-out texts, labels, per-document predictions, customer queries, and private
-model weights stay outside that package. Validators trust measured scores but
-recompute reward allocation, eligibility arithmetic, normalization and quantization
-under common versioned rules. Identical inputs and encoding must produce identical
-canonical rows; a discrepancy pauses the affected validator before signing.
+operator configuration only. The coordinator alone measures entrants, computes
+the reward outcome and derives the native row. It signs a private score package
+(exact scores, every hidden measurement, the quantization draws, the receipt
+root and count), which never leaves its storage, and a public quantized result
+(per entrant its quantized score or withheld, band, gate and public-copy bits,
+cluster membership and units; the references' quantized scores; the bit
+budget's terms), from which anyone can recompute the row. Once a tempo, from its
+own finalized registration snapshot and independently of its own commitment, it
+derives the active target's row and signs a new coordinator row record when the
+paid entries change (chain binding, reward rule, cohort and manifest digest,
+target and authorization, epochs, derivation block, owner hotkey, and per paid
+UID its hotkey, registration block and integer weight). The record is published
+off-chain beside the authorization and the signed revocation set as soon as it
+is signed, before the coordinator's own hotkey signs anything; no validator
+waits for the coordinator's commitment. Every other validator
+verifies the record under its pinned keys, checks that it names the authorization
+and a held or later target, journals the revocations, and commits its entries
+through its own journaled commit-reveal; its only change burns the units of a
+registration its own finalized snapshot no longer holds through the owner
+hotkey's UID, deferring the tempo when that hotkey holds no UID. It needs
+nothing else to commit. Validators and the public never learn held-out data: texts, labels,
+per-document predictions, exact scores, receipts, customer queries and private
+model weights stay coordinator-private. A validator may recompute the row from
+the public result, check models in its own way and publish its own scores;
+those checks are advisory and never change its row.
 No ZK proof or independent reproduction of hidden evaluation is required.
 Slop Ninja is the operator; the subnet owner is the account recognized on chain.
 Ownership or a lease must provide the required owner-authorized hyperparameter
@@ -173,53 +228,80 @@ the operator verifies it, and validators check at startup and before signing.
 Validators use their own journaled timelocked commitments in parallel, without
 waiting for the coordinator's chain row. Automatic reveal can occur during coordinator
 silence. An unexpected disabled flag pauses new commitments rather than selecting
-plaintext submission. A artifacts stay private until the cohort ends: a miner
-commits only a digest on chain and uploads the artifact privately to the
-coordinator's evaluation bucket, encrypted to the coordinator key where
-qualified. Validators check digests only; the coordinator's signed package
-publishes the scores when scoring completes and the artifacts and openings when
-the cohort ends.
+plaintext submission. A artifacts stay private until their cohort's scoring
+starts. A miner hashes each file once when it packs, commits only a digest on
+chain, and uploads the header and each file straight to the coordinator's private
+R2 admission bucket with presigned PUTs; no upload passes through a Slop Ninja
+Worker. Each URL binds the derived key, length, committed SHA-256 and
+create-only, so R2 verifies the bytes on arrival and stores nothing on a
+mismatch; admission, publication and scoring trust R2's stored checksum and size
+and never hash model bytes again. TLS and the private bucket are the privacy
+boundary; there is no encryption layer, since R2 can verify only the bytes it
+receives. Every admitted artifact is published when its cohort's scoring starts,
+copied inside R2 or by a stream R2 verifies, and a published artifact is never
+recalled. The quantized result's allow-listed values and the openings are
+published when the cohort closes. No rank field is published: any order of
+entrants follows from the published quantized scores and roster order alone.
+Validators need none of them.
 The coordinator's finalized row and observation certificate are later consistency
-audits, never prerequisites for other validators. Missing or incorrect coordinator
-rows do not invalidate a valid score package. A shared package/encoding defect
-pauses dependent new work; existing chain obligations remain recoverable.
+audits, never prerequisites for other validators. A missing or incorrect
+coordinator chain row does not invalidate a valid signed row record. A shared
+row/encoding defect pauses dependent new work; existing chain obligations remain
+recoverable.
 The coordinator's signed calculation target changes only when a complete
 successor score package and retained receipts are available. Registration,
 compatibility, authorization and receipt-retention limits remain enforceable.
-Native commit-reveal hides on-chain submissions, but public scores can expose
-the same derivable row; do not claim this prevents copying or proves verification.
+Native commit-reveal hides on-chain submissions, but the coordinator's row is
+published off-chain as soon as it is signed, before any reveal, and follows from
+the public quantized result; do not claim this prevents copying or proves verification.
 Every inference attempt has a content-free R2 receipt bound into the coordinator's
-signed score package. Validators verify its index and object digests before new
-commitments. Delete cohort N's detailed receipts and index after N+1 and N+2
-complete and N's target is superseded, based on durable coordinator completion
-rather than tempos, wall time, or adoption. Keep the artifacts of R_k and
-R_{k-1} while they are references. Preserve signed per-miner score/calculation records, roots/counts,
-rows, observation certificates, and chain/accounting recovery state. New commits
-need retained receipts; submitted obligations recover without expired receipts.
-No indefinite detailed receipt archive.
+signed score package: coordinator-private audit evidence, never published or sent
+to validators. Outage probes are a named exception: a probe is one bounded
+call on fixed control text, never cohort text, that tests whether the platform
+an outage paused has recovered; it writes no receipt, and its runs, time and
+spend are recorded with the cohort. Operator pre-flight probes and admission
+runs of an entrant's artifact on the control document also write no receipt;
+that exception is open, pending a decision. The coordinator installs a new target only when that cohort's
+receipt index verifies. Delete cohort N's detailed receipts and index after N+1
+and N+2 complete and N's target is superseded, based on durable coordinator
+completion rather than tempos, wall time, or adoption. Keep the evaluation copies
+of R_k and R_{k-1} while they are references; delete admission-bucket copies of
+entrant artifacts once their cohort closes and publication is recorded. Preserve
+signed per-miner score/calculation records, roots/counts, rows, signed row
+records, observation certificates, and chain/accounting recovery state.
+Validators' commitments need only the signed row; submitted obligations recover
+without expired receipts. No indefinite detailed receipt archive.
 The coordinator opens paid inference when it judges measured quality sufficient.
 A cohort lasts at least K = 20 tempos of 360 blocks, about one day, frozen in the
 manifest (rehearsals may use K = 4); overruns move to a later tempo boundary and
 never skip. It ends with a transition of at least two tempos that issues no new
 challenges. Cohort N's target activates at the first eligible tempo boundary
-after its package and receipts are durable, and validators re-derive and commit
-it every tempo with commit-reveal on, with no per-validator activation gate
-(native validators commit an owner burn row under rtao's
+after its package and receipts are durable, and every validator commits the
+coordinator's signed row for it every tempo with commit-reveal on, with no
+per-validator activation gate
+(when that row, or the launch row before any target, is the owner burn row,
+native validators commit it under rtao's
 `OwnerRowPolicy::Submit` when the chain limits allow it, and otherwise defer
 that tempo; the coordinator commits it too).
-Reward-intent authorization is per cohort with a bounded lease of at least two
-cohorts (48 h), renewed by each package and, while the coordinator is live, each
-tempo without changing the target; beyond the lease validators pause new
-commitments. Coordinator outages pause protocol progress indefinitely;
+Reward-intent authorization is per cohort and never expires: it stays valid
+until it is superseded (another target activates) or a signed revocation
+withdraws it, so validators keep committing the last signed row through
+coordinator silence. Its renew-by hint (at least two cohorts) never pauses
+anything. A validator journals each revocation before it takes effect; an entry
+that no longer decodes or matches its digest is treated as a revocation still
+in force (applied from its recorded target and epoch when those parse, and
+alerted) until the
+operator restores or removes it. Coordinator outages pause protocol progress indefinitely;
 retain and resume the same cohort and its evidence. Never skip or expire it
 because time passed, or claim that this also pauses Subtensor's native emissions.
 The sole dependence on other validators is timely on-chain submission and reveal of the
-independently calculated weight rows. Their acknowledgments, versions,
+coordinator's signed weight rows. Their acknowledgments, versions,
 availability, and adopting stake never gate evaluation, transitions, service,
 admissions, upgrades, or recovery. Keep publication and per-validator chain
 delivery separate; publication does not prove payment. Coordinator-owned
 scheduling budgets stop during coordinator silence and resume at eligible tempo
-boundaries. Authorization leases and external obligations have separate clocks.
+boundaries. Coordinator work leases and external obligations have separate
+clocks; validators' reward-intent authorizations never expire.
 Tempo durations are minimum scheduling targets; slow work or missed wakeups
 move advancement to a later boundary without discarding the cohort. Pin evaluation
 semantics separately from operational builds and the live Finney runtime; runtime

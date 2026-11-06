@@ -19,8 +19,8 @@ cohorts against an incumbent re-run on the same suite, pays geometric weights
 across score bands, and keeps its previous row live until a successor activates;
 the October source review found these mechanisms working, alongside
 exact runtime-version pins that held weight writes after at least one chain
-upgrade and were relaxed several times~\cite{umisn78}. Slop Ninja's \texttt{reward-v1} ports the band mechanism
-and avoids such pins. Its initial \textit{A} competition adds a shared
+upgrade and were relaxed several times~\cite{umisn78}. Slop Ninja's \texttt{reward-v2} ports the band mechanism,
+computes it from quantized scores, and avoids such pins. Its initial \textit{A} competition adds a shared
 origin-and-attribution contract with span outputs. Whether these choices
 improve detection remains an experimental question.
 

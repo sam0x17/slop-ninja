@@ -1,6 +1,6 @@
 # Whitepaper
 
-[Draft 0.60](slop_ninja.pdf), November 2, 2026, describes a subnet whose main
+[Draft 0.61](slop_ninja.pdf), November 6, 2026, describes a subnet whose main
 objective is B: transforming authorized writing toward the author's intended
 voice while preserving meaning, readability, and tone. A supplies supporting
 detection and attribution signals for that editing process and launches first.
@@ -11,12 +11,16 @@ after evaluation retirement. Improvement must be measured on fresh held-out data
 The A-only launch uses one text model that reports document-level AI share,
 AI-involvement confidence, AI spans with per-sentence share and confidence,
 and human/model attribution. Only involvement Brier is rewarded; the other
-outputs are qualification gates. Miners commit artifact digests on chain and
-upload models privately, within a cap of one allow-listed 160M-parameter graph
-of at most 700 MB. Each day the coordinator scores every entrant and the
-reference model on a fresh hidden batch of paired cases, 20% human-only, 55%
-mixed and 25% model-only, in parallel fan-out lanes, then publishes the
-entrants' models, licensed CC BY-SA 4.0, and signed scores. Mainnet human text
+outputs are qualification gates. Under the protocol, miners commit artifact
+digests on chain and upload model files straight to the coordinator's private R2
+storage by presigned URL, within a cap of one allow-listed 160M-parameter graph
+of at most 700 MB; R2 checks each file's declared SHA-256 on arrival, and no
+Slop Ninja code hashes model bytes after the miner packs them. Each day the coordinator publishes the entrants' models, licensed
+CC BY-SA 4.0, when scoring starts, scores every entrant and the current and previous
+reference models (when a previous one exists) on a fresh hidden batch of paired cases, 20% human-only, 55% mixed and 25%
+model-only, with half of the generated text planned to come from frontier
+models, in parallel
+fan-out lanes, and then publishes quantized scores; exact scores stay private. Mainnet human text
 comes from pre-cutoff Common Crawl, a historical-human proxy drawn with secret
 keys, capped domain shares, a cohort generation profile that matches generated
 text to its human parent's form, and era gates; testnet uses a smaller public
@@ -27,9 +31,12 @@ evaluation text. Testnet starts from the baseline release candidate and may
 replace it once, announced in advance, with the next qualified reference;
 otherwise the reference changes only when an entrant beats it. Mainnet opens a
 fresh record with the reference testnet holds at that time. Rewards port subnet 78's
-geometric band mechanism, with no credit for copies of published artifacts,
-equal splits inside near-duplicate clusters, a fallback cutoff against the
-previous reference, and burns for unallocated credit. Private writer profiles
+geometric band mechanism, computed from quantized scores released with seeded
+noise under a per-cohort privacy budget, with no credit for detected copies of
+earlier published artifacts (a copy perturbed with deliberate noise can still
+escape, at a measured cost of about a tenth of an unrounded band at 1,000 cases), equal splits inside near-duplicate clusters, equal credit among equal quantized
+scores, a fallback cutoff against the previous reference, and burns for
+unallocated credit. Private writer profiles
 for later attribution and B author-fit feedback use A's encoder plus
 stylometric features and await a learned matcher. A uses no CFG features; the
 shared English grammar is kept as a later B input for edit units and revision
@@ -64,10 +71,13 @@ distinct from a qualified model or live service.
 
 The operator's lead validator is the serverless coordinator. It runs hidden
 evaluations, signs its own chain submissions, and recovers unfinished obligations.
-It publishes signed per-miner scores while keeping held-out data private. Every
-validator verifies the score and R2 receipt packages, independently calculates
-the canonical row, and re-commits it every tempo through journaled native
-commit-reveal. Cohort N is paid during cohort N+1. No validator's delivery
+It keeps held-out data and exact scores private, publishes quantized per-miner
+scores, derives the canonical row from them, and publishes that row signed.
+Every other validator verifies the signed row and commits it every tempo through
+journaled native commit-reveal, and keeps committing the last signed row through
+coordinator silence, since no reward-intent authorization expires; its own
+checks of models
+or the row are advisory. Cohort N is paid during cohort N+1. No validator's delivery
 gates cohort progress, and no record or gate depends on a chain runtime version.
 Live rtao-rpc finalized-block webhooks are the coordinator's per-block heartbeat,
 with a durable finalized cursor, RPC gap backfill, and a one-minute cron watchdog
@@ -98,7 +108,7 @@ TeX Gyre Pagella/Heros and Latin Modern Mono fonts. It renders the SVG diagram
 and compiles the native LaTeX source, including the PGFPlots graphs. Build output
 stays in ignored `build/`. The PDF and PDF diagram are checked in.
 
-Draft 0.60 was built on the authorized compute host with `build.sh` inside a local Docker image
+Draft 0.61 was built on the authorized compute host with `build.sh` inside a local Docker image
 derived from `texlive/texlive:TL2025-historic`, pinned by digest
 `sha256:7056390eac37715fd3e01875037ceb4016cb17d44c611f7bbbfa7a012007979f`,
 with Debian's `librsvg2-bin` 2.63.3 added and the XeLaTeX format prebuilt. The

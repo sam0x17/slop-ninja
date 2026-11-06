@@ -1,25 +1,33 @@
 \section{Benchmark scoring and native rewards}\label{benchmark-scoring-and-mechanism-mapping}
 
 The launch rewards submitted \textit{A} artifacts under coordinator-led
-scoring. Slop Ninja runs each artifact and two reference models on the
-same fresh hidden batch, retains every prediction and failure, and signs the
-result package. Every validator checks the published score components,
-independently derives the canonical native row under the frozen
-\texttt{reward-v1} rules below, and submits it through its own journaled
-commit--reveal, in parallel with the other validators (Section~\ref{cohorts}).
-Held-out documents, labels, and individual predictions remain inside the
-coordinator's evaluation service. Other validators trust the coordinator's
-execution and labels while checking the reward calculation themselves. Native
+scoring. Slop Ninja runs each artifact, the current reference model, and,
+when one exists, the previous reference model on the same fresh hidden batch, retains every prediction and failure, and keeps every
+exact score inside its evaluation service. It releases only quantized scores
+(Section~\ref{quantized-scores}), derives the canonical native row from them
+under the frozen \texttt{reward-v2} rules below, signs that row, and publishes
+it off chain. Every other validator verifies the signed row and submits it
+through its own journaled commit--reveal, in parallel with the other validators
+(Section~\ref{cohorts}). Held-out documents, labels, individual predictions,
+and exact scores never go to miners, other validators, or the public; only the
+hosted generation providers of Section~\ref{cohort-batch} receive held-out
+passages. Other
+validators trust the coordinator's execution, labels, and arithmetic; anyone
+can recompute the row from the public quantized result, but that check is
+advisory and never changes a committed row. Native
 consensus determines the eventual payouts~\cite{btchainconsensus,btemissions}.
 
-\texttt{reward-v1} ports the band mechanism of Bittensor subnet 78
+\texttt{reward-v2} ports the band mechanism of Bittensor subnet 78
 (Umi)~\cite{umisn78}: geometric weights across score bands and within each band,
 a baseline that ratchets only on improvement, and a largest-remainder integer
 row. Its principal departures are these: artifacts stay private until the
-cohort ends; eligibility requires a margin over the reference rather than
+cohort's scoring starts; the cutoffs, bands, credit, and the row compare
+quantized scores released under a per-cohort privacy budget (gates and cluster
+membership use private statistics), equal quantized scores share credit, and subnet 78's near-equal drop is not used; eligibility
+requires a margin over the reference rather than
 subnet 78's 1\% grace below the incumbent; a fallback cutoff, a Slop Ninja rule
 with no subnet 78 counterpart, keeps rewards flowing when nobody reaches that
-margin; an entrant too close to any published artifact earns nothing, and
+margin; a detected copy of any earlier published artifact earns nothing, and
 near-duplicate entrants share one credit equally; and no record, identity, or
 gate carries a chain runtime version. The shared protocol crate implements
 these rules as exact computation~\cite{protocolcrate}.
@@ -30,8 +38,9 @@ A cohort manifest binds its roster of artifact commitments, the raw-text input
 profile and output contract, the reference gallery, the reference models, the
 batch design, the human pool, qualification gates, numerical tolerances, the
 artifact cap and compute limits (Section~\ref{a-artifact-execution}), retry
-policy, the cohort schedule (Section~\ref{cohorts}), and the \texttt{reward-v1}
-parameters. The batch design fixes \(n\), the mix, the domain\(\times\)origin
+policy, the cohort schedule (Section~\ref{cohorts}), and the \texttt{reward-v2}
+and \texttt{quant-v1} parameters, including the privacy and bit budgets. The
+batch design fixes \(n\), the mix, the domain\(\times\)origin
 strata, and the sealed batch digest. The human pool enters through its frozen
 pool manifest and, for the mainnet stock, its stratum share caps and a
 commitment to its secret sampling key (Section~\ref{human-stock}). The manifest also binds the index of
@@ -61,9 +70,17 @@ models score the same documents, so every comparison is paired. The batch has
 about 1,000 cases on testnet and 4,000 on mainnet, with 2,000 as the mainnet
 floor. Its mix is 20\% human-only, 55\% mixed, and 25\% model-only documents.
 Fresh AI-side text, both partial rewrites and model-only mirrors, is generated
-for each cohort on serverless services such as Workers AI or hosted model APIs,
-under a per-cohort budget, by parallel generation lanes that share the
-providers' published rate limits~\cite{cfailimits} (Section~\ref{fan-out}).
+for each cohort by hosted models under a per-cohort budget, by parallel
+generation lanes that share the providers' published rate
+limits~\cite{cfailimits} (Section~\ref{fan-out}). Half of the generated text
+comes from frontier models through the OpenAI and Anthropic APIs, with requests
+spread equally across the effort or reasoning levels each model offers, and half
+from a spread of open models on Workers AI. Each request draws a voice profile
+from a versioned library or, for a quarter of requests, none, leaving the
+model's default voice. Model, span length, edit intensity, effort, and voice
+rotate per source, and each document records them. Held-out passages may be
+sent to these providers under their own data policies; miners, validators, and
+the public never receive them.
 
 Whole source groups are sampled, and the design is self-weighting over
 domain\(\times\)origin cells: every document carries equal weight, and no Kish
@@ -127,10 +144,11 @@ on self-weighting batches drawn from the consumed Test. Separating two models
 that differ by 1\% of headroom, the measured training-seed noise floor, would
 need about 126,000 documents under the sealed Test's design, where the same
 standard error is about 4.0\% of headroom at 1,000 cases, for a two-sided 5\%
-test at 80\% power. \texttt{reward-v1} therefore sets its eligibility margin and
-band width at about two standard errors; within a band, rank order still sets
-the geometric split, so differences below the noise still change pay, and
-across a band boundary they can reverse its order (Section~\ref{reward-v1}). Container scoring costs about \$0.03--\$0.34 per
+test at 80\% power. \texttt{reward-v2} therefore sets its eligibility margin and
+band width at about two standard errors before quantization adds its own noise;
+within a band, rank order still sets the geometric split, so differences below
+the noise still change pay, and across a band boundary they can reverse its
+order (Section~\ref{reward-v1}). Container scoring costs about \$0.03--\$0.34 per
 1,000 documents, depending on length and instance size
 (Section~\ref{existing-evidence-and-implementation-status}).
 
@@ -283,10 +301,10 @@ draw, so only a re-audit adds a second. At one audit a day, the draws take
 about 7.3 million fresh documents a year, 25 times the human negatives of
 4,000-case batches and about 1\% of the frame's WET text
 (Section~\ref{cc-stock-evidence}), and scoring one model on a draw costs about
-\$0.70. A single flag is only reported in the signed package. Two flags block the candidate's promotion, with no automatic
-reward penalty: the next cluster head in rank order that survives the near-equal
-drop (Section~\ref{reward-v1}) and passes the canary and
-every other promotion condition is promoted instead, and credits are paid as
+\$0.70. A single flag is recorded only in the coordinator's private score
+package. Two flags block the candidate's promotion, with no automatic
+reward penalty: the next retained cluster head in rank order that passes the
+canary and every other promotion condition is promoted instead, and credits are paid as
 usual. A signed operator review may later clear a blocked candidate; clearing
 does not change a past promotion. The canary has little power: with 1,000 anchors, a
 close fine-tune of \(R_0\) needs a lookup gain of about 20--23\% of headroom to
@@ -317,9 +335,11 @@ where \(S_{R_k}\) is the reference's score on the same batch under the same
 outcome rules. Improvement is divided by the reference's remaining headroom;
 negative examples are not individually clipped away. Involvement probabilities
 enter in parts per billion, so each utility is exact in units of \(10^{-18}\),
-and a score is the floor of the batch mean on that grid. Cutoffs, bands, and the
-near-equal test then compare these integers as exact rationals without further
-rounding.
+and a score is the floor of the batch mean on that grid. These exact scores
+stay inside the coordinator. Cutoffs, bands, credits, and the row compare the
+released quantized scores of Section~\ref{quantized-scores} as exact
+rationals instead; only the promotion margin and the public-copy gate's score
+clause read exact scores, privately.
 
 AI-involvement Brier is the only reward quantity. Share, attribution, span, and
 the pure-human false-positive gates decide eligibility or promotion and carry
@@ -358,17 +378,36 @@ starts at \(R_0\), the document model of the \textit{A} baseline release
 candidate described in Section~\ref{existing-evidence-and-implementation-status},
 published like every reference (Section~\ref{model-interfaces-and-starter-architectures}). Each cohort re-runs
 \(R_k\), and its predecessor \(R_{k-1}\) when one exists, on that cohort's batch.
-When a cohort's top-ranked eligible entrant, the head of its top cluster below,
-improves on \(R_k\) by the margin \(\delta\), passes the strict false-positive
-tier (Section~\ref{cohort-batch}), and is not blocked by the lookup canary
-(Section~\ref{lookup-exposure}), that entrant becomes \(R_{k+1}\): the baseline
-for the next cohort and the new reference, published with its cohort's
-artifacts when the cohort ends. When it fails either check, the next retained cluster head in rank order that
-passes every promotion condition is promoted instead, and credits are paid as
-usual; a cluster removed by the near-equal drop is never a candidate.
-Otherwise the reference does not change.
-Promotion uses the same margin as eligibility, with no larger promotion
-threshold. Because the margin uses the pooled standard error of seed retrains,
+Only a cohort scored against the margin cutoff (Section~\ref{reward-v1}) has
+promotion candidates: its retained cluster heads, in rank order. Each is
+eligible, so its released score has reached the margin cutoff,
+\(\hat S_i\geq\hat T\). The first candidate whose exact score reaches
+\(S_{R_k}+\delta(1-S_{R_k})\), an improvement of \(\delta\) times \(R_k\)'s
+exact headroom, passes the strict false-positive tier
+(Section~\ref{cohort-batch}), and is not blocked by the lookup canary
+(Section~\ref{lookup-exposure}) becomes \(R_{k+1}\) when the cohort closes: the
+baseline for the next cohort and the new reference, whose artifact was already
+published when its cohort's scoring started. Credits are paid as usual. In a
+cohort scored against the fallback cutoff or producing no new target, and when
+no candidate passes, the reference does not change.
+Promotion therefore has two bars. The first is eligibility, on released scores:
+at testnet's full roster \(\hat T\) is one 0.03 grid step above
+\(\hat S_{R_k}\), several times the unrounded margin (about 0.0044 at 0.062
+headroom), and each released score carries release noise with a standard
+deviation of about 0.030. Release noise can therefore keep an entrant that is
+truly better by the margin from becoming a candidate, and it can also make an
+entrant no better than \(R_k\) eligible: by a simulation of \texttt{quant-v1}'s
+noise, offsets, grid, and rounded cutoff, an entrant equal to \(R_k\) reaches
+\(\hat T\) about 35\% of the time at testnet's full roster. Such an entrant,
+including an undetected perturbed copy of \(R_k\), which takes its own noise
+draw, then earns credit in a margin cohort. Release noise also sets the order in
+which candidates are tested. The second bar is the margin itself, which
+promotion tests on exact scores, privately, releasing only its outcome. Testing
+exact rather than quantized scores keeps the release noise out of the margin
+test, so an entrant that noise makes eligible can earn but is not promoted by
+that noise. The rates in
+Table~\ref{tab:promotion-rates} are for the margin test alone; eligibility can
+only lower them. Because the margin uses the pooled standard error of seed retrains,
 how often it promotes an equally good model depends on how entrants differ from
 \(R_k\) (Table~\ref{tab:promotion-rates}). Entrants that differ from it as seed
 retrains do share \(R_k\)'s scoring noise, which lowers the chance that one of
@@ -410,8 +449,10 @@ than \(R_k\).}
 No rule bounds the resulting drift in the
 reference's true quality, but four properties limit it. The promoted model is
 the top-ranked entrant that passes every promotion condition, so a worse entrant
-is promoted only when it outscores every better qualifying entrant on that
-batch. Each cohort re-runs the reference on a fresh batch, so a winning draw
+is promoted only when it precedes every better qualifying entrant in rank
+order on that batch, through batch noise, release noise, or a tie on the grid
+broken by admission order. Each
+cohort re-runs the reference on a fresh batch, so a winning draw
 does not carry forward. A worse reference is easier to pass: against one a full
 margin below the model it displaced, a structurally different entrant as good as
 that model clears the margin about half the time rather than a third. And the
@@ -425,7 +466,8 @@ first reference and no predecessor. One change there falls outside the promotion
 rule: \(R_0\) may be replaced once by the next reference Slop Ninja trains,
 retrained and recalibrated on normalised, length-matched positives
 (Section~\ref{human-stock}), and only if that model passes every required
-gate. The status page announces the replacement in advance. The
+gate. The public dashboard (\texttt{slop.ninja/dashboard}) announces the
+replacement in advance. The
 replacement takes \(R_0\)'s position, with no predecessor, and appears in the
 next signed manifest, so the sequence of signed manifests is its record. Credit
 is bound to its own cohort's package and target (Section~\ref{lagged-payout}),
@@ -448,11 +490,14 @@ displaced anchors the fallback cutoffs until the next promotion. Before
 mainnet, that reference is measured on Common Crawl and the anchors, and the
 results are reported (Section~\ref{development-and-launch-criteria}).
 
-Every entrant artifact is published after its cohort ends, and a copy of a
-published artifact earns nothing. An entrant whose inference content equals that of any
-published artifact is not executed. An executed entrant within the near-copy
-distance of a published artifact (Section~\ref{reward-v1}) fails the public-copy
-gate unless it scores more than half a band above that artifact. This applies to
+Every admitted entrant artifact is published when its cohort's scoring starts,
+and a detected copy of an earlier artifact, a reference or an entrant of an
+earlier cohort, earns nothing; entrants of one cohort meet each other only in its
+clusters (Section~\ref{reward-v1}). An entrant whose inference content equals
+that of any earlier artifact is not executed. An executed entrant within the
+near-copy distance of an earlier artifact (Section~\ref{reward-v1}) fails the public-copy gate unless its exact score is
+more than \(w_S/2\) above that artifact's, where \(w_S\) is the unrounded band
+width computed from \(R_k\)'s exact score. This applies to
 \(R_k\) and \(R_{k-1}\), including \(R_0\) before its package is published, and to every
 earlier entrant's artifact, the author's own included. A miner therefore earns again only with a model that differs
 measurably from everything already published, such as an independent retrain or
@@ -461,12 +506,67 @@ promotion margin. The gate removes exact and recalibrated copies; it sets a
 minimum price on a copy perturbed with deliberate noise, but cannot prevent one
 or bound what it earns (Section~\ref{reward-v1}).
 
+\subsection{Quantized scores}\label{quantized-scores}
+
+Exact scores \(S_i\) never leave the coordinator. Every released score, for
+each executed entrant and for both references, is a quantized score
+\[
+ \hat S_i=g\,\min\Bigl(\lfloor 1/g\rfloor,\;\max\bigl(0,\;\bigl\lfloor(S_i+\eta_i+o_i)/g\bigr\rfloor\bigr)\Bigr)
+\]
+under the versioned rule \texttt{quant-v1}, so every released score is a grid
+value. The largest is \(g\lfloor 1/g\rfloor\), which is 1 only when \(g\)
+divides 1: on a 0.03 grid it is 0.99. The grid width \(g\) is the larger
+of twice \(R_k\)'s sampling standard error, measured on the cohort's own batch,
+and the noise scale below, rounded up on a versioned ladder. The offset \(o_i\)
+is secret and uniform in \([0,g)\), and \(\eta_i\) is exact discrete-Laplace
+noise of scale \(1/(n\varepsilon_v)\). Both are drawn from the cohort's private
+seed, its manifest digest, and the scored model's inference content, so
+identical copies under several hotkeys share one draw and no two cohorts share
+one. The privacy budget is \(\varepsilon=2\) per cohort, versioned, and split
+equally over every executed entrant's quantized score and the references': with
+\(m\) charged scores, each receives \(\varepsilon_v=\varepsilon/m\). Replacing
+one batch document moves an exact score by at most \(1/n\), so, given the grid
+width and which entrants are withheld, it changes the joint distribution of the
+released scores by at most a factor \(e^{2}\). The budget adds across cohorts
+and across documents that reuse one passage, so the reuse limits of
+Section~\ref{cohort-batch} bound a passage's total. Released scores are
+therefore coarse and noisy: they bound what a score reveals about any one
+document, and they hide small differences between entrants.
+
+The rank order, cutoffs, bands, credit, and the row compare quantized scores,
+never exact ones. Gates and cluster membership use private statistics instead:
+each gate releases one bit, and clusters follow the private near-copy distance,
+which reads no score. Two decisions read
+exact scores privately and release only their outcomes: promotion's margin test
+(Section~\ref{reference-model}) and the public-copy gate's score clause
+(Section~\ref{public-copies}). A minimum-success gate withholds an entrant whose attributable
+failures exceed a measured, versioned limit: its quantized score is drawn and
+charged but never released, so the split and the noise scale do not depend on
+which entrants are withheld. The gate, public-copy, withheld, cluster, and
+promotion outcomes and the grid width are deterministic functions of exact
+scores and hidden data, released without noise and outside the
+\(\varepsilon\) accounting. A versioned per-cohort bit budget counts them at
+full face value with every released score and is checked when the plan is
+validated, at the seal, and at publication; a cohort over budget is held, never
+published or skipped. The bit budget caps what is released; it is not a
+differential-privacy guarantee.
+
+The noise has a cost. Its standard deviation is \(\sqrt2/(n\varepsilon_v)\). On
+testnet, at 1,000 cases and the full roster of 40 entrants, it is about 0.030
+(a noise scale of about 0.021), against a sampling standard error of at most
+about 0.011, so the release noise dominates the score differences between close
+entrants, and the grid is 0.03; with five entrants it is about 0.005. At
+mainnet's planned 4,000 cases and 256 entrants it would be about 0.046 (a noise
+scale of about 0.032), rewards would be mostly noise, and
+the current bit budget would refuse the plan, so the budget, \(n\), or the split
+must be revisited before mainnet. These are stated limits.
+
 \subsection{From scores to credits}\label{reward-v1}
 
 An entrant is \emph{gated} when its artifact qualification, its public-copy
-gate, its share and attribution gates, and the per-entrant tier of its
-pure-human false-positive gate pass, together with the span gate once a
-manifest enforces it. Gate failures
+gate, its share and attribution gates, its minimum-success gate, and the
+per-entrant tier of its pure-human false-positive gate pass, together with the
+span gate once a manifest enforces it. Gate failures
 earn no credit. The margin is
 \[
  \delta=\max\bigl(0.01,\;2\sigma\bigr),
@@ -483,37 +583,49 @@ Table~\ref{tab:reward-v1-parameters} lists the remaining parameters and their
 translation from subnet 78. Subnet 78 states its band width and duplicate
 tolerance in points of a normalized score. A literal 2.5-point band would span
 about 40--48\% of the reference's headroom here, depending on the estimand, and
-put almost every entrant in one band. \texttt{reward-v1} therefore keeps the
-mechanism and the ratios between its parameters, and sets the band width from
-the measured standard error.
+put almost every entrant in one band. \texttt{reward-v2} therefore keeps the
+mechanism and the ratios between its parameters, sets the band width from the
+measured standard error, and rounds it up to whole grid steps, which can only
+widen it. At testnet's full roster the grid, not the standard error, sets the
+band: one 0.03 step.
 
 \begin{table}[H]
 \centering
 \begin{tabularx}{\linewidth}{@{}lLL@{}}
 \toprule
-Parameter & Subnet 78 & \texttt{reward-v1} \\
+Parameter & Subnet 78 & \texttt{reward-v2} \\
 \midrule
-Band width \(w\) & 2.5 points of score & \(2\sigma(1-S_{R_k})\) in score units:
-7\% of headroom at 1,000 cases (about 0.0044 at 0.062 headroom), 3.4\% at 4,000 \\
-Near-equal tolerance \(\varepsilon\) & 1 basis point, \(w/250\) & \(w/250\), inclusive \\
+Band width \(w\) & 2.5 points of score & \(2\sigma(1-\hat S_{R_k})\) in score
+units, rounded up to whole grid steps; before rounding, 7\% of headroom at
+1,000 cases (about 0.0044 at 0.062 headroom), 3.4\% at 4,000 \\
+Score grid \(g\) & --- & the larger of twice \(R_k\)'s standard error and the
+noise scale, rounded up on a versioned ladder; 0.03 at testnet's full roster \\
+Privacy budget \(\varepsilon\) & --- & 2 per cohort, split equally over the
+quantized scores \\
+Near-equal tolerance & 1 basis point, \(w/250\) & none: distinct quantized
+scores differ by at least one grid step, and equal ones share credit \\
 Decay \(r\), across and within bands & 0.85 & 0.85 \\
-Eligibility & \(S\geq0.99\,S_{\mathrm{inc}}\), the incumbent's score & gated and \(q\geq\delta\) \\
-Duplicates & identical content credited to the first acceptance & copies of
-published artifacts earn nothing; near-duplicate entrants share one credit
+Eligibility & \(S\geq0.99\,S_{\mathrm{inc}}\), the incumbent's score & gated and
+\(\hat S_i\geq\hat T\), the margin cutoff on the grid \\
+Duplicates & identical content credited to the first acceptance & detected
+copies of published artifacts (identical content, or within \(d\) without the
+\(w_S/2\) improvement) earn nothing; near-duplicate entrants share one credit
 equally \\
-Near-copy distance \(d\) & --- & 0.025 after isotonic recalibration, with a
-\(w/2\) improvement exception \\
-Native row & largest-remainder split of 65,535 & the same \\
+Near-copy distance \(d\) & --- & 0.025 after isotonic recalibration, lowerable
+by a later manifest; the public-copy gate adds a \(w_S/2\) improvement
+exception on exact scores, with \(w_S=2\sigma(1-S_{R_k})\) \\
+Native row & largest-remainder split of 65,535 & the same, with equal
+remainders in roster order \\
 \bottomrule
 \end{tabularx}
-\caption{Frozen \texttt{reward-v1} parameters, signed in each cohort manifest.}
+\caption{Frozen \texttt{reward-v2} and \texttt{quant-v1} parameters, signed in
+each cohort manifest.}
 \label{tab:reward-v1-parameters}
 \end{table}
 
 Two models are within the \emph{near-copy distance} when, after the best
 rank-preserving recalibration, their involvement probabilities still differ by
-a root-mean-square of at most \(d\), and the first does not score more than
-\(w/2\) above the second, where \(w\) is the cohort's band width. The recalibration is fitted both ways by isotonic
+a root-mean-square of at most \(d\). The recalibration is fitted both ways by isotonic
 regression over the documents on which both models returned a prediction, and
 the smaller residual counts; two models with no common prediction are not near.
 A temperature, bias, or any other change that preserves a model's ranking of
@@ -521,66 +633,98 @@ documents is therefore at distance zero, however far it moves the
 probabilities. The manifest freezes \(d=0.025\). On 2,000 random 1,024-document
 40/40/20 batches drawn from the consumed Test, two training seeds of one recipe
 never came closer than 0.034, and seeds of the launch recipe never closer than
-0.059.
-A model built on a published one stays eligible when it beats it by more than
-\(w/2\), which is half the promotion margin while \(2\sigma\geq0.01\).
+0.059. That separation has not been measured on 1,000-case batches in the
+20/55/25 launch mix, a stated limit: if seeds come closer there, independent
+retrains would share clusters or fail the public-copy gate. A later manifest
+may lower \(d\), never raise it, and each package records the smallest
+distances it observed (Section~\ref{public-copies}), so \(d\) can be lowered
+before independent models approach it.
+Clustering uses this distance alone. The public-copy gate adds one score clause,
+read privately: an entrant within the near-copy distance of an earlier artifact
+still passes when its exact score is more than \(w_S/2\) above that artifact's,
+where \(w_S=2\sigma(1-S_{R_k})\) is the band width computed from the exact
+reference score, before rounding; the band width \(w\) of the table and of the
+calculation below uses \(\hat S_{R_k}\) instead. A model built on a published
+one therefore still passes the public-copy gate when it beats it by more than
+\(w_S/2\), which is half the promotion margin \(\delta(1-S_{R_k})\) while
+\(2\sigma\geq0.01\); it earns only if its released score also reaches the
+cohort's cutoff.
 
-The calculation proceeds in seven steps. Entrants are ordered by score, then by
-finalized commitment block and extrinsic index, then by hotkey bytes; this
-\emph{rank order} breaks every tie below.
+The calculation proceeds in seven steps over the gated entrants. Every score it
+compares is a quantized score; cluster membership uses the private near-copy
+distance. Entrants are
+ordered by quantized score, then by roster order, which is admission order:
+finalized commitment block, then extrinsic index. This \emph{rank order} breaks
+every tie below; no exact score enters it.
 \begin{enumerate}\tightlist
-\item \emph{Cutoff.} If any gated entrant has \(q_i\geq\delta\), the cutoff is
-\(T=S_{R_k}+\delta(1-S_{R_k})\). Otherwise, when \(R_{k-1}\) exists and some gated
-entrant scores strictly above \(S_{R_{k-1}}\), the cohort is scored against the
-fallback cutoff
+\item \emph{Cutoff.} When \(\hat S_{R_k}=1\), which needs a grid width that
+divides 1, no cutoff applies, neither margin
+nor fallback, and the cohort produces no new target (end of this step).
+Otherwise thresholds are rounded up onto the grid. Let
+\(T=\hat S_{R_k}+\delta(1-\hat S_{R_k})\) and \(\hat T=g\lceil T/g\rceil\);
+when \(\hat S_{R_k}\) is the largest grid value and below 1, \(\hat T\) lies
+above every releasable score, so no entrant reaches it. If
+any gated entrant has \(\hat S_i\geq\hat T\), the cutoff is \(\hat T\).
+Otherwise, when \(R_{k-1}\) exists and some gated entrant scores strictly above
+\(\hat S_{R_{k-1}}\), the cohort is scored against the fallback cutoff
 \[
- C_N=S_{R_{k-1}}+0.15\,\bigl(\max_N-S_{R_{k-1}}\bigr),
+ C_N=\hat S_{R_{k-1}}+0.15\,\bigl(\max_N-\hat S_{R_{k-1}}\bigr),\qquad
+ \hat C_N=g\lceil C_N/g\rceil,
 \]
-where \(\max_N\) is the top gated score in cohort \(N\). The fallback removes the
+where \(\max_N\) is the top gated quantized score in cohort \(N\), so
+\(\hat C_N\leq\max_N\). The fallback removes the
 bottom 15\% of the score range that would earn against the previous reference,
 so rewards keep flowing to the current cohort; the reference does not advance.
-The anchor is \(R_{k-1}\) rather than \(R_k\) because no entrant has passed
-\(R_k\) by the margin, so none is measurably different from it, and a cutoff at
-\(S_{R_k}\) would admit or exclude entrants equal to it by batch noise. Anchoring
-on the last reference the subnet passed by the margin lets independent models as
-good as \(R_k\), including new models from \(R_k\)'s author, earn in a fallback
-cohort, while copies of \(R_k\) fail the public-copy gate
-(Section~\ref{reference-model}). For example, if \(R_{k-1}\) scores 0.9400 on
-the batch and the top entrant 0.9500, the cutoff is 0.9415. An entrant just
+The anchor is \(R_{k-1}\) rather than \(R_k\) because no entrant's released
+score has reached the margin cutoff, so none is publicly shown to be better than
+\(R_k\), and a cutoff at
+\(\hat S_{R_k}\) would, like the margin cutoff, leave it to batch and release
+noise whether entrants equal to it earn.
+Anchoring on the last reference the subnet passed by the margin lets independent
+models as good as \(R_k\), including new models from \(R_k\)'s author, earn in a
+fallback cohort, while detected copies of \(R_k\) fail the public-copy gate
+(Section~\ref{reference-model}). For example, on a 0.01 grid, if \(R_{k-1}\)
+scores 0.94 on the batch and the top entrant 0.96, \(C_N\) is 0.943 and the
+cutoff 0.95. An entrant just
 short of the margin therefore earns in a fallback cohort but not when another
-entrant passes it. In any other
-case, including \(S_{R_k}=1\), where the band width is zero even when \(R_{k-1}\)
-exists, the cohort produces no new target: the previous target stays live, and
-if there has never been one the row sends the whole pool to the owner hotkey's
-UID, which burns it.
+entrant passes it. At testnet's full roster the 0.03 grid is wider than the
+unrounded margin, so the margin cutoff is one grid step above
+\(\hat S_{R_k}\). When \(\hat S_{R_k}=1\), or when neither the margin nor the
+fallback cutoff applies, the cohort produces no new target: the previous target
+stays live, and if there has never
+been one the row sends the whole pool to the owner hotkey's UID, which burns it.
 \item \emph{Clusters.} Walk the gated entrants at or above the cutoff in rank
 order. The first entrant not yet assigned heads a cluster that also contains
 every later unassigned entrant with identical inference content or within the
-near-copy distance of the head on the batch. The cluster takes its head's score
-and position; there is no chaining through other members.
-\item \emph{Near-equal drop.} Walk the cluster heads in rank order and drop a
-cluster whose score is at most \(\varepsilon\) below the last retained head's
-score; of two independent clusters with exactly equal scores, the later in rank
-order is therefore dropped. Comparison is always with the last retained head,
-never with a dropped one, and happens before banding. A dropped cluster earns
-nothing.
-\item \emph{Bands.} Place each retained cluster in band
-\(b=\min(\lfloor S/w\rfloor,\lceil 1/w\rceil-1)\) on the absolute score grid.
-Rank occupied bands \(\kappa=0,\dots,B-1\) from the top, and rank the clusters
-within band \(\kappa\) as \(\mu=0,\dots,n_\kappa-1\) in rank order.
-\item \emph{Credit.} A cluster earns
+near-copy distance of the head on the batch, judged by distance alone, with no
+score clause. The cluster takes its head's quantized score and position; there is no chaining through other members.
+\item \emph{Bands.} Round the band width up to whole grid steps,
+\(W=g\max(1,\lceil w/g\rceil)\) with \(w=2\sigma(1-\hat S_{R_k})\), and place
+each cluster in band \(b=\min(\lfloor\hat S/W\rfloor,\lceil 1/W\rceil-1)\) on
+the absolute score grid, so band edges lie on the grid. Rank occupied bands
+\(\kappa=0,\dots,B-1\) from the top, and rank the clusters within band
+\(\kappa\) as \(\mu=0,\dots,n_\kappa-1\) in rank order.
+\item \emph{Credit.} The cluster at position \(\mu\) of band \(\kappa\) has base
+credit
 \[
- c=\frac{r^{\kappa}}{\sum_{j<B}r^{j}}\cdot\frac{r^{\mu}}{\sum_{j<n_\kappa}r^{j}},
+ c(\kappa,\mu)=\frac{r^{\kappa}}{\sum_{j<B}r^{j}}\cdot\frac{r^{\mu}}{\sum_{j<n_\kappa}r^{j}},
 \]
 so the credits sum to one.
-\item \emph{Equal split.} Each of a cluster's \(m\) members receives \(c/m\).
+\item \emph{Ties.} Clusters whose heads have equal quantized scores form a tie
+group within one band. If the group occupies positions \(\mu_s\) to \(\mu_e\),
+each of its clusters receives the mean of \(c(\kappa,\mu)\) over those
+positions, so the roster order that lays out positions within a tie changes no
+tied cluster's credit.
+\item \emph{Equal split.} Each member of a cluster receives an equal share of
+its cluster's credit.
 \item \emph{Row.} Apportion 65,535 units across members by largest remainder:
 each takes the integer part of its share, and leftover units go to the largest
-fractional remainders, with ties in rank order. At each tempo, map each member's
-hotkey and registration generation to its current UID in the validator's
-finalized registration snapshot. Units of a hotkey that is no longer registered
-under that generation go to the UID of the subnet owner hotkey in the same
-snapshot, which burns them (Section~\ref{unallocated-rewards}). The chain stores
+fractional remainders, with equal remainders in roster order. At each tempo the
+coordinator maps each member's hotkey and registration generation to its current
+UID in its finalized registration snapshot and signs the resulting row. Units of
+a hotkey that is no longer registered under that generation go to the UID of the
+subnet owner hotkey in the same snapshot, which burns them
+(Section~\ref{unallocated-rewards}). The chain stores
 a weight row scaled so that its largest entry is 65,535, so validators commit,
 and compare each reveal with, the row in that form, computed exactly with ties
 rounded half to even; the canonical row and its digest remain the audited
@@ -594,20 +738,25 @@ and in those an entrant earns whenever it reaches \(C_N\). Among ten
 structurally different equal entrants, each earns only when it clears the margin
 itself, about a third of the time, or in the 2--20\% of cohorts that fall back:
 in a third to at most a half of cohorts, chosen by batch noise.
-A copy of a published artifact earns nothing, so each artifact takes that draw
-once, and equally good entrants earn equally only in expectation over many
-artifacts.
+A detected copy of an earlier artifact earns nothing, so each artifact takes
+that draw once, apart from a perturbed copy that escapes detection (described
+below), and equally good entrants earn equally only in expectation over many
+artifacts. These rates are computed on exact scores; the rounded cutoff and the
+release noise change them, and they are measured again under
+\texttt{reward-v2} on simulated rosters before launch
+(Section~\ref{protocol-checks-before-launch}).
 
-With \(r=0.85\), a lone cluster receives the whole pool, and two clusters receive
-54.1\% and 45.9\% whether they share a band or not, which the row encodes as
-35,424 and 30,111 of its 65,535 units. A crowded band divides its
+With \(r=0.85\), a lone cluster receives the whole pool, and two clusters with
+different quantized scores receive 54.1\% and 45.9\% whether they share a band
+or not, which the row encodes as 35,424 and 30,111 of its 65,535 units; two
+with equal quantized scores receive 50\% each. A crowded band divides its
 share: with two clusters in the top band and one below, they receive 29.2\%,
-24.8\%, and 45.9\%. With \(r=17/20\), each credit is already a fraction in lowest
-terms, and the package publishes every retained cluster's exact credit in that
-form. All arithmetic uses exact integers and rationals, so every validator
-derives byte-identical rows. A roster holds at most 256 entrants, the subnet's
-UID limit, and because \(\varepsilon=w/250\), at most 250 retained clusters fit
-in one band.
+24.8\%, and 45.9\%. With \(r=17/20\), each credit is already a fraction in
+lowest terms; the private score package records every cluster's exact credit,
+and the public result releases band ranks and units. All arithmetic uses exact
+integers and rationals over the fixed-point quantized scores, so anyone can
+recompute the coordinator's row from the public result byte for byte. A roster
+holds at most 256 entrants, the subnet's UID limit.
 
 A band's share depends on its rank among occupied bands, not on how many
 clusters it holds, so credit is not monotone in score across a band boundary. A
@@ -615,9 +764,10 @@ cluster alone in the lower of two occupied bands receives 45.9\% however many
 clusters share the band above, 2.2 times the best of three there and 3.1 times
 the best of five; alone in the third of three bands, it receives 28.1\%. Subnet
 78's 2.5-point bands seldom divide a roster, so its experience does not cover
-this case. A band of two standard errors often does: the paired difference
-between two equally good entrants has a standard error of half a band, and the
-grid is fixed in absolute score, so where a roster divides depends on the batch. A score
+this case. Bands here often do: the paired difference between two equally good
+entrants has a standard error of about half an unrounded band, the release
+noise adds more, and the band grid is fixed in absolute score, so where a roster
+divides depends on the batch and the noise draw. A score
 difference below the noise can therefore reverse the order of pay. The split is
 kept from the ported mechanism, and what it buys is the same property: a band's
 share does not shrink as other bands fill, so a crowd of entries in one band,
@@ -626,18 +776,15 @@ the pay of entrants in other bands, as it would under a geometric split by rank
 alone. Its non-monotonicity is a stated limit; the strategy it opens is
 described below.
 
-The near-equal drop is kept from subnet 78, where it removes near-equal
-duplicate entries. Here the content check, the public-copy gate, and
-clustering remove copies before it runs. Its remaining benefits are fidelity to
-the ported mechanism and a partial backstop against an entrant that escapes the
-near-copy distance yet scores within \(\varepsilon\) of a retained head: the
-drop cannot tell a copy from an original and removes whichever ranks lower. Its
-main effect falls on independent entrants whose scores tie a retained head by
-chance. Because
-\(\varepsilon\) is \(1/125\) of the paired standard error at every batch size,
-two equally good independent retrains fall within it in about 0.6\% of cohorts,
-and among ten such entrants above the cutoff some cluster is dropped in about a
-quarter of cohorts. That cost is a stated limit, like the false-promotion rate.
+Subnet 78's near-equal drop is not used. Distinct quantized scores differ by at
+least one grid step, far more than subnet 78's \(w/250\), so a drop could act
+only on exact ties, which share credit instead; the content check, the
+public-copy gate, and clustering remove copies first. Among equal quantized
+scores, roster order still decides two things: which entrant heads a cluster,
+and so which later entrants join it, since membership is measured against the
+head; and the order in which promotion tests tied heads, so the earliest
+admitted head that passes is promoted even when a later tied head has a higher
+exact score.
 
 The near-copy distance removes exact and recalibrated copies and sets a minimum
 price on a perturbed copy; it neither prevents one nor bounds what one earns. To
@@ -653,8 +800,8 @@ Pooling two independent measurements of 128 noise realizations each, on
 40/40/20 batches, it cleared the gate on the batch and against \(R_0\)'s probe
 fingerprint together in about 89\% to 99\% of 1,000-case cohorts, for an
 average of about \(3.5\times10^{-4}\) to \(4.8\times10^{-4}\) of expected score:
-0.6\% to 0.8\% of the reference's headroom, or 0.07 to 0.10 of a band at that
-measurement's \(\sigma=0.040\), about a tenth of a band. At 4,000
+0.6\% to 0.8\% of the reference's headroom, or 0.07 to 0.10 of an unrounded band
+at that measurement's \(\sigma=0.040\), about a tenth of a band. At 4,000
 cases the batch comparison alone is cleared nearer the floor, but the
 1,024-document probe comparison with \(R_k\)'s fingerprint
 (Section~\ref{public-copies}) then binds: clearing both in about 99\% of cohorts
@@ -682,8 +829,9 @@ beyond \(d\), can land alone in a band below theirs and take 45.9\% of the pool
 if they occupy one band, or 28.1\% if they occupy two. In a promotion cohort, an
 entrant whose model clears the margin by more than a band can do the same with a
 weaker variant under a second hotkey, and any entrant can submit less than its
-best model. Such an entry aims blind: the batch, the grid's position, and the
-cutoff are unknown at commitment, and a miss earns nothing below the cutoff or a
+best model. Such an entry aims blind: the batch, the grid's position, the secret
+offset, the noise, and the cutoff are unknown at commitment, and a miss earns
+nothing below the cutoff or a
 low slot in a crowded band. Its expected credit against realistic rosters has
 not been measured, and that measurement precedes launch
 (Section~\ref{protocol-checks-before-launch}). Where it lands alone, it can earn
@@ -704,10 +852,12 @@ margin can be promoted.
 
 \subsection{Published artifacts and the fingerprint probe}\label{public-copies}
 
-Exact copies are found by inference-content digest against every artifact ever
-published, a check every validator repeats from the published packages: an
-entrant fails the content check exactly when its digest equals that of a
-published artifact, and such an entrant is never executed. Re-running every
+Exact copies are found by inference-content digest against the
+published-artifact index, which holds every entrant artifact of every closed
+cohort and every initial reference \(R_0\): an entrant fails the content check
+exactly when its digest is in that index, and such an entrant is never
+executed. The digests
+are public, so anyone can repeat this check. Re-running every
 earlier artifact on each batch would grow without bound, so near copies are also
 measured on a fixed private probe of 1,024 documents, drawn and generated like a
 batch. Near copies of \(R_k\) and \(R_{k-1}\) are measured on the cohort batch,
@@ -721,10 +871,11 @@ gates. No score in an entrant's own cohort bounds what a copy of it can earn:
 \(R_{k-1}\) can outscore \(R_k\) on a batch, and a copy meets new documents in a
 later cohort. The entrant's probe predictions are compared with the recorded
 probe predictions of every earlier published artifact, \(R_k\) and \(R_{k-1}\)
-included, and become its own fingerprint once its artifact is published. Each
-package publishes every entrant's exact comparisons with both references'
-fingerprints, and validators check that a near one fails the gate, so a copy of
-a reference must escape both the batch and the probe. When entrants with
+included, and become its own fingerprint once its artifact is published. The
+private score package records every entrant's exact comparisons with both
+references' fingerprints, and the coordinator checks that a near one fails the
+gate before it signs, so a copy of a reference must escape both the batch and
+the probe; only the gate's bit is released. When entrants with
 identical inference content return different probe predictions, the
 earliest-committed entrant's become the fingerprint. Each artifact therefore
 runs on the probe only in its own cohort. An artifact that was never executed
@@ -745,7 +896,7 @@ protection only.
 
 The probe adds 1,024 inferences per executed entrant and probe version in use.
 That roughly doubles an entrant's scoring at 1,000 cases and adds a quarter at
-4,000. Each package also reports, as exact integers, the smallest distance
+4,000. The private package also records, as exact integers, the smallest distance
 between two cluster heads, between \(R_k\) and any gated entrant on the batch, and
 between any gated entrant and any fingerprinted artifact on the probe, so a
 later manifest can lower \(d\) before independent models approach it.
@@ -768,24 +919,35 @@ training-service obligations are absent from an \textit{A}-only launch; no
 fictitious requests or \textit{B} availability score is needed to make an
 \textit{A} entrant eligible.
 
-The signed result package binds the cohort and revision, the commitments with
-their finalized block and extrinsic index, the artifact digests, credited
-hotkeys and registration generations, coverage and outcome accounting, each
-failed gate with its reason code, exact per-miner scores, the reference scores
-\(S_{R_k}\) and \(S_{R_{k-1}}\), the cluster assignments, each scored entrant's
-public-copy result, with its exact near-copy statistics against \(R_k\) and
-\(R_{k-1}\) on the batch and against their fingerprints on the probe, and the
-matched published artifact of any failure, the statistics behind each
-distance-based cluster membership, the published-artifact index root and count,
-the distance monitor, every \texttt{reward-v1} parameter, the cutoff mode, each
-retained cluster's exact credit, and every member's integer units. A gate with
-no recorded failure passed, and no gate measurement is published. An entrant
-that fails artifact qualification is never executed and carries no score. After
-the cohort closes the coordinator also publishes the artifacts and their
-commitment openings. The package binds the R2 receipt index's root and count
-before validators commit. Validators verify the full retained index, counts,
-and receipt digests as specified in Section~\ref{cohorts}. Compact numerical
-inputs and calculated rows survive the detailed receipts' retention window.
+The coordinator signs two records for each cohort. The private score package
+binds the cohort and revision, the commitments with their finalized block and
+extrinsic index, the artifact digests, credited hotkeys and registration
+generations, coverage and outcome accounting, each failed gate with its reason
+code, exact per-miner scores, the reference scores \(S_{R_k}\) and
+\(S_{R_{k-1}}\), the cluster assignments, each scored entrant's public-copy
+result, with its exact near-copy statistics against \(R_k\) and \(R_{k-1}\) on
+the batch and against their fingerprints on the probe, and the matched
+published artifact of any failure, the statistics behind each distance-based
+cluster membership, the published-artifact index root and count, the distance
+monitor, the standard-error sums and quantization draws, every
+\texttt{reward-v2} and \texttt{quant-v1} parameter, the cutoff mode, each
+retained cluster's exact credit, every member's integer units, the R2 receipt
+index's root and count, and the digest of the public result. It never leaves
+the coordinator's storage. The public quantized result names the chain, cohort,
+and manifest, the rules and their public parameters, the batch size, the grid
+and band widths, the cutoff mode and cutoff, each reference's identity and
+quantized score, the promoted model if any, the occupied bands, and, per roster
+entry in roster order, its identity and outcome: not executed, withheld, or its
+quantized score, gate and public-copy bits, and cluster, with its band rank and
+units. It also records each term of the cohort's bit budget, and it carries no
+exact score, standard error, offset, noise draw, statistic, probe value, attempt
+count, or receipt value. Its allow-listed values are published when the cohort
+closes, on the public status host and the dashboard at
+\texttt{slop.ninja/dashboard}; the artifacts were published when scoring
+started, and the commitment openings follow at the close. An entrant that fails
+artifact qualification is never executed and carries no score. Compact
+numerical inputs and calculated rows survive the detailed receipts' retention
+window.
 
 The frozen calculation specifies exact arithmetic, operation order,
 tie-breaking, rounding, normalization, and integer chain encoding. It binds the
@@ -797,22 +959,23 @@ needs an authenticated compatible delivery revision; a chain runtime upgrade
 never does. Neither can silently change the scores or let a validator improvise
 its own normalization.
 
-Published score components are aggregate numerical inputs, never individual
-document predictions or hidden labels. Cluster assignments and near-copy
-statistics are coordinator measurements on hidden predictions, which validators
-trust like the scores. Validators check that each recorded gate and cluster
-decision follows from them and from the published scores, that every entrant's
-probe comparison includes both references, that an entrant fails the content
-check exactly when its content digest equals that of a published artifact, and
-that each closed cohort adds one fingerprint for every executed entrant. They
-recompute each credit and every member's units and refuse any difference.
-Retain private evidence under access controls sufficient for authorized audit;
-public record verification does not prove that the coordinator executed the
-evaluation honestly. Corrections retain the original record and account for
-already-submitted commitments and weights. The public inputs also make the row
-derivable before reveal. Native commit--reveal therefore supplies the chain's
-submission protocol without preventing off-chain copying or proving that each
-validator did the calculation.
+Released values are quantized aggregates and gate outcomes, never individual
+document predictions, exact scores, or hidden labels. Cluster assignments and
+near-copy statistics are coordinator measurements on hidden predictions that
+nobody outside the coordinator can check. Before it signs, the coordinator checks that each
+recorded gate and cluster decision follows from them and from the scores, that
+every entrant's probe comparison includes both references, that an entrant
+fails the content check exactly when its content digest is in the
+published-artifact index, that each closed cohort adds one fingerprint for every
+executed entrant, and that the row follows from the public result. Anyone can recompute the row from the public
+result and compare it with the signed row and the revealed weights; that check
+is advisory. Retain private evidence under access controls sufficient for
+authorized audit; public record verification does not prove that the
+coordinator executed the evaluation honestly. Corrections retain the original
+record and account for already-submitted commitments and weights. The signed
+row is published off chain as soon as it is signed, before any reveal. Native
+commit--reveal therefore supplies the chain's submission protocol without
+preventing off-chain copying of the row.
 
 \subsection{Mechanism mapping and unallocated rewards}\label{unallocated-rewards}
 
@@ -836,17 +999,23 @@ pools are
  W^A_i&=(1-c-f)Q_i+fI_i,\\
  W^C_i&=cK_i.
 \end{align}
-Here \(Q_i\) is the \texttt{reward-v1} credit. The native \textit{A} mechanism has
+Here \(Q_i\) is the \texttt{reward-v2} credit. The native \textit{A} mechanism has
 share \(1-c\); its submitted distribution divides \(W^A_i\) by \(1-c\). Launch
 sets \(c=0\) and \(f=0\). A nonzero \(f\) requires the attribution and abuse
 controls in Section~\ref{paid-asynchronous-jobs-and-on-chain-coordination}.
 
 Unallocated credit goes to the UID of the subnet owner hotkey, which the chain
-burns. Every validator reads the owner hotkey and its UID from the finalized
+burns. The coordinator reads the owner hotkey and its UID from the finalized
 snapshot it uses for registrations, at every tempo, and records that hotkey in
-the row. No manifest, package, or target names the owner hotkey, so an
-owner-hotkey rotation moves the burn destination at the next tempo without a
-new target or authorization. If units must burn while the finalized owner
+the signed row. No manifest, package, or target names the owner hotkey, so an
+owner-hotkey rotation moves the burn destination at the next signed row without
+a new target or authorization. A validator that commits the row
+burns through the UID that the owner hotkey of its own finalized snapshot
+holds: it sends there both the row's burn entry, recorded against the
+coordinator's owner hotkey, and the units of any registration its snapshot no
+longer holds. An owner-hotkey rotation during coordinator silence therefore
+moves the burn at each validator's next commitment, and a UID that changed
+hands while the coordinator was silent is never paid to its new holder. If units must burn while the finalized owner
 hotkey holds no UID, that tempo's row is deferred rather than sent to any other
 UID; a row with nothing to burn is still derived.
 

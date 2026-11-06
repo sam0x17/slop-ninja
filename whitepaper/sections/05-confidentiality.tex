@@ -14,8 +14,10 @@ and no TEE execution claim.
 For \textit{A}, Slop Ninja runs a selected published artifact in its own runtime.
 The model contributor receives neither customer traffic nor an account with
 access to its storage. Artifacts submitted to a cohort are private evaluation
-material until that cohort ends; they are stored in the coordinator's private
-evaluation storage and never served to customers before publication. Customers may instead download published artifacts and
+material until that cohort's scoring starts. Miners upload them straight to the
+coordinator's private R2 admission storage through presigned URLs, protected in
+transit by TLS and at rest by the bucket's access controls rather than an added
+encryption layer, and they are never served to customers before publication. Customers may instead download published artifacts and
 run them locally, subject to their dependencies and execution contract. Such a
 run creates no hosted job, customer charge, or inference credit.
 

@@ -92,12 +92,12 @@ Section~\ref{span-outputs}.
 \subsection{Protocol checks before launch}\label{protocol-checks-before-launch}
 
 The first coordinator-scored tournament freezes entrants and a fresh hidden batch,
-records every assigned outcome, and publishes signed result manifests. Rust
-validators, including the serverless coordinator, independently derive native
-weight rows from the public score inputs and use commit--reveal in parallel.
-Other validators audit the coordinator's certificate and finalized row afterward.
-Hidden inputs, labels, and individual predictions remain with the coordinator
-and never go to other validators. The tournament must include both reference
+records every assigned outcome, and publishes the public quantized result. The
+serverless coordinator derives and signs the native weight row, and Rust
+validators, the coordinator included, commit it through commit--reveal in
+parallel. Anyone can audit the coordinator's certificate and finalized row
+afterward. Hidden labels, individual predictions, and exact scores remain with
+the coordinator, and no hidden input goes to miners or other validators. The tournament must include both reference
 models, malformed output, targeted triggers, an embedded text index, an
 artifact outside the allowed graphs, with another tokenizer, or with a file that
 fails its role's schema or has no declared role, outputs that change with a
@@ -114,7 +114,10 @@ drift of the reference's true quality across promotions
 (Sections~\ref{reference-model} and~\ref{reward-v1}). Commitment order
 requires a valid opening and qualification; it is not proof of authorship.
 Verify that no submitted artifact is retrievable by another participant before
-its cohort ends, and that every artifact and opening is published afterward. Canonical-byte controls cover Unicode normalization, invisible
+its cohort's scoring starts, that every admitted artifact is published when
+scoring starts and every opening when the cohort closes, that no upload byte
+passes through a Slop Ninja Worker, and that R2 stores nothing for an upload
+whose bytes or length differ from the declared ones. Canonical-byte controls cover Unicode normalization, invisible
 characters, whitespace, malformed encodings, and mismatches between submitted,
 scored, and externally analyzed text. No representation-only change earns
 utility. The full reserved workload determines the tempo targets; a small
@@ -135,7 +138,8 @@ coordinator resumes the same cohort. Slow work can move advancement to a later
 tempo without changing evaluation semantics or discarding observations.
 Interrupt coordinator checkpoints across several tempos and verify that
 remaining application deadline budgets survive without retroactively charging
-the silent intervals. Expired authorizations must stop new work while existing
+the silent intervals. An expired coordinator work authorization must stop new
+coordinator work, never validators' commitments, while existing
 chain and customer obligations retain their separate deadlines.
 
 Qualify \texttt{rtao-rpc} webhook delivery. Reject unauthorized
@@ -165,9 +169,10 @@ subnet's emission share while miner credit burns. Miss a commitment window and
 verify later valid delivery without loss of the cohort. Exercise the native
 timelocked reveal path; automatic reveal cannot be withheld pending a
 coordinator check. Re-commit the active target at every tempo under per-tempo
-operation identities across a whole cohort, then let the authorization lease
-lapse during a simulated coordinator outage and verify that new commitments
-pause while submitted obligations recover. Restart validators with uncertain
+operation identities across a whole cohort, then silence the coordinator for
+longer than the renew-by hint and verify that validators keep committing the
+last signed row; issue a signed revocation and verify that new commitments of
+the withdrawn target stop while submitted obligations recover. Restart validators with uncertain
 commitments and pending reveals. Upgrade the chain runtime between cohort
 creation, commitment, reveal, and finality, including an upgrade that removes or
 changes a signed call: work continues, and only an operation without a
@@ -180,8 +185,8 @@ recovery under a fixture package, and the \texttt{reward-v1} rehearsal
 (the ``Testnet reward rehearsal'' paragraph in
 Section~\ref{testnet-reward-v1}) covered verification, commitment, and a
 carried target under \texttt{reward-v1} packages for a row paying one UID.
-Still required are a live row paying several UIDs, the fault drills under
-\texttt{reward-v1} packages, native validators' commitment of the burn row,
+Still required are a live row paying several UIDs, the fault drills under the
+coordinator's signed \texttt{reward-v2} rows, native validators' commitment of the burn row,
 qualification of the coordinator's own signing, and an immunity period above
 the first-payout lag.
 Successful scheduling alone does not prove finalized execution or cohort
@@ -189,47 +194,58 @@ settlement. Verify that an old UID's credit cannot transfer silently to a new
 registrant. Subtensor can continue paying native emissions during a coordinator
 outage, so stale-weight behavior needs an explicit tested policy.
 
-Test tampered score packages and certificates, invalid score-signing authority
-or coordinator hotkey bindings, stale revisions, mismatched finalized rows,
-runtime changes (work continues; only an operation without a type-correct
-encoding defers), UID reuse, and owner-hotkey rotation, including to an
-unregistered hotkey. Give independent Linux and macOS validators the
-same package and registration snapshot, including shuffled input order, near ties, zero entries, rounding
-boundaries, and cohorts with no new target. Include the Workers coordinator in the same
-comparison. Their canonical integer rows must match exactly.
+Test tampered row records, authorizations, revocations, and certificates,
+invalid score-signing authority or coordinator hotkey bindings, stale
+revisions, mismatched finalized rows, runtime changes (work continues; only an
+operation without a type-correct encoding defers), UID reuse, and owner-hotkey
+rotation, including to an unregistered hotkey and during coordinator silence. Recompute the row with an
+independent implementation on Linux and macOS from the same public result and
+registration snapshot, including shuffled input order, ties, zero entries,
+rounding boundaries, and cohorts with no new target, and compare it with the
+Workers coordinator's signed row. Their canonical integer rows must match
+exactly, and validators on both platforms must commit the signed row unchanged
+except that the burn entry and the units of a registration their own snapshot
+no longer holds go to the UID of their own snapshot's owner hotkey.
 
-Verify the \texttt{reward-v1} calculation against hand-worked fixtures: the
-margin and reference promotion, the fallback cutoff with and without a
+Verify the \texttt{reward-v2} and \texttt{quant-v1} calculation against
+hand-worked fixtures: the grid width, offset, and noise draws, including one
+shared draw for identical copies under several hotkeys, the withheld output of
+the minimum-success gate, the bit budget at plan validation, seal, and
+publication, the rounded margin cutoff and promotion on the exact margin, the
+fallback cutoff with and without a
 predecessor reference, a cohort with no new target, with and without a previous
 target, a perfect reference, the public-copy gate on the batch and on the probe,
 the canonical fingerprint of identical content, cluster formation and equal
-splits, the inclusive near-equal drop, band boundaries, a lone cluster below a
-crowded band, largest-remainder ties,
+splits, tie groups, band boundaries on the grid, a lone cluster below a
+crowded band, largest-remainder units with equal remainders in roster order,
 a departed hotkey's burn, a deferred burn row, a reference-model failure, a
 promotion that passes to the next retained cluster head, the max-upscaled committed row, and allocations and caps. Exercise the launch authorization
 before the first manifest, a first cohort with no target, a probe-version
-replacement, a renewal after a lapsed lease, and the per-tempo active-target
-check. Each validator uses its own key,
+replacement, a signed revocation and a later re-authorization, and the
+per-tempo active-target check. Each validator uses its own key,
 nonce, and journal, and commits without waiting for a coordinator reveal. A chain
 conversion change requires an authenticated compatible delivery revision,
 preserving the frozen scores. Publish a new score revision before its package
-is ready and verify that the previous authorized target remains usable within
-its retention, identity, and native-window limits. Preserve pending commitments
+is ready and verify that validators keep committing the previous authorized
+target within its identity and native-window limits. Preserve pending commitments
 when a successor target or authorized coordinator hotkey rotation arrives; a new target
 cannot reset old obligations or cause a stale row to overwrite its successor.
 An absent or divergent coordinator certificate must not block healthy validators;
 pause only locally affected work when the evidence exposes a defect in its own
 target, authority, or context.
 
-Verify the R2 package's index, count, and receipt digests for successful, failed,
-retried, and pending calls without revealing prompts, responses, or labels.
-After cohorts \(n+1\) and \(n+2\) complete, delete \(n\)'s detailed receipts and
-index, including managed copies, while preserving compact score inputs,
-calculated rows, certificates, and recovery state, and only after \(T_n\) has
-been superseded. Missed tempos and coordinator silence must not trigger
+Verify, inside the coordinator before it installs a target, the R2 package's
+index, count, and receipt digests for successful, failed, retried, and pending
+calls without revealing prompts, responses, or labels, and
+confirm that no receipt reaches the public host or a validator. After cohorts
+\(N+1\) and \(N+2\) complete, delete \(N\)'s detailed receipts and index,
+including managed copies, while preserving compact score inputs, calculated
+rows, row records, certificates, and recovery state, and, for a cohort that
+produced a target \(T_N\), only after \(T_N\) has been superseded (a cohort that
+produced none waits only for \(N+1\) and \(N+2\)). Missed tempos and coordinator silence must not trigger
 deletion, and the artifacts of \(R_k\) and \(R_{k-1}\) must remain hosted.
-Recover a long-offline validator from its journal and a current retained package;
-expired receipt objects must not be needed to reconcile existing submissions.
+Recover a long-offline validator from its journal and the current signed row;
+deleted receipt objects must not be needed to reconcile existing submissions.
 
 Set every other validator to silent, offline, refusing, or an old release.
 The healthy coordinator must still finish evaluation, publish results, complete
@@ -260,9 +276,12 @@ migrations with unfinished cohorts and enforce generation fencing. Test the
 single Rust supervisor's handoff, exclusive journal and signer ownership, and
 schema-compatible rollback without losing newer transaction evidence.
 
-The cohort length, batch size and mix, human stock, authorization lease, reward
-rule, copy policy, artifact cap, and the treatment of a cohort with no new
-target are fixed above. Before live rewards, settle active-time accounting,
+The cohort length, batch size and mix, human stock, authorization rule, reward
+rule, score quantization, copy policy, artifact cap, and the treatment of a
+cohort with no new target are fixed above, except that mainnet's privacy
+budget, batch size, or budget split must change first: at 4,000 cases and 256
+entrants the current values make rewards mostly noise, and the bit budget
+refuses the plan. Before live rewards, settle active-time accounting,
 retry and canonical-attempt rules, gate thresholds, including both
 false-positive tiers, correction authority, the criteria of the signed review
 that clears a blocked candidate, and shared-failure treatment, choosing them on

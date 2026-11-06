@@ -32,17 +32,16 @@ Measured harm would prompt an explicit revision of the design before launch,
 rather than an undocumented exception to admission.
 
 An \textit{A} entrant submits the weights and all data needed for the declared
-inference calculation. The artifact stays private while it competes and is
-published when its cohort ends (Section~\ref{a-artifact-execution}). Miner
+inference calculation. The artifact stays private until its cohort's scoring
+starts and is published then (Section~\ref{a-artifact-execution}). Miner
 submissions are licensed CC BY-SA 4.0, so anyone may obtain a published artifact
 free of charge and execute it locally, and later \textit{B} development is
-expected to train against published detectors. The coordinator hosts a
-published entrant artifact until its cohort's receipts become deletable, at
-least about 48 hours with daily cohorts, and keeps the current and previous
-reference artifacts while they are references
-(Section~\ref{cohort-receipt-retention}). After that, a non-reference artifact
-is available only from copies others kept; the retained signed package still
-binds its digest. Hosted execution through the paid API is charged separately.
+expected to train against published detectors. A published artifact stays
+public and is never recalled. The coordinator deletes its private admission
+copy once the cohort closes and publication is recorded, and keeps the current
+and previous reference artifacts hosted for evaluation while they are
+references (Section~\ref{cohort-receipt-retention}). Hosted execution through
+the paid API is charged separately.
 Miners may keep their training recipes and permitted training corpora private.
 
 Project code and documentation are licensed MIT OR Apache-2.0, except files and
@@ -368,8 +367,8 @@ The coordinator caches the cohort batch, executes qualified artifacts under
 equal limits, and retains their predictions and failures. Centrally executing
 submitted artifacts keeps hidden benchmark inputs out of miner request paths
 and limits direct benchmark harvesting. Model isolation and operator access
-controls remain necessary. Publishing each executable after its cohort permits
-inspection and independent experiments.
+controls remain necessary. Publishing each executable when its cohort's scoring
+starts permits inspection and independent experiments.
 Validator duties follow Section~\ref{participants-and-the-two-kinds-of-work};
 the scoring trust assumption is stated in
 Section~\ref{trust-assumptions-and-adversarial-behavior}.
@@ -417,7 +416,14 @@ inference content; reference test vectors, owner metadata, and publisher
 signatures do not. The inference-content digest covers the frozen contract and
 each inference file's role, digest, and length, so renaming or re-signing an
 artifact cannot create new inference content. Two inference files with the same
-role, digest, and length are refused.
+role, digest, and length are refused. The object is the miner's local file and
+its published form, but it is uploaded and published as the header and each
+distinct file separately, from which anyone can rebuild it. The miner hashes
+each file when it packs the artifact, and R2 computes each object's SHA-256 as it
+arrives to check the declared digest; no Slop Ninja code hashes a model byte
+after packing: the graph's class is checked by comparing its structure, the graph
+file without its weight values, byte for byte with the allow-listed class's
+pinned reference bytes~\cite{artifactspec}.
 
 \paragraph{Private submission and duplicate credit.}
 A miner commits on chain only a digest. Through the chain's commitment call, it
@@ -425,30 +431,45 @@ publishes a domain-separated commitment binding the chain and subnet, the
 cohort, its hotkey and registration generation, the inference-content digest,
 and a fresh secret 256-bit nonce. The commitment binds the inference content,
 not the object's bytes, so objects that differ only in excluded files open the
-same commitment. Before the admission cutoff the miner uploads the artifact
-object and the commitment opening privately to the coordinator's evaluation
-storage, encrypted to the coordinator's key once that path is qualified. The
-coordinator checks that the upload opens a finalized commitment for this
+same commitment. Before the admission cutoff the miner opens a signed admission
+session with its commitment opening and the header's length and SHA-256, then
+uploads the header and each file straight to the coordinator's private R2
+admission storage, one presigned upload per object~\cite{cfr2}. Each upload URL
+binds the object's key, its declared length and SHA-256, and create-only
+semantics, so R2 verifies the bytes as they arrive and stores nothing on a
+mismatch; no upload passes through a Slop Ninja Worker. The header's length and
+SHA-256 are declared in the signed session request, and each file's are listed
+in the header. File URLs are issued only after the header has arrived and the
+coordinator has recomputed the inference-content digest from it and checked it
+against the committed one, so the commitment pins each inference file's digest
+and length; the header's own digest and its entries for excluded files are
+declared, not committed. Admission, publication, and scoring then trust R2's stored
+checksums and sizes and never hash model bytes again. TLS and the bucket's
+access controls protect an artifact until publication; no further encryption
+layer is applied, because R2 can verify only the bytes it receives. The
+coordinator checks that the opening opens a finalized commitment for this
 cohort on this chain, made by the hotkey and registration generation the
-opening names, registered no later than the commitment block, and that the
-artifact qualifies. That commitment's finalized block and extrinsic index fix
-the entrant's admission order. A commitment without a matching upload reserves
-nothing. Artifacts stay private evaluation material until the cohort ends, so no
-other participant can download, run, or copy a model while it competes. The
-signed score package is published when scoring completes, and its artifact
-digest names the object that was admitted. At the cohort's closing boundary the
-coordinator also publishes every entrant's artifact and opening. Validators
-check each published object and opening against its finalized on-chain
-commitment, including that the entrant's hotkey and registration generation made
-it at the block and extrinsic index the package lists; they do not run the
-models.
+opening names, registered no later than the commitment block, that R2's stored
+digests match the header, and that the artifact qualifies. That commitment's
+finalized block and extrinsic index fix the entrant's admission order. A
+commitment without a matching upload reserves nothing. Artifacts stay private
+evaluation material until the cohort's scoring starts, after its roster is
+frozen and its batch sealed, so no other participant can download, run, or copy
+a model before it is entered; a detected copy entered in a later cohort earns
+nothing (Section~\ref{public-copies}). When scoring starts the coordinator publishes
+every admitted artifact, header and files each named by its SHA-256 and copied
+inside R2 or by a stream that R2 verifies, and a published artifact is never
+recalled. The commitment openings are published when the cohort closes. Other
+validators need none of these objects to commit: they need not download or run
+the models.
 
 Within a cohort, identical inference content, or predictions within the
 near-copy distance on the cohort batch, forms one cluster that receives one
 credit split equally among its members (Section~\ref{reward-v1}). The
 commitment nonce is excluded from content identity. The finalized commitment
-block and extrinsic index break score ties and choose which member heads a
-cluster, and so which artifact can become the next reference. This order
+block and extrinsic index, the admission order, break ties between equal
+quantized scores and so choose which of the tied entrants heads a cluster and
+can become the next reference. This order
 assigns no authorship: it cannot establish who originally trained a model.
 Already-published artifacts may enter but earn nothing
 (Section~\ref{public-copies}). Permitted foundation-model components may be used

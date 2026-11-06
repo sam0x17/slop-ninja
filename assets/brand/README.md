@@ -1,7 +1,17 @@
 # Slop Ninja brand assets
 
 These are the approved Slop Ninja logo assets, based on the artwork supplied by
-the project owner. Use this design as the project identity.
+the project owner. Use this design as the project identity. The ninja's
+headband ties and the scanner reticle over its eye are ninja red (`#e8173f`
+to `#ff3358`, the site's second brand colour), and the o of "Slop" in every
+wordmark is a thin scope reticle in the same red: a ring at about a third of
+the letter weight, broken at the four cardinal points, the left and right
+ticks crossing the ring, a short top tick, the bottom left open as on the
+eye, and the eye's inner arc low on the right (a step deeper red on the
+light-background wordmark, so it holds on white). Every other colour, shape
+and proportion is the original artwork. The reticle is drawn as stroked
+centrelines at 8 units with a 1 px non-scaling layer under them, so the one
+master serves every size; keep it as one file rather than a small variant.
 
 | File | Use |
 | --- | --- |
@@ -15,8 +25,23 @@ The primary wordmark also uses white lettering and belongs on dark backgrounds.
 Use the text-only light-background wordmark on light surfaces. Keep the SVGs as
 the source assets for future exports.
 
-Generate the Twitter/X avatar and three header options with
-`node assets/brand/build-social.mjs`. PNG exports and editable SVG compositions
-go to `~/Documents/SlopNinja` by default; an optional argument selects another
-output directory. The generator requires Node.js and `rsvg-convert`. All social
-assets have dark backgrounds, and the headers leave room for the profile avatar.
+The website keeps byte-identical copies of the icon and the dark-background
+wordmark and derives its favicons, touch icon and 1200 x 630 Open Graph card
+from them in its own repository. It uses neither the full logo nor the
+light-background wordmark. When either SVG changes here, copy it to the site
+and regenerate those rasters there.
+
+The social media PNGs (the Twitter/X avatar and three header options) are not
+stored in the repository: generate them with `node assets/brand/build-social.mjs`,
+which composes them from the icon and wordmark here, so they carry the same
+ninja-red ties and reticle, and sets the header tagline as the site does
+("Don’t just detect slop. Fix it.", with "slop." in the hero's ninja red
+and "Fix it." in mint, in Inter, the site's type). PNG exports and editable
+SVG compositions go to `~/Documents/SlopNinja` by default; an optional
+argument selects another output directory. The generator requires Node.js
+and `rsvg-convert` (or a stand-in that renders SVG to PNG at a given size),
+with Inter installed on the host or `INTER_FONT_DIR` pointing at a directory
+of Inter font files (it then writes a fontconfig for the render that adds
+them); without Inter the tagline falls back to Arial. All
+social assets have dark backgrounds, and the headers leave room for the profile
+avatar.

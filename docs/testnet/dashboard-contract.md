@@ -1,8 +1,8 @@
 # Dashboard data contract (`dashboard/v1`)
 
-The public dashboard at `slop.ninja/dashboard/` reads a small set of JSON
-documents that the publisher Worker (`subnet/publisher`, `src/dashboard.rs`)
-writes on every run. This file is the contract between the publisher and
+The public status page (Testnet Status) at `slop.ninja/status/` reads a
+small set of JSON documents that the publisher Worker (`subnet/publisher`,
+`src/dashboard.rs`) writes on every run. This file is the contract between the publisher and
 the website. The website's typed reading of it lives in its own repository
 (`src/model.rs`, `src/clean.rs`), and the publisher's tests round-trip every
 document through a copy of those types.
@@ -20,7 +20,12 @@ document through a copy of those types.
    lists objects.
 3. The website Worker reaches the feed only through a service binding. It
    checks every value again and re-encodes the document into its own types,
-   so a field outside the contract never reaches the page.
+   so a field outside the contract never reaches the page. It serves the
+   checked documents read-only at `slop.ninja/status/data/<network>/<key>`,
+   which the page reads, and identically at the first path
+   `slop.ninja/dashboard/data/<network>/<key>`, which stays for external
+   readers and the operator's watch. The former `slop.ninja/dashboard/` page
+   paths redirect permanently to their `slop.ninja/status/` pages.
 
 The validator layout `v1/` is separate, and validators never read
 `dashboard/v1`. Nothing in this path needs a public bucket, a custom domain

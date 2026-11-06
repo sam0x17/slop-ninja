@@ -19,11 +19,18 @@ master serves every size; keep it as one file rather than a small variant.
 | [Wordmark](slop-ninja-wordmark.svg) | Horizontal Slop Ninja lettering for dark backgrounds |
 | [Light-background wordmark](slop-ninja-wordmark-on-light.svg) | Text-only mark for light backgrounds |
 | [Icon](slop-ninja-icon.svg) | Square ninja illustration |
+| [Favicon](slop-ninja-favicon.svg) | Head crop of the icon for favicons from 32 px up: the brow strip is a crimson band and the headband ties are scaled into the crop |
+| [16 px favicon](slop-ninja-favicon-16.svg) | Pixel drawing for the 16 px favicon entry, with a 2 px crimson band and a stepped tie |
 
 The illustrated full logo and ninja icon may appear only on dark backgrounds.
 The primary wordmark also uses white lettering and belongs on dark backgrounds.
 Use the text-only light-background wordmark on light surfaces. Keep the SVGs as
 the source assets for future exports.
+
+The two favicon files are favicon-only emphasis: the full icon's brow stays
+charcoal, with its red on the ties. The website generates the same head crop at
+build time and keeps the 16 px drawing; these copies are byte-identical to what it
+serves.
 
 The website keeps byte-identical copies of the icon and the dark-background
 wordmark and derives its favicons, touch icon and 1200 x 630 Open Graph card

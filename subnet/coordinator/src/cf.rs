@@ -82,8 +82,9 @@ const INGEST_BODY_BYTES: usize = webhook::MAX_BODY_BYTES;
 /// `rpc::MAX_RESPONSE_BYTES`) and its holder.
 const RPC_RESULT_BODY_BYTES: usize = rpc::MAX_RESPONSE_BYTES + MAX_OPERATOR_BODY;
 /// `/sign-result`: one signing step's outcome (a reply of at most
-/// `rpc::MAX_LARGE_RESPONSE_BYTES`: the metadata hex, a storage read or a
-/// block) and its claim.
+/// `rpc::MAX_LARGE_RESPONSE_BYTES`: the metadata hex or a storage read; a
+/// block body is reduced to its `rpc::BlockMatch` in the Worker) and its
+/// claim.
 const SIGN_RESULT_BODY_BYTES: usize = rpc::MAX_LARGE_RESPONSE_BYTES + MAX_OPERATOR_BODY;
 /// `/sign-admin`: an operator body carrying at most a target bundle as one
 /// JSON string; escaping its quotes and newlines at most doubles it.
@@ -1077,6 +1078,36 @@ async fn rpc_post_capped(
     cap: usize,
     timeout_ms: u64,
 ) -> std::result::Result<Vec<u8>, RpcError> {
+    let mut response = rpc_send(url, body, timeout_ms).await?;
+    // A declared exact length above the cap is refused before reading; the
+    // reply is read into one admitted block, and a stream past the cap is
+    // refused (`cf_io`).
+    match cf_io::response_bytes(&mut response, cap).await {
+        Ok(body) => Ok(body),
+        Err(cf_io::BodyError::TooLarge) => Err(RpcError::TooLarge),
+        Err(_) => Err(RpcError::Transport),
+    }
+}
+
+/// `chain_getBlock` at `at`, matched against `extrinsic` while its reply
+/// streams in (`rpc::BlockScan`): the body is never held, so a block of any
+/// size the chain allows (an upgrade block carries the runtime code) is
+/// read in one scratch block, and only the match crosses to the journal.
+async fn block_scan(
+    url: &str,
+    at: &BlockRef,
+    extrinsic: &str,
+) -> std::result::Result<rpc::BlockMatch, RpcError> {
+    let mut response = rpc_send(url, rpc::block_request(14, &at.hash), rpc::BLOCK_TIMEOUT_MS).await?;
+    let mut scan = rpc::BlockScan::new(14, at.number, extrinsic);
+    match cf_io::response_scan(&mut response, &mut |part| scan.feed(part)).await {
+        Ok(()) => scan.finish(),
+        Err(_) => Err(RpcError::Transport),
+    }
+}
+
+/// Sends one JSON-RPC POST; a 200 answer's body is left to the caller.
+async fn rpc_send(url: &str, body: String, timeout_ms: u64) -> std::result::Result<Response, RpcError> {
     let headers = Headers::new();
     for (k, v) in rpc::REQUEST_HEADERS {
         headers.set(k, v).map_err(|_| RpcError::Transport)?;
@@ -1098,17 +1129,15 @@ async fn rpc_post_capped(
         .await
         .map_err(|_| RpcError::Transport)?;
     match response.status_code() {
-        200 => {}
-        429 => return Err(RpcError::RateLimited),
-        _ => return Err(RpcError::Transport),
-    }
-    // A declared exact length above the cap is refused before reading; the
-    // reply is read into one admitted block, and a stream past the cap is
-    // refused (`cf_io`).
-    match cf_io::response_bytes(&mut response, cap).await {
-        Ok(body) => Ok(body),
-        Err(cf_io::BodyError::TooLarge) => Err(RpcError::TooLarge),
-        Err(_) => Err(RpcError::Transport),
+        200 => Ok(response),
+        429 => {
+            cf_io::discard(&mut response);
+            Err(RpcError::RateLimited)
+        }
+        _ => {
+            cf_io::discard(&mut response);
+            Err(RpcError::Transport)
+        }
     }
 }
 
@@ -1329,20 +1358,9 @@ async fn execute_sign(env: &Env, d: &Deployment, plan: &SignPlan) -> Option<Sign
         SignPlan::Read { at, keys, .. } => SignOutcome::Read {
             result: read_at(url, at, keys).await,
         },
-        SignPlan::Block { at, .. } => {
-            let result = match rpc_post_capped(
-                url,
-                rpc::block_request(14, &at.hash),
-                LARGE,
-                rpc::CALL_TIMEOUT_MS,
-            )
-            .await
-            {
-                Ok(body) => rpc::parse_block(14, &body, at.number),
-                Err(e) => Err(e),
-            };
-            SignOutcome::Block { result }
-        }
+        SignPlan::Block { at, extrinsic, .. } => SignOutcome::Block {
+            result: block_scan(url, at, extrinsic).await,
+        },
         SignPlan::Submit {
             claim,
             op_id,

@@ -229,8 +229,15 @@ methods, `chain_getFinalizedHead`, `chain_getHeader` and the list form of
 `chain_getBlockHash`, sent as one JSON-RPC call per HTTPS POST with a named
 User-Agent. Each call has an 8 s abort timeout and a 64 KiB response cap. The
 signing journal's calls ([Steps](#steps)) go through the same transport and
-budget; metadata, block bodies and storage reads may be up to 4 MiB, and
-metadata has a 20 s timeout.
+budget; metadata and storage reads may be up to 4 MiB, and metadata has a
+20 s timeout. A block body is never held: the Worker matches the
+`chain_getBlock` reply against the attempt's bytes as it streams
+(`rpc::BlockScan`, one arena page of scratch whatever the reply's size) and
+sends the journal only the extrinsic count and the match's index. The read
+has the metadata call's 20 s timeout and no size cap: a block that enacts a
+runtime upgrade carries the runtime code (testnet 8380857, the 486 -> 488
+upgrade, is a 5,740,192-byte reply), and `System::BlockLength` (5 MiB of
+extrinsics) bounds a block at about twice that in hex.
 
 | Situation | RPC calls |
 | --- | --- |
@@ -728,7 +735,7 @@ backing off is skipped, so it never delays a commit.
 | Signing runtime | `state_getRuntimeVersion` (and its metadata once, if new) | the same block |
 | Submit | `author_submitExtrinsic`, after the mark | |
 | Nonce check, probes | `System.Account` | the confirmed block, then a binary search over retained blocks |
-| Inclusion | `chain_getBlock` | the block where the nonce moved |
+| Inclusion | `chain_getBlock`, matched as it streams | the block where the nonce moved |
 | Events | `System.Events` | that block |
 | Read-back | `TimelockedWeightCommits` for the epoch and the next | the confirmed block |
 | Reveal | the queue, `LastUpdate`, `Weights`, then `System.Events` and `Weights` at the reveal block | confirmed blocks after the predicted reveal block |
@@ -832,7 +839,14 @@ loop:
 - **RPC errors** (transport, timeout, HTTP 429, any other status) end the
   round at once and back the whole signer off in time: 5 s doubling to 120 s,
   or 30 s doubling for 429. Any answered call resets it. Nothing settles on an
-  RPC error.
+  RPC error. A reply larger than its read's cap (`TooLarge`) is the
+  exception: the same pinned read answers the same bytes, so it is recorded
+  against the step's subject as `reply_too_large` with the block backoff
+  below, other subjects keep planning, and it never settles (it is no
+  evidence about the chain, so it never displaces, faults or fails an
+  attempt). Before block bodies were streamed, the 488 upgrade block held
+  the epoch-137 commit and this error, behind the signer-wide backoff, held
+  every commit and row snapshot from epoch 138 on.
 - **Deterministic failures** (a value, event list or metadata that does not
   decode or parse, a block hash the journal does not retain, a parent whose
   runtime is not the one a block names, a re-learn cap) are recorded durably
@@ -850,6 +864,7 @@ loop:
 | an attempt whose consumed nonce's inclusion the endpoint keeps refusing (`state_unavailable`) | dispatch `unverifiable`; the nonce floor advances past its nonce; the operation is `failed` with diagnostic `inclusion_unverifiable:state_unavailable`; the signer stays active |
 | any other attempt (its nonce cannot be read) | `fault:attempt_unverifiable`, since no later nonce can be allocated safely |
 | head runtime, preflight | never: they keep the 60-block backoff, so unparsable metadata is fetched again about every 12 minutes, not every round |
+| any subject failing with `reply_too_large` | never: it keeps the 60-block backoff until a reply fits |
 
 `/status` reports `signing.health` (`ok`, `backing_off`, `failing`,
 `diagnostic`, `paused` or `fault`), the last error, the RPC backoff, each

@@ -57,6 +57,8 @@
 //! | `retention_stalled` | the eval status reports a due cohort whose detailed receipts remain after a further completion, or a predecessor authority not yet finished after one (judged by completions, never a clock): deletion is not keeping up with the N+2 rule (a failing step or unreadable authorization pointer, named by its last error); or (subject `public_receipts`) the publisher's own N+2 reading of the public record disagrees with the coordinator's retirement markers, which alone delete public receipts: a marker whose due point the record reached while the public reading still holds the cohort, or a cohort the public reading found due with no marker after two further completions |
 //! | `ledger_threshold_unset` | the eval status's ledger standing names no alert threshold (the deploy did not pass `SPEND_ALERT_MICROUSD`), so `ledger_threshold` cannot fire |
 //! | `commit_gap` | the coordinator has not committed weights for two or more tempos |
+//! | `commit_stalled` | the coordinator holds an authorization and its signer is active, yet two whole epochs passed without a weight commit: the confirmed epoch is three or more past its last committed epoch (or its authorization's issue epoch, when later). Each epoch's commit window, from the commit offset after its boundary to before the next boundary, lies inside the epoch, so the current epoch never counts |
+//! | `signing_backing_off` | for a whole tempo of observation, the active signer's last error has been newer than its last recorded progress (its newest sign-log row): it keeps failing and backing off (health `backing_off`, or `failing`) without committing, revealing or reading back anything |
 //! | `pointer_stale` | the coordinator's authorization-pointer writer has not confirmed the private pointer (its last pass failed, or its last confirmation is older than two cron periods) for a whole tempo: re-authorizations and revocations are not reaching validators |
 //! | `auto_target_stalled` | the coordinator's automatic target handoff has reported the same failure for a whole tempo (a closed cohort it cannot install and authorize yet, such as a refused bundle, retired or missing receipts, an earlier cohort that never closed, a cohort-number gap, a manifest this build cannot decode, a pass that cannot advance within its deadline, or no main record configured; the cohorts after it wait and none is skipped), or its authorization key's check has failed for a tempo (it holds no cohort until one needs a signature) |
 //! | `row_record_stalled` | for a whole tempo, no signed coordinator row covers the installed authorization (waiting on its first derived row, its issue epoch, or a signing failure: validators keep their installed row and a fresh validator waits), or signing a new row keeps failing while the old one still covers it |
@@ -79,13 +81,15 @@ use serde::{Deserialize, Serialize};
 use serde_json::json;
 
 use crate::config::SinkFormat;
-use crate::status::{CohortView, EvalView, Observed, WorkerView};
+use crate::status::{CohortView, EvalView, Observed, SigningView, WorkerView};
 
 pub use slop_ninja_alerts_wire::{
     AlertState, Condition, Entry, Event, EventKind, acknowledge, attempt, due, event_id,
 };
 
-/// v15: `row_record_stalled`; v14: `operator_clear_needed` for a paused cohort whose fault the
+/// v16: `commit_stalled` and `signing_backing_off` (the coordinator's
+/// signer stalled 14 hours from epoch 137 with health `backing_off`, and
+/// only `commit_gap` told); v15: `row_record_stalled`; v14: `operator_clear_needed` for a paused cohort whose fault the
 /// coordinator says does not clear by itself, and the fault rules' detail
 /// names the fault's cause and any jobs at the receipt bound; the retired
 /// `monthly_cap` fault code is dropped from [`SCORER_BUDGET_FAULTS`]
@@ -112,7 +116,7 @@ pub use slop_ninja_alerts_wire::{
 /// decide, and alerts after its hold, `status_unreachable` and
 /// `status_incomplete`; v3: `config_warning`, and resolutions of attempted
 /// firings).
-pub const RULES_ID: &str = "slop_ninja.publisher.alerts/v15";
+pub const RULES_ID: &str = "slop_ninja.publisher.alerts/v16";
 /// The post schema (each event carries its id and the last-notified time
 /// it is derived from, so the alerts relay sends a retried post once).
 pub const ALERT_SCHEMA: &str = slop_ninja_alerts_wire::POST_SCHEMA;
@@ -173,6 +177,18 @@ pub struct Rules {
     pub watermark_stall_ms: u64,
     /// AR-13: two or more tempos without a commit.
     pub commit_gap_tempos: u64,
+    /// `commit_stalled`: epochs whose commit window closed without a commit
+    /// while the coordinator was authorized and active. An epoch's window
+    /// opens the coordinator's commit offset (`SIGN_COMMIT_OFFSET`) after
+    /// its boundary and closes before the next one (its mortal era and
+    /// boundary guard), so it lies inside the epoch: an epoch is missed once
+    /// the confirmed epoch index is past it, and the current epoch never
+    /// counts. Two missed epochs: the confirmed epoch is three past the
+    /// last committed (or authorized) one.
+    pub commit_stall_epochs: u64,
+    /// `signing_backing_off`: one tempo, the cadence of the signer's own
+    /// progress (each epoch logs a commit, then a reveal).
+    pub signing_stall_ms: u64,
     /// Two cron periods.
     pub unreachable_hold_ms: u64,
     /// One tempo.
@@ -189,6 +205,8 @@ impl Rules {
             fallback_ms: tempo_ms,
             watermark_stall_ms: slop_ninja_alerts_wire::watermark_stall_ms(silence_ms),
             commit_gap_tempos: 2,
+            commit_stall_epochs: 2,
+            signing_stall_ms: tempo_ms,
             unreachable_hold_ms: slop_ninja_alerts_wire::PUBLISHER_UNREACHABLE_HOLD_MS,
             publication_hold_ms: tempo_ms,
             renotify_ms,
@@ -326,6 +344,83 @@ fn worker_conditions(name: &str, w: &WorkerView, r: &Rules, out: &mut Vec<Condit
 }
 
 /// The conditions that hold this run.
+/// The signer's state for an alert detail: its health, backoff and last
+/// error code.
+fn signing_state(s: &SigningView) -> String {
+    format!(
+        "signing health {}, backoff {} s, last error {}",
+        s.health.as_deref().unwrap_or("unknown"),
+        s.backoff_ms.unwrap_or(0) / 1000,
+        s.last_error.as_deref().unwrap_or("none"),
+    )
+}
+
+/// `commit_stalled`: the coordinator holds an authorization and its signer
+/// is active, yet [`Rules::commit_stall_epochs`] whole epochs passed since
+/// its last committed epoch `last` (or, when later or with no commit among
+/// the recent operations, the authorization's issue epoch) without a
+/// commit, at the confirmed epoch `now`. Unlike `commit_gap`, which fires
+/// one missed epoch in and also while unauthorized or paused, this is the
+/// stall of the signer itself (2026-11-05/06: 14 hours from epoch 137).
+fn commit_stalled(s: &SigningView, last: Option<u64>, now: u64, r: &Rules) -> Option<Condition> {
+    if !s.authorization || s.state != "active" {
+        return None;
+    }
+    let base = match (last, s.issued_epoch) {
+        (Some(l), Some(i)) => l.max(i),
+        (l, i) => l.or(i)?,
+    };
+    let missed = now.saturating_sub(base.saturating_add(1));
+    if missed < r.commit_stall_epochs {
+        return None;
+    }
+    let since = match last {
+        Some(l) => format!("last committed epoch {l}"),
+        None => "no commit among recent operations".into(),
+    };
+    Some(cond(
+        "commit_stalled",
+        "coordinator",
+        format!(
+            "authorized and active, but no weight commit for epochs {}..={} ({since}, now {now}); {}",
+            base + 1,
+            now - 1,
+            signing_state(s)
+        ),
+        0,
+    ))
+}
+
+/// `signing_backing_off`: the active signer's last error is newer than its
+/// last recorded progress (its newest sign-log row), so it has been failing
+/// and backing off since then; held for [`Rules::signing_stall_ms`] of
+/// observation. Its health alternates between `backing_off` and `ok`
+/// around each retry, so the error's recency against the log, which only
+/// progress moves, is the condition rather than one health reading. A
+/// signer with no log rows is read by its health alone.
+fn signing_backing_off(s: &SigningView, r: &Rules) -> Option<Condition> {
+    if s.state != "active" {
+        return None;
+    }
+    let failing = match (s.last_error_age_ms, s.last_event_age_ms) {
+        (Some(err), Some(event)) => s.last_error.is_some() && err < event,
+        _ => matches!(s.health.as_deref(), Some("backing_off" | "failing")),
+    };
+    if !failing {
+        return None;
+    }
+    let progress = s.last_event_age_ms.map_or_else(
+        || "no recorded signing progress".into(),
+        |a| format!("no recorded signing progress for {} s", a / 1000),
+    );
+    Some(cond(
+        "signing_backing_off",
+        "coordinator",
+        format!("signer failing and backing off: {progress}; {}", signing_state(s)),
+        r.signing_stall_ms,
+    ))
+}
+
 pub fn evaluate(o: &Observed, p: &PublisherObs, r: &Rules) -> Vec<Condition> {
     let mut out = Vec::new();
     for (name, present) in [
@@ -523,6 +618,9 @@ pub fn evaluate(o: &Observed, p: &PublisherObs, r: &Rules) -> Vec<Condition> {
                 0,
             )),
         }
+        if let Some(c) = commit_stalled(signing, last, now, r) {
+            out.push(c);
+        }
         for op in signing
             .ops
             .iter()
@@ -553,6 +651,14 @@ pub fn evaluate(o: &Observed, p: &PublisherObs, r: &Rules) -> Vec<Condition> {
                 0,
             ));
         }
+    }
+    if let Some(c) = o
+        .coordinator
+        .as_ref()
+        .and_then(|w| w.signing.as_ref())
+        .and_then(|s| signing_backing_off(s, r))
+    {
+        out.push(c);
     }
     if let Some(stall) = o
         .coordinator
@@ -705,6 +811,8 @@ pub const STATUS_RULES: &[&str] = &[
     "retention_stalled",
     "ledger_threshold_unset",
     "commit_gap",
+    "commit_stalled",
+    "signing_backing_off",
     "coordinator_reveal_mismatch",
     "pointer_stale",
     "auto_target_stalled",
@@ -856,12 +964,12 @@ pub fn needs(rule: &str, subject: &str, o: &Observed) -> Vec<Need> {
             Some(("ledger standing", |e| e.ledger_threshold_set.is_some())),
             &mut n,
         ),
-        "commit_gap" | "coordinator_reveal_mismatch" | "inclusion_unknown" => {
+        "commit_gap" | "commit_stalled" | "coordinator_reveal_mismatch" | "inclusion_unknown" => {
             need_worker(o, "coordinator", &[SIGNING], &mut n);
             need_eval(o, Some(("epoch", |e| e.epoch.is_some())), &mut n);
         }
         "pointer_stale" => need_worker(o, "coordinator", &[SIGNING, POINTER], &mut n),
-        "auto_target_stalled" | "row_record_stalled" => {
+        "auto_target_stalled" | "row_record_stalled" | "signing_backing_off" => {
             need_worker(o, "coordinator", &[SIGNING], &mut n)
         }
         "status_incomplete" => match subject {
@@ -1241,6 +1349,135 @@ mod tests {
         let c = at("step_refused", Value::Null, Value::Null, Value::Null);
         assert_eq!(rules_of(&c), vec!["cohort_fault"]);
         assert!(STATUS_RULES.contains(&"operator_clear_needed"));
+    }
+
+    /// The coordinator's status during the 2026-11-05/06 signing stall, on
+    /// the fixture's epochs: authorized (issued at `issued`), active, last
+    /// committed epoch 23_169, health `backing_off` on a reply it cannot
+    /// read, the error `err_age` old and the newest sign-log row
+    /// `event_age` old; `now` the confirmed epoch.
+    fn stalled_signer(
+        now: u64,
+        issued: Option<u64>,
+        state: &str,
+        health: &str,
+        err_age: u64,
+        event_age: u64,
+    ) -> Observed {
+        let mut j = worker_status("primary", false);
+        let s = &mut j["chain_journal"]["signing"];
+        s["state"] = json!(state);
+        if let Some(i) = issued {
+            s["authorization"] = json!({"kind": "launch", "issued_epoch": i,
+                "pointer_current": true, "pointer_confirmed_age_ms": 1000});
+        }
+        s["health"] = json!(health);
+        s["backoff_ms"] = json!(68_671);
+        s["last_error"] = json!("rpc: TooLarge");
+        s["last_error_age_ms"] = json!(err_age);
+        s["log"] = json!([{"age_ms": event_age, "event": "nonce_consumed"},
+                          {"age_ms": event_age + 900, "event": "submitted"}]);
+        let mut o = healthy();
+        o.coordinator = Some(parse_worker(&j));
+        o.eval.as_mut().unwrap().epoch = Some(now);
+        o
+    }
+
+    /// v16: `commit_stalled` fires once two whole epochs passed without a
+    /// commit while authorized and active (the confirmed epoch three past
+    /// the last committed one, or past a later issue epoch); never while
+    /// paused or unauthorized, where `commit_gap` alone still reports one
+    /// missed epoch.
+    #[test]
+    fn an_authorized_coordinator_two_epochs_without_a_commit_is_stalled() {
+        let (r, p) = (rules(), PublisherObs::default());
+        let c = |o: &Observed| -> Vec<(&'static str, String)> {
+            evaluate(o, &p, &r)
+                .into_iter()
+                .filter(|c| c.rule.starts_with("commit_"))
+                .map(|c| (c.rule, c.detail))
+                .collect()
+        };
+        // Progress after the last error: only the commit rules are read.
+        let at = |now, issued, state| stalled_signer(now, issued, state, "ok", 60_000, 1_000);
+        assert!(c(&at(23_170, Some(23_100), "active")).is_empty());
+        assert_eq!(rules_of(&evaluate(&at(23_171, Some(23_100), "active"), &p, &r)), vec!["commit_gap"]);
+        let fired = c(&at(23_172, Some(23_100), "active"));
+        assert_eq!(fired.iter().map(|x| x.0).collect::<Vec<_>>(), vec!["commit_gap", "commit_stalled"]);
+        assert_eq!(
+            fired[1].1,
+            "authorized and active, but no weight commit for epochs 23170..=23171 (last committed epoch 23169, now 23172); signing health ok, backoff 68 s, last error rpc: TooLarge"
+        );
+        for o in [at(23_180, None, "active"), at(23_180, Some(23_100), "paused")] {
+            assert_eq!(c(&o).iter().map(|x| x.0).collect::<Vec<_>>(), vec!["commit_gap"]);
+        }
+        // A later authorization counts from its issue epoch.
+        assert_eq!(c(&at(23_172, Some(23_170), "active")).len(), 1);
+        assert_eq!(c(&at(23_173, Some(23_170), "active"))[1].0, "commit_stalled");
+        // No commit among the recent operations: from the issue epoch.
+        let mut o = at(23_172, Some(23_170), "active");
+        o.coordinator.as_mut().unwrap().signing.as_mut().unwrap().ops.clear();
+        assert_eq!(c(&o).iter().map(|x| x.0).collect::<Vec<_>>(), vec!["commit_gap"]);
+        let mut o = at(23_173, Some(23_170), "active");
+        o.coordinator.as_mut().unwrap().signing.as_mut().unwrap().ops.clear();
+        assert!(c(&o)[1].1.contains("no commit among recent operations"), "{:?}", c(&o));
+        // Decided only with the signing view and the eval epoch.
+        assert!(decided("commit_stalled", "coordinator", &at(23_172, Some(23_100), "active")));
+        let mut o = at(23_172, Some(23_100), "active");
+        o.eval.as_mut().unwrap().epoch = None;
+        assert!(!decided("commit_stalled", "coordinator", &o));
+    }
+
+    /// v16: `signing_backing_off` holds a tempo while the active signer's
+    /// last error is newer than its newest sign-log row, whatever its health
+    /// reads at that moment (it is `ok` between retries); progress after the
+    /// error clears it, and a paused signer raises nothing.
+    #[test]
+    fn a_signer_failing_without_progress_for_a_tempo_is_backing_off() {
+        let (r, p) = (rules(), PublisherObs::default());
+        let c = |o: &Observed| -> Vec<Condition> {
+            evaluate(o, &p, &r)
+                .into_iter()
+                .filter(|c| c.rule == "signing_backing_off")
+                .collect()
+        };
+        for health in ["backing_off", "ok", "failing"] {
+            let got = c(&stalled_signer(23_170, Some(23_100), "active", health, 51_329, 53_651_800));
+            assert_eq!(got.len(), 1, "{health}");
+            assert_eq!(got[0].subject, "coordinator");
+            assert_eq!(got[0].hold_ms, TEMPO);
+            assert_eq!(
+                got[0].detail,
+                format!("signer failing and backing off: no recorded signing progress for 53651 s; signing health {health}, backoff 68 s, last error rpc: TooLarge")
+            );
+        }
+        // Progress after the last error, or a paused signer: nothing.
+        assert!(c(&stalled_signer(23_170, Some(23_100), "active", "ok", 60_000, 1_000)).is_empty());
+        assert!(c(&stalled_signer(23_170, Some(23_100), "paused", "paused", 1_000, 60_000)).is_empty());
+        // Without a sign log, the health alone.
+        let mut o = stalled_signer(23_170, Some(23_100), "active", "backing_off", 1_000, 60_000);
+        o.coordinator.as_mut().unwrap().signing.as_mut().unwrap().last_event_age_ms = None;
+        assert_eq!(c(&o).len(), 1);
+        o.coordinator.as_mut().unwrap().signing.as_mut().unwrap().health = Some("ok".into());
+        assert!(c(&o).is_empty());
+        // The alert fires only after a whole tempo of observation, and an
+        // unknown read in between carries it.
+        let mut st = AlertState::default();
+        let stalled = stalled_signer(23_170, Some(23_100), "active", "ok", 1_000, 60_000);
+        let fired = |st: &mut AlertState, o: &Observed, at: u64| {
+            let conds = conditions(o, &p, &r, st, at);
+            observe(st, &conds, at);
+            due(st, at, r.renotify_ms)
+                .into_iter()
+                .filter(|e| e.rule == "signing_backing_off" && e.state == EventKind::Firing)
+                .count()
+        };
+        assert_eq!(fired(&mut st, &stalled, 0), 0);
+        let mut unread = stalled.clone();
+        unread.coordinator = None;
+        assert_eq!(fired(&mut st, &unread, TEMPO / 2), 0);
+        assert_eq!(fired(&mut st, &stalled, TEMPO - 1), 0);
+        assert_eq!(fired(&mut st, &stalled, TEMPO), 1);
     }
 
     #[test]

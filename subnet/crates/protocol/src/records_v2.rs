@@ -768,6 +768,95 @@ impl PublishedIndex {
             self.fingerprints.entries.iter().copied().chain(canonical),
         )
     }
+
+    /// Checks an index stored after a cohort's closure against `self`, the
+    /// index [`Self::after_closure`] rebuilt from the cohort's at-seal index
+    /// `at_seal` and its closure.
+    ///
+    /// The eval Worker writes the stored index from its global index when the
+    /// closure is written, so it also holds what a probe cut recorded between
+    /// the cohort's seal and its close. A probe cut runs beside open cohorts,
+    /// fingerprints the chain's current references (`R_k` and its
+    /// predecessor) on a new probe version, and that version exceeds every
+    /// version recorded before it (the eval calendar's probe-cut check).
+    /// Such an entry cannot change this cohort's outcome, which uses only the
+    /// probe versions its manifest binds; the next cohort's manifest binds
+    /// the version, and that cohort's at-seal check verifies the entry.
+    ///
+    /// The stored index is admitted when:
+    /// - its contents equal the rebuild's;
+    /// - it holds every rebuilt fingerprint unchanged;
+    /// - each other fingerprint is of a content in `references` that
+    ///   `at_seal` already publishes, on a probe version above every version
+    ///   in `probes` (the manifest's).
+    ///
+    /// Anything else is refused, naming the record that differs.
+    pub fn admits_after_closure(
+        &self,
+        at_seal: &PublishedIndex,
+        references: &ReferenceSet,
+        probes: &[ProbeBinding],
+        stored: &PublishedIndex,
+    ) -> core::result::Result<(), (AfterIndexPart, &'static str)> {
+        use AfterIndexPart::{Contents, Fingerprints};
+        if stored.contents != self.contents {
+            return Err((Contents, "contents after the closure differ from their rebuild"));
+        }
+        if stored.validate().is_err() {
+            return Err((
+                Fingerprints,
+                "fingerprint index after the closure does not validate against its contents",
+            ));
+        }
+        let stored_entries = &stored.fingerprints.entries;
+        let rebuilt = &self.fingerprints.entries;
+        if rebuilt.iter().any(|f| stored_entries.binary_search(f).is_err()) {
+            return Err((
+                Fingerprints,
+                "a rebuilt fingerprint is missing or changed in the index after the closure",
+            ));
+        }
+        let bound = probes.iter().map(|p| p.version).max();
+        for f in stored_entries
+            .iter()
+            .filter(|f| rebuilt.binary_search(f).is_err())
+        {
+            let reference = references.current.content == f.content
+                || references
+                    .predecessor
+                    .as_ref()
+                    .is_some_and(|p| p.content == f.content);
+            if !reference {
+                return Err((
+                    Fingerprints,
+                    "a fingerprint the rebuild lacks is not of one of the cohort's references",
+                ));
+            }
+            if !at_seal.contains(&f.content) {
+                return Err((
+                    Fingerprints,
+                    "a fingerprint the rebuild lacks is of a reference not published at the seal",
+                ));
+            }
+            if bound.is_some_and(|b| f.version <= b) {
+                return Err((
+                    Fingerprints,
+                    "a fingerprint the rebuild lacks is on a probe version the cohort binds or below",
+                ));
+            }
+        }
+        Ok(())
+    }
+}
+
+/// The record of a stored index after a closure that
+/// [`PublishedIndex::admits_after_closure`] refused.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum AfterIndexPart {
+    /// `published-contents-after.bin`.
+    Contents,
+    /// `fingerprint-index-after.bin`.
+    Fingerprints,
 }
 
 canonical_struct! {

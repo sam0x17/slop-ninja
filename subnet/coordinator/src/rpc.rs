@@ -13,6 +13,9 @@ use crate::wire::{FinalizedHeader, Id, MAX_SAFE_INTEGER};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 
+mod block_scan;
+pub use block_scan::{BlockMatch, BlockScan, scan_block};
+
 /// Public OpenTensor testnet endpoint (testnet-only, like the genesis guard).
 pub const DEFAULT_TESTNET_RPC_URL: &str = "https://test.finney.opentensor.ai";
 /// The named User-Agent every RPC call sends. Public endpoints behind
@@ -36,11 +39,21 @@ pub const MAX_RESPONSE_BYTES: usize = 64 * 1024;
 pub const MAX_HASHES_PER_CALL: u64 = 32;
 /// Per-call timeout the Worker applies with an abort signal.
 pub const CALL_TIMEOUT_MS: u64 = 8_000;
-/// Cap for the signing journal's larger replies: V15 metadata (about 0.8 MB
-/// of hex at spec 486), block bodies and event lists.
+/// Cap for the signing journal's larger replies that are held whole: V15
+/// metadata (about 0.8 MB of hex at spec 486, 873,782 reply bytes at 488)
+/// and storage reads such as event lists (about 9 KB at the 488 upgrade
+/// block). Block bodies are not held and have no such cap: they are
+/// streamed through [`BlockScan`].
 pub const MAX_LARGE_RESPONSE_BYTES: usize = 4 * 1024 * 1024;
 /// Timeout for the metadata call, which moves about 0.8 MB.
 pub const METADATA_TIMEOUT_MS: u64 = 20_000;
+/// Timeout for a streamed `chain_getBlock`. A runtime's `System::BlockLength`
+/// bounds a block's extrinsics (5 MiB on subtensor), so a reply is at most
+/// about twice that in hex plus its envelope; the largest measured, the
+/// 486 -> 488 upgrade block 8380857 (5,740,192 bytes), took 1.15 s from
+/// build-host. The metadata call's timeout leaves room for the protocol's
+/// largest block at well under that rate.
+pub const BLOCK_TIMEOUT_MS: u64 = METADATA_TIMEOUT_MS;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -116,10 +129,11 @@ fn hash(value: &Value) -> Result<Id, RpcError> {
 
 /// `0x`-prefixed hexadecimal block number as Substrate encodes it.
 fn hex_number(value: &Value) -> Result<u64, RpcError> {
-    let raw = value
-        .as_str()
-        .and_then(|s| s.strip_prefix("0x"))
-        .ok_or(RpcError::Malformed)?;
+    hex_number_str(value.as_str().ok_or(RpcError::Malformed)?)
+}
+
+fn hex_number_str(s: &str) -> Result<u64, RpcError> {
+    let raw = s.strip_prefix("0x").ok_or(RpcError::Malformed)?;
     if raw.is_empty() || raw.len() > 16 || !raw.bytes().all(|b| b.is_ascii_hexdigit()) {
         return Err(RpcError::Malformed);
     }
@@ -256,29 +270,9 @@ pub fn parse_query_storage(
     Ok(out)
 }
 
-/// `chain_getBlock` at `at`.
+/// `chain_getBlock` at `at`; its reply is read through [`BlockScan`].
 pub fn block_request(id: u64, at: &Id) -> String {
     request(id, "chain_getBlock", json!([at.to_hex()]))
-}
-
-/// The block's extrinsics; its header number must be the expected one.
-pub fn parse_block(id: u64, body: &[u8], number: u64) -> Result<Vec<String>, RpcError> {
-    let v = result_capped(id, body, MAX_LARGE_RESPONSE_BYTES)?;
-    if v.is_null() {
-        return Err(RpcError::NotServed);
-    }
-    let block = v.get("block").ok_or(RpcError::Malformed)?;
-    let header = block.get("header").ok_or(RpcError::Malformed)?;
-    if hex_number(header.get("number").ok_or(RpcError::Malformed)?)? != number {
-        return Err(RpcError::Inconsistent);
-    }
-    block
-        .get("extrinsics")
-        .and_then(Value::as_array)
-        .ok_or(RpcError::Malformed)?
-        .iter()
-        .map(hex_string)
-        .collect()
 }
 
 /// `author_submitExtrinsic`: the only chain write.
@@ -393,7 +387,7 @@ mod tests {
         // back `null`, a retryable answer, not a malformed one.
         let null = |id: u64| format!(r#"{{"jsonrpc":"2.0","result":null,"id":{id}}}"#);
         assert_eq!(parse_header(2, null(2).as_bytes(), id(0xab)), Err(RpcError::NotServed));
-        assert_eq!(parse_block(4, null(4).as_bytes(), 10), Err(RpcError::NotServed));
+        assert_eq!(scan_block(4, null(4).as_bytes(), 10, "0x0400"), Err(RpcError::NotServed));
         // A list stops at the first height not served yet (`journal::apply_hashes`).
         let list = format!(r#"{{"jsonrpc":"2.0","result":["{}",null,null],"id":3}}"#, id(0x11).to_hex());
         assert_eq!(parse_block_hashes(3, list.as_bytes(), 3).unwrap(), vec![Some(id(0x11)), None, None]);
@@ -467,10 +461,11 @@ mod tests {
         );
         let block = br#"{"jsonrpc":"2.0","result":{"block":{"header":{"number":"0x10"},"extrinsics":["0x0400","0xABCD"]},"justifications":null},"id":4}"#;
         assert_eq!(
-            parse_block(4, block, 16).unwrap(),
-            vec!["0x0400".to_owned(), "0xabcd".to_owned()]
+            scan_block(4, block, 16, "0xabcd").unwrap(),
+            BlockMatch { count: 2, index: Some(1) }
         );
-        assert_eq!(parse_block(4, block, 17), Err(RpcError::Inconsistent));
+        assert_eq!(scan_block(4, block, 16, "0xab").unwrap(), BlockMatch { count: 2, index: None });
+        assert_eq!(scan_block(4, block, 17, "0xabcd"), Err(RpcError::Inconsistent));
     }
 
     #[test]

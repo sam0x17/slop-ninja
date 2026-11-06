@@ -376,7 +376,8 @@ outcome recomputation, which the test's 2 MiB allowance inside
 
 ## Alerts
 
-The rule set is `slop_ninja.publisher.alerts/v15` (v15 adds
+The rule set is `slop_ninja.publisher.alerts/v16` (v16 adds
+`commit_stalled` and `signing_backing_off`; v15 adds
 `row_record_stalled`; v14 adds `operator_clear_needed`, names a fault's
 cause and any jobs at the receipt bound in the fault rules' detail, and
 drops the retired `monthly_cap` code from the scorer and budget faults; v12
@@ -439,7 +440,26 @@ The table is in `alerts.rs`:
   read the authorization pointer). This build publishes no detailed
   receipt, so it makes no such reading: every finished run reports none,
   which resolves an alert a v13 build raised;
-- two tempos without a coordinator commit;
+- two tempos without a coordinator commit (`commit_gap`: the confirmed
+  epoch two past the last committed one, so one missed epoch, whether or
+  not the coordinator is authorized or paused);
+- (v16) a stalled signer while the coordinator is authorized and active
+  (`commit_stalled`): two whole epochs without a weight commit, judged on
+  epoch boundaries. An epoch's commit window opens the commit offset
+  (`SIGN_COMMIT_OFFSET`) after its boundary and closes before the next
+  boundary, so the current epoch never counts and two missed epochs means
+  the confirmed epoch is three past the last committed one (or past the
+  authorization's issue epoch, when that is later). The detail carries the
+  signer's health, backoff and last error code;
+- (v16) a signer that keeps failing without progress for a tempo
+  (`signing_backing_off`): `signing.last_error_age_ms` younger than the
+  newest `signing.log` row's age, held for a whole tempo of observation.
+  Health reads `ok` between retries (`backing_off` lasts only while the
+  backoff is running), so the error's recency against the log, which only
+  progress moves, is what the rule reads. A commit-to-reveal gap is under a
+  tempo, so one transient error does not fire it. On 2026-11-05/06 the
+  signer retried an unreadable inclusion block for 14 hours from epoch 137
+  with health `backing_off`; only `commit_gap` fired;
 - the coordinator's authorization-pointer writer not confirming the private
   pointer for a tempo (`pointer_stale`: `signing.authorization` reports the
   last pass failed, `pointer_error`, or a last confirmation older than two

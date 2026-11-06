@@ -75,6 +75,22 @@ pub struct SigningView {
     /// authorization yet, or a signing failure; `None` while the record is
     /// current, or from a coordinator built before it.
     pub row_record: Option<RowRecordStall>,
+    /// The installed authorization's issue epoch
+    /// (`signing.authorization.issued_epoch`).
+    pub issued_epoch: Option<u64>,
+    /// `signing.health`: `ok`, `backing_off`, `failing`, `diagnostic`,
+    /// `paused` or `fault`.
+    pub health: Option<String>,
+    /// The signer-wide backoff still to wait (`signing.backoff_ms`).
+    pub backoff_ms: Option<u64>,
+    /// The signer's last error code and its age (`signing.last_error`,
+    /// `signing.last_error_age_ms`).
+    pub last_error: Option<String>,
+    pub last_error_age_ms: Option<u64>,
+    /// Age of the newest row of the sign log (`signing.log[].age_ms`): the
+    /// signer's last recorded progress. `None` when the log is empty or
+    /// absent.
+    pub last_event_age_ms: Option<u64>,
 }
 
 /// Why no signed coordinator row covers the installed authorization, as
@@ -477,6 +493,17 @@ struct SigningJson {
     authorization: Option<AuthorizationJson>,
     auto_target: Option<AutoTargetJson>,
     row_record: Option<RowRecordJson>,
+    health: Option<String>,
+    backoff_ms: Option<u64>,
+    last_error: Option<String>,
+    last_error_age_ms: Option<u64>,
+    log: Vec<SignLogJson>,
+}
+
+#[derive(Deserialize, Default)]
+#[serde(default)]
+struct SignLogJson {
+    age_ms: Option<u64>,
 }
 
 #[derive(Deserialize, Default)]
@@ -501,6 +528,7 @@ struct AutoTargetJson {
 #[derive(Deserialize, Default)]
 #[serde(default)]
 struct AuthorizationJson {
+    issued_epoch: Option<u64>,
     pointer_current: Option<bool>,
     pointer_confirmed_age_ms: Option<u64>,
     pointer_error: Option<String>,
@@ -879,6 +907,12 @@ fn worker_view(j: ServiceJson) -> WorkerView {
             Some(SigningView {
                 auto_target_error,
                 row_record,
+                issued_epoch: s.authorization.as_ref().and_then(|a| a.issued_epoch),
+                health: s.health,
+                backoff_ms: s.backoff_ms,
+                last_error: s.last_error,
+                last_error_age_ms: s.last_error_age_ms,
+                last_event_age_ms: s.log.iter().filter_map(|l| l.age_ms).min(),
                 authorization: s.authorization.is_some(),
                 pointer: s.authorization.and_then(|a| {
                     Some(PointerView {

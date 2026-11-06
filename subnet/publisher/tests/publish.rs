@@ -656,6 +656,46 @@ fn a_record_of_another_kind_is_outside_the_record() {
     assert!(!memo.outside_record.contains_key(&b.label));
 }
 
+/// A cohort of the older format that an earlier build (one that decoded it)
+/// refused keeps that build's public `refused` entry: this build places it
+/// outside the record without an alert and cannot reconsider it, so the
+/// entry still explains the gap in the record (testnet cohort 19 across the
+/// reward-v2 cutover). Without such an entry it is outside as before.
+#[test]
+fn an_earlier_builds_refusal_of_an_older_format_cohort_stays_explained() {
+    let b = build(0);
+    let x = buckets(&b);
+    let d = format!("cohorts/{}", b.label);
+    let package = x.receipts.bytes(&format!("{d}/package.signed")).unwrap();
+    x.receipts.insert(&format!("{d}/manifest.signed"), package);
+    let earlier = slop_ninja_publisher::index::RefusedCohort {
+        label: b.label.clone(),
+        cohort: Some(b.c.manifest.cohort),
+        opened_epoch: Some(b.c.manifest.opened_epoch),
+        starts_record: false,
+        reason: "fingerprint-index-after.bin: does not verify".into(),
+        build: "an-earlier-build".into(),
+    };
+    let mut idx: slop_ninja_publisher::index::CohortIndex = public_json(&x, layout::COHORT_INDEX);
+    idx.refused.push(earlier.clone());
+    x.public
+        .insert(layout::COHORT_INDEX, serde_json::to_vec(&idx).unwrap());
+    let mut memo = Memo::default();
+    for _ in 0..2 {
+        let (report, idx) = run(&config(Some(0), false), &x, &mut memo);
+        assert!(report.refused.is_empty() && report.published.is_empty(), "{report:?}");
+        assert_eq!(report.outside, 1);
+        assert_eq!(idx.unwrap().refused, vec![earlier.clone()]);
+        let public: slop_ninja_publisher::index::CohortIndex =
+            public_json(&x, layout::COHORT_INDEX);
+        assert_eq!(public.refused, vec![earlier.clone()]);
+    }
+    assert_eq!(
+        memo.outside_record[&b.label].reason,
+        "not a reward-v2 cohort manifest"
+    );
+}
+
 /// A manifest signed for another chain or subnet is outside the record.
 #[test]
 fn a_manifest_for_another_chain_is_outside_the_record() {

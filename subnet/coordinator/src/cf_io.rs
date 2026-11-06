@@ -353,6 +353,85 @@ pub async fn response_bytes(resp: &mut Response, bound: usize) -> Result<Vec<u8>
     }
 }
 
+/// A response body streamed into `sink` without being held: each JS chunk is
+/// copied into one fixed scratch block (an arena page's block, admitted once
+/// when the first bytes arrive) a window at a time, and `sink` sees every
+/// window in order. Memory is that block whatever the body's size, so no
+/// length bound applies; the call's own `AbortSignal` bounds it in time.
+/// `sink` answering `false` stops the read (the stream is cancelled) and the
+/// call answers `Ok`: the sink holds its own verdict. A stream that ends
+/// short of an exact declared length is `Transport`, never a whole body.
+pub async fn response_scan(resp: &mut Response, sink: &mut dyn FnMut(&[u8]) -> bool) -> Result<(), BodyError> {
+    let len = declared(resp.headers().get("content-length").ok().flatten());
+    let enc = encoded(resp.headers().get("content-encoding").ok().flatten());
+    let exact = match Length::of(len, enc) {
+        Length::Exact(d) => Some(d),
+        Length::Unknown => None,
+    };
+    let stream = match resp.body() {
+        worker::ResponseBody::Empty => return if exact.unwrap_or(0) == 0 { Ok(()) } else { Err(BodyError::Transport) },
+        worker::ResponseBody::Body(b) => {
+            // Already in memory: no copy.
+            sink(b);
+            return Ok(());
+        }
+        worker::ResponseBody::Stream(s) => JsValue::from(s.clone()),
+    };
+    let reader = call0(&stream, "getReader")?;
+    let refuse = |e: BodyError| {
+        let _ = call0(&reader, "cancel");
+        e
+    };
+    let window = slop_ninja_arena::PAGE.saturating_sub(slop_ninja_arena::BLOCK_OVERHEAD).max(1);
+    let mut scratch: Vec<u8> = Vec::new();
+    let mut total: usize = 0;
+    loop {
+        let promise: js_sys::Promise = call0(&reader, "read")?.dyn_into().map_err(|_| BodyError::Transport)?;
+        let step = match settle(promise, None).await {
+            Settled::Value(v) => v,
+            Settled::Error(_) => return Err(BodyError::Transport),
+            Settled::Timeout => return Err(refuse(BodyError::Timeout)),
+        };
+        if Reflect::get(&step, &JsValue::from_str("done")).ok().and_then(|d| d.as_bool()).unwrap_or(true) {
+            break;
+        }
+        let chunk: Uint8Array = Reflect::get(&step, &JsValue::from_str("value"))
+            .ok()
+            .and_then(|v| v.dyn_into().ok())
+            .ok_or(BodyError::Transport)
+            .map_err(refuse)?;
+        let n = chunk.length() as usize;
+        total = total.checked_add(n).ok_or(BodyError::Transport).map_err(refuse)?;
+        if exact.is_some_and(|d| total > d) {
+            return Err(refuse(BodyError::Transport));
+        }
+        if n > 0 && scratch.capacity() == 0 {
+            admit(window).map_err(refuse)?;
+            scratch
+                .try_reserve_exact(window)
+                .map_err(|_| refuse(BodyError::Refused(slop_ninja_arena::RefusalKind::Retry)))?;
+            scratch.resize(window, 0);
+        }
+        let mut from = 0;
+        while from < n {
+            let to = n.min(from.saturating_add(window));
+            let Some(dst) = scratch.get_mut(..to - from) else {
+                return Err(refuse(BodyError::Transport));
+            };
+            chunk.subarray(from as u32, to as u32).copy_to(dst);
+            if !sink(dst) {
+                let _ = call0(&reader, "cancel");
+                return Ok(());
+            }
+            from = to;
+        }
+    }
+    if exact.is_some_and(|d| total != d) {
+        return Err(BodyError::Transport);
+    }
+    Ok(())
+}
+
 /// A Durable Object's JSON reply of at most `bound` bytes (its reply type's
 /// bound), read like any response body; the call's own `AbortSignal` bounds
 /// the read in time.

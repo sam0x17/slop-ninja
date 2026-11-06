@@ -2373,6 +2373,121 @@ fn published_index_grows_by_closed_cohorts() -> Result<()> {
     Ok(())
 }
 
+/// 2026-11-05, testnet cohort 19: a probe cut between a cohort's seal and its
+/// close fingerprinted the current reference on a new probe version, so the
+/// eval Worker's index after the closure (its global index) held one entry
+/// more than the rebuild from the cohort's own at-seal index and closure.
+/// That entry is admitted; any other difference is refused, naming the
+/// record that differs.
+#[test]
+fn an_index_after_the_closure_admits_only_a_probe_cut_of_the_references() -> Result<()> {
+    let c = computed()?;
+    let at_seal = &c.index;
+    let rebuilt = at_seal.after_closure(&c.package, fx::closure_fingerprints(&c))?;
+    let refs = &c.manifest.references;
+    let probes = &c.manifest.probes;
+    let bound = probes.iter().map(|p| p.version).max().unwrap();
+    let current = refs.current.content;
+    assert!(at_seal.contains(&current));
+    let with = |extra: Vec<Fingerprint>| -> Result<PublishedIndex> {
+        PublishedIndex::new(
+            rebuilt.contents.contents.iter().copied(),
+            rebuilt.fingerprints.entries.iter().copied().chain(extra),
+        )
+    };
+    let fp = |content: Digest, version: u32, tag: u8| Fingerprint {
+        content,
+        version,
+        fingerprint: Digest([tag; 32]),
+    };
+    // The rebuild itself, and the rebuild plus the cut's reference entries
+    // (the predecessor's too, when the cohort names one), on one or two
+    // later versions.
+    rebuilt
+        .admits_after_closure(at_seal, refs, probes, &rebuilt)
+        .unwrap();
+    let mut cut = vec![fp(current, bound + 1, 0x91)];
+    if let Some(p) = &refs.predecessor {
+        cut.push(fp(p.content, bound + 1, 0x92));
+    }
+    cut.push(fp(current, bound + 7, 0x93));
+    let stored = with(cut)?;
+    assert!(stored != rebuilt);
+    rebuilt
+        .admits_after_closure(at_seal, refs, probes, &stored)
+        .unwrap();
+    let refused = |stored: &PublishedIndex| {
+        rebuilt
+            .admits_after_closure(at_seal, refs, probes, stored)
+            .unwrap_err()
+    };
+    // An extra fingerprint of a published content that is not a reference.
+    let other = c
+        .package
+        .entrants
+        .iter()
+        .map(|e| e.content)
+        .find(|d| *d != current && refs.predecessor.as_ref().is_none_or(|p| p.content != *d))
+        .unwrap();
+    assert_eq!(
+        refused(&with(vec![fp(other, bound + 1, 0x94)])?).0,
+        AfterIndexPart::Fingerprints
+    );
+    // A reference fingerprint on a version below the cohort's newest bound
+    // one (the rebuild already holds the reference on each bound version:
+    // another there is a duplicate, refused as a changed entry below).
+    assert!(at_seal.fingerprinted(&current, bound));
+    assert!(with(vec![fp(current, bound, 0x95)]).is_err());
+    assert_eq!(
+        refused(&with(vec![fp(current, bound - 1, 0x96)])?).1,
+        "a fingerprint the rebuild lacks is on a probe version the cohort binds or below"
+    );
+    // A rebuilt fingerprint changed, or missing.
+    let mut changed = rebuilt.clone();
+    changed.fingerprints.entries[0].fingerprint = Digest([0x97; 32]);
+    changed.fingerprints.entries.sort_unstable();
+    assert_eq!(
+        refused(&changed).1,
+        "a rebuilt fingerprint is missing or changed in the index after the closure"
+    );
+    let mut missing = rebuilt.clone();
+    missing.fingerprints.entries.pop();
+    assert_eq!(refused(&missing).0, AfterIndexPart::Fingerprints);
+    // A reference the cohort names that was not published at its seal (an
+    // entrant's content only the closure publishes).
+    let new = c
+        .package
+        .entrants
+        .iter()
+        .map(|e| e.content)
+        .find(|d| !at_seal.contains(d))
+        .unwrap();
+    let mut late_refs = *refs;
+    late_refs.current.content = new;
+    assert_eq!(
+        rebuilt
+            .admits_after_closure(at_seal, &late_refs, probes, &with(vec![fp(new, bound + 1, 0x98)])?)
+            .unwrap_err()
+            .1,
+        "a fingerprint the rebuild lacks is of a reference not published at the seal"
+    );
+    // Contents that differ, even by a reference already published.
+    let mut fewer = stored.clone();
+    fewer.contents.contents.retain(|d| *d != other);
+    fewer.fingerprints.entries.retain(|f| f.content != other);
+    assert_eq!(refused(&fewer).0, AfterIndexPart::Contents);
+    let more = PublishedIndex::new(
+        rebuilt.contents.contents.iter().copied().chain([Digest([0x99; 32])]),
+        rebuilt.fingerprints.entries.iter().copied(),
+    )?;
+    assert_eq!(refused(&more).0, AfterIndexPart::Contents);
+    // A stored index whose fingerprints name an unpublished content.
+    let mut dangling = rebuilt.clone();
+    dangling.fingerprints.entries.push(fp(Digest([0xff; 32]), bound + 1, 0x9a));
+    assert_eq!(refused(&dangling).0, AfterIndexPart::Fingerprints);
+    Ok(())
+}
+
 #[test]
 fn a_repackaged_predecessor_above_the_margin_earns_nothing() -> Result<()> {
     // R_k-1 outscores R_k by more than the promotion margin on this batch, so

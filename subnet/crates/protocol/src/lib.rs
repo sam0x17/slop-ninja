@@ -70,7 +70,7 @@ pub use records::{
     WeightRow, admission_commitment, result_commitment,
 };
 pub use records_v2::{
-    BAND_SIGMAS, BatchDesign, CalculationTargetV2, CanaryAudit, CanaryClearance, ClusterCredit,
+    AfterIndexPart, BAND_SIGMAS, BatchDesign, CalculationTargetV2, CanaryAudit, CanaryClearance, ClusterCredit,
     CohortManifestV2, CohortSchedule, Component, ComponentRole, CutoffMode, DECAY_BPS,
     DistanceMonitor, EntrantFingerprint, EntrantScore, FALLBACK_BPS, Fingerprint, FingerprintIndex,
     Gate, GateFailure, HUMAN_FPR_LOOSE_REASON, IMPROVEMENT_DIVISOR, InferenceContent,

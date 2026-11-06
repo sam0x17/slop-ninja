@@ -24,7 +24,10 @@
 //! the published index to the manifest's binding; the outcome is recomputed
 //! (`check_outcome`), the closure is checked against the manifest's frozen
 //! minimums, and the index after the closure is rebuilt from the closure's
-//! fingerprints. With a snapshot, the canonical row is derived; `--snapshot-at`
+//! fingerprints and the stored one checked against the rebuild
+//! (`PublishedIndex::admits_after_closure`: equal, except for fingerprints a
+//! probe cut between the seal and the close recorded for the manifest's
+//! references on newer probe versions). With a snapshot, the canonical row is derived; `--snapshot-at`
 //! binds it to a finalized block and hash (block 0 and a zero hash otherwise),
 //! so a row a validator or the coordinator derived at that block is
 //! reproduced digest for digest. With an
@@ -292,12 +295,19 @@ fn cohort(a: &Args, keys: &TrustedKeys, root: &[u8; 32]) {
             contents: PublishedContents::from_bytes(&read(&dir, "published-contents-after.bin")).unwrap_or_else(|e| fail(e)),
             fingerprints: FingerprintIndex::from_bytes(&read(&dir, "fingerprint-index-after.bin")).unwrap_or_else(|e| fail(e)),
         };
-        if rebuilt != after {
-            fail("the published index after the closure differs from its rebuild");
+        if let Err((part, why)) =
+            rebuilt.admits_after_closure(&at_seal, &manifest.references, &manifest.probes, &after)
+        {
+            let rel = match part {
+                slop_ninja_protocol::AfterIndexPart::Contents => "published-contents-after.bin",
+                slop_ninja_protocol::AfterIndexPart::Fingerprints => "fingerprint-index-after.bin",
+            };
+            fail(format!("{rel}: {why}"));
         }
         closure_report = json!({"admission_closed_epoch": c.admission_closed_epoch, "published_epoch": c.published_epoch,
             "closed_epoch": c.closed_epoch, "target": c.target.map(|d| d.to_string()),
             "index_after": {"contents": after.contents.contents.len(), "fingerprints": after.fingerprints.entries.len(),
+                "fingerprints_beyond_rebuild": after.fingerprints.entries.len() - rebuilt.fingerprints.entries.len(),
                 "binding": format!("{:?}", after.binding().ok())}});
     }
     let mut report = json!({

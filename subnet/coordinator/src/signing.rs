@@ -407,11 +407,18 @@ pub enum SignPlan {
         read: ReadPurpose,
         keys: Vec<String>,
     },
+    /// `chain_getBlock` at `at`, matched in the Worker against `extrinsic`
+    /// (the attempt's bytes) as it streams (`rpc::BlockScan`); only the
+    /// match comes back, so a block of any size is readable.
     Block {
         claim: ClaimToken,
         at: BlockRef,
         op_id: String,
         attempt: u32,
+        /// The attempt's extrinsic hex. Absent from a plan an earlier build
+        /// stored; such a plan's outcome is refused (`apply_block`).
+        #[serde(default)]
+        extrinsic: String,
     },
     /// Mark first (`/sign-mark`), then `author_submitExtrinsic` exactly once.
     Submit {
@@ -461,9 +468,9 @@ pub enum SignOutcome {
     Read {
         result: Result<Vec<(String, Option<String>)>, RpcError>,
     },
-    /// The block's extrinsics, hex.
+    /// How many extrinsics the block holds, and the index of the plan's.
     Block {
-        result: Result<Vec<String>, RpcError>,
+        result: Result<crate::rpc::BlockMatch, RpcError>,
     },
     Submit {
         result: SubmitOutcome,
@@ -747,7 +754,9 @@ fn log(
 // after `DIAG_CAP` failures settles into a durable diagnostic or fault. A
 // blocked subject never blocks another one: diagnostics cannot starve new
 // commits, and a decode failure never rolls the journal back into a retry
-// loop.
+// loop. A reply too large for its read ([`REPLY_TOO_LARGE`]) is a property
+// of that pinned read, not of the endpoint's health: it counts against the
+// step's subject like a deterministic failure, but never settles.
 
 /// Deterministic failures after which a subject settles.
 pub const DIAG_CAP: u64 = 5;
@@ -756,6 +765,17 @@ const MAX_BACKOFF_BLOCKS: u64 = 60;
 /// The code of a historical read of the live attempt answered with a
 /// JSON-RPC error (`on_result_within`).
 pub const STATE_UNAVAILABLE: &str = "state_unavailable";
+/// The code of a step whose reply exceeded its read's bound
+/// (`RpcError::TooLarge`). The same pinned read answers the same bytes, so
+/// a signer-wide time backoff would retry it forever and hold every other
+/// subject (it held the row snapshot and every commit after epoch 137 on
+/// testnet, 2026-11-05/06, when the 488 upgrade block was read whole). It is
+/// recorded against the step's subject instead, backs that subject off by
+/// blocks and never settles: an oversized answer is no evidence about the
+/// chain, so it never becomes a verdict (an attempt is never `displaced`,
+/// `unverifiable` or faulted by it), and a build that can read it carries
+/// on from the same state.
+pub const REPLY_TOO_LARGE: &str = "reply_too_large";
 /// Failures after which a [`STATE_UNAVAILABLE`] subject settles: the first
 /// count whose backoffs before it span [`MAX_BACKOFF_BLOCKS`] confirmed
 /// blocks (never fewer than [`DIAG_CAP`]). An endpoint that answers errors
@@ -897,7 +917,7 @@ fn record_failure(
         Some(&format!("{} {code} #{failures}", short_subject(subject))),
     )?;
     let cap = if code == STATE_UNAVAILABLE { UNAVAILABLE_SETTLE_FAILURES } else { DIAG_CAP };
-    if failures >= cap {
+    if failures >= cap && code != REPLY_TOO_LARGE {
         settle(sql, subject, code, now_ms)?;
     }
     Ok(())
@@ -1994,13 +2014,15 @@ pub const DRILL_STALL_SLEEP_MS: u64 = 15_000;
 /// The worst-case wall time of running `plan` and reporting its outcome,
 /// with `journal_call_ms` for each journal call (the allowance the Worker's
 /// platform timeout enforces): the step's RPC call at its own timeout (the
-/// metadata fetch's, else one call's), a submission's mark before it (and,
-/// for the stale-holder drill, the stall), and the result report. The
+/// metadata fetch's or the streamed block read's, else one call's), a
+/// submission's mark before it (and, for the stale-holder drill, the
+/// stall), and the result report. The
 /// Worker runs a step only when it fits its budget, and the journal plans
 /// only a step that fits the budget it is given ([`plan_within`]).
 pub fn step_worst_ms(plan: &SignPlan, journal_call_ms: u64) -> u64 {
     let call = match plan {
         SignPlan::Metadata { .. } => crate::rpc::METADATA_TIMEOUT_MS,
+        SignPlan::Block { .. } => crate::rpc::BLOCK_TIMEOUT_MS,
         SignPlan::Submit { drill, .. } => {
             let stall = if drill.as_deref() == Some("stall_before_mark") {
                 journal_call_ms.saturating_add(DRILL_STALL_SLEEP_MS)
@@ -2569,6 +2591,7 @@ fn attempt_step(
                     at: retained(sql, next)?,
                     op_id: a.op_id,
                     attempt: a.attempt,
+                    extrinsic: a.extrinsic_hex,
                 }));
             }
             if let (Some(lo), Some(hi)) = (a.search_lo, a.search_hi) {
@@ -2578,6 +2601,7 @@ fn attempt_step(
                         at: retained(sql, hi)?,
                         op_id: a.op_id,
                         attempt: a.attempt,
+                        extrinsic: a.extrinsic_hex,
                     }));
                 }
                 let mid = lo + (hi - lo) / 2;
@@ -2952,11 +2976,22 @@ pub fn on_result_within(
             SignPlan::Block { .. }
                 | SignPlan::Read { read: ReadPurpose::NonceProbe { .. } | ReadPurpose::Events { .. }, .. }
         );
+    // A reply too large for its read: the same pinned read will answer the
+    // same bytes, so it counts against its subject ([`REPLY_TOO_LARGE`]),
+    // never as a signer-wide backoff that would hold every other subject.
+    let too_large = rpc_error == Some(RpcError::TooLarge) && subject.is_some();
     let chained = if historical {
         attempt_state_unavailable(sql, &pending, now_ms)?;
         let at = confirmed.map_or(0, |c| c.number);
         if let Some(subject) = &subject {
             record_failure(sql, subject, STATE_UNAVAILABLE, at, now_ms)?;
+        }
+        None
+    } else if too_large {
+        journal::bump(sql, "sign_replies_too_large")?;
+        let at = confirmed.map_or(0, |c| c.number);
+        if let Some(subject) = &subject {
+            record_failure(sql, subject, REPLY_TOO_LARGE, at, now_ms)?;
         }
         None
     } else {
@@ -3258,12 +3293,13 @@ fn apply(
                 at,
                 op_id,
                 attempt: n,
+                extrinsic,
                 ..
             },
             SignOutcome::Block { result },
         ) => match result {
             Err(e) => Ok(rpc_failed(sql, *e, now_ms).map(|_| None)?),
-            Ok(extrinsics) => apply_block(sql, *at, op_id, *n, extrinsics, now_ms).map(|_| None),
+            Ok(m) => apply_block(sql, *at, op_id, *n, extrinsic, *m, now_ms).map(|_| None),
         },
         (
             SignPlan::Submit {
@@ -4135,20 +4171,31 @@ fn apply_submit(
     Ok(())
 }
 
+/// A block body's answer for attempt `n` of `op_id`. The Worker matched the
+/// body against the plan's `target` (`rpc::BlockScan`); a target that is not
+/// this attempt's bytes (a plan stored by an earlier build carries none)
+/// answers nothing about them, so it is a deterministic failure of the
+/// attempt and the next round asks again. Only a complete body without the
+/// bytes is "not here".
 fn apply_block(
     sql: &impl Sql,
     at_block: BlockRef,
     op_id: &str,
     n: u32,
-    extrinsics: &[String],
+    target: &str,
+    m: crate::rpc::BlockMatch,
     now_ms: u64,
 ) -> Result<(), SignError> {
     let Some(a) = attempt(sql, op_id, n)? else {
         return Ok(());
     };
-    let index = extrinsics
-        .iter()
-        .position(|x| x.eq_ignore_ascii_case(&a.extrinsic_hex));
+    if target.is_empty() || !target.eq_ignore_ascii_case(&a.extrinsic_hex) {
+        return Err(SignError::Chain(ChainError::new("block_target_mismatch", "")));
+    }
+    if m.index.is_some_and(|i| i >= m.count) {
+        return Err(SignError::Chain(ChainError::new("block_match_malformed", "")));
+    }
+    let index = m.index;
     match index {
         Some(i) => {
             set_attempt(

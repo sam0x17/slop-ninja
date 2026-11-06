@@ -153,6 +153,16 @@ fn bundle_json() -> String {
 
 // ------------------------------------------------------------- fake chain
 
+/// A `chain_getBlock` reply to request 14 as the node sends it: `extrinsics`
+/// before `header`.
+fn block_reply(n: u64, body: &[String]) -> Vec<u8> {
+    let list = body.iter().map(|x| format!("\"{x}\"")).collect::<Vec<_>>().join(",");
+    format!(
+        r#"{{"jsonrpc":"2.0","result":{{"block":{{"extrinsics":[{list}],"header":{{"digest":{{"logs":["0x08"]}},"number":"0x{n:x}"}}}},"justifications":null}},"id":14}}"#
+    )
+    .into_bytes()
+}
+
 #[derive(Clone)]
 struct Entry {
     who: [u8; 32],
@@ -186,6 +196,9 @@ struct Fake {
     cr_enabled: bool,
     /// A foreign extrinsic consumes the nonce at the next block.
     foreign_next: bool,
+    /// Extrinsics (hex) the next block holds before the pooled ones, such as
+    /// an upgrade block's runtime code.
+    filler_next: Vec<String>,
     /// Blocks after the first reveal block before the drand pulse arrives.
     reveal_delay: u64,
     /// The pallet drops the commit without revealing it.
@@ -294,6 +307,7 @@ impl Fake {
             reveals: vec![],
             cr_enabled: true,
             foreign_next: false,
+            filler_next: vec![],
             reveal_delay: 0,
             reveal_drop: false,
             reveal_first: BTreeMap::new(),
@@ -368,6 +382,7 @@ impl Fake {
             self.nonce += 1;
             body.push("0xdeadbeef".into());
         }
+        body.append(&mut self.filler_next);
         for ext in std::mem::take(&mut self.pool) {
             let decoded = self
                 .runtime(exec)
@@ -726,6 +741,10 @@ struct H {
     pruned_below: Option<u64>,
     /// Metadata the node serves instead of the real one.
     bad_metadata: bool,
+    /// The Worker's block read holds the whole reply under this bound, as
+    /// builds before the streamed scan did (`rpc::MAX_LARGE_RESPONSE_BYTES`):
+    /// a larger reply is `TooLarge`. `None`: the streamed scan.
+    whole_block_cap: Option<usize>,
     /// Every call the harness made: (step, block).
     calls: Vec<(&'static str, u64)>,
     /// Every read: (purpose, block).
@@ -761,6 +780,7 @@ impl H {
             unretained: Default::default(),
             runtime_requests: vec![],
             rpc_fail: None,
+            whole_block_cap: None,
             pruned_below: None,
             bad_metadata: false,
             calls: vec![],
@@ -892,9 +912,22 @@ impl H {
             SignPlan::Read { at, keys, .. } => SignOutcome::Read {
                 result: Ok(self.chain.read(at.number, keys)),
             },
-            SignPlan::Block { at, .. } => SignOutcome::Block {
-                result: Ok(self.chain.bodies[&at.number].clone()),
-            },
+            SignPlan::Block { at, extrinsic, .. } => {
+                // The node's reply, read as the Worker reads it.
+                let reply = block_reply(at.number, &self.chain.bodies[&at.number]);
+                SignOutcome::Block {
+                    result: match self.whole_block_cap {
+                        Some(cap) if reply.len() > cap => Err(RpcError::TooLarge),
+                        _ => {
+                            let mut scan = crate::rpc::BlockScan::new(14, at.number, extrinsic);
+                            for part in reply.chunks(65_536) {
+                                scan.feed(part);
+                            }
+                            scan.finish()
+                        }
+                    },
+                }
+            }
             SignPlan::Submit {
                 claim,
                 op_id,
@@ -3027,17 +3060,20 @@ fn a_step_that_does_not_fit_the_budget_is_never_claimed() {
     assert_eq!(h.counter("sign_claim_held_skips"), 0);
     assert_eq!(h.counter("sign_abandoned_steps"), 0);
 
-    // The step costs the Worker charges are the journal's: a metadata fetch
-    // or a submission never fits what a delivery's 30 s `waitUntil` leaves
-    // after its first journal call, so those steps stay for the cron.
+    // The step costs the Worker charges are the journal's: a metadata fetch,
+    // a streamed block read or a submission never fits what a delivery's
+    // 30 s `waitUntil` leaves after its first journal call, so those steps
+    // stay for the cron.
     let t = crate::liveness::TIMEOUT_MS;
     let after_call = slop_ninja_arena::limits::WAIT_UNTIL_MS - t;
     let claim = ClaimToken { op_id: SIGNER_CLAIM.into(), generation: 1 };
     let at = BlockRef { number: 1, hash: Id([1; 32]) };
     let metadata = SignPlan::Metadata { claim: claim.clone(), at, spec_version: 1, tx_version: 1, purpose: RuntimeFor::Head };
     let submit = SignPlan::Submit { claim: claim.clone(), op_id: "op".into(), attempt: 1, extrinsic: "0x00".into(), drill: None };
+    let block = SignPlan::Block { claim: claim.clone(), at, op_id: "op".into(), attempt: 1, extrinsic: "0x00".into() };
     let version = SignPlan::RuntimeVersion { claim, at, purpose: RuntimeFor::Head };
     assert!(step_worst_ms(&metadata, t) > after_call);
+    assert!(step_worst_ms(&block, t) > after_call);
     assert!(step_worst_ms(&submit, t) > after_call);
     assert!(step_worst_ms(&version, t) <= after_call, "a one-call step fits a delivery");
 }
@@ -3302,4 +3338,158 @@ fn a_current_record_clears_the_error_and_same_epoch_rederivations_are_ordered() 
     rederive(&h, &row);
     assert_eq!(refresh(&h, T0 + 5), super::rows::Refresh::Current);
     assert_eq!(pointer_of(&h).row.unwrap().sha256, second);
+}
+
+/// Synthetic hex of `chars` characters (`0x` included).
+fn filler_hex(chars: usize, digit: char) -> String {
+    let mut s = String::with_capacity(chars);
+    s.push_str("0x");
+    while s.len() < chars {
+        s.push(digit);
+    }
+    s
+}
+
+/// Testnet, 2026-11-05/06: the epoch-137 commit (nonce 114) was included in
+/// block 8380857, the block that enacted runtime 488, at index 7, right
+/// after the runtime code at index 6 (a 5,734,672-character extrinsic; the
+/// `chain_getBlock` reply is 5,740,192 bytes). The Worker read block bodies
+/// whole under `rpc::MAX_LARGE_RESPONSE_BYTES` (4 MiB), so the inclusion
+/// step answered `TooLarge` every round, the signer-wide time backoff held
+/// everything behind it, and no commit or row snapshot followed from epoch
+/// 138 on. This replays that block's shape (synthetic bytes, the measured
+/// extrinsic lengths) against both Worker reads:
+///
+/// - the whole-body read: the refusal counts against the attempt only and
+///   never settles, so the attempt is never displaced, faulted, expired or
+///   sent again, no second nonce is used while it is live, and the row
+///   snapshot keeps being derived;
+/// - then the streamed scan (the fix, deployed onto that same journal): the
+///   attempt is found at index 7 from the same search state, decoded with
+///   its writer runtime, committed and revealed, the nonce floor moves past
+///   it and the next epoch commits on the next nonce, each nonce sent once.
+#[test]
+fn an_upgrade_block_too_large_to_hold_never_stalls_and_is_reconciled_by_the_streamed_scan() {
+    let mut h = H::new();
+    tx(&h.db, |sql| install_target(sql, &h.cfg, &h.trusted, &launch_bundle_json(1), T0)).unwrap().unwrap();
+    h.whole_block_cap = Some(crate::rpc::MAX_LARGE_RESPONSE_BYTES);
+    h.resume();
+    h.until(40, submitted);
+    let nonce = h.ops()[0].attempts[0].nonce;
+    // The next block enacts the upgrade and holds the runtime code at index
+    // 6 (after the timestamp and five small extrinsics, as at 8380857), then
+    // the pooled attempt at index 7.
+    h.chain.upgrade_next(487);
+    let enact = h.chain.head + 1;
+    h.chain.filler_next = vec![
+        filler_hex(2_386, 'a'),
+        filler_hex(400, 'b'),
+        filler_hex(400, 'c'),
+        filler_hex(400, 'd'),
+        filler_hex(400, 'e'),
+        filler_hex(5_734_672, 'f'),
+    ];
+    h.jump(7);
+    assert_eq!(h.chain.included[0].0, enact);
+    let reply = block_reply(enact, &h.chain.bodies[&enact]);
+    assert!(reply.len() > crate::rpc::MAX_LARGE_RESPONSE_BYTES, "{}", reply.len());
+    assert!(reply.len().abs_diff(5_740_192) < 2_000, "{}", reply.len());
+    let derived = h.status().row_record.and_then(|v| v.snapshot_derived_epoch);
+    assert!(derived.is_some(), "the row snapshot ran before the stall");
+    // The previous Worker: the body read is refused, round after round.
+    h.until(420, |h| {
+        h.status().row_record.and_then(|v| v.snapshot_derived_epoch) > derived
+            && h.counter("sign_replies_too_large") > DIAG_CAP
+    });
+    let s = h.status();
+    let f = failure(&s, "attempt").unwrap();
+    assert_eq!(f.code, REPLY_TOO_LARGE);
+    assert!(f.failures > DIAG_CAP && !f.settled, "{f:?}");
+    assert_eq!(s.state, "active", "{:?}", s.reason);
+    assert_eq!(h.counter("signing_faults"), 0);
+    assert_eq!(s.backoff_ms, None, "no signer-wide backoff");
+    assert!(s.nonce_floor <= nonce, "nothing moved the floor past the live nonce: {}", s.nonce_floor);
+    let o = &h.ops()[0];
+    assert_eq!((o.state.as_str(), o.attempts.len()), ("committing", 1), "{o:#?}");
+    assert_eq!(o.attempts[0].state, "submitted");
+    assert_eq!(h.ops().len(), 1, "no new work while the attempt is live");
+    assert_eq!(h.chain.accepted.len(), 1, "nothing was sent again");
+    assert!(
+        h.calls.iter().filter(|c| *c == &("block", enact)).count() as u64 > DIAG_CAP,
+        "the same pinned body was asked for again: {:?}",
+        h.calls.iter().filter(|c| c.0 == "block").collect::<Vec<_>>()
+    );
+    // The fix: the same journal, the Worker now scans the body as it streams.
+    h.whole_block_cap = None;
+    h.until(80, |h| h.ops()[0].state != "committing");
+    let o = &h.ops()[0];
+    let a = &o.attempts[0];
+    assert_eq!(o.state, "committed", "{o:#?}");
+    assert_eq!(
+        (a.state.as_str(), a.included_block, a.included_index, a.dispatch.as_deref()),
+        ("included", Some(enact), Some(7), Some("success"))
+    );
+    assert_eq!(a.spec_version, 486, "signed and executed under the old runtime");
+    assert_eq!((o.commit_block, o.commit_index), (Some(enact), Some(7)));
+    assert_eq!(a.sends, 1);
+    let s = h.status();
+    assert_eq!(s.nonce_floor, nonce + 1);
+    assert!(failure(&s, "attempt").is_none(), "{:?}", s.failures);
+    assert_eq!(s.runtime.map(|r| r.0), Some(487));
+    // The chain revealed the commit on its own while the journal could not
+    // read the block; reveal tracking finds it, and nothing is re-sent.
+    h.until(400, |h| h.ops()[0].state == "revealed");
+    assert_eq!(h.ops()[0].reveal_block, h.chain.reveals.first().copied());
+    // The next commit uses the next nonce; each nonce was sent once.
+    h.until(400, |h| h.ops().iter().filter(|o| o.state == "committed" || o.state == "revealed").count() == 2);
+    let ops = h.ops();
+    assert_eq!(ops[1].attempts[0].nonce, nonce + 1);
+    assert!(ops[1].epoch > ops[0].epoch);
+    let mut sent: Vec<u64> = ops.iter().flat_map(|o| o.attempts.iter().map(|a| a.nonce)).collect();
+    sent.dedup();
+    assert_eq!(sent, vec![nonce, nonce + 1]);
+    assert_eq!(h.chain.accepted.len(), 2, "exactly one submission per epoch");
+    assert_eq!(h.counter("signing_faults"), 0);
+}
+
+/// A plan an earlier build stored carries no target: its outcome says
+/// nothing about the attempt's bytes, so it is a failure of the attempt
+/// (retried with a fresh plan), never "not in this block".
+#[test]
+fn a_block_match_for_another_target_is_never_read_as_absence() {
+    let mut h = H::new();
+    h.resume();
+    h.until(40, submitted);
+    h.block();
+    let op_id = h.ops()[0].op_id.clone();
+    let a = tx(&h.db, |sql| attempt(sql, &op_id, 1)).unwrap().unwrap();
+    let at = tx(&h.db, |sql| retained(sql, h.chain.head)).unwrap();
+    let none = crate::rpc::BlockMatch { count: 2, index: None };
+    for target in ["", "0x0400"] {
+        let r = tx(&h.db, |sql| apply_block(sql, at, &op_id, 1, target, none, h.now.get()));
+        assert!(matches!(&r, Err(SignError::Chain(e)) if e.code == "block_target_mismatch"), "{r:?}");
+    }
+    let r = tx(&h.db, |sql| {
+        apply_block(sql, at, &op_id, 1, &a.extrinsic_hex, crate::rpc::BlockMatch { count: 2, index: Some(2) }, h.now.get())
+    });
+    assert!(matches!(&r, Err(SignError::Chain(e)) if e.code == "block_match_malformed"), "{r:?}");
+    let still = tx(&h.db, |sql| attempt(sql, &op_id, 1)).unwrap().unwrap();
+    assert_eq!(still.state, a.state);
+    assert_eq!(h.counter("signing_faults"), 0);
+    // A plan stored without the field (an in-flight step at a deploy) still
+    // parses, with an empty target, which the step above refuses.
+    let plan = SignPlan::Block {
+        claim: ClaimToken { op_id: "signer".into(), generation: 3 },
+        at,
+        op_id: op_id.clone(),
+        attempt: 1,
+        extrinsic: a.extrinsic_hex.clone(),
+    };
+    let mut stored = serde_json::to_value(&plan).unwrap();
+    assert_eq!(stored["extrinsic"], serde_json::Value::String(a.extrinsic_hex.clone()));
+    stored.as_object_mut().unwrap().remove("extrinsic");
+    let SignPlan::Block { extrinsic, .. } = serde_json::from_value(stored).unwrap() else {
+        panic!("a block plan")
+    };
+    assert_eq!(extrinsic, "");
 }

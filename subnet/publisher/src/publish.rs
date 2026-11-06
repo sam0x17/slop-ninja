@@ -1059,10 +1059,12 @@ impl<S: Store, K: Keepalive> Run<'_, S, K> {
                     report.unverifiable.push(label);
                 }
                 Ok(check @ (ManifestCheck::OtherChain | ManifestCheck::OtherKind)) => {
-                    let (reason, build) = match check {
-                        ManifestCheck::OtherChain => ("another chain or subnet", None),
+                    let other_kind = matches!(check, ManifestCheck::OtherKind);
+                    let (reason, build) = if other_kind {
                         // Only this build's decoding: a later build reads it again.
-                        _ => ("not a reward-v2 cohort manifest", Some(build_id())),
+                        ("not a reward-v2 cohort manifest", Some(build_id()))
+                    } else {
+                        ("another chain or subnet", None)
                     };
                     memo.outside_record.insert(
                         label.clone(),
@@ -1072,7 +1074,15 @@ impl<S: Store, K: Keepalive> Run<'_, S, K> {
                             build,
                         },
                     );
-                    resolved.push(label);
+                    // A cohort of an older format that an earlier build (one
+                    // that decodes it) refused keeps that build's public
+                    // entry: this build cannot reconsider it, and dropping
+                    // the entry would leave its gap in the record
+                    // unexplained (testnet cohort 19, refused by the
+                    // reward-v1 publisher, after the reward-v2 cutover).
+                    if !(other_kind && idx.refused.iter().any(|r| r.label == label)) {
+                        resolved.push(label);
+                    }
                     report.outside += 1;
                 }
                 Ok(ManifestCheck::OtherLabel) => {

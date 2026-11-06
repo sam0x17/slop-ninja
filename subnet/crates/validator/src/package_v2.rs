@@ -117,8 +117,17 @@ impl Authorized {
             })
     }
 
-    /// Replaces the revocations every later check uses.
-    pub fn set_revocations(&self, revocations: Vec<RewardIntentRevocation>) {
+    /// Replaces the revocations every later check uses with `loaded`'s:
+    /// its records, and each unreadable entry whose target cannot be
+    /// recovered applied to this bundle's own target, so it withdraws this
+    /// authorization when it was issued at or before the entry's epoch
+    /// ([`crate::revocations::Unrecovered`]).
+    pub fn set_revocations(&self, loaded: &crate::revocations::Loaded) {
+        let v = &self.verified;
+        let mut revocations = loaded.records.clone();
+        revocations.extend(
+            loaded.unrecovered.iter().map(|u| u.against(&v.chain, v.target_digest(), v.authorization_digest)),
+        );
         *self.revocations.lock().unwrap_or_else(std::sync::PoisonError::into_inner) = revocations;
     }
 

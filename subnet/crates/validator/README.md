@@ -320,19 +320,35 @@ commitment against all of them. Revocations arrive two ways:
   (`revocation_skipped`).
 
 The signature is checked once, when an entry is journaled; loading the store
-does not check it again. A revocation can only withdraw authorizations of
-its own chain and target, so a trust root rotated since an entry was
-journaled never stops commitments of other targets.
+does not check it again. A readable revocation can only withdraw
+authorizations of its own chain and target, so a trust root rotated since an
+entry was journaled never stops commitments of other targets (an entry whose
+target can no longer be read is the exception below).
 
 An entry whose bytes no longer decode to its recorded digest (a hand edit or
-disk damage; the validator's own writes are atomic) is alerted once
-(`revocation_entry_unreadable`, `alert = true`) and still applied from its
-recorded target and epoch. That withdraws a target with no verifiable
-signature behind it, deliberately: the entry was verified when this
-validator journaled it, and for an entry that can no longer be read the
-safe direction is not committing its target rather than resuming
-commitments a revocation may have stopped. It withdraws only its own target
-at or before its epoch; restore the entry, or remove it by hand, to clear it.
+disk damage; the validator's own writes are atomic) is a revocation still in
+force (user decision of 2026-11-06). It is alerted once
+(`revocation_entry_unreadable`, `alert = true`) and applied from what it
+still records:
+
+- its recorded target parses: it withdraws that target's authorizations
+  issued at or before its recorded epoch, as a readable entry would (its
+  recorded authorization is an audit binding only and need not parse);
+- its recorded target does not parse: the target it withdrew cannot be
+  recovered, so it withdraws every authorization issued at or before its
+  recorded epoch, whatever its target. The installed authorization, and any
+  staged successor, commits only if it was issued after that epoch;
+- signed bytes that still decode, but not to the recorded digest, are
+  applied as well.
+
+That withdraws authorizations with no verifiable signature behind it,
+deliberately: the entry was verified when this validator journaled it, and
+for an entry that can no longer be read the safe direction is not
+committing rather than resuming commitments a revocation may have stopped.
+Withdrawn work behaves as under any revocation (`authorization_revoked`):
+queued work that never signed is retired and new commitments pause, while
+commitments already signed and their reveals stay with recovery. Restore
+the entry, or remove it by hand, to clear it.
 
 A store that cannot be read as a whole (unparseable, or another schema):
 - while running, the revocations already loaded stay in force and the error

@@ -532,7 +532,7 @@ async fn apply_v2<P: AppPorts>(
     for problem in &loaded.problems {
         tracing::warn!(event = "revocation_entry_unreadable", problem = %problem, alert = true);
     }
-    authorized.set_revocations(loaded.records);
+    authorized.set_revocations(&loaded);
     let active = authorized.verified.active.clone();
     if active != held {
         if !advances(&held, &active) {

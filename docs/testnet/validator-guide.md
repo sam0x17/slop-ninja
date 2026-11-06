@@ -464,6 +464,11 @@ only when a newer one supersedes it or a signed revocation withdraws it:
   `[fetch]`, the run first stays until the reveals of its last commitments
   have been compared, then waits for the next epoch in the same process and
   reads the bundle file again.
+- a journal entry in `<journal>.revocations.json` that no longer reads
+  (hand edit or disk damage) is alerted (`revocation_entry_unreadable`,
+  `alert = true`) and stays in force until you restore or remove it; if its
+  target cannot be read, it withdraws every authorization issued at or before
+  its recorded epoch, whatever the target.
 
 **Trust-root rotation and restarted chain records.** Your held-target record
 names the trust roots it was written under. After a rotation (new keys in

@@ -1580,6 +1580,173 @@ fn the_dispatch_loop_withdraws_a_revoked_target_then_resumes_on_reauthorization(
     Ok(())
 }
 
+/// Rewrites the revocation store's first entry with `edit` (a hand edit).
+fn edit_first_entry(store: &std::path::Path, edit: impl FnOnce(&mut serde_json::Value)) -> Result<()> {
+    let mut file: serde_json::Value = serde_json::from_slice(&std::fs::read(store)?)?;
+    edit(&mut file["entries"][0]);
+    std::fs::write(store, serde_json::to_vec_pretty(&file)?)?;
+    Ok(())
+}
+
+/// A signed revocation of `target` (not necessarily one this validator
+/// holds) at `issued_epoch`, journaled in `store`.
+fn journal_revocation_of(store: &std::path::Path, target: slop_ninja_protocol::Digest, issued_epoch: u64) -> Result<()> {
+    let revocation = slop_ninja_protocol::RewardIntentRevocation {
+        chain: chain(),
+        target,
+        authorization: slop_ninja_protocol::Digest([0x22; 32]),
+        checkpoint_generation: 1,
+        issued_epoch,
+    };
+    let signed = slop_ninja_protocol::sign(revocation, &authorization_key()).unwrap().to_bytes().unwrap();
+    assert!(crate::revocations::record(store, &trusted(), &chain(), &signed)?.new);
+    Ok(())
+}
+
+/// User decision of 2026-11-06 (item 2): a corrupted revocation entry is a
+/// revocation still in force. One whose recorded digest no longer matches
+/// its signed bytes, but whose target parses, withdraws that target only, as
+/// both its recorded summary and its still-decodable record say, even with
+/// an unparseable recorded authorization.
+#[test]
+fn a_corrupted_revocation_entry_with_a_parseable_target_stays_in_force() -> Result<()> {
+    let root = scratch()?;
+    let store = root.path().join("journal.json.revocations.json");
+    let launch_held = slop_ninja_protocol::ActiveTarget::launch(&chain()).unwrap();
+    let launch = crate::package_v2::verify(&launch_bundle(10), &trusted(), &TESTNET_GENESIS.0, NETUID, &launch_held).unwrap();
+    let hotkey = identity().hotkey.0;
+    journal_revocation_of(&store, launch.verified.target_digest(), 61)?;
+    let intact = crate::revocations::load(&store, &chain())?;
+    edit_first_entry(&store, |e| {
+        e["digest"] = serde_json::json!("00".repeat(32));
+        e["authorization"] = serde_json::json!("not hex");
+    })?;
+    let loaded = crate::revocations::load(&store, &chain())?;
+    assert_eq!(loaded.problems.len(), 1, "{loaded:?}");
+    assert!(loaded.problems[0].contains("in force"), "{:?}", loaded.problems);
+    assert!(loaded.unrecovered.is_empty(), "the target was recovered");
+    // The recorded summary and the decoded record both withdraw the target.
+    assert_eq!(loaded.records.len(), 2);
+    assert!(loaded.records.iter().all(|r| r.target == intact.records[0].target && r.issued_epoch == 61));
+    launch.set_revocations(&loaded);
+    assert!(launch.revoked_by().is_some());
+    assert_eq!(launch.check_epoch(hotkey, 62).unwrap_err().code, "authorization_revoked");
+    // An authorization issued after its epoch commits, as after any revocation.
+    let later = crate::package_v2::verify(&launch_bundle(63), &trusted(), &TESTNET_GENESIS.0, NETUID, &launch_held).unwrap();
+    later.set_revocations(&loaded);
+    assert!(later.check_epoch(hotkey, 63).is_ok());
+
+    // An entry of another target whose signed bytes are lost withdraws only
+    // that target: the held one keeps committing.
+    let other = root.path().join("other.revocations.json");
+    journal_revocation_of(&other, slop_ninja_protocol::Digest([0x99; 32]), 61)?;
+    edit_first_entry(&other, |e| e["signed"] = serde_json::json!("zz"))?;
+    let loaded = crate::revocations::load(&other, &chain())?;
+    assert_eq!((loaded.records.len(), loaded.unrecovered.len(), loaded.problems.len()), (1, 0, 1));
+    assert_eq!(loaded.records[0].target, slop_ninja_protocol::Digest([0x99; 32]));
+    launch.set_revocations(&loaded);
+    assert!(launch.check_epoch(hotkey, 62).is_ok());
+    Ok(())
+}
+
+/// User decision of 2026-11-06 (item 2), when the target cannot be
+/// recovered: an entry whose signed bytes are lost and whose recorded target
+/// does not parse could have withdrawn any target, so it withdraws every
+/// authorization issued at or before its recorded epoch, whatever its
+/// target. Through `apply` and the dispatch loop's per-head check, against
+/// the real journal and signing guard: the tempo defers, queued work that
+/// never signed loses its grant and is retired, and it stays in force while
+/// the store is unreadable. An authorization issued after the epoch, or the
+/// operator removing (or restoring) the entry, resumes commitments.
+#[test]
+fn a_corrupted_revocation_entry_with_an_unrecoverable_target_withdraws_every_earlier_authorization() -> Result<()> {
+    let root = scratch()?;
+    let config = config(root.path())?;
+    init_journal(&config, identity())?;
+    let mut app = TestApp::open(&config, &bundle())?;
+    app.bundle = launch_bundle(10);
+    app.epoch = 60;
+    let first = match block_on(apply(&mut app, &head(), Mode::Dispatch, &Faults::none()))? {
+        AppOutcome::Enqueued { operation_id, .. } => operation_id,
+        other => panic!("expected the burn row queued, got {other:?}"),
+    };
+    let launch_held = slop_ninja_protocol::ActiveTarget::launch(&chain()).unwrap();
+    let current = crate::package_v2::verify(&launch_bundle(10), &trusted(), &TESTNET_GENESIS.0, NETUID, &launch_held).unwrap();
+    let hotkey = identity().hotkey.0;
+    let mut watch = crate::live::RevocationWatch::default();
+
+    // A revocation of some other target, journaled, then damaged past
+    // recovery: its signed bytes and recorded target no longer parse.
+    let store = crate::revocations::path(&config.journal_path);
+    journal_revocation_of(&store, slop_ninja_protocol::Digest([0x99; 32]), 61)?;
+    let saved = std::fs::read(&store)?;
+    assert_eq!(app.live.revocation_head(&current, &mut watch, 0)?, Default::default(), "another target's");
+    edit_first_entry(&store, |e| {
+        e["signed"] = serde_json::json!("zz");
+        e["target"] = serde_json::json!("zz");
+    })?;
+    let loaded = crate::revocations::load(&store, &chain())?;
+    assert!(loaded.records.is_empty(), "{loaded:?}");
+    assert_eq!(loaded.unrecovered.len(), 1);
+    assert_eq!(loaded.unrecovered[0].issued_epoch, 61);
+    assert!(loaded.problems[0].contains("whatever its target"), "{:?}", loaded.problems);
+
+    // The dispatch loop's head: the held authorization (issued at 10) is
+    // withdrawn, its never-signed work retired, and it is alerted once.
+    let revoked = app.live.revocation_head(&current, &mut watch, 0)?;
+    assert!(revoked.revoked.is_some() && revoked.alerted, "{revoked:?}");
+    assert_eq!((revoked.withdrawn, revoked.retired), (1, 1), "{revoked:?}");
+    assert!(app.live.authorized_for_tests().is_withdrawn(&first));
+    assert_eq!(retired_reason(&app, &first).as_deref(), Some("authorization_revoked"));
+    assert_eq!(current.check_epoch(hotkey, 62).unwrap_err().code, "authorization_revoked");
+    let again = app.live.revocation_head(&current, &mut watch, 0)?;
+    assert_eq!((again.revoked, again.alerted), (revoked.revoked, false));
+    // `apply` defers the tempo too.
+    app.revocation_store = Some(store.clone());
+    app.epoch = 62;
+    match block_on(apply(&mut app, &head(), Mode::Dispatch, &Faults::none()))? {
+        AppOutcome::Deferred { code, .. } => assert_eq!(code, "authorization_revoked"),
+        other => panic!("expected the revocation deferral, got {other:?}"),
+    }
+    // An unreadable store keeps it in force.
+    let damaged = std::fs::read(&store)?;
+    std::fs::write(&store, b"{ not json")?;
+    let kept = AppPorts::revocations(&app.live)?;
+    assert!(kept.store_error.is_some() && kept.unrecovered == loaded.unrecovered, "{kept:?}");
+    assert_eq!(app.live.revocation_head(&current, &mut watch, 0)?.revoked, revoked.revoked);
+    assert_eq!(current.check_epoch(hotkey, 62).unwrap_err().code, "authorization_revoked");
+    std::fs::write(&store, &damaged)?;
+    // A staged successor issued at or before the epoch is not covered; one
+    // issued after it is, whatever the target the entry named.
+    let early = crate::package_v2::verify(&launch_bundle(61), &trusted(), &TESTNET_GENESIS.0, NETUID, &launch_held).unwrap();
+    early.set_revocations(&AppPorts::revocations(&app.live)?);
+    assert_eq!(early.check_epoch(hotkey, 62).unwrap_err().code, "authorization_revoked");
+    let later = crate::package_v2::verify(&launch_bundle(62), &trusted(), &TESTNET_GENESIS.0, NETUID, &launch_held).unwrap();
+    later.set_revocations(&AppPorts::revocations(&app.live)?);
+    assert!(later.check_epoch(hotkey, 62).is_ok());
+
+    // The operator removes the entry: nothing withdraws the held
+    // authorization any more and the burn row is queued again.
+    let mut file: serde_json::Value = serde_json::from_slice(&std::fs::read(&store)?)?;
+    file["entries"] = serde_json::json!([]);
+    std::fs::write(&store, serde_json::to_vec_pretty(&file)?)?;
+    assert_eq!(crate::revocations::load(&store, &chain())?, Default::default());
+    assert_eq!(app.live.revocation_head(&current, &mut watch, 0)?, Default::default());
+    assert!(current.check_epoch(hotkey, 63).is_ok());
+    app.epoch = 63;
+    let resumed = match block_on(apply(&mut app, &head(), Mode::Dispatch, &Faults::none()))? {
+        AppOutcome::Enqueued { operation_id, .. } => operation_id,
+        other => panic!("expected the burn row queued after the removal, got {other:?}"),
+    };
+    assert_ne!(resumed, first);
+    assert!(app.live.authorized_for_tests().get(&resumed).is_some());
+    // Restoring the original entry instead leaves only its own target withdrawn.
+    std::fs::write(&store, &saved)?;
+    assert_eq!(app.live.revocation_head(&current, &mut watch, 0)?, Default::default());
+    assert!(current.check_epoch(hotkey, 63).is_ok());
+    Ok(())
+}
+
 /// Audit B5: in per-tempo mode the dispatch loop queues the next tempo only
 /// once the tracked operation is settled. A journaled revocation applied at
 /// a finalized head (the loop's own `revocation_head`) retires the tracked

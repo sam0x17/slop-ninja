@@ -423,7 +423,7 @@ fn a_pointer_revocation_is_journaled_and_withdraws_the_authorization() -> Result
     let staged = ready(session("cache", &store)?);
     let journaled = crate::revocations::load(&store, &chain)?;
     assert_eq!(journaled.records.len(), 1);
-    staged.authorized.set_revocations(journaled.records);
+    staged.authorized.set_revocations(&journaled);
     assert_eq!(staged.authorized.check_epoch([0x42; 32], 21).unwrap_err().code, "authorization_revoked");
     assert!(staged.authorized.revoked_by().is_some());
     // Recording it again changes nothing.
@@ -492,7 +492,7 @@ fn a_validator_that_missed_two_revocations_journals_both() -> Result<()> {
     )?);
     let journaled = crate::revocations::load(&store, &chain)?;
     assert_eq!(journaled.records, vec![held_revocation.record.clone(), later.record.clone()]);
-    staged.authorized.set_revocations(journaled.records);
+    staged.authorized.set_revocations(&journaled);
     assert_eq!(staged.authorized.check_epoch([0x42; 32], 31).unwrap_err().code, "authorization_revoked");
     assert_eq!(staged.authorized.revoked_by(), Some(held_revocation.record.digest()?));
     Ok(())

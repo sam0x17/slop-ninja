@@ -19,15 +19,31 @@
 //!
 //! An entry whose signed bytes no longer decode, or no longer match its
 //! recorded digest (a hand edit or disk damage: writes are atomic), is
-//! reported ([`Loaded::problems`], alerted once per distinct problem) and
-//! still applied from its recorded target and epoch. That deliberately
-//! withdraws a target with no verifiable signature behind it: the file is
-//! this operator's own journal, an entry in it was verified when it was
-//! written, and the safe direction for an entry that can no longer be read
-//! is not committing its target rather than resuming commitments a
-//! revocation may have stopped. It can only withdraw (its own target, at or
-//! before its epoch); it never stops the others, and the operator clears it
-//! by restoring the entry or removing it by hand.
+//! treated as a revocation still in force: it is reported
+//! ([`Loaded::problems`], alerted once per distinct problem) and applied
+//! from what it still records. That deliberately withdraws authorizations
+//! with no verifiable signature behind it: the file is this operator's own
+//! journal, an entry in it was verified when it was written, and the safe
+//! direction for an entry that can no longer be read is not committing
+//! rather than resuming commitments a revocation may have stopped.
+//!
+//! - When its recorded target parses, it withdraws that target's
+//!   authorizations issued at or before its recorded epoch, as a readable
+//!   entry would. Its recorded authorization is an audit binding only
+//!   (withdrawal never consults it), so it need not parse.
+//! - When its recorded target does not parse, the target it withdrew cannot
+//!   be recovered, so it could have withdrawn any target: it withdraws every
+//!   authorization of this chain issued at or before its recorded epoch,
+//!   whatever its target ([`Loaded::unrecovered`], applied to each installed
+//!   or staged authorization by
+//!   [`crate::package_v2::Authorized::set_revocations`]). Only an
+//!   authorization issued after that epoch commits.
+//! - Signed bytes that still decode, but not to the recorded digest, are
+//!   applied as well, so whichever of the two was damaged, both withdraw.
+//!
+//! Either way it only withdraws; queued work that never signed is retired,
+//! and commitments already signed, and their reveals, stay with recovery.
+//! The operator clears it by restoring the entry or removing it by hand.
 //!
 //! A store that cannot be read as a whole is an error here; the validator
 //! keeps the revocations it last loaded and alerts once per distinct error
@@ -46,7 +62,7 @@ use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result, bail};
 use serde::{Deserialize, Serialize};
-use slop_ninja_protocol::{ChainBinding, Record, RewardIntentRevocation, Signed, TrustedKeys};
+use slop_ninja_protocol::{ChainBinding, Digest, Record, RewardIntentRevocation, Signed, TrustedKeys};
 
 pub const REVOCATIONS_SCHEMA: &str = "slop_ninja.validator_revocations/v1";
 
@@ -135,15 +151,46 @@ pub fn check(bytes: &[u8], keys: &TrustedKeys, chain: &ChainBinding) -> Result<S
 /// What [`load`] read.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct Loaded {
-    /// Every journaled revocation, as checked when it was journaled.
+    /// Every journaled revocation, as checked when it was journaled, and
+    /// each unreadable entry's recorded or decoded revocation (module docs).
     pub records: Vec<RewardIntentRevocation>,
-    /// Entries whose signed bytes no longer decode or match their digest
-    /// (each applied from its recorded target and epoch when those parse).
-    /// For an alert; never a reason to stop.
+    /// Unreadable entries whose withdrawn target cannot be recovered: each
+    /// withdraws every authorization issued at or before its epoch, whatever
+    /// its target (module docs).
+    pub unrecovered: Vec<Unrecovered>,
+    /// Entries whose signed bytes no longer decode or match their digest,
+    /// each still in force (module docs). For an alert.
     pub problems: Vec<String>,
-    /// Set when the store could not be read as a whole and `records` are
-    /// the ones loaded before (never set by [`load`] itself).
+    /// Set when the store could not be read as a whole and `records` and
+    /// `unrecovered` are the ones loaded before (never set by [`load`]
+    /// itself).
     pub store_error: Option<String>,
+}
+
+/// An unreadable revocation entry whose recorded target does not parse.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Unrecovered {
+    /// The entry's recorded digest, as the store holds it (it may not be hex).
+    pub entry: String,
+    /// Withdraws every authorization issued at or before this epoch: the
+    /// entry's recorded epoch, or its decoded record's when that is later.
+    pub issued_epoch: u64,
+}
+
+impl Unrecovered {
+    /// Its withdrawal of an authorization of `target` on `chain`, whose
+    /// record names `authorization`: the same chain and target, so the
+    /// authorization is withdrawn exactly when it was issued at or before
+    /// [`Self::issued_epoch`].
+    pub fn against(&self, chain: &ChainBinding, target: Digest, authorization: Digest) -> RewardIntentRevocation {
+        RewardIntentRevocation {
+            chain: chain.clone(),
+            target,
+            authorization,
+            checkpoint_generation: 0,
+            issued_epoch: self.issued_epoch,
+        }
+    }
 }
 
 /// Every journaled revocation (module docs). A missing store is empty; a
@@ -151,30 +198,44 @@ pub struct Loaded {
 pub fn load(store: &Path, chain: &ChainBinding) -> Result<Loaded> {
     let file = read_file(store)?;
     let mut loaded = Loaded::default();
+    let digest = |h: &str| -> Option<Digest> { hex::decode(h).ok()?.try_into().ok().map(Digest) };
     for e in &file.entries {
-        let decoded = hex::decode(&e.signed)
-            .ok()
-            .and_then(|bytes| Signed::<RewardIntentRevocation>::from_bytes(&bytes).ok())
-            .filter(|s| s.record.digest().is_ok_and(|d| d.to_string() == e.digest));
-        match decoded {
-            Some(signed) => loaded.records.push(signed.record),
+        let decoded =
+            hex::decode(&e.signed).ok().and_then(|bytes| Signed::<RewardIntentRevocation>::from_bytes(&bytes).ok());
+        let decoded = match decoded {
+            Some(signed) if signed.record.digest().is_ok_and(|d| d.to_string() == e.digest) => {
+                loaded.records.push(signed.record);
+                continue;
+            }
+            other => other.map(|s| s.record),
+        };
+        // Unreadable: still in force, from what it records.
+        let issued_epoch = decoded.as_ref().map_or(e.issued_epoch, |r| r.issued_epoch.max(e.issued_epoch));
+        match digest(&e.target) {
+            Some(target) => {
+                loaded.problems.push(format!(
+                    "revocation entry {} does not decode to its digest; in force from its recorded target {} at or before epoch {} until the entry is restored or removed",
+                    e.digest, e.target, e.issued_epoch
+                ));
+                loaded.records.push(RewardIntentRevocation {
+                    chain: chain.clone(),
+                    target,
+                    authorization: digest(&e.authorization).unwrap_or(Digest([0; 32])),
+                    checkpoint_generation: 0,
+                    issued_epoch: e.issued_epoch,
+                });
+            }
             None => {
-                loaded.problems.push(format!("revocation entry {} does not decode to its digest", e.digest));
-                // Applied from its recorded summary: it can only withdraw.
-                let digest = |h: &str| -> Option<slop_ninja_protocol::Digest> {
-                    hex::decode(h).ok()?.try_into().ok().map(slop_ninja_protocol::Digest)
-                };
-                if let (Some(target), Some(authorization)) = (digest(&e.target), digest(&e.authorization)) {
-                    loaded.records.push(RewardIntentRevocation {
-                        chain: chain.clone(),
-                        target,
-                        authorization,
-                        checkpoint_generation: 0,
-                        issued_epoch: e.issued_epoch,
-                    });
-                }
+                loaded.problems.push(format!(
+                    "revocation entry {} does not decode to its digest and its recorded target does not parse; \
+                     every authorization issued at or before epoch {issued_epoch} is withdrawn, whatever its target, \
+                     until the entry is restored or removed",
+                    e.digest
+                ));
+                loaded.unrecovered.push(Unrecovered { entry: e.digest.clone(), issued_epoch });
             }
         }
+        loaded.records.extend(decoded);
     }
     Ok(loaded)
 }

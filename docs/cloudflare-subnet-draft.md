@@ -1292,10 +1292,13 @@ coordinator's row under it and the revocation set under the authorization key,
 check that the row names the authorization and a target that is their active
 one or activates later, and journal every revocation before it takes effect.
 A journaled entry that no longer decodes or matches its digest is treated as a
-revocation still in force: when its recorded target and authorization parse,
-it is applied from them and its recorded epoch, and it is alerted in every
-case, until the operator restores or removes it, since resuming
-commitments that a revocation may have stopped is the unsafe direction. A
+revocation still in force: it withdraws its recorded target's authorizations
+issued at or before its recorded epoch, or, when that target does not parse,
+every authorization issued at or before that epoch, whatever its target. It
+is alerted in every case and stays in force until the operator restores or
+removes it, since resuming commitments that a revocation may have stopped is
+the unsafe direction; commitments already signed, and their reveals, stay
+with recovery. A
 revocation journal that cannot be read at all keeps the revocations last
 loaded, and a validator with none loaded refuses to start. At every tempo a new
 commitment also requires the authorized target to be the validator's active
@@ -1528,8 +1531,9 @@ interval with one bounded call on fixed control text, never cohort text and
 never an entrant's job. A probe writes no receipt and is not bound into the
 score package; its runs, failures, time and spend are recorded with the cohort
 and appear in its status. Operator pre-flight probes and admission runs of an
-entrant's artifact on the control document also write no receipt; that
-exception is open, pending a decision. Bind deployment,
+entrant's artifact on the control document are named exceptions too: they
+run only on fixed control text, never feed a score, and write no receipt.
+Every attempt on cohort or held-out text keeps its receipt. Bind deployment,
 invocation and attempt IDs, model/version, status, usage, and private-content
 commitments. Exclude prompts, responses, held-out labels, parsed features, and
 commitment openings. Receipts are coordinator-private audit evidence: they are

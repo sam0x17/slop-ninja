@@ -310,10 +310,11 @@ pub struct LivePorts {
     /// `Tempo(netuid)` read when the signing context was built (dispatch
     /// only); sizes the missed-commit-window alert.
     tempo: Option<u64>,
-    /// The revocations last loaded from the store: a store that later
-    /// cannot be read as a whole keeps them in force ([`AppPorts::revocations`]).
-    /// Entries are only ever added, so they are a subset of the store's.
-    revocations_loaded: std::sync::Mutex<Option<Vec<slop_ninja_protocol::RewardIntentRevocation>>>,
+    /// The revocations last loaded from the store, unrecoverable entries
+    /// included: a store that later cannot be read as a whole keeps them in
+    /// force ([`AppPorts::revocations`]). Entries are only ever added, so
+    /// they are a subset of the store's.
+    revocations_loaded: std::sync::Mutex<Option<crate::revocations::Loaded>>,
 }
 
 /// The installed bundle's facts in a dispatch run.
@@ -1419,12 +1420,13 @@ impl AppPorts for LivePorts {
         let mut kept = self.revocations_loaded.lock().map_err(|_| anyhow::anyhow!("revocation cache poisoned"))?;
         match crate::revocations::load(&crate::revocations::path(&self.config.journal_path), &chain) {
             Ok(loaded) => {
-                *kept = Some(loaded.records.clone());
+                *kept = Some(loaded.clone());
                 Ok(loaded)
             }
             Err(error) => match kept.as_ref() {
-                Some(records) => Ok(crate::revocations::Loaded {
-                    records: records.clone(),
+                Some(last) => Ok(crate::revocations::Loaded {
+                    records: last.records.clone(),
+                    unrecovered: last.unrecovered.clone(),
                     problems: Vec::new(),
                     store_error: Some(format!("{error:#}")),
                 }),
@@ -3197,9 +3199,9 @@ impl LoopPorts for LivePorts {
     }
 
     fn installed(&mut self, epoch: u64) -> Result<Option<Candidate>> {
-        let revocations = AppPorts::revocations(self)?.records;
+        let revocations = AppPorts::revocations(self)?;
         Ok(self.loop_installed.as_ref().map(|installed| {
-            installed.authorized.set_revocations(revocations);
+            installed.authorized.set_revocations(&revocations);
             let covers = installed.authorized.check_epoch(self.identity.hotkey.0, epoch).is_ok();
             Candidate::of(&installed.sha256, &installed.info, covers)
         }))
@@ -3209,7 +3211,7 @@ impl LoopPorts for LivePorts {
         // A store that cannot be read counts as no cover: nothing is
         // installed on a revocation check that did not run.
         let Ok(loaded) = AppPorts::revocations(self) else { return false };
-        staged.authorized.set_revocations(loaded.records);
+        staged.authorized.set_revocations(&loaded);
         staged.authorized.check_epoch(self.identity.hotkey.0, epoch).is_ok()
     }
 }
@@ -3487,8 +3489,10 @@ pub(crate) struct RevocationHead {
 impl LivePorts {
     /// The dispatch loop's per-head revocation check: journaled revocations
     /// take effect at the next finalized head. The store is read again
-    /// (a read failure keeps the previous revocations in force; entry
-    /// problems are applied from their summaries; each is alerted once per
+    /// (a read failure keeps the previous revocations in force; an
+    /// unreadable entry stays in force from what it records, and one whose
+    /// target cannot be recovered withdraws `current` when it was issued at
+    /// or before the entry's epoch; each is alerted once per
     /// distinct text). When one withdraws `current`, every queued operation
     /// of its target on `mechanism` loses its signing grant (no new attempt
     /// is signed: `slop_ninja_authorization_revoked`), the ones that never
@@ -3522,7 +3526,7 @@ impl LivePorts {
                         watch.store_alerted = Some(text);
                     }
                 }
-                current.set_revocations(loaded.records);
+                current.set_revocations(&loaded);
             }
             Err(error) => {
                 let text = format!("{error:#}");

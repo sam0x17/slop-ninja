@@ -260,8 +260,9 @@ to validators. Outage probes are a named exception: a probe is one bounded
 call on fixed control text, never cohort text, that tests whether the platform
 an outage paused has recovered; it writes no receipt, and its runs, time and
 spend are recorded with the cohort. Operator pre-flight probes and admission
-runs of an entrant's artifact on the control document also write no receipt;
-that exception is open, pending a decision. The coordinator installs a new target only when that cohort's
+runs of an entrant's artifact on the control document are named exceptions
+too: they also run only on fixed control text, never feed a score, and write
+no receipt. The coordinator installs a new target only when that cohort's
 receipt index verifies. Delete cohort N's detailed receipts and index after N+1
 and N+2 complete and N's target is superseded, based on durable coordinator
 completion rather than tempos, wall time, or adoption. Keep the evaluation copies
@@ -289,9 +290,10 @@ withdraws it, so validators keep committing the last signed row through
 coordinator silence. Its renew-by hint (at least two cohorts) never pauses
 anything. A validator journals each revocation before it takes effect; an entry
 that no longer decodes or matches its digest is treated as a revocation still
-in force (applied from its recorded target and epoch when those parse, and
-alerted) until the
-operator restores or removes it. Coordinator outages pause protocol progress indefinitely;
+in force (alerted, and applied from its recorded target and epoch; when its
+target does not parse it withdraws every authorization issued at or before
+that epoch) until the operator restores or removes it; signed commitments and
+their reveals stay recoverable. Coordinator outages pause protocol progress indefinitely;
 retain and resume the same cohort and its evidence. Never skip or expire it
 because time passed, or claim that this also pauses Subtensor's native emissions.
 The sole dependence on other validators is timely on-chain submission and reveal of the

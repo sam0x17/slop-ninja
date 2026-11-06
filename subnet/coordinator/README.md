@@ -1549,9 +1549,10 @@ A fault pauses the cohort with its state intact. Two kinds:
   pause. Each probe's time and spend are recorded (`probes`) and charged
   with the cohort. A probe runs only on fixed control text and touches no
   job, and it writes no R2 receipt bound into the signed score package:
-  this is an open exception to the rule that every inference attempt has
-  one (as for the operator's `/eval/probe` and `/eval/scorer-probe` and the
-  admission runs), recorded for a decision. A probe runs after the
+  this is a named exception to the rule that every inference attempt has
+  one, as are the operator's `/eval/probe` and `/eval/scorer-probe` and the
+  admission runs, all of which run only on fixed control text and never feed
+  a score. A probe runs after the
   bookkeeping of finished cohorts (purge of private predictions, settles,
   receipt deletion, the abandonment record), and a bookkeeping step that
   fails waits out a retry time (`bookkeeping_retry` on `/eval/status`), so
@@ -1586,8 +1587,8 @@ A fault pauses the cohort with its state intact. Two kinds:
   attempt's receipt, so a verifier sees all of them).
 - **Terminal under the frozen plan:**
   `draw_shortfall` and `batch_shortfall` (the pool or generation cannot meet
-  the plan's kind counts within its tolerance), and `reference_failure` (a
-  reference answered invalidly: an answer that does not parse or holds no
+  the plan's kind counts within its tolerance; see Draw and Seal below), and
+  `reference_failure` (a reference answered invalidly: an answer that does not parse or holds no
   valid prediction). A reference never has an unanswered document attributed
   to it: for a scorer error or a crash reproduced on a proven instance the
   receipt records the model error the scorer gave, marked unattributed, and
@@ -1596,7 +1597,11 @@ A fault pauses the cohort with its state intact. Two kinds:
   is listed in `receipt_bound_reached_jobs` and the phase log says so, a
   clear runs it into the same bound unless the deployed bound grew, and
   abandonment is the way out. A clear of a terminal fault would fault again
-  at once, so it is refused with `abandon_required`. `POST /eval/abandon
+  at once, so it is refused with `abandon_required`, no probe runs for it,
+  and the cohort stays faulted until the operator abandons it. Limit: a
+  terminal fault is not resumable, so abandonment, which ends the cohort
+  without a target, is its only exit; a resumable path for the two
+  shortfalls is not implemented. `POST /eval/abandon
   {"label", "reason"}` ends the cohort without a target. The reason is a
   public-safe code: one of `terminal_fault`, `plan_defect`,
   `reference_unusable`, `pool_shortfall`, `authority_restart` or `drill`
@@ -1653,8 +1658,9 @@ ledger cannot be listed, read or parsed. A new or emptied authority (another
 Durable Object namespace after T13 is removed, a deleted Worker) therefore
 still never reuses a drawn human. Before drawing, the cohort checks the plan's
 kind counts: a pool that cannot supply the humans, or their sentences the
-mixed cases, beyond the tolerance pauses it (`draw_shortfall`) with nothing
-drawn, exposed or marked used.
+mixed cases, beyond the tolerance faults it with the terminal
+`draw_shortfall` (above: a clear is refused, abandonment is the only exit)
+with nothing drawn, exposed or marked used.
 
 **Generation** (Workers AI, `eval::textgen`). Each drawn human is a
 `human_only` case and the parent of one `mixed` case: 10, 40 or 80 % of its
@@ -1741,7 +1747,11 @@ that bound plus a cold path does not hide it.
 
 **Seal.** Generation ends only if the ready documents meet the plan's per-kind
 counts within the declared tolerance (`kind_shortfall_permille_v1`); otherwise
-the cohort pauses (`batch_shortfall`) before anything is sealed. Ready
+the cohort faults with the terminal `batch_shortfall` before anything is
+sealed (a clear is refused with `abandon_required`; abandonment is the only
+exit). A plan v3 cohort faults the same way as soon as a kind's ready and
+pending items together fall below its planned count
+(`v3::batch_infeasible`), without waiting for the last pending item. Ready
 documents get task indices 0..n-1, each its own reward group (the plain mean
 over the self-weighting batch). The batch goes to the eval bucket as
 64-document JSONL shards plus a text-free index (labels, spans, digests, and

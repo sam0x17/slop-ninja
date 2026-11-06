@@ -80,14 +80,14 @@ the host's base URL.
 
 | Path | Content | Changes |
 | --- | --- | --- |
-| `index.html`, `style.css` | The leaderboard page, rendered from `v1/leaderboard.json` | when a cohort closes or an artifact lands |
+| `index.html`, `style.css` | The leaderboard page, rendered from `v1/leaderboard.json` (no score column) | with `v1/leaderboard.json` |
 | `v1/status.json` | The status snapshot (unsigned), schema `slop_ninja.public.status/v1` | every run (one a minute) |
 | `v1/cohorts/index.json` | The cohort index, schema `slop_ninja.public.cohort_index/v1` | when a cohort is published or an artifact lands |
 | `v1/cohorts/<label>/summary.json` | One closed cohort's quantized summary, schema `slop_ninja.public.cohort_summary/v3` (below) | never, once listed |
 | `v1/cohorts/<label>/artifacts.json` | Publication at scoring start: each roster entry's artifact state, header digest and published keys, schema `slop_ninja.public.artifacts/v1` | from scoring start until every entry is decided |
 | `v1/cohorts/<label>/publication.json` | The publisher's record of the cohort, schema `slop_ninja.public.publication/v1` | when an artifact lands |
-| `v1/leaderboard.json` | The newest cohort's leaderboard, schema `slop_ninja.public.leaderboard/v4` | when a cohort closes or an artifact lands |
-| `v1/reference/current.json`, `v1/reference/previous.json` | `R_k` and `R_k-1` after the newest cohort's close, schema `slop_ninja.public.reference/v1` | when a cohort closes |
+| `v1/leaderboard.json` | The newest listed cohort's leaderboard, schema `slop_ninja.public.leaderboard/v4`: its summary's rows in roster order with each artifact's state, no rank or exact score ([below](#the-leaderboard-v1leaderboardjson)) | when the newest cohort is listed or one of its pending artifacts is settled; deleted at a record restart |
+| `v1/reference/current.json`, `v1/reference/previous.json` | `R_k` and `R_k-1` after the newest cohort's close, schema `slop_ninja.public.reference/v1` | with `v1/leaderboard.json` |
 | `v1/reference/packages/<sha256>/...` | One staged [reference package](reference-packages.md), named by its parts manifest's SHA-256: `artifact-files.json`, `parts/<sha256>`, `package.json`, `NOTICE.md`, `upstream/` and `reference/`, and for `R_0` its training companion `training/` | never, once staged |
 | `artifacts/v2/<sha256>/header` | An admitted entrant's artifact header (the file table), named by its SHA-256, the digest the cohort's result names | never, once written |
 | `blobs/sha256/<sha256>` | One artifact file, named by its SHA-256 and shared by every artifact that lists it | never, once written |
@@ -203,9 +203,10 @@ result alone:
 
 The cohort index entry of a listed cohort also carries `best_q` (the
 highest `q` at or above the cutoff) and the cohort's `quantization` block.
-`v1/leaderboard.json` (schema `slop_ninja.public.leaderboard/v4`) carries
-the newest cohort's `quantization` block, its references with their `q`,
-and its entrants as the summary lists them.
+`v1/leaderboard.json` (schema `slop_ninja.public.leaderboard/v4`,
+[below](#the-leaderboard-v1leaderboardjson)) carries the newest cohort's
+`quantization` block, its references with their `q`, and its entrants as
+the summary lists them, without the `quality` block.
 
 ### Artifacts: `artifacts/v2/<sha256>/header` and `blobs/sha256/<sha256>`
 
@@ -545,34 +546,68 @@ tree reads no receipt.
 
 ## The leaderboard: `v1/leaderboard.json`
 
-The newest listed cohort. Each value is taken from the verified package and
-from the outcome the publisher recomputed. One row per entrant: gated
-entrants first in rank order, then the others in roster order.
+Schema `slop_ninja.public.leaderboard/v4`: the newest listed cohort's
+[summary](#the-cohort-summary-summaryjson), each entrant with its artifact's
+state, plus the target and reference pointers after the close. It carries
+nothing computed from the hidden evaluation beyond the summary's quantized
+values: no exact score, rank, credit, units, count or distance. The rows
+are in roster order, not in rank order.
+
+```json
+{
+  "schema": "slop_ninja.public.leaderboard/v4",
+  "network": "testnet",
+  "chain": { "genesis": "8f9c…3105", "netuid": 601, "mechanism": 0 },
+  "cohort": 12, "label": "testnet-c12", "closed_epoch": 23120,
+  "quantization": { "rule": "quant-v1", "width": "0.03" },
+  "references": {
+    "index": 1,
+    "current": { "content": "<64 hex>", "artifact": "<64 hex>", "q": "0.84" },
+    "predecessor": { "content": "<64 hex>", "artifact": "<64 hex>", "q": "0.81" }
+  },
+  "promoted": "<ss58>",
+  "promotion_rule": { "lookup_canary": false, "scope": "testnet-only", "note": "…" },
+  "active_target": { "digest": "<64 hex>", "source": "cohort", "cohort": 12 },
+  "current_reference": { "schema": "slop_ninja.public.reference/v1", "role": "current", "…": "…" },
+  "previous_reference": { "schema": "slop_ninja.public.reference/v1", "role": "previous", "…": "…" },
+  "entrants": [
+    { "uid": 7, "hotkey": "<ss58>", "hotkey_hex": "<64 hex>", "q": "0.90", "band": 1,
+      "gate": "pass", "copy_gate": "pass", "cluster": { "uid": 7, "hotkey": "<ss58>" },
+      "artifact": { "uid": 7, "hotkey": "<ss58>", "sha256": "<64 hex>", "content": "<64 hex>",
+                    "state": "published", "path": "artifacts/v2/<sha256>/header", "reason": null,
+                    "hotkey_hex": "<64 hex>", "registration_block": 4100,
+                    "commitment": "<64 hex>", "nonce": "<64 hex>" } }
+  ]
+}
+```
 
 | Field | Meaning |
 | --- | --- |
-| `rank` | Position among gated entrants, from 1; `null` for a gate failure |
-| `uid`, `hotkey`, `hotkey_hex` | The entrant's UID at the commitment, and its SS58 and hex hotkey |
-| `score` | The mean binary Brier utility over the batch: `decimal` (six places, rounded down) and `raw` (exact, in units of 10^-18) |
-| `assigned`, `succeeded`, `failed` | Documents assigned, answered, and attributable failures |
-| `gates` | Gate failure reason codes; empty when every enforced gate passed |
-| `copy` | The public-copy outcome (`independent`, `not_executed`, or a `public.*` reason), and the aligned distance to `R_k` on the batch in parts per billion |
-| `cluster` | The near-copy cluster's head (SS58 and UID), how this entrant joined it (`head`, `identical`, `near`), the distance for `near`, and the member count |
-| `band` | The absolute band `b`, `kappa` (`band_rank`) and `mu` (`rank_in_band`) of the entrant's cluster |
-| `credit` | The cluster's exact credit `c`, this member's share `c / m` exactly, and that share as a decimal |
-| `units`, `row_share` | Units of the 65,535 row, and the fraction of the row |
-| `artifact` | The artifact's state and path, as above |
+| `network`, `chain`, `cohort`, `label`, `closed_epoch` | As in the summary |
+| `quantization`, `references` | The summary's grid and `R_k`'s and `R_k-1`'s digests and `q`, as the cohort's manifest named them |
+| `promoted` | The entrant promoted to `R_k+1` (SS58), or `null` |
+| `promotion_rule` | Testnet records only (absent for any other chain): whether promotions run the lookup canary (`lookup_canary`, `false`), its `scope` (`testnet-only`) and a `note`, which the page shows. Testnet promotions run without the lookup canary (decision D12b), though an operator drill named in the cohort's plan can still block a candidate; the canary is required before mainnet |
+| `active_target` | The public index's `active_target` when this cohort was listed (see the cohort index), a record pointer rather than live validator state: its `digest`, its `source` (`launch_burn` or `cohort`) and the `cohort` whose closure activated it (`null` for the launch burn) |
+| `current_reference`, `previous_reference` | The `R_k` and `R_k-1` pointers after this close, the same documents as `v1/reference/current.json` and `previous.json` |
+| `entrants[]` | Every entrant in roster order: the summary's fields (`uid`, `hotkey`, `hotkey_hex`, `q`, `band`, `gate`, `copy_gate`, `cluster`, with the summary's meanings) and `artifact` |
+| `entrants[].artifact` | The entrant's entry in `publication.json`: `uid`, `hotkey`, `sha256` (the artifact digest the result names, the header's SHA-256), `content`, `state` (`published`, `pending` or `withheld`, [above](#artifacts-artifactsv2sha256header-and-blobssha256sha256)), `path` (the header key when published), `reason`, and the `hotkey_hex`, `registration_block`, `commitment` and opening `nonce` the signed result and closure state; `null` when the publication has no entry for the hotkey |
 
-The document also carries:
+The cutoff and band edges are only in the summary (`quality`). The q-rank
+(`q` descending, then roster order) follows from the published values;
+no field states it.
 
-- the cohort's mode;
-- the cutoff and the band width;
-- the reference's and predecessor's scores;
-- the promoted hotkey;
-- `promotion_rule`: whether promotions run the lookup canary
-  (`lookup_canary`, `false` on testnet), its `scope` (`testnet-only`) and a
-  `note`, which the page shows. Testnet promotions run without the lookup
-  canary (decision D12b), though an operator drill named in the cohort's
-  plan can still block a candidate; the canary is required before mainnet;
-- the active target;
-- the reference pointers after this close.
+The publisher writes the document when the newest cohort is listed, and
+rewrites it when a later run settles one of that cohort's pending artifacts
+(the rows' `artifact` and a reference pointer's download or package link
+are refreshed then). A record restart deletes it with the reference
+pointers.
+
+The page (`index.html`, with `style.css`) is rendered from the same
+document at the same times: the cohort and label, the closing epoch, the
+promoted hotkey, the active target, the current reference with its
+download or reference-package link, and the promotion-rule note; then one
+row per entrant in roster order with its UID, hotkey, gate, copy gate,
+cluster (by its first member's UID), band and artifact link or state. It
+has no score column. Before any cohort is listed, and after a record
+restart, the page says no cohort has closed yet and shows the testnet
+promotion-rule note.

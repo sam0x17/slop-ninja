@@ -228,7 +228,7 @@ EXPOSED_POOLS = "testnet-human-pool-v1,testnet-human-pool-pc1"
 # Scorer build identity (S-1): lanes refuse an instance whose /healthz reports
 # other digests. ORT is the served profile's pin; the binary is the image's.
 SCORER_ORT_SHA256 = "fc44112fbe06d7d689c57e11d3862031f64711007e4ee020f8eed5185fd2c1d3"
-SCORER_BINARY_SHA256 = "d1224770ea6b4427699845159c941fba4c9df0fa68d59742f40e267aa3b0d433"
+SCORER_BINARY_SHA256 = "1a283a308adde45896b7a5ac2dcc760c916a469246f080d1f951db11d0af2f1e"
 # How long a lane waits for a fresh instance to answer before it destroys it
 # and backs off. Starts requested while the Container application is being
 # updated (an image or max_instances change) stayed unplaced until destroyed

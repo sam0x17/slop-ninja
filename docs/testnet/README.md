@@ -1,14 +1,15 @@
 # Slop Ninja on testnet
 
-Slop Ninja is a Bittensor subnet for detecting AI involvement in writing. Its
-first mechanism, *A*, rewards text models that estimate, for each document,
-the confidence that AI was involved and the share of words AI wrote or
-rewrote, with conditional human and AI attribution. Miners submit models, not
-answers: each cohort, the coordinator scores every submitted model on the same
-hidden batch and signs the weight row the scores imply, and every validator
-verifies that row against pinned keys and commits it on chain. On testnet,
-until outside miners have working artifacts, that batch reuses public human
-documents that earlier cohorts used ([terms](terms.md)).
+Slop Ninja is a Bittensor subnet for AI detection and transformation of
+writing. Its first mechanism, *A* (Detection), rewards text models that
+estimate, for each document, the confidence that AI was involved and the share
+of words AI wrote or rewrote, with conditional human and AI attribution.
+Miners submit models, not answers: each cohort, the coordinator scores every
+submitted model on the same hidden batch and signs the weight row the scores
+imply, and every validator verifies that row against pinned keys and commits
+it on chain. On testnet, until outside miners have working artifacts, that
+batch reuses public human documents that earlier cohorts used
+([terms](terms.md)).
 
 Testnet subnet 601 is the rehearsal. It has no monetary value.
 

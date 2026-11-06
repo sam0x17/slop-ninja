@@ -8,6 +8,8 @@
 
 ### Don’t just detect slop. Fix it.
 
+**AI detection. Slop transformation.**
+
 [![Bittensor testnet: subnet 601](https://img.shields.io/badge/Bittensor%20testnet-subnet%20601-e8173f?labelColor=2a3b41)](docs/testnet/README.md)
 [![Licence: MIT OR Apache-2.0](https://img.shields.io/badge/licence-MIT%20OR%20Apache--2.0-28faba?labelColor=2a3b41)](#licence)
 
@@ -43,7 +45,7 @@ an entrant beats it by the required margin, no miner earns and the pool burns.
 | Mechanism | What it does | State |
 | --- | --- | --- |
 | **A**&nbsp;·&nbsp;Detection | Rewards text models that estimate AI share, AI-involvement confidence and human/AI attribution. | Live&nbsp;on testnet |
-| **B**&nbsp;·&nbsp;Rewriting | Revises authorized writing toward the author's voice, keeping meaning, readability and tone. | Planned |
+| **B**&nbsp;·&nbsp;Transformation | Transforms authorized writing toward the author's voice, keeping meaning, readability and tone. | Planned |
 | **C**&nbsp;·&nbsp;Shared grammar | Credits accepted, reusable contributions to the grammar that *B* uses, once each. | Planned |
 
 *B* and *C* activate separately. *B* is trained adversarially against *A* and

@@ -8,7 +8,7 @@ monetary value; see the [terms](terms.md).
 
 ## What a validator does
 
-Slop Ninja operates one lead validator, the coordinator. It runs the hidden
+SlopNinja operates one lead validator, the coordinator. It runs the hidden
 evaluation of every cohort, derives the native weight row, and signs and
 publishes that row off chain. Every other validator:
 
@@ -60,7 +60,7 @@ the hidden evaluation is part of the protocol.
 | Published rows on the public status host | not yet live |
 | The row fetcher (`[fetch]`) | built and tested offline against the publisher's layout; waits for the public host, so until it is live every validator installs each row bundle by hand or reads a local mirror (below). The coordinator signs each closed cohort's authorization itself, so the pointer names the current one with no operator step |
 | Continuous dispatch, successor supersession and persistent user units | built and tested offline; not yet run unattended across cohorts on subnet 601 |
-| Committing the launch burn row | live on subnet 601: both Slop Ninja validators commit and reveal it each tempo under rtao's owner-row opt-in (below); first native commit and reveal on November 3, 2026 |
+| Committing the launch burn row | live on subnet 601: both SlopNinja validators commit and reveal it each tempo under rtao's owner-row opt-in (below); first native commit and reveal on November 3, 2026 |
 | Release public key | published on the [landing page](README.md#release-key) |
 | Public repository | [sam0x17/slop-ninja](https://github.com/sam0x17/slop-ninja) |
 | Validator release binaries (Linux x86_64) | not in the first release, which holds only the miner client and the artifact checker; a validator release follows later. Until then, build from source ([section 2](#2-install)) |
@@ -608,10 +608,10 @@ clear it, so roll forward only (see the validator README,
 A valid release signature does not make a build newer: the signature binds
 the binaries' digests, not a version, so the same steps apply to an older
 signed release.
-**Live on subnet 601.** On November 3, 2026 a Slop Ninja validator that is
+**Live on subnet 601.** On November 3, 2026 a SlopNinja validator that is
 not the owner, running at rtao `0c128160`, committed the launch burn row
 timelocked in block 8,362,443 and revealed it at 8,362,485 with the reveal
-matching its journaled row. Both Slop Ninja validators, that one and the
+matching its journaled row. Both SlopNinja validators, that one and the
 coordinator, now commit and reveal it each tempo; read back at block
 8,363,204, the chain held both rows as weight 1.0 on the owner UID and
 nothing for any miner UID. They commit it under the launch authorization,

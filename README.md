@@ -3,7 +3,7 @@
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="assets/brand/slop-ninja-wordmark.svg">
   <source media="(prefers-color-scheme: light)" srcset="assets/brand/slop-ninja-wordmark-on-light.svg">
-  <img alt="Slop Ninja" src="assets/brand/slop-ninja-wordmark-on-light.svg" width="460">
+  <img alt="SlopNinja" src="assets/brand/slop-ninja-wordmark-on-light.svg" width="460">
 </picture>
 
 ### Don’t just detect slop. Fix it.
@@ -24,7 +24,7 @@
 
 ## What it is
 
-Slop Ninja is a Bittensor subnet for writing. Its main objective is to
+SlopNinja is a Bittensor subnet for writing. Its main objective is to
 transform text so it sounds natural and matches the author's intended voice,
 while preserving meaning, readability and tone. Its first mechanism, *A*,
 detects AI involvement: for each document it reports the share of words AI
@@ -33,7 +33,7 @@ human and AI attribution. *A* runs first, on testnet subnet 601.
 
 ## How it works
 
-Miners submit models, not answers. Each cohort, the coordinator (Slop Ninja's
+Miners submit models, not answers. Each cohort, the coordinator (SlopNinja's
 lead validator, which runs serverless on Cloudflare) scores every admitted
 model on the same hidden batch of documents and signs the weight row those
 scores imply. Every other validator verifies that row against pinned public
@@ -59,9 +59,9 @@ design, its trust model and its evidence boundaries.
 Testnet subnet 601 is the rehearsal. It has no monetary value.
 
 - **Running:** mechanism *A*, one cohort a day (20 tempos of 360 blocks),
-  scored against the reference model `R_0`. Both Slop Ninja validators commit
+  scored against the reference model `R_0`. Both SlopNinja validators commit
   and reveal the launch burn row every tempo.
-- **Admission:** limited to Slop Ninja's operator test hotkeys during the
+- **Admission:** limited to SlopNinja's operator test hotkeys during the
   admission v2 rollout. Until admission is open to your hotkey, do not commit:
   a commitment you cannot upload costs the chain fee and admits nothing.
 - **Releases:** no signed release is published yet. Build the clients from
@@ -103,7 +103,7 @@ private contact [below](#security).
 | [`tools/`](tools/) | Dataset storage, artifact and corpus stores, the testnet evaluation manifest and other utilities. |
 | [`experiments/`](experiments/) | Retained experiments, such as the gameability studies. |
 | `site/` | The page template of the public status host. |
-| [`assets/brand/`](assets/brand/README.md) | The approved Slop Ninja logo files. |
+| [`assets/brand/`](assets/brand/README.md) | The approved SlopNinja logo files. |
 | `python/`, `scripts/` | The spaCy annotation bridge and the platform check. |
 | `legacy/` | The archived Python prototype, kept for result reproduction. |
 
@@ -150,7 +150,7 @@ endpoint or production validator.
 
 <br>
 
-This is the public Slop Ninja repository. Its first commit imports the project
+This is the public SlopNinja repository. Its first commit imports the project
 from a private development repository, and later changes are ported from it.
 Commit ids, branch names (such as `origin/...`) and ignored `data/` paths cited
 in evidence, receipts and documents written before the import refer to that
@@ -185,13 +185,13 @@ your option:
 
 Miner submissions and the reference model weights (`R_k`) are licensed under
 [CC BY-SA 4.0](https://creativecommons.org/licenses/by-sa/4.0/). A released
-weight bundle also keeps its base model's licence and notices. Slop Ninja
+weight bundle also keeps its base model's licence and notices. SlopNinja
 publishes its own references (`R_0` and any later reference it trains) on these
 terms, in packages that carry synthetic replay cases and no evaluation text; a
 miner artifact that becomes the reference is published with its cohort like
 every admitted artifact.
 
-The Slop Ninja logo files in `assets/brand/` are not covered by the code and
+The SlopNinja logo files in `assets/brand/` are not covered by the code and
 documentation licences above.
 
 <details>

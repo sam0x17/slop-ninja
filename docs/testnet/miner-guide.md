@@ -24,10 +24,10 @@ closes.
 | Public repository | [sam0x17/slop-ninja](https://github.com/sam0x17/slop-ninja) |
 | Signed release binaries (Linux x86_64) | not yet live: the miner client and the artifact checker, built from the public repository, signed and smoke-tested when the release is published; a validator release follows later |
 | Coordinator unsigned cohort read (`GET /admission/v2/cohort`), used by `check`, `commit`, `status` and `next-cohort`, served by the upload Worker at `https://testnet-admission.slop.ninja` | live |
-| Coordinator signed admission routes, used by `upload`, `repair` and the hotkey view of `status`; the artifact goes straight to R2 under presigned URLs they return | open only to Slop Ninja's operator test hotkeys during the admission v2 rollout: until they are open to you, an outside hotkey's signed request is answered `not_found` (exit 1) |
+| Coordinator signed admission routes, used by `upload`, `repair` and the hotkey view of `status`; the artifact goes straight to R2 under presigned URLs they return | open only to SlopNinja's operator test hotkeys during the admission v2 rollout: until they are open to you, an outside hotkey's signed request is answered `not_found` (exit 1) |
 | Public status host (`--public`), with the published packages, leaderboard and artifacts | not yet live; until it is, `status` and `next-cohort` show the calendar from the coordinator's unsigned cohort read |
 | The coordinator's admission origin pinned in the release trust file | pinned: `https://testnet-admission.slop.ninja` |
-| Validators committing the launch burn row ([Rewards](#13-rewards)) | live since November 3, 2026: both Slop Ninja validators commit and reveal it on subnet 601 each tempo |
+| Validators committing the launch burn row ([Rewards](#13-rewards)) | live since November 3, 2026: both SlopNinja validators commit and reveal it on subnet 601 each tempo |
 | `R_0` reference package and training companion | built and checked; attached to the testnet release until public access opens ([`R_0` archives](#r_0-archives-optional)) |
 | S2c span package | built and checked; downloadable when public access opens ([Reference model](#reference-model)) |
 
@@ -35,7 +35,7 @@ The [training guide](training-guide.md) produces an admissible artifact from
 public material and ends with `pack` and `check`. `commit` needs only the
 unsigned cohort read and the chain, so it signs and submits an on-chain
 commitment for any registered hotkey whenever a cohort admits. `upload` needs
-the signed routes, which are open only to Slop Ninja's operator test hotkeys
+the signed routes, which are open only to SlopNinja's operator test hotkeys
 during the admission v2 rollout. **Do not commit
 until they are open to you**: a commitment you cannot upload costs the chain
 fee and admits nothing. The steps below say where they depend on a piece that
@@ -56,7 +56,7 @@ when it goes live. The release key is on the [landing page](README.md#release-ke
   and the packed object (about 610 MB).
 - Test TAO on a testnet coldkey, for registration and transaction fees. The
   registration cost floats: it read about 0.155 τ on October 30, 2026 and
-  0.0005 τ on November 1, 2026. Slop Ninja does not hand out test TAO; use the
+  0.0005 τ on November 1, 2026. SlopNinja does not hand out test TAO; use the
   community testnet sources.
 - An uplink that can send your packed object, up to about 955 MB (the spec's
   largest object), inside a cohort's admission window (16 tempos, about 19
@@ -329,13 +329,13 @@ often decide admission:
   `structure_difference` is the stream offset of the first differing byte).
   Spec v2 also serves the span class `a-span-f32band-v1` (the plain graph
   plus its final-norm token states) with heads that read those states: a
-  spans-v1 token head in heads v2, exported as export v3 (the form of Slop
-  Ninja's S0+ span head). The training guide's recipe does not train a token
+  spans-v1 token head in heads v2, exported as export v3 (the form of
+  SlopNinja's S0+ span head). The training guide's recipe does not train a token
   head. Spec v1 refuses the span class with `graph_class_not_served`. The
   artifact spec's [Spec v2](artifact-spec.md#spec-v2) section has the details.
   Spec v3 also serves the tower class `a-tower-f32band-v1` (the plain graph
   plus a span tower and its normed token states) with heads v3, the form of
-  Slop Ninja's S2c span package; see [Spec v3](artifact-spec.md#spec-v3). The
+  SlopNinja's S2c span package; see [Spec v3](artifact-spec.md#spec-v3). The
   tower is computed on every document, so it costs CPU time whether or not
   spans are asked. The tower starts as copies of encoder layers 18 to 21 and
   of the final norm, and every tower tensor must end up differing from every
@@ -510,7 +510,7 @@ The client prints the origin before it opens a session, never follows
 redirects, and accepts plain HTTP only for loopback hosts.
 
 **Your artifact's bytes go straight to R2**, the coordinator's private object
-storage, never through a Slop Ninja Worker: one presigned PUT for the header
+storage, never through a SlopNinja Worker: one presigned PUT for the header
 and one for each file. The client needs outbound HTTPS to the coordinator
 origin and to the R2 S3 host the URLs name (`<account>.r2.cloudflarestorage.com`).
 Before it sends a byte it checks each URL: `https`; the host and bucket the
@@ -840,7 +840,7 @@ at the batch size. At 1,000 documents under the whitepaper's 20/55/25 mix,
 remaining loss by about 7%. Each manifest freezes its exact value. The status
 snapshot's mode and notice say which regime is in force.
 
-**Committing the burn row is live.** Both of Slop Ninja's validators commit
+**Committing the burn row is live.** Both of SlopNinja's validators commit
 and reveal the burn row on subnet 601 each tempo (see the
 [validator guide](validator-guide.md#the-launch-burn-row)). On November 3,
 2026 the chain held both validators' rows as weight 1.0 on the owner UID and
@@ -880,19 +880,19 @@ it scores more than half a band above it.
 
 ### Reference model
 
-Testnet's reference is `R_0`, Slop Ninja's released *A* document model,
+Testnet's reference is `R_0`, SlopNinja's released *A* document model,
 scored in every cohort. Its score on each batch is in the signed package, and
 it is the bar that ends the launch burn. Its
 [reference package](reference-packages.md) (the six files as the scorer
 loads them, package `143ca2d9…c57f0c`) is published under CC BY-SA 4.0,
 attached to the testnet release until public access opens
 ([`R_0` archives](#r_0-archives-optional)), so you can score it locally with
-the same engine as your own artifact. Slop Ninja's S2c span package is
+the same engine as your own artifact. SlopNinja's S2c span package is
 published when public access opens; it is a span-serving package, not a
 reference.
 
 The testnet reference will be replaced at most once outside the promotion rule:
-by a better reference Slop Ninja trains, only if it passes every required gate,
+by a better reference SlopNinja trains, only if it passes every required gate,
 and announced in advance on the status page. The replacement takes `R_0`'s
 place with no predecessor and moves no reward already earned. Every later change
 follows the promotion rule above. An entrant that becomes the reference was

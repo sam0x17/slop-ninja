@@ -1,6 +1,6 @@
-# Slop Ninja on testnet
+# SlopNinja on testnet
 
-Slop Ninja is a Bittensor subnet for AI detection and transformation of
+SlopNinja is a Bittensor subnet for AI detection and transformation of
 writing. Its first mechanism, *A* (Detection), rewards text models that
 estimate, for each document, the confidence that AI was involved and the share
 of words AI wrote or rewrote, with conditional human and AI attribution.
@@ -17,7 +17,7 @@ Testnet subnet 601 is the rehearsal. It has no monetary value.
 
 - Subnet 601 is live on Bittensor testnet, and mechanism *A* runs one cohort
   a day.
-- Admission is currently limited to Slop Ninja's operator test hotkeys during
+- Admission is currently limited to SlopNinja's operator test hotkeys during
   the admission v2 rollout: an outside hotkey's signed admission requests are
   answered `not_found`. Do not commit until admission is open to your hotkey;
   a commitment you cannot upload costs the chain fee and admits nothing.
@@ -72,10 +72,10 @@ Testnet subnet 601 is the rehearsal. It has no monetary value.
 | Signed release binaries (Linux x86_64) | not yet live: the miner client and the artifact checker, built from the public repository, signed and smoke-tested when the release is published |
 | Validator release binaries | not in the first release: the validator client is changing, and a validator release follows later; until then, build from source with the [validator guide](validator-guide.md) |
 | Coordinator unsigned cohort read (`check`, `commit`, `status`, `next-cohort`), at `https://testnet-admission.slop.ninja` (pinned in `testnet-trust.json`) | live |
-| Coordinator signed admission routes (used by `upload`, `repair` and the hotkey view of `status`; the artifact goes straight to R2 under presigned URLs they return) | open only to Slop Ninja's operator test hotkeys during the admission v2 rollout (an outside hotkey's signed requests are answered `not_found`); do not commit until they are open to you |
+| Coordinator signed admission routes (used by `upload`, `repair` and the hotkey view of `status`; the artifact goes straight to R2 under presigned URLs they return) | open only to SlopNinja's operator test hotkeys during the admission v2 rollout (an outside hotkey's signed requests are answered `not_found`); do not commit until they are open to you |
 | Public status host (the data host the clients read with `--public`, separate from the status page): status snapshot, cohort index, signed packages, leaderboard, published artifacts | not yet live |
 | Validator package fetcher | built and tested offline; waits for the public status host |
-| Validators committing the launch burn row | live since November 3, 2026: both Slop Ninja validators commit and reveal it on subnet 601 each tempo, under a launch authorization that does not expire |
+| Validators committing the launch burn row | live since November 3, 2026: both SlopNinja validators commit and reveal it on subnet 601 each tempo, under a launch authorization that does not expire |
 | `R_0` reference package and training companion (CC BY-SA 4.0) | built and checked; attached to the testnet release as two tar archives until public access opens |
 | S2c span package (CC BY-SA 4.0) | built and checked; downloadable when public access opens |
 

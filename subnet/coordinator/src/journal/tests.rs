@@ -641,8 +641,10 @@ fn migrations_are_pinned_by_content() {
     // reader-allowance lane's framing and blob dispatches; v23 the boundary
     // journal (deployed); v24 the reward-v2 / quant-v1 rule floor; v25
     // admission contract v2 (direct upload to R2); v26 generation v2's
-    // private state (re-pinned with `gen_results`, which f5bcba21 added
-    // before any deploy); v27 the commitment snapshot's not-served backoff.
+    // private state (re-pinned with `gen_results`, the per-claim record of
+    // committed generation results that the generation v2 review fixes
+    // added before any deploy); v27 the commitment snapshot's not-served
+    // backoff.
     const EVAL: &[&str] = &[
         "bb26853f9d8c37f8",
         "a77de0832bb5add7",

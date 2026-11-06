@@ -1,18 +1,26 @@
-//! `reward-v2`: the SN78 band mechanism of whitepaper Section 7 computed from
-//! quantized scores only (`quant-v1`, [`crate::quant`]).
+//! `reward-v2`: the SN78 band mechanism of whitepaper Section 7, ordered and
+//! paid by quantized scores (`quant-v1`, [`crate::quant`]).
 //!
 //! Exact scores are fixed-point utilities scaled by [`SCORE_SCALE`] and stay
-//! in the coordinator's private package. Everything that orders or pays reads
-//! the quantized scores `q`, so the published [`crate::QuantizedResult`]
-//! determines the row exactly ([`derive_units`]). Every comparison, band and
-//! credit is exact integer or rational arithmetic.
+//! in the coordinator's private package. Rank order, the cutoff, bands and
+//! credit read no exact score: only the quantized scores `q`, the manifest's
+//! public parameters, roster order, the gate bits and cluster membership.
+//! Three steps read private values and publish only their outcome: the gates
+//! (the public-copy score clause [`outscores`] included) read exact private
+//! statistics and publish one bit each, clusters read private aligned
+//! distances and publish membership, and promotion compares exact scores with
+//! the exact margin and publishes the promoted identity, which pays nobody.
+//! The published [`crate::QuantizedResult`] carries those outcomes with `q`,
+//! so it determines the row exactly ([`derive_units`]). Every comparison, band
+//! and credit is exact integer or rational arithmetic.
 //!
 //! 1. **Scores.** `u = 1 - (a - y)^2` per document; a failure scores 0 and keeps
 //!    its weight. The batch is self-weighting, so `S = floor(sum u / n)`. A
 //!    reference with any failure holds the package ([`reference_score`]).
-//! 2. **Quantization.** `q = w floor((S + eta + o) / w)`, clamped to `[0, 1]`,
-//!    for every executed entrant and both references, from the private
-//!    cohort seed ([`quantize_package`]).
+//! 2. **Quantization.** `q = w floor((S + eta + o) / w)`, clamped to
+//!    `[0, w floor(1 / w)]` (the largest grid value at most 1), for every
+//!    executed entrant and both references, from the private cohort seed
+//!    ([`quantize_package`]).
 //! 3. **Gates.** An entrant is gated when no enforced gate failed and it was
 //!    scored; gates read exact private statistics and publish one bit each.
 //!    The minimum-success gate withholds an entrant with more than `k_n`

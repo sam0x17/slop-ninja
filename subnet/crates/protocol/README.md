@@ -279,7 +279,7 @@ inference files with the same role, digest and length are refused.
 Only quantized scores leave the coordinator (`src/quant.rs`,
 `src/quantized_result.rs`). For each executed entrant and for `R_k` and
 `R_k-1` the coordinator publishes `q = w floor((S + eta + o) / w)`, clamped
-to `[0, 1]`:
+to `[0, w floor(1 / w)]`, the largest grid value at most 1:
 
 - `w` is `max(2 SE, w_floor)` rounded up to one significant decimal digit
   (`ladder`), so every multiple of `w` prints exactly. `SE` is the sampling

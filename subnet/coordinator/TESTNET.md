@@ -4011,8 +4011,8 @@ leave the coordinator, and every reward value is computed from them.
 - **Rule.** The coordinator keeps the exact scores `S` in its private score
   package (`package.signed`, `ScorePackageV2` record version 5). For each
   executed entrant and for `R_k` and `R_k-1` it publishes
-  `q = w * floor((S + eta + o) / w)`, clamped to `[0, 1]`
-  (`protocol/src/quant.rs`). `w` is `max(2 SE, b)` rounded up to one
+  `q = w * floor((S + eta + o) / w)`, clamped to `[0, w * floor(1 / w)]`,
+  the largest grid value at most 1 (`protocol/src/quant.rs`). `w` is `max(2 SE, b)` rounded up to one
   significant digit, with `SE` measured on `R_k`'s batch utilities in
   256-bit integers; `eta` is exact discrete-Laplace noise of scale
   `b = 1/(n eps_v)`; `o` is a secret uniform offset in `[0, w)`. `eps = 2`
@@ -4050,9 +4050,10 @@ leave the coordinator, and every reward value is computed from them.
   Promotion still needs the exact margin over `R_k` (and the promotion
   audit), and the copy gate's score clause still reads exact batch and
   probe scores. Both publish one hotkey and one bit per entrant, counted in
-  the bit budget. On noisy `q` alone, an entrant equal to `R_k` would be
-  promoted about a quarter of the time and a copy of `R_k` would escape the
-  gate about a third of the time at full testnet roster.
+  the bit budget. On noisy `q` alone at full testnet roster, an entrant
+  equal to `R_k` would be promoted about 35% of the time (simulated with the
+  grid rounding) and a copy of `R_k` would escape the gate about a third of
+  the time.
 - **Minimum-success gate.** An entrant with more than `k_n` attributable
   failures is withheld: its public outcome is `Withheld`, nothing else.
   `examples/min_success_k.rs` derives `k_n` from the measured honest rate

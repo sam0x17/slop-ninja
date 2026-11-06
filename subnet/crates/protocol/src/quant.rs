@@ -4,8 +4,10 @@
 //! about a score is its quantized value
 //!
 //! ```text
-//! q = w * floor((S + eta + o) / w), clamped to [0, 1]
+//! q = w * floor((S + eta + o) / w), clamped to [0, w * floor(1 / w)]
 //! ```
+//!
+//! The upper end is the largest grid value at most 1 ([`quantize`]).
 //!
 //! - `w` is the grid width: `max(2 SE, w_floor)` rounded up to one significant
 //!   decimal digit ([`ladder`]), where `SE` is the sampling standard error of

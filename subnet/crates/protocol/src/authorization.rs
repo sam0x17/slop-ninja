@@ -6,17 +6,18 @@
 //! - A [`LaunchAuthorization`] names only the chain and the launch burn row,
 //!   with no manifest, so validators commit the burn row from the first tempo
 //!   of the first cohort, before any manifest is sealed. It serves until the
-//!   first cohort target activates at its closing boundary. Between the first
-//!   package's publication and that boundary the new target is pending and the
+//!   first cohort target activates at its closing boundary. Between the signing
+//!   of the first package and that boundary the new target is pending and the
 //!   burn row is still the active target, so the launch authorization keeps
 //!   validators committing without a gap, and it can only ever commit the burn
 //!   row, which pays no miner. From that boundary every validator refuses it,
 //!   at its check and at every per-tempo operation, so the burn row is never
 //!   re-authorized after a cohort target has been active.
-//! - Each score package is published with a per-cohort
-//!   [`RewardIntentAuthorization`] for the target active after it: the
-//!   package's new target, whose predecessor must be the validator's active
-//!   target, or, when the cohort produced none, the target already active.
+//! - A score package that produced a target is followed by a per-cohort
+//!   [`RewardIntentAuthorization`] that names it and authorizes that target,
+//!   whose predecessor must be the validator's active target unless its
+//!   closure has already activated it. For a cohort that produced none, the
+//!   record form also admits an authorization of the target already active.
 //!
 //! **Nothing expires.** An authorization yields commitments from its
 //! `issued_epoch` for as long as its target is the validator's active target,
@@ -81,7 +82,7 @@ pub const LAUNCH_RENEW_BY_TEMPOS: u64 = 40;
 
 canonical_struct! {
     /// The manifest-free authorization of the launch burn row, valid while no
-    /// cohort target has activated: through the first package's publication
+    /// cohort target has activated: through the signing of the first package
     /// and until that package's target activates at its closing boundary.
     pub struct LaunchAuthorization {
         pub chain: ChainBinding,
@@ -114,10 +115,10 @@ canonical_struct! {
     /// score package.
     pub struct RewardIntentAuthorization {
         pub chain: ChainBinding,
-        /// The cohort whose package carries it.
+        /// The cohort it was issued for.
         pub cohort: u64,
         pub cohort_manifest: Digest,
-        /// The package that carries it.
+        /// The score package it names.
         pub score_package: Digest,
         /// Digest of the target active after the package: new or carried over.
         pub target: Digest,
@@ -274,7 +275,7 @@ impl LaunchAuthorization {
     /// - the active target is the launch burn row, so no cohort target has
     ///   ever activated.
     ///
-    /// It stays valid after the first package is published, while that
+    /// It stays valid after the first package is signed, while that
     /// package's target is pending, so validators keep committing the burn row
     /// through the first cohort's transition. [`CheckedAuthorization::operation`]
     /// refuses it again at every tempo once a target has activated.
@@ -316,8 +317,8 @@ impl RewardIntentAuthorization {
         self.renew_by_epoch.saturating_sub(self.issued_epoch)
     }
 
-    /// Checks a signed authorization against the manifest of the cohort that
-    /// carries it, that cohort's package, the target it names, and the
+    /// Checks a signed authorization against the manifest of the cohort it
+    /// was issued for, that cohort's package, the target it names, and the
     /// validator's active target:
     ///
     /// - the signature verifies under the trusted authorization key;
@@ -509,7 +510,7 @@ impl<'a> CheckedAuthorization<'a> {
         }
     }
 
-    /// The manifest of the cohort that carries it; `None` for the launch one.
+    /// The manifest of the cohort it was issued for; `None` for the launch one.
     pub fn manifest(&self) -> Option<&'a CohortManifestV2> {
         match &self.scope {
             Scope::Cohort { manifest, .. } => Some(manifest),

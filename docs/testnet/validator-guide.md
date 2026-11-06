@@ -727,7 +727,7 @@ Each `recovery_round` event also counts `failures_awaiting_decode`,
 
 ## Reporting problems
 
-Open an issue on the public repository's issue tracker (not yet live) with
+Open an issue in the public repository's **Issues** tab with
 the output of `slop_ninja_validator --version` (the version and the commit the
 binary was built from; `slop-ninja-journal --version` prints the same), the
 command, the exit code and the logged event names. Never post the journal,

@@ -15,6 +15,7 @@ closes.
 | Piece | State |
 | --- | --- |
 | Subnet 601 on testnet, and registration on it | live |
+| Status page and public API, for people following along: <https://slop.ninja/status/> and <https://slop.ninja/api/> | live; the client does not read them |
 | `slop_ninja_miner pack` and `check`, and `slop_ninja_artifact_check` | built and tested on Linux x86_64; they run offline |
 | Local scorer (`slop_ninja_a_local_score`), the hidden scorer's engine on your machine | built and tested on Linux x86_64; runs offline |
 | Graph exporter (`export_a_onnx.py`) | in the repository |
@@ -23,7 +24,7 @@ closes.
 | Public repository | [sam0x17/slop-ninja](https://github.com/sam0x17/slop-ninja) |
 | Signed release binaries (Linux x86_64) | not yet live: the miner client and the artifact checker, built from the public repository, signed and smoke-tested when the release is published; a validator release follows later |
 | Coordinator unsigned cohort read (`GET /admission/v2/cohort`), used by `check`, `commit`, `status` and `next-cohort`, served by the upload Worker at `https://testnet-admission.slop.ninja` | live |
-| Coordinator signed admission routes, used by `upload`, `repair` and the hotkey view of `status`; the artifact goes straight to R2 under presigned URLs they return | not yet open to outside hotkeys: until they are, an outside hotkey's signed request is answered `not_found` (exit 1) |
+| Coordinator signed admission routes, used by `upload`, `repair` and the hotkey view of `status`; the artifact goes straight to R2 under presigned URLs they return | open only to Slop Ninja's operator test hotkeys during the admission v2 rollout: until they are open to you, an outside hotkey's signed request is answered `not_found` (exit 1) |
 | Public status host (`--public`), with the published packages, leaderboard and artifacts | not yet live; until it is, `status` and `next-cohort` show the calendar from the coordinator's unsigned cohort read |
 | The coordinator's admission origin pinned in the release trust file | pinned: `https://testnet-admission.slop.ninja` |
 | Validators committing the launch burn row ([Rewards](#13-rewards)) | live since November 3, 2026: both Slop Ninja validators commit and reveal it on subnet 601 each tempo |
@@ -34,7 +35,8 @@ The [training guide](training-guide.md) produces an admissible artifact from
 public material and ends with `pack` and `check`. `commit` needs only the
 unsigned cohort read and the chain, so it signs and submits an on-chain
 commitment for any registered hotkey whenever a cohort admits. `upload` needs
-the signed routes, which are not yet open to outside hotkeys. **Do not commit
+the signed routes, which are open only to Slop Ninja's operator test hotkeys
+during the admission v2 rollout. **Do not commit
 until they are open to you**: a commitment you cannot upload costs the chain
 fee and admits nothing. The steps below say where they depend on a piece that
 is not yet live. The public repository is
@@ -65,7 +67,8 @@ when it goes live. The release key is on the [landing page](README.md#release-ke
 
 ### Release binaries (Linux x86_64)
 
-Releases appear on the public repository's Releases page (not yet live).
+Releases appear on the public repository's Releases page; none is published
+yet.
 The first release holds:
 
 - the Linux x86_64 binaries `slop_ninja_miner` and
@@ -544,7 +547,7 @@ lasts, each with its distance from the confirmed epoch, for example `planned
 cutoff at epoch 23170 (1 epoch after the confirmed epoch)`. With `--public` it
 reads the public status snapshot (not yet live). Without it, it reads the
 coordinator's unsigned cohort read (`GET /admission/v2/cohort`,
-[admission API](admission-api.md#get-admissionv1cohort-unsigned)) from the
+[admission API](admission-api.md#get-admissionv2cohort-unsigned)) from the
 origin the trust file pins, or from `--coordinator`; its first line names
 that origin, the finalized block and the coordinator's confirmed epoch. A
 coordinator that reports no confirmed epoch gets absolute epochs only. The
@@ -967,8 +970,7 @@ operator downtime never becomes a miner failure.
 
 ## 15. Reporting problems
 
-Open an issue on the public repository's issue tracker (the repository is not
-yet live). Include:
+Open an issue in the public repository's **Issues** tab. Include:
 
 - `slop_ninja_miner --version`, `slop_ninja_artifact_check --version` and your
   platform;

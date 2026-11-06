@@ -490,3 +490,41 @@ fn arena_witness_the_quantized_result_fits_its_derived_footprint() {
         witness(R_COHORT_PACKAGE, footprint, || drop(step()));
     }
 }
+
+/// An unrecorded runtime: the V15 metadata file named by
+/// `SLOP_NINJA_WITNESS_RUNTIME` (spec `SLOP_NINJA_WITNESS_RUNTIME_SPEC`,
+/// default 0). The runtime watch's qualification sets it to a new runtime's
+/// bytes, which have no measurement yet, and runs this witness on the
+/// committed fixtures, so the recorded-length checks above still hold and
+/// this one checks what a new runtime needs: its parse within its own
+/// length-scaled bound and within `RUNTIME_PARSED_BYTES`, and the runtimes
+/// home at its entry bound with that runtime. It prints one line the watch
+/// reports. Without the variable it checks nothing.
+#[test]
+fn arena_witness_an_unrecorded_runtime_fits() {
+    let Some(path) = std::env::var_os("SLOP_NINJA_WITNESS_RUNTIME") else {
+        eprintln!("arena witness: no unrecorded runtime (SLOP_NINJA_WITNESS_RUNTIME unset)");
+        return;
+    };
+    set_mode(Mode::Enforce);
+    let spec: u32 = std::env::var("SLOP_NINJA_WITNESS_RUNTIME_SPEC").map_or(0, |s| s.parse().expect("a spec number"));
+    let metadata = std::fs::read(&path).unwrap_or_else(|e| panic!("{}: {e}", path.to_string_lossy()));
+    let len = metadata.len();
+    let (pages, live) = measure(|| drop(crate::chain::ChainRuntime::parse(&metadata, spec, 1).expect("the unrecorded metadata parses")));
+    let need = pages as usize * PAGE;
+    eprintln!(
+        "arena witness: unrecorded runtime {spec} ({len} B) peak {pages} pages ({need} B), live {live} B; scaled bound {} B ({}); RUNTIME_PARSED_BYTES {RUNTIME_PARSED_BYTES} B ({})",
+        runtime_parse_bytes(len),
+        if need <= runtime_parse_bytes(len) { "within" } else { "OVER" },
+        if need <= RUNTIME_PARSED_BYTES { "within" } else { "OVER" },
+    );
+    assert!(need <= runtime_parse_bytes(len), "unrecorded runtime {spec} parses within its scaled bound");
+    assert!(need <= RUNTIME_PARSED_BYTES, "RUNTIME_PARSED_BYTES covers unrecorded runtime {spec}");
+    witness(R_HOME_RUNTIMES, HOME_RUNTIMES_BYTES, || {
+        let mut runtimes = Vec::with_capacity(crate::signing::PARSED_RUNTIMES);
+        for _ in 0..crate::signing::PARSED_RUNTIMES {
+            runtimes.push(crate::chain::ChainRuntime::parse(&metadata, spec, 1).expect("parse"));
+        }
+        drop(runtimes);
+    });
+}

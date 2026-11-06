@@ -19,6 +19,8 @@ use scale_info::{PortableRegistry, TypeDef, form::PortableForm};
 use serde_json::{Map, Value, json};
 use sha2::{Digest, Sha256};
 
+mod upgrade;
+
 const SURFACE_SCHEMA: &str = "slop_ninja.runtime_surface.v1";
 const DIFF_SCHEMA: &str = "slop_ninja.runtime_surface_diff.v1";
 const NEEDED_SCHEMA: &str = "slop_ninja.runtime_needed.v1";
@@ -264,6 +266,21 @@ const NEEDED_STORAGE: &[(&str, &str)] = &[
     ("Commitments", "UsedSpaceOf"),
     ("Drand", "LastStoredRound"),
     ("Drand", "Pulses"),
+    // Read by name by the coordinator (signing preflight, rows, roster), the eval and upload
+    // Workers and rtao (2026-11-06 runtime-watch code-derived list).
+    ("System", "Account"),
+    ("System", "Events"),
+    ("System", "LastRuntimeUpgrade"),
+    ("Timestamp", "Now"),
+    ("SubtensorModule", "NetworksAdded"),
+    ("SubtensorModule", "PendingEpochAt"),
+    ("SubtensorModule", "BlocksSinceLastStep"),
+    ("SubtensorModule", "LastEpochBlock"),
+    ("SubtensorModule", "SubnetEpochIndex"),
+    ("SubtensorModule", "SubnetworkN"),
+    ("SubtensorModule", "MinAllowedWeights"),
+    ("SubtensorModule", "MaxWeightsLimit"),
+    ("SubtensorModule", "Owner"),
 ];
 
 const NEEDED_EVENTS: &[(&str, &str)] = &[
@@ -280,6 +297,19 @@ const NEEDED_EVENTS: &[(&str, &str)] = &[
     ("SubtensorModule", "CommitRevealEnabled"),
     ("SubtensorModule", "CommitRevealPeriodsSet"),
     ("Commitments", "Commitment"),
+    ("System", "ExtrinsicSuccess"),
+    ("System", "ExtrinsicFailed"),
+];
+
+/// Runtime API methods the participants call (`state_call` or rtao's runtime API reads).
+const NEEDED_RUNTIME_APIS: &[&str] = &[
+    "Core.version",
+    "Metadata.metadata_at_version",
+    "Metadata.metadata_versions",
+    "SubnetInfoRuntimeApi.get_selective_mechagraph",
+    "SubnetInfoRuntimeApi.get_selective_metagraph",
+    "TaggedTransactionQueue.validate_transaction",
+    "AccountNonceApi.account_nonce",
 ];
 
 /// Types that wrap whole runtime enums are recorded by name only.
@@ -296,7 +326,12 @@ fn main() -> Result<()> {
     match refs.as_slice() {
         ["unwrap", input, output] => unwrap_rpc(Path::new(input), Path::new(output)),
         ["surface", label, v15_path, v16_path] => {
-            let surface = surface(label, &fs::read(v15_path)?, &fs::read(v16_path)?)?;
+            let v16 = if *v16_path == "-" {
+                None
+            } else {
+                Some(fs::read(v16_path)?)
+            };
+            let surface = surface(label, &fs::read(v15_path)?, v16.as_deref())?;
             println!("{}", serde_json::to_string_pretty(&surface)?);
             Ok(())
         }
@@ -312,6 +347,16 @@ fn main() -> Result<()> {
             println!("{}", serde_json::to_string_pretty(&out)?);
             Ok(())
         }
+        ["upgrade-scan", v15_path, input] => {
+            let input: Value = serde_json::from_slice(&fs::read(input)?)?;
+            let out = upgrade::scan(&fs::read(v15_path)?, &input)?;
+            println!("{}", serde_json::to_string_pretty(&out)?);
+            Ok(())
+        }
+        ["storage-prefix", pallet, item] => {
+            println!("{}", upgrade::storage_prefix(pallet, item));
+            Ok(())
+        }
         ["diff", old, new] => {
             let old: Value = serde_json::from_slice(&fs::read(old)?)?;
             let new: Value = serde_json::from_slice(&fs::read(new)?)?;
@@ -320,10 +365,12 @@ fn main() -> Result<()> {
         }
         _ => bail!(
             "usage: slop_ninja_runtime_surface unwrap RPC.json OUT.scale\n       \
-             slop_ninja_runtime_surface surface LABEL V15.scale V16.scale\n       \
+             slop_ninja_runtime_surface surface LABEL V15.scale V16.scale|-\n       \
              slop_ninja_runtime_surface diff OLD.json NEW.json\n       \
              slop_ninja_runtime_surface provenance NETWORK ENDPOINT RPC_DIR\n       \
-             slop_ninja_runtime_surface needed SURFACE.json PROVENANCE.json [DIFF.json...]"
+             slop_ninja_runtime_surface needed SURFACE.json PROVENANCE.json [DIFF.json...]\n       \
+             slop_ninja_runtime_surface upgrade-scan V15.scale STORAGE.json\n       \
+             slop_ninja_runtime_surface storage-prefix PALLET ITEM"
         ),
     }
 }
@@ -515,13 +562,23 @@ fn needed_call(pallet: &str, call: &str) -> Option<&'static NeededCall> {
 }
 
 /// Builds the surface from V15 (calls, storage, extensions with additional
-/// signed data) and cross-checks the call table against V16.
-fn surface(label: &str, v15_bytes: &[u8], v16_bytes: &[u8]) -> Result<Value> {
+/// signed data) and cross-checks the call table against V16. Without V16 (a
+/// runtime that does not serve it, or a test with V15 fixtures only) the
+/// runtime APIs come from V15, without API versions, and the transaction
+/// extension sections are empty; compare such a surface only with another one
+/// built the same way.
+fn surface(label: &str, v15_bytes: &[u8], v16_bytes: Option<&[u8]>) -> Result<Value> {
     let RuntimeMetadata::V15(m15) = decode(v15_bytes)? else {
         bail!("first blob is not V15 metadata");
     };
-    let RuntimeMetadata::V16(m16) = decode(v16_bytes)? else {
-        bail!("second blob is not V16 metadata");
+    let m16 = match v16_bytes {
+        Some(b) => {
+            let RuntimeMetadata::V16(m16) = decode(b)? else {
+                bail!("second blob is not V16 metadata");
+            };
+            Some(m16)
+        }
+        None => None,
     };
     let types = Types(&m15.types);
 
@@ -640,7 +697,9 @@ fn surface(label: &str, v15_bytes: &[u8], v16_bytes: &[u8]) -> Result<Value> {
         }
     }
 
-    cross_check_v16(&m15, &m16)?;
+    if let Some(m16) = &m16 {
+        cross_check_v16(&m15, m16)?;
+    }
 
     let ext = &m15.extrinsic;
     let signed_extensions: Vec<Value> = ext
@@ -654,6 +713,80 @@ fn surface(label: &str, v15_bytes: &[u8], v16_bytes: &[u8]) -> Result<Value> {
             })
         })
         .collect();
+    let (by_version, tx_extensions, apis) = match &m16 {
+        Some(m16) => v16_sections(m16),
+        None => (Map::new(), Vec::new(), v15_apis(&m15)),
+    };
+    let digest_of = |b: Option<&[u8]>, f: fn(&[u8]) -> String| b.map(f);
+
+    Ok(json!({
+        "schema": SURFACE_SCHEMA,
+        "label": label,
+        "metadata": {
+            "v15_sha256": sha256_hex(v15_bytes),
+            // rtao `compat.json` records this `blake2b-256-raw` metadata hash.
+            "v15_blake2b_256": hex::encode(Blake2b::<U32>::digest(v15_bytes)),
+            "v15_bytes": v15_bytes.len(),
+            "v16_sha256": digest_of(v16_bytes, sha256_hex),
+            "v16_blake2b_256": digest_of(v16_bytes, |b| hex::encode(Blake2b::<U32>::digest(b))),
+            "v16_bytes": v16_bytes.map(<[u8]>::len),
+        },
+        "extrinsic": {
+            "v15_version": ext.version,
+            "v16_versions": m16.as_ref().map(|m| m.extrinsic.versions.clone()),
+            "address": types.describe(ext.address_ty.id),
+            "signature": types.describe(ext.signature_ty.id),
+            "extra": types.describe(ext.extra_ty.id),
+            "call_type": types.name(ext.call_ty.id),
+        },
+        "signed_extensions": signed_extensions,
+        "transaction_extensions_by_version": by_version,
+        "transaction_extensions": tx_extensions,
+        "pallets": pallets,
+        "calls": calls,
+        "storage": storage,
+        "storage_digests": storage_digests,
+        "events": events,
+        "event_digests": event_digests,
+        "errors": errors,
+        "constants": constants,
+        "runtime_apis": apis,
+    }))
+}
+
+/// Runtime APIs from V15 (no API versions there).
+fn v15_apis(m15: &v15::RuntimeMetadataV15) -> Map<String, Value> {
+    let types = Types(&m15.types);
+    let mut apis = Map::new();
+    for api in &m15.apis {
+        for method in &api.methods {
+            let inputs: Vec<Value> = method
+                .inputs
+                .iter()
+                .map(|i| json!([i.name, types.name(i.ty.id)]))
+                .collect();
+            let mut shape: Vec<String> = method
+                .inputs
+                .iter()
+                .map(|i| types.shape(i.ty.id, &mut Vec::new()))
+                .collect();
+            shape.push(types.shape(method.output.id, &mut Vec::new()));
+            apis.insert(
+                format!("{}.{}", api.name, method.name),
+                json!({"api_version": null, "inputs": inputs,
+                       "output": types.name(method.output.id),
+                       "sha256_16": digest(&shape.join("->"))}),
+            );
+        }
+    }
+    apis
+}
+
+/// The V16-only sections: transaction extensions by version, their shapes and the
+/// versioned runtime APIs.
+fn v16_sections(
+    m16: &v16::RuntimeMetadataV16,
+) -> (Map<String, Value>, Vec<Value>, Map<String, Value>) {
     let types16 = Types(&m16.types);
     let mut by_version = Map::new();
     for (version, ids) in &m16.extrinsic.transaction_extensions_by_version {
@@ -703,39 +836,7 @@ fn surface(label: &str, v15_bytes: &[u8], v16_bytes: &[u8]) -> Result<Value> {
         }
     }
 
-    Ok(json!({
-        "schema": SURFACE_SCHEMA,
-        "label": label,
-        "metadata": {
-            "v15_sha256": sha256_hex(v15_bytes),
-            // rtao `compat.json` records this `blake2b-256-raw` metadata hash.
-            "v15_blake2b_256": hex::encode(Blake2b::<U32>::digest(v15_bytes)),
-            "v15_bytes": v15_bytes.len(),
-            "v16_sha256": sha256_hex(v16_bytes),
-            "v16_blake2b_256": hex::encode(Blake2b::<U32>::digest(v16_bytes)),
-            "v16_bytes": v16_bytes.len(),
-        },
-        "extrinsic": {
-            "v15_version": ext.version,
-            "v16_versions": m16.extrinsic.versions,
-            "address": types.describe(ext.address_ty.id),
-            "signature": types.describe(ext.signature_ty.id),
-            "extra": types.describe(ext.extra_ty.id),
-            "call_type": types.name(ext.call_ty.id),
-        },
-        "signed_extensions": signed_extensions,
-        "transaction_extensions_by_version": by_version,
-        "transaction_extensions": tx_extensions,
-        "pallets": pallets,
-        "calls": calls,
-        "storage": storage,
-        "storage_digests": storage_digests,
-        "events": events,
-        "event_digests": event_digests,
-        "errors": errors,
-        "constants": constants,
-        "runtime_apis": apis,
-    }))
+    (by_version, tx_extensions, apis)
 }
 
 fn storage_entry(
@@ -893,10 +994,40 @@ fn diff(old: &Value, new: &Value) -> Result<Value> {
             )),
         );
     }
+    for api in NEEDED_RUNTIME_APIS {
+        needed.insert(
+            format!("runtime_api {api}"),
+            json!(status(
+                &old["runtime_apis"][*api],
+                &new["runtime_apis"][*api]
+            )),
+        );
+    }
+    // What every signed extrinsic encodes besides its call.
+    for section in [
+        "extrinsic",
+        "signed_extensions",
+        "transaction_extensions",
+        "transaction_extensions_by_version",
+    ] {
+        let state = if old[section] == new[section] {
+            "unchanged"
+        } else {
+            "changed"
+        };
+        needed.insert(format!("encoding {section}"), json!(state));
+    }
+    // Items that need a look: changed or removed (added and absent ones never break a read).
+    let attention: Vec<&String> = needed
+        .iter()
+        .filter(|(_, v)| *v == "changed" || *v == "removed")
+        .map(|(k, _)| k)
+        .collect();
     Ok(json!({
         "schema": DIFF_SCHEMA,
         "old": {"label": old["label"], "metadata": old["metadata"]},
         "new": {"label": new["label"], "metadata": new["metadata"]},
+        "needed_attention": attention,
         "needed": needed,
         "sections": sections,
     }))
@@ -1108,11 +1239,44 @@ mod tests {
         assert_eq!(d["needed"]["call SubtensorModule.serve_axon"], "removed");
         assert_eq!(d["needed"]["call SubtensorModule.start_call"], "added");
         assert_eq!(d["needed"]["call SubtensorModule.register"], "absent");
+        let attention: Vec<&str> = d["needed_attention"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|v| v.as_str().unwrap())
+            .collect();
+        assert!(attention.contains(&"call SubtensorModule.set_weights"));
+        assert!(attention.contains(&"call SubtensorModule.serve_axon"));
+        assert!(!attention.contains(&"call SubtensorModule.start_call"));
+        assert_eq!(d["needed"]["encoding signed_extensions"], "unchanged");
         assert_eq!(
             d["sections"]["calls"]["removed"][0],
             "SubtensorModule.serve_axon"
         );
         assert_eq!(d["sections"]["extrinsic"], "unchanged");
+    }
+
+    #[test]
+    fn a_v15_only_surface_diffs_the_recorded_runtimes() {
+        let dir = concat!(env!("CARGO_MANIFEST_DIR"), "/../../subnet/fixtures");
+        let a = fs::read(format!("{dir}/runtime-486/testnet-486.v15.scale")).unwrap();
+        let b = fs::read(format!("{dir}/runtime-487/pr3294-f3654266.v15.scale")).unwrap();
+        let a = surface("486", &a, None).unwrap();
+        let b = surface("487", &b, None).unwrap();
+        assert_eq!(a["metadata"]["v16_bytes"], Value::Null);
+        assert!(a["runtime_apis"].get("Core.version").is_some());
+        let d = diff(&a, &b).unwrap();
+        for item in [
+            "runtime_api Core.version",
+            "runtime_api Metadata.metadata_at_version",
+            "storage System.Events",
+            "storage SubtensorModule.SubnetEpochIndex",
+            "event System.ExtrinsicSuccess",
+            "call SubtensorModule.commit_timelocked_mechanism_weights",
+            "encoding signed_extensions",
+        ] {
+            assert_eq!(d["needed"][item], "unchanged", "{item}");
+        }
     }
 
     #[test]

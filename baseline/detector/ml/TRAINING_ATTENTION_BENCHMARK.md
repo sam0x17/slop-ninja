@@ -58,10 +58,14 @@ attention backends can produce different floating-point results.
 
 One optimization was attempted, none accepted, and the isolated SDPA prototype
 was rejected before application to the trainer. There were no working-tree
-reverts or full resets. Four extra runs addressed timing noise. The only project
-files added are this report and the fixed benchmark; training code is unchanged.
+reverts or full resets. Four extra runs addressed timing noise. Training code
+was unchanged.
 
-Run the benchmark with the pinned detector environment and checkpoint:
+The fixed benchmark, `ml/benchmark_training.py`, is no longer in the working
+tree. Restore it from commit `f4ee363b` with
+`git show f4ee363b:baseline/detector/ml/benchmark_training.py` and check it
+against the SHA-256 below. Run it with the pinned detector environment and
+checkpoint:
 
 ```sh
 .venv/bin/python ml/benchmark_training.py \

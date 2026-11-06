@@ -77,10 +77,6 @@ preprocessing differ between model families, so parameter count alone cannot
 explain a difference in performance. This experiment does not test text edits,
 readability, semantic fidelity or detector scores.
 
-`benchmark_frontier.py` uses synthetic tensors only. Its preliminary MLP timing
-included a temperature parameter; the final frozen MLPs omit that parameter.
-Keep this difference visible when comparing projected and measured cost.
-
 ## Public A recipe
 
 `public_a.py` and the `public_a/` configuration train an *A* artifact from

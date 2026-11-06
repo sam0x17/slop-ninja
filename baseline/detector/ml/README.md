@@ -83,59 +83,15 @@ remote code disabled. Inference makes no provider calls.
 
 ## Train and calibrate
 
-For explicit word/grammar inputs, use the Rust
-[feature preparation](../EXPLICIT_FEATURES_V1.md). Its `export-vectors` command
-fits coordinate vocabularies and scales on Train, then exports sparse rows with
-hashes and source-family metadata. This prepares a separate neural-feature
-comparison; the encoder trainer below continues to consume tokenized text.
-
-The [feature-head protocol](../FEATURE_NN_V1.md) fixes a separate eleven-candidate
-comparison. Its trainer consumes the immutable Rust export and verifies every
-row against the original admitted archives:
-
-```sh
-python baseline/detector/ml/train_features.py \
-  --vectors /studio/explicit-features-v1/combined-vectors \
-  --source-shards /studio/shards-v1 --views /studio/assembly-v1/primary \
-  --hidden-width 128 --output /studio/new-feature-fit
-```
-
-Run this on the Studio. The feature trainer uses two CPU threads and no encoder
-weights. It saves a frozen feature space, weights, calibration, attribution and
-runtime source. `feature_nn.load_bundle` verifies the packaged files and numeric
-reference vectors; `feature_nn.feature_gradient` differentiates the model-origin
-margin with respect to scaled coordinates. Useful gradient rankings, held-out
-transfer and Linux runtime qualification remain separate checks.
-
-Project new text with the saved space instead of fitting another vocabulary:
-
-```sh
-slop_ninja_detector project --feature-space /studio/feature-fit/feature_space.json \
-  --text-file /private/input.txt --python /studio/parser-env/bin/python \
-  > /private/vector.json
-python baseline/detector/ml/infer_features.py --artifact /studio/feature-fit \
-  --vector-json /private/vector.json --gradient > /private/prediction.json
-```
-
-The inference entrypoint must use the artifact's matching frozen core runtime.
-Even a word-only head needs the parser when its space was fitted from the combined
-annotation cache. Parser identity, feature schema and space hashes must match.
-Unsupported text produces no replacement vector. Keep projections and gradient
-outputs private alongside their source text. The first
-[projection check](../results/feature-projection-check-v1.json) reproduced one
-inspected Train vector exactly and exercised its trained head's input gradients;
-it is not edit-transfer evidence.
-
-`project-batch` accepts JSONL requests containing only `id` and `text`. Supply
-compatible frozen spaces with `--feature-spaces`; the command parses each text
-once and writes one projection JSONL per space hash to a new `--output-dir`.
-It preserves unsupported records instead of supplying zero vectors. The
-`feature_batch.py` ML runner scores those vectors with an artifact's frozen
-runtime, or derives Calibration probabilities from its already saved logits.
-The Rust `feature_report` example audits the completed grid, freezes operating
-points and evaluates the fixed diagnostics. See the
+The explicit word/grammar feature-head comparison is complete. Its Rust
+[feature preparation](../EXPLICIT_FEATURES_V1.md),
+[feature-head protocol](../FEATURE_NN_V1.md),
+[projection check](../results/feature-projection-check-v1.json),
 [first grid results](../FEATURE_NN_RESULTS.md) and
-[diagnostic protocol](../FEATURE_DIAGNOSTICS_V1.md).
+[diagnostic protocol](../FEATURE_DIAGNOSTICS_V1.md) remain as evidence. Its
+Python feature-head trainer and runners are in Git history. The Rust `project`
+and `project-batch` commands still project text into a frozen feature space;
+the encoder trainer below consumes tokenized text.
 
 Export separate `train`, `development`, `calibration` and sealed `test` JSONL
 shards using the Rust dataset commands. Each ML row carries the versioned record

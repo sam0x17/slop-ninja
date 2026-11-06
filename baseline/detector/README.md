@@ -189,8 +189,9 @@ model-spec JSON binds the model ID, immutable revision/file hash, Apache-2.0
 license evidence, quantization, runtime, temperature and token limit. See the
 struct in `src/bin/generate_samples.rs` for the exact fields. Verify the loaded
 weights against that spec before using an export.
-The [native generation notes](ml/GENERATION_RUNTIME.md) describe the separate
-MLX environment and the pinned Mistral tokenizer correction.
+The pilot's Mistral holdout was served by a pinned MLX adapter that applied a
+tokenizer regex correction; `manifests/pilot-generation-v1.json` binds its
+hash, and its source remains in Git history.
 
 ```sh
 cargo run --release --bin generate_samples -- \

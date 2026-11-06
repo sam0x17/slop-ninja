@@ -402,9 +402,13 @@ Its privacy boundary relies on the qualified request path and account controls.
 
 Use Rust for the CLI, corpus collection, SQLite storage, statistics, experiments,
 and detector orchestration. Use Python only where an NLP/ML dependency requires
-it. Current exceptions are the spaCy annotation bridges and PyTorch author
-scoring experiments in `grammar/crates/grammar-eval/python/`. Keep
-corpus handling, feature extraction and vector geometry in Rust.
+it. Current exceptions are the spaCy and transformer bridges called
+by Rust; the A training, export, final-block, spans and Tier C recipes and their tests in
+`grammar/crates/grammar-eval/python/`; the V6 detector runner in
+`baseline/detector/ml/`; the A CPU qualification oracle; and the author-evidence
+trainers that reproduce cited results. Delete Python that no current check,
+recipe or cited evidence uses. Keep corpus handling, feature extraction and
+vector geometry in Rust.
 
 Run CPU-heavy builds, parsing, tests, and corpus audits on the build host that
 owns the checkout, not on CI. Use durable
@@ -432,9 +436,8 @@ ignored `data/`. Check in pinned source manifests, reproducible Rust code, and
 reports. The user authorized publishing the redistributable detector corpus on
 2026-09-12: curated snapshots belong in `datasets/`, with exact text, provenance,
 source licenses, fixed splits and checksums. Keep private material and live
-provider logs in ignored storage. `legacy/` and `experiments/pangram-preface/`
-preserve earlier work; do not
-extend their Python orchestration for new experiments.
+provider logs in ignored storage. Git keeps the history of removed prototypes
+and experiments; remaining Python is limited to the exceptions listed above.
 
 Published dataset JSONL, document-level rights and evidence indexes use lossless
 zstd storage. Restore decoded copies with `tools/dataset-storage` before existing

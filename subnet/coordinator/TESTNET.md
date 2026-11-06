@@ -190,9 +190,8 @@ each, so each Worker gets one new version per step, not three.
    bulk and keep it attached across the version change; a line nobody saw
    is not lost: every `latest.json` states the last check as
    `status_check` (time, the two outcomes, `settled`) until the next check
-   replaces it, so read it from the puller's `state/latest.json` or the
-   bucket's `feed/v1/latest.json` (never change the tokens again to
-   repeat it). One `unanswered` (a timeout, a broken binding or a non-200
+   replaces it, so read it from the bucket's `feed/v1/latest.json` (never
+   change the tokens again to repeat it). One `unanswered` (a timeout, a broken binding or a non-200
    answer; logged as an error, `settled` false, checked again the next
    tick) followed by `ok caller=alerts` is fine. A repeated `unanswered`,
    or any caller other than `alerts` (`shared`: the bulk did not take;
@@ -3293,11 +3292,11 @@ Blockers before step 1 (each recorded in the private status):
   entity-tag pin turns a replaced or deleted file into a reference load
   failure (the cohort pauses), never into other bytes.
 
-Cross-lane hold: from the moment the set lands on main until step 11 is
-done, no other lane deploys the eval Worker, the upload Worker or the
-publisher from main (a routine deploy would ship part of the set out of
-order). Record the hold under Active lanes in `COORDINATION.md` before the
-merge and release it after step 11.
+Deploy hold: from the moment the set lands on main until step 11 is done,
+no other deploy of the eval Worker, the upload Worker or the publisher runs
+from main (a routine deploy would ship part of the set out of order).
+Record the hold in the operator's deploy log before the merge and release
+it after step 11.
 
 0. **Drain and preflight.** Before the last v1 cohort's transition queues a
    successor, pause the standing template (`POST /eval/template/pause`), so

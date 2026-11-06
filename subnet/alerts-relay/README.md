@@ -76,9 +76,9 @@ feed build described here is not deployed yet.
      the two outcomes, `settled` false while a read was unanswered), and
      every `latest.json` states it as `status_check` until the next check
      replaces it, so a check whose log line nobody saw is read after the
-     fact: the puller's copy (`state/latest.json` in its inbox) or the
-     bucket's `feed/v1/latest.json`. A live `wrangler tail` (testnet env)
-     started before the deploy shows the same line as it happens.
+     fact from the bucket's `feed/v1/latest.json`. A live `wrangler tail`
+     (testnet env) started before the deploy shows the same line as it
+     happens.
    - A crashed publisher, a stopped publisher cron, a state object that does
      not answer and a broken binding all stop the heartbeat. The relay is a
      separate Worker, so none of those stops it.

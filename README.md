@@ -13,7 +13,7 @@
 [![Bittensor testnet: subnet 601](https://img.shields.io/badge/Bittensor%20testnet-subnet%20601-e8173f?labelColor=2a3b41)](docs/testnet/README.md)
 [![Licence: MIT OR Apache-2.0](https://img.shields.io/badge/licence-MIT%20OR%20Apache--2.0-28faba?labelColor=2a3b41)](#licence)
 
-**[Testnet&nbsp;status](https://slop.ninja/status/)** ·
+**[Testnet&nbsp;status](https://slop.ninja/testnet/status/)** ·
 **[API](https://slop.ninja/api/)** ·
 **[Whitepaper](whitepaper/slop_ninja.pdf)** ·
 **[Miner&nbsp;guide](docs/testnet/miner-guide.md)** ·
@@ -66,7 +66,7 @@ Testnet subnet 601 is the rehearsal. It has no monetary value.
   a commitment you cannot upload costs the chain fee and admits nothing.
 - **Releases:** no signed release is published yet. Build the clients from
   source as the guides describe.
-- **Follow along:** the [status page](https://slop.ninja/status/), the
+- **Follow along:** the [status page](https://slop.ninja/testnet/status/), the
   [public API](https://slop.ninja/api/), the [whitepaper](whitepaper/slop_ninja.pdf)
   and [@SlopNinja](https://x.com/SlopNinja) on X.
 
@@ -105,7 +105,6 @@ private contact [below](#security).
 | `site/` | The page template of the public status host. |
 | [`assets/brand/`](assets/brand/README.md) | The approved SlopNinja logo files. |
 | `python/`, `scripts/` | The spaCy annotation bridge and the platform check. |
-| `legacy/` | The archived Python prototype, kept for result reproduction. |
 
 ## Development
 

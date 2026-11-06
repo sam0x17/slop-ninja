@@ -62,10 +62,10 @@ reverts or full resets. Four extra runs addressed timing noise. Training code
 was unchanged.
 
 The fixed benchmark, `ml/benchmark_training.py`, is no longer in the working
-tree. Restore it from commit `f4ee363b` with
-`git show f4ee363b:baseline/detector/ml/benchmark_training.py` and check it
-against the SHA-256 below. Run it with the pinned detector environment and
-checkpoint:
+tree. From `baseline/detector`, restore it from commit `f4ee363b` with
+`git show f4ee363b:baseline/detector/ml/benchmark_training.py > ml/benchmark_training.py`
+and check it against the SHA-256 below. Run it there with the pinned
+detector environment and checkpoint:
 
 ```sh
 .venv/bin/python ml/benchmark_training.py \

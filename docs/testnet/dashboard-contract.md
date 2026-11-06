@@ -25,7 +25,7 @@ document through a copy of those types.
    `slop.ninja/testnet/status/data/<network>/<key>`, which the page reads,
    and identically at the former paths `slop.ninja/status/data/<network>/<key>`
    and `slop.ninja/dashboard/data/<network>/<key>`, which stay for external
-   readers and the operator's watch. Testnet pages live under
+   readers. Testnet pages live under
    `slop.ninja/testnet/`, and the unprefixed paths are reserved for mainnet:
    until mainnet has pages, `slop.ninja/status/` page paths redirect
    temporarily (302) to their `slop.ninja/testnet/status/` pages, and the

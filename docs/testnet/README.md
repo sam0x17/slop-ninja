@@ -21,7 +21,7 @@ Testnet subnet 601 is the rehearsal. It has no monetary value.
   the admission v2 rollout: an outside hotkey's signed admission requests are
   answered `not_found`. Do not commit until admission is open to your hotkey;
   a commitment you cannot upload costs the chain fee and admits nothing.
-- Follow along on the [status page](https://slop.ninja/status/), through the
+- Follow along on the [status page](https://slop.ninja/testnet/status/), through the
   [public API](https://slop.ninja/api/) and in the
   [whitepaper](../../whitepaper/slop_ninja.pdf).
 - Report problems in the public repository's **Issues** tab, and security
@@ -62,7 +62,7 @@ Testnet subnet 601 is the rehearsal. It has no monetary value.
 | Piece | State |
 | --- | --- |
 | Subnet 601 and registration | live |
-| Status page and public API, at <https://slop.ninja/status/> and <https://slop.ninja/api/> | live |
+| Status page and public API, at <https://slop.ninja/testnet/status/> and <https://slop.ninja/api/> | live |
 | Miner client `pack` and `check`, artifact checker | built and tested; offline |
 | Local scorer (the hidden scorer's engine) | built and tested; offline |
 | Graph exporter | in the repository |
@@ -82,7 +82,7 @@ Testnet subnet 601 is the rehearsal. It has no monetary value.
 Links:
 
 - public repository: <https://github.com/sam0x17/slop-ninja>, with its **Issues** tab as the issue tracker;
-- status page: <https://slop.ninja/status/>; public API: <https://slop.ninja/api/>; the public status host is not yet live;
+- status page: <https://slop.ninja/testnet/status/>; public API: <https://slop.ninja/api/>; the public status host is not yet live;
 - release public key: [below](#release-key);
 - private security contact: [security@slop.ninja](mailto:security@slop.ninja) ([security policy](../../SECURITY.md)).
 

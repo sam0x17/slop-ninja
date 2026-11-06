@@ -15,7 +15,7 @@ closes.
 | Piece | State |
 | --- | --- |
 | Subnet 601 on testnet, and registration on it | live |
-| Status page and public API, for people following along: <https://slop.ninja/status/> and <https://slop.ninja/api/> | live; the client does not read them |
+| Status page and public API, for people following along: <https://slop.ninja/testnet/status/> and <https://slop.ninja/api/> | live; the client does not read them |
 | `slop_ninja_miner pack` and `check`, and `slop_ninja_artifact_check` | built and tested on Linux x86_64; they run offline |
 | Local scorer (`slop_ninja_a_local_score`), the hidden scorer's engine on your machine | built and tested on Linux x86_64; runs offline |
 | Graph exporter (`export_a_onnx.py`) | in the repository |

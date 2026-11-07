@@ -169,6 +169,10 @@ WATCHDOG_BEHIND_BLOCKS = "25"
 RPC_CALLS_PER_MINUTE = "10"
 RPC_HASHES_PER_CALL = "32"
 EVAL_ROLE = "eval"
+# The admission events Queue this env consumes (its queue consumer below names
+# the same Queue). The queue export routes a batch by comparing its Queue name
+# with this var and refuses every batch while it is unset.
+ADMISSION_EVENTS_QUEUE = "admission-events-queue-testnet"
 # Testnet shortcut T12 trust roots (public Ed25519 application keys, never chain
 # keys): the keys the native validator and the coordinator are configured to
 # trust. The eval Worker refuses to sign unless EVAL_PACKAGE_SIGNING_KEY and
@@ -353,7 +357,7 @@ service = "slop-ninja-r2-signer-testnet"
 # prefix (a wakeup only: the cohort object heads the object itself; a lost
 # event loses nothing, the alarm sweep and the close sweep record it). Create
 # the queue before this Worker's deploy, and the notification rule after the
-# consumer is live:
+# consumer is live (the ADMISSION_EVENTS_QUEUE var above names the same queue):
 #   wrangler queues create admission-events-queue-testnet
 #   wrangler r2 bucket notification create slop-ninja-admission-testnet \
 #     --event-type object-create --queue admission-events-queue-testnet --prefix admission/v2/

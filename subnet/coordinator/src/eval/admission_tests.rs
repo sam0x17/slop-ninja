@@ -4002,16 +4002,26 @@ fn the_signer_interface_and_bindings_are_the_deployments() {
     assert!(signer_toml.contains("name = \"slop-ninja-r2-signer-testnet\""));
     assert!(signer_toml.contains(signer::TOKEN_SECRET));
     let toml = include_str!("../../wrangler.toml");
+    // The events Queue's name is configuration: the eval env's var names the
+    // same Queue as its consumer, and no other env sets the var (only the
+    // eval env consumes Queues).
+    let vars = &toml[toml.find("[env.eval-testnet.vars]\n").unwrap()..];
+    let vars = &vars[..vars[1..].find("\n[").map_or(vars.len(), |i| i + 1)];
+    let prefix = format!("{EVENTS_QUEUE_VAR} = \"");
+    let events = vars.lines().find_map(|l| l.strip_prefix(prefix.as_str())).and_then(|v| v.strip_suffix('"'));
+    let events = events.expect("the eval env's [vars] names the events Queue");
+    assert!(!events.is_empty());
+    assert_eq!(toml.matches(prefix.as_str()).count(), 1, "only the eval env sets {EVENTS_QUEUE_VAR}");
     for line in [
         format!("binding = \"{}\"", signer::BINDING),
         "service = \"slop-ninja-r2-signer-testnet\"".to_owned(),
-        format!("queue = \"{EVENTS_QUEUE}\""),
+        format!("[[env.eval-testnet.queues.consumers]]\nqueue = \"{events}\""),
         signer::TOKEN_SECRET.to_owned(),
     ] {
         assert!(toml.contains(&line), "{line}");
     }
     // The events consumer's concurrency is the bound the memory fit counts.
-    let consumer = &toml[toml.find(&format!("queue = \"{EVENTS_QUEUE}\"")).unwrap()..];
+    let consumer = &toml[toml.find(&format!("queue = \"{events}\"")).unwrap()..];
     let consumer = &consumer[..consumer.find("\n\n").unwrap_or(consumer.len())];
     assert!(consumer.lines().any(|l| l.trim() == format!("max_concurrency = {EVENTS_MAX_CONCURRENCY}")), "{consumer}");
 }

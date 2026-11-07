@@ -2644,11 +2644,17 @@ mod reader_calls {
 
 /// The eval deployment's Queue consumers, run inside their own scope by the
 /// hand-written `queue` export: the admission events Queue (R2
-/// object-create notifications, `admission_do::events`), and the
-/// lane-wakeup Queue (lane kicks).
+/// object-create notifications, `admission_do::events`), named by the
+/// `ADMISSION_EVENTS_QUEUE` var, and the lane-wakeup Queue (lane kicks).
+/// Without that var no batch is routed: the handler fails, the export
+/// retries the whole batch (the consumer's `max_retries` applies), and an
+/// event never reaches the lane consumer by mistake.
 async fn queue(batch: worker::worker_sys::MessageBatch, env: Env, scope: slop_ninja_arena::ScopeRef) -> Result<()> {
+    let Some(events) = var(&env, crate::eval::admission::EVENTS_QUEUE_VAR).filter(|v| !v.is_empty()) else {
+        return Err(worker::Error::RustError(format!("{} unset: queue batch not routed", crate::eval::admission::EVENTS_QUEUE_VAR)));
+    };
     let name = batch.queue().ok().and_then(|q| q.as_string());
-    if name.as_deref() == Some(crate::eval::admission::EVENTS_QUEUE) {
+    if name.as_deref() == Some(events.as_str()) {
         return admission_do::events(batch, env, scope).await;
     }
     lanes_do::consume(batch, env, scope).await

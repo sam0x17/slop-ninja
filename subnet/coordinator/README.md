@@ -2088,8 +2088,9 @@ store v25; [admission API](../../docs/testnet/admission-api.md)):
   against the logged commitment. No header object yet: `header_missing` with
   a fresh header URL.
 - **Files.** Recorded from R2's heads by the client's `complete`, the R2
-  object-create event (Queue `admission-events-queue-testnet`, a
-  wakeup only), or the alarm sweep (once a tick, sessions that had a URL
+  object-create event (Queue `admission-events-queue-testnet`, named by
+  the eval env's `ADMISSION_EVENTS_QUEUE` var, a wakeup only), or the
+  alarm sweep (once a tick, sessions that had a URL
   minted). An object present with other bytes or attributes is deleted
   (while it keeps the tag seen) and may be PUT again; a head error or a
   missing stored checksum records nothing. When the header and every file

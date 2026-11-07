@@ -2921,9 +2921,14 @@ pub mod signer {
     pub const TOKEN_SECRET: &str = "SIGNER_INTERFACE_TOKEN";
 }
 
-/// The admission events Queue (R2 object-create notifications on the
-/// admission bucket's `admission/v2/` prefix), consumed by the eval Worker.
-pub const EVENTS_QUEUE: &str = "admission-events-queue-testnet";
+/// The Wrangler var naming the admission events Queue (R2 object-create
+/// notifications on the admission bucket's `admission/v2/` prefix), consumed
+/// by the eval Worker. The name is deployment configuration, not code: the
+/// eval env's `[vars]` carries it with the same value as its queue
+/// consumer's `queue` (a test checks both), so no resource name is compiled
+/// in. Only the eval env consumes Queues. If the var is unset or empty the
+/// `queue` export refuses every batch rather than guess its route.
+pub const EVENTS_QUEUE_VAR: &str = "ADMISSION_EVENTS_QUEUE";
 
 /// The events consumer's `max_concurrency` (tracked in `wrangler.toml`, a
 /// test checks it): one batch at a time. An event is a wakeup only (a late

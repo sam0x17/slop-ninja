@@ -114,15 +114,15 @@ RUN_WALL_BUDGET_MS = "60000"
 # changes, the publisher archives the previous record's index under
 # v1/records/<its first label>/, removes the live leaderboard and reference
 # pointers, and starts a fresh record (publish.rs, `start_record`).
-PUBLISH_FROM_EPOCH = "76"
-RECORD_LABEL_PREFIX = "testnet-r0-"
+PUBLISH_FROM_EPOCH = "156"
+RECORD_LABEL_PREFIX = "testnet-r1-"
 # Publication at scoring start (tracked, so a routine deploy keeps it): the
 # first chain epoch whose cohorts publish their artifacts when scoring
 # starts, inside the public record above (never moving PUBLISH_FROM_EPOCH).
 # Empty: off. Set, every deploy must pass PRIVATE_DIGESTS and
 # OPERATOR_HOTKEYS (below) or the configuration is refused (config_refused
 # alerts). Set by its own commit and deploy (TESTNET.md, deploy set step 10).
-ARTIFACTS_FROM_EPOCH = ""
+ARTIFACTS_FROM_EPOCH = "162"
 # The admission origin the snapshot advertises: the key-free upload Worker's
 # custom domain, the origin testnet-trust.json pins (admission_origins), so a
 # released miner client run with --public uploads there.

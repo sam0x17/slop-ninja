@@ -2624,6 +2624,18 @@ pub fn throttle_backoff_ms(idx: i64, throttles: i64) -> u64 {
     base + (idx.unsigned_abs().wrapping_mul(7_919).wrapping_add(throttles.unsigned_abs().wrapping_mul(104_729))) % 1_000
 }
 
+/// The wait before a throttled item's next call: the backoff, or the
+/// provider's hint when longer, but never past the plan's throttle bound
+/// (`since + max_throttle_ms`, plus 1 ms so the next throttle reply is past
+/// it). A long hint (an endpoint may ask for up to an hour) therefore
+/// reaches the outage path, and the fallback, at the bound rather than after
+/// the full hint.
+pub fn throttle_wait_ms(idx: i64, throttles: i64, retry_after_ms: Option<u64>, since_ms: u64, max_throttle_ms: u64, now_ms: u64) -> u64 {
+    let wait = throttle_backoff_ms(idx, throttles).max(retry_after_ms.unwrap_or(0));
+    let left = since_ms.saturating_add(max_throttle_ms).saturating_sub(now_ms).saturating_add(1);
+    wait.min(left)
+}
+
 /// Validates and records generation results from lanes.
 ///
 /// A model answer (accepted, or rejected for its content) uses one of the

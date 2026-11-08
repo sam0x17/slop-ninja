@@ -5,7 +5,8 @@
 //! Anthropic) for the eval Worker, which reaches it only through a service
 //! binding: it has no route, no `workers.dev` name, no preview URL, no
 //! custom domain, no cron, no Durable Object and no bucket. It holds the two
-//! vendor keys, bound from the account's Secrets Store, and nothing else:
+//! vendor keys, bound from the account's Secrets Store (or, per vendor, a
+//! configured endpoint with its own key, a Worker secret), and nothing else:
 //! the eval Worker keeps the package and receipt keys and gains no secret.
 //! It is stateless; every durable fact (claims, attempts, vendor pauses,
 //! spend) lives in the eval Worker's cohort object.
@@ -13,6 +14,8 @@
 //! - [`drive`]: one call over a transport: the key header, the Flex
 //!   standard retry, the classification of a non-200 answer, and the
 //!   bounded stream read of a 200 answer.
+//! - [`route`]: where a vendor's calls go: its own API, or a configured
+//!   endpoint from a Worker secret.
 //! - [`routes`]: the arena routes and footprints of its `fetch` export.
 //! - `cf` (wasm32): the export, the interface check, the keys, and the
 //!   fetch transport.
@@ -27,6 +30,7 @@
 )]
 
 pub mod drive;
+pub mod route;
 pub mod routes;
 
 #[cfg(target_arch = "wasm32")]

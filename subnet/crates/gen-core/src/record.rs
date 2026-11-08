@@ -151,6 +151,7 @@ mod tests {
         let a = assign(&mut st, &m, &lib, crate::voice::VoiceSplit::NoneHalf, &[1; 32], &stream_key(1, DocKind::ModelOnly, "wikipedia"), DocKind::ModelOnly, "doc", &Avoid::default(), &|_| None).unwrap();
         let req = VendorRequest {
             vendor: Vendor::Anthropic,
+            route: crate::vendor::Route::Direct,
             model: "claude-opus-5-5".into(),
             effort: Effort::Low,
             tier: Tier::Standard,

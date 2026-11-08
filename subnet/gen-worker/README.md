@@ -14,21 +14,40 @@ Worker binds `slop-ninja-gen-testnet`).
 
 - `POST /internal/gen/v1/generate`: one call (`GenCall` in, `GenReply` out).
   The request body is the one the eval Worker built from the generator
-  manifest; this Worker adds the key header and sends it unchanged. OpenAI
+  manifest; this Worker adds the key header (and any configured further
+  headers) and sends it unchanged to the vendor or its configured endpoint. OpenAI
   Flex's "429 Resource Unavailable" runs once more on the standard tier;
   every other non-200 answer is classified from its status and structured
   fields only and returned as a class (throttle, spend cap, key unavailable,
   cell refused, outage). Redirects are never followed (they would carry the
   key header); a 3xx is an outage. The stream is read through the bounded
   SSE reader.
-- `GET /internal/gen/v1/health`: `{interface, openai, anthropic}`: the
-  interface version and whether each key resolves to a usable header value.
+- `GET /internal/gen/v1/health`: `{interface, openai, anthropic,
+  openai_route, anthropic_route}`: the interface version, whether each key
+  resolves to a usable header value, and each vendor's route.
 
 Keys come from the account's default Secrets Store (Workers scope):
 `SLOP_NINJA_OPENAI_API_KEY_TESTNET` and `SLOP_NINJA_ANTHROPIC_API_KEY_TESTNET`,
 bound as `OPENAI_API_KEY` and `ANTHROPIC_API_KEY`. A key is read for one call,
 zeroed on drop, and never logged or returned. The store's id is filled in
 at deploy time from private configuration (`wrangler.toml` holds a placeholder).
+
+Configured endpoints (`src/route.rs`, interface v2): the coordinator has
+access to frontier models through configured credentials, so a vendor may
+instead be reached at a configured endpoint that speaks its wire format. Each
+vendor has one optional Worker secret, `GEN_OPENAI_ENDPOINT` or
+`GEN_ANTHROPIC_ENDPOINT`, put from stdin with `wrangler secret put`. It holds
+JSON with the fields `route`, `endpoint` (a full https URL), `auth` (`bearer`
+or `x-api-key`), `key`, and optional further `headers`, `rate_limit_codes`
+and `unsupported_codes`. It carries credentials, so it never goes in a
+tracked file. An invalid secret makes the vendor unavailable; it never falls
+back to the direct route. The route must be the generator manifest's
+`routes` entry for that vendor (`configured_endpoint_v1`: OpenAI without
+Flex, Anthropic with the manifest's optional system prefix, priced at the
+manifest's endpoint price). `/health` reports each vendor's route, and plan
+admission refuses a mismatch. A request built for another route is never
+sent. The `global_fetch_strictly_public` flag sends every fetch on the
+public path.
 
 Memory: every invocation runs in its own bounded arena scope
 (`memory-model.json`, `src/routes.rs`); a call admits its message and parse

@@ -1873,7 +1873,7 @@ pub(crate) mod tests {
         v2.generation = Some(generation_v2());
         v2.validate_checks(c).unwrap();
         assert_eq!(v2.validate(c).unwrap_err().0, GENERATION_V2_REFUSAL);
-        let health = Some(Health { interface: slop_ninja_gen_core::iface::MARKER_VALUE.into(), openai: true, anthropic: true });
+        let health = Some(Health { interface: slop_ninja_gen_core::iface::MARKER_VALUE.into(), openai: true, anthropic: true, ..Health::default() });
         let phase = Phase { documents: 80, generating_window_ms: 3_600_000, lanes: 4, workers_ai_inflight_per_lane: 6 };
         admit(v2.generation.as_ref().unwrap(), &m, &["wikipedia".to_owned()], &v2.generators, health, &GEN_V2_LANE_BOUNDS, &phase).unwrap();
         // v1 still refuses an unpriced generator.

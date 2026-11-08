@@ -18,10 +18,18 @@
 //! isolate cannot hold answers a throttle without reaching the vendor, so
 //! no vendor charge is ever incurred for an answer that is then dropped.
 //!
-//! The key is a borrowed `&str` that only reaches the transport's header
-//! list; nothing returned or recorded carries it, and no vendor text is
-//! kept except the visible text of an answer.
+//! The call goes to its [`Target`]: the vendor's own API, or a configured
+//! endpoint ([`crate::route`]) with its URL, key header style, further
+//! headers and error codes. A request built for another route than the
+//! target's is refused before anything is sent
+//! ([`OutcomeCode::InterfaceMismatch`]: the two Workers' configurations
+//! disagree, a deploy fault), since its shape is the route's.
+//!
+//! The key (and any further header value) is borrowed and only reaches the
+//! transport's header list; nothing returned or recorded carries it, and no
+//! vendor text is kept except the visible text of an answer.
 
+use crate::route::{Auth, Target};
 use slop_ninja_gen_core::iface;
 use slop_ninja_gen_core::outcome::{self, GenCall, GenReply, OutcomeCode};
 use slop_ninja_gen_core::request::{self, VendorRequest};
@@ -80,25 +88,22 @@ pub fn key_ok(key: &str) -> bool {
     !key.is_empty() && key.bytes().all(|b| b.is_ascii_graphic())
 }
 
-/// The vendor's header list of one call. The key appears only here.
-fn headers<'a>(r: &'a VendorRequest, auth: &'a str) -> Vec<(&'static str, &'a str)> {
-    let mut h = vec![("content-type", "application/json"), ("accept", "text/event-stream")];
-    match r.vendor {
-        Vendor::Openai => h.push(("authorization", auth)),
-        Vendor::Anthropic => {
-            h.push(("x-api-key", auth));
-            h.push(("anthropic-version", r.anthropic_version.as_deref().unwrap_or("")));
-        }
-        Vendor::WorkersAi => {}
+/// The header list of one call. The key (and the configuration's further
+/// header values) appear only here.
+fn headers<'a>(r: &'a VendorRequest, t: &'a Target<'_>, auth: &'a str) -> Vec<(&'a str, &'a str)> {
+    let mut h = vec![("content-type", "application/json"), ("accept", "text/event-stream"), (t.auth.header(), auth)];
+    if r.vendor == Vendor::Anthropic {
+        h.push(("anthropic-version", r.anthropic_version.as_deref().unwrap_or("")));
     }
+    h.extend(t.headers.iter().map(|(n, v)| (n.as_str(), v.as_str())));
     h
 }
 
-/// The value of the key header: `Bearer <key>` for OpenAI, the key for
-/// Anthropic. Zeroed on drop.
-pub fn auth_value(vendor: Vendor, key: &str) -> zeroize::Zeroizing<String> {
+/// The value of the key header: `Bearer <key>` for [`Auth::Bearer`], the
+/// key itself for [`Auth::XApiKey`]. Zeroed on drop.
+pub fn auth_value(auth: Auth, key: &str) -> zeroize::Zeroizing<String> {
     let mut s = zeroize::Zeroizing::new(String::with_capacity(key.len() + 7));
-    if vendor == Vendor::Openai {
+    if auth == Auth::Bearer {
         s.push_str("Bearer ");
     }
     s.push_str(key);
@@ -126,33 +131,39 @@ async fn error_body<B: Body>(b: &mut B, bound: usize) -> Option<Vec<u8>> {
     }
 }
 
-/// Runs `call` with `key` (the vendor's API key) over `t`.
-pub async fn drive<T: Transport>(t: &mut T, call: &GenCall, key: &str) -> GenReply {
+/// Runs `call` over `t` to `target` (`None`: the vendor's key or route is
+/// unavailable).
+pub async fn drive<T: Transport>(t: &mut T, call: &GenCall, target: Option<&Target<'_>>) -> GenReply {
     let t0 = t.now_ms();
     // The vendor's deadline leaves the reply its allowance within the
     // call's timeout, which the eval Worker enforces on the service call.
     let deadline = t0.saturating_add(iface::vendor_deadline_ms(call.timeout_ms));
     let first = &call.request;
-    let Some(url) = first.vendor.endpoint() else {
+    if first.vendor == Vendor::WorkersAi {
         // Workers AI runs in the eval Worker, never here.
         return GenReply::without_answer(OutcomeCode::CellRefused, first, 0);
-    };
-    if !key_ok(key) {
-        return GenReply::without_answer(OutcomeCode::KeyUnavailable, first, 0);
     }
+    let Some(target) = target.filter(|x| key_ok(x.key)) else {
+        return GenReply::without_answer(OutcomeCode::KeyUnavailable, first, 0);
+    };
+    if target.route != first.route {
+        // Built for another route than this Worker's: never sent.
+        return GenReply::without_answer(OutcomeCode::InterfaceMismatch, first, 0);
+    }
+    let url = target.url;
     if !iface::within(first) {
         return GenReply::without_answer(OutcomeCode::CellRefused, first, 0);
     }
     if !t.admit(iface::call_heap_bytes(first)) {
         return GenReply::without_answer(OutcomeCode::Throttle, first, 0);
     }
-    let auth = auth_value(first.vendor, key);
+    let auth = auth_value(target.auth, target.key);
     let mut retried: Option<VendorRequest> = None;
     loop {
         let r = retried.as_ref().unwrap_or(first);
         let flex_unavailable = retried.is_some();
         let since = |t: &T| t.now_ms().saturating_sub(t0);
-        let (head, mut body) = match t.post(url, &headers(r, &auth), &r.body, deadline).await {
+        let (head, mut body) = match t.post(url, &headers(r, target, &auth), &r.body, deadline).await {
             Ok(x) => x,
             Err(_) => {
                 // Sent, and the vendor may have started: charged by the
@@ -188,7 +199,7 @@ pub async fn drive<T: Transport>(t: &mut T, call: &GenCall, key: &str) -> GenRep
             g.sent = true;
             return g;
         }
-        let mut reader = SseReader::new(r.vendor, r.visible_bound, r.line_bound);
+        let mut reader = SseReader::new(r.vendor, r.visible_bound, r.line_bound).with_codes(target.codes);
         let mut buf = vec![0u8; READ_BUFFER_BYTES];
         let mut first_token_ms = None;
         loop {
@@ -362,6 +373,11 @@ mod tests {
         GenCall { accepted_models: vec![model.to_owned()], request, timeout_ms: 285_000 }
     }
 
+    /// The vendor's own API with `key`.
+    fn direct<'a>(c: &GenCall, key: &'a str) -> Option<Target<'a>> {
+        Target::direct(c.request.vendor, key)
+    }
+
     fn json(g: &GenReply) -> String {
         serde_json::to_string(g).unwrap()
     }
@@ -373,7 +389,7 @@ mod tests {
     fn the_vendor_deadline_leaves_the_reply_its_allowance() {
         let c = call("gpt-6-luna", Effort::High, 2);
         let mut t = Mock::new(vec![Err(Fault::Timeout)]);
-        let g = run(drive(&mut t, &c, KEY));
+        let g = run(drive(&mut t, &c, direct(&c, KEY).as_ref()));
         assert_eq!(t.deadlines, vec![1_000 + c.timeout_ms - iface::REPLY_ALLOWANCE_MS]);
         assert!(t.deadlines[0] < 1_000 + c.timeout_ms);
         assert_eq!(g.outcome, OutcomeCode::Outage);
@@ -385,7 +401,7 @@ mod tests {
         let c = call("gpt-6-luna", Effort::High, 2);
         let text = "Each spring the ferry firm repaints both of its boats, a job of roughly three weeks, with rowing club volunteers helping sand them down.";
         let mut t = Mock::new(vec![Ok(Answer::ok(&sse::openai("gpt-6-luna", text, "response.completed", None, "flex"), 37))]);
-        let g = run(drive(&mut t, &c, KEY));
+        let g = run(drive(&mut t, &c, direct(&c, KEY).as_ref()));
         assert_eq!(g.outcome, OutcomeCode::Answer, "{g:?}");
         assert_eq!(g.text.as_deref(), Some(text));
         assert_eq!(g.tier, Tier::Flex);
@@ -411,7 +427,7 @@ mod tests {
     fn anthropic_golden_request_and_refusal() {
         let c = call("claude-opus-5-5", Effort::Max, 14);
         let mut t = Mock::new(vec![Ok(Answer::ok(&sse::anthropic("claude-opus-5-5", "", "refusal", Some("cyber")), 11))]);
-        let g = run(drive(&mut t, &c, KEY));
+        let g = run(drive(&mut t, &c, direct(&c, KEY).as_ref()));
         assert_eq!(g.outcome, OutcomeCode::Refusal);
         assert!(g.text.is_none());
         let s = &t.sent[0];
@@ -434,7 +450,7 @@ mod tests {
             Ok(Answer::status(429, None, false, r#"{"error":{"type":"rate_limit_error","message":"Resource Unavailable"}}"#)),
             Ok(Answer::ok(&sse::openai("gpt-6.1-sol", text, "response.completed", None, "default"), 64)),
         ]);
-        let g = run(drive(&mut t, &c, KEY));
+        let g = run(drive(&mut t, &c, direct(&c, KEY).as_ref()));
         assert_eq!(t.sent.len(), 2);
         let second: serde_json::Value = serde_json::from_str(&t.sent[1].body).unwrap();
         assert!(second.get("service_tier").is_none());
@@ -448,11 +464,11 @@ mod tests {
             Ok(Answer::status(429, None, true, r#"{"error":{"message":"Resource Unavailable","type":"invalid_request_error"}}"#)),
             Ok(Answer::ok(&sse::openai("gpt-6.1-sol", text, "response.completed", None, "default"), 64)),
         ]);
-        let g = run(drive(&mut t, &c, KEY));
+        let g = run(drive(&mut t, &c, direct(&c, KEY).as_ref()));
         assert_eq!((g.outcome, t.sent.len(), g.flex_unavailable), (OutcomeCode::Answer, 2, true));
         // A second 429 on standard stops the vendor: never a third call.
         let mut t = Mock::new(vec![Ok(Answer::status(429, None, false, "{}")), Ok(Answer::status(429, None, false, "{}"))]);
-        let g = run(drive(&mut t, &c, KEY));
+        let g = run(drive(&mut t, &c, direct(&c, KEY).as_ref()));
         assert_eq!((g.outcome, t.sent.len()), (OutcomeCode::SpendCap, 2));
         assert!(g.flex_unavailable);
     }
@@ -497,7 +513,7 @@ mod tests {
         for (model, a, want, after) in cases {
             let effort = if model == "gpt-6-luna" { Effort::Medium } else { Effort::Low };
             let mut t = Mock::new(vec![Ok(a)]);
-            let g = run(drive(&mut t, &call(model, effort, 1), KEY));
+            let g = run(drive(&mut t, &call(model, effort, 1), direct(&call(model, effort, 1), KEY).as_ref()));
             assert_eq!((g.outcome, g.retry_after_ms), (want, after), "{model}");
             assert!(g.text.is_none() && !json(&g).contains("TESTKEY") && !json(&g).contains("Incorrect"));
         }
@@ -508,7 +524,7 @@ mod tests {
         let c = call("gpt-6-luna", Effort::Low, 1);
         let big = "x".repeat(c.request.line_bound as usize + 1);
         let mut t = Mock::new(vec![Ok(Answer::status(400, None, false, &big))]);
-        let g = run(drive(&mut t, &c, KEY));
+        let g = run(drive(&mut t, &c, direct(&c, KEY).as_ref()));
         assert_eq!(g.outcome, OutcomeCode::CellRefused);
         assert!(t.cancelled.get());
     }
@@ -520,7 +536,7 @@ mod tests {
         let mut sse = sse::anthropic("claude-sonnet-5-5", &long, "end_turn", None);
         sse.push_str(&"data: {\"type\":\"ping\"}\n\n".repeat(10_000));
         let mut t = Mock::new(vec![Ok(Answer::ok(&sse, 1000))]);
-        let g = run(drive(&mut t, &c, KEY));
+        let g = run(drive(&mut t, &c, direct(&c, KEY).as_ref()));
         assert_eq!(g.outcome, OutcomeCode::LengthBytes);
         assert!(t.cancelled.get(), "the rest of the stream is never read");
         assert!(t.reads.get() < sse.len() / 1000);
@@ -534,44 +550,44 @@ mod tests {
         a.chunks.truncate(3);
         a.fail_after = true;
         let mut t = Mock::new(vec![Ok(a)]);
-        assert_eq!(run(drive(&mut t, &c, KEY)).outcome, OutcomeCode::Outage);
+        assert_eq!(run(drive(&mut t, &c, direct(&c, KEY).as_ref())).outcome, OutcomeCode::Outage);
         // The isolate cannot hold the call: a throttle before anything is
         // sent, so the vendor never bills an answer that would be dropped.
         let mut t = Mock::new(vec![Ok(Answer::ok(&sse::openai("gpt-6-astra", "x", "response.completed", None, "flex"), 9))]);
         t.admit_ok = false;
-        let g = run(drive(&mut t, &c, KEY));
+        let g = run(drive(&mut t, &c, direct(&c, KEY).as_ref()));
         assert_eq!((g.outcome, g.sent), (OutcomeCode::Throttle, false));
         assert!(t.sent.is_empty() && t.reads.get() == 0);
         assert_eq!(t.admitted, vec![slop_ninja_gen_core::iface::call_heap_bytes(&c.request)], "one admission, up front");
         // A key that cannot be a header value is unavailable, never sent.
         for bad in ["sk-with space", "sk-line\nbreak", "sk-\u{e9}"] {
             let mut t = Mock::new(vec![]);
-            assert_eq!(run(drive(&mut t, &c, bad)).outcome, OutcomeCode::KeyUnavailable);
+            assert_eq!(run(drive(&mut t, &c, direct(&c, bad).as_ref())).outcome, OutcomeCode::KeyUnavailable);
             assert!(t.sent.is_empty());
         }
         // A malformed anthropic-version is refused before anything is sent.
         let mut a = call("claude-opus-5-5", Effort::Low, 1);
         a.request.anthropic_version = Some("2026-10-21\r\nx-evil: 1".into());
         let mut t = Mock::new(vec![]);
-        assert_eq!(run(drive(&mut t, &a, KEY)).outcome, OutcomeCode::CellRefused);
+        assert_eq!(run(drive(&mut t, &a, direct(&a, KEY).as_ref())).outcome, OutcomeCode::CellRefused);
         assert!(t.sent.is_empty());
         // Sent calls are marked sent; a timeout after sending is too.
         let mut t = Mock::new(vec![Err(Fault::Timeout)]);
-        let g = run(drive(&mut t, &c, KEY));
+        let g = run(drive(&mut t, &c, direct(&c, KEY).as_ref()));
         assert_eq!((g.outcome, g.sent, g.http_status), (OutcomeCode::Outage, true, 0));
         // Another model answered: never a label.
         let mut t = Mock::new(vec![Ok(Answer::ok(&sse::openai("gpt-6-luna", "Some text here.", "response.completed", None, "flex"), 9))]);
-        let g = run(drive(&mut t, &c, KEY));
+        let g = run(drive(&mut t, &c, direct(&c, KEY).as_ref()));
         assert_eq!(g.outcome, OutcomeCode::ModelMismatch);
         assert!(g.text.is_none() && g.model_reported.is_none());
         // No key: nothing is sent.
         let mut t = Mock::new(vec![]);
-        assert_eq!(run(drive(&mut t, &c, "")).outcome, OutcomeCode::KeyUnavailable);
+        assert_eq!(run(drive(&mut t, &c, direct(&c, "").as_ref())).outcome, OutcomeCode::KeyUnavailable);
         assert!(t.sent.is_empty());
         // Workers AI never runs here.
         let w = call("@cf/meta/llama-3.2-3b-instruct", Effort::Default, 0);
         let mut t = Mock::new(vec![]);
-        assert_eq!(run(drive(&mut t, &w, KEY)).outcome, OutcomeCode::CellRefused);
+        assert_eq!(run(drive(&mut t, &w, direct(&w, KEY).as_ref())).outcome, OutcomeCode::CellRefused);
         assert!(t.sent.is_empty());
     }
 
@@ -582,7 +598,7 @@ mod tests {
             for e in &x.effort_levels {
                 let c = call(&x.id, *e, 0);
                 let mut t = Mock::new(vec![Ok(Answer::status(503, None, false, ""))]);
-                run(drive(&mut t, &c, KEY));
+                run(drive(&mut t, &c, direct(&c, KEY).as_ref()));
                 assert_eq!(t.sent[0].body, c.request.body, "{} {e:?}", x.id);
                 let names: Vec<&str> = t.sent[0].headers.iter().map(|(n, _)| n.as_str()).collect();
                 match x.vendor {
@@ -591,5 +607,102 @@ mod tests {
                 }
             }
         }
+    }
+
+    fn at_endpoint(model: &str, effort: Effort, n: u32) -> GenCall {
+        let m = measured(slop_ninja_gen_core::manifest::fixture::configured(planned()));
+        let (request, _) = slop_ninja_gen_core::measure::request(&m, &library(), model, effort, n).unwrap();
+        GenCall { accepted_models: vec![model.to_owned()], request, timeout_ms: 285_000 }
+    }
+
+    fn endpoint(url: &str) -> crate::route::RouteConfig {
+        crate::route::RouteConfig::parse(&format!(
+            r#"{{"route":"configured_endpoint_v1","endpoint":"{url}","auth":"bearer","key":"{KEY}","headers":[["X-Endpoint-Auth","{KEY}"]],"rate_limit_codes":"test_slow_down","unsupported_codes":"test_not_offered"}}"#
+        ))
+        .unwrap()
+    }
+
+    #[test]
+    fn a_configured_endpoint_gets_its_url_auth_and_headers_with_the_body_unchanged() {
+        let ep = endpoint("https://frontier.example.test/v1/messages");
+        let c = at_endpoint("claude-sonnet-5-5", Effort::High, 3);
+        let text = "Every spring the ferry company repaints its two boats over about three weeks, with volunteers sanding them.";
+        let mut t = Mock::new(vec![Ok(Answer::ok(&sse::anthropic("claude-sonnet-5-5", text, "end_turn", None), 50))]);
+        let g = run(drive(&mut t, &c, Some(&Target::of(&ep))));
+        assert_eq!((g.outcome, g.tier), (OutcomeCode::Answer, Tier::Endpoint), "{g:?}");
+        let s = &t.sent[0];
+        assert_eq!(s.url, "https://frontier.example.test/v1/messages");
+        assert_eq!(s.auth, Some(("authorization".to_owned(), format!("Bearer {KEY}"))));
+        let names: Vec<&str> = s.headers.iter().map(|(n, _)| n.as_str()).collect();
+        assert_eq!(names, ["content-type", "accept", "anthropic-version", "x-endpoint-auth"]);
+        assert_eq!(s.body, c.request.body);
+        let b: serde_json::Value = serde_json::from_str(&s.body).unwrap();
+        assert_eq!(b["system"][0]["text"], slop_ninja_gen_core::manifest::fixture::SYSTEM_PREFIX);
+        assert!(!json(&g).contains(KEY));
+        // OpenAI at a configured endpoint: no Flex, so a 429 is never retried on standard.
+        let ep = endpoint("https://frontier.example.test/v1/responses");
+        let c = at_endpoint("gpt-6.1-sol", Effort::Low, 0);
+        assert!(!c.request.body.contains("service_tier"));
+        let mut t = Mock::new(vec![Ok(Answer::status(429, None, false, "{}")), Ok(Answer::status(429, None, false, "{}"))]);
+        let g = run(drive(&mut t, &c, Some(&Target::of(&ep))));
+        assert_eq!((g.outcome, t.sent.len(), g.flex_unavailable), (OutcomeCode::SpendCap, 1, false));
+        assert_eq!(t.admitted, vec![slop_ninja_gen_core::iface::call_heap_bytes(&c.request)], "no retry body admitted");
+    }
+
+    #[test]
+    fn a_request_for_another_route_is_never_sent() {
+        let ep = endpoint("https://frontier.example.test/v1/messages");
+        // A direct-shaped request to the endpoint, and an endpoint-shaped one to the vendor.
+        let direct_call = call("claude-haiku-5-5", Effort::Low, 1);
+        let mut t = Mock::new(vec![]);
+        let g = run(drive(&mut t, &direct_call, Some(&Target::of(&ep))));
+        assert_eq!((g.outcome, g.sent), (OutcomeCode::InterfaceMismatch, false));
+        let endpoint_call = at_endpoint("claude-haiku-5-5", Effort::Low, 1);
+        let g = run(drive(&mut t, &endpoint_call, direct(&endpoint_call, KEY).as_ref()));
+        assert_eq!((g.outcome, g.sent), (OutcomeCode::InterfaceMismatch, false));
+        assert!(t.sent.is_empty() && t.admitted.is_empty());
+        // No usable configuration or key: unavailable, never sent.
+        let g = run(drive(&mut t, &endpoint_call, None));
+        assert_eq!(g.outcome, OutcomeCode::KeyUnavailable);
+        assert!(t.sent.is_empty());
+    }
+
+    /// An endpoint's limits never end a call in a loop: a 503 with a hint is
+    /// a throttle with its hint (the eval Worker's bounded throttle, then the
+    /// outage path), an unserved cell is refused, and a stream-reported rate
+    /// limit (a documented or a configured code) is a throttle.
+    #[test]
+    fn endpoint_limits_are_classified_once() {
+        let ep = endpoint("https://frontier.example.test/v1/messages");
+        let c = at_endpoint("claude-opus-5-5", Effort::Max, 2);
+        let busy = r#"{"type":"error","error":{"type":"unavailable","message":"Try again later.","detail":"someone"}}"#;
+        let mut t = Mock::new(vec![Ok(Answer::status(503, Some("600"), false, busy))]);
+        let g = run(drive(&mut t, &c, Some(&Target::of(&ep))));
+        assert_eq!((g.outcome, g.retry_after_ms, t.sent.len()), (OutcomeCode::Throttle, Some(600_000), 1));
+        assert!(!json(&g).contains("someone"));
+        let mut t = Mock::new(vec![Ok(Answer::status(503, None, false, r#"{"type":"error","error":{"type":"service_unavailable_error"}}"#))]);
+        assert_eq!(run(drive(&mut t, &c, Some(&Target::of(&ep)))).outcome, OutcomeCode::Outage);
+        let ep = endpoint("https://frontier.example.test/v1/responses");
+        let c = at_endpoint("gpt-6-luna", Effort::Low, 1);
+        let failed = |code: &str| {
+            format!(
+                "event: response.created\ndata: {{\"type\":\"response.created\",\"response\":{{\"model\":null}}}}\n\nevent: response.failed\ndata: {{\"type\":\"response.failed\",\"response\":{{\"status\":\"failed\",\"error\":{{\"code\":\"{code}\",\"message\":\"m\",\"type\":\"server_error\"}}}}}}\n\n"
+            )
+        };
+        for (code, want) in [
+            ("test_not_offered", OutcomeCode::CellRefused),
+            ("test_slow_down", OutcomeCode::Throttle),
+            ("rate_limit_exceeded", OutcomeCode::Throttle),
+            ("other", OutcomeCode::Outage),
+        ] {
+            let mut t = Mock::new(vec![Ok(Answer::ok(&failed(code), 40))]);
+            let g = run(drive(&mut t, &c, Some(&Target::of(&ep))));
+            assert_eq!((g.outcome, t.sent.len()), (want, 1), "{code}");
+        }
+        // The configured codes are the endpoint's: the vendor's own API keeps
+        // the documented mapping only.
+        let d = call("gpt-6-luna", Effort::Low, 1);
+        let mut t = Mock::new(vec![Ok(Answer::ok(&failed("test_slow_down"), 40))]);
+        assert_eq!(run(drive(&mut t, &d, direct(&d, KEY).as_ref())).outcome, OutcomeCode::Outage);
     }
 }

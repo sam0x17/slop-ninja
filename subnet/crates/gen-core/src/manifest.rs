@@ -11,7 +11,7 @@
 //! `status` is `planned` until the measurement run has recorded every (model,
 //! effort) cell; a plan refuses a `planned` manifest ([`crate::plan`]).
 
-use crate::vendor::{DocKind, Effort, Lane, Vendor, documented_efforts, excluded_workers_ai};
+use crate::vendor::{DocKind, Effort, Lane, Route, Vendor, documented_efforts, excluded_workers_ai};
 use crate::{MANIFEST_SCHEMA, STREAM_BOUND};
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet};
@@ -103,6 +103,10 @@ pub struct Prices {
     pub flex: Option<Price>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub batch: Option<Price>,
+    /// The price at a configured endpoint ([`crate::vendor::Tier::Endpoint`]):
+    /// required for a model whose vendor the manifest routes to one.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub endpoint: Option<Price>,
 }
 
 /// A documented price condition: prompts above `prompt_tokens_above` are
@@ -236,6 +240,7 @@ impl ModelEntry {
             Tier::Standard => Some(self.prices.standard),
             Tier::Flex => self.prices.flex,
             Tier::Batch => self.prices.batch,
+            Tier::Endpoint => self.prices.endpoint,
         }
     }
     /// Whether a reported model id names this model.
@@ -393,6 +398,37 @@ pub struct StreamBound {
     pub envelope_measured: bool,
 }
 
+/// Each frontier vendor's route ([`Route`]). Absent (both direct) in a
+/// manifest written before routes existed, and then not serialized, so such
+/// a manifest's bytes and digest are unchanged.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Routes {
+    #[serde(default, skip_serializing_if = "Route::is_direct")]
+    pub openai: Route,
+    #[serde(default, skip_serializing_if = "Route::is_direct")]
+    pub anthropic: Route,
+    /// A leading system block that a configured Anthropic endpoint requires,
+    /// sent as its own first text block before the template's system prompt
+    /// (absent: the system prompt alone, as on the direct route).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub anthropic_system_prefix: Option<String>,
+}
+
+impl Routes {
+    pub fn is_direct(&self) -> bool {
+        *self == Routes::default()
+    }
+    /// The route of `v` (Workers AI runs in the eval Worker: always direct).
+    pub fn of(&self, v: Vendor) -> Route {
+        match v {
+            Vendor::Openai => self.openai,
+            Vendor::Anthropic => self.anthropic,
+            Vendor::WorkersAi => Route::Direct,
+        }
+    }
+}
+
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Manifest {
@@ -407,6 +443,11 @@ pub struct Manifest {
     pub lanes: LaneShares,
     /// The pinned `anthropic-version` header.
     pub anthropic_version: String,
+    /// How each frontier vendor is reached; a new route is a new manifest
+    /// version (its request shape and pricing differ, and the measurement
+    /// run measures it).
+    #[serde(default, skip_serializing_if = "Routes::is_direct")]
+    pub routes: Routes,
     pub models: Vec<ModelEntry>,
     pub templates: Vec<Template>,
     pub operations: Operations,
@@ -492,8 +533,10 @@ impl Manifest {
                     need(m.vendor != Vendor::Anthropic || crate::vendor::anthropic_thinking(&m.id).is_some(), "manifest models (an Anthropic model without a thinking rule)")?;
                 }
             }
-            // OpenAI calls run on Flex (Batch prices, synchronously).
-            need(m.vendor != Vendor::Openai || m.prices.flex.is_some(), "manifest models (OpenAI flex prices)")?;
+            // Direct OpenAI calls run on Flex (Batch prices, synchronously);
+            // a configured endpoint has no Flex, and its own price.
+            need(m.vendor != Vendor::Openai || !self.routes.openai.is_direct() || m.prices.flex.is_some(), "manifest models (OpenAI flex prices)")?;
+            need(self.routes.of(m.vendor).is_direct() || m.prices.endpoint.is_some(), "manifest models (endpoint prices)")?;
             need(!m.batch || m.prices.batch.is_some(), "manifest models (batch prices)")?;
             need(m.unusable.iter().all(|e| m.effort_levels.contains(e)) && !m.usable_efforts().is_empty(), "manifest models (unusable levels)")?;
             need(
@@ -508,6 +551,10 @@ impl Manifest {
             need(!self.lane_models(lane).is_empty(), "manifest models (both lanes)")?;
         }
         need(self.models.iter().all(|m| m.vendor != Vendor::Anthropic) || !self.anthropic_version.is_empty(), "manifest anthropic_version")?;
+        need(
+            self.routes.anthropic_system_prefix.as_deref().is_none_or(|s| !self.routes.anthropic.is_direct() && !s.trim().is_empty()),
+            "manifest routes (a system prefix only for a configured Anthropic endpoint, and not empty)",
+        )?;
         if self.status == Status::Measured {
             need(self.measurement_report_sha256.as_deref().is_some_and(hex32), "manifest measurement_report_sha256")?;
             need(
@@ -582,6 +629,7 @@ pub mod fixture {
                 standard,
                 flex: if vendor == Vendor::Openai { half } else { None },
                 batch: if frontier { half } else { None },
+                endpoint: None,
             },
             price_conditions: Vec::new(),
             rate_limits: None,
@@ -644,6 +692,7 @@ pub mod fixture {
             price_sources: vec!["vendor pricing pages".into()],
             lanes: LaneShares { frontier: Share { share_num: 1, share_den: 2 }, workers_ai: Share { share_num: 1, share_den: 2 } },
             anthropic_version: "2026-10-21".into(),
+            routes: Routes::default(),
             models: roster(),
             templates: vec![
                 t("rewrite_v2_plain", DocKind::Mixed, "TEST plain. {operation} Reply with the passage only.", "From {register}. About {n_words} words.\n\n{passage}"),
@@ -699,6 +748,20 @@ pub mod fixture {
         m.status = Status::Measured;
         m.measurement_report_sha256 = Some("ab".repeat(32));
         m.stream_bound.envelope_measured = true;
+        m
+    }
+
+    /// The fixture's leading system block for a configured Anthropic endpoint.
+    pub const SYSTEM_PREFIX: &str = "TEST endpoint system prefix.";
+
+    /// `m` with both frontier vendors at a configured endpoint (with
+    /// [`SYSTEM_PREFIX`] for Anthropic), each frontier model priced there at
+    /// its standard price.
+    pub fn configured(mut m: Manifest) -> Manifest {
+        m.routes = Routes { openai: Route::ConfiguredEndpointV1, anthropic: Route::ConfiguredEndpointV1, anthropic_system_prefix: Some(SYSTEM_PREFIX.into()) };
+        for e in m.models.iter_mut().filter(|e| e.vendor != Vendor::WorkersAi) {
+            e.prices.endpoint = Some(e.prices.standard);
+        }
         m
     }
 
@@ -807,5 +870,52 @@ mod tests {
         assert_eq!(placeholders("a {b} c {d}"), Some(vec!["b", "d"]));
         assert_eq!(placeholders("a {b c"), None);
         assert_eq!(placeholders("a } b"), None);
+    }
+
+    #[test]
+    fn routes_are_absent_for_direct_manifests_and_lift_only_the_flex_price_rule() {
+        let m = planned();
+        // A direct manifest serializes as before routes existed (same digest).
+        assert!(!String::from_utf8(bytes(&m)).unwrap().contains("routes"));
+        assert!(!String::from_utf8(bytes(&m)).unwrap().contains("endpoint"));
+        assert_eq!(Manifest::parse(&bytes(&m)).unwrap().routes, Routes::default());
+        let p = configured(planned());
+        let j: serde_json::Value = serde_json::from_slice(&bytes(&p)).unwrap();
+        assert_eq!(
+            j["routes"],
+            serde_json::json!({"openai": "configured_endpoint_v1", "anthropic": "configured_endpoint_v1", "anthropic_system_prefix": SYSTEM_PREFIX})
+        );
+        assert_eq!(Manifest::parse(&bytes(&p)).unwrap(), p);
+        // Direct OpenAI needs Flex prices; a configured endpoint has no Flex.
+        let mut d = planned();
+        for e in d.models.iter_mut().filter(|e| e.vendor == Vendor::Openai) {
+            e.prices.flex = None;
+        }
+        assert_eq!(d.validate(), Err(Refused("manifest models (OpenAI flex prices)")));
+        d.routes.openai = Route::ConfiguredEndpointV1;
+        // A configured endpoint needs its price for every model it serves.
+        assert_eq!(d.validate(), Err(Refused("manifest models (endpoint prices)")));
+        let ep = Price { input: 7, output: 9, cache_read: None };
+        for e in d.models.iter_mut().filter(|e| e.vendor == Vendor::Openai) {
+            e.prices.endpoint = Some(ep);
+        }
+        assert_eq!(d.validate(), Ok(()));
+        // The endpoint tier is priced from the manifest; the others keep theirs.
+        let luna = d.model("gpt-6-luna").unwrap();
+        assert_eq!(luna.price(crate::vendor::Tier::Endpoint), Some(ep));
+        assert_eq!(luna.price(crate::vendor::Tier::Standard), Some(luna.prices.standard));
+        assert_eq!(planned().model("gpt-6-luna").unwrap().price(crate::vendor::Tier::Endpoint), None);
+        assert_eq!(p.routes.of(Vendor::WorkersAi), Route::Direct);
+        // A system prefix only with a configured Anthropic endpoint, never blank.
+        let mut s = d.clone();
+        s.routes.anthropic_system_prefix = Some("x".into());
+        assert_eq!(s.validate(), Err(Refused("manifest routes (a system prefix only for a configured Anthropic endpoint, and not empty)")));
+        let mut s = p.clone();
+        s.routes.anthropic_system_prefix = Some(" ".into());
+        assert!(s.validate().is_err());
+        s.routes.anthropic_system_prefix = None;
+        assert_eq!(s.validate(), Ok(()));
+        let bad = br#"{"openai":"elsewhere"}"#;
+        assert!(serde_json::from_slice::<Routes>(bad).is_err());
     }
 }

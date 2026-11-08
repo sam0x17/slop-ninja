@@ -140,6 +140,12 @@ fn model_scoped_403(vendor: Vendor, ty: Option<&str>, code: Option<&str>) -> boo
 ///   type, and not charged, whatever rate-limit headers ride on it) and runs
 ///   once on standard. On standard, `rate_limit_exceeded`, `retry-after` or
 ///   rate-limit headers mark a throttle; an undocumented 429 stops the vendor.
+/// - A configured endpoint ([`Tier::Endpoint`], `classify_http_v3`): the
+///   rules above, and a 503 with `retry-after` is a throttle until the hint,
+///   so the item waits within the plan's throttle bound and then follows the
+///   outage path (its frontier call moves to Workers AI at the outage
+///   bound); the cohort is never skipped and never waits on the endpoint. A
+///   503 without `retry-after` stays an outage.
 pub fn classify_http(vendor: Vendor, tier: Tier, status: u16, retry_after: Option<&str>, rate_headers: bool, body: Option<&[u8]>) -> (OutcomeCode, Option<u64>) {
     let parsed: ErrorBody<'_> = body.and_then(|b| serde_json::from_slice(b).ok()).unwrap_or_default();
     let err = parsed.error.unwrap_or_default();
@@ -170,6 +176,7 @@ pub fn classify_http(vendor: Vendor, tier: Tier, status: u16, retry_after: Optio
         },
         400 if vendor == Vendor::Anthropic && err.message.as_deref().is_some_and(|m| m.starts_with(ANTHROPIC_OWN_LIMIT)) => OutcomeCode::SpendCap,
         400 | 404 | 413 | 422 => OutcomeCode::CellRefused,
+        503 if tier == Tier::Endpoint && after_present => OutcomeCode::Throttle,
         _ => OutcomeCode::Outage,
     };
     (class, if class == OutcomeCode::Throttle { after } else { None })
@@ -186,6 +193,7 @@ pub fn classify_stream(end: &StreamEnd, accepted: &[String]) -> OutcomeCode {
         Stop::Refusal | Stop::ContentFilter => OutcomeCode::Refusal,
         Stop::MaxTokens => OutcomeCode::LengthTokensOut,
         Stop::StreamError(StreamErrorKind::RateLimit) => OutcomeCode::Throttle,
+        Stop::StreamError(StreamErrorKind::Unsupported) => OutcomeCode::CellRefused,
         Stop::StreamError(_) | Stop::Failed | Stop::Truncated | Stop::Incomplete => OutcomeCode::Outage,
         Stop::Completed => match &end.model_reported {
             Some(m) if accepted.iter().any(|a| a == m) => OutcomeCode::Answer,
@@ -284,7 +292,9 @@ impl GenReply {
             visible_bytes: end.visible.len() as u32,
             text: (outcome == OutcomeCode::Answer).then_some(end.visible),
             http_status: status,
-            tier: end.tier_reported.unwrap_or(sent.tier),
+            // An endpoint call is priced at the endpoint tier, whatever tier
+            // its stream reports.
+            tier: if sent.tier == Tier::Endpoint { Tier::Endpoint } else { end.tier_reported.unwrap_or(sent.tier) },
             flex_unavailable,
             model_reported,
             usage: end.usage,
@@ -418,11 +428,63 @@ mod tests {
         r.finish()
     }
 
+    /// A configured endpoint's answers (generic error bodies).
+    #[test]
+    fn configured_endpoint_answers_map_to_fixed_classes() {
+        let ep = Tier::Endpoint;
+        // A 503 with retry-after is a throttle until the hint, for either vendor.
+        let busy = br#"{"type":"error","error":{"type":"unavailable","message":"Try again later."}}"#;
+        assert_eq!(classify_http(Vendor::Anthropic, ep, 503, Some("600"), false, Some(busy)), (OutcomeCode::Throttle, Some(600_000)));
+        assert_eq!(classify_http(Vendor::Openai, ep, 503, Some("30"), false, None), (OutcomeCode::Throttle, Some(30_000)));
+        // No hint: an outage (the outage path, then Workers AI).
+        let down = br#"{"type":"error","error":{"type":"service_unavailable_error","message":"Service temporarily unavailable. Please try again later."}}"#;
+        assert_eq!(classify_http(Vendor::Anthropic, ep, 503, None, true, Some(down)).0, OutcomeCode::Outage);
+        // Direct vendors keep v2's rule: a 503 is an outage whatever its headers.
+        assert_eq!(classify_http(Vendor::Anthropic, Tier::Standard, 503, Some("5"), false, None).0, OutcomeCode::Outage);
+        // An endpoint 429: with a hint a throttle, without one the vendor pauses
+        // until the operator's vendor clear (no probe auto-resume yet), never a loop.
+        let rate = br#"{"type":"error","error":{"type":"rate_limit_error","message":"x"}}"#;
+        assert_eq!(classify_http(Vendor::Anthropic, ep, 429, Some("12"), true, Some(rate)), (OutcomeCode::Throttle, Some(12_000)));
+        assert_eq!(classify_http(Vendor::Anthropic, ep, 429, None, true, Some(rate)).0, OutcomeCode::SpendCap);
+        assert_eq!(classify_http(Vendor::Openai, ep, 429, None, false, None).0, OutcomeCode::SpendCap);
+        assert_eq!(classify_http(Vendor::Openai, ep, 429, Some("4"), false, None), (OutcomeCode::Throttle, Some(4_000)));
+        // The endpoint refusing its key is the key's; an unserved model is the cell's.
+        assert_eq!(classify_http(Vendor::Anthropic, ep, 401, None, false, Some(b"unauthorized")).0, OutcomeCode::KeyUnavailable);
+        let unsupported = br#"{"error":{"message":"The requested model is not available.","type":"invalid_request_error","code":"model_not_found"}}"#;
+        assert_eq!(classify_http(Vendor::Openai, ep, 400, None, false, Some(unsupported)).0, OutcomeCode::CellRefused);
+        assert_eq!(classify_http(Vendor::Anthropic, ep, 404, None, false, Some(br#"{"type":"error","error":{"type":"not_found_error"}}"#)).0, OutcomeCode::CellRefused);
+        // An OpenAI-format endpoint may report errors inside a 200 stream as
+        // response.failed: documented codes, then the endpoint's configured ones.
+        let codes = crate::sse::ErrorCodes { rate_limit: "test_slow_down", unsupported: "test_not_offered" };
+        let failed = |code: &str| {
+            let mut r = SseReader::new(Vendor::Openai, 4096, 8192).with_codes(codes);
+            r.feed(b"event: response.created\ndata: {\"type\":\"response.created\",\"response\":{\"model\":null}}\n\n");
+            r.feed(format!("event: response.failed\ndata: {{\"type\":\"response.failed\",\"response\":{{\"status\":\"failed\",\"error\":{{\"code\":\"{code}\",\"message\":\"m\",\"type\":\"server_error\"}}}}}}\n\n").as_bytes());
+            classify_stream(&r.finish(), &["gpt-6-luna".to_owned()])
+        };
+        assert_eq!(failed("test_not_offered"), OutcomeCode::CellRefused);
+        assert_eq!(failed("model_not_found"), OutcomeCode::CellRefused);
+        assert_eq!(failed("test_slow_down"), OutcomeCode::Throttle);
+        assert_eq!(failed("rate_limit_exceeded"), OutcomeCode::Throttle);
+        assert_eq!(failed("server_is_overloaded"), OutcomeCode::Outage);
+        assert_eq!(failed("something_new"), OutcomeCode::Outage);
+        // An endpoint reply is priced at the endpoint tier whatever tier its stream reports.
+        let m = crate::manifest::fixture::configured(crate::manifest::fixture::planned());
+        let (req, _) = crate::measure::request(&crate::manifest::fixture::measured(m), &crate::voice::fixture::library(), "gpt-6-luna", crate::vendor::Effort::Low, 0).unwrap();
+        assert_eq!(req.tier, Tier::Endpoint);
+        let call = GenCall { accepted_models: vec!["gpt-6-luna".into()], request: req.clone(), timeout_ms: 1 };
+        let mut r = SseReader::new(Vendor::Openai, req.visible_bound, req.line_bound);
+        r.feed(fixture::openai("gpt-6-luna", "Some text here.", "response.completed", None, "default").as_bytes());
+        let g = GenReply::from_stream(r.finish(), &call, &req, 200, false, 5, None);
+        assert_eq!((g.outcome, g.tier), (OutcomeCode::Answer, Tier::Endpoint));
+    }
+
     #[test]
     fn streams_map_to_fixed_classes_and_replies_carry_no_vendor_text() {
         let call = |id: &str| GenCall {
             request: VendorRequest {
                 vendor: Vendor::Anthropic,
+                route: crate::vendor::Route::Direct,
                 model: id.into(),
                 effort: crate::vendor::Effort::Low,
                 tier: Tier::Standard,

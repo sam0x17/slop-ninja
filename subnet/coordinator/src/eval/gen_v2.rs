@@ -864,7 +864,7 @@ pub fn apply_one(
             let since = if since == 0 { now_ms as i64 } else { since };
             if now_ms.saturating_sub(since as u64) <= max_throttle_ms {
                 out.throttled = 1;
-                let wait = engine::throttle_backoff_ms(idx, throttles).max(retry_after_ms.unwrap_or(0));
+                let wait = engine::throttle_wait_ms(idx, throttles, retry_after_ms, since as u64, max_throttle_ms, now_ms);
                 sql.exec(
                     "UPDATE docs SET throttles = ?, throttle_since_ms = ?, not_before_ms = ?, gen_record = ? WHERE seq = ? AND idx = ?",
                     &[i(throttles + 1), i(since), bind_u64(now_ms + wait)?, s(encode(&g)?), i(seq), i(idx)],

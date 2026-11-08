@@ -968,3 +968,21 @@ mod witness {
         });
     }
 }
+
+/// A throttled item waits for the backoff or the provider's hint, but never
+/// past the plan's throttle bound: an hour-long hint reaches the outage
+/// path (and the fallback) at the bound, not after the full hint.
+#[test]
+fn throttle_wait_never_passes_the_bound() {
+    let bound = 900_000;
+    // Within the bound, a short hint wins over a shorter backoff.
+    let w = crate::eval::engine::throttle_wait_ms(3, 0, Some(30_000), 1_000, bound, 1_000);
+    assert_eq!(w, 30_000);
+    // No hint: the backoff.
+    assert_eq!(crate::eval::engine::throttle_wait_ms(3, 0, None, 1_000, bound, 1_000), crate::eval::engine::throttle_backoff_ms(3, 0));
+    // An hour-long hint is cut to just past the bound.
+    let w = crate::eval::engine::throttle_wait_ms(3, 0, Some(3_600_000), 1_000, bound, 101_000);
+    assert_eq!(w, bound - 100_000 + 1);
+    // At the bound the next call is immediate (1 ms), then the next throttle is past it.
+    assert_eq!(crate::eval::engine::throttle_wait_ms(3, 4, Some(600_000), 1_000, bound, 1_000 + bound), 1);
+}

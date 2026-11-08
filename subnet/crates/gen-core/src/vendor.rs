@@ -110,6 +110,44 @@ pub enum Tier {
     /// OpenAI Flex: synchronous at Batch prices.
     Flex,
     Batch,
+    /// A call to a configured endpoint ([`Route::ConfiguredEndpointV1`]),
+    /// priced at the manifest's `endpoint` price for the model. Usage is
+    /// recorded per call.
+    Endpoint,
+}
+
+/// How a vendor's calls reach it, fixed per vendor by the manifest and
+/// configured to match in the generation Worker (its `/health` names each
+/// vendor's route; plan admission refuses a disagreement, and the generation
+/// Worker refuses a call whose route is not its own, before sending).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Route {
+    /// The vendor's own API with the vendor's API key.
+    #[default]
+    Direct,
+    /// A configured endpoint speaking the vendor's wire format (Anthropic
+    /// Messages, OpenAI Responses) with its own credentials. Its request
+    /// shape differs from the direct one, so it is part of what the manifest
+    /// records:
+    /// - OpenAI: no `service_tier` (the endpoint has no Flex tier);
+    /// - Anthropic: the manifest's optional leading system block
+    ///   (`routes.anthropic_system_prefix`) before the template's system
+    ///   prompt;
+    /// - both priced [`Tier::Endpoint`].
+    ConfiguredEndpointV1,
+}
+
+impl Route {
+    pub fn code(self) -> &'static str {
+        match self {
+            Route::Direct => "direct",
+            Route::ConfiguredEndpointV1 => "configured_endpoint_v1",
+        }
+    }
+    pub fn is_direct(&self) -> bool {
+        *self == Route::Direct
+    }
 }
 
 /// How an Anthropic model's thinking is configured at each level (the

@@ -42,7 +42,7 @@ pub const GENERATE_PATH: &str = "/internal/gen/v1/generate";
 pub const HEALTH_PATH: &str = "/internal/gen/v1/health";
 /// The interface marker header and its value.
 pub const MARKER_HEADER: &str = "x-slop-ninja-gen";
-pub const MARKER_VALUE: &str = "v1";
+pub const MARKER_VALUE: &str = "v2";
 
 /// The scorer's document limit in tokens, `[CLS]` and `[SEP]` included
 /// (`slop_ninja_artifact_check::text::MAX_TOKENS_INCLUDING_SPECIALS`; the
@@ -170,6 +170,7 @@ mod tests {
         use crate::vendor::{Effort, Tier, Vendor};
         let r = VendorRequest {
             vendor: Vendor::Anthropic,
+            route: crate::vendor::Route::Direct,
             model: "m".into(),
             effort: Effort::Low,
             tier: Tier::Standard,
@@ -204,11 +205,11 @@ mod tests {
         let health = crate::plan::Health::default();
         let schema = [keys(serde_json::to_value(&r).unwrap()), keys(serde_json::to_value(&call).unwrap()), keys(serde_json::to_value(&g).unwrap()), keys(serde_json::to_value(&health).unwrap())].join(";");
         let pinned = (
-            "v1",
-            "anthropic_version,body,effort,line_bound,max_tokens,model,request_sha256,tier,vendor,visible_bound,word_window;\
+            "v2",
+            "anthropic_version,body,effort,line_bound,max_tokens,model,request_sha256,route,tier,vendor,visible_bound,word_window;\
              accepted_models,request,timeout_ms;\
              envelope_bytes_max,first_token_ms,flex_unavailable,http_status,latency_ms,model_reported,outcome,refusal,request_sha256,retry_after_ms,sent,stop,text,thinking_events,tier,usage,usage_reported,visible_bytes;\
-             anthropic,interface,openai",
+             anthropic,anthropic_route,interface,openai,openai_route",
         );
         assert_eq!((MARKER_VALUE, schema.as_str()), (pinned.0, pinned.1.replace(' ', "").as_str()), "a wire change bumps MARKER_VALUE");
     }

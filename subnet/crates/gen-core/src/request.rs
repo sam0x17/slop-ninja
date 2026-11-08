@@ -17,12 +17,19 @@
 //!   `top_p` 0.9 and an explicit `max_tokens` ([`max_tokens`]), and the
 //!   reasoning setting only on the models that document one.
 //!
+//! At a configured endpoint ([`crate::vendor::Route::ConfiguredEndpointV1`],
+//! the manifest's per-vendor route) the shapes differ in two ways only, both
+//! recorded by the manifest and the request: OpenAI sends no `service_tier`
+//! (the endpoint has no Flex), and when the manifest gives an Anthropic
+//! system prefix, `system` is two text blocks, that prefix then the
+//! template's system prompt. Both are priced [`Tier::Endpoint`].
+//!
 //! The body is canonical JSON (sorted keys) and holds no key: its digest is
 //! the request digest recorded with every attempt.
 
 use crate::manifest::{Intensity, Manifest, Refused, WaiReasoning};
 use crate::rotation::GenAssignment;
-use crate::vendor::{AnthropicThinking, DocKind, Effort, Tier, Vendor, anthropic_thinking};
+use crate::vendor::{AnthropicThinking, DocKind, Effort, Route, Tier, Vendor, anthropic_thinking};
 use crate::voice::{Library, VoiceChoice};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
@@ -75,6 +82,9 @@ pub struct Prompt {
 #[serde(deny_unknown_fields)]
 pub struct VendorRequest {
     pub vendor: Vendor,
+    /// How the call reaches the vendor (the manifest's route for it): the
+    /// generation Worker sends it only over a route configured the same.
+    pub route: Route,
     pub model: String,
     pub effort: Effort,
     pub tier: Tier,
@@ -243,6 +253,8 @@ pub fn build(m: &Manifest, lib: &Library, a: &GenAssignment, target: &GenTarget<
     let limit = max_tokens(m, entry, a.effort, a.kind, n, window.1);
     let visible_bound = window.1.saturating_mul(m.stream_bound.word_bytes_max.saturating_add(2));
     let line_bound = visible_bound.saturating_add(m.stream_bound.envelope_bytes);
+    let route = m.routes.of(entry.vendor);
+    let configured = route == Route::ConfiguredEndpointV1;
     let (tier, mut body) = match entry.vendor {
         Vendor::Openai => {
             let mut b = json!({
@@ -255,19 +267,27 @@ pub fn build(m: &Manifest, lib: &Library, a: &GenAssignment, target: &GenTarget<
                 "store": false,
                 "stream": true,
             });
-            if a.effort == Effort::Default
-                && let Some(o) = b.as_object_mut()
-            {
+            let o = b.as_object_mut().ok_or(Refused("request"))?;
+            if a.effort == Effort::Default {
                 o.remove("reasoning");
             }
-            (Tier::Flex, b)
+            if configured {
+                o.remove("service_tier");
+                (Tier::Endpoint, b)
+            } else {
+                (Tier::Flex, b)
+            }
         }
         Vendor::Anthropic => {
             let rule = anthropic_thinking(&entry.id).ok_or(Refused("request (Anthropic thinking rule)"))?;
+            let system = match m.routes.anthropic_system_prefix.as_deref() {
+                Some(prefix) if configured => json!([{"type": "text", "text": prefix}, {"type": "text", "text": p.system}]),
+                _ => json!(p.system),
+            };
             let mut b = json!({
                 "model": entry.id,
                 "max_tokens": limit,
-                "system": p.system,
+                "system": system,
                 "messages": [{"role": "user", "content": p.user}],
                 "stream": true,
             });
@@ -286,7 +306,7 @@ pub fn build(m: &Manifest, lib: &Library, a: &GenAssignment, target: &GenTarget<
                     o.insert("output_config".into(), json!({"effort": e.code()}));
                 }
             }
-            (Tier::Standard, b)
+            (if configured { Tier::Endpoint } else { Tier::Standard }, b)
         }
         Vendor::WorkersAi => {
             let mut b = json!({
@@ -324,6 +344,7 @@ pub fn build(m: &Manifest, lib: &Library, a: &GenAssignment, target: &GenTarget<
     }
     Ok(VendorRequest {
         vendor: entry.vendor,
+        route,
         model: entry.id.clone(),
         effort: a.effort,
         tier,
@@ -454,6 +475,59 @@ mod tests {
             r.body,
             r#"{"input":[{"content":"From a TEST encyclopedia lead. About 14 words.\n\nThe council met on Monday to discuss the bridge. It voted to repair it.","role":"user"}],"instructions":"TEST plain. TEST operation paraphrase. Reply with the passage only.","max_output_tokens":128000,"model":"gpt-6-luna","reasoning":{"effort":"none"},"service_tier":"flex","store":false,"stream":true}"#
         );
+    }
+
+    /// At a configured endpoint: OpenAI without `service_tier` (no Flex,
+    /// so no standard retry), Anthropic with the manifest's system prefix as
+    /// a separate first system block; both priced at the endpoint tier, and
+    /// everything else the direct body's.
+    #[test]
+    fn configured_endpoint_requests_are_golden() {
+        use crate::manifest::fixture::{SYSTEM_PREFIX, configured};
+        let direct = planned();
+        let m = configured(planned());
+        let lib = library();
+        for id in ["gpt-6-luna", "gpt-6.1-terra", "gpt-6.1-sol", "gpt-6-astra"] {
+            for e in documented_efforts(id).unwrap() {
+                let a = assignment(id, *e, DocKind::Mixed, VoiceChoice::None);
+                let (r, d) = (build(&m, &lib, &a, &rewrite()).unwrap(), build(&direct, &lib, &a, &rewrite()).unwrap());
+                assert_eq!((r.route, r.tier), (Route::ConfiguredEndpointV1, Tier::Endpoint));
+                assert_eq!(d.route, Route::Direct);
+                let mut want = body(&d);
+                want.as_object_mut().unwrap().remove("service_tier");
+                want.sort_all_objects();
+                assert_eq!(body(&r), want, "{id} {e:?}");
+                assert!(standard_retry(&r).is_err(), "no Flex, so no standard retry");
+            }
+        }
+        let r = build(&m, &lib, &assignment("gpt-6-luna", Effort::None, DocKind::Mixed, VoiceChoice::None), &rewrite()).unwrap();
+        assert_eq!(
+            r.body,
+            r#"{"input":[{"content":"From a TEST encyclopedia lead. About 14 words.\n\nThe council met on Monday to discuss the bridge. It voted to repair it.","role":"user"}],"instructions":"TEST plain. TEST operation paraphrase. Reply with the passage only.","max_output_tokens":128000,"model":"gpt-6-luna","reasoning":{"effort":"none"},"store":false,"stream":true}"#
+        );
+        for id in ["claude-haiku-5-5", "claude-sonnet-5-5", "claude-opus-5-5", "claude-fable-5-1"] {
+            for e in documented_efforts(id).unwrap() {
+                let a = assignment(id, *e, DocKind::ModelOnly, VoiceChoice::None);
+                let t = GenTarget::Scratch { domain: "fineweb", topic: "a bicycle", target_words: 200 };
+                let (r, d) = (build(&m, &lib, &a, &t).unwrap(), build(&direct, &lib, &a, &t).unwrap());
+                assert_eq!((r.route, r.tier, d.tier), (Route::ConfiguredEndpointV1, Tier::Endpoint, Tier::Standard));
+                let (b, mut want) = (body(&r), body(&d));
+                assert_eq!(b["system"], json!([{"type": "text", "text": SYSTEM_PREFIX}, {"type": "text", "text": want["system"].clone()}]));
+                want["system"] = b["system"].clone();
+                assert_eq!(b, want, "{id} {e:?}: only the system prompt differs");
+                assert_eq!(r.anthropic_version, d.anthropic_version);
+            }
+        }
+        // Without a prefix, a configured Anthropic endpoint gets the direct
+        // body (the system prompt as one string), priced at the endpoint tier.
+        let mut np = configured(planned());
+        np.routes.anthropic_system_prefix = None;
+        let a = assignment("claude-haiku-5-5", Effort::Low, DocKind::Mixed, VoiceChoice::None);
+        let (r, d) = (build(&np, &lib, &a, &rewrite()).unwrap(), build(&direct, &lib, &a, &rewrite()).unwrap());
+        assert_eq!((r.route, r.tier, body(&r)), (Route::ConfiguredEndpointV1, Tier::Endpoint, body(&d)));
+        // Workers AI is never routed.
+        let w = build(&m, &lib, &assignment("@cf/meta/llama-3.2-3b-instruct", Effort::Default, DocKind::Mixed, VoiceChoice::None), &rewrite()).unwrap();
+        assert_eq!((w.route, w.tier), (Route::Direct, Tier::Standard));
     }
 
     #[test]

@@ -83,7 +83,23 @@ fn witness(message: &[u8], answers: &[(u16, &[u8])]) -> OutcomeCode {
         let mut t = Replay { answers, next: 0 };
         // drive() admits the call's heap (reader, reply, a Flex retry's
         // body) before it sends anything.
-        let reply = drive::mock::run(drive::drive(&mut t, &call, "sk-WITNESS-KEY"));
+        // A vendor endpoint secret's parse, admitted at its bound first (the
+        // generate route reads it when the vendor has one): a secret of
+        // exactly the size limit, padded in one header value.
+        assert_eq!(admit_current_heap(crate::route::HEAP_BYTES), Ok(true));
+        let shape = |pad: &str| {
+            format!(
+                r#"{{"route":"configured_endpoint_v1","endpoint":"https://frontier.example.test/v1/messages","auth":"bearer","key":"test-witness-key","headers":[["x-endpoint-auth","test-witness-key"],["x-pad","{pad}"]],"rate_limit_codes":"test_slow_down,test_try_later","unsupported_codes":"test_not_offered"}}"#
+            )
+        };
+        let secret = shape(&"p".repeat(crate::route::SECRET_BYTES - shape("").len()));
+        assert_eq!(secret.len(), crate::route::SECRET_BYTES);
+        let parsed = crate::route::RouteConfig::parse(&secret).expect("route");
+        drop(secret);
+        assert_eq!(parsed.headers.len(), 2);
+        drop(parsed);
+        let target = crate::route::Target::direct(call.request.vendor, "sk-WITNESS-KEY");
+        let reply = drive::mock::run(drive::drive(&mut t, &call, target.as_ref()));
         let json = serde_json::to_string(&reply).expect("reply");
         assert!(json.len() <= iface::reply_bound(&call.request));
         reply.outcome

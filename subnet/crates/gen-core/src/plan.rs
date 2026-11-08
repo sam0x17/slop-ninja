@@ -127,8 +127,9 @@ impl GenerationPlan {
     }
 }
 
-/// The generation Worker's `/health` answer: whether each key resolves to a
-/// non-empty value (nothing else).
+/// The generation Worker's `/health` answer: whether each vendor's key
+/// resolves to a usable value, and the route each vendor is configured with
+/// (nothing else: no endpoint, header or key).
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Health {
@@ -136,6 +137,8 @@ pub struct Health {
     pub interface: String,
     pub openai: bool,
     pub anthropic: bool,
+    pub openai_route: crate::vendor::Route,
+    pub anthropic_route: crate::vendor::Route,
 }
 
 /// The cohort's generating phase as admission sees it: the coordinator's
@@ -245,6 +248,11 @@ pub fn admit(p: &GenerationPlan, m: &Manifest, pool_domains: &[String], generato
             _ => h.anthropic,
         };
         need(!uses || ok, "generation.keys (a vendor key is missing)")?;
+        let route = match v {
+            Vendor::Openai => h.openai_route,
+            _ => h.anthropic_route,
+        };
+        need(!uses || route == m.routes.of(v), "generation.routes (the generation Worker's route for a vendor is not the manifest's)")?;
     }
     // Every usable frontier cell's measured latency fits the generation
     // Worker's vendor deadline within the call timeout.
@@ -345,7 +353,7 @@ mod tests {
     const PHASE: Phase = Phase { documents: 510, generating_window_ms: 3_600_000, lanes: 8, workers_ai_inflight_per_lane: 6 };
 
     fn keys() -> Option<Health> {
-        Some(Health { interface: crate::iface::MARKER_VALUE.into(), openai: true, anthropic: true })
+        Some(Health { interface: crate::iface::MARKER_VALUE.into(), openai: true, anthropic: true, ..Health::default() })
     }
 
     #[test]
@@ -363,6 +371,14 @@ mod tests {
         let other = Some(Health { interface: "v0".into(), ..keys().unwrap() });
         assert!(admit(&plan(), &m, &doms, &gens, other, &B, &PHASE).unwrap_err().0.starts_with("generation.interface"));
         assert!(admit(&plan(), &m, &doms, &gens, None, &B, &PHASE).is_err());
+        // The generation Worker's routes must be the manifest's, per vendor.
+        use crate::vendor::Route::ConfiguredEndpointV1 as Endpoint;
+        let routed = Health { openai_route: Endpoint, ..keys().unwrap() };
+        let want = "generation.routes (the generation Worker's route for a vendor is not the manifest's)";
+        assert_eq!(admit(&plan(), &m, &doms, &gens, Some(routed.clone()), &B, &PHASE).unwrap_err().0, want);
+        let pm = measured(crate::manifest::fixture::configured(planned()));
+        assert_eq!(admit(&plan(), &pm, &doms, &gens, Some(routed.clone()), &B, &PHASE).unwrap_err().0, want, "Anthropic still direct in the Worker");
+        admit(&plan(), &pm, &doms, &gens, Some(Health { anthropic_route: Endpoint, ..routed }), &B, &PHASE).unwrap();
         let mut p = plan();
         p.frontier_lanes.lease_ms = 70_000;
         assert!(admit(&p, &m, &doms, &gens, keys(), &B, &PHASE).is_err(), "60 s measured maximum does not fit 55 s");

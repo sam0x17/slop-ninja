@@ -52,7 +52,58 @@ pub enum StreamErrorKind {
     Overloaded,
     RateLimit,
     Api,
+    /// The model or tier is not served for this caller (OpenAI
+    /// `model_not_found`, or an endpoint's configured code, [`ErrorCodes`]):
+    /// the cell is refused, never retried as an outage.
+    Unsupported,
     Other,
+}
+
+impl StreamErrorKind {
+    /// An OpenAI error code (a stream `error` event's `code`, or a
+    /// `response.failed` answer's `response.error.code`), mapped to a fixed
+    /// kind: the documented codes only; anything unlisted is `Other`
+    /// (an endpoint's further codes: [`ErrorCodes`]).
+    pub fn of_openai_code(code: Option<&str>) -> Self {
+        match code {
+            Some("rate_limit_exceeded") => Self::RateLimit,
+            Some("server_is_overloaded") => Self::Overloaded,
+            Some("server_error") => Self::Api,
+            Some("model_not_found") => Self::Unsupported,
+            _ => Self::Other,
+        }
+    }
+}
+
+/// Further OpenAI-format error codes that a configured endpoint reports,
+/// taken from its configuration: each field a comma-separated list of exact
+/// codes, consulted only for a code the documented mapping
+/// ([`StreamErrorKind::of_openai_code`]) leaves `Other`. Empty for the
+/// vendors' own APIs.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct ErrorCodes<'a> {
+    /// Codes that are rate limits ([`StreamErrorKind::RateLimit`]).
+    pub rate_limit: &'a str,
+    /// Codes for a model or tier that is not served ([`StreamErrorKind::Unsupported`]).
+    pub unsupported: &'a str,
+}
+
+impl ErrorCodes<'_> {
+    /// No further codes.
+    pub const NONE: ErrorCodes<'static> = ErrorCodes { rate_limit: "", unsupported: "" };
+
+    fn listed(list: &str, code: &str) -> bool {
+        !code.is_empty() && list.split(',').any(|c| c == code)
+    }
+
+    /// The kind of `code`: the documented mapping, then these lists.
+    pub fn kind(&self, code: Option<&str>) -> StreamErrorKind {
+        match (StreamErrorKind::of_openai_code(code), code) {
+            (StreamErrorKind::Other, Some(c)) if Self::listed(self.rate_limit, c) => StreamErrorKind::RateLimit,
+            (StreamErrorKind::Other, Some(c)) if Self::listed(self.unsupported, c) => StreamErrorKind::Unsupported,
+            (k, _) => k,
+        }
+    }
 }
 
 /// A refusal category (Anthropic `stop_details.category`), mapped to a fixed
@@ -118,8 +169,9 @@ pub struct StreamEnd {
 }
 
 /// The incremental reader.
-pub struct SseReader {
+pub struct SseReader<'c> {
     vendor: Vendor,
+    codes: ErrorCodes<'c>,
     line: Vec<u8>,
     line_bound: usize,
     visible: String,
@@ -226,7 +278,15 @@ struct OIncomplete<'a> {
 }
 
 #[derive(Deserialize)]
+struct OError<'a> {
+    #[serde(borrow, default)]
+    code: Option<Cow<'a, str>>,
+}
+
+#[derive(Deserialize)]
 struct OResponse<'a> {
+    #[serde(borrow, default)]
+    error: Option<OError<'a>>,
     #[serde(borrow, default)]
     model: Option<Cow<'a, str>>,
     #[serde(borrow, default)]
@@ -249,7 +309,7 @@ struct OEvent<'a> {
     code: Option<Cow<'a, str>>,
 }
 
-impl SseReader {
+impl<'c> SseReader<'c> {
     /// The bytes the reader's two buffers take, to admit before [`new`](Self::new).
     pub fn bytes(visible_bound: u32, line_bound: u32) -> usize {
         visible_bound as usize + line_bound as usize
@@ -258,6 +318,7 @@ impl SseReader {
     pub fn new(vendor: Vendor, visible_bound: u32, line_bound: u32) -> Self {
         SseReader {
             vendor,
+            codes: ErrorCodes::NONE,
             line: Vec::with_capacity(line_bound as usize),
             line_bound: line_bound as usize,
             visible: String::with_capacity(visible_bound as usize),
@@ -276,6 +337,12 @@ impl SseReader {
             },
             stopped: false,
         }
+    }
+
+    /// The reader with an endpoint's further error codes ([`ErrorCodes`]).
+    pub fn with_codes(mut self, codes: ErrorCodes<'c>) -> Self {
+        self.codes = codes;
+        self
     }
 
     /// Feeds one chunk of the body, of any length and split anywhere.
@@ -469,12 +536,7 @@ impl SseReader {
             return;
         }
         if ty == "error" {
-            let k = match ev.code.as_deref() {
-                Some("rate_limit_exceeded") => StreamErrorKind::RateLimit,
-                Some("server_error") => StreamErrorKind::Api,
-                _ => StreamErrorKind::Other,
-            };
-            return self.terminal(Stop::StreamError(k));
+            return self.terminal(Stop::StreamError(self.codes.kind(ev.code.as_deref())));
         }
         let Some(r) = ev.response else { return };
         self.model(r.model);
@@ -512,7 +574,12 @@ impl SseReader {
                 };
                 self.terminal(s);
             }
-            "response.failed" => self.terminal(Stop::Failed),
+            // A failed response with a known code is that error (a rate
+            // limit, an unserved model); without one, a failure.
+            "response.failed" => match self.codes.kind(r.error.as_ref().and_then(|e| e.code.as_deref())) {
+                StreamErrorKind::Other => self.terminal(Stop::Failed),
+                k => self.terminal(Stop::StreamError(k)),
+            },
             _ => self.envelope(line_len, 0),
         }
     }
@@ -664,5 +731,46 @@ mod tests {
         assert_eq!(e.usage.input_tokens, 120, "its input usage is kept");
         assert_eq!(read(Vendor::Openai, "data: {not json\n", 3, 4096, 4096).fault, Some(StreamFault::Malformed));
         assert!(read(Vendor::Openai, ": keepalive\n\n", 3, 4096, 4096).fault.is_none());
+    }
+
+    /// OpenAI error codes: the documented ones map to fixed kinds; an
+    /// endpoint's configured lists add further codes, never override a
+    /// documented one, and match exact codes only.
+    #[test]
+    fn openai_error_codes_map_to_fixed_kinds() {
+        let failed = |code: &str, codes: ErrorCodes<'_>| {
+            let mut r = SseReader::new(Vendor::Openai, 4096, 8192).with_codes(codes);
+            r.feed(b"event: response.created\ndata: {\"type\":\"response.created\",\"response\":{\"model\":null}}\n\n");
+            r.feed(format!("event: response.failed\ndata: {{\"type\":\"response.failed\",\"response\":{{\"status\":\"failed\",\"error\":{{\"code\":\"{code}\",\"message\":\"m\",\"type\":\"server_error\"}}}}}}\n\n").as_bytes());
+            r.finish().stop
+        };
+        let error_event = |code: &str, codes: ErrorCodes<'_>| {
+            let mut r = SseReader::new(Vendor::Openai, 4096, 8192).with_codes(codes);
+            r.feed(format!("event: error\ndata: {{\"type\":\"error\",\"code\":\"{code}\",\"message\":\"m\"}}\n\n").as_bytes());
+            r.finish().stop
+        };
+        let none = ErrorCodes::NONE;
+        assert_eq!(failed("rate_limit_exceeded", none), Stop::StreamError(StreamErrorKind::RateLimit));
+        assert_eq!(failed("model_not_found", none), Stop::StreamError(StreamErrorKind::Unsupported));
+        assert_eq!(failed("server_is_overloaded", none), Stop::StreamError(StreamErrorKind::Overloaded));
+        assert_eq!(failed("test_slow_down", none), Stop::Failed);
+        assert_eq!(error_event("test_slow_down", none), Stop::StreamError(StreamErrorKind::Other));
+        let codes = ErrorCodes { rate_limit: "test_slow_down,test_try_later", unsupported: "test_not_offered" };
+        for (code, want) in [
+            ("test_slow_down", StreamErrorKind::RateLimit),
+            ("test_try_later", StreamErrorKind::RateLimit),
+            ("test_not_offered", StreamErrorKind::Unsupported),
+            ("server_is_overloaded", StreamErrorKind::Overloaded),
+            ("model_not_found", StreamErrorKind::Unsupported),
+        ] {
+            assert_eq!(failed(code, codes), Stop::StreamError(want), "{code}");
+            assert_eq!(error_event(code, codes), Stop::StreamError(want), "{code}");
+        }
+        // Exact codes only: no prefix, substring or empty match.
+        for code in ["test_slow", "test_slow_down_now", "", "test_slow_down,test_try_later"] {
+            assert_eq!(codes.kind(Some(code)), StreamErrorKind::Other, "{code:?}");
+        }
+        assert_eq!(codes.kind(None), StreamErrorKind::Other);
+        assert_eq!(failed("something_new", codes), Stop::Failed);
     }
 }

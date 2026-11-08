@@ -1,5 +1,5 @@
-Slop Ninja
-Copyright (c) 2026 The Slop Ninja Authors
+SlopNinja
+Copyright (c) 2026 The SlopNinja Authors
 
 Project code and documentation are licensed under the MIT License
 (LICENSE-MIT) or the Apache License, Version 2.0 (LICENSE-APACHE), at your
@@ -7,7 +7,7 @@ option. Files, directories and datasets that carry their own licence or
 notice keep those terms; the Licence section of README.md lists them. Miner
 submissions and the reference model weights are licensed under the Creative
 Commons Attribution-ShareAlike 4.0 International licence (CC BY-SA 4.0,
-https://creativecommons.org/licenses/by-sa/4.0/). The Slop Ninja logo files in
+https://creativecommons.org/licenses/by-sa/4.0/). The SlopNinja logo files in
 assets/brand/ are not covered by the code and documentation licences.
 
 Development moved to this repository on 2026-11-03. Its first commit imports

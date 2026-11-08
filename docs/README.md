@@ -31,7 +31,7 @@ below.
 - [A span training data: spliced rewrites](a-spans-data.md)
 - [A span localization results](a-spans-results.md)
 - [A span commit aliases](a-spans-aliases.md)
-- [Slop Ninja on testnet](testnet/README.md): the landing page, with the
+- [SlopNinja on testnet](testnet/README.md): the landing page, with the
   [miner guide](testnet/miner-guide.md),
   [training guide](testnet/training-guide.md),
   [validator guide](testnet/validator-guide.md) and [terms](testnet/terms.md)

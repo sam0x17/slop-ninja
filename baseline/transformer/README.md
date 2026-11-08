@@ -78,7 +78,7 @@ execution on either OS does not qualify for confidential B serving.
 
 This starts with prompting, before fitting an adapter. The installed
 Qwen3-30B-A3B-Instruct-2507 4-bit checkpoint supplies the first control; it is
-not the paper's eventual 8B starter or a newly trained Slop Ninja model.
+not the paper's eventual 8B starter or a newly trained SlopNinja model.
 Compare reference-only prompting with reference plus named grammar/function-word
 measurements. Both variants receive the same source, claims, target voice,
 independent references, seed and output budget. Neither receives detector

@@ -1,6 +1,6 @@
-# Slop Ninja A corpus acquisition
+# SlopNinja A corpus acquisition
 
-Slop Ninja has one growing corpus with versioned collection batches and frozen
+SlopNinja has one growing corpus with versioned collection batches and frozen
 experiment views. Preserve the existing releases, split memberships, model
 selection seals and calibration receipts. Acquisition alone does not admit new
 records to a fitted model or establish held-out performance.

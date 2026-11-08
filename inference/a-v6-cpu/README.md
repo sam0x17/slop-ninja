@@ -1,4 +1,4 @@
-# Slop Ninja A: V6 CPU text inference
+# SlopNinja A: V6 CPU text inference
 
 Standalone Rust workspace for exact request text → frozen full V6 → shared warm
 A outputs. This is local compute qualification, not deployment qualification.
@@ -62,7 +62,7 @@ nonzero. Per-case numerical outputs remain ignored; the qualification report
 contains aggregate results. Other artifacts/platforms, batching, concurrency,
 Wasm and Cloudflare Containers require separate qualification.
 
-The wrapper and Slop Ninja code use the repository's MIT convention. Copied
+The wrapper and SlopNinja code use the repository's MIT convention. Copied
 Candle source retains its Apache-2.0/MIT licenses; the PyTorch LayerNorm port
 retains its upstream license in `licenses/PYTORCH`. Original model and training
 data rights remain with the supplied immutable artifact and are not replaced by

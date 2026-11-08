@@ -1,6 +1,6 @@
 # slop-ninja-arena
 
-Bounded per-invocation memory arenas for the Slop Ninja Workers, implementing
+Bounded per-invocation memory arenas for the SlopNinja Workers, implementing
 [`docs/workers-arena-design.md`](../../../docs/workers-arena-design.md)
 sections 2 to 6. **Status:** the global allocator of both Workers built from
 `subnet/coordinator` (the coordinator and the eval Worker), which link the

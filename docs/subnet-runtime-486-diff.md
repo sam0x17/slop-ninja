@@ -1,6 +1,6 @@
 # Subtensor runtime 486 surface
 
-This is the chain surface Slop Ninja's owner, coordinator, validators and miners
+This is the chain surface SlopNinja's owner, coordinator, validators and miners
 use at Subtensor runtime spec 486. It comes from live testnet metadata,
 compared with the metadata rtao ships for spec 482 (main) and spec 484
 (unpushed rtao commit `36ffc503`). The subnet netuid is configuration and is
@@ -230,7 +230,7 @@ patch `5f2477f5`; timelock encryption (`generate_commit_v2`) and the epoch
 schedule are unchanged. Its `COMPAT.md` records no validated spec range, and its
 client only logs when a runtime is outside that evidence.
 
-Slop Ninja pinned that revision for M2 and now pins rtao `fa83052d` (tag
+SlopNinja pinned that revision for M2 and now pins rtao `fa83052d` (tag
 `snapshot-2026-11-05.2`), which vendors the same Finney 477–486 metadata and
 also records no validated spec range (see
 [`subnet/README.md`](../subnet/README.md#rtao-pin)). The adapter has no spec

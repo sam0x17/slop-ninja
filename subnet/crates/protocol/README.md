@@ -1,4 +1,4 @@
-# Slop Ninja subnet protocol
+# SlopNinja subnet protocol
 
 `slop-ninja-protocol` holds the protocol logic shared by the native validator
 and the Workers coordinator: versioned records, canonical encoding,

@@ -1,6 +1,6 @@
-# Slop Ninja subnet
+# SlopNinja subnet
 
-The [whitepaper](../whitepaper/slop_ninja.pdf) is the canonical proposal for the Slop Ninja subnet. This page names the repository components that support that proposal and marks the implementation boundary.
+The [whitepaper](../whitepaper/slop_ninja.pdf) is the canonical proposal for the SlopNinja subnet. This page names the repository components that support that proposal and marks the implementation boundary.
 
 The [Cloudflare design notes](cloudflare-subnet-draft.md) contain implementation
 detail for the whitepaper, including serving, billing, recovery, and
@@ -29,9 +29,9 @@ guidance; C would credit accepted improvements to that grammar once.
 
 A artifacts stay private while their cohort runs, then are published and can be
 self-hosted. The proposed later B path uses
-private adapters in miner-owned Cloudflare accounts, with Slop Ninja controlling
+private adapters in miner-owned Cloudflare accounts, with SlopNinja controlling
 direct requests. Content must remain inaccessible to miners and private weights
-to the public; Cloudflare and Slop Ninja are trusted operators. Supporting
+to the public; Cloudflare and SlopNinja are trusted operators. Supporting
 guides follow this proposal and identify the retained prototypes' separate
 implementation limits.
 

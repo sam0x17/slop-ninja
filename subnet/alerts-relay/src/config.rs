@@ -77,7 +77,7 @@ pub struct Config {
     /// `"true"`; the URL is a secret.
     pub heartbeat: Option<String>,
     /// A deploy-time drill (`DRILL_ID`): the relay emails one drill message
-    /// per id (subject `Slop Ninja <network> alert drill`) and never again
+    /// per id (subject `SlopNinja <network> alert drill`) and never again
     /// for the same id. Unset (the tracked default) sends none.
     pub drill: Option<String>,
     /// Optional settings that did not parse and were ignored (their default

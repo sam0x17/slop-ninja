@@ -1,4 +1,4 @@
-# Slop Ninja generation Worker: Wrangler configuration (tracked).
+# SlopNinja generation Worker: Wrangler configuration (tracked).
 #
 # The internal Worker that makes generation v2's frontier calls (OpenAI and
 # Anthropic) for the eval Worker. It has no public surface: no route, no

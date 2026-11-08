@@ -1,7 +1,7 @@
 # Paid inference
 
 Whitepaper draft 0.48 proposes hosted *A* first, with paid access opened at the
-coordinator's discretion after quality and service qualification. Slop Ninja
+coordinator's discretion after quality and service qualification. SlopNinja
 serves the public model. Later private *B* serving requires separate activation.
 The [whitepaper's paid-service section](../whitepaper/sections/06-paid-inference.tex)
 and [Cloudflare design](cloudflare-subnet-draft.md) define the proposal; no
@@ -33,7 +33,7 @@ cannot fund execution before confirmed arrival.
 The operator pays processing, conversion, and chain fees separately so they do
 not reduce the inference principal promised for burning. Customers pay their
 wallet submission fees unless an offer sponsors them. Miners fund training;
-Slop Ninja funds public *A* serving and shared evaluation. Later *B* miners
+SlopNinja funds public *A* serving and shared evaluation. Later *B* miners
 would pay their own Cloudflare bills for customer calls and bounded mandatory
 evaluations. Required candidate external-detector checks have a separate prepaid
 budget. `rtao-rpc` has no service fee; chain and caller-runtime costs remain.
@@ -73,10 +73,10 @@ new quote. The original attempt stays in the record.
 ## Customer confidentiality
 
 The [current privacy contract](../whitepaper/sections/05-confidentiality.tex)
-trusts Cloudflare and Slop Ninja with content while excluding miners from
+trusts Cloudflare and SlopNinja with content while excluding miners from
 customer prompts, responses, and derived representations. Usage metadata may
 be visible. Later private *B* weights must remain unavailable to the public;
-Slop Ninja may technically access them. The proposal makes no TEE claim.
+SlopNinja may technically access them. The proposal makes no TEE claim.
 
 Customer ciphertext, billing identities, raw document hashes, and provider
 report URLs stay off-chain. Public receipts contain content-free accounting

@@ -4,12 +4,12 @@ An \textit{A} miner trains a versioned text model for origin, share, span, and
 attribution outputs. The artifact contains the weights, tokenizer, calibration,
 and execution contract needed to run every output it declares. The miner commits only its
 digest on chain and uploads the artifact's files straight to the coordinator's
-private R2 storage through presigned URLs, never through a Slop Ninja Worker;
+private R2 storage through presigned URLs, never through a SlopNinja Worker;
 the coordinator publishes the artifact when the cohort's scoring starts. A published artifact, the miner's own
 included, earns nothing when entered again, so a miner earns again only with a
 model that differs measurably from every published one or improves on its
 source by half the promotion margin (Section~\ref{public-copies}).
-Slop Ninja executes
+SlopNinja executes
 submitted artifacts for the pilot's hidden evaluations and published ones for
 customer requests. Neither step requires the miner to operate a serving
 endpoint or Cloudflare account.
@@ -17,14 +17,14 @@ Miners pay for their training and development; the operator pays for centrally
 served \textit{A} inference. Benchmark rewards depend on measured performance,
 not a claim about training expenditure.
 
-Slop Ninja is the subnet \emph{operator}. The \emph{subnet owner} is the account
-recognized on chain; Slop Ninja may operate through ownership or a lease.
+SlopNinja is the subnet \emph{operator}. The \emph{subnet owner} is the account
+recognized on chain; SlopNinja may operate through ownership or a lease.
 A lease must secure an owner-authorized execution path for required
 hyperparameter changes, including enabling commit--reveal, and any owner-only
 burn operations. Operating the service alone grants neither those powers nor
 the owner's emission entitlement.
 
-One lead validator, operated by Slop Ninja, serves as the \emph{coordinator}.
+One lead validator, operated by SlopNinja, serves as the \emph{coordinator}.
 This validator is the serverless service: it administers the daily frozen
 evaluation cohorts, runs their models and the reference models, and alone
 computes the reward outcome. It signs a private score package of exact
@@ -80,7 +80,7 @@ derived profiles receive the same content protection as the query document.
 
 Later \textit{B} miners register private transformation pipelines, with
 language-model adapters served by Cloudflare in their own accounts and numeric
-rankers executed by Slop Ninja. These miners maintain their delegated access,
+rankers executed by SlopNinja. These miners maintain their delegated access,
 capacity, and billing, and pay for their model calls, including required
 evaluations. Customer payments follow the burn policy; no direct per-job
 reimbursement is promised. Later \textit{C} contributors submit public grammar
@@ -91,7 +91,7 @@ contract (Section~\ref{grammar-contributions}). Neither \textit{B} service oblig
 
 \subsection{Rust applications and serverless execution}
 
-All Slop Ninja production application logic is written in Rust, including
+All SlopNinja production application logic is written in Rust, including
 native miner and non-coordinator validator clients, update and migration tools,
 and the serverless coordinator, challenge, and inference logic. A \emph{challenge}
 is a coordinator-internal evaluation task, such as generating cohort documents
@@ -126,7 +126,7 @@ re-reading them.
 The coordinator needs qualified Workers-compatible chain transport, encoding,
 signing, and durable reconciliation, including its validator commitments and
 reveal obligations. Both coordinator and native participants use the
-\texttt{rtao-rpc} service, which provides Slop Ninja RPC
+\texttt{rtao-rpc} service, which provides SlopNinja RPC
 access at no service charge~\cite{rtaorpc}. Chain fees and execution costs remain
 separately funded.
 
@@ -186,7 +186,7 @@ update another~\cite{cfdo}.
 All production inference, challenge generation and execution, and scoring run
 serverlessly. Model execution, and later \textit{B} parsing, take place
 outside the objects that serialize admission and accounting. Bounded Rust/Wasm computation runs in
-Workers; a qualified Cloudflare serverless Container under Slop Ninja's control
+Workers; a qualified Cloudflare serverless Container under SlopNinja's control
 supplies bounded computation beyond their limits, including every \textit{A}
 model run. Workers AI supplies supported language-model and adapter formats; it
 cannot host the \textit{A} encoder

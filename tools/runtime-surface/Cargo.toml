@@ -4,7 +4,7 @@ version = "0.1.0"
 edition = "2024"
 license = "MIT OR Apache-2.0"
 publish = false
-description = "Offline extraction and comparison of the Subtensor runtime surface Slop Ninja uses"
+description = "Offline extraction and comparison of the Subtensor runtime surface SlopNinja uses"
 
 [workspace]
 

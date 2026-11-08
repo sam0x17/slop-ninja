@@ -2,7 +2,7 @@
 //!
 //! Builds the minimal coordinator-signed fixture package that drives the M2
 //! native commit, and generates the application signing seeds it is signed
-//! with. These seeds are Slop Ninja application keys, never chain keys. No
+//! with. These seeds are SlopNinja application keys, never chain keys. No
 //! command connects to a chain, and no seed is ever printed.
 
 use std::io::{Read as _, Write as _};

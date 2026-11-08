@@ -19,7 +19,7 @@ fn version() -> &'static str {
 #[command(
     name = "slop-ninja-journal",
     version = version(),
-    about = "Inspect, pause or review failures in an existing Slop Ninja native journal offline"
+    about = "Inspect, pause or review failures in an existing SlopNinja native journal offline"
 )]
 struct Args {
     #[arg(long)]

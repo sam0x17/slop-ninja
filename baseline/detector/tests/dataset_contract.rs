@@ -33,7 +33,7 @@ fn fixture(id: &str, group: &str, text: &str) -> OriginRecord {
             license: "Synthetic-Original".into(),
             evidence_url: "fixture://contract/original-notice".into(),
             evidence_sha256: sha256("original synthetic protocol fixture"),
-            attribution: "Slop Ninja synthetic protocol fixture".into(),
+            attribution: "SlopNinja synthetic protocol fixture".into(),
             commercial_training: true,
             model_release: true,
             external_evaluation: false,

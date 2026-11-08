@@ -1,6 +1,6 @@
 # Native subnet chain integration
 
-This independent Rust crate integrates Slop Ninja's native weight-delivery path
+This independent Rust crate integrates SlopNinja's native weight-delivery path
 with `rtao` at
 [`fa83052d37b39f002f7a4d3cc5c04f25503e1d11`](https://github.com/sam0x17/rtao/tree/fa83052d37b39f002f7a4d3cc5c04f25503e1d11)
 (immutable tag `snapshot-2026-11-05.2`).
@@ -25,7 +25,7 @@ coordinator take their record and operation definitions from that crate.
 The [implementation plan](../docs/subnet-implementation-plan.md) covers the
 serverless coordinator, native participants, upstream rtao fixes, and qualification.
 
-One lead validator serves as the coordinator and is operated by Slop Ninja.
+One lead validator serves as the coordinator and is operated by SlopNinja.
 The coordinator is the serverless service: it performs hidden evaluation and
 scheduling as well as its own row calculation, hotkey signing, submission,
 finalized reconciliation, and recovery on Workers and Durable Objects. Other
@@ -36,7 +36,7 @@ not assumed to support the serverless coordinator unchanged.
 The adapter uses upstream `OperationJournal`, `WeightScheduler::with_journal`,
 `with_semantic_guard`, `enqueue`, `recover_finalized`, and `on_finalized`.
 It preserves the upstream transaction/reveal recovery implementation rather than
-maintaining a second submission engine. Slop Ninja still owns the scoring and
+maintaining a second submission engine. SlopNinja still owns the scoring and
 authorization described in the [design draft](../docs/cloudflare-subnet-draft.md).
 
 ## Native lifecycle

@@ -542,7 +542,7 @@ estimate.
 Not made here. If decisions 1 and 7 accept a RunPod fallback,
 [the Cloudflare design](cloudflare-subnet-draft.md) would need:
 
-- **Launch scope and privacy.** The statement that Cloudflare and Slop Ninja are
+- **Launch scope and privacy.** The statement that Cloudflare and SlopNinja are
   trusted with text, and that Cloudflare is the trusted inference host, would
   name the GPU provider for paid traffic. A new subsection under *Privacy and the
   provider boundary* would cover the envelope, the provider's log and job
@@ -576,7 +576,7 @@ The whitepaper's trust statement would change in step. AGENTS.md would need:
 - the Rust-only rule applied to the GPU handler, with ONNX Runtime CUDA listed as
   a native dependency.
 
-[Miner models and training data](miner-models-and-data.md) says Slop Ninja
+[Miner models and training data](miner-models-and-data.md) says SlopNinja
 serves admitted public artifacts in its own infrastructure; that sentence would
 name the provider if miner artifacts were ever served from it.
 

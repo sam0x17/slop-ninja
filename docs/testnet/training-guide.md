@@ -36,7 +36,7 @@ and admits nothing.
 
 ## Getting the code
 
-The recipe runs from a checkout of the Slop Ninja repository at a revision
+The recipe runs from a checkout of the SlopNinja repository at a revision
 that contains this guide, including its `datasets/` directory. The public
 repository is <https://github.com/sam0x17/slop-ninja>. The commands fetch everything else from public sources: Rust crates
 (including rtao from GitHub), Python wheels and ModernBERT-base.
@@ -54,7 +54,7 @@ repository is <https://github.com/sam0x17/slop-ninja>. The commands fetch everyt
   and passes the promotion checks becomes the next reference, as the
   whitepaper's promotion rule says. Its artifact was published when its
   cohort's scoring started, like every admitted artifact.
-- **One replacement outside promotion.** Separately, Slop Ninja may replace
+- **One replacement outside promotion.** Separately, SlopNinja may replace
   R0 at most once with a better reference it trains, only if that model passes
   every required gate, announced in advance on the status page.
 - **The burn rule.** Testnet follows the whitepaper's rule: no miner earns,
@@ -72,7 +72,7 @@ not state yet:
 
 One testnet limit also applies, as the miner guide explains: the gate
 thresholds are provisional, frozen in each signed cohort manifest. Until an
-entrant beats the reference by δ, Slop Ninja's validators commit the launch
+entrant beats the reference by δ, SlopNinja's validators commit the launch
 burn row, which pays no miner ([Rewards](miner-guide.md#13-rewards)).
 
 ## What the recipe reproduces of R0, and what it does not

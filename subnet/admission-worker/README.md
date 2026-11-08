@@ -1,6 +1,6 @@
 # slop-ninja-admission-worker
 
-The key-free upload Worker of Slop Ninja testnet admission:
+The key-free upload Worker of SlopNinja testnet admission:
 `slop-ninja-admission-testnet`, served at `https://testnet-admission.slop.ninja`.
 It fronts every public route of the admission contract
 `slop_ninja.admission/v2` ([admission API](../../docs/testnet/admission-api.md))

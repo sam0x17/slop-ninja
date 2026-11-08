@@ -1,6 +1,6 @@
 \section*{Abstract}\label{abstract}
 
-Slop Ninja proposes an adversarial training subnet on Bittensor, pairing
+SlopNinja proposes an adversarial training subnet on Bittensor, pairing
 mechanism \textit{A}'s AI detection with mechanism \textit{B}'s writing
 transformation. \textit{B} is the main product objective: private models revise
 authorized text toward the author's intended voice while preserving meaning,
@@ -45,7 +45,7 @@ reliable author-fit signal.
 
 \textit{B}'s proposed private adapters run in miner-owned Cloudflare accounts:
 miners pay their model bills but must not receive customer prompts or responses.
-Cloudflare and Slop Ninja remain trusted operators; private weights must be
+Cloudflare and SlopNinja remain trusted operators; private weights must be
 inaccessible to the general public. \textit{B}'s editing pipeline is planned
 to use a shared English grammar for typed word, phrase, and clause edits and
 for revision guidance. Mechanism \textit{C} credits accepted reusable
@@ -53,7 +53,7 @@ contributions to that grammar once. It activates by its own decision, which
 may come before \textit{B}'s so the grammar can grow first, and is not required
 for the \textit{A} launch.
 
-One lead validator, operated by Slop Ninja, serves as the coordinator.
+One lead validator, operated by SlopNinja, serves as the coordinator.
 The protocol below states requirements, and Section~\ref{implementation-status}
 records which parts run today: the coordinator is specified to run entirely
 serverlessly but remains unfinished, and testnet cohorts still run in a
@@ -62,7 +62,7 @@ on chain and upload their model files straight to the coordinator's private R2
 storage, which checks each file's declared SHA-256 on arrival. The coordinator publishes
 the entrants' models, licensed CC BY-SA 4.0, when scoring starts, and scores
 every entrant and the current and previous reference models (when a previous
-one exists) on a fresh hidden batch of paired cases each day; Slop Ninja publishes its own reference models on the same terms,
+one exists) on a fresh hidden batch of paired cases each day; SlopNinja publishes its own reference models on the same terms,
 without evaluation text. Each batch is a fifth human-only, and on mainnet its human text comes
 from Common Crawl pages captured before November 30, 2022, a historical-human
 proxy drawn with capped domain shares that limit lookup by memorizing models and
@@ -109,7 +109,7 @@ The coordinator opens the initial paid detection service when measured quality
 supports a bounded workload. Customers may fund jobs by card, TAO, or subnet alpha. Inference
 principal converts to alpha and is burned; it does not directly reimburse
 serving costs. Burns are intended to support token value, with no guaranteed
-market response. Slop Ninja funds public-model execution and operating reserves
+market response. SlopNinja funds public-model execution and operating reserves
 separately. Pricing and any emissions assigned to paid use require calibration
 against measured costs, demand, and abuse incentives. The mainnet split of
 emissions among owner, validators, and miners is not selected.

@@ -3,7 +3,7 @@ name = "grammar-a-pools"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
-description = "Rights-gated human prose pools for Slop Ninja A: source adapters, prior-snapshot overlap index and deduplicating admission"
+description = "Rights-gated human prose pools for SlopNinja A: source adapters, prior-snapshot overlap index and deduplicating admission"
 
 [lib]
 name = "grammar_a_pools"

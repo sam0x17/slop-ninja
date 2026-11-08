@@ -8,7 +8,7 @@
 //! **Hash once.** Miners upload each artifact object (the header bytes `H`,
 //! then each file) straight to R2 under presigned URLs that bind the derived
 //! key, the committed length, the committed SHA-256 and create-only; R2
-//! verifies the digest as the bytes arrive. No byte reaches a Slop Ninja
+//! verifies the digest as the bytes arrive. No byte reaches a SlopNinja
 //! Worker, and nothing here hashes a model byte: an object is recorded from
 //! R2's stored size, checksum, entity tag and attributes ([`Head`]). The
 //! only SHA-256 computed here is over small records: a session-creation

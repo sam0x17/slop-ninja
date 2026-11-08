@@ -1,7 +1,7 @@
 <?xml version='1.0' encoding='UTF-8'?>
 <svg xmlns="http://www.w3.org/2000/svg" version="1.1" viewBox="222 123 797 797" width="797" height="797" role="img" aria-labelledby="sni-logo-title sni-logo-description">
-  <title id="sni-logo-title">Slop Ninja — ninja icon</title>
-  <desc id="sni-logo-description">Headband ties and the scanner reticle over the eye in ninja red. Rebuilt as editable native SVG paths and smooth gradients from the approved Slop Ninja artwork. No embedded raster images, scripts, linked assets, or font dependencies. Exterior background is transparent; intentional black face and document areas are preserved. This illustrated mark is approved only on dark backgrounds.</desc>
+  <title id="sni-logo-title">SlopNinja — ninja icon</title>
+  <desc id="sni-logo-description">Headband ties and the scanner reticle over the eye in ninja red. Rebuilt as editable native SVG paths and smooth gradients from the approved SlopNinja artwork. No embedded raster images, scripts, linked assets, or font dependencies. Exterior background is transparent; intentional black face and document areas are preserved. This illustrated mark is approved only on dark backgrounds.</desc>
   <defs>
     <linearGradient id="sni-upper-tie-gradient" gradientUnits="userSpaceOnUse" x1="462.169" y1="346.209" x2="281.304" y2="305.939">
       <stop offset="0.000" stop-color="#1c2023"/>
@@ -371,7 +371,7 @@
       <stop offset="1.000" stop-color="#1b5445"/>
     </linearGradient>
   </defs>
-  <g id="sni-ninja-icon" aria-label="Slop Ninja emblem">
+  <g id="sni-ninja-icon" aria-label="SlopNinja emblem">
     <g id="sni-silhouette-foundation">
       <path d="M667 197 C608 214 552 239 512 268 L416 510 Q412 519 418 530 C442 575 480 616 513 636 L623 698 L756 577 L810 574 L866 496 L832 402 L825 376 L788 269 C752 237 708 213 667 197 Z" fill="#010202" fill-rule="evenodd" id="sni-head-and-cloak-foundation"/>
       <path d="M721 596 H858 L919 659 L873 836 L756 808 L663 728 L703 611 Q708 597 721 596 Z" fill="#010202" fill-rule="evenodd" id="sni-document-foundation"/>

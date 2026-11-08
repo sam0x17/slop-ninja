@@ -1,4 +1,4 @@
-//! `slop_ninja_corpus`: the consolidated, content-addressed Slop Ninja corpus.
+//! `slop_ninja_corpus`: the consolidated, content-addressed SlopNinja corpus.
 
 mod adapters;
 mod archive;
@@ -25,7 +25,7 @@ use std::io::Write;
 use std::path::PathBuf;
 
 #[derive(Parser)]
-#[command(name = "slop_ninja_corpus", about = "Consolidated Slop Ninja corpus store")]
+#[command(name = "slop_ninja_corpus", about = "Consolidated SlopNinja corpus store")]
 struct Cli {
     /// Store directory (holds corpus.sqlite and packs/).
     #[arg(long)]

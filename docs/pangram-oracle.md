@@ -114,7 +114,7 @@ repeated results.
 
 ## Who pays
 
-Slop Ninja funds the shared *A* provider observations once per comparison set;
+SlopNinja funds the shared *A* provider observations once per comparison set;
 adding an admitted model need not multiply that bill. It also funds central
 *A* execution and the declared shared review workload. Miners fund private
 experimentation. Later *B* miners would fund their bounded evaluation calls and

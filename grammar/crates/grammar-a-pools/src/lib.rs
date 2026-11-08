@@ -1,4 +1,4 @@
-//! Rights-gated human prose pools for Slop Ninja A.
+//! Rights-gated human prose pools for SlopNinja A.
 //!
 //! Source adapters turn downloaded raw files into normalised human
 //! documents (`slop_ninja_a_pool_document_v1`) with exact text, provenance,

@@ -15,7 +15,7 @@ outputs are qualification gates. Under the protocol, miners commit artifact
 digests on chain and upload model files straight to the coordinator's private R2
 storage by presigned URL, within a cap of one allow-listed 160M-parameter graph
 of at most 700 MB; R2 checks each file's declared SHA-256 on arrival, and no
-Slop Ninja code hashes model bytes after the miner packs them. Each day the coordinator publishes the entrants' models, licensed
+SlopNinja code hashes model bytes after the miner packs them. Each day the coordinator publishes the entrants' models, licensed
 CC BY-SA 4.0, when scoring starts, scores every entrant and the current and previous
 reference models (when a previous one exists) on a fresh hidden batch of paired cases, 20% human-only, 55% mixed and 25%
 model-only, with half of the generated text planned to come from frontier
@@ -25,7 +25,7 @@ comes from pre-cutoff Common Crawl, a historical-human proxy drawn with secret
 keys, capped domain shares, a cohort generation profile that matches generated
 text to its human parent's form, and era gates; testnet uses a smaller public
 stock and, for cohorts without a working outside entrant, reuses only documents
-already exposed, a rule the coordinator enforces. Slop Ninja publishes its own
+already exposed, a rule the coordinator enforces. SlopNinja publishes its own
 reference weights under CC BY-SA 4.0 too, with synthetic replay cases and no
 evaluation text. Testnet starts from the baseline release candidate and may
 replace it once, announced in advance, with the next qualified reference;

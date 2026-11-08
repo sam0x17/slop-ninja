@@ -365,7 +365,7 @@ pub fn message_id(events: &[Event], domain: &str) -> String {
 
 // The fixed text of a message, in pieces, so its bounds below are their
 // lengths and cannot drift from the text.
-const HEAD: [&str; 4] = ["Slop Ninja ", " alerts from ", " (rules ", ").\n\n"];
+const HEAD: [&str; 4] = ["SlopNinja ", " alerts from ", " (rules ", ").\n\n"];
 const FOOTER: &str = "-- \nSent by the private alerts relay (rules slop_ninja.alerts_relay.rules/v1), \
      once per event (twice at most when a send's outcome was unknown). A reminder follows every \
      renotify interval while a condition lasts, and a resolution when it clears. The relay does \
@@ -475,7 +475,7 @@ pub fn build(
 /// The drill message's fixed text, in pieces (its bound below is their
 /// length).
 const DRILL_HEAD: [&str; 3] = [
-    "This is a drill of the Slop Ninja ",
+    "This is a drill of the SlopNinja ",
     " alerts relay. It needs no action.\n\n\
      It checks that the relay's email reaches this mailbox. Drill ",
     ", sent ",
@@ -486,9 +486,9 @@ const DRILL_FOOTER: &str = ".\n\n-- \nSent once per drill id by the private aler
 /// The drill message's text bound besides its network and drill id.
 pub const DRILL_FIXED_BYTES: usize = total(&DRILL_HEAD) + RFC3339_MAX_BYTES + DRILL_FOOTER.len();
 
-/// The drill's subject: `Slop Ninja <network> alert drill`.
+/// The drill's subject: `SlopNinja <network> alert drill`.
 pub fn drill_subject(network: &str) -> String {
-    format!("Slop Ninja {} alert drill", header_text(network))
+    format!("SlopNinja {} alert drill", header_text(network))
 }
 
 /// The drill's plain text: what it is, that it needs no action, its id
@@ -865,7 +865,7 @@ pub(crate) mod tests {
     #[test]
     fn drill_messages() {
         let m = build_drill(&addrs(), "testnet", "20261102-a", 1_793_627_107_000);
-        assert_eq!(m.subject, "Slop Ninja testnet alert drill");
+        assert_eq!(m.subject, "SlopNinja testnet alert drill");
         let (head, body) = m.raw.split_once("\r\n\r\n").unwrap();
         let headers: Vec<&str> = head.split("\r\n").collect();
         assert_eq!(headers.len(), HEADER_LINES);
@@ -882,13 +882,13 @@ pub(crate) mod tests {
                 "{name}"
             );
         }
-        assert!(headers.contains(&"Subject: Slop Ninja testnet alert drill"));
+        assert!(headers.contains(&"Subject: SlopNinja testnet alert drill"));
         assert!(headers.contains(&"Date: Mon, 02 Nov 2026 13:45:07 +0000"));
         assert!(headers.contains(&"Auto-Submitted: auto-generated"));
         assert!(head.len() <= HEADER_BYTES && head.is_ascii());
         let text = qp_decode(body);
         assert!(text.starts_with(
-            "This is a drill of the Slop Ninja testnet alerts relay. It needs no action."
+            "This is a drill of the SlopNinja testnet alerts relay. It needs no action."
         ));
         assert!(text.contains("Drill 20261102-a, sent 2026-11-02T13:45:07Z."));
         assert!(!text.contains('@'), "no address in the body");

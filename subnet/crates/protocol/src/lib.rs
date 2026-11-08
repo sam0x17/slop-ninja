@@ -1,4 +1,4 @@
-//! Shared Slop Ninja subnet protocol: versioned records, canonical encoding,
+//! Shared SlopNinja subnet protocol: versioned records, canonical encoding,
 //! domain-separated digests and signatures, stable operation identities,
 //! private submission records, artifact objects and their inference-content
 //! identity, the published-artifact index and the near-copy relation, the

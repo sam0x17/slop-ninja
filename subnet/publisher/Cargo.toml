@@ -4,7 +4,7 @@ version = "0.1.0"
 edition = "2024"
 license = "MIT OR Apache-2.0"
 publish = false
-description = "Cron Worker that publishes closed Slop Ninja testnet cohorts, the public status snapshot, the leaderboard and operator alerts"
+description = "Cron Worker that publishes closed SlopNinja testnet cohorts, the public status snapshot, the leaderboard and operator alerts"
 
 # Independent of the native `subnet/` workspace and of the coordinator, so the
 # Wasm build never pulls the native rtao runtime and the coordinator's lock is

@@ -1,4 +1,4 @@
-//! The Slop Ninja miner client (`slop_ninja_miner`): pack an artifact object
+//! The SlopNinja miner client (`slop_ninja_miner`): pack an artifact object
 //! (hashing each file once), check it, commit its content on chain through
 //! rtao, upload its header and files straight to R2 under presigned URLs the
 //! coordinator mints (admission contract v2,

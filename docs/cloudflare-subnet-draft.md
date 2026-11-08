@@ -7,7 +7,7 @@ neither establishes a deployed or qualified subnet.
 The [implementation plan](subnet-implementation-plan.md) defines the build
 sequence, acceptance criteria, and upstream rtao improvements.
 
-Slop Ninja's main objective is *B*: transforming authorized writing to sound
+SlopNinja's main objective is *B*: transforming authorized writing to sound
 natural and match the author's intended voice while preserving meaning,
 readability, and tone. *A* supplies supporting detection and attribution signals
 for revision search and evaluation. The intended training is adversarial:
@@ -21,7 +21,7 @@ The subnet has three logical mechanisms: *A* for AI detection through origin
 and author attribution, *B* for transformation, and *C* for shared
 contributions to the native grammar (CFG) that later *B* work uses. *A* reads
 raw text and does not use the CFG. Launch includes *A* alone; *B* and *C*
-require separate activation. Slop Ninja operates the customer
+require separate activation. SlopNinja operates the customer
 API and executes *A* artifacts in its own account. The proposed later *B* service
 uses private LoRA adapters in miner-owned Cloudflare accounts, with miners
 paying those inference bills and our runtime controlling the document workflow.
@@ -60,7 +60,7 @@ and preserves meaning; a lower detector score never changes production history.
 The privacy requirement is that miners cannot retrieve customer prompts or
 responses. Usage metadata, including token counts, timing, and cost, is
 acceptable. Private *B* weights must not be downloadable by the general public.
-Cloudflare and Slop Ninja are trusted with text and may technically access
+Cloudflare and SlopNinja are trusted with text and may technically access
 weights. We minimize that access through the serving design, without claiming
 cryptographic protection from either operator.
 
@@ -104,16 +104,16 @@ privately and directly to the coordinator's object store, which publishes it
 when the cohort's scoring starts. The
 miner does not need a miner-owned Cloudflare account, private LoRA, or delegated
 inference credential.
-Slop Ninja pays for production
+SlopNinja pays for production
 *A* execution.
 
-Slop Ninja is the **operator**; the **subnet owner** is the account recognized
-on chain. Slop Ninja may operate through ownership or a lease. A lease must
+SlopNinja is the **operator**; the **subnet owner** is the account recognized
+on chain. SlopNinja may operate through ownership or a lease. A lease must
 secure an owner-authorized execution path for required hyperparameter changes,
 including enabling commit/reveal, and any owner-only burn operations. Service
 operation alone grants neither these powers nor owner emissions.
 
-One lead validator, operated by Slop Ninja, serves as **the coordinator**.
+One lead validator, operated by SlopNinja, serves as **the coordinator**.
 **The coordinator is the serverless service**, including all lead-validator
 duties. It runs the frozen evaluations, derives the native weight row from
 quantized scores, and publishes the quantized results and its signed row.
@@ -156,7 +156,7 @@ thresholds still await qualification. The grammar version policy belongs to
 later *B* and *C* activation.
 *C*'s contribution contract and allocation must be settled before its later
 activation. Paid-use credit for centrally hosted *A* would reward the model
-contributor; Slop Ninja pays serving costs. Its inclusion and rate remain open.
+contributor; SlopNinja pays serving costs. Its inclusion and rate remain open.
 
 The coordinator decides when *A* is good enough to sell. Qualification for
 benchmark rewards does not automatically open checkout. Record the evaluated
@@ -381,7 +381,7 @@ but scored humans clearly worse before calibration (human-only Brier 0.061 to
 0.093) and flagged 6 Test humans at its 0.1% point against none, so it was not
 adopted. The f32 Container scorer does not serve span heads yet.
 
-S2c ([span results](a-spans-results.md#follow-up-arm-s2)) is Slop Ninja's
+S2c ([span results](a-spans-results.md#follow-up-arm-s2)) is SlopNinja's
 adopted span head for the first package that serves spans (adopted November 1,
 2026); until span serving lands, the release package keeps the S0+ head. S2c
 keeps the encoder and document heads frozen and feeds the token head through a
@@ -485,7 +485,7 @@ Miner submissions and reference weights are licensed CC BY-SA 4.0; project
 code and documentation are MIT OR Apache-2.0, except files and datasets that
 carry their own licence or notice. Published entrant artifacts are free to
 obtain and run locally, and later *B* development is expected to train against
-them. Slop Ninja publishes its own references (`R_0` and any later reference it
+them. SlopNinja publishes its own references (`R_0` and any later reference it
 trains) on the same CC BY-SA 4.0 terms. A public reference package carries no
 evaluation text: it is re-exported with synthetic replay cases instead of the
 Dev-iter replay cases, and it passes a package-corpus scan before release.
@@ -582,7 +582,7 @@ remain to be fixed before live rewards.
    create-only; R2 verifies each object against its SHA-256 as it arrives and
    stores nothing on a mismatch. The miner's pack-time hash is therefore the
    only hash over model bytes, admission compares R2's stored checksums and
-   sizes with the header, and no upload byte passes through a Slop Ninja
+   sizes with the header, and no upload byte passes through a SlopNinja
    Worker. TLS and the private bucket are the privacy boundary until scoring
    starts; there is no encryption layer, since R2 can verify only the digest
    of the bytes it receives. The coordinator checks that the upload opens a finalized
@@ -861,7 +861,7 @@ scores, no near-equal drop, and the absence of runtime versions:
   promoted instead. Otherwise the reference does not change.
 - **Testnet reference.** Testnet opens a fresh chain record of cohorts and
   references with `R_0` as the first reference and no predecessor. It may
-  replace `R_0` once, by the next reference Slop Ninja trains (retrained and
+  replace `R_0` once, by the next reference SlopNinja trains (retrained and
   recalibrated on normalised, length-matched positives), only if that model
   passes every required gate; the status page announces this in advance. The
   replacement takes `R_0`'s position with no predecessor, appears in the next
@@ -1780,12 +1780,12 @@ determines the final payouts. Adding *B* requires a revised mapping before activ
 | Component | Owner and operator | Responsibility |
 | --- | --- | --- |
 | Training and model development | Miner | Training data, training compute, experiments, and model improvements. |
-| Private LoRA and Workers AI account | Miner; execution by Cloudflare | Upload the adapter, keep it private, maintain billing and capacity, grant Slop Ninja Workers AI Read access. |
-| Customer API and MCP interface | Slop Ninja Workers | Authentication, quotes, reservations, submission, status, and result retrieval. |
-| Public *A* models | Slop Ninja runtime on Cloudflare | Run admitted raw-text artifacts for evaluation and detection jobs. |
-| Later *B*: CFG parser and resolver, private *B* ranker, edit search | Slop Ninja runtime on Cloudflare | Parse sources into edit units, propose and assess edits, enforce bounds, select the final document. |
-| Job state, credentials, encrypted documents, receipt signer | Slop Ninja Workers, Durable Objects, and private storage | Durable processing, restricted content access, delivery, and accounting. |
-| Benchmark evaluation and lead validator | Slop Ninja Workers coordinator; other Rust validators commit its signed row | Hidden evaluation, exact scores, and receipts stay in the coordinator. Other validators verify the signed row and commit it in parallel; the coordinator signs, submits, and recovers its own chain work serverlessly and later certifies its finalized row. Later *B* review authority remains to be chosen. |
+| Private LoRA and Workers AI account | Miner; execution by Cloudflare | Upload the adapter, keep it private, maintain billing and capacity, grant SlopNinja Workers AI Read access. |
+| Customer API and MCP interface | SlopNinja Workers | Authentication, quotes, reservations, submission, status, and result retrieval. |
+| Public *A* models | SlopNinja runtime on Cloudflare | Run admitted raw-text artifacts for evaluation and detection jobs. |
+| Later *B*: CFG parser and resolver, private *B* ranker, edit search | SlopNinja runtime on Cloudflare | Parse sources into edit units, propose and assess edits, enforce bounds, select the final document. |
+| Job state, credentials, encrypted documents, receipt signer | SlopNinja Workers, Durable Objects, and private storage | Durable processing, restricted content access, delivery, and accounting. |
+| Benchmark evaluation and lead validator | SlopNinja Workers coordinator; other Rust validators commit its signed row | Hidden evaluation, exact scores, and receipts stay in the coordinator. Other validators verify the signed row and commit it in parallel; the coordinator signs, submits, and recovers its own chain work serverlessly and later certifies its finalized row. Later *B* review authority remains to be chosen. |
 | Registry, burn records, and emissions | Subtensor and proposed coordination components | Bind identities and offers, anchor receipts and burns, apply qualified native emission rules. |
 
 ```mermaid
@@ -1794,8 +1794,8 @@ flowchart LR
     M -->|A artifact digest commitment| C
     M -->|Private A artifact upload| J
     M -->|Signed registration and offer| REG[Model registry]
-    M -->|Read credential via private enrollment| SEC[Slop Ninja secret storage]
-    U[Customer or agent] -->|Quote, fund, submit| W[Slop Ninja API Worker]
+    M -->|Read credential via private enrollment| SEC[SlopNinja secret storage]
+    U[Customer or agent] -->|Quote, fund, submit| W[SlopNinja API Worker]
     U -->|Card, alpha, or TAO| PAY[Checkout and funding adapter]
     PAY -->|Reserve refundable funds| F[Payment custody]
     REG --> W
@@ -1804,7 +1804,7 @@ flowchart LR
     SEC --> R
     R -->|Direct API with pinned adapter UUID| AI
     AI -->|Candidate edits and usage| R
-    R -->|Encrypted final result| D[Slop Ninja result storage]
+    R -->|Encrypted final result| D[SlopNinja result storage]
     D -->|Authenticated retrieval| U
     R -->|Content-free signed receipt| J
     J -->|Valid delivery and burn authorization| F
@@ -1830,7 +1830,7 @@ miner credential or adapter download URL.
 Workers AI is the language-model serving service, not a host for arbitrary
 uploaded neural architectures, and it cannot host the *A* encoder. *A* text
 models, miner artifacts and references alike, run as ONNX graphs on CPU in a
-qualified Slop Ninja-controlled Cloudflare Container
+qualified SlopNinja-controlled Cloudflare Container
 ([measurement](a-container-serving.md)). Small numeric *B* rankers run as
 bounded data-driven models in our Rust/Wasm runtime; Workers are their initial
 target, and a component that exceeds their measured limits can also use a
@@ -1874,14 +1874,14 @@ finalized metagraph and epoch reads, on-chain commitment calls, direct or
 timelocked weight submission, durable submission/reveal recovery, semantic
 compatibility hooks, and persistent pause controls. The
 [native integration](../subnet/README.md) records downstream usage and
-remaining gaps. Slop Ninja still implements the model registry, manifests,
+remaining gaps. SlopNinja still implements the model registry, manifests,
 eligibility, cohort protocol, and scoring. Pin and qualify a revision for
 deployment; the available chain primitives do not establish our application
 behavior.
 
 The pinned rtao journal uses schema 3 and migrates schema 1 and 2 journals on
 open, or refuses them with the original bytes retained. Its compatibility record
-declares no validated runtime range; that is informational, and no Slop Ninja
+declares no validated runtime range; that is informational, and no SlopNinja
 component requires one. Production journaled shield dispatch is still refused.
 At this pin the native validator's live commitments, per-tempo
 re-commitments and fault drills passed on testnet subnet 601 on October 30,
@@ -1890,7 +1890,7 @@ Workers chain path.
 
 Use the `rtao-rpc` service for participant and coordinator chain access. This
 selects the hosted provider as well as the Rust tooling; the service repository
-is distinct from the RPC client crate within `rtao`. Slop Ninja's RPC service
+is distinct from the RPC client crate within `rtao`. SlopNinja's RPC service
 fee is zero under the agreed arrangement. Chain transaction fees and our own
 Workers execution remain separate costs.
 The service documents HTTP JSON-RPC at `https://finney.rtao.io/` and WebSocket
@@ -1915,7 +1915,7 @@ undelivered event), and nothing more is delivered until an authenticated
 resume. The provider polls its RPC source
 every few seconds, and an event's `header_only` readiness does not establish
 that state reads at its hash are available. Receiver
-integration and qualification of this contract remain Slop Ninja's work.
+integration and qualification of this contract remain SlopNinja's work.
 Each delivery is its own Worker invocation. It authenticates the exact body,
 persists the delivery identity and event in the Durable Object, and acknowledges
 within the provider's five-second deadline only after that commit.
@@ -2018,7 +2018,7 @@ required for its own enrollment and chain submissions, not for hosted inference.
 | Coordinator component | Responsibility |
 | --- | --- |
 | API Workers | Authenticated submission, status, result retrieval, and participant enrollment. |
-| Block webhook Worker | The primary heartbeat. Authenticate and durably record each finalized-block delivery, deduplicate it, advance the finalized cursor, and backfill gaps through bounded RPC, then claim due work through durable leases and request permitted transitions. Delivery time alone cannot advance a tempo. The upstream services are live; receiver integration and qualification of their delivery contract remain Slop Ninja's work. |
+| Block webhook Worker | The primary heartbeat. Authenticate and durably record each finalized-block delivery, deduplicate it, advance the finalized cursor, and backfill gaps through bounded RPC, then claim due work through durable leases and request permitted transitions. Delivery time alone cannot advance a tempo. The upstream services are live; receiver integration and qualification of their delivery contract remain SlopNinja's work. |
 | Cron watchdog | A one-minute scheduled check of delivery freshness and cursor lag. On a stall or lag beyond the threshold, process finalized blocks from the public OpenTensor RPC through the same bounded per-block path until webhooks resume. It is the only timer. |
 | SQLite-backed Durable Objects | Authoritative cohort phase/checkpoint, admission/accounting records, finalized cursor, and the coordinator's private validator journal. Give each cohort a durable identity; serialize the active-cohort pointer and phase authorization per subnet, and fence concurrent signing attempts for each hotkey. |
 | Lane Durable Objects | Execute bounded fan-out lanes: claim tasks under the cohort's leases, drive one Container instance per scoring lane, persist outcomes before releasing claims, and stop their instance when done or paused. Lanes never sign. |
@@ -2075,7 +2075,7 @@ own released scope. Measure memory, CPU,
 bundle size, and latency for each admitted profile. Split bounded work where
 possible and qualify any compute-only Container separately. No VM, laptop,
 long-lived daemon, or Container owns coordinator state or advances cohorts.
-Slop Ninja pays for these coordinator and shared-storage resources under the
+SlopNinja pays for these coordinator and shared-storage resources under the
 operator funding rules below.
 
 ## Models and version registration
@@ -2084,7 +2084,7 @@ An *A* artifact is a text model: an ONNX graph, a fixed tokenizer, heads,
 calibration, and the execution data needed to run them. It stays private
 until its cohort's scoring starts and is then published, licensed CC BY-SA 4.0.
 Its weights, tokenizer, calibration, and execution data are then free to obtain
-and execute independently; a published artifact is never recalled. Slop Ninja
+and execute independently; a published artifact is never recalled. SlopNinja
 operates pilot scoring and production hosting. Other validators commit the
 coordinator's signed row in parallel; the coordinator's finalized certificate is
 later consistency evidence. An API subscription does not replace artifact publication.
@@ -2122,7 +2122,7 @@ about later batches, but coordinated probing across many UIDs remains
 possible.
 
 A detector-only job runs a published, qualified artifact in our account. Its inference
-payment follows the same burn policy, while Slop Ninja pays the runtime bill.
+payment follows the same burn policy, while SlopNinja pays the runtime bill.
 *A* miners earn quality emissions from coordinator-led pilot scoring. Any
 inference credit for the model's author must use the explicit attribution policy
 described below.
@@ -2132,7 +2132,7 @@ propose typed edits from text. Every candidate is parsed and projected before
 the private numeric ranker selects among it and other candidates. The LoRA's
 raw-text judgment does not replace the ranker or independent preservation
 checks. A miner may improve the proposer, the ranker, or both within admitted
-formats. Its ranker weights are uploaded privately to Slop Ninja storage and
+formats. Its ranker weights are uploaded privately to SlopNinja storage and
 loaded only by our runtime; they are never sent to customer devices.
 
 A later *B* version manifest binds:
@@ -2147,7 +2147,7 @@ A later *B* version manifest binds:
   workload profile, and benchmark record.
 
 The miner signs registration and privately supplies an account-scoped Workers AI
-Read token. Slop Ninja proves access with a synthetic request, checks the
+Read token. SlopNinja proves access with a synthetic request, checks the
 adapter's private status and returned UUID, validates the ranker package, and
 verifies artifact digests. The existing Read grant also permits adapter asset
 download. Enrollment acknowledges that capability; the production request path
@@ -2178,7 +2178,7 @@ digests without asserting a measured-loader guarantee.
    qualified profile derived from independent author references and frozen style
    calibration. Revision without these omits author-fit scoring and guarantees. Size
    and service requirements are enough for discovery; no text is sent to miners.
-   Our API checks Slop Ninja's serving capacity for *A*, or a miner's signed
+   Our API checks SlopNinja's serving capacity for *A*, or a miner's signed
    capacity offer for later *B*, and prices the qualified workload using its
    reference model cost and configured multiplier. Any
    customer-authorized external checks are priced separately. The quote pins
@@ -2195,7 +2195,7 @@ digests without asserting a measured-loader guarantee.
    timely acceptance releases capacity and returns its principal. Retries and
    restarts do not extend either cutoff.
 3. **Submit and accept.** The customer sends the document and references over
-   authenticated encrypted transport to Slop Ninja. The runtime validates sizes,
+   authenticated encrypted transport to SlopNinja. The runtime validates sizes,
    supported formats, the brief, and the customer output key before acceptance.
    Bind the authenticated requester, source, references or existing private
    profile, and declared permission to submit and transform them in the private
@@ -2296,13 +2296,13 @@ it does not authorize commands or outbound actions suggested by that document.
 
 Miners can inspect account usage metadata and disable their own service. They
 must not obtain prompts, completions, author references, parsed vectors, or
-customer document storage. Slop Ninja logs IDs, usage, state transitions, and
+customer document storage. SlopNinja logs IDs, usage, state transitions, and
 normalized errors. It disables content logging in Workers, traces, and support
 tools. Input and output storage is private, encrypted, tenant-authorized, and
 time-limited. Even parsed features can reveal content and receive the same
 access controls as text.
 *B*'s parsing and ambiguity resolution, including any LLM resolver, stay within the
-Slop Ninja and Cloudflare trust boundary. Miners receive no resolver content.
+SlopNinja and Cloudflare trust boundary. Miners receive no resolver content.
 
 An adversarial adapter could encode prompt information in output length and
 expose bits through owner-visible token counts or billed usage. Security
@@ -2314,9 +2314,9 @@ content extraction: a demonstrated recovery path blocks paid *B* activation
 until addressed. Passive metadata inference remains a stated limit.
 
 Our runtime necessarily handles plaintext. End-to-end encryption that hides it
-from Slop Ninja is outside this draft. Cloudflare is the trusted inference host,
-and Slop Ninja is trusted to route requests and record execution honestly. A
-Slop Ninja signature is an operator assertion, not a Cloudflare signature or
+from SlopNinja is outside this draft. Cloudflare is the trusted inference host,
+and SlopNinja is trusted to route requests and record execution honestly. A
+SlopNinja signature is an operator assertion, not a Cloudflare signature or
 proof of confidential hardware execution.
 
 The [live checks](research-notes.md#cloudflare-private-lora-access-verification-2026-10-22)
@@ -2343,7 +2343,7 @@ private weights guarantee a durable competitive advantage.
 
 Cloudflare bills the account addressed by each direct Workers AI call. Later
 *B* miners pay their model-serving bills, including paid traffic and mandatory
-evaluation. Slop Ninja pays to serve public *A* models on Containers, for any
+evaluation. SlopNinja pays to serve public *A* models on Containers, for any
 later resolver calls, parsing, and ranking, and for storage and coordination.
 Customer inference payments buy and burn alpha. Miners receive quality emissions and, if activated,
 usage-based emissions; they receive no direct share of each customer payment.
@@ -2508,8 +2508,8 @@ training, evaluation, external detector checks, and low-volume fixed costs.
 They are therefore below the fully loaded `C_total_ref`. An idle standard-2 to
 standard-4 Container instance costs $0.057-$0.113 per hour, and a cold start bills 5-15 seconds of
 awake time, so idle capacity can dominate per-job cost at low volume and needs
-allocation before pricing is set. All detection expenses fall to Slop Ninja. In
-the revision scenario the miner's proposer bill is about $0.0027; Slop Ninja's
+allocation before pricing is set. All detection expenses fall to SlopNinja. In
+the revision scenario the miner's proposer bill is about $0.0027; SlopNinja's
 model and delivery costs are about $0.0079-$0.0085. Burned customer payments
 remain unavailable for those invoices.
 
@@ -2534,7 +2534,7 @@ provide this comparison at exactly 1,000 words:
 | --- | --- |
 | Pangram 4 realtime | $0.50 |
 | Pangram 4 bulk, with its published 20% discount | $0.40 |
-| Slop Ninja initial price hypothesis | $0.02 |
+| SlopNinja initial price hypothesis | $0.02 |
 
 The hypothesis is 25x cheaper than the standalone realtime rate and 20x cheaper
 than bulk. Pangram subscriptions, bundled credits, and negotiated contracts can
@@ -2561,7 +2561,7 @@ alpha purchase -> alpha burn
 ```
 
 Coinbase Onramp is selected for card-to-native-TAO funding, subject to qualifying
-Slop Ninja's integration. This path needs neither Ethereum nor a separate
+SlopNinja's integration. This path needs neither Ethereum nor a separate
 cross-chain swap. The intended route is card payment through Coinbase, native
 TAO delivery, then subnet alpha purchase and burn after valid service delivery.
 Existing TAO and alpha holders skip the onramp.
@@ -2574,7 +2574,7 @@ The provider documentation supports the following assessment:
 
 | Candidate | Documented capability | Remaining gap |
 | --- | --- | --- |
-| [Coinbase Onramp through TAO.com](https://support.tao.com/support/troubleshooting-and-help/help-with-buying-tao) | TAO.com documents direct TAO delivery to its wallet, including debit card/Apple Pay where available. No Ethereum routing is required in that documented flow. | Qualify Slop Ninja's own integration, permitted recipient wallet, payment methods, geography, limits, holds, and refunds. A partner's working flow does not establish our access. |
+| [Coinbase Onramp through TAO.com](https://support.tao.com/support/troubleshooting-and-help/help-with-buying-tao) | TAO.com documents direct TAO delivery to its wallet, including debit card/Apple Pay where available. No Ethereum routing is required in that documented flow. | Qualify SlopNinja's own integration, permitted recipient wallet, payment methods, geography, limits, holds, and refunds. A partner's working flow does not establish our access. |
 | [Stripe Crypto Onramp](https://docs.stripe.com/crypto/onramp) | Card-to-crypto purchase; provider handles identity checks and fraud/disputes for that purchase. | Approval, supported asset/network, customer-wallet requirements, merchant-payment compatibility, and refund integration. |
 | [NEAR Intents](https://docs.near-intents.org/resources/chain-support) | Solana and other supported networks; automated cross-chain routing through its [1Click API](https://docs.near-intents.org/integration/distribution-channels/1click-api/about-1click-api). | Published network list does not include Bittensor/Subtensor. A native-TAO exit is unverified. |
 | [TAO.com Intents](https://docs.tao.com/intents/sdk/#supported-routes) | Ethereum USDC to native TAO on Subtensor, including delivery to a Substrate coldkey. | Published routes do not include Solana. This is an Ethereum-dependent alternative, not the selected payment path. |
@@ -2665,12 +2665,12 @@ required owner-controlled hyperparameter changes separately before live weights.
 | Miner training and development | Miner | Miner capital and any earned emissions; no reimbursement. |
 | Later *B* customer-serving model calls in a miner's account | Miner | Variable inference emissions; the customer payment is burned. No guaranteed per-job fiat recovery. |
 | Later *B* mandatory benchmark and service-test model calls | Miner | Cost of participation for potential quality emissions; no service fee or reimbursement. |
-| Our model calls, later *B* CFG parsing, scoring/ranking, storage, delivery, and coordination | Slop Ninja | Explicit operating treasury, potentially funded by allocated owner proceeds or capital. |
-| Slop Ninja RPC service access | No service charge | Provided by `rtao-rpc`; chain transaction fees and our own runtime costs remain separately budgeted. |
-| Payment processing, conversion/burn fees, service refunds, and uncovered disputes | Slop Ninja | Operating treasury and funded reserves; provider-covered onramp fraud/disputes follow its contract. No deduction from the inference principal. |
-| Customer-authorized external detector check | Slop Ninja's provider account | Separate disclosed customer pass-through budget and disclosure authorization. |
-| Required reports on a miner's benchmark candidate | Slop Ninja's provider account | Miner's prepaid report balance under a bounded schedule. |
-| Shared evaluation sets, source baselines, authoritative *A* execution, and independent review | Slop Ninja | Named operator-funded evaluation budget; no dependency on validator contributions. |
+| Our model calls, later *B* CFG parsing, scoring/ranking, storage, delivery, and coordination | SlopNinja | Explicit operating treasury, potentially funded by allocated owner proceeds or capital. |
+| SlopNinja RPC service access | No service charge | Provided by `rtao-rpc`; chain transaction fees and our own runtime costs remain separately budgeted. |
+| Payment processing, conversion/burn fees, service refunds, and uncovered disputes | SlopNinja | Operating treasury and funded reserves; provider-covered onramp fraud/disputes follow its contract. No deduction from the inference principal. |
+| Customer-authorized external detector check | SlopNinja's provider account | Separate disclosed customer pass-through budget and disclosure authorization. |
+| Required reports on a miner's benchmark candidate | SlopNinja's provider account | Miner's prepaid report balance under a bounded schedule. |
+| Shared evaluation sets, source baselines, authoritative *A* execution, and independent review | SlopNinja | Named operator-funded evaluation budget; no dependency on validator contributions. |
 | Validator verification and native weight submissions | Each validator | Its own runtime and chain fees; no shared execution or approval obligation. |
 | Customer's wallet submission fee | Customer | Separate network charge. Any card-flow wallet and gas sponsorship depend on the qualified provider integration. |
 | Sale or withdrawal of a miner's emissions | Miner | Miner bears transaction, liquidity, and conversion costs. |
@@ -2682,7 +2682,7 @@ not reserves. The source and size of that operating budget remain launch
 decisions. Report operating cash flow separately from tokens purchased/burned.
 
 Native owner emissions accrue to the recognized subnet owner under the actual
-ownership or lease arrangement. They do not automatically fund Slop Ninja or
+ownership or lease arrangement. They do not automatically fund SlopNinja or
 an investor. Any allocation to operations needs explicit terms. The paid pilot
 must distinguish customer demand, burned principal, operating cash, miner
 emissions, and any separately priced enterprise service.
@@ -2797,9 +2797,9 @@ admissions when required reserves are unavailable.
 ### Evaluation funding
 
 Later *B* miners absorb their bounded evaluation inference costs, including
-permitted failed calls and retries. Slop Ninja funds the hosted *A* evaluation
+permitted failed calls and retries. SlopNinja funds the hosted *A* evaluation
 runtime. Each *B* miner funds its required candidate Pangram
-reports, preserving the paper's three-report policy. Slop Ninja makes the calls
+reports, preserving the paper's three-report policy. SlopNinja makes the calls
 with authorized benchmark text and the miner's prepaid report balance; payment
 does not grant access to hidden evidence or authorize customer-text disclosure.
 Mandatory training rewrites incur those charges only when their frozen ticket
@@ -2821,7 +2821,7 @@ or the agreed miner cap. Model preparation and training remain miner expenses.
 Costs are fixed before outcomes and never buy a favorable evaluation.
 Validators fund their own verification and native weight submissions. Their
 own runtime and chain costs are separate from the shared evaluation budget;
-Slop Ninja pays both for the coordinator. Other validators' budgets do not fund
+SlopNinja pays both for the coordinator. Other validators' budgets do not fund
 or gate shared evaluation or service.
 
 A compliant abstention earns no quality improvement or paid-inference credit.
@@ -3155,7 +3155,7 @@ and prose quality remain different claims. Watermark evaluation would require
 its own access and protocol. Rewrite-product comparisons belong to the later
 *B* discussion.
 
-Cloudflare handles model serving, while Slop Ninja controls admission and the
+Cloudflare handles model serving, while SlopNinja controls admission and the
 document workflow. This removes the need for miners to operate GPU endpoints.
 It does not remove model support, context, throughput, or cost limits. The
 current [LoRA service](https://developers.cloudflare.com/workers-ai/features/fine-tunes/loras/)

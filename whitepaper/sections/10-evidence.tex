@@ -94,7 +94,7 @@ equal, against the same \(10^{-5}\) bound. The tower adds 18--20\% of encoder
 CPU time, 5.3 seconds at 2,048 tokens on one thread, and no calibrated package
 with it has been built or replayed. Its development human gates are optimistic,
 because the baseline's early stopping and the earlier decoder limit used those
-humans. Slop Ninja adopted S2c on November 1, 2026 as its span head
+humans. SlopNinja adopted S2c on November 1, 2026 as its span head
 for the first package that serves spans; until then the shipped configuration
 keeps the head above.
 
@@ -364,7 +364,7 @@ carry over with the original bytes retained. Nothing compares a runtime spec or
 transaction version: signed operations resolve by name in live metadata, and
 only an operation without a type-correct encoding is deferred. That revision
 still refuses production journaled shield dispatch, and its compatibility record
-declares no validated runtime range, which no Slop Ninja component
+declares no validated runtime range, which no SlopNinja component
 requires~\cite{rtaoshield,rtaocompat}. Adapter, validator, and protocol tests,
 including a journal-migration fixture, mutated-metadata cases, and metadata
 fuzzing, passed with Clippy on Linux on October 30 and 31, 2026, without keys or

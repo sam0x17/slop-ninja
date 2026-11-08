@@ -3,7 +3,7 @@ name = "slop-ninja-gen-worker"
 version = "0.1.0"
 edition = "2024"
 publish = false
-description = "Internal Cloudflare Worker that makes the Slop Ninja testnet frontier generation calls (OpenAI, Anthropic)"
+description = "Internal Cloudflare Worker that makes the SlopNinja testnet frontier generation calls (OpenAI, Anthropic)"
 
 # Its own workspace, like the coordinator and the upload Worker: the Wasm
 # build never pulls the native rtao runtime, and nothing here links the

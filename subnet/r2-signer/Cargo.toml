@@ -3,7 +3,7 @@ name = "slop-ninja-r2-signer"
 version = "0.1.0"
 edition = "2024"
 publish = false
-description = "Internal Cloudflare Worker that presigns the Slop Ninja testnet direct-to-R2 artifact uploads"
+description = "Internal Cloudflare Worker that presigns the SlopNinja testnet direct-to-R2 artifact uploads"
 
 # Its own workspace, like the other Workers: it links no chain code and no
 # coordinator signing code. It holds two credentials, read from Secrets

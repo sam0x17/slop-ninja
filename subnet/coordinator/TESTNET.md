@@ -1,6 +1,6 @@
 # Testnet coordinator runbook
 
-This runbook covers the deployed testnet coordinator for Slop Ninja subnet 601
+This runbook covers the deployed testnet coordinator for SlopNinja subnet 601
 on Bittensor testnet (test.finney). From M3 the coordinator holds the
 coordinator hotkey (`5Hj59hQjQKVUp2NgzvZeNUQX8xoPotuqLGtg87UvNzSjFdRm`, UID 1)
 as a Worker secret and makes one kind of chain write: its own timelocked

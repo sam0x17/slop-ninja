@@ -1,4 +1,4 @@
-//! Common Crawl human-slice pilot sampler for Slop Ninja A (see README.md).
+//! Common Crawl human-slice pilot sampler for SlopNinja A (see README.md).
 pub mod a_gates;
 pub mod candidates;
 pub mod dedup;

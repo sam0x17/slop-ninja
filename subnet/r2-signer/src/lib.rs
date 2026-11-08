@@ -1,4 +1,4 @@
-//! The internal signer Worker of Slop Ninja testnet admission v2
+//! The internal signer Worker of SlopNinja testnet admission v2
 //! (`slop-ninja-r2-signer-testnet`).
 //!
 //! It holds two R2 S3 credentials, each read from Secrets Store per request,

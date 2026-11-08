@@ -3,7 +3,7 @@ name = "slop-ninja-admission-worker"
 version = "0.1.0"
 edition = "2024"
 publish = false
-description = "Key-free Cloudflare Worker that fronts the Slop Ninja testnet admission routes (no upload byte passes through it)"
+description = "Key-free Cloudflare Worker that fronts the SlopNinja testnet admission routes (no upload byte passes through it)"
 
 # Its own workspace, like the coordinator: the Wasm build never pulls the
 # native rtao runtime, and nothing here links the coordinator's signing code.

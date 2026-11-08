@@ -4,7 +4,7 @@ version = "0.1.0"
 edition = "2024"
 license = "MIT OR Apache-2.0"
 publish = false
-description = "Generation v2 for Slop Ninja evaluation cohorts: generator manifest, per-source rotation, voice library, vendor requests, stream reading, outcome classes and spend"
+description = "Generation v2 for SlopNinja evaluation cohorts: generator manifest, per-source rotation, voice library, vendor requests, stream reading, outcome classes and spend"
 
 # Pure logic, shared by the eval Worker (draw, plan checks, spend) and the
 # internal generation Worker (requests, streams, outcomes). It builds for

@@ -1,6 +1,6 @@
 # Alerts relay (testnet)
 
-A private Cloudflare Worker that delivers Slop Ninja testnet alerts to a
+A private Cloudflare Worker that delivers SlopNinja testnet alerts to a
 private alert feed in its own bucket (decision D18): one content-free object
 per event, which the operator reads with private tooling
 (see [Alert feed](#alert-feed-slop_ninjaalert_feedv1)). Email is an
@@ -507,7 +507,7 @@ off, not a warning; `ALERT_EMAIL_TO` set without `ALERT_EMAIL_ENABLED =
 
 A deploy with `DRILL_ID` set makes the next tick write one feed object for
 it (state `DRILL`, source `drill`, event id derived from the drill id), and,
-while email is on, email one message with the subject `Slop Ninja testnet
+while email is on, email one message with the subject `SlopNinja testnet
 alert drill`. Both say that it is a drill and needs no action. It tests the
 delivery path only: it raises no rule and has no ledger row.
 

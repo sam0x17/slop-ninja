@@ -1,4 +1,4 @@
-//! The Slop Ninja testnet publisher: a separate cron Worker that reads the
+//! The SlopNinja testnet publisher: a separate cron Worker that reads the
 //! coordinator's private buckets and status through bindings and writes
 //! static public objects into a separate public-candidate bucket.
 //!

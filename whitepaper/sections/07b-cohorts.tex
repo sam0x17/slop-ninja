@@ -451,8 +451,8 @@ registration rules while this protocol is paused. Submitted validator rows do
 not switch atomically. The network depends on timely validator submission for
 the intended weight rows to influence native consensus. Missing or stale rows
 can change actual emissions even though they cannot delay application progress.
-Publish observed delivery and adoption separately from cohort completion. Slop
-Ninja cannot force a row, freeze native emissions, or promise that a missed
+Publish observed delivery and adoption separately from cohort completion.
+SlopNinja cannot force a row, freeze native emissions, or promise that a missed
 reward period will be paid later.
 
 Bind each award to its original hotkey and registration generation, not only a

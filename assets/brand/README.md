@@ -1,6 +1,6 @@
-# Slop Ninja brand assets
+# SlopNinja brand assets
 
-These are the approved Slop Ninja logo assets, based on the artwork supplied by
+These are the approved SlopNinja logo assets, based on the artwork supplied by
 the project owner. Use this design as the project identity. The ninja's
 headband ties and the scanner reticle over its eye are ninja red (`#e8173f`
 to `#ff3358`, the site's second brand colour), and the o of "Slop" in every
@@ -16,7 +16,7 @@ master serves every size; keep it as one file rather than a small variant.
 | File | Use |
 | --- | --- |
 | [Full logo](slop-ninja-full-logo.svg) | Ninja illustration and wordmark |
-| [Wordmark](slop-ninja-wordmark.svg) | Horizontal Slop Ninja lettering for dark backgrounds |
+| [Wordmark](slop-ninja-wordmark.svg) | Horizontal SlopNinja lettering for dark backgrounds |
 | [Light-background wordmark](slop-ninja-wordmark-on-light.svg) | Text-only mark for light backgrounds |
 | [Icon](slop-ninja-icon.svg) | Square ninja illustration |
 | [Favicon](slop-ninja-favicon.svg) | Head crop of the icon for favicons from 32 px up: the brow strip is a crimson band and the headband ties are scaled into the crop |

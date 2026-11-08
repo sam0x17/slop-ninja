@@ -42,7 +42,7 @@ cover only the measured texts and account.
 
 The observed `web.pangram.com/api/history/<id>/` endpoint returned text and
 results without authentication. A report URL therefore exposes its analyzed
-text to anyone who obtains it. Encrypting the URL in Slop Ninja's transport
+text to anyone who obtains it. Encrypting the URL in SlopNinja's transport
 cannot make the provider endpoint private. Customer use requires separate
 consent; hidden benchmark material needs an authorized provider path and
 retention policy.

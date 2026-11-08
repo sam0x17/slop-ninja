@@ -3,7 +3,7 @@ name = "slop-ninja-arena"
 version = "0.1.0"
 edition = "2024"
 publish = false
-description = "Bounded per-invocation memory arenas for the Slop Ninja Workers"
+description = "Bounded per-invocation memory arenas for the SlopNinja Workers"
 
 # Its own workspace, independent of the native `subnet/` workspace. The
 # Workers crate `subnet/coordinator` depends on it by path (the global

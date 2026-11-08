@@ -1,7 +1,7 @@
 \section{Trust assumptions and adversarial
 behavior}\label{trust-assumptions-and-adversarial-behavior}
 
-The pilot's scoring authority is the Slop Ninja coordinator, the operator's
+The pilot's scoring authority is the SlopNinja coordinator, the operator's
 lead validator implemented entirely as a serverless service. Held-out inputs,
 labels, individual predictions, and exact scores stay in that service, except
 that its generation requests send held-out passages to hosted model providers
@@ -99,7 +99,7 @@ it; it is measured before launch. Two lookup-canary flags, or a failed strict fa
 tier, pass the promotion to the next qualifying retained cluster head
 (Section~\ref{reference-model}). The one change outside that rule, a single
 replacement of the testnet's \(R_0\), announced in advance, by the next
-reference Slop Ninja trains, only if it passes every required gate, applies only
+reference SlopNinja trains, only if it passes every required gate, applies only
 to later cohorts, so it moves no earned credit; while the launch burn lasts, it
 can raise the bar that ends it. \\
 Prompt injection or malicious model data & Admit bounded data-driven models,
@@ -205,7 +205,7 @@ it. Operational upgrades may preserve the frozen evaluation semantics. New
 scoring semantics require a future comparison or an explicit
 correction decision that accounts for weights already submitted.
 
-Slop Ninja signatures attribute statements to the operator; they are not
+SlopNinja signatures attribute statements to the operator; they are not
 Cloudflare signatures, proofs of model execution, or confidentiality evidence.
 Customer content protection relies on the qualified serving configuration and
 the provider and operator's conduct. Those dependencies, together with honest

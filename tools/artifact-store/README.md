@@ -1,4 +1,4 @@
-# Private Slop Ninja artifact storage
+# Private SlopNinja artifact storage
 
 This standalone Rust tool snapshots CFG archives, fitted models and retained
 experiment evidence for private Cloudflare R2 storage. It does not change the

@@ -3,7 +3,7 @@ name = "grammar-cc-human"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
-description = "Common Crawl human-slice pilot sampler for Slop Ninja A: polite WET download, record provenance, screens, domain rules, corpus-v1 dedup and yield tables"
+description = "Common Crawl human-slice pilot sampler for SlopNinja A: polite WET download, record provenance, screens, domain rules, corpus-v1 dedup and yield tables"
 
 [lib]
 name = "grammar_cc_human"

@@ -1,7 +1,7 @@
 \section{Benchmark scoring and native rewards}\label{benchmark-scoring-and-mechanism-mapping}
 
 The launch rewards submitted \textit{A} artifacts under coordinator-led
-scoring. Slop Ninja runs each artifact, the current reference model, and,
+scoring. SlopNinja runs each artifact, the current reference model, and,
 when one exists, the previous reference model on the same fresh hidden batch, retains every prediction and failure, and keeps every
 exact score inside its evaluation service. It releases only quantized scores
 (Section~\ref{quantized-scores}), derives the canonical native row from them
@@ -25,7 +25,7 @@ cohort's scoring starts; the cutoffs, bands, credit, and the row compare
 quantized scores released under a per-cohort privacy budget (gates and cluster
 membership use private statistics), equal quantized scores share credit, and subnet 78's near-equal drop is not used; eligibility
 requires a margin over the reference rather than
-subnet 78's 1\% grace below the incumbent; a fallback cutoff, a Slop Ninja rule
+subnet 78's 1\% grace below the incumbent; a fallback cutoff, a SlopNinja rule
 with no subnet 78 counterpart, keeps rewards flowing when nobody reaches that
 margin; a detected copy of any earlier published artifact earns nothing, and
 near-duplicate entrants share one credit equally; and no record, identity, or
@@ -463,7 +463,7 @@ shared margin; their size on simulated rosters is measured before launch
 
 Testnet opens a fresh record of cohorts and references, with \(R_0\) as its
 first reference and no predecessor. One change there falls outside the promotion
-rule: \(R_0\) may be replaced once by the next reference Slop Ninja trains,
+rule: \(R_0\) may be replaced once by the next reference SlopNinja trains,
 retrained and recalibrated on normalised, length-matched positives
 (Section~\ref{human-stock}), and only if that model passes every required
 gate. The public dashboard (\texttt{slop.ninja/dashboard}) announces the

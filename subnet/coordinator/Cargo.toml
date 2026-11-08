@@ -3,7 +3,7 @@ name = "slop-ninja-coordinator"
 version = "0.1.0"
 edition = "2024"
 publish = false
-description = "Cloudflare Workers coordinator for the Slop Ninja testnet subnet"
+description = "Cloudflare Workers coordinator for the SlopNinja testnet subnet"
 
 # Independent of the native `subnet/` workspace so the Wasm build never pulls
 # the native rtao runtime.

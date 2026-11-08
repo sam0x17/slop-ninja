@@ -47,7 +47,7 @@ pretraining; a new experiment split does not establish pretraining novelty.
 
 ## Model releases
 
-For this lane, Slop Ninja chooses to license resulting fine-tuned detector
+For this lane, SlopNinja chooses to license resulting fine-tuned detector
 weights under CC BY-SA 4.0 and include the complete source-attribution manifest.
 Preserve the base checkpoint's Apache 2.0 license and
 notices separately. Mark the fine-tuning as a modification and identify the

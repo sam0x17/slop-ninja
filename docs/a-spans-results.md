@@ -23,7 +23,7 @@ predictions and matched them; the qualifiers it found are stated below.
   on 21 of the 570 Dev-iter humans (limit 22). The shipped configuration is
   unchanged, and adopting S2c is a user decision
   ([Follow-up arm S2](#follow-up-arm-s2)). On November 1, 2026, S2c was
-  adopted as the span head of Slop Ninja's first span-serving package
+  adopted as the span head of SlopNinja's first span-serving package
   ([reference packages](testnet/reference-packages.md)); `R_0` stays R0.
 - **Protocol-selected arm: S1+**, a joint fine-tune of the encoder, document
   heads and token head on the release Train bundle plus the spliced-rewrite

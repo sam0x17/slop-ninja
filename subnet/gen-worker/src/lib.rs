@@ -1,4 +1,4 @@
-//! The internal generation Worker of Slop Ninja testnet evaluation
+//! The internal generation Worker of SlopNinja testnet evaluation
 //! (`slop-ninja-gen-testnet`).
 //!
 //! It makes the frontier half of generation v2's vendor calls (OpenAI and

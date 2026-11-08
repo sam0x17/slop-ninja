@@ -1,4 +1,4 @@
-//! Slop Ninja *A* artifact spec (`slop_ninja_a_artifact_spec_v1` to `_v4`,
+//! SlopNinja *A* artifact spec (`slop_ninja_a_artifact_spec_v1` to `_v4`,
 //! [`spec::Version`]) and its admission checks. Spec v2 adds the span class
 //! and heads v2 token heads; spec v3 adds the span tower class and heads v3;
 //! spec v4 states the graph class rule as a byte comparison with pinned

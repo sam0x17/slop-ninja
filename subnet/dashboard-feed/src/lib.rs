@@ -1,4 +1,4 @@
-//! The Slop Ninja dashboard feed: a private, read-only Worker that serves
+//! The SlopNinja dashboard feed: a private, read-only Worker that serves
 //! the publisher's `dashboard/v1` documents from a dedicated R2 bucket to the
 //! website Worker, which reaches it only through a service binding. It has
 //! no route, no workers.dev name and no preview URLs, so no other caller can

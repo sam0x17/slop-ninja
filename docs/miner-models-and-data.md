@@ -12,7 +12,7 @@ start with the [testnet miner guide](testnet/miner-guide.md).
 *A* is one text model with a shared learned encoder. A miner commits its
 artifact's digest on chain and uploads the artifact privately; the coordinator
 publishes it after the cohort ends. Submissions are licensed CC BY-SA 4.0.
-Slop Ninja publishes its own reference packages, `R_0` among them, under the
+SlopNinja publishes its own reference packages, `R_0` among them, under the
 same licence ([reference packages](testnet/reference-packages.md)), so testnet
 miners can start from ModernBERT-base and public data or from `R_0`'s encoder.
 Its outputs include:
@@ -46,7 +46,7 @@ The coordinator evaluates frozen submissions on hidden data and signs the
 results. Validators derive canonical native rows from the signed per-miner
 scores and calculation inputs, then commit independently using native
 commit/reveal. The coordinator's finalized row is a later audit; other validators receive
-no held-out data. Slop Ninja serves published, qualified artifacts in its own infrastructure.
+no held-out data. SlopNinja serves published, qualified artifacts in its own infrastructure.
 Miner submissions must bind the model, preprocessing, output schema,
 calibration, and qualified execution profile. The
 [model contract](../whitepaper/sections/03-models.tex) and
@@ -99,7 +99,7 @@ permitted-use policy; public availability alone does not establish those rights.
 
 The [later B proposal](../whitepaper/sections/07a-adjudication.tex) combines
 bounded edit proposals with ranking and whole-document review. Private rankers
-would run in Slop Ninja's runtime, with private adapters served through direct
+would run in SlopNinja's runtime, with private adapters served through direct
 Workers AI requests to miners' Cloudflare accounts. Its scoring authority,
 semantic review, privacy qualification, and emissions remain activation work.
 For the intended personal-voice workflow, *B* iteratively proposes and ranks edits

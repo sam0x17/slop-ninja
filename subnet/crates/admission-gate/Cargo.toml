@@ -4,7 +4,7 @@ version = "0.1.0"
 edition = "2024"
 license = "MIT OR Apache-2.0"
 publish = false
-description = "The Slop Ninja upload Worker's front gate: what it decides about an admission request before it forwards anything"
+description = "The SlopNinja upload Worker's front gate: what it decides about an admission request before it forwards anything"
 
 [dependencies]
 hex = "0.4"

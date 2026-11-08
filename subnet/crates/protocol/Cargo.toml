@@ -4,7 +4,7 @@ version = "0.1.0"
 edition = "2024"
 license = "MIT OR Apache-2.0"
 publish = false
-description = "Versioned Slop Ninja subnet records, canonical encoding, signatures and reward arithmetic"
+description = "Versioned SlopNinja subnet records, canonical encoding, signatures and reward arithmetic"
 
 [features]
 # Deterministic fixture builders and the golden report shared by native and Wasm checks.

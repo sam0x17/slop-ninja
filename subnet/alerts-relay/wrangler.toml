@@ -1,4 +1,4 @@
-# Slop Ninja alerts relay: Wrangler configuration (tracked).
+# SlopNinja alerts relay: Wrangler configuration (tracked).
 #
 # Decision D18: this private Worker writes every alert to a private alert
 # feed in its bucket (feed/v1/, read from outside Cloudflare), and
@@ -53,7 +53,7 @@
 # never carry figures. HEARTBEAT_ENABLED = "true" pings HEARTBEAT_URL (off by
 # default). DRILL_ID = "<name>" (lowercase letters, digits and ._/-) writes
 # one drill object to the feed (and, while email is on, emails one drill
-# message, subject "Slop Ninja testnet alert drill"), once per id, at the next
+# message, subject "SlopNinja testnet alert drill"), once per id, at the next
 # tick; it is never repeated for the same id. Leave it unset otherwise.
 #
 # Only NETWORK is required. An optional setting that does not parse is ignored

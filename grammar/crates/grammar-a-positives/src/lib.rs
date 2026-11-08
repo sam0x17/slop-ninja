@@ -1,4 +1,4 @@
-//! Slop Ninja A competitive-baseline positive generation.
+//! SlopNinja A competitive-baseline positive generation.
 #![recursion_limit = "512"]
 //!
 //! Plans are mechanical (protocol-v1 `positive_plan`); generation is

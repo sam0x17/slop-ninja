@@ -5,13 +5,13 @@
 The service must keep customer prompts, responses, reference writing, and
 derived representations inaccessible to miners. Usage metadata, including
 timing, token counts, and cost, may be visible. Private \textit{B} weights must
-also be inaccessible for download by the general public. Cloudflare and Slop
-Ninja are trusted with content; either may technically access hosted model
+also be inaccessible for download by the general public. Cloudflare and
+SlopNinja are trusted with content; either may technically access hosted model
 weights. The proposal therefore offers no cryptographic confidentiality from
 those operators, no independent customer key release into attested hardware,
 and no TEE execution claim.
 
-For \textit{A}, Slop Ninja runs a selected published artifact in its own runtime.
+For \textit{A}, SlopNinja runs a selected published artifact in its own runtime.
 The model contributor receives neither customer traffic nor an account with
 access to its storage. Artifacts submitted to a cohort are private evaluation
 material until that cohort's scoring starts. Miners upload them straight to the
@@ -22,17 +22,17 @@ run them locally, subject to their dependencies and execution contract. Such a
 run creates no hosted job, customer charge, or inference credit.
 
 The proposed later \textit{B} path gives a miner control of its private LoRA
-adapter and Cloudflare billing account while Slop Ninja controls each request.
+adapter and Cloudflare billing account while SlopNinja controls each request.
 The miner privately delegates an account-scoped Workers AI credential and
-registers the account, base model, and adapter UUID. Slop Ninja stores the
+registers the account, base model, and adapter UUID. SlopNinja stores the
 credential and constructs the direct Workers AI request itself. The customer
 receives neither that credential nor an adapter asset URL. The numeric ranker
-is uploaded separately to private Slop Ninja storage and loaded only by our
+is uploaded separately to private SlopNinja storage and loaded only by our
 runtime. Neither account ownership nor a private adapter gives the miner a
 place in the customer's request or response path.
 
 Tests found that the Workers AI Read grant also permits adapter-asset download.
-The design accepts that Slop Ninja can technically read those weights. A
+The design accepts that SlopNinja can technically read those weights. A
 dedicated serving account can limit the other assets exposed by this grant.
 Public asset denial, including attempts by an unrelated authenticated account,
 must be qualified before private serving. Keeping weights private does not
@@ -41,7 +41,7 @@ prevent behavioral imitation or extraction through purchased outputs.
 \begin{figure}[htbp]
 \centering
 \includegraphics[width=\linewidth]{figures/private-inference.pdf}
-\caption{Proposed customer execution paths. Public \textit{A} runs under Slop Ninja's
+\caption{Proposed customer execution paths. Public \textit{A} runs under SlopNinja's
 control. Later \textit{B} uses a miner's billed Cloudflare account through direct
 operator requests. Content isolation from that account's owner requires the
 qualification described below; the diagram states the intended boundary.}
@@ -83,7 +83,7 @@ measurement that the provider does not supply.
 
 \subsection{Storage, isolation, and recovery}\label{assignment-recovery-and-the-privacy-boundary}
 
-Customers submit over authenticated encrypted transport to Slop Ninja. The
+Customers submit over authenticated encrypted transport to SlopNinja. The
 runtime processes plaintext, then encrypts the result to the customer's bound
 output key for private retrieval. Private storage uses tenant authorization,
 encryption, and declared retention. Operational logs contain identifiers,
@@ -92,7 +92,7 @@ because they can echo a prompt. Content logging is disabled in Workers, traces,
 and support tools. Profiles, vectors, intermediate candidates, and, for later
 \textit{B}, parse trees and cached resolver outputs receive the same protection
 as the original text. \textit{B}'s parsing and ambiguity resolution, including
-any LLM resolver, run within the same Slop Ninja and Cloudflare trust boundary;
+any LLM resolver, run within the same SlopNinja and Cloudflare trust boundary;
 miners receive neither resolver inputs nor outputs.
 
 Each attempt binds its customer, job, assignment generation, model and pipeline

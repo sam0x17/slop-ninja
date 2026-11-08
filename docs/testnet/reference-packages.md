@@ -1,6 +1,6 @@
 # Reference packages
 
-Slop Ninja publishes its own *A* models as reference packages. A package is
+SlopNinja publishes its own *A* models as reference packages. A package is
 an admitted artifact's six files ([artifact spec](artifact-spec.md)) as the
 scorer stores them: content-addressed parts of at most 64 MiB and the parts
 manifest that lists them, whose SHA-256 is the package digest. Beside them
@@ -22,7 +22,7 @@ gives their paths.
 
 | | `R_0` | S2c span package |
 |---|---|---|
-| Role | the testnet reference `R_0`, scored in every cohort | Slop Ninja's first span-serving package (role `span_head`); never `R_0` |
+| Role | the testnet reference `R_0`, scored in every cohort | SlopNinja's first span-serving package (role `span_head`); never `R_0` |
 | Model | R0, the released *A* document model | R0's encoder and document heads, unchanged, with the S2c span tower and token head |
 | Graph class | `a-plain-f32band-v1` | `a-tower-f32band-v1` |
 | Spec | v1, v2 and v3 | v3 only |
@@ -126,12 +126,12 @@ byte.
 
 ## Licence
 
-The weights are Slop Ninja's, published under CC BY-SA 4.0. Both models
+The weights are SlopNinja's, published under CC BY-SA 4.0. Both models
 derive from ModernBERT-base (Answer.AI and LightOn, revision
 `8949b909ec900327062f0ebf497f51aef5e6f0c8`, Apache-2.0), fine-tuned by
-Slop Ninja; the S2c package adds the span tower and token head. Each
+SlopNinja; the S2c package adds the span tower and token head. Each
 `NOTICE.md` credits the training-source collections and points to the
-dataset snapshots' notices. The Slop Ninja name and the logo in
+dataset snapshots' notices. The SlopNinja name and the logo in
 `assets/brand/` are not covered by this licence or by the code licence.
 
 The calibration files hold the involvement map's knots: one per calibration

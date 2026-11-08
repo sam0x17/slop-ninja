@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Installs the Slop Ninja native validator as persistent systemd user units.
+# Installs the SlopNinja native validator as persistent systemd user units.
 #
 #   deploy/install.sh --instance NAME [--from DIR [--unverified]] [--config FILE]
 #                     [--init] [--enable [--start]] [--sandbox MODE] [--dry-run]

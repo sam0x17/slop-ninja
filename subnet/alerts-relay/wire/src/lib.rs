@@ -1,4 +1,4 @@
-//! The alert contract between the Slop Ninja testnet publisher and the
+//! The alert contract between the SlopNinja testnet publisher and the
 //! private alerts relay (two separate Workers joined by a service binding),
 //! and the hold/renotify state machine both of them run.
 //!

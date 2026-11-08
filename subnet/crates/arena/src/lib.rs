@@ -1,4 +1,4 @@
-//! Bounded per-invocation memory arenas for the Slop Ninja Workers.
+//! Bounded per-invocation memory arenas for the SlopNinja Workers.
 //!
 //! Implements `docs/workers-arena-design.md` sections 2 to 6; the global
 //! allocator of both Workers built from `subnet/coordinator`. The rule it

@@ -1,7 +1,7 @@
 <?xml version='1.0' encoding='UTF-8'?>
 <svg xmlns="http://www.w3.org/2000/svg" version="1.1" viewBox="151 853 952 208" width="952" height="208" role="img" aria-labelledby="snw-logo-title snw-logo-description">
-  <title id="snw-logo-title">Slop Ninja — outlined wordmark</title>
-  <desc id="snw-logo-description">Rebuilt as editable native SVG paths and smooth gradients from the approved Slop Ninja artwork. The o of Slop is a thin scope reticle in ninja red: a ring at about a third of the letter weight, broken at the four cardinal points, the left and right ticks crossing the ring, a short top tick, the bottom left open as on the ninja’s eye, and the eye’s inner arc low on the right. No embedded raster images, scripts, linked assets, or font dependencies. Exterior background is transparent. Primary colorway is intended for dark backgrounds.</desc>
+  <title id="snw-logo-title">SlopNinja — outlined wordmark</title>
+  <desc id="snw-logo-description">Rebuilt as editable native SVG paths and smooth gradients from the approved SlopNinja artwork. The o of Slop is a thin scope reticle in ninja red: a ring at about a third of the letter weight, broken at the four cardinal points, the left and right ticks crossing the ring, a short top tick, the bottom left open as on the ninja’s eye, and the eye’s inner arc low on the right. No embedded raster images, scripts, linked assets, or font dependencies. Exterior background is transparent. Primary colorway is intended for dark backgrounds.</desc>
   <defs>
     <linearGradient id="snw-ninja-lettering-gradient" gradientUnits="userSpaceOnUse" x1="836.762" y1="843.648" x2="877.185" y2="1045.763">
       <stop offset="0.000" stop-color="#4cfbc5"/>
@@ -23,7 +23,7 @@
       <stop offset="1" stop-color="#e8173f"/>
     </linearGradient>
   </defs>
-  <g id="snw-wordmark" aria-label="Slop Ninja">
+  <g id="snw-wordmark" aria-label="SlopNinja">
     <g id="snw-slop-lettering" fill="#FCFCFD">
       <path d="M222 876 H309 Q312 876 311 881 C308 887 296 900 288 905 H222 C216 905 213 909 213 915 C213 921 216 924 222 924 H276 C301 924 318 939 318 959 C318 982 302 998 277 998 H171 L193 969 H276 C283 969 286 966 286 960 C286 954 283 950 276 950 H220 C195 950 180 940 180 916 C180 894 198 876 222 876 Z" fill="#FCFCFD" fill-rule="evenodd" id="snw-letter-S"/>
       <path d="M328 875 H359 V998 H341 C333 998 328 990 328 980 Z" fill="#FCFCFD" fill-rule="evenodd" id="snw-letter-l"/>

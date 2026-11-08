@@ -1,4 +1,4 @@
-# Slop Ninja dashboard feed
+# SlopNinja dashboard feed
 
 A private, read-only Cloudflare Worker that serves the publisher's
 `dashboard/v1` documents to the website Worker. The website reaches it only

@@ -1,4 +1,4 @@
-//! Direct-to-R2 upload signing for Slop Ninja admission v2.
+//! Direct-to-R2 upload signing for SlopNinja admission v2.
 //!
 //! Miners upload each artifact object (the header, then each file) straight
 //! to R2 with one presigned `PutObject` each; no upload byte passes through

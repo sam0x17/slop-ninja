@@ -52,7 +52,7 @@ fn record(id: &str, identity: &ChainIdentity, attempt: Value) -> Value {
     })
 }
 
-/// A Slop Ninja journal holding one handed-back operation whose commit
+/// A SlopNinja journal holding one handed-back operation whose commit
 /// finalized as a dispatch failure, and one whose attempt is unresolved.
 fn write_journal(path: &Path) {
     let identity = ChainIdentity {

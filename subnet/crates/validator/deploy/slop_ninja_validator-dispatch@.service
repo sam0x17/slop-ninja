@@ -1,4 +1,4 @@
-# systemd user unit template for a continuous, dispatching Slop Ninja
+# systemd user unit template for a continuous, dispatching SlopNinja
 # validator. Instance %i selects ~/.config/slop_ninja_validator/%i.toml, which
 # must have [package] and [dispatch], and normally [fetch].
 #
@@ -19,7 +19,7 @@
 # exit code, counts), so it would leave every later restart at its maximum.
 
 [Unit]
-Description=Slop Ninja native validator dispatch (%i)
+Description=SlopNinja native validator dispatch (%i)
 # Validators retry indefinitely; a stalled dependency must not disable the unit.
 StartLimitIntervalSec=0
 

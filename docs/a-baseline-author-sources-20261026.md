@@ -1,4 +1,4 @@
-# Slop Ninja author sources, 2026-10-26
+# SlopNinja author sources, 2026-10-26
 
 Bounded acquisition on `build-host`: 26 distinct original English works from
 seven authors, with complete raw Project Gutenberg text files retained under

@@ -1,6 +1,6 @@
 # grammar-a-form
 
-Pure form rules for Slop Ninja A positives. This crate is the one source of
+Pure form rules for SlopNinja A positives. This crate is the one source of
 the form path shared by the CC cohort tools (`grammar-cc-human`), the local
 and spliced positive generators, the frontier collector and the
 coordinator's Wasm port. It holds no I/O and no generation context: callers

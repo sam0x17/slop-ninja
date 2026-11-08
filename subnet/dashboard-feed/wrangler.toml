@@ -1,4 +1,4 @@
-# Slop Ninja dashboard feed: Wrangler configuration (tracked).
+# SlopNinja dashboard feed: Wrangler configuration (tracked).
 #
 # A private, read-only Worker that serves the publisher's dashboard/v1
 # documents from a dedicated bucket to the website Worker, which reaches it

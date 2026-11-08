@@ -787,7 +787,7 @@ pub struct JournalControls {
 }
 
 impl JournalControls {
-    /// Open an existing Slop Ninja journal. A misspelled path never initializes one.
+    /// Open an existing SlopNinja journal. A misspelled path never initializes one.
     /// The native lifetime lock refuses opening while another process owns it.
     pub fn open_existing(path: impl AsRef<Path>) -> Result<Self> {
         ensure!(path.as_ref().is_file(), "journal file does not exist");

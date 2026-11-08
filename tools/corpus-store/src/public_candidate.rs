@@ -3183,7 +3183,7 @@ impl<'a> Run<'a> {
             CC BY-SA sources are included; CC BY-SA texts keep their own licence version.\n\n\
             Model-written and model-rewritten text (`generated_additions`), together with the curation, selection, labels and\n\
             metadata of this release, are offered under the Creative Commons Attribution-ShareAlike 4.0 International licence\n\
-            (`sources/CC-BY-SA-4.0.txt`), to the extent Slop Ninja holds rights in them. Every generation also names its model's\n\
+            (`sources/CC-BY-SA-4.0.txt`), to the extent SlopNinja holds rights in them. Every generation also names its model's\n\
             licence or terms in `models/` or `hosted/`. Prompts that embed the Fix Slop adaptation carry its MIT notice\n\
             (`prompts/fix-slop.LICENSE`). Pangram results are comparator evidence published as observed.\n\n\
             No model weights are included.\n";
@@ -3242,14 +3242,14 @@ impl<'a> Run<'a> {
         let gen_names: Vec<String> = generators.iter().map(|i| self.rules.generators[*i].display.clone()).collect();
         let _ = gens;
         format!(
-"# Slop Ninja public corpus, candidate 1
+"# SlopNinja public corpus, candidate 1
 
-This dataset contains {total} English texts from Slop Ninja's detector experiments: {human} human-written texts,
+This dataset contains {total} English texts from SlopNinja's detector experiments: {human} human-written texts,
 {hosted} texts written or rewritten by hosted OpenAI and Anthropic models, and {open} texts written or rewritten by
 open-weight models. It totals {words} whitespace-delimited words. Each text is stored once, as exact UTF-8, with its
 SHA-256. It is joined to its provenance, rights, experiment roles, generation records and Pangram results.
 
-Every text here was used in at least one Slop Ninja experiment: training, development, calibration, a consumed Test
+Every text here was used in at least one SlopNinja experiment: training, development, calibration, a consumed Test
 set, or an earlier published snapshot. Each text's source licence permits redistribution. Texts held for future
 evaluation are not included.
 

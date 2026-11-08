@@ -1,6 +1,6 @@
 # corpus-store
 
-`slop_ninja_corpus` builds and checks the consolidated Slop Ninja corpus: one
+`slop_ninja_corpus` builds and checks the consolidated SlopNinja corpus: one
 SQLite database plus append-only zstd packs of content-addressed blobs. It
 reads sources only, never writes to them, and makes no network calls. The
 private store lives in ignored storage; see

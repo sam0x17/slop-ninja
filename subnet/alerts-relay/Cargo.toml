@@ -4,7 +4,7 @@ version = "0.1.0"
 edition = "2024"
 license = "MIT OR Apache-2.0"
 publish = false
-description = "Private Worker that emails Slop Ninja testnet alerts: the publisher's posts, a dead-man check on the publisher and the spend tracker's alerts"
+description = "Private Worker that emails SlopNinja testnet alerts: the publisher's posts, a dead-man check on the publisher and the spend tracker's alerts"
 
 # Independent of the native `subnet/` workspace, the coordinator and the
 # publisher, so a publisher build or deploy never changes the relay and the

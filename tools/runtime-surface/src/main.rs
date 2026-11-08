@@ -1,10 +1,10 @@
 //! Offline extraction and comparison of the Subtensor runtime surface that
-//! Slop Ninja's subnet participants use.
+//! SlopNinja's subnet participants use.
 //!
 //! The tool never contacts a chain. It reads metadata blobs that were fetched
 //! separately (`Metadata_metadata_at_version` for V15 and V16) and writes a
 //! compact JSON surface: pallet and call indices, argument types, the storage,
-//! events and constants Slop Ninja reads, error tables, runtime APIs and the
+//! events and constants SlopNinja reads, error tables, runtime APIs and the
 //! signed/transaction extension lists. Two surfaces can then be diffed.
 
 use std::collections::BTreeSet;
@@ -37,7 +37,7 @@ const FOCUS_PALLETS: &[&str] = &[
     "MevShield",
 ];
 
-/// A call Slop Ninja's owner, coordinator, validators or miners submit.
+/// A call SlopNinja's owner, coordinator, validators or miners submit.
 struct NeededCall {
     pallet: &'static str,
     call: &'static str,
@@ -1109,7 +1109,7 @@ fn provenance(network: &str, endpoint: &str, dir: &Path) -> Result<Value> {
     }))
 }
 
-/// Compact reference table of the items Slop Ninja needs, with their status
+/// Compact reference table of the items SlopNinja needs, with their status
 /// against each older surface.
 fn needed_table(surface: &Value, provenance: &Value, diffs: &[Value]) -> Result<Value> {
     ensure!(

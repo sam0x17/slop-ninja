@@ -46,7 +46,7 @@ Miners may keep their training recipes and permitted training corpora private.
 
 Project code and documentation are licensed MIT OR Apache-2.0, except files and
 datasets that carry their own licence or notice. Reference weights are licensed
-CC BY-SA 4.0, like miner submissions, and Slop Ninja publishes its own
+CC BY-SA 4.0, like miner submissions, and SlopNinja publishes its own
 references, \(R_0\) and any later reference it trains
 (Section~\ref{reference-model}), on the same terms. A public reference package
 carries no evaluation text: its replay cases are synthetic rather than
@@ -59,7 +59,7 @@ with the miner client. It reproduces \(R_0\)'s pipeline and artifact format,
 not its V6 starting point, data, or weights, and is not a strong detector. An
 entrant artifact that becomes the reference was already published with its
 cohort.
-Slop Ninja executes submitted artifacts for the pilot benchmark and published,
+SlopNinja executes submitted artifacts for the pilot benchmark and published,
 qualified artifacts for customer service; an \textit{A} miner needs no private
 serving account or delegated inference credential.
 
@@ -263,7 +263,7 @@ written by a base model is almost never found. A joint fine-tune of encoder and
 heads found more spans but scored human documents clearly worse before
 calibration, so it was not adopted.
 
-Slop Ninja has adopted a follow-up head, S2c, as its span head for the first
+SlopNinja has adopted a follow-up head, S2c, as its span head for the first
 package that serves spans; until span serving lands, the shipped head above
 stays in the release package. S2c keeps the encoder and document heads frozen
 and feeds the token head through a trained copy of the encoder's last four
@@ -308,7 +308,7 @@ The \textit{A} input is the canonical document text. A miner artifact is a
 text model: an ONNX computation graph, a fixed tokenizer, the output heads, and
 their calibration. The coordinator tokenizes each document with the
 allow-listed tokenizer, which the artifact's own must match byte for byte, and
-runs the graph on CPU in a Slop Ninja-controlled Cloudflare
+runs the graph on CPU in a SlopNinja-controlled Cloudflare
 Container under the cohort's declared length and resource limits; an input beyond the artifact's limit returns an explicit
 unsupported-length result. Cohort batches stay within the declared profile.
 While the span gate is inactive, an entrant with document heads only, like
@@ -420,7 +420,7 @@ role, digest, and length are refused. The object is the miner's local file and
 its published form, but it is uploaded and published as the header and each
 distinct file separately, from which anyone can rebuild it. The miner hashes
 each file when it packs the artifact, and R2 computes each object's SHA-256 as it
-arrives to check the declared digest; no Slop Ninja code hashes a model byte
+arrives to check the declared digest; no SlopNinja code hashes a model byte
 after packing: the graph's class is checked by comparing its structure, the graph
 file without its weight values, byte for byte with the allow-listed class's
 pinned reference bytes~\cite{artifactspec}.
@@ -437,7 +437,7 @@ uploads the header and each file straight to the coordinator's private R2
 admission storage, one presigned upload per object~\cite{cfr2}. Each upload URL
 binds the object's key, its declared length and SHA-256, and create-only
 semantics, so R2 verifies the bytes as they arrive and stores nothing on a
-mismatch; no upload passes through a Slop Ninja Worker. The header's length and
+mismatch; no upload passes through a SlopNinja Worker. The header's length and
 SHA-256 are declared in the signed session request, and each file's are listed
 in the header. File URLs are issued only after the header has arrived and the
 coordinator has recomputed the inference-content digest from it and checked it

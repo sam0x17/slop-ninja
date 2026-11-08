@@ -1,4 +1,4 @@
-# Slop Ninja dataset storage
+# SlopNinja dataset storage
 
 This Rust utility stores published corpus payloads as zstd frames with checksums.
 It does not parse corpus rows, select splits, or call models. Scope is

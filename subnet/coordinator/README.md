@@ -1,6 +1,6 @@
 # Workers coordinator (testnet)
 
-This crate is the serverless coordinator for the Slop Ninja testnet subnet
+This crate is the serverless coordinator for the SlopNinja testnet subnet
 (netuid 601): a Rust Cloudflare Worker built with workers-rs 0.8.7. It follows
 finalized blocks, keeps a durable chain journal and, from M3, signs and submits
 its own commit-reveal v4 timelocked weight commit once per subnet epoch with

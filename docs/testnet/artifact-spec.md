@@ -110,7 +110,7 @@ R0's inference-content digest is `63a0e608…c2a0a6`. The scorer refuses a
 `<spec id>/<graph class id>` for a version and class the tools define, or the
 served profile's id. A reference packed for a cohort keeps R0's deployed
 package digest only through `slop_ninja_a_served_profile pack`, which writes
-the served profile's id. R0's deployed package is one of Slop Ninja's
+the served profile's id. R0's deployed package is one of SlopNinja's
 [reference packages](reference-packages.md), published under CC BY-SA 4.0
 when public access opens at the announce; with its files, anyone can check
 the R0 digests on this page and run the R0 tests below.

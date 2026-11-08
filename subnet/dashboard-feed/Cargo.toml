@@ -4,7 +4,7 @@ version = "0.1.0"
 edition = "2024"
 license = "MIT OR Apache-2.0"
 publish = false
-description = "Private read-only Worker that serves the Slop Ninja dashboard/v1 documents to the website through a service binding"
+description = "Private read-only Worker that serves the SlopNinja dashboard/v1 documents to the website through a service binding"
 
 # Independent of the native `subnet/` workspace, the coordinator and the
 # publisher: no dependency at all outside the Workers runtime. The publisher

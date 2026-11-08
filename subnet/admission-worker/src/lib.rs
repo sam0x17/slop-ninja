@@ -1,4 +1,4 @@
-//! The key-free upload Worker of Slop Ninja testnet admission
+//! The key-free upload Worker of SlopNinja testnet admission
 //! (`slop-ninja-admission-testnet`, served at `testnet-admission.slop.ninja`).
 //!
 //! It fronts every public route of the admission contract

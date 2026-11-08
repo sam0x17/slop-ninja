@@ -35,7 +35,7 @@ fn version() -> &'static str {
 #[command(
     name = "slop_ninja_validator",
     version = version(),
-    about = "Slop Ninja native validator"
+    about = "SlopNinja native validator"
 )]
 struct Args {
     #[arg(long)]

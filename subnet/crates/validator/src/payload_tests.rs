@@ -7,7 +7,7 @@
 //! serves. When a later runtime changes one of these encodings, these vectors
 //! are updated; nothing in production refuses that runtime.
 //!
-//! For every transaction Slop Ninja's owner, validators and miners send, the
+//! For every transaction SlopNinja's owner, validators and miners send, the
 //! test checks that the pinned rtao revision's generated descriptor (pallet and call
 //! index, argument names, shape hash) matches the live metadata, that the
 //! indices match `docs/subnet-runtime-486-diff.md`, and that the generated

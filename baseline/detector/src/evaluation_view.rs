@@ -357,7 +357,7 @@ mod tests {
             "source":{"collection":"synthetic-contract-fixture","url":"fixture://view/root","version":"fixture-v1",
                 "published_at":null,"author_ids":[],"raw_path":"","raw_sha256":sha256("fixture"),"extraction":"original-fixture"},
             "rights":{"license":"Synthetic-Original","evidence_url":"fixture://view/rights","evidence_sha256":sha256("fixture grant"),
-                "attribution":"Slop Ninja synthetic fixture","commercial_training":true,"model_release":true,"external_evaluation":false,"redistribute_text":true},
+                "attribution":"SlopNinja synthetic fixture","commercial_training":true,"model_release":true,"external_evaluation":false,"redistribute_text":true},
             "parent_id":null,"generation":null
         })).unwrap();
         let mut records = vec![human.clone()];

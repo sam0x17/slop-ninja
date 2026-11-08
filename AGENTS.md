@@ -1,8 +1,9 @@
 # Project conventions
 
-The project is named **Slop Ninja**, with **slop.ninja** as the planned domain.
-Use **Slop Ninja** in project-facing prose and `slop_ninja` in filenames and
-command names. The local repository directory is `slop_ninja/`; the GitHub
+The project is named **SlopNinja**, with **slop.ninja** as the planned domain.
+Use **SlopNinja**, one word, in project-facing prose and `slop_ninja` in
+filenames and command names. Frozen released or hashed bytes keep their
+original spelling. The local repository directory is `slop_ninja/`; the GitHub
 repository slug is `slop-ninja`. Existing versioned `slopninja` schemas and
 cryptographic domain identifiers retain their spelling for compatibility.
 Existing `unslop` command names, package names and versioned
@@ -13,11 +14,11 @@ Keep documentation focused on current behavior. Delete superseded plans and
 experiment diaries; Git retains history. Preserve data and fixtures still used
 by executable checks or current evidence.
 
-The assets in `assets/brand/` are the approved Slop Ninja logo, not a proposal.
+The assets in `assets/brand/` are the approved SlopNinja logo, not a proposal.
 Project code and docs are MIT OR Apache-2.0, except files and datasets with
 their own licence or notice; miner submissions and reference weights are
 CC BY-SA 4.0, and the `assets/brand/` logo is not covered by the code licence.
-Slop Ninja publishes its own references (R0 and later) like any R_k; a public
+SlopNinja publishes its own references (R0 and later) like any R_k; a public
 reference package carries no evaluation text (synthetic replay cases, never
 Dev-iter ones) and passes a package-corpus scan. Paid A serves a published,
 qualified artifact (R0 once its public package is published).
@@ -211,11 +212,11 @@ model weights stay coordinator-private. A validator may recompute the row from
 the public result, check models in its own way and publish its own scores;
 those checks are advisory and never change its row.
 No ZK proof or independent reproduction of hidden evaluation is required.
-Slop Ninja is the operator; the subnet owner is the account recognized on chain.
+SlopNinja is the operator; the subnet owner is the account recognized on chain.
 Ownership or a lease must provide the required owner-authorized hyperparameter
 execution path, including enabling commit/reveal, and any owner-only burn path.
 Service operation alone grants neither those powers nor owner emissions.
-One lead validator, operated by Slop Ninja, serves as the coordinator.
+One lead validator, operated by SlopNinja, serves as the coordinator.
 The serverless service is that validator: it performs hidden evaluation,
 scheduling, score publication, its own row calculation and chain signing,
 finalized reconciliation, and recovery. Other validators receive no hidden
@@ -231,7 +232,7 @@ silence. An unexpected disabled flag pauses new commitments rather than selectin
 plaintext submission. A artifacts stay private until their cohort's scoring
 starts. A miner hashes each file once when it packs, commits only a digest on
 chain, and uploads the header and each file straight to the coordinator's private
-R2 admission bucket with presigned PUTs; no upload passes through a Slop Ninja
+R2 admission bucket with presigned PUTs; no upload passes through a SlopNinja
 Worker. Each URL binds the derived key, length, committed SHA-256 and
 create-only, so R2 verifies the bytes on arrival and stores nothing on a
 mismatch; admission, publication and scoring trust R2's stored checksum and size
@@ -351,7 +352,7 @@ backends optional and declare tested OS/architecture/runtime combinations.
 Production miner and validator implementations are entirely Rust using
 `sam0x17/rtao`, with no Python or btcli runtime dependency. The coordinator's
 Workers-compatible chain integration requires separate qualification. Use the
-`sam0x17/rtao-rpc` service for RPC; it provides Slop Ninja free access. Budget
+`sam0x17/rtao-rpc` service for RPC; it provides SlopNinja free access. Budget
 RPC service fees at zero, separately from chain fees and our runtime costs.
 The coordinator is entirely serverless on Cloudflare Workers, using Durable Objects for authoritative
 state, Queues for content-free lane wakeups, and R2 for artifacts and evidence.
@@ -368,7 +369,7 @@ The rtao-rpc finalized-stream block webhook is the coordinator's primary
 heartbeat and clock: it delivers every finalized block, and each delivery is a
 separate Worker invocation. The webhooks are live as an unbilled Finney pilot
 and a separate testnet service, each with its own subscriptions and signing
-keys; receiver integration and qualification remain Slop Ninja's work.
+keys; receiver integration and qualification remain SlopNinja's work.
 Authenticate each delivery and persist it before acknowledgment, deduplicate
 it, and advance a finalized block height/hash cursor. Backfill any height gap
 through bounded RPC, so no block is skipped. Notifications alone establish

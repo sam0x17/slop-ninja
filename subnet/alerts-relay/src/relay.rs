@@ -2189,8 +2189,8 @@ mod tests {
         assert_eq!(
             m.subjects(),
             vec![
-                "Slop Ninja testnet alert drill",
-                "Slop Ninja testnet alert drill"
+                "SlopNinja testnet alert drill",
+                "SlopNinja testnet alert drill"
             ],
             "the refused send and its retry; nothing after"
         );
@@ -2251,7 +2251,7 @@ mod tests {
             m4.subjects(),
             vec![
                 "[slop-ninja testnet] FIRING spend_alert 2026-11",
-                "Slop Ninja testnet alert drill"
+                "SlopNinja testnet alert drill"
             ]
         );
         // A tick that lost its lease sends no drill.

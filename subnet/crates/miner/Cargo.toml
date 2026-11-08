@@ -4,7 +4,7 @@ version = "0.1.0"
 edition = "2024"
 license = "MIT OR Apache-2.0"
 publish = false
-description = "Slop Ninja miner client: pack, check, commit, upload straight to R2, repair, status and next-cohort"
+description = "SlopNinja miner client: pack, check, commit, upload straight to R2, repair, status and next-cohort"
 
 [lib]
 path = "src/lib.rs"

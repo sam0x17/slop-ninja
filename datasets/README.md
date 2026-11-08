@@ -1,4 +1,4 @@
-# Slop Ninja corpus
+# SlopNinja corpus
 
 All collection batches belong to one logical corpus. The versioned directories
 below are retained shards and experiment views of it. New rewrites, prompts,

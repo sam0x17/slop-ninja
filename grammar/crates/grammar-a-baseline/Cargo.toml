@@ -3,7 +3,7 @@ name = "grammar-a-baseline"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
-description = "Frozen numeric-only starter origin baselines for Slop Ninja"
+description = "Frozen numeric-only starter origin baselines for SlopNinja"
 
 [lib]
 name = "grammar_a_baseline"

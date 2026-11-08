@@ -10,10 +10,10 @@ performance claim.
 The [end-to-end design draft](cloudflare-subnet-draft.md) applies these findings
 to registration, inference, privacy, billing, evaluation, and settlement.
 
-Live tests rule out giving the Slop Ninja gateway a miner's **Workers AI Read**
-token as a way to keep the miner's weights confidential from Slop Ninja. The token can run a
+Live tests rule out giving the SlopNinja gateway a miner's **Workers AI Read**
+token as a way to keep the miner's weights confidential from SlopNinja. The token can run a
 private adapter, but it can also download that adapter's weights. Cloudflare
-is the proposed host for later private B inference. Slop Ninja may technically
+is the proposed host for later private B inference. SlopNinja may technically
 access weights, but the public must not, and miners
 must not retrieve customer prompts or responses. Owner-visible usage metadata
 is acceptable. Direct-inference tests and a separate owner-session inspection
@@ -53,7 +53,7 @@ isolation, or lack of other owner-visible surfaces. The
 describes stateless inference with documented exceptions; it does not
 repair the demonstrated weight-access failure.
 
-Keeping weights private from Slop Ninja would require an access arrangement
+Keeping weights private from SlopNinja would require an access arrangement
 that permits inference while denying asset retrieval; that separation is
 optional. The [AI Gateway REST documentation](https://developers.cloudflare.com/ai-gateway/usage/rest-api/#authentication)
 also requires Workers AI Read for `/ai/*` requests, so using that gateway API
@@ -125,16 +125,16 @@ where available. They do not document a private-adapter inference grant that
 excludes weight retrieval. This is a documentation/schema finding, not a live
 test of every granular role or evidence against a possible Enterprise-only
 arrangement. A Cloudflare-enforced inference-only grant would preserve weight
-privacy from Slop Ninja; a proxy controlled by Slop Ninja could expose its upstream credential,
+privacy from SlopNinja; a proxy controlled by SlopNinja could expose its upstream credential,
 while a miner-controlled proxy could expose customer traffic.
 
 The proposed later B service uses each miner's Cloudflare account
 and private adapter. Miners pay for their Workers AI usage, while the chain
-compensates them for eligible service. Slop Ninja holds their Workers AI Read
+compensates them for eligible service. SlopNinja holds their Workers AI Read
 credentials and controls the request path. The hard constraints are customer
 prompt and response privacy from miners and weight privacy from the public;
 owner-visible usage metadata is expressly acceptable. Preventing
-Slop Ninja administrators from accessing weights is secondary. The live
+SlopNinja administrators from accessing weights is secondary. The live
 weight-download finding therefore does not disqualify this candidate. Later B
 serving requires qualification; the A-only launch executes public artifacts
 centrally.

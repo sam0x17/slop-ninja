@@ -1,4 +1,4 @@
-# Slop Ninja starter A numeric baseline
+# SlopNinja starter A numeric baseline
 
 This crate contains the original **numeric contract and synthetic origin baseline**
 and the separate `shared` Rust inference module for the

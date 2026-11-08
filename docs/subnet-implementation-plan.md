@@ -39,11 +39,11 @@ its own quality, funding, and payment checks.
   allow-listed tokenizer byte for byte, and schema-validated calibration and
   contract files (no separate byte cap). A miner commits only the digest on chain
   and uploads the artifact privately; the coordinator publishes it after the
-  cohort ends, licensed CC BY-SA 4.0. Slop Ninja pays
+  cohort ends, licensed CC BY-SA 4.0. SlopNinja pays
   hosted evaluation and serving costs. Training remains the miner's expense.
   Miners receive no customer text or hidden evaluation data. Project code and
   documentation are MIT OR Apache-2.0, except files and datasets with their
-  own licence or notice. Slop Ninja's own references (`R_0` and any later
+  own licence or notice. SlopNinja's own references (`R_0` and any later
   reference it trains) are published under CC BY-SA 4.0 like any `R_k`; a
   public reference package uses synthetic replay cases, carries no evaluation
   text, and passes a package-corpus scan. Paid A serves a published, qualified
@@ -77,7 +77,7 @@ its own quality, funding, and payment checks.
 I will fix or improve rtao as integration exposes defects or missing capabilities,
 including the related rtao-rpc service where needed. Upstream gaps belong in the
 implementation work; recording them does not complete the affected milestone.
-Application scoring, authorization, and reward policy remain in Slop Ninja.
+Application scoring, authorization, and reward policy remain in SlopNinja.
 
 For each issue:
 
@@ -87,7 +87,7 @@ For each issue:
 2. Implement reusable transport, journal, scheduler, encoding, recovery, or
    compatibility changes in rtao. Implement service delivery changes in
    rtao-rpc. Preserve native behavior while adding the Workers path.
-3. Test the upstream change and exercise it through Slop Ninja. A passing SDK
+3. Test the upstream change and exercise it through SlopNinja. A passing SDK
    fixture alone does not qualify application recovery or current chain semantics.
 4. Prepare the upstream fix for review and integrate an exact tested revision.
    Keep required core patches and lockfiles aligned. Record remaining qualification
@@ -122,7 +122,7 @@ The Workers journal/transport composition remains implementation work. The
 provider's unbilled block webhooks are live: a Finney pilot at
 `https://finney.rtao.io/webhooks` and a separate testnet service with its own
 management password, subscriptions, and signing keys. Receiver integration and
-Slop Ninja qualification remain our work. On the authorized compute host,
+SlopNinja qualification remain our work. On the authorized compute host,
 follow the operator's private Finney and testnet webhook instruction files for
 each service's current contract and private credential location. Provider
 checks of the deployed services do not qualify our receiver. Recheck upstream before each
@@ -344,7 +344,7 @@ registration.
      chain observations. Keep RPC gap backfill and
      the cron watchdog's public-RPC fallback operational while delivery is paused.
    - Treat the provider's seven-day journal retention as a transport limit.
-     Slop Ninja retains its own unfinished cohort and finalized cursor. On a
+     SlopNinja retains its own unfinished cohort and finalized cursor. On a
      reported retention gap, reconcile the application through RPC before
      deregistering, registering a fresh subscription, installing its new key,
      and verifying again. URL or stream changes also require that registration
@@ -366,7 +366,7 @@ registration.
    The input contract is raw text, and the seed-17 document model of the
    baseline release candidate is the first reference `R_0`. Testnet opens a fresh chain record with `R_0` and
    no predecessor; it may replace `R_0` once, announced in advance on the status
-   page, by the next reference Slop Ninja trains (retrained and recalibrated on
+   page, by the next reference SlopNinja trains (retrained and recalibrated on
    normalised, length-matched positives), only if that model passes every
    required gate. Never name a span package (the release package or the first
    span-serving package) as `R_0` in a signed manifest, so the replacement

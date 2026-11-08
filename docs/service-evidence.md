@@ -6,7 +6,7 @@ proposal. Launch includes coordinator-scored *A*.
 This guide identifies its evidence boundaries and the existing implementation;
 it does not specify a deployed service.
 
-One lead validator serves as the coordinator and is operated by Slop Ninja.
+One lead validator serves as the coordinator and is operated by SlopNinja.
 The coordinator is the serverless service: it performs hidden evaluation,
 scheduling, and all of its own validator duties on Workers and Durable Objects.
 Its validator hotkey, authorization keys, and receipt keys have distinct roles
@@ -95,7 +95,7 @@ The coordinator's primary heartbeat is an authenticated `rtao-rpc` webhook on
 the finalized stream, which delivers every finalized block as its own Worker
 invocation. The upstream Finney and testnet services are live; the testnet
 receiver is integrated in the [coordinator](../subnet/coordinator/README.md),
-and its mainnet qualification remains Slop Ninja's work. Persist the delivery
+and its mainnet qualification remains SlopNinja's work. Persist the delivery
 before acknowledging it; verify chain identity and finality through RPC rather
 than trusting an event to authorize a transition. Maintain a durable finalized
 block cursor, deduplicate delivery, and backfill height gaps through bounded
@@ -126,7 +126,7 @@ pre-launch requirements.
 
 ## Privacy and disclosure
 
-Keep customer content and derived artifacts inaccessible to miners. Slop Ninja
+Keep customer content and derived artifacts inaccessible to miners. SlopNinja
 and Cloudflare remain trusted with content. Public records carry content-free
 accounting and salted commitments; private storage holds authorized evidence,
 openings, and encrypted results. Other validators receive customer text only under a

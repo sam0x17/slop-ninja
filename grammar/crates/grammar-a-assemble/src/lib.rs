@@ -1,4 +1,4 @@
-//! Bundle assembly for Slop Ninja A.
+//! Bundle assembly for SlopNinja A.
 //!
 //! A bundle is one directory per split with `rows.jsonl` (one contract row per
 //! document), `weights.json` (the declared weighting and its counts) and

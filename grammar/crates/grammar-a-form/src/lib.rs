@@ -1,4 +1,4 @@
-//! Pure form rules for Slop Ninja A positives (`grammar-a-form`).
+//! Pure form rules for SlopNinja A positives (`grammar-a-form`).
 //!
 //! One source for the form path shared by the CC cohort tools
 //! (`grammar-cc-human`), the local and spliced positive generators and the

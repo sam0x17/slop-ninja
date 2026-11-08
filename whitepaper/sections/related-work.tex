@@ -19,7 +19,7 @@ cohorts against an incumbent re-run on the same suite, pays geometric weights
 across score bands, and keeps its previous row live until a successor activates;
 the October source review found these mechanisms working, alongside
 exact runtime-version pins that held weight writes after at least one chain
-upgrade and were relaxed several times~\cite{umisn78}. Slop Ninja's \texttt{reward-v2} ports the band mechanism,
+upgrade and were relaxed several times~\cite{umisn78}. SlopNinja's \texttt{reward-v2} ports the band mechanism,
 computes it from quantized scores, and avoids such pins. Its initial \textit{A} competition adds a shared
 origin-and-attribution contract with span outputs. Whether these choices
 improve detection remains an experimental question.
@@ -28,11 +28,11 @@ improve detection remains an experimental question.
 
 Chutes, Targon, and Privatemode document confidential-serving approaches based
 on encryption, attestation, and protected execution~\cite{chutes,chutesprivacy,
-targon,targonconfidential,privateattestation,privatecache}. Slop Ninja trusts
+targon,targonconfidential,privateattestation,privatecache}. SlopNinja trusts
 Cloudflare and the coordinator to protect content.
 The later \textit{B} design seeks to keep request and response text from miners
 while keeping weights from the public. It does not promise secrecy from
-Cloudflare or the Slop Ninja operator. Provider access controls and the exact
+Cloudflare or the SlopNinja operator. Provider access controls and the exact
 request path therefore need qualification; citing confidential infrastructure
 does not establish this boundary.
 
@@ -60,7 +60,7 @@ content illustrate different approaches to origin disclosure
 ~\cite{synthidtext,authorsguildhuman,amazonkdp}. Keyed watermark verification,
 production-origin inference, author attribution, and prose quality remain
 different claims. These developments motivate customer trials; they establish
-neither paid demand nor a sustainable price for Slop Ninja.
+neither paid demand nor a sustainable price for SlopNinja.
 
 \subsection{Research foundations}\label{related-research}
 

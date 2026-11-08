@@ -1,4 +1,4 @@
-//! Native Slop Ninja validator.
+//! Native SlopNinja validator.
 //!
 //! Startup opens the native weight journal (persisting pause), records which
 //! signed operations the live metadata can encode, reconciles finalized

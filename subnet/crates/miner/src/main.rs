@@ -42,7 +42,7 @@ const EXIT_INCOMPLETE: u8 = 3;
 #[command(
     name = "slop_ninja_miner",
     version,
-    about = "Slop Ninja miner client",
+    about = "SlopNinja miner client",
     after_help = "Exit status: 0 success or pass; 1 refused (an admission check, the \
                   upload session, or a coordinator refusal that retrying cannot change); \
                   2 error (usage, configuration, network or file, a client-side check, or \

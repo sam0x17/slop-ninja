@@ -1,6 +1,6 @@
 # Linux and macOS support
 
-Linux and macOS are development and participation targets for Slop Ninja tools:
+Linux and macOS are development and participation targets for SlopNinja tools:
 Linux x86-64 and arm64, plus macOS on Apple silicon. Source compatibility, a
 tested research runtime, and a qualified production configuration are separate
 claims. The [whitepaper](../whitepaper/main.tex) and
@@ -15,7 +15,7 @@ clients and serverless production execution.
 | V6 reference inference | Research-only pinned Python runner and artifact; test the exact runtime before comparing scores |
 | Model training | Optional research ML backends, with separately tested CPU, MPS, or CUDA configurations |
 | *B* research orchestration | Rust with an explicitly identified local model endpoint and pinned inference profile |
-| Proposed later *B* serving | Cloudflare-hosted adapters in miner-owned accounts; numeric rankers run under Slop Ninja's control |
+| Proposed later *B* serving | Cloudflare-hosted adapters in miner-owned accounts; numeric rankers run under SlopNinja's control |
 
 ## Research runtimes
 
@@ -109,7 +109,7 @@ See the
 
 Live `rtao-rpc` finalized-block webhooks are the coordinator's primary
 heartbeat on Finney and testnet, one Worker invocation per block; receiver
-integration and qualification remain Slop Ninja's work. Authenticate and
+integration and qualification remain SlopNinja's work. Authenticate and
 persist each delivery, verify finality through RPC, and recover duplicates or
 gaps using a durable finalized cursor. A one-minute cron watchdog falls back to
 the public OpenTensor RPC through the same per-block path when deliveries stall
@@ -117,12 +117,12 @@ or the cursor lags, without a resident subscriber or polling server.
 
 All production inference and challenge execution is serverless, with no local
 miner, validator, or development-host serving dependency. Public *A* artifacts
-execute in Slop Ninja's account. A qualified serverless Container may
+execute in SlopNinja's account. A qualified serverless Container may
 supply bounded computation, while coordinator state and scheduling remain in
 Workers and Durable Objects. Later *B* serving uses direct Workers AI calls to
 registered private adapters. Its content-privacy qualification must establish
 that miners cannot retrieve customer prompts or responses. Cloudflare and
-Slop Ninja are trusted operators; no confidential-hardware attestation is
+SlopNinja are trusted operators; no confidential-hardware attestation is
 claimed. See the current [privacy policy](../whitepaper/sections/05-confidentiality.tex).
 
 Participant updates and recovery proceed independently of other validators.

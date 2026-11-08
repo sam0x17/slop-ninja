@@ -1343,7 +1343,7 @@ mod tests {
             "source":{"collection":"synthetic","url":"fixture://profile","version":"fixture-v1",
                 "published_at":null,"author_ids":[],"raw_path":"","raw_sha256":dataset::sha256(text),"extraction":"fixture-v1"},
             "rights":{"license":"Synthetic-Original","evidence_url":"fixture://notice",
-                "evidence_sha256":dataset::sha256("original fixture"),"attribution":"Slop Ninja synthetic fixture",
+                "evidence_sha256":dataset::sha256("original fixture"),"attribution":"SlopNinja synthetic fixture",
                 "commercial_training":true,"model_release":true,"external_evaluation":false,"redistribute_text":true},
             "parent_id":null,"generation":null
         })).unwrap()

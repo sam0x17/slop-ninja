@@ -1,8 +1,8 @@
-# Slop Ninja internal signer Worker (`slop-ninja-r2-signer-testnet`)
+# SlopNinja internal signer Worker (`slop-ninja-r2-signer-testnet`)
 
 Presigns the direct-to-R2 artifact uploads of admission v2
 (`docs/testnet/admission-api.md`, "Direct upload"). Miners PUT the header and
-each file straight to R2; no upload byte passes through any Slop Ninja Worker.
+each file straight to R2; no upload byte passes through any SlopNinja Worker.
 
 - **Two credentials, two routes.** The presign key, scoped by the user to
   the private admission bucket only (`secrets_store_secrets` bindings

@@ -99,7 +99,7 @@ pub fn reference_package_manifest(sha256: &Digest) -> String {
 /// (`subnet/crates/artifact-check/src/spec.rs`; a test checks they agree).
 pub const REFERENCE_PACKAGE_MANIFEST_BOUND: u64 = 1 << 20;
 
-/// The licence of Slop Ninja's reference packages, as their pointers name it.
+/// The licence of SlopNinja's reference packages, as their pointers name it.
 pub const REFERENCE_PACKAGE_LICENCE: &str = "CC-BY-SA-4.0";
 
 /// A signed authorization or renewal in the receipts bucket, by SHA-256.

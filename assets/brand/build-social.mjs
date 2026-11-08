@@ -56,13 +56,13 @@ function backdrop() {
 const assets = [
   {
     name: "twitter-avatar", width: 1024, height: 1024,
-    svg: canvas(1024, 1024, "Slop Ninja profile avatar", `
+    svg: canvas(1024, 1024, "SlopNinja profile avatar", `
       <ellipse cx="540" cy="490" rx="460" ry="460" fill="url(#social-glow)"/>
       ${icon(62, 48, 900)}`),
   },
   {
     name: "twitter-header", width: 1500, height: 500,
-    svg: canvas(1500, 500, "Slop Ninja: Don’t just detect slop. Fix it.", `
+    svg: canvas(1500, 500, "SlopNinja: Don’t just detect slop. Fix it.", `
       ${backdrop()}
       ${wordmark(380, 130, 650)}
       <text x="394" y="327" fill="#FCFCFD" font-family="${font}" font-size="36" font-weight="650" letter-spacing="-0.9">Don’t just detect <tspan fill="${redHi}">slop.</tspan> <tspan fill="${mintText}">Fix it.</tspan></text>
@@ -70,13 +70,13 @@ const assets = [
   },
   {
     name: "twitter-header-minimal", width: 1500, height: 500,
-    svg: canvas(1500, 500, "Slop Ninja wordmark header", `
+    svg: canvas(1500, 500, "SlopNinja wordmark header", `
       ${backdrop()}
       ${wordmark(575, 164, 730)}`),
   },
   {
     name: "twitter-header-artwork", width: 1500, height: 500,
-    svg: canvas(1500, 500, "Slop Ninja illustrated header", `
+    svg: canvas(1500, 500, "SlopNinja illustrated header", `
       ${backdrop()}
       ${icon(980, 10, 480)}`),
   },
@@ -111,7 +111,7 @@ try {
   if (scratch) fs.rmSync(scratch, { recursive: true, force: true });
 }
 
-fs.writeFileSync(path.join(output, "README.txt"), `Slop Ninja social assets
+fs.writeFileSync(path.join(output, "README.txt"), `SlopNinja social assets
 
 twitter-avatar.png          1024 x 1024, composed for a circular profile crop
 twitter-header.png          1500 x 500, wordmark, tagline ("Don’t just detect slop. Fix it.": "slop." in ninja red, "Fix it." in mint, set in Inter like the site) and ninja illustration

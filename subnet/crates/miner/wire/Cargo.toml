@@ -4,7 +4,7 @@ version = "0.1.0"
 edition = "2024"
 license = "MIT OR Apache-2.0"
 publish = false
-description = "Wire helpers for the Slop Ninja admission API contract slop_ninja.admission/v1"
+description = "Wire helpers for the SlopNinja admission API contract slop_ninja.admission/v1"
 
 # No I/O, no global state and no allocation while hashing a request message,
 # so the Workers coordinator can share it with the native miner client.

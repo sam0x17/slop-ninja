@@ -1,4 +1,4 @@
-# Slop Ninja native validator configuration (example).
+# SlopNinja native validator configuration (example).
 # Copy to ~/.config/slop_ninja_validator/<instance>.toml and edit every value.
 # Paths must be absolute. The file holds no secrets.
 

@@ -77,7 +77,7 @@ pub fn embeds_local_path(s: &str) -> bool {
     EMBEDDED.iter().any(|e| s.contains(e))
 }
 
-/// Directory names of the Slop Ninja repository's ignored private trees.
+/// Directory names of the SlopNinja repository's ignored private trees.
 /// The exporters' `PRIVATE_TREES` is the same list.
 pub const PRIVATE_TREES: &[&str] = &["data"];
 

@@ -1,4 +1,4 @@
-//! The Slop Ninja testnet alerts relay: a private Worker (no route, no
+//! The SlopNinja testnet alerts relay: a private Worker (no route, no
 //! `workers.dev` name) that delivers alerts to a private alert feed in its
 //! own bucket ([`feed`]), and to email through a `send_email` binding when
 //! email is on (optional, off by default).

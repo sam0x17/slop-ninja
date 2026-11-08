@@ -12,10 +12,10 @@ the status endpoints and the error codes. It applies to testnet subnet 601.
 - **Every artifact is hashed once.** The miner hashes each file once, at
   `pack`, to build the header the commitment binds. R2 verifies each uploaded
   object against that committed SHA-256 as the bytes arrive and stores
-  nothing on a mismatch. No Slop Ninja Worker, Durable Object or Container
+  nothing on a mismatch. No SlopNinja Worker, Durable Object or Container
   hashes a model byte: admission compares R2's stored checksum and size with
   the header, and every later reader takes the header's digests.
-- **No upload byte passes through any Slop Ninja Worker.** The header and
+- **No upload byte passes through any SlopNinja Worker.** The header and
   each file go straight to R2 as one presigned `PutObject` each. The public
   upload Worker takes only signed session requests (each at most one
   `SubmissionUpload` record) and holds no key and no R2 binding.

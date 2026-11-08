@@ -1,4 +1,4 @@
-# Slop Ninja supervised shared A baseline
+# SlopNinja supervised shared A baseline
 
 Measured October 26, 2026 on build-host, Linux x86_64. A shared CFG-derived encoder
 now has fitted origin, fractional-share, human and model-attribution heads, with

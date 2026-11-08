@@ -1,6 +1,6 @@
 # Consolidated corpus
 
-Slop Ninja keeps one consolidated, versioned corpus store. Version 1 lives in
+SlopNinja keeps one consolidated, versioned corpus store. Version 1 lives in
 ignored storage at `data/grammar-private/corpus-v1/` and is built by the Rust
 [corpus store](../tools/corpus-store/README.md). It is private and additive:
 it reads the existing campaign stores, published snapshots and experiment

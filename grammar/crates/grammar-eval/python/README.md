@@ -90,7 +90,7 @@ checker's sources.
 ## Public reference cases
 
 `reference_cases/a-public-reference-cases-v1.jsonl` holds 200 synthetic
-reference cases written for Slop Ninja's public reference packages. Every
+reference cases written for SlopNinja's public reference packages. Every
 place, person, organisation and event in them is invented; none is corpus or
 evaluation text. They cover seven registers (encyclopedic, news, scientific
 abstract, literary prose, regulatory notice, blog, forum and dialogue) as

@@ -1,6 +1,6 @@
 # Native validator
 
-`slop_ninja_validator` is the native Slop Ninja validator. It builds on the
+`slop_ninja_validator` is the native SlopNinja validator. It builds on the
 journaled adapter in [`subnet/`](../../README.md) and rtao `fa83052d`
 (tag `snapshot-2026-11-05.2`). For `reward-v1` it verifies the coordinator's
 signed row and the authorization it was committed under with the shared

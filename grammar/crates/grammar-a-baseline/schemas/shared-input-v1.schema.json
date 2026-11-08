@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "title": "Slop Ninja SharedInput v1",
+  "title": "SlopNinja SharedInput v1",
   "type": "object",
   "additionalProperties": false,
   "required": ["contract_sha256", "x"],

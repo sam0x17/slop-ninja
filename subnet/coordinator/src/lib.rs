@@ -1,4 +1,4 @@
-//! Slop Ninja Workers coordinator (testnet).
+//! SlopNinja Workers coordinator (testnet).
 //!
 //! Storage-neutral logic (webhook authentication, the per-block heartbeat path,
 //! the finalized cursor, durable faults, the cron watchdog, durable claims, the

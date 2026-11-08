@@ -3,7 +3,7 @@ name = "grammar-a-assemble"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
-description = "Training and evaluation bundle assembly for Slop Ninja A, and consolidation of its data layout"
+description = "Training and evaluation bundle assembly for SlopNinja A, and consolidation of its data layout"
 
 [lib]
 name = "grammar_a_assemble"

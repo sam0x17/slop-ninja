@@ -445,7 +445,7 @@ impl ReferenceSet {
     }
 
     /// The operator's one permitted change outside promotion: while `R_0` is
-    /// the reference, a new manifest may replace it with Slop Ninja's own
+    /// the reference, a new manifest may replace it with SlopNinja's own
     /// candidate, which takes `R_0`'s position with no predecessor.
     pub fn replace_r0(&self, candidate: ReferenceModel) -> Result<Self> {
         if self.index != 0 {

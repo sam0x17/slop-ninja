@@ -2377,6 +2377,12 @@ staged by the tracked pin, one change per deploy):
    successor that is neither this authority nor one listed after it in
    `EVAL_MAIN_PREVIOUS`: the deployment left an authority out, so fix the
    list and redeploy), `predecessor_unknown` or `predecessor_unreadable`. A
+   predecessor that a later listed one already recorded (that one holding a
+   cohort, its record at or below this first cohort and naming only
+   authorities listed before it) is covered without being asked or opened,
+   and `/eval/status` lists it in `succession_through`; check the original's
+   last readable labels against the new prefix before relying on that
+   (README, succession). A
    superseded authority queues nothing, also for a plan admitted before its
    successor recorded it. Afterwards `/eval/authority/main/status` reports
    `superseded_by: "<name>"`, the original admits nothing even under a

@@ -722,6 +722,168 @@ pub fn succession_reply(
     }
 }
 
+/// A main authority's own succession record, read only (`GET
+/// /succession/record`): the predecessors' successions its store recorded
+/// (`succession_recorded`, `(name, first cohort)` pairs) and whether it
+/// holds any cohort.
+#[derive(Clone, Debug, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct SuccessionRecord {
+    pub succession_recorded: Vec<(String, u64)>,
+    pub holds_cohorts: bool,
+}
+
+/// Whether `successor` counts `predecessor` as superseded through the record
+/// of `through`, an authority it lists after `predecessor`, without opening
+/// `predecessor`'s store (one that no longer opens, for example).
+///
+/// `through` recorded `predecessor` only after `predecessor` itself recorded,
+/// in one transaction, a successor that was `through` or an authority
+/// `through` listed after it ([`succession_reply`]), while it held no cohort
+/// that was not closed or abandoned, no cohort number at or above `through`'s
+/// first cohort and no blocking work. A superseded authority admits nothing
+/// again, so all of that still holds. It covers this successor when:
+/// - `through` recorded it for a first cohort at or below this successor's
+///   ([`succession_recorded`]), so every number of `predecessor` is below
+///   this successor's first cohort;
+/// - `through` holds a cohort, so it took a plan, which it does only once its
+///   succession is complete: its record names every authority it listed, and
+///   so `predecessor`'s recorded successor too;
+/// - every authority in `through`'s record is one this successor lists before
+///   `through`, so that successor is one it handles itself.
+///
+/// `through` is then asked in turn (or covered by a later one), and the last
+/// listed predecessor is always asked, so the chain of recorded successors
+/// still ends at this successor. Not covered is the check of `predecessor`'s
+/// labels against this successor's prefix: `through` checked them against
+/// its own. A named predecessor's labels carry its own prefix, which no
+/// other name's is; the original authority's are checked by the operator
+/// before a deployment relies on this.
+pub fn succession_through(
+    successor: &Authority,
+    predecessor: &str,
+    through: &str,
+    record: &SuccessionRecord,
+) -> bool {
+    let listed = successor.predecessors();
+    let (Some(i), Some(j)) = (
+        listed.iter().position(|p| *p == predecessor),
+        listed.iter().position(|p| *p == through),
+    ) else {
+        return false;
+    };
+    let before = listed.get(..j).unwrap_or_default();
+    i < j
+        && record.holds_cohorts
+        && succession_recorded(
+            &record.succession_recorded,
+            predecessor,
+            successor.first_cohort(),
+        )
+        && record
+            .succession_recorded
+            .iter()
+            .all(|(n, _)| before.contains(&n.as_str()))
+}
+
+/// A predecessor's answer to `/succession/supersede` ([`succeed_with`]).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum SupersedeAnswer {
+    /// 200, with the successor it recorded (`superseded_by`).
+    Recorded(Option<String>),
+    /// 404: no object stores that authority.
+    Unknown,
+    /// 409, with its refusal code.
+    Refused(Option<String>),
+    /// Any other reply: a store that does not open, for one.
+    Unreadable,
+    /// The call itself failed.
+    Unreachable,
+}
+
+/// What [`succeed_with`] reads, asks and stores: a predecessor's own record
+/// (read only, `None` when it does not answer), a predecessor's
+/// `/succession/supersede`, and the successor's store of
+/// `succession_recorded` and `succession_through`.
+#[allow(async_fn_in_trait)]
+pub trait SuccessionPeers {
+    async fn record(&mut self, authority: &str) -> Option<SuccessionRecord>;
+    async fn supersede(&mut self, predecessor: &str) -> SupersedeAnswer;
+    async fn store(
+        &mut self,
+        done: &[(String, u64)],
+        through: &[(String, String)],
+    ) -> Result<(), &'static str>;
+}
+
+/// A named authority's succession before its plan or template (the cohort
+/// object's `succeed`): each predecessor, in order, not yet recorded for its
+/// first cohort ([`succession_recorded`]) is either covered through a later
+/// predecessor's own record ([`succession_through`]; it is not asked, and
+/// `through` keeps `(predecessor, through)`) or asked to record this
+/// successor (`/succession/supersede`, [`succession_reply`]). `done` gets
+/// `(predecessor, first cohort)` either way and is stored after each step.
+/// A predecessor nothing covers that does not answer refuses, before any
+/// later one is asked. The original authority and a retired one need
+/// nothing.
+pub async fn succeed_with(
+    successor: &Authority,
+    done: &mut Vec<(String, u64)>,
+    through: &mut Vec<(String, String)>,
+    peers: &mut impl SuccessionPeers,
+) -> Result<(), &'static str> {
+    if Supersede::of(successor).is_none() || successor.is_retired() {
+        return Ok(());
+    }
+    let first = successor.first_cohort();
+    let listed = successor.predecessors();
+    let mut records: Vec<(&str, Option<SuccessionRecord>)> = Vec::new();
+    for (i, p) in listed.iter().enumerate() {
+        if succession_recorded(done, p, first) {
+            continue;
+        }
+        let mut via = None;
+        for q in listed.get(i + 1..).unwrap_or_default() {
+            let record = match records.iter().find(|(n, _)| n == q) {
+                Some((_, r)) => r.clone(),
+                None => {
+                    let r = peers.record(q).await;
+                    records.push((q, r.clone()));
+                    r
+                }
+            };
+            if record
+                .as_ref()
+                .is_some_and(|r| succession_through(successor, p, q, r))
+            {
+                via = Some(*q);
+                break;
+            }
+        }
+        through.retain(|(d, _)| d != p);
+        match via {
+            Some(q) => through.push(((*p).to_owned(), q.to_owned())),
+            None => match peers.supersede(p).await {
+                SupersedeAnswer::Recorded(by) => succession_reply(successor, p, by.as_deref())?,
+                SupersedeAnswer::Unknown => return Err("predecessor_unknown"),
+                SupersedeAnswer::Refused(code) => {
+                    return Err(match code.as_deref() {
+                        Some("predecessor_busy") => "predecessor_busy",
+                        Some("predecessor_numbers") => "predecessor_numbers",
+                        Some("predecessor_work") => "predecessor_work",
+                        _ => "predecessor_refused",
+                    });
+                }
+                SupersedeAnswer::Unreadable => return Err("predecessor_unreadable"),
+                SupersedeAnswer::Unreachable => return Err("predecessor_unreachable"),
+            },
+        }
+        done.retain(|(d, _)| d != p);
+        done.push(((*p).to_owned(), first));
+        peers.store(done, through).await?;
+    }
+    Ok(())
+}
+
 /// A deployed main authority as an eval status reports it (`GET
 /// /eval/status`, or the Worker's `/status` that carries it as `eval_cohort`;
 /// an earlier authority's at `GET /eval/authority/<name>/status`), for the
@@ -1509,6 +1671,311 @@ mod tests {
         );
         assert_eq!(kicked_authorities(&r0c, true, true), ["r0c"]);
         assert_eq!(kicked_authorities(&r0c, false, false), ["r0c"]);
+    }
+
+    /// One store of `succeed_with`: `(done, through)`.
+    type Stored = (Vec<(String, u64)>, Vec<(String, String)>);
+
+    /// Peers for `succeed_with`: fixed records and supersede answers per
+    /// authority, and every call made.
+    #[derive(Default)]
+    struct Table {
+        records: Vec<(&'static str, Option<SuccessionRecord>)>,
+        answers: Vec<(&'static str, SupersedeAnswer)>,
+        read: Vec<String>,
+        asked: Vec<String>,
+        stored: Vec<Stored>,
+    }
+
+    impl SuccessionPeers for Table {
+        async fn record(&mut self, authority: &str) -> Option<SuccessionRecord> {
+            self.read.push(authority.to_owned());
+            self.records
+                .iter()
+                .find(|(n, _)| *n == authority)
+                .and_then(|(_, r)| r.clone())
+        }
+        async fn supersede(&mut self, predecessor: &str) -> SupersedeAnswer {
+            self.asked.push(predecessor.to_owned());
+            self.answers
+                .iter()
+                .find(|(n, _)| *n == predecessor)
+                .map_or(SupersedeAnswer::Unknown, |(_, a)| a.clone())
+        }
+        async fn store(
+            &mut self,
+            done: &[(String, u64)],
+            through: &[(String, String)],
+        ) -> Result<(), &'static str> {
+            self.stored.push((done.to_vec(), through.to_vec()));
+            Ok(())
+        }
+    }
+
+    /// Runs `succeed_with` to completion (the table answers at once).
+    fn succeed_now(
+        successor: &Authority,
+        done: &mut Vec<(String, u64)>,
+        through: &mut Vec<(String, String)>,
+        table: &mut Table,
+    ) -> Result<(), &'static str> {
+        let mut f = std::pin::pin!(succeed_with(successor, done, through, table));
+        let mut cx = std::task::Context::from_waker(std::task::Waker::noop());
+        match f.as_mut().poll(&mut cx) {
+            std::task::Poll::Ready(r) => r,
+            std::task::Poll::Pending => panic!("the table never waits"),
+        }
+    }
+
+    fn rec(recorded: &[(&str, u64)], holds_cohorts: bool) -> SuccessionRecord {
+        SuccessionRecord {
+            succession_recorded: recorded
+                .iter()
+                .map(|(n, f)| ((*n).to_owned(), *f))
+                .collect(),
+            holds_cohorts,
+        }
+    }
+
+    fn pairs(v: &[(&str, u64)]) -> Vec<(String, u64)> {
+        v.iter().map(|(n, f)| ((*n).to_owned(), *f)).collect()
+    }
+
+    /// The 2026-11-06 testnet shape: main superseded by r0 on 11-02 (r0
+    /// recorded `(main, 14)` and ran cohorts 14-21), main's store no longer
+    /// opens, and r1 (first cohort 22, predecessors main, r0) succeeds r0.
+    /// main is covered through r0's record and never asked; r0 is asked and
+    /// records r1; nothing is asked twice, and a second run asks nothing.
+    #[test]
+    fn a_superseded_predecessor_is_covered_through_its_successors_record() {
+        let r1 = Authority::named_after("r1", 22, &["r0"]).unwrap();
+        let mut t = Table {
+            records: vec![("r0", Some(rec(&[("main", 14)], true)))],
+            answers: vec![
+                ("main", SupersedeAnswer::Unreadable),
+                ("r0", SupersedeAnswer::Recorded(Some("r1".into()))),
+            ],
+            ..Table::default()
+        };
+        let (mut done, mut through) = (Vec::new(), Vec::new());
+        assert_eq!(succeed_now(&r1, &mut done, &mut through, &mut t), Ok(()));
+        assert_eq!(t.asked, ["r0"]);
+        assert_eq!(t.read, ["r0"]);
+        assert_eq!(done, pairs(&[("main", 22), ("r0", 22)]));
+        assert_eq!(through, [("main".to_owned(), "r0".to_owned())]);
+        assert!(succession_complete(&r1, &done));
+        // Stored after each step: main (with its cover), then r0.
+        assert_eq!(t.stored.len(), 2);
+        assert_eq!(t.stored[0].0, pairs(&[("main", 22)]));
+        assert_eq!(t.stored[0].1, through);
+        // Retried (another plan): nothing read, asked or stored again.
+        let mut again = Table::default();
+        assert_eq!(
+            succeed_now(&r1, &mut done, &mut through, &mut again),
+            Ok(())
+        );
+        assert!(again.read.is_empty() && again.asked.is_empty() && again.stored.is_empty());
+        // r0 refusing (busy, say) after main was covered leaves main covered and
+        // r0 unrecorded; the retry asks only r0, and main is never asked.
+        let mut t = Table {
+            records: vec![("r0", Some(rec(&[("main", 14)], true)))],
+            answers: vec![(
+                "r0",
+                SupersedeAnswer::Refused(Some("predecessor_work".into())),
+            )],
+            ..Table::default()
+        };
+        let (mut done, mut through) = (Vec::new(), Vec::new());
+        assert_eq!(
+            succeed_now(&r1, &mut done, &mut through, &mut t),
+            Err("predecessor_work")
+        );
+        assert_eq!(done, pairs(&[("main", 22)]));
+        let mut retry = Table {
+            answers: vec![("r0", SupersedeAnswer::Recorded(Some("r1".into())))],
+            ..Table::default()
+        };
+        assert_eq!(
+            succeed_now(&r1, &mut done, &mut through, &mut retry),
+            Ok(())
+        );
+        assert_eq!(retry.asked, ["r0"]);
+        assert!(retry.read.is_empty());
+        // r0 already superseded by another authority still refuses r1.
+        let mut t = Table {
+            records: vec![("r0", Some(rec(&[("main", 14)], true)))],
+            answers: vec![("r0", SupersedeAnswer::Recorded(Some("r9".into())))],
+            ..Table::default()
+        };
+        let (mut done, mut through) = (Vec::new(), Vec::new());
+        assert_eq!(
+            succeed_now(&r1, &mut done, &mut through, &mut t),
+            Err("predecessor_superseded_elsewhere")
+        );
+        assert!(!succession_complete(&r1, &done));
+    }
+
+    /// A predecessor no later record covers is asked, and one that does not
+    /// answer refuses before any later predecessor is asked (so none records
+    /// this successor while an earlier one may still hold work).
+    #[test]
+    fn an_unreadable_predecessor_no_record_covers_still_refuses() {
+        let r1 = Authority::named_after("r1", 22, &["r0"]).unwrap();
+        let unread = ("main", SupersedeAnswer::Unreadable);
+        let r0_ok = ("r0", SupersedeAnswer::Recorded(Some("r1".into())));
+        for (why, record) in [
+            ("r0 does not answer", None),
+            ("r0 never recorded main", Some(rec(&[], true))),
+            (
+                "r0 recorded main but took no plan",
+                Some(rec(&[("main", 14)], false)),
+            ),
+            (
+                "r0 recorded main for a later first cohort",
+                Some(rec(&[("main", 23)], true)),
+            ),
+            (
+                "r0 recorded an authority r1 does not list",
+                Some(rec(&[("main", 14), ("rx", 14)], true)),
+            ),
+        ] {
+            let mut t = Table {
+                records: vec![("r0", record)],
+                answers: vec![unread.clone(), r0_ok.clone()],
+                ..Table::default()
+            };
+            let (mut done, mut through) = (Vec::new(), Vec::new());
+            assert_eq!(
+                succeed_now(&r1, &mut done, &mut through, &mut t),
+                Err("predecessor_unreadable"),
+                "{why}"
+            );
+            assert_eq!(t.asked, ["main"], "{why}");
+            assert!(
+                done.is_empty() && through.is_empty() && t.stored.is_empty(),
+                "{why}"
+            );
+        }
+        // Unreachable and unknown keep their own codes.
+        for (answer, code) in [
+            (SupersedeAnswer::Unreachable, "predecessor_unreachable"),
+            (SupersedeAnswer::Unknown, "predecessor_unknown"),
+        ] {
+            let mut t = Table {
+                answers: vec![("main", answer), r0_ok.clone()],
+                ..Table::default()
+            };
+            let (mut done, mut through) = (Vec::new(), Vec::new());
+            assert_eq!(succeed_now(&r1, &mut done, &mut through, &mut t), Err(code));
+            assert_eq!(t.asked, ["main"]);
+        }
+        // The last listed predecessor has nothing after it: it is always asked.
+        let r0 = Authority::named("r0", 14).unwrap();
+        let mut t = Table {
+            answers: vec![unread],
+            ..Table::default()
+        };
+        let (mut done, mut through) = (Vec::new(), Vec::new());
+        assert_eq!(
+            succeed_now(&r0, &mut done, &mut through, &mut t),
+            Err("predecessor_unreadable")
+        );
+        assert!(t.read.is_empty());
+    }
+
+    /// Without a covering record the predecessors are asked in order as
+    /// before; a direct record replaces an earlier cover. The original and
+    /// a retired authority need nothing.
+    #[test]
+    fn a_predecessor_without_a_cover_is_asked_as_before() {
+        let r1 = Authority::named_after("r1", 22, &["r0"]).unwrap();
+        let mut t = Table {
+            records: vec![("r0", Some(rec(&[], false)))],
+            answers: vec![
+                ("main", SupersedeAnswer::Recorded(Some("r0".into()))),
+                ("r0", SupersedeAnswer::Recorded(Some("r1".into()))),
+            ],
+            ..Table::default()
+        };
+        let mut done = Vec::new();
+        // A cover kept for a higher first cohort no longer applies (main is
+        // unrecorded for 22): asked directly, the cover goes.
+        let mut through = vec![("main".to_owned(), "r0".to_owned())];
+        done.push(("main".to_owned(), 30));
+        assert_eq!(succeed_now(&r1, &mut done, &mut through, &mut t), Ok(()));
+        assert_eq!(t.asked, ["main", "r0"]);
+        assert_eq!(done, pairs(&[("main", 22), ("r0", 22)]));
+        assert!(through.is_empty());
+        let mut t = Table::default();
+        for a in [Authority::default(), Authority::retired("r0")] {
+            assert_eq!(
+                succeed_now(&a, &mut Vec::new(), &mut Vec::new(), &mut t),
+                Ok(())
+            );
+        }
+        assert!(t.asked.is_empty() && t.read.is_empty());
+    }
+
+    /// `succession_through`'s conditions one at a time.
+    #[test]
+    fn a_cover_needs_a_later_listed_authority_that_took_a_plan() {
+        let r2 = Authority::named_after("r2", 30, &["r0", "r1"]).unwrap();
+        let ok = rec(&[("main", 14)], true);
+        assert!(succession_through(&r2, "main", "r0", &ok));
+        assert!(succession_through(
+            &r2,
+            "main",
+            "r1",
+            &rec(&[("main", 22), ("r0", 22)], true)
+        ));
+        assert!(succession_through(
+            &r2,
+            "r0",
+            "r1",
+            &rec(&[("main", 22), ("r0", 22)], true)
+        ));
+        // Not after the predecessor, not listed, or the successor itself.
+        assert!(!succession_through(
+            &r2,
+            "r0",
+            "r0",
+            &rec(&[("r0", 14)], true)
+        ));
+        assert!(!succession_through(
+            &r2,
+            "r1",
+            "r0",
+            &rec(&[("r1", 14)], true)
+        ));
+        assert!(!succession_through(&r2, "main", "r9", &ok));
+        assert!(!succession_through(&r2, "main", "r2", &ok));
+        // A record listing an authority after `through` in r2's own list.
+        assert!(!succession_through(
+            &r2,
+            "main",
+            "r0",
+            &rec(&[("main", 14), ("r1", 14)], true)
+        ));
+        // A first cohort above r2's.
+        assert!(!succession_through(
+            &r2,
+            "main",
+            "r0",
+            &rec(&[("main", 31)], true)
+        ));
+        assert!(succession_through(
+            &r2,
+            "main",
+            "r0",
+            &rec(&[("main", 30)], true)
+        ));
+        // The original authority has no predecessors to cover.
+        assert!(!succession_through(
+            &Authority::default(),
+            "main",
+            "r0",
+            &ok
+        ));
     }
 
     fn status_of(

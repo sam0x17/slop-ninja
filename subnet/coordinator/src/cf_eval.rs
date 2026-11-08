@@ -408,6 +408,88 @@ async fn succeeded(storage: &worker::Storage) -> Vec<(String, u64)> {
     storage.get::<Vec<(String, u64)>>(SUCCEEDED_KEY).await.ok().flatten().unwrap_or_default()
 }
 
+/// The predecessors in [`SUCCEEDED_KEY`] that a later predecessor's own
+/// record covered (`config::succession_through`), never asked: `(name,
+/// through)` pairs, at most one per predecessor.
+const SUCCEEDED_THROUGH_KEY: &str = "succession_through";
+
+/// [`SUCCEEDED_THROUGH_KEY`] (none when unreadable: a predecessor it lists is
+/// recorded in [`SUCCEEDED_KEY`] too, and an unrecorded one is decided again).
+async fn succeeded_through(storage: &worker::Storage) -> Vec<(String, String)> {
+    storage.get::<Vec<(String, String)>>(SUCCEEDED_THROUGH_KEY).await.ok().flatten().unwrap_or_default()
+}
+
+/// A cohort object's side of `config::succeed_with`.
+struct Peers<'a> {
+    env: &'a Env,
+    storage: &'a worker::Storage,
+    /// The `config::Supersede` request, JSON.
+    body: String,
+}
+
+impl crate::config::SuccessionPeers for Peers<'_> {
+    async fn record(&mut self, authority: &str) -> Option<crate::config::SuccessionRecord> {
+        let mut r = authority_fetch(
+            self.env,
+            engine::INSTANCE_MAIN,
+            authority,
+            Method::Get,
+            "/succession/record",
+            None,
+            Some(KICK_TIMEOUT_MS),
+        )
+        .await
+        .ok()?;
+        if r.status_code() != 200 {
+            super::cf_io::discard(&mut r);
+            return None;
+        }
+        super::cf_io::response_json::<crate::config::SuccessionRecord>(&mut r, DO_REPLY_BYTES).await.ok()
+    }
+
+    async fn supersede(&mut self, predecessor: &str) -> crate::config::SupersedeAnswer {
+        use crate::config::SupersedeAnswer as A;
+        let Ok(mut r) = authority_fetch(
+            self.env,
+            engine::INSTANCE_MAIN,
+            predecessor,
+            Method::Post,
+            "/succession/supersede",
+            Some(self.body.clone()),
+            Some(KICK_TIMEOUT_MS),
+        )
+        .await
+        else {
+            return A::Unreachable;
+        };
+        match r.status_code() {
+            200 => {
+                let v = super::cf_io::response_json::<Value>(&mut r, DO_REPLY_BYTES).await.unwrap_or_default();
+                A::Recorded(v["superseded_by"].as_str().map(str::to_owned))
+            }
+            404 => {
+                super::cf_io::discard(&mut r);
+                A::Unknown
+            }
+            409 => {
+                let v = super::cf_io::response_json::<Value>(&mut r, DO_REPLY_BYTES).await.unwrap_or_default();
+                A::Refused(v["refused"].as_str().map(str::to_owned))
+            }
+            _ => {
+                super::cf_io::discard(&mut r);
+                A::Unreadable
+            }
+        }
+    }
+
+    async fn store(&mut self, done: &[(String, u64)], through: &[(String, String)]) -> std::result::Result<(), &'static str> {
+        // The covering authority first: a store that keeps only it decides
+        // the predecessor again, which records the same.
+        self.storage.put(SUCCEEDED_THROUGH_KEY, &through).await.map_err(|_| "succession store")?;
+        self.storage.put(SUCCEEDED_KEY, &done).await.map_err(|_| "succession store")
+    }
+}
+
 /// A lane's JSON call to the cohort authority that kicked it (`k.authority`,
 /// the original when absent), retried with backoff on overload or transport
 /// errors (holding no claim while it waits). An earlier authority's lane
@@ -680,6 +762,24 @@ impl DurableObject for EvalCohort {
                     Err(_) => error("store_unavailable", 503),
                 }
             }
+            // This authority's own succession record, read only, for a later
+            // successor (`config::succession_through`); an unreadable store
+            // refuses rather than answers none.
+            (Method::Get, "/succession/record") if instance == engine::INSTANCE_MAIN => {
+                let Ok(done) = storage.get::<Vec<(String, u64)>>(SUCCEEDED_KEY).await else {
+                    return error("store_unavailable", 503);
+                };
+                let holds = transaction(&storage, |sql| {
+                    Ok::<_, engine::EvalError>(!sql.exec("SELECT 1 FROM cohorts LIMIT 1", &[])?.is_empty())
+                });
+                match holds {
+                    Ok(holds_cohorts) => json(&crate::config::SuccessionRecord {
+                        succession_recorded: done.unwrap_or_default(),
+                        holds_cohorts,
+                    }),
+                    Err(_) => error("store_unavailable", 503),
+                }
+            }
             (Method::Post, "/succession/retention") if instance == engine::INSTANCE_MAIN => {
                 #[derive(Deserialize)]
                 #[serde(deny_unknown_fields)]
@@ -793,6 +893,16 @@ impl DurableObject for EvalCohort {
                                 v["succession_complete"] = Value::Null;
                             }
                         }
+                        // Which of those a later predecessor's record covered
+                        // (`config::succession_through`), never asked.
+                        v["succession_through"] = match storage.get::<Vec<(String, String)>>(SUCCEEDED_THROUGH_KEY).await {
+                            Ok(t) => j!(t
+                                .unwrap_or_default()
+                                .iter()
+                                .map(|(p, q)| j!({"predecessor": p, "through": q}))
+                                .collect::<Vec<_>>()),
+                            Err(_) => Value::Null,
+                        };
                         v["last_step_error"] = storage.get::<Value>("last_step_error").await.ok().flatten().unwrap_or(Value::Null);
                         v["step_errors"] = j!(storage.get::<i64>("step_errors").await.ok().flatten().unwrap_or(0));
                         v["last_dispatch"] = storage.get::<Value>("last_dispatch").await.ok().flatten().unwrap_or(Value::Null);
@@ -1146,8 +1256,13 @@ impl EvalCohort {
     /// `EVAL_MAIN_PREVIOUS` is refused. Each predecessor's record is kept in
     /// this store with the first cohort it was checked for
     /// (`config::succession_recorded`): a superseded authority's cohorts
-    /// never change again, but a lower first cohort asks again. The original
-    /// authority, and a retired one, need nothing.
+    /// never change again, but a lower first cohort asks again. A predecessor
+    /// that a later listed predecessor already recorded, under the conditions
+    /// of `config::succession_through`, is not asked and its store is never
+    /// opened: it counts as recorded, and `succession_through` here keeps
+    /// which authority's record covered it. Any other predecessor is asked,
+    /// and refuses when it does not answer (`config::succeed_with`). The
+    /// original authority, and a retired one, need nothing.
     pub(super) async fn succeed(&self, cfg: &EvalConfig) -> std::result::Result<(), &'static str> {
         let Some(req) = crate::config::Supersede::of(&cfg.authority) else { return Ok(()) };
         if cfg.authority.is_retired() {
@@ -1155,51 +1270,10 @@ impl EvalCohort {
         }
         let storage = self.state.storage();
         let mut done = succeeded(&storage).await;
-        let first = cfg.authority.first_cohort();
+        let mut through = succeeded_through(&storage).await;
         let body = serde_json::to_string(&req).map_err(|_| "succession json")?;
-        for p in cfg.authority.predecessors() {
-            if crate::config::succession_recorded(&done, p, first) {
-                continue;
-            }
-            let mut r = authority_fetch(
-                &self.env,
-                engine::INSTANCE_MAIN,
-                p,
-                Method::Post,
-                "/succession/supersede",
-                Some(body.clone()),
-                Some(KICK_TIMEOUT_MS),
-            )
-            .await
-            .map_err(|_| "predecessor_unreachable")?;
-            match r.status_code() {
-                200 => {
-                    let v = super::cf_io::response_json::<Value>(&mut r, DO_REPLY_BYTES).await.unwrap_or_default();
-                    crate::config::succession_reply(&cfg.authority, p, v["superseded_by"].as_str())?;
-                }
-                404 => {
-                    super::cf_io::discard(&mut r);
-                    return Err("predecessor_unknown");
-                }
-                409 => {
-                    let v = super::cf_io::response_json::<Value>(&mut r, DO_REPLY_BYTES).await.unwrap_or_default();
-                    return Err(match v["refused"].as_str() {
-                        Some("predecessor_busy") => "predecessor_busy",
-                        Some("predecessor_numbers") => "predecessor_numbers",
-                        Some("predecessor_work") => "predecessor_work",
-                        _ => "predecessor_refused",
-                    });
-                }
-                _ => {
-                    super::cf_io::discard(&mut r);
-                    return Err("predecessor_unreadable");
-                }
-            }
-            done.retain(|(d, _)| d != p);
-            done.push((p.to_owned(), first));
-            storage.put(SUCCEEDED_KEY, &done).await.map_err(|_| "succession store")?;
-        }
-        Ok(())
+        let mut peers = Peers { env: &self.env, storage: &storage, body };
+        crate::config::succeed_with(&cfg.authority, &mut done, &mut through, &mut peers).await
     }
 
     /// Lane routes: one transaction each, through stubs only.

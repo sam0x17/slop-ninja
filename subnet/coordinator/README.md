@@ -2451,10 +2451,25 @@ recorded first, after the same checks against the asking one; the named
 authority accepts that answer only when it names itself or an authority it
 lists after that predecessor, which it then asks in turn
 (`config::succession_reply`), so a deployment that leaves an earlier
-authority out of `EVAL_MAIN_PREVIOUS` never completes succession. Each
+authority out of `EVAL_MAIN_PREVIOUS` never completes succession. A
+predecessor that a later listed predecessor already recorded is not asked,
+and its store is never opened (`config::succession_through`, read from that
+later one's `GET /succession/record`): the later one must hold a cohort (so
+its own succession was complete and its record names every authority it
+listed), must have recorded the predecessor for a first cohort at or below
+the named authority's, and may name in its record only authorities the named
+authority lists before it. The later one is still asked in turn, and the
+last listed predecessor always is. That cover leaves one check out: the
+covered predecessor's labels against the named authority's prefix (the
+later one checked them against its own). A named predecessor's labels carry
+its own prefix; the original's are checked from its last readable status
+before a deployment relies on the cover. Each
 answer is kept with the first cohort it was checked for, and a lower first
 cohort asks again; `/eval/status` reports them (`succession_recorded`,
-`succession_complete`) with `work` and `superseded_by`. Otherwise the named
+`succession_complete`, and `succession_through`: each covered predecessor
+with the authority whose record covered it) with `work` and
+`superseded_by`. A predecessor nothing covers that does not answer refuses
+before any later one is asked. Otherwise the named
 authority refuses (409 `predecessor_busy`, `predecessor_work`,
 `predecessor_numbers`, `predecessor_superseded_elsewhere`,
 `predecessor_unknown`, `predecessor_unreadable`) and its calendar pauses with

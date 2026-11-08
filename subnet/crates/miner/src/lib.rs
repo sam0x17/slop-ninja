@@ -14,11 +14,14 @@ pub mod check;
 pub mod client;
 pub mod commit;
 pub mod direct;
+pub mod intake;
 pub mod object;
 pub mod opening;
 pub mod provenance;
 pub mod public;
 pub mod reference;
+pub mod resolve;
+pub mod status_api;
 pub mod trust;
 pub mod upload;
 

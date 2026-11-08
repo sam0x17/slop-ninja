@@ -479,6 +479,12 @@ impl Mock {
         })
     }
 
+    /// Ends a session as refused with `code`, as a coordinator decision
+    /// (for example at the freeze); the session stays in the hotkey view.
+    pub fn refuse(&self, id: &str, code: ErrorCode, message: &str) {
+        self.with(|s| s.end_refused(id, refusal(code, message, Detail::default())));
+    }
+
     /// Marks a session's publication as recorded.
     pub fn publish(&self, id: &str) {
         self.with(|s| s.sessions.get_mut(id).unwrap().published = true);

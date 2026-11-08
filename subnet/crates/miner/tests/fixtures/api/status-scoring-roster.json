@@ -1,0 +1,380 @@
+{
+  "schema": "slop_ninja.api.cohort_status/v1",
+  "view": "current",
+  "network": "testnet",
+  "sample": true,
+  "chain": {
+    "genesis": null,
+    "netuid": 601,
+    "mechanism": 0
+  },
+  "mechanism": {
+    "key": "a",
+    "name": "Detection",
+    "state": "live",
+    "stage_set": "cohort/v1"
+  },
+  "generated_at": 1790504700,
+  "sources": [
+    {
+      "doc": "index",
+      "generated_at": 1792999920
+    },
+    {
+      "doc": "now",
+      "generated_at": 1792999920
+    },
+    {
+      "doc": "registry",
+      "generated_at": 1790504700
+    },
+    {
+      "doc": "roster",
+      "generated_at": 1790513340
+    }
+  ],
+  "clock": {
+    "confirmed_block": 8400160,
+    "confirmed_epoch": 2310,
+    "observed_at": 1792999860,
+    "age_secs": 6,
+    "boundary_block": 8400000,
+    "boundary_epoch": 2310,
+    "tempo_blocks": 360,
+    "block_secs_nominal": 12
+  },
+  "pause": {
+    "paused": false,
+    "class": null
+  },
+  "sources_ok": true,
+  "notice": [
+    "testnet"
+  ],
+  "cohort": {
+    "cohort": 118,
+    "label": "testnet-c118",
+    "state": "running",
+    "stage": "scoring",
+    "stage_kind": "work",
+    "stage_number": 5,
+    "stages_total": 8,
+    "mode": "target",
+    "results_public": false,
+    "ended_class": null,
+    "tempos": null,
+    "progress": {
+      "admission": null,
+      "work": {
+        "stage": "scoring",
+        "pct": 40,
+        "as_of_epoch": 2310
+      }
+    },
+    "expected": {
+      "estimate_rule": "slop_ninja.api.eta/v1",
+      "stage_end": null,
+      "close": {
+        "epoch": 2315,
+        "block": 8401800,
+        "at_estimate": 1793019540,
+        "at_estimate_utc": "2026-10-26T12:59:00Z"
+      },
+      "packaging_deadline_epoch": 2312
+    },
+    "phases": [
+      {
+        "stage": "admission_open",
+        "epoch": 2293,
+        "block": 8393880,
+        "at": 1792924380,
+        "basis": "observed",
+        "tempos": {
+          "elapsed": 16,
+          "counted": 16,
+          "required": 16
+        }
+      },
+      {
+        "stage": "admission_closing",
+        "epoch": 2309,
+        "block": 8399640,
+        "at": 1792993680,
+        "basis": "observed",
+        "tempos": {
+          "elapsed": 0,
+          "counted": null,
+          "required": null
+        }
+      },
+      {
+        "stage": "generating",
+        "epoch": 2309,
+        "block": 8399640,
+        "at": 1792993680,
+        "basis": "observed",
+        "tempos": {
+          "elapsed": 1,
+          "counted": null,
+          "required": null
+        }
+      },
+      {
+        "stage": "sealing",
+        "epoch": 2310,
+        "block": 8400000,
+        "at": 1792998000,
+        "basis": "observed",
+        "tempos": {
+          "elapsed": 0,
+          "counted": null,
+          "required": null
+        }
+      },
+      {
+        "stage": "scoring",
+        "epoch": 2310,
+        "block": 8400000,
+        "at": 1792998000,
+        "basis": "observed",
+        "tempos": {
+          "elapsed": 0,
+          "counted": null,
+          "required": null
+        }
+      }
+    ],
+    "plan": {
+      "template": {
+        "k_tempos": 22,
+        "admission_tempos": 16,
+        "transition_tempos": 2,
+        "work_window_tempos": 4
+      },
+      "stages": [
+        {
+          "stage": "admission_open",
+          "kind": "schedule",
+          "expected_tempos": 16,
+          "earliest": null
+        },
+        {
+          "stage": "admission_closing",
+          "kind": "step",
+          "expected_tempos": null,
+          "earliest": null
+        },
+        {
+          "stage": "generating",
+          "kind": "work",
+          "expected_tempos": null,
+          "earliest": null
+        },
+        {
+          "stage": "sealing",
+          "kind": "step",
+          "expected_tempos": null,
+          "earliest": null
+        },
+        {
+          "stage": "scoring",
+          "kind": "work",
+          "expected_tempos": null,
+          "earliest": null
+        },
+        {
+          "stage": "packaging",
+          "kind": "step",
+          "expected_tempos": null,
+          "earliest": {
+            "epoch": 2312,
+            "block": 8400720,
+            "at_estimate": 1793006580,
+            "at_estimate_utc": "2026-10-26T09:23:00Z"
+          }
+        },
+        {
+          "stage": "transition",
+          "kind": "schedule",
+          "expected_tempos": 2,
+          "earliest": {
+            "epoch": 2313,
+            "block": 8401080,
+            "at_estimate": 1793010900,
+            "at_estimate_utc": "2026-10-26T10:35:00Z"
+          }
+        },
+        {
+          "stage": "closed",
+          "kind": "end",
+          "expected_tempos": 0,
+          "earliest": {
+            "epoch": 2315,
+            "block": 8401800,
+            "at_estimate": 1793019540,
+            "at_estimate_utc": "2026-10-26T12:59:00Z"
+          }
+        }
+      ]
+    },
+    "bounds": {
+      "open": {
+        "epoch": 2293,
+        "block": 8393880,
+        "at": 1792924380,
+        "basis": "observed",
+        "at_estimate": null,
+        "at_estimate_utc": null
+      },
+      "cutoff": {
+        "epoch": 2309,
+        "block": 8399640,
+        "at": 1792993680,
+        "basis": "observed",
+        "at_estimate": null,
+        "at_estimate_utc": null
+      },
+      "close": {
+        "epoch": 2315,
+        "block": 8401800,
+        "at": null,
+        "basis": "earliest",
+        "at_estimate": 1793019540,
+        "at_estimate_utc": "2026-10-26T12:59:00Z"
+      }
+    }
+  },
+  "next": {
+    "cohort": 119,
+    "admission_tempos": 16,
+    "earliest_open": {
+      "epoch": 2315,
+      "block": 8401800,
+      "at_estimate": 1793019540,
+      "at_estimate_utc": "2026-10-26T12:59:00Z"
+    }
+  },
+  "references": {
+    "current": {
+      "index": 4,
+      "label": "R4",
+      "kind": "miner_model",
+      "owner": {
+        "uid": 120,
+        "hotkey": "5DemoHotkeybEgfvGbuEJvXAoGNWxRGVMkKZzVpJKQJgEXdT"
+      },
+      "since_cohort": 117,
+      "since_label": "testnet-c117",
+      "artifact_state": "published",
+      "licence": "CC-BY-SA-4.0",
+      "content": null,
+      "artifact": null
+    },
+    "predecessor": null
+  },
+  "outcome": null,
+  "coordinator_weights": null,
+  "miners": {
+    "source": "registry",
+    "complete": true,
+    "as_of": {
+      "epoch": 116,
+      "block": 8041800
+    },
+    "cohort_status_source": "roster_document",
+    "rows": [
+      {
+        "uid": 1,
+        "hotkey": "5C7LYpP2ZH3tpKbvVvwiVe54AapxErdPBbvkYhe6y9ZBkqWt",
+        "hotkey_hex": "0202020202020202020202020202020202020202020202020202020202020202",
+        "registration_block": 10,
+        "registered": true,
+        "cohort_status": "committed",
+        "reason_class": null,
+        "roster_position": null,
+        "result": null,
+        "artifact_state": null,
+        "challenges": null
+      },
+      {
+        "uid": 2,
+        "hotkey": "5C8etthaGJi5SkQeEDSaK32ABBjkhwDeK9ksQCTLEGM3EH14",
+        "hotkey_hex": "0303030303030303030303030303030303030303030303030303030303030303",
+        "registration_block": 11,
+        "registered": true,
+        "cohort_status": "committed",
+        "reason_class": null,
+        "roster_position": null,
+        "result": null,
+        "artifact_state": null,
+        "challenges": null
+      },
+      {
+        "uid": 3,
+        "hotkey": "5C62Ck4UrFPiBtoCmeSrgF7x9yv9mn38446dhCpsi2mLHiFT",
+        "hotkey_hex": "0101010101010101010101010101010101010101010101010101010101010101",
+        "registration_block": 12,
+        "registered": true,
+        "cohort_status": "none",
+        "reason_class": null,
+        "roster_position": null,
+        "result": null,
+        "artifact_state": null,
+        "challenges": null
+      },
+      {
+        "uid": 4,
+        "hotkey": "5C9yEy27yLNG5BDMxVwS8RyGBneZB1ouShazFhGZVP8thK5z",
+        "hotkey_hex": "0404040404040404040404040404040404040404040404040404040404040404",
+        "registration_block": 13,
+        "registered": true,
+        "cohort_status": "evaluating",
+        "reason_class": null,
+        "roster_position": null,
+        "result": null,
+        "artifact_state": null,
+        "challenges": {
+          "state": "running",
+          "done": 142,
+          "total": 312
+        }
+      },
+      {
+        "uid": 5,
+        "hotkey": "5CBHb3LfgN2Shc25gnSHwpvNCPZMe6QAaFR77C5nkVvkAK1o",
+        "hotkey_hex": "0505050505050505050505050505050505050505050505050505050505050505",
+        "registration_block": 14,
+        "registered": true,
+        "cohort_status": "refused",
+        "reason_class": "artifact",
+        "roster_position": null,
+        "result": null,
+        "artifact_state": null,
+        "challenges": null
+      },
+      {
+        "uid": null,
+        "hotkey": "5CCbw7fDPPgdL2poR4w9mDsUCzUA7AzRhoFDxgu21cibdUmW",
+        "hotkey_hex": "0606060606060606060606060606060606060606060606060606060606060606",
+        "registration_block": null,
+        "registered": false,
+        "cohort_status": "overflow",
+        "reason_class": null,
+        "roster_position": null,
+        "result": null,
+        "artifact_state": null,
+        "challenges": null
+      }
+    ]
+  },
+  "links": {
+    "self": "/api/v1/testnet/a/status",
+    "cohort": "/api/v1/testnet/a/cohorts/testnet-c118",
+    "cohorts": "/api/v1/testnet/a/cohorts",
+    "page": "/status/testnet/a/",
+    "previous": null,
+    "next": null,
+    "discovery": "/api/",
+    "schema": "/api/v1/schemas/cohort_status.json"
+  }
+}

@@ -1,5 +1,5 @@
 //! `slop_ninja_miner`: pack, check, commit, upload (straight to R2), repair,
-//! status and next-cohort.
+//! status, resolve and next-cohort.
 
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
@@ -67,9 +67,16 @@ enum Command {
     /// Send again the objects of an admitted upload that went missing on the
     /// coordinator's side (the session's repair_needed list).
     Repair(RepairArgs),
-    /// Show the public status (or the coordinator's cohort read), local openings and the
-    /// coordinator's view of this hotkey.
+    /// Answer this hotkey's intake questions (registered? commitment seen? upload
+    /// verified? admitted? challenges started? how many done?) from the public status
+    /// API, with the next step; then the coordinator's cohort read, local openings and
+    /// the coordinator's signed view of the hotkey.
     Status(StatusArgs),
+    /// Detect this hotkey's intake state and resolve it where that is safe: commit
+    /// (or commit again) before the cutoff, upload or resume with fresh URLs, follow
+    /// verification, repair missing objects, and back off on outages. Never registers,
+    /// spends funds or changes the submitted model without --allow-replace.
+    Resolve(ResolveArgs),
     /// Show the admitting cohort, or the next one: from the public snapshot
     /// with --public, else from the coordinator's unsigned cohort read.
     NextCohort(PublicArgs),
@@ -271,11 +278,64 @@ struct RepairArgs {
     wallet: Wallet,
 }
 
+/// The public status API.
+#[derive(Args, Clone)]
+struct StatusApiArgs {
+    /// Status API origin (`/api/v1/<network>/<mechanism>/status` under it).
+    #[arg(long, env = "SLOP_NINJA_STATUS_API", default_value = slop_ninja_miner::status_api::DEFAULT_ORIGIN)]
+    status_api: String,
+    /// Do not read the status API.
+    #[arg(long)]
+    no_status_api: bool,
+    /// The status API's network.
+    #[arg(long, default_value = "testnet")]
+    status_network: String,
+    /// The status API's mechanism key.
+    #[arg(long, default_value = "a")]
+    mechanism: String,
+    /// Describe this cohort label instead of the current cohort.
+    #[arg(long)]
+    label: Option<String>,
+}
+
+impl StatusApiArgs {
+    fn source(&self) -> Result<Option<slop_ninja_miner::resolve::ApiSource>> {
+        if self.no_status_api {
+            return Ok(None);
+        }
+        Ok(Some(slop_ninja_miner::resolve::ApiSource {
+            origin: slop_ninja_miner::client::base_url(&self.status_api)?,
+            network: self.status_network.clone(),
+            mechanism: self.mechanism.clone(),
+            which: match &self.label {
+                Some(label) => slop_ninja_miner::status_api::Which::Label(label.clone()),
+                None => slop_ninja_miner::status_api::Which::Current,
+            },
+        }))
+    }
+}
+
 #[derive(Args)]
 struct StatusArgs {
     /// Cohort to ask the coordinator about (default: the admitting one).
     #[arg(long)]
     cohort: Option<u64>,
+    /// Answer for this hotkey (SS58) from public data only; a named wallet (for
+    /// example from SLOP_NINJA_WALLET) is not used.
+    #[arg(long, conflicts_with = "repair")]
+    ss58: Option<String>,
+    #[command(flatten)]
+    api: StatusApiArgs,
+    /// Print the intake answers as JSON (one object), and nothing else.
+    #[arg(long)]
+    json: bool,
+    /// Read again about once a minute (the status API's refresh) until interrupted
+    /// or --max-wait-secs passes, printing the answers each time they change.
+    #[arg(long)]
+    watch: bool,
+    /// Bound on --watch, in seconds.
+    #[arg(long)]
+    max_wait_secs: Option<u64>,
     /// Also send again any recorded object that went missing on the
     /// coordinator's side, from --artifact (as `repair` does).
     #[arg(long, requires = "artifact")]
@@ -285,6 +345,60 @@ struct StatusArgs {
     artifact: Option<PathBuf>,
     #[command(flatten)]
     put: PutArgs,
+    #[command(flatten)]
+    endpoints: Endpoints,
+    #[command(flatten)]
+    wallet: Wallet,
+    #[command(flatten)]
+    state: State,
+}
+
+#[derive(Args)]
+struct ResolveArgs {
+    /// The packed artifact object to enter (and to upload or repair from).
+    #[arg(long)]
+    artifact: PathBuf,
+    /// Allow a commitment that changes the submitted model: one for another
+    /// artifact than this hotkey's last opening for the cohort, or one that
+    /// replaces a counted commitment no local opening opens.
+    #[arg(long)]
+    allow_replace: bool,
+    /// Only diagnose and print the action resolve would take.
+    #[arg(long)]
+    dry_run: bool,
+    /// Keep resolving until the entry is verified (or settled otherwise), a manual
+    /// step is needed, or --max-wait-secs passes; else one pass.
+    #[arg(long)]
+    watch: bool,
+    /// Bound on --watch, in seconds.
+    #[arg(long)]
+    max_wait_secs: Option<u64>,
+    /// Print each pass's diagnosis as one JSON line.
+    #[arg(long)]
+    json: bool,
+    /// rtao network label.
+    #[arg(long, default_value = "test")]
+    network: String,
+    /// RPC endpoint, repeated for fallbacks (default: the network's).
+    #[arg(long = "rpc")]
+    rpc: Vec<String>,
+    /// Client-side RPC request budget per minute.
+    #[arg(long)]
+    rpc_per_minute: Option<u32>,
+    /// Bound on a commitment's signing, submission and finalization, in seconds;
+    /// resolve never commits when the cutoff's earliest block is closer than this.
+    #[arg(long, default_value_t = 600)]
+    deadline_secs: u64,
+    /// How long one upload pass waits for verification after completion, in seconds.
+    #[arg(long, default_value_t = 600)]
+    wait_secs: u64,
+    /// Seconds between session reads while the coordinator verifies.
+    #[arg(long, default_value_t = 10)]
+    poll_secs: u64,
+    #[command(flatten)]
+    put: PutArgs,
+    #[command(flatten)]
+    api: StatusApiArgs,
     #[command(flatten)]
     endpoints: Endpoints,
     #[command(flatten)]
@@ -484,6 +598,7 @@ async fn run(command: Command) -> Result<ExitCode> {
         Command::Upload(args) => upload_cmd(args).await,
         Command::Repair(args) => repair_cmd(args).await,
         Command::Status(args) => status(args).await,
+        Command::Resolve(args) => resolve_cmd(args).await,
         Command::NextCohort(args) => next_cohort(args).await,
     }
 }
@@ -759,6 +874,7 @@ async fn commit_cmd(args: CommitArgs) -> Result<ExitCode> {
         chain_binding.netuid,
         &draft.payload,
         Duration::from_secs(args.deadline_secs),
+        None,
     )
     .await?;
     let mut record = draft.file.clone();
@@ -1196,8 +1312,125 @@ async fn run_repair(
     })
 }
 
-async fn status(args: StatusArgs) -> Result<ExitCode> {
+/// The intake section of `status`: the hotkey's answers and next step, from
+/// the status API, the coordinator's reads and the local openings (no chain
+/// read and no action). `None` when no hotkey is named.
+async fn intake_section(
+    args: &StatusArgs,
+    http: &reqwest::Client,
+    signer: Option<Arc<dyn slop_ninja_miner::client::RequestSigner>>,
+    store: &slop_ninja_miner::opening::Store,
+) -> Result<Option<slop_ninja_miner::intake::Diagnosis>> {
+    let hotkey = match (&args.ss58, args.wallet.named()) {
+        (Some(text), _) => slop_ninja_miner::client::parse_ss58(text)?,
+        (None, true) => args.wallet.account()?,
+        (None, false) => return Ok(None),
+    };
+    let coordinator = if args.endpoints.configured() {
+        args.endpoints
+            .coordinator(http)
+            .await
+            .ok()
+            .map(|(base, _)| base)
+    } else {
+        None
+    };
+    let env = slop_ninja_miner::resolve::Env::<slop_ninja_miner::resolve::NoChain> {
+        http: http.clone(),
+        api: args.api.source()?,
+        coordinator,
+        signer,
+        put_policy: Default::default(),
+        transfer: Default::default(),
+        chain: None,
+        store,
+        hotkey,
+        artifact: None,
+        upload: Default::default(),
+        now: slop_ninja_miner::resolve::unix_now,
+    };
+    let seen = slop_ninja_miner::resolve::observe(&env).await?;
+    let policy = slop_ninja_miner::intake::Policy {
+        allow_replace: false,
+        // As resolve's default --deadline-secs.
+        commit_margin_blocks: chain::commit_window(600).margin_blocks,
+        reads_chain: false,
+    };
+    Ok(Some(slop_ninja_miner::resolve::diagnose(
+        &env, &seen, &policy,
+    )))
+}
+
+/// `status --watch`: the intake answers again about once a minute, printed
+/// when they change.
+async fn status_watch(args: &StatusArgs) -> Result<ExitCode> {
     let http = args.endpoints.http()?;
+    let store = args.state.store()?;
+    let signer: Option<Arc<dyn slop_ninja_miner::client::RequestSigner>> =
+        if args.ss58.is_none() && args.wallet.named() && args.endpoints.configured() {
+            Some(args.wallet.signer().await?)
+        } else {
+            None
+        };
+    let started = tokio::time::Instant::now();
+    let mut last = String::new();
+    loop {
+        let d = intake_section(args, &http, signer.clone(), &store)
+            .await?
+            .context("name the hotkey: --wallet and --hotkey, --hotkey-file, or --ss58")?;
+        let shown = if args.json {
+            serde_json::to_string(&d)?
+        } else {
+            slop_ninja_miner::intake::report(&d)
+        };
+        if shown != last {
+            println!("{shown}");
+            last = shown;
+        }
+        let wait = slop_ninja_miner::status_api::REFRESH;
+        if args
+            .max_wait_secs
+            .is_some_and(|max| started.elapsed() + wait > Duration::from_secs(max))
+        {
+            return Ok(ExitCode::SUCCESS);
+        }
+        tokio::time::sleep(wait).await;
+    }
+}
+
+async fn status(args: StatusArgs) -> Result<ExitCode> {
+    if args.watch {
+        return status_watch(&args).await;
+    }
+    let http = args.endpoints.http()?;
+    if args.json || args.ss58.is_some() {
+        // Public answers only (and the signed view for a named wallet).
+        let store = args.state.store()?;
+        let signer: Option<Arc<dyn slop_ninja_miner::client::RequestSigner>> =
+            if args.ss58.is_none() && args.wallet.named() && args.endpoints.configured() {
+                Some(args.wallet.signer().await?)
+            } else {
+                None
+            };
+        let d = intake_section(&args, &http, signer, &store)
+            .await?
+            .context("name the hotkey: --wallet and --hotkey, --hotkey-file, or --ss58")?;
+        if args.json {
+            println!("{}", serde_json::to_string_pretty(&d)?);
+        } else {
+            println!("{}", slop_ninja_miner::intake::report(&d));
+        }
+        return Ok(ExitCode::SUCCESS);
+    }
+    if args.wallet.named() {
+        // The answers first; the details follow.
+        let store = args.state.store()?;
+        match intake_section(&args, &http, None, &store).await {
+            Ok(Some(d)) => println!("{}\n", slop_ninja_miner::intake::report(&d)),
+            Ok(None) => {}
+            Err(error) => eprintln!("warning: the intake answers could not be made: {error:#}"),
+        }
+    }
     // A calendar that cannot be read fails the command only after the local
     // openings are shown: they are shown whatever the coordinator or status
     // host answers (an outage is when they matter most).
@@ -1402,6 +1635,110 @@ async fn status(args: StatusArgs) -> Result<ExitCode> {
         return Ok(code);
     }
     Ok(ExitCode::SUCCESS)
+}
+
+async fn resolve_cmd(args: ResolveArgs) -> Result<ExitCode> {
+    use slop_ninja_miner::resolve;
+    let header = object::read_header(&args.artifact)?;
+    let http = args.endpoints.http()?;
+    let (coordinator, source) = args.endpoints.coordinator(&http).await?;
+    println!(
+        "coordinator {} ({}); resolving with {}{}",
+        coordinator.origin().ascii_serialization(),
+        source.describe(),
+        args.artifact.display(),
+        if args.dry_run {
+            " (dry run: nothing is signed or sent)"
+        } else {
+            ""
+        }
+    );
+    let hotkey = args.wallet.account()?;
+    let store = args.state.store()?;
+    let signer: Arc<dyn slop_ninja_miner::client::RequestSigner> = args.wallet.signer().await?;
+    let rpc = args
+        .rpc
+        .iter()
+        .map(|u| url::Url::parse(u).with_context(|| format!("{u:?} is not a URL")))
+        .collect::<Result<Vec<_>>>()?;
+    // The subnet the coordinator serves; while it does not answer, nothing is
+    // read from or sent to the chain until a later cohort read names it.
+    let netuid = cohort_info(&http, &coordinator)
+        .await
+        .ok()
+        .map(|info| info.chain.netuid);
+    let window = chain::commit_window(args.deadline_secs);
+    let chain = chain::RtaoChain::new(
+        chain::ChainConfig {
+            network: args.network.clone(),
+            endpoints: rpc,
+            requests_per_minute: args.rpc_per_minute,
+            startup_timeout: Duration::from_secs(60),
+        },
+        netuid,
+        args.wallet.file()?,
+        Duration::from_secs(args.deadline_secs),
+        window.era_blocks,
+    );
+    let upload = UploadOptions {
+        wait: Duration::from_secs(args.wait_secs),
+        poll: Duration::from_secs(args.poll_secs),
+        ..args.put.options()
+    };
+    let env = resolve::Env {
+        http: http.clone(),
+        api: args.api.source()?,
+        coordinator: Some(coordinator),
+        signer: Some(signer),
+        put_policy: args.endpoints.put_policy()?,
+        transfer: args.put.transfer(&args.endpoints),
+        chain: Some(&chain),
+        store: &store,
+        hotkey,
+        artifact: Some((args.artifact.clone(), header)),
+        upload,
+        now: resolve::unix_now,
+    };
+    // A commitment must land before the cutoff's earliest block: resolve
+    // commits only while the cutoff is more than the margin away, and the
+    // commitment's era (at most half the margin) ends before it.
+    let opts = resolve::RunOptions {
+        policy: slop_ninja_miner::intake::Policy {
+            allow_replace: args.allow_replace,
+            commit_margin_blocks: window.margin_blocks,
+            reads_chain: true,
+        },
+        act: !args.dry_run,
+        watch: args.watch && !args.dry_run,
+        refresh: slop_ninja_miner::status_api::REFRESH,
+        // One tempo (360 blocks) at the nominal block time.
+        max_backoff: chain::READBACK_SPACING * 360,
+        max_wait: args.max_wait_secs.map(Duration::from_secs),
+    };
+    let json = args.json;
+    let end = resolve::run(&env, &opts, |d, outcome| {
+        if json {
+            let value = serde_json::json!({
+                "diagnosis": d,
+                "outcome": outcome.map(|o| format!("{o:?}")),
+            });
+            println!("{value}");
+            return;
+        }
+        println!("{}", slop_ninja_miner::intake::report(d));
+        match outcome {
+            Some(resolve::Outcome::Done(t)) => println!("  done: {t}"),
+            Some(resolve::Outcome::Transient(t)) => println!("  not yet (retried later): {t}"),
+            Some(resolve::Outcome::Failed(t)) => println!("  failed: {t}"),
+            Some(resolve::Outcome::Idle) | None => {}
+        }
+    })
+    .await?;
+    Ok(if end.failed.is_some() || end.manual {
+        ExitCode::from(EXIT_REFUSED)
+    } else {
+        ExitCode::SUCCESS
+    })
 }
 
 /// The cohort-read report, naming the coordinator and why it was chosen.

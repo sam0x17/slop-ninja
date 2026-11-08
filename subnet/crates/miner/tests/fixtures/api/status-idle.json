@@ -1,0 +1,110 @@
+{
+  "schema": "slop_ninja.api.cohort_status/v1",
+  "view": "current",
+  "network": "testnet",
+  "sample": true,
+  "chain": {
+    "genesis": null,
+    "netuid": 601,
+    "mechanism": 0
+  },
+  "mechanism": {
+    "key": "a",
+    "name": "Detection",
+    "state": "live",
+    "stage_set": "cohort/v1"
+  },
+  "generated_at": 1792999920,
+  "sources": [
+    {
+      "doc": "index",
+      "generated_at": 1792999920
+    },
+    {
+      "doc": "now",
+      "generated_at": 1792999920
+    }
+  ],
+  "clock": {
+    "confirmed_block": 8400160,
+    "confirmed_epoch": 2310,
+    "observed_at": 1792999860,
+    "age_secs": 6,
+    "boundary_block": 8400000,
+    "boundary_epoch": 2310,
+    "tempo_blocks": 360,
+    "block_secs_nominal": 12
+  },
+  "pause": {
+    "paused": false,
+    "class": null
+  },
+  "sources_ok": true,
+  "notice": [
+    "testnet"
+  ],
+  "cohort": {
+    "cohort": null,
+    "label": null,
+    "state": "idle",
+    "stage": "idle",
+    "stage_kind": null,
+    "stage_number": null,
+    "stages_total": null,
+    "mode": "target",
+    "results_public": false,
+    "ended_class": null,
+    "tempos": null,
+    "progress": {
+      "admission": null,
+      "work": null
+    },
+    "expected": {
+      "estimate_rule": "slop_ninja.api.eta/v1",
+      "stage_end": null,
+      "close": null,
+      "packaging_deadline_epoch": null
+    },
+    "phases": [],
+    "plan": null,
+    "bounds": null
+  },
+  "next": null,
+  "references": {
+    "current": {
+      "index": 4,
+      "label": "R4",
+      "kind": "miner_model",
+      "owner": {
+        "uid": 120,
+        "hotkey": "5DemoHotkeybEgfvGbuEJvXAoGNWxRGVMkKZzVpJKQJgEXdT"
+      },
+      "since_cohort": 117,
+      "since_label": "testnet-c117",
+      "artifact_state": "published",
+      "licence": "CC-BY-SA-4.0",
+      "content": null,
+      "artifact": null
+    },
+    "predecessor": null
+  },
+  "outcome": null,
+  "coordinator_weights": null,
+  "miners": {
+    "source": null,
+    "complete": false,
+    "as_of": null,
+    "cohort_status_source": null,
+    "rows": null
+  },
+  "links": {
+    "self": "/api/v1/testnet/a/status",
+    "cohort": null,
+    "cohorts": "/api/v1/testnet/a/cohorts",
+    "page": "/status/testnet/a/",
+    "previous": null,
+    "next": null,
+    "discovery": "/api/",
+    "schema": "/api/v1/schemas/cohort_status.json"
+  }
+}

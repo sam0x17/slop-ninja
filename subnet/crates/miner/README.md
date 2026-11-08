@@ -72,7 +72,8 @@ and pack again.
 | `commit --artifact OBJ` | Reads only the object's header, the admitting cohort from the coordinator and the hotkey's registration from finalized chain state, makes a fresh nonce and the opening (it commits to the content the header derives), stores it with mode 0600, then signs and submits `Commitments.set_commitment(netuid, [Raw44(payload)])` with the hotkey and reads it back at finality. `--dry-run` shows the opening and the call and stores, signs and submits nothing. |
 | `upload --artifact OBJ [--opening FILE]` | Opens the session, PUTs the header straight to R2 with the URL the session returns, asks for the file URLs (the coordinator checks the header first), PUTs each missing file straight to R2 (largest first), completes the session and waits for verification. No upload byte goes to the coordinator. Rerun to resume: per object, never per byte. Without `--opening` it uploads the local opening whose payload is the commitment the coordinator observed, or else the newest one confirmed on chain. A refused envelope stays refused: commit again (a new nonce) to upload another object. |
 | `repair --artifact OBJ [SESSION] [--cohort N]` | For a session whose recorded objects went missing on the coordinator's side (its `repair_needed` list; a platform fault, never the miner's), asks for fresh URLs for exactly those objects and PUTs them again from the local object, in any phase while they are still needed. The session is found by full id, a unique prefix, or, with no id, the one that needs repair in the cohort. The object's header must be the session's. |
-| `status` | The public snapshot (unsigned) or, without `--public`, the calendar from the coordinator's unsigned cohort read, local openings and the coordinator's view of the hotkey: registration, the commitment that counts, sessions with full ids and recorded objects, every session refusal, objects to repair, and the last refused session request (for example `second_artifact`, with the live session). `--repair --artifact OBJ` also repairs, as `repair` does. It names the state directory when it holds no opening, and says which parts it skipped for want of endpoints or a named hotkey. The local openings are always printed: a cohort read or snapshot that fails is reported after them (exit 2). |
+| `status` | With a named hotkey (the wallet, or `--ss58 ADDRESS` for any hotkey from public data only), first the hotkey's intake answers for the admitting or current cohort: registered (UID, hotkey), commitment seen, upload verified, admitted, challenges started and how many are done (counts only, `challenges pending` before its scoring starts), with the state, a next step for each failure state and the action `resolve` would take. They come from the public status API (`https://slop.ninja/api/v1/<network>/<mechanism>/status`; unsigned; it refreshes about once a minute and fills its per-miner fields as they go live), the coordinator's unsigned cohort read, its signed view of the hotkey when the wallet is named, and the local openings; `status` reads no chain state and takes no action. `--json` prints the answers as one JSON object and nothing else; `--watch` reads again about once a minute and prints the answers when they change (bounded by `--max-wait-secs`). Then, as before: the public snapshot (unsigned) or, without `--public`, the calendar from the coordinator's unsigned cohort read, local openings and the coordinator's view of the hotkey: registration, the commitment that counts, sessions with full ids and recorded objects, every session refusal, objects to repair, and the last refused session request (for example `second_artifact`, with the live session). `--repair --artifact OBJ` also repairs, as `repair` does. It names the state directory when it holds no opening, and says which parts it skipped for want of endpoints or a named hotkey. The local openings are always printed: a cohort read or snapshot that fails is reported after them (exit 2). |
+| `resolve --artifact OBJ` | Diagnoses the hotkey as `status` does, adding the chain's finalized registration and commitment (rtao), then takes the one action the state allows and logs it: commit (or commit again) for the admitting cohort when no commitment of this state directory counts on chain (none made, a call that never landed, one made before the window, a stale registration, a refused commitment, an `object_mismatch`/`object_replaced` refusal, or, with `--allow-replace`, an artifact-class refusal when `--artifact` names a changed model), open or resume the upload with fresh URLs and follow its verification (calling `complete` again when every object is in R2), or repair recorded objects lost on the coordinator's side. It never registers or spends funds (registration burns TAO from the coldkey, which the client never loads), never commits for another artifact than this hotkey's last opening for the cohort or over a counted commitment it cannot open unless `--allow-replace` is given, never commits while the signed routes are closed to the hotkey, from the feed's lag alone, or when the cutoff's earliest block is within the commit margin (`--deadline-secs` at 12 s a block, checked again just before signing; the commitment's mortal era is at most half the margin, so it cannot land after the cutoff), and warns when the cutoff is near (less than twice an upload's planned time at the coordinator's URL policy rate) or late (less than once). One pass by default (idempotent: rerun it, for example from cron); `--watch` repeats until the entry is verified or otherwise settled, a manual step is needed, or `--max-wait-secs` passes, backing off from one minute to one tempo on outages, `paused` and RPC lag. `--dry-run` only prints the diagnosis. Each decision and outcome is appended to `resolve-log.jsonl` in the state directory (mode 0600; no nonce, URL or signature); a lock file (`resolve.lock`) keeps two runs from acting on one state directory. |
 | `next-cohort` | The admitting cohort and its planned cutoff, or the next cohort, as subnet epoch indices, each with its distance from the confirmed epoch: from the public snapshot with `--public`, else from the coordinator's unsigned cohort read (`GET /admission/v2/cohort`) at `--coordinator` or the trust file's one pinned origin, measured from its `confirmed_epoch` (absolute epochs when the coordinator reports none). |
 
 ### Flags and environment
@@ -98,13 +99,18 @@ Every flag below is also in `slop_ninja_miner <command> --help`.
 | `--attempts N` (6), `--min-upload-kib-per-sec N` (32), `--quiet` | `upload`, `repair`, `status --repair` | attempts per retryable request and per object; the slowest rate this client waits for on a PUT (each PUT's local timeout is `--http-timeout-secs` plus its size at this rate; nothing about the rate is sent, since R2 checks a URL's expiry when the PUT starts); no progress lines |
 | `--wait-secs N` (600), `--poll-secs N` (10) | `upload` | how long to wait for verification, and how often to read the session meanwhile |
 | `--stop-after-objects N` | `upload` | stop after N object PUTs in this run; run `upload` again to resume |
+| `--status-api URL` (`SLOP_NINJA_STATUS_API`, default `https://slop.ninja/`), `--status-network NAME` (`testnet`), `--mechanism KEY` (`a`), `--label LABEL`, `--no-status-api` | `status`, `resolve` | the public status API, its network and mechanism, a cohort label instead of the current cohort, or no API read |
+| `--ss58 ADDRESS` | `status` | answer for any hotkey from public data, without a wallet |
+| `--json`, `--watch`, `--max-wait-secs N` | `status`, `resolve` | JSON output (`resolve`: one line per pass); repeat; bound on the repetition |
+| `--allow-replace`, `--dry-run` | `resolve` | allow a commitment that changes the submitted model; diagnose only |
+| `--network NAME` (`test`), `--rpc URL ...`, `--rpc-per-minute N`, `--deadline-secs N` (600), `--wait-secs N` (600), `--poll-secs N` (10), `--attempts N`, `--min-upload-kib-per-sec N`, `--quiet` | `resolve` | as for `commit` and `upload`; the commit's deadline also sets how close to the cutoff resolve still commits |
 
 ### Exit status
 
 | Exit | Meaning |
 | --- | --- |
 | 0 | success; for `check`, every check ran and passed |
-| 1 | refused: an admission check (`check`), the upload session (`upload`), or a request the coordinator refused with a code that retrying cannot change (for example `not_registered` for a signed `status` read) |
+| 1 | refused: an admission check (`check`), the upload session (`upload`), or a request the coordinator refused with a code that retrying cannot change (for example `not_registered` for a signed `status` read); for `resolve`, a manual step is needed (it prints which) or an action failed for good |
 | 2 | error: usage, configuration, network or file, a check the client makes before it signs anything, a PUT R2 refused for a reason no retry fixes (`BadDigest`, `SignatureDoesNotMatch`), a repair that could not finish, or a retryable answer still there after the attempts; nothing was decided |
 | 3 | `check` refused nothing but could not run every check |
 
@@ -176,6 +182,21 @@ known.
   `expected_call`, so rtao signs exactly those bytes. rtao applies no spend or
   netuid limit to raw calls; the chain charges no fee for this one and limits
   each account's commitment space per epoch.
+- `resolve` acts only on facts that decide: a commitment only from the
+  chain's finalized state (the public status API lags by about a minute and
+  never triggers one), only while the coordinator's cohort read says the cohort
+  admits and its signed routes serve the hotkey, and only when the cutoff's
+  earliest block (the feed's estimate or the cohort read's, whichever is
+  earlier) is more than the commit margin away, checked again at the fresh
+  finalized head just before signing; the commitment's mortal era is at most
+  half the margin. A refused session decides only while it belongs to the
+  commitment that counts (matched by its session id, the envelope digest), so
+  a fresh commitment is uploaded rather than committed again; a step that
+  finds its commitment already counting is not counted as progress. The chain
+  access is bound to the subnet the coordinator's cohort read names, and
+  nothing is read or signed before that read answers. Uploads, completion
+  and repairs are idempotent by the session id. A commitment whose call failed
+  keeps its opening; the next pass reads the chain before committing again.
 - An overflow entrant cannot carry its opening to the next cohort: `upload`
   refuses an opening for another cohort than the admitting one, and `status`
   says to commit again.
@@ -203,6 +224,33 @@ known.
 ## Tests
 
 No test connects to a chain, signs a transaction or calls Cloudflare.
+
+- `src/intake_tests.rs`: one diagnosis per intake state from simulated
+  status API answers, cohort reads, signed views, chain facts and openings:
+  status unavailable, no cohort, paused, not registered, not entered (with
+  and without an artifact, within the commit's landing bound of the cutoff,
+  after it, without a chain read, with the signed routes closed), a commitment
+  the feed has not shown, one that never landed, one made elsewhere, another
+  artifact, one before the window, a stale registration, uploading, verifying,
+  verified, refusals by class, overflow, repair, challenge counts, early and
+  late cutoff warnings, and a feed row about another cohort.
+- `tests/e2e_resolve.rs`: `resolve` against the mock, a local status API
+  (`tests/support/api.rs`) and a chain over the mock's commitment log: commit,
+  upload and verification once and an idempotent rerun with a private log
+  holding no secret; an interrupted upload resumed with fresh URLs through
+  expiry and a dropped connection; a commitment that did not land made again;
+  no commitment after the cutoff or within its landing bound; registration
+  left to the miner; outages, `paused`, edge errors and RPC lag waited out; a
+  lost object repaired; `--allow-replace` for another artifact; and the state
+  directory lock.
+- `tests/api_fixtures.rs`: the website's own golden status API answers
+  (`tests/fixtures/api/`, copied from the website repository's
+  `tests/golden/api/`; synthetic hotkeys) through the decoder and the
+  diagnosis: an entrant's `142 of 312` challenges, `challenges pending` on a
+  frozen roster, refusals, overflow of a deregistered hotkey, and an idle feed.
+  `tests/cli.rs` runs `status --ss58` (text and `--json`) against the local
+  status API stand-in; every CLI test points `SLOP_NINJA_STATUS_API` at a
+  closed loopback port, so no test reads the live API.
 
 - `tests/golden.rs`: the payload and commitment against the protocol fixture
   lines `submission.chain_payload` and `submission.commitment`, and the

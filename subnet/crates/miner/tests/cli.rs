@@ -4,7 +4,8 @@
 //! a resumed direct `upload` (the objects go to the mock's R2 stub through
 //! the hidden loopback endpoint override), a refused second artifact shown
 //! by `status`, `repair` and `status --repair` after a platform loss, and
-//! the choice of opening. The commitment is prepared through the library
+//! the choice of opening, and `status --ss58` answering one hotkey's intake
+//! questions from a local status API stand-in. The commitment is prepared through the library
 //! (the `commit` command needs a chain) and then placed on the mock's chain
 //! table; nothing is submitted anywhere.
 
@@ -33,6 +34,9 @@ async fn run(args: Vec<String>) -> Output {
             .env_remove("SLOP_NINJA_PUBLIC")
             .env_remove("SLOP_NINJA_TRUST")
             .env_remove("SLOP_NINJA_MINER_HOME")
+            // No test reads the live status API: a closed loopback port,
+            // unless a test names its own stand-in.
+            .env("SLOP_NINJA_STATUS_API", "http://127.0.0.1:9/")
             .output()
             .unwrap()
     })
@@ -718,4 +722,68 @@ async fn binary_uses_the_trust_files_pinned_origin() {
     let out = text(&refused);
     assert_eq!(refused.status.code(), Some(1), "{out}");
     assert!(out.contains("not_registered (422)"), "{out}");
+}
+
+/// `status --ss58` answers one hotkey's questions from public data only (a
+/// local stand-in for the status API), as text and as JSON, with no wallet.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn status_answers_one_hotkeys_questions_from_the_status_api() {
+    let dir = tempfile::tempdir().unwrap();
+    let api = support::api::FakeApi::start().await;
+    let hotkey = "5C62Ck4UrFPiBtoCmeSrgF7x9yv9mn38446dhCpsi2mLHiFT";
+    let rows = serde_json::json!([{"uid": 3, "hotkey": hotkey, "registered": true,
+        "cohort_status": "evaluating", "challenges": {"state": "running", "done": 3, "total": 40}}]);
+    api.answer(
+        200,
+        support::api::status_doc(22, "scoring", 9_000, Some(rows)),
+    );
+    let state = dir.path().join("state");
+    let base = |more: &[&str]| {
+        let mut a = args(&[
+            "status",
+            "--ss58",
+            hotkey,
+            "--status-api",
+            &api.url(),
+            "--state-dir",
+            p(&state),
+        ]);
+        a.extend(more.iter().map(|s| (*s).to_owned()));
+        a
+    };
+    let shown = run(base(&[])).await;
+    let out = text(&shown);
+    assert!(shown.status.success(), "{out}");
+    assert!(out.contains("in cohort 22 (mock-c22): evaluating"), "{out}");
+    assert!(out.contains("uid 3"), "{out}");
+    assert!(out.contains("3 of 40"), "{out}");
+    let json = run(base(&["--json"])).await;
+    assert!(json.status.success(), "{}", text(&json));
+    let v: serde_json::Value = serde_json::from_slice(&json.stdout).unwrap();
+    assert_eq!(v["state"], "evaluating");
+    assert_eq!(v["answers"]["challenges_done"]["detail"], "3 of 40");
+    assert_eq!(v["answers"]["admitted"]["answer"], "yes");
+    // A hotkey the complete registry does not list is not registered.
+    let other = run(args(&[
+        "status",
+        "--ss58",
+        "5C7LYpP2ZH3tpKbvVvwiVe54AapxErdPBbvkYhe6y9ZBkqWt",
+        "--status-api",
+        &api.url(),
+        "--state-dir",
+        p(&state),
+        "--json",
+    ]))
+    .await;
+    let v: serde_json::Value = serde_json::from_slice(&other.stdout).unwrap();
+    assert_eq!(v["state"], "not_registered", "{}", text(&other));
+    assert!(api.reads() >= 3);
+    assert!(
+        api.state
+            .lock()
+            .unwrap()
+            .paths
+            .iter()
+            .all(|p| p == "/api/v1/testnet/a/status")
+    );
 }

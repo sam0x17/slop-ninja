@@ -31,6 +31,7 @@ closes.
 | `R_0` reference package and training companion | built and checked; attached to the testnet release until public access opens ([`R_0` archives](#r_0-archives-optional)) |
 | S2c span package | built and checked; downloadable when public access opens ([Reference model](#reference-model)) |
 | Status API (`https://slop.ninja/api/`), read-only JSON for each cohort ([The status API](#the-status-api)) | rolling out with the website; each miner's intake state while a cohort runs follows with the coordinator, eval and publisher updates after the current deploy batch |
+| `status` intake answers and `resolve` ([Status](#11-status), [Resolve](#resolve-intake-automatically)) | built and tested against simulated answers on Linux x86_64; their per-miner answers fill in as the status API publishes each miner's intake state and challenge counts |
 
 The [training guide](training-guide.md) produces an admissible artifact from
 public material and ends with `pack` and `check`. `commit` needs only the
@@ -737,9 +738,42 @@ One hotkey enters at most one artifact per cohort. The session ends as
 
 ```sh
 slop_ninja_miner status
+slop_ninja_miner status --ss58 <your hotkey address>   # public data only, no wallet
 ```
 
-`status` prints the public snapshot (unsigned, and labelled so) or, without
+With a hotkey named (your wallet, or `--ss58`), `status` first answers the
+questions a miner has about the admitting or current cohort, each with
+`yes`, `NO`, `not yet` or `unknown` and its source:
+
+```text
+hotkey 5F… in cohort 22 (testnet-r0-22): uploading
+  registered?          yes      uid 12, hotkey 5F…k2Qz (status API)
+  commitment seen?     yes      inside the admission window (status API)
+  upload verified?     not yet  uploading
+  admitted?            not yet  decided when the roster freezes after the cutoff
+  challenges started?  NO       only admitted entries receive challenges
+  challenges done?     NO       none
+  next: the upload is incomplete: resume it (fresh URLs; files R2 holds are not sent again)
+  not automatic: no --artifact named: the upload needs the object
+```
+
+Every failure state has a next step: not registered (register with rtao),
+no commitment counted (commit), a commitment this state directory cannot
+open (upload from where you committed), one for another artifact, one made
+before the window opened, an incomplete upload (resume it), a refusal by
+class (`commitment`, `artifact`, `cutoff`, `registration`), overflow, a
+missed cutoff, objects to repair, and, during scoring, `challenges pending`
+until your entry's scoring starts and then `3 of 40` style counts. The
+answers come from the [status API](#the-status-api) (unsigned, refreshed
+about once a minute, so a change shows up to a minute or two late), the
+coordinator's unsigned cohort read, its signed view of your hotkey when
+your wallet is named, and your local openings. `status` reads no chain
+state and changes nothing. `--json` prints the answers as one JSON object;
+`--watch` reads again about once a minute and prints them when they change
+(`--max-wait-secs` bounds it). Until the status API publishes each miner's
+intake state, many answers read `unknown`.
+
+After the answers, `status` prints the public snapshot (unsigned, and labelled so) or, without
 `--public`, the same calendar from the coordinator's unsigned cohort read
 (as `next-cohort` does), your local openings, and the coordinator's view of
 your hotkey for the admitting cohort or `--cohort N`: registration, the
@@ -789,8 +823,71 @@ has `challenges` (`pending` until its scoring starts, then `done` of `total`).
 These are counts only, with no score, and they update about once a minute. Set
 your miner on the status page to see a checklist for your hotkey: registered,
 commitment seen, upload verified, admitted, challenges started, and how many
-are done, each with its next step. The fields and their sources are in the
+are done, each with its next step; `status` in the client answers the same
+questions. The fields and their sources are in the
 [public layout](public-layout.md#the-public-status-api-slopninjaapi).
+
+### Resolve intake automatically
+
+```sh
+slop_ninja_miner resolve --artifact ./my-artifact.bin            # one pass
+slop_ninja_miner resolve --artifact ./my-artifact.bin --watch    # until verified
+```
+
+`resolve` reads what `status` reads plus the chain's finalized registration
+and commitment for your hotkey (rtao, `--network`, `--rpc`), and takes the one
+action your state allows:
+
+| State | What `resolve` does |
+| --- | --- |
+| no commitment counts for the admitting cohort (none made, a call that never landed, one made before the window, a newer registration than the opening's, a `commitment`-class refusal, an `object_mismatch` or `object_replaced` refusal) | commits for `--artifact` (a fresh nonce; the opening is stored first) |
+| an artifact-class refusal, with `--artifact` naming a changed model and `--allow-replace` | commits for the changed model; its upload follows |
+| committed, no upload yet, or the upload is incomplete | uploads or resumes, asking for fresh URLs as they expire; files R2 holds are not sent again |
+| all files in R2 but not completed, or verifying | completes the session again and follows the verification |
+| a recorded object went missing on the coordinator's side | repairs it from `--artifact` |
+| the status API, the coordinator or the RPC endpoint is down, `paused`, or behind | waits and reads again, backing off from one minute to one tempo |
+| verified, admitted, scoring, closed, overflow, refused at the cutoff | nothing; `--watch` stops |
+
+A refusal decides only while it belongs to the commitment that counts. Once a
+fresh commitment from this state directory counts, the old refused session
+no longer decides, and `resolve` uploads the new commitment. With `--watch`,
+one run commits again and then uploads.
+
+It never does these by itself:
+
+- **Spend funds.** Registration burns TAO from your coldkey, which the client
+  never loads: register with rtao ([step 4](#4-register-on-subnet-601)).
+- **Change your submitted model.** It commits only for the artifact your
+  hotkey last committed for this cohort, unless you pass `--allow-replace`:
+  needed to commit for another artifact (for example after an artifact-class
+  refusal, once you have fixed and packed the model) or to replace a
+  commitment made from another machine or state directory.
+- **Commit after the cutoff.** It commits only while the coordinator's cohort
+  read says the cohort admits and the cutoff's earliest block is more than a
+  margin past the finalized head. The margin is `--deadline-secs` (600) at
+  12 s a block, 50 blocks by default, and it is checked again just before
+  signing. The commitment is signed with a mortal era of at most half the
+  margin (16 blocks by default), so the chain can include it only within that
+  many blocks of the finalized head it was signed at, which is before the
+  cutoff. The bound fails only if the finalized head advances by more than
+  half the margin between that last check and the signature. It
+  warns early when less than twice an upload's planned time is left (your
+  object's size at the coordinator's URL-policy rate of 1 Mbit/s plus 15
+  minutes, the same allowance the URLs carry) and again when less than once
+  is left.
+- **Commit from the feed alone.** A commitment the status API has not shown
+  yet may only be its minute of lag: `resolve` decides from the chain, and
+  uploads a landed commitment instead of committing again.
+- **Commit while the signed routes are closed to your hotkey.** Until they
+  open to every miner ([What is live](#what-is-live)), a commitment could not
+  be uploaded.
+
+Each pass is idempotent, so running it again (or from cron) is safe; one
+pass at a time acts on a state directory (`resolve.lock`). Every decision and
+its outcome is appended to `resolve-log.jsonl` in the state directory (mode
+0600), without your opening, any URL or signature. `--dry-run` prints what it
+would do. Exit 0 when the state needs nothing more from you, 1 when a manual
+step is needed (it prints which), 2 on an error.
 
 ## 12. At the cutoff and the cohort close
 

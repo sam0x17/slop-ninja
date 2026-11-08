@@ -175,6 +175,7 @@ pub async fn submit_commitment(
     netuid: u16,
     payload: &[u8; SUBMISSION_PAYLOAD_LEN],
     deadline: Duration,
+    era_blocks: Option<u32>,
 ) -> Result<Submitted> {
     use rtao_signer::KeyView as _;
     let started = std::time::Instant::now();
@@ -191,6 +192,12 @@ pub async fn submit_commitment(
         wait_for_finalization: true,
         deadline: Some(deadline),
         ..Default::default()
+    };
+    // A shorter mortal era than rtao's default when the caller bounds when
+    // the call may still land (`resolve`, before a cutoff).
+    let options = rtao_tx::ExecuteOptions {
+        period: era_blocks.or(options.period),
+        ..options
     };
     let result = executor
         .submit_call_dyn(call, hotkey, SignerRole::Hotkey, &options)
@@ -227,6 +234,143 @@ pub async fn submit_commitment(
                 tokio::time::sleep(READBACK_SPACING).await;
             }
         }
+    }
+}
+
+/// The chain access `resolve` uses: rtao, connected on first use and again
+/// after a failed read (RPC outage or lag), with the wallet's hotkey file
+/// for the commitment.
+pub struct RtaoChain {
+    pub config: ChainConfig,
+    pub hotkey: rtao_wallet::HotkeyFile,
+    /// Bound on one commitment's signing, submission and finalization.
+    pub deadline: Duration,
+    /// The commitment's mortal era: it can land only within this many blocks
+    /// of the finalized head it was signed at.
+    pub era_blocks: u32,
+    /// The subnet the coordinator serves: set from its cohort read, and
+    /// nothing is read or submitted before it is known.
+    netuid: std::sync::Mutex<Option<u16>>,
+    client: std::sync::Mutex<Option<Client>>,
+}
+
+impl RtaoChain {
+    pub fn new(
+        config: ChainConfig,
+        netuid: Option<u16>,
+        hotkey: rtao_wallet::HotkeyFile,
+        deadline: Duration,
+        era_blocks: u32,
+    ) -> Self {
+        Self {
+            config,
+            hotkey,
+            deadline,
+            era_blocks,
+            netuid: std::sync::Mutex::new(netuid),
+            client: std::sync::Mutex::new(None),
+        }
+    }
+
+    fn netuid(&self) -> Result<u16> {
+        self.netuid
+            .lock()
+            .map_err(|_| anyhow::anyhow!("chain lock"))?
+            .context("the subnet is not known until the coordinator's cohort read answers")
+    }
+
+    async fn client(&self) -> Result<Client> {
+        if let Some(client) = self
+            .client
+            .lock()
+            .map_err(|_| anyhow::anyhow!("chain lock"))?
+            .clone()
+        {
+            return Ok(client);
+        }
+        let client = connect(&self.config).await?;
+        *self
+            .client
+            .lock()
+            .map_err(|_| anyhow::anyhow!("chain lock"))? = Some(client.clone());
+        Ok(client)
+    }
+
+    fn forget(&self) {
+        if let Ok(mut guard) = self.client.lock() {
+            *guard = None;
+        }
+    }
+}
+
+impl crate::resolve::ChainAccess for RtaoChain {
+    fn bind(&self, netuid: u16) {
+        if let Ok(mut guard) = self.netuid.lock() {
+            *guard = Some(netuid);
+        }
+    }
+
+    async fn facts(&self, hotkey: &AccountId) -> Result<crate::intake::ChainFacts> {
+        let netuid = self.netuid()?;
+        let client = self.client().await?;
+        let read = async {
+            let (block, registration) = registration(&client, netuid, hotkey).await?;
+            let commitment = finalized_commitment(&client, netuid, hotkey).await?;
+            anyhow::Ok(crate::intake::ChainFacts {
+                genesis: Some(Digest(client.genesis().0)),
+                finalized_block: block,
+                registration,
+                commitment,
+            })
+        };
+        match read.await {
+            Ok(facts) => Ok(facts),
+            Err(error) => {
+                self.forget();
+                Err(error)
+            }
+        }
+    }
+
+    async fn submit(&self, payload: &[u8; SUBMISSION_PAYLOAD_LEN]) -> Result<Submitted> {
+        let netuid = self.netuid()?;
+        let client = self.client().await?;
+        submit_commitment(
+            &client,
+            &self.hotkey,
+            netuid,
+            payload,
+            self.deadline,
+            Some(self.era_blocks),
+        )
+        .await
+    }
+}
+
+/// How close to the cutoff `resolve` may still commit, from its submission
+/// deadline: `margin_blocks`, the deadline at the nominal block time (at
+/// least 8), and the commitment's mortal era `era_blocks`, the largest power
+/// of two at most half the margin (at least 4; rtao rounds an era up to a
+/// power of two). `resolve` commits only while the cutoff's earliest block
+/// is more than the margin past the finalized head, and the era is anchored
+/// at or before the finalized head at signing, so the call expires before
+/// the cutoff unless the head moves on by more than half the margin between
+/// that check (made again just before signing) and the signature.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct CommitWindow {
+    pub margin_blocks: u64,
+    pub era_blocks: u32,
+}
+
+pub fn commit_window(deadline_secs: u64) -> CommitWindow {
+    let margin_blocks = deadline_secs
+        .div_ceil(READBACK_SPACING.as_secs().max(1))
+        .max(8);
+    let half = margin_blocks / 2;
+    let era = 1u64 << (63 - half.leading_zeros());
+    CommitWindow {
+        margin_blocks,
+        era_blocks: u32::try_from(era.clamp(4, 65_536)).unwrap_or(65_536),
     }
 }
 
@@ -294,7 +438,11 @@ mod tests {
         assert_eq!(ua, concat!("slop_ninja_miner/", env!("CARGO_PKG_VERSION")));
         // Not a library default that a Browser Integrity Check refuses.
         let lower = ua.to_ascii_lowercase();
-        assert!(["python", "urllib", "curl", "reqwest", "tungstenite"].iter().all(|l| !lower.contains(l)));
+        assert!(
+            ["python", "urllib", "curl", "reqwest", "tungstenite"]
+                .iter()
+                .all(|l| !lower.contains(l))
+        );
         // The default endpoints get the same header.
         let defaults = client_config(&ChainConfig { endpoints: Vec::new(), ..config }).unwrap();
         assert_eq!(defaults.session.headers.get(reqwest::header::USER_AGENT).unwrap(), ua);

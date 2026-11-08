@@ -189,6 +189,24 @@ impl OpeningFile {
         })
     }
 
+    /// The id of the upload session this opening's envelope opens (the
+    /// envelope's digest, as `upload` computes it): `None` for a v1 file
+    /// that names no header yet, or a file whose fields do not decode.
+    pub fn session_id(&self) -> Option<String> {
+        let opening = self.opening().ok()?;
+        let sha: [u8; 32] = hex::decode(self.header_sha256.as_ref()?)
+            .ok()?
+            .try_into()
+            .ok()?;
+        let upload = SubmissionUpload {
+            commitment: opening.commitment(),
+            opening,
+            header_sha256: Digest(sha),
+            header_len: self.header_len?,
+        };
+        crate::wire::session_id(&upload).ok().map(|d| d.hex())
+    }
+
     /// The opening, checked against every repeated field.
     pub fn opening(&self) -> Result<SubmissionOpening> {
         ensure!(

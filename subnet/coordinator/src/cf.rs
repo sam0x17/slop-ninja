@@ -557,9 +557,12 @@ impl DurableObject for ChainJournal {
                         Some(c) => Some(signing::status(sql, c, 6, now)?),
                         None => None,
                     };
-                    Ok::<_, StoreError>((status, signing))
+                    // The latest registration read (public chain facts:
+                    // the publisher's `registry.json`).
+                    let registry = signing::registry::view(sql)?;
+                    Ok::<_, StoreError>((status, signing, registry))
                 }) {
-                    Ok((status, signing)) => {
+                    Ok((status, signing, registry)) => {
                         let mut value = serde_json::to_value(&status)?;
                         let signing = match signing {
                             Some(sg) => serde_json::to_value(&sg)?,
@@ -573,6 +576,7 @@ impl DurableObject for ChainJournal {
                         });
                         if let Some(map) = value.as_object_mut() {
                             map.insert("signing".into(), signing);
+                            map.insert("registry".into(), registry);
                             map.insert("instance".into(), instance);
                         }
                         json(&value)

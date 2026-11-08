@@ -25,7 +25,10 @@ route, no custom domain, no workers.dev name and no preview URLs.
 
 `src/contract.rs` is the single definition of the key grammar and byte
 bounds. The publisher compiles it too (`#[path]`). The contract is
-documented in `docs/testnet/dashboard-contract.md`.
+documented in `docs/testnet/dashboard-contract.md`. Bounds rule v3 adds
+`registry.json` and `m/<key>/rosters/<label>.json`: deploy a feed built from
+it before a publisher that writes them, so a written document is servable
+at once (an older feed answers those keys 404).
 
 ## Checks
 

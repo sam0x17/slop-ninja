@@ -1,5 +1,5 @@
 //! The `dashboard/v1` object grammar and byte bounds (rule
-//! `slop_ninja.dashboard.read_bounds/v2`), in one file that both the
+//! `slop_ninja.dashboard.read_bounds/v3`), in one file that both the
 //! publisher (which writes the objects) and the dashboard feed Worker (which
 //! serves them to the website through a service binding) compile verbatim:
 //! the publisher includes it with `#[path]`, so the two can never disagree on
@@ -8,9 +8,12 @@
 //! Keys are `dashboard/v1/` followed by exactly one of:
 //!
 //! - `index.json`: the mechanism registry;
+//! - `registry.json`: the subnet's registered UIDs (rule v3);
 //! - `m/<key>/now.json`: the current cohort, clock and best model;
 //! - `m/<key>/cohorts/index.json`: the listed cohorts;
 //! - `m/<key>/cohorts/<label>.json`: one cohort;
+//! - `m/<key>/rosters/<label>.json`: one cohort's per-hotkey status (rule
+//!   v3);
 //! - `m/<key>/months/<YYYY-MM>.json`: one UTC month (phase P3).
 //!
 //! `<key>` is a mechanism key (`a`, `b`, `c`). `<label>` follows the
@@ -32,7 +35,12 @@
 //! - the cohort index: a 64 KiB fixed part plus about 1 KiB a cohort row for
 //!   16,384 rows (decades at one cohort a day);
 //! - a month: it lists at most the cohorts the index lists, each with its
-//!   stage changes, so it takes the index bound.
+//!   stage changes, so it takes the index bound;
+//! - `registry`: the 64 KiB fixed part plus at most [`registry::ROWS`]
+//!   rows of at most [`registry::ROW_BYTES`] (v3);
+//! - a roster: the 64 KiB fixed part plus at most [`roster::ROWS`] rows
+//!   (every registered UID and every former entrant) of at most
+//!   [`roster::ROW_BYTES`] (v3).
 
 /// Every dashboard key starts with this prefix.
 pub const PREFIX: &str = "dashboard/v1/";
@@ -44,7 +52,7 @@ pub const MECHANISMS: &[&str] = &["a", "b", "c"];
 pub const MAX_LABEL_LEN: usize = 4096;
 
 /// The bounds rule these values belong to.
-pub const BOUNDS_RULE: &str = "slop_ninja.dashboard.read_bounds/v2";
+pub const BOUNDS_RULE: &str = "slop_ninja.dashboard.read_bounds/v3";
 
 /// The `now` document's UID-to-hotkey map (`uids.rows[]`).
 pub mod uid_map {
@@ -62,6 +70,36 @@ pub mod uid_map {
     pub const ROW_BYTES: usize = r#"{"uid":65535,"hotkey":""},"#.len() + SS58_MAX_LEN;
 }
 
+/// `registry.json`'s rows (`rows[]`): one per registered UID.
+pub mod registry {
+    /// At most one row per UID the chain allows: the UID map's bound. The
+    /// coordinator refuses a larger read whole
+    /// (`slop_ninja.coordinator.registry/v1`).
+    pub const ROWS: usize = super::uid_map::ROWS;
+    /// The longest row with its separator: a five-digit UID, the longest
+    /// SS58 address, 64 hex characters and a twenty-digit block.
+    pub const ROW_BYTES: usize = r#"{"uid":65535,"hotkey":"","hotkey_hex":"","registration_block":18446744073709551615},"#
+        .len()
+        + super::uid_map::SS58_MAX_LEN
+        + 64;
+}
+
+/// A roster document's rows (`rows[]`): one per hotkey.
+pub mod roster {
+    /// Every registered UID (the UID map's bound) plus every former entrant
+    /// of the cohort that is no longer registered: at most the protocol's
+    /// roster bound (`records_v2::MAX_ROSTER`, 256; the publisher's tests
+    /// check the two agree).
+    pub const ROWS: usize = super::uid_map::ROWS + ENTRANTS;
+    /// The most entrants a cohort admits: the protocol's roster bound
+    /// (`records_v2::MAX_ROSTER`); also the most rows with challenge counts.
+    pub const ENTRANTS: usize = 256;
+    /// A row with every field at its longest is under 600 bytes (two SS58
+    /// addresses, 64 hex characters, closed codes, three integers and the
+    /// challenge counts' closed state and two ten-digit integers).
+    pub const ROW_BYTES: usize = 1024;
+}
+
 pub mod bounds {
     /// `index.json`.
     pub const SMALL: usize = 64 * 1024;
@@ -73,6 +111,10 @@ pub mod bounds {
     pub const INDEX: usize = 64 * 1024 + 16384 * 1024;
     /// `m/<key>/months/<YYYY-MM>.json`: at most the index's cohorts.
     pub const MONTH: usize = INDEX;
+    /// `registry.json` (v3).
+    pub const REGISTRY: usize = SMALL + super::registry::ROWS * super::registry::ROW_BYTES;
+    /// `m/<key>/rosters/<label>.json` (v3).
+    pub const ROSTER_STATUS: usize = SMALL + super::roster::ROWS * super::roster::ROW_BYTES;
 }
 
 /// A cohort label, by the publisher's `layout::safe_label` rule.
@@ -94,11 +136,15 @@ fn mechanism(segment: &str) -> Option<&'static str> {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Doc {
     Index,
+    /// The subnet's registered UIDs (rule v3).
+    Registry,
     Now(&'static str),
     Cohorts(&'static str),
     Cohort(&'static str, String),
     /// Year and month (1 to 12).
     Month(&'static str, u16, u8),
+    /// One cohort's per-hotkey status (rule v3).
+    Roster(&'static str, String),
 }
 
 impl Doc {
@@ -106,10 +152,12 @@ impl Doc {
     pub fn key(&self) -> String {
         match self {
             Doc::Index => format!("{PREFIX}index.json"),
+            Doc::Registry => format!("{PREFIX}registry.json"),
             Doc::Now(m) => format!("{PREFIX}m/{m}/now.json"),
             Doc::Cohorts(m) => format!("{PREFIX}m/{m}/cohorts/index.json"),
             Doc::Cohort(m, label) => format!("{PREFIX}m/{m}/cohorts/{label}.json"),
             Doc::Month(m, y, mo) => format!("{PREFIX}m/{m}/months/{y:04}-{mo:02}.json"),
+            Doc::Roster(m, label) => format!("{PREFIX}m/{m}/rosters/{label}.json"),
         }
     }
 
@@ -121,11 +169,15 @@ impl Doc {
             Doc::Cohort(..) => bounds::ROSTER,
             Doc::Cohorts(_) => bounds::INDEX,
             Doc::Month(..) => bounds::MONTH,
+            Doc::Registry => bounds::REGISTRY,
+            Doc::Roster(..) => bounds::ROSTER_STATUS,
         }
     }
 
     /// Cache lifetime in seconds: the live documents are rewritten every
     /// minute, cohort and month documents only when their content changes.
+    /// A roster is live while its cohort runs; the key cannot tell a closed
+    /// cohort's roster apart, so every roster takes the live lifetime.
     pub fn max_age(&self) -> u32 {
         match self {
             Doc::Cohort(..) | Doc::Month(..) => 300,
@@ -141,6 +193,8 @@ impl Doc {
             Doc::Cohorts(_) => "slop_ninja.dashboard.cohorts/v1",
             Doc::Cohort(..) => "slop_ninja.dashboard.cohort/v1",
             Doc::Month(..) => "slop_ninja.dashboard.month/v1",
+            Doc::Registry => "slop_ninja.dashboard.registry/v1",
+            Doc::Roster(..) => "slop_ninja.dashboard.roster/v1",
         }
     }
 
@@ -151,6 +205,7 @@ impl Doc {
         let parts: Vec<&str> = rest.split('/').collect();
         Some(match parts.as_slice() {
             ["index.json"] => Doc::Index,
+            ["registry.json"] => Doc::Registry,
             ["m", m, "now.json"] => Doc::Now(mechanism(m)?),
             ["m", m, "cohorts", "index.json"] => Doc::Cohorts(mechanism(m)?),
             ["m", m, "cohorts", file] => {
@@ -159,6 +214,13 @@ impl Doc {
                     return None;
                 }
                 Doc::Cohort(mechanism(m)?, label.to_owned())
+            }
+            ["m", m, "rosters", file] => {
+                let label = file.strip_suffix(".json")?;
+                if !safe_label(label) || label == "index" {
+                    return None;
+                }
+                Doc::Roster(mechanism(m)?, label.to_owned())
             }
             ["m", m, "months", file] => {
                 let ym = file.strip_suffix(".json")?.as_bytes();
@@ -190,6 +252,8 @@ mod contract_tests {
             ("dashboard/v1/m/b/cohorts/index.json", bounds::INDEX, 60),
             ("dashboard/v1/m/a/cohorts/testnet-r0-c12.json", bounds::ROSTER, 300),
             ("dashboard/v1/m/c/months/2026-11.json", bounds::MONTH, 300),
+            ("dashboard/v1/registry.json", bounds::REGISTRY, 60),
+            ("dashboard/v1/m/a/rosters/testnet-r0-20.json", bounds::ROSTER_STATUS, 60),
         ] {
             let d = Doc::parse_key(key).unwrap_or_else(|| panic!("{key}"));
             assert_eq!(d.key(), key);
@@ -223,11 +287,26 @@ mod contract_tests {
             "dashboard/v1//index.json",
             "v1/status.json",
             "dashboard/v1/m/a/now.json?x=1",
+            "dashboard/v1/registry",
+            "dashboard/v1/m/a/registry.json",
+            "dashboard/v1/m/a/rosters/index.json",
+            "dashboard/v1/m/a/rosters/.json",
+            "dashboard/v1/m/a/rosters/Bad.json",
+            "dashboard/v1/m/a/rosters/x/y.json",
+            "dashboard/v1/m/z/rosters/c1.json",
         ] {
             assert_eq!(Doc::parse_key(bad), None, "{bad:?}");
         }
         let long = format!("dashboard/v1/m/a/cohorts/{}.json", "a".repeat(MAX_LABEL_LEN + 1));
         assert_eq!(Doc::parse_key(&long), None);
+    }
+
+    #[test]
+    fn the_v3_bounds_hold_their_full_row_sets() {
+        assert_eq!(registry::ROW_BYTES, 198);
+        assert_eq!(bounds::REGISTRY, 64 * 1024 + 256 * 198);
+        assert_eq!(roster::ROWS, 512);
+        assert_eq!(bounds::ROSTER_STATUS, 64 * 1024 + 512 * 1024);
     }
 
     #[test]

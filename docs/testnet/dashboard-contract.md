@@ -47,11 +47,13 @@ or a DNS change.
 | `m/<key>/cohorts/index.json` | `slop_ninja.dashboard.cohorts/v1` | 64 KiB + 16,384 × 1 KiB | 60 s |
 | `m/<key>/cohorts/<label>.json` | `slop_ninja.dashboard.cohort/v1` | 64 KiB + 4,096 × 4 KiB | 300 s |
 | `m/<key>/months/<YYYY-MM>.json` | `slop_ninja.dashboard.month/v1` (not written yet) | the cohort list's bound | 300 s |
+| `registry.json` | `slop_ninja.dashboard.registry/v1` | 64 KiB + 256 × 198 B | 60 s |
+| `m/<key>/rosters/<label>.json` | `slop_ninja.dashboard.roster/v1` | 64 KiB + 512 × 1 KiB | 60 s |
 
 `<key>` is `a`, `b` or `c`. Only `a` is written today. `<label>` uses the
 cohort label alphabet `[a-z0-9._-]`: 1 to 4,096 bytes, never `.`, `..` or
 `index`. `<YYYY-MM>` is a UTC month from `01` to `12`. The grammar and the
-bounds (rule `slop_ninja.dashboard.read_bounds/v2`) are defined in one
+bounds (rule `slop_ninja.dashboard.read_bounds/v3`) are defined in one
 source file, `subnet/dashboard-feed/src/contract.rs`, which the feed and the
 publisher both compile. Each bound follows from bounded fields: fixed
 fields plus a few protocol strings for `index` and `now`, plus for `now`
@@ -59,7 +61,12 @@ the UID map's at most 256 rows of at most 76 bytes (a five-digit UID and
 the longest SS58 address of a 32-byte account, 50 characters, with the
 row's JSON), at most 4,096 entrant rows of 4 KiB each for a cohort, and
 16,384 cohort rows of 1 KiB each for the list. Rule v2 added the UID map's
-term to `now`; the website's `data::bounds` carries the same values. The publisher refuses to write a document over its bound and
+term to `now`. Rule v3 added the registry (its rows are a UID, both
+spellings of the hotkey and a twenty-digit block) and the rosters (every
+registered UID plus the protocol's 256 roster entrants, each row under
+1 KiB). A roster's key cannot tell a closed cohort's apart, so every
+roster takes the live 60 s lifetime. The website's `data::bounds` carries the same values
+(the v3 terms once it reads the two new documents). The publisher refuses to write a document over its bound and
 raises an alert. The feed answers 502 for a stored object over its bound.
 
 ## Common header
@@ -149,8 +156,28 @@ netuid}`, `generated_at` (unix seconds, floored to the minute) and
   boundaries, `work` is `null` until the next boundary. The cohort-fault
   pause classes follow the same rule. It is never 100: a work stage reaches 100% by
   ending. It appears only while the current stage is a work stage
-  (`generating`, `scoring`). No document carries a done or total count, a
-  per-kind or per-entrant figure, or the old bucket words.
+  (`generating`, `scoring`). No document carries an aggregate done or
+  total count, a per-kind figure, or the old bucket words. The one
+  per-entrant figure is the challenge counts below.
+- **Per-entrant challenge counts, counts only.** Under the decision of
+  2026-11-06 to show challenge progress while scoring runs, which
+  overrides this contract's earlier per-entrant work-progress prohibition
+  (exposure finding L8, timing) for completion counts only, a running
+  cohort's roster at the `sessions` level carries each admitted entrant's
+  `challenges{state, done, total}`: `pending` before its scoring starts
+  (`total` `null` until the batch is sealed), then documents resolved of
+  its total, `complete` when all are. No score, leader, score order,
+  per-challenge identity, outcome, failure, fault or retry detail; rows
+  stay in UID order. It is read each publisher run (about once a minute),
+  not at tempo boundaries, and `done` moves in steps of the scorer's chunk
+  size. **Residual (accepted):** the counts still show each model's relative
+  scoring speed, when its scoring starts and finishes, and a stall (a job
+  whose infrastructure attempts are being retried, or a faulted job, stops
+  moving). A model error resolves its document like any other, so outcomes
+  do not show; an entrant whose content was already published is not
+  scored and shows no counts, which the published artifacts reveal from
+  scoring start anyway. Minute refresh and chunk steps coarsen the timing
+  but do not remove it.
 - **Lower bounds only.** Every `expected.*` value and every
   `plan.stages[].earliest_*` value is the earliest possible boundary,
   credit-adjusted. It is never behind the next boundary. An epoch converts
@@ -168,7 +195,8 @@ netuid}`, `generated_at` (unix seconds, floored to the minute) and
   before any document is scored. No document carries a rank or any
   within-band order.
 - **Never in `dashboard/v1`:** anything per document or per task, receipts,
-  outcome classes, task indices, exact work counts, exact scores, near-copy
+  outcome classes, task indices, exact work counts other than the
+  per-entrant challenge counts above, exact scores, near-copy
   statistics, fingerprints, strata, fault codes, notes, step errors, spend,
   budgets, tokens, model names, lanes, hosts, keys and template hashes.
 
@@ -344,6 +372,27 @@ current cohort only after it can verify the cohort's records before
 closure, which it does not do yet, so `cohort.results` stays `false` until
 the cohort is listed.
 
+## `registry.json` and `m/a/rosters/<label>.json`
+
+The subnet's registered UIDs and one cohort's per-hotkey status, which back
+the public status API's miner list. Their fields, the roster statuses, the
+publisher's `DASHBOARD_ROSTER` levels for a running cohort (testnet:
+`sessions`) and the coordinator and eval inputs they read are in
+[`public-layout.md`](public-layout.md#its-dashboard-documents-registryjson-and-rosterslabeljson).
+Both follow every rule above: allow-list, redaction scan, bound, `sample:
+false`. In addition the publisher refuses a registry whose UIDs are not
+ascending, whose hotkeys repeat or whose SS58 and hex spellings disagree,
+whose registrations are after its block, or whose `epoch`, `block` and
+`rows` are not all set or all `null`; and a roster whose statuses, gates or
+refusal classes are outside their closed lists, that carries a result, a
+roster position or references before its cohort is `closed` (or misses one
+after), a session state below the `sessions` level, challenge counts
+outside a running `sessions` roster's `admitted` or `evaluating` rows or
+whose state disagrees with them (`pending` with done challenges, `running`
+without a total or at it, `complete` short of it), a refusal class
+without `refused` (or the reverse), a repeated hotkey, rows out of UID
+order, or another cohort's label than its key's. No roster carries a `q`.
+
 ## Inputs from the coordinator (E1)
 
 The publisher reads these from `/eval/status`, behind its status token. A
@@ -405,3 +454,19 @@ value `null`.
   observed. The publisher reads the map only whole under that rule
   (ascending UIDs, distinct hotkeys, at most 256 rows) and encodes the
   hotkeys as SS58; anything else leaves `uids` `null`.
+- `admission.cohorts[].frozen_epoch` and `admission.cohorts[].hotkeys`
+  (rule `slop_ninja.eval.admission_hotkeys/v1`,
+  `eval::admission::hotkeys`): each hotkey's admission state in one
+  cohort, the newest admitting or closing one, else the newest frozen one
+  while its evaluation runs, the source of a running cohort's roster
+  ([`public-layout.md`](public-layout.md#their-inputs-the-coordinators-registry-and-the-eval-workers-hotkeys)).
+- `admission.cohorts[].progress` (rule `slop_ninja.eval.scoring_progress/v1`,
+  `eval::admission::progress`), on that frozen cohort only: whether its
+  jobs exist (`sealed`) and, per entrant job, the hotkey, whether its
+  scoring started, and its committed chunks' documents of all its chunks'
+  documents; at most 256 rows in hotkey order, refused whole otherwise.
+  The source of the roster's challenge counts.
+- From the coordinator's `/status`, `chain_journal.registry` (rule
+  `slop_ninja.coordinator.registry/v1`, `signing::registry`): every
+  registered UID as the latest signing registration read saw it, the
+  source of `registry.json`.

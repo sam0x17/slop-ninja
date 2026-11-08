@@ -720,6 +720,7 @@ pub(super) fn apply_registration(
     let Some(neurons) = super::read_neurons(rt, ctx.cfg, population, values)? else {
         return Err(chain_err("registration_unreadable"));
     };
+    super::registry::save(sql, epoch, at.number, population, &neurons, now_ms)?;
     let ok = super::owner_key(rt, ctx.cfg)?;
     let Some(owner) = as_account(&values.get(rt, crate::chain::SUBTENSOR, "SubnetOwnerHotkey", &ok)?) else {
         return Err(chain_err("owner_hotkey_unreadable"));

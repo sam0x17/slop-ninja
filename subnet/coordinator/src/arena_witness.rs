@@ -491,6 +491,188 @@ fn arena_witness_the_quantized_result_fits_its_derived_footprint() {
     }
 }
 
+/// The journal's `/status` with a full registry
+/// (`signing::registry::ROWS` UIDs, every hotkey at its longest encoding)
+/// fits the journal footprint: the stored row is read and rebuilt once.
+#[test]
+fn arena_witness_status_with_a_full_registry_fits() {
+    use crate::signing::registry;
+    set_mode(Mode::Enforce);
+    let db = Sqlite::open();
+    tx(&db, |s| sql::migrate(s, &CHAIN_JOURNAL_SCHEMA)).expect("migrate");
+    let neurons: Vec<(u16, [u8; 32], u64)> =
+        (0..registry::ROWS as u16).map(|u| (u, [&u.to_be_bytes()[..], &[0xff; 30]].concat().try_into().expect("32"), crate::wire::MAX_SAFE_INTEGER)).collect();
+    tx(&db, |s| registry::save(s, 30, crate::wire::MAX_SAFE_INTEGER, registry::ROWS as u16, &neurons, 1)).expect("saved");
+    let rows = witness(R_JOURNAL_FETCH.route(), JOURNAL_CONTROL_BYTES, || {
+        let v = tx(&db, registry::view).expect("view");
+        assert!(serde_json::to_vec(&v).expect("json").len() < ROUTE_REPLY_SHARE, "a small share of the reply bound");
+        v["rows"].as_array().map_or(0, Vec::len)
+    });
+    assert_eq!(rows, registry::ROWS);
+}
+
+/// What the registry may take of the journal status reply
+/// (`WORKER_CONTROL_BYTES`, the Worker's read bound of that reply).
+const ROUTE_REPLY_SHARE: usize = WORKER_CONTROL_BYTES / 16;
+
+/// The admission status with an admitting cohort at the per-hotkey bound
+/// (a full UID map and as many session hotkeys outside it,
+/// `eval::admission::HOTKEY_ROWS` rows) fits the cohort control footprint.
+#[test]
+fn arena_witness_admission_status_with_full_hotkeys_fits() {
+    use crate::eval::admission::{self, HOTKEY_ROWS};
+    use crate::eval::commitments::{self, LogEntry, UID_MAP_ROWS};
+    use crate::sql::Sql;
+    use slop_ninja_protocol::AccountId;
+    set_mode(Mode::Enforce);
+    let db = Sqlite::open();
+    tx(&db, |s| sql::migrate(s, &EVAL_COHORT_SCHEMA)).expect("migrate");
+    let hash = format!("0x{}", "ab".repeat(32));
+    tx(&db, |s| {
+        s.exec(
+            "UPDATE eval_obs SET epoch_index = 30, epoch_block = 10810, epoch_block_hash = ?, last_epoch_block = 10800 WHERE id = 1",
+            &[hash.clone().into()],
+        )?;
+        s.exec("INSERT INTO adm_cohorts (seq, cohort, state, open_block) VALUES (1, 7, 'admitting', 100)", &[])
+    })
+    .expect("cohort");
+    let key = |n: u8, uid: u16| AccountId([&[n, (uid >> 8) as u8, uid as u8][..], &[0x5a; 29]].concat().try_into().expect("32 bytes"));
+    for uid in 0..UID_MAP_ROWS as u16 {
+        let e = LogEntry {
+            hotkey: key(0, uid),
+            block: 200,
+            block_hash: hash.clone(),
+            extrinsic: 1,
+            payload: vec![0x51; 64],
+            uid: Some(uid),
+            registration_block: Some(50),
+        };
+        tx(&db, |s| commitments::record(s, &e, 1)).expect("logged");
+        // A refused session of a hotkey outside the map (its UID changed
+        // hands): the longest rows.
+        tx(&db, |s| {
+            s.exec(
+                "INSERT INTO adm_sessions (session, seq, cohort, hotkey, upload, commitment, content, header_sha256, header_len,
+                    state, refusal, created_ms, updated_ms)
+                 VALUES (?, 1, 7, ?, 'aa', 'bb', 'cc', 'dd', 1, 'refused', ?, 1, 1)",
+                &[
+                    format!("s{uid}").into(),
+                    hex::encode(key(1, uid).0).into(),
+                    r#"{"code":"registration_mismatch","message":"m","detail":{}}"#.into(),
+                ],
+            )
+        })
+        .expect("session");
+    }
+    let rows = witness(R_COHORT_FETCH.route(), COHORT_CONTROL_BYTES, || {
+        let v = tx(&db, admission::status).expect("status");
+        v["cohorts"][0]["hotkeys"]["rows"].as_array().map_or(0, Vec::len)
+    });
+    assert_eq!(rows, HOTKEY_ROWS);
+}
+
+/// An eval store whose admission status is at its widest: one cohort
+/// with per-hotkey rows at the bound (a full UID map and as many session
+/// hotkeys outside it, `HOTKEY_ROWS`), frozen and running with an entrant
+/// job per roster place (`PROGRESS_ROWS`), each with chunks, and an older
+/// frozen cohort, closed, with as many sessions (it reports neither).
+fn widest_admission_status() -> Sqlite {
+    use crate::eval::admission::PROGRESS_ROWS;
+    use crate::eval::commitments::{self, LogEntry, UID_MAP_ROWS};
+    use crate::sql::Sql;
+    use slop_ninja_protocol::AccountId;
+    let db = Sqlite::open();
+    tx(&db, |s| sql::migrate(s, &EVAL_COHORT_SCHEMA)).expect("migrate");
+    let hash = format!("0x{}", "ab".repeat(32));
+    tx(&db, |s| {
+        s.exec(
+            "UPDATE eval_obs SET epoch_index = 30, epoch_block = 10810, epoch_block_hash = ?, last_epoch_block = 10800 WHERE id = 1",
+            &[hash.clone().into()],
+        )?;
+        for (seq, cohort, phase) in [(1i64, 5i64, "closed"), (2, 6, "scoring")] {
+            s.exec(
+                "INSERT INTO adm_cohorts (seq, cohort, state, open_block, cutoff_block) VALUES (?, ?, 'frozen', 100, 5000)",
+                &[seq.into(), cohort.into()],
+            )?;
+            s.exec(
+                "INSERT INTO cohorts (seq, label, cohort, plan, plan_sha256, phase, phase_since_ms, queued_ms)
+                 VALUES (?, ?, ?, '{}', 'x', ?, 1, 1)",
+                &[seq.into(), format!("c{cohort}").into(), cohort.into(), phase.into()],
+            )?;
+        }
+        Ok::<(), crate::sql::StoreError>(())
+    })
+    .expect("cohorts");
+    let key = |n: u8, uid: u16| AccountId([&[n, (uid >> 8) as u8, uid as u8][..], &[0x5a; 29]].concat().try_into().expect("32 bytes"));
+    for uid in 0..UID_MAP_ROWS as u16 {
+        let e = LogEntry {
+            hotkey: key(0, uid),
+            block: 200,
+            block_hash: hash.clone(),
+            extrinsic: 1,
+            payload: vec![0x51; 64],
+            uid: Some(uid),
+            registration_block: Some(50),
+        };
+        tx(&db, |s| commitments::record(s, &e, 1)).expect("logged");
+        for seq in [1i64, 2] {
+            tx(&db, |s| {
+                s.exec(
+                    "INSERT INTO adm_sessions (session, seq, cohort, hotkey, upload, commitment, content, header_sha256, header_len,
+                        state, refusal, created_ms, updated_ms)
+                     VALUES (?, ?, ?, ?, 'aa', 'bb', 'cc', 'dd', 1, 'refused', ?, 1, 1)",
+                    &[
+                        format!("s{seq}-{uid}").into(),
+                        seq.into(),
+                        (seq + 4).into(),
+                        hex::encode(key(1, uid).0).into(),
+                        r#"{"code":"registration_mismatch","message":"m","detail":{}}"#.into(),
+                    ],
+                )
+            })
+            .expect("session");
+        }
+    }
+    for job in 0..PROGRESS_ROWS as i64 {
+        let owner = format!(
+            r#"{{"uid":65535,"hotkey":"0x{}","registration_block":{}}}"#,
+            hex::encode(key(2, job as u16).0),
+            crate::wire::MAX_SAFE_INTEGER
+        );
+        tx(&db, |s| {
+            s.exec(
+                "INSERT INTO jobs (seq, job, role, artifact, package_sha256, manifest_key, owner, status, chunks, started_ms)
+                 VALUES (2, ?, 'entrant', 'a', 'p', 'm', ?, 'running', 4, 1)",
+                &[job.into(), owner.clone().into()],
+            )?;
+            for k in 0..4i64 {
+                s.exec(
+                    "INSERT INTO chunks (seq, job, chunk, first_task, count, status) VALUES (2, ?, ?, ?, 128, ?)",
+                    &[job.into(), k.into(), (k * 128).into(), (if k < 2 { "done" } else { "pending" }).into()],
+                )?;
+            }
+            Ok::<(), crate::sql::StoreError>(())
+        })
+        .expect("job");
+    }
+    db
+}
+
+/// The admission status at its widest ([`widest_admission_status`]) fits
+/// the cohort control footprint.
+#[test]
+fn arena_witness_admission_status_with_full_hotkeys_and_progress_fits() {
+    use crate::eval::admission::{self, HOTKEY_ROWS, PROGRESS_ROWS};
+    set_mode(Mode::Enforce);
+    let db = widest_admission_status();
+    let (closed, hotkeys, progress) = witness(R_COHORT_FETCH.route(), COHORT_CONTROL_BYTES, || {
+        let v = tx(&db, admission::status).expect("status");
+        let n = |c: usize, k: &str| v["cohorts"][c][k]["rows"].as_array().map_or(0, Vec::len);
+        (v["cohorts"][1].get("hotkeys").is_some() || v["cohorts"][1].get("progress").is_some(), n(0, "hotkeys"), n(0, "progress"))
+    });
+    assert_eq!((closed, hotkeys, progress), (false, HOTKEY_ROWS, PROGRESS_ROWS));
+}
+
 /// An unrecorded runtime: the V15 metadata file named by
 /// `SLOP_NINJA_WITNESS_RUNTIME` (spec `SLOP_NINJA_WITNESS_RUNTIME_SPEC`,
 /// default 0). The runtime watch's qualification sets it to a new runtime's

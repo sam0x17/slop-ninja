@@ -9,7 +9,8 @@ pointer and the signed objects it names
 ([What a validator checks](#what-a-validator-checks)). The miner client's
 `status` and `next-cohort` (with `--public`; without it they read the
 coordinator's unsigned cohort read, `GET /admission/v2/cohort`) read these
-paths.
+paths. The JSON status API the website serves from the dashboard documents
+is described [at the end](#the-public-status-api-slopninjaapi).
 
 **State: not yet live.** The publisher is built and tested, but not
 deployed. The public host, its domain (decision D5) and public access are set
@@ -611,3 +612,222 @@ cluster (by its first member's UID), band and artifact link or state. It
 has no score column. Before any cohort is listed, and after a record
 restart, the page says no cohort has closed yet and shows the testnet
 promotion-rule note.
+
+## The public status API: `slop.ninja/api/`
+
+The status page's tracker links to a read-only JSON API for the cohort it
+shows. The website Worker answers it from the checked `dashboard/v1`
+documents it already reads through the private dashboard feed
+([`dashboard-contract.md`](dashboard-contract.md)), never from the
+coordinator, the validator layout `v1/` or any private bucket. Validators
+never read it. The API is versioned by path. This section is its
+contract. **State:** being rolled out with the website. The miner list
+(`miners`) stays incomplete until the registry and roster documents below
+are written.
+
+| Path | Schema | What |
+| --- | --- | --- |
+| `GET /api/` | `slop_ninja.api.discovery/v1` | endpoints, networks, mechanisms and their states, schema links |
+| `GET /api/v1/<network>/<mechanism>/status` | `slop_ninja.api.cohort_status/v1` | the current cohort (`view: "current"`), or the next one when none runs |
+| `GET /api/v1/<network>/<mechanism>/cohorts` | `slop_ninja.api.cohorts/v1` | the listed cohorts, plus the current one |
+| `GET /api/v1/<network>/<mechanism>/cohorts/<label>` | `slop_ninja.api.cohort_status/v1` | one cohort (`view: "cohort"`); the current cohort's label answers like `status` |
+| `GET /api/v1/schemas/<name>.json` | JSON Schema 2020-12 | `cohort_status`, `cohorts`, `discovery`, `error` |
+
+`<network>` is `testnet`, `<mechanism>` `a` (a mechanism that is not live
+answers 404 `mechanism_not_live`) and `<label>` a cohort label. `GET`,
+`HEAD` and `OPTIONS` only; every answer, errors included, carries
+`Access-Control-Allow-Origin: *` and no credentials. Query strings are
+ignored. Answers are cached like the feed: 60 s for `status`, `cohorts` and
+the current cohort, 300 s for a closed cohort, 3,600 s for a schema. Errors
+are `slop_ninja.api.error/v1` documents (`{"available": false, "error":
+{"code", "message"}}`) with the codes `not_found`, `mechanism_not_live`,
+`not_listed` (404), `method_not_allowed` (405), `not_enabled`,
+`upstream_unavailable` and `upstream_invalid` (503). Within `v1` fields can
+be added, never renamed, removed or given another meaning; an unknown
+value is `null`, and no key is ever omitted.
+
+A `cohort_status` answer carries the network and chain, the mechanism, the
+sources it was composed from with their `generated_at`, the clock and the
+pause state, and `cohort`: number, label, state, stage (with its kind and
+position on the eight-stage bar), mode, tempos credited and required,
+admission progress (frozen count and roster cap), the work percent on the
+10% grid, the phase history, the plan, the bounds, and `expected` (the
+current stage's earliest end and the earliest close). Every future
+boundary carries its epoch and block and an estimate `at_estimate` (unix
+seconds) and `at_estimate_utc` (RFC 3339) under rule
+`slop_ninja.api.eta/v1`: the coordinator's observation time plus the
+blocks to go at the nominal 12 s block, floored to the minute, `null` once
+the boundary is due or passed. **Estimates are lower bounds**: the chain's
+block time varies, a coordinator outage or pause stops tempo credit and slow
+work moves a stage to a later boundary, so a stage is never earlier than its
+boundary and may be later. The answer also carries `next` (the next cohort's
+earliest opening), `references` (`R_k` and `R_k-1` by index and label, with
+their digests once the roster documents carry them), `outcome` (a closed
+cohort's promotion and entrant count), `coordinator_weights` (the
+coordinator's latest commit-reveal weight commit, public chain facts) and
+`miners`.
+
+`miners` lists hotkeys in ascending UID order with `source` (where the list
+comes from), `complete` (`true` only when it is every registered UID),
+`as_of` (the boundary it describes) and `rows[{uid, hotkey, hotkey_hex,
+registration_block, registered, cohort_status, reason_class,
+roster_position, result, artifact_state, challenges}]`. `cohort_status` is one of the
+roster statuses below; `challenges` is an admitted entrant's challenge
+counts while its cohort runs (below), else `null`. Until the registry is written the list is the UID
+map of committing hotkeys (`complete: false`) or `null`; until the rosters
+are written a running cohort's rows carry no status, and a closed cohort's
+rows come from its cohort document (gate pass or fail only).
+
+What the API never serves: held-out text, labels, per-document predictions,
+receipts, customer data, exact scores, and (in `v1`) no score at all: no
+`q`, cutoff, band edge, row share or eligibility, before or after close; no
+rank or score order, and no result or roster position before the cohort
+closes. After close it serves only what the cohort summary publishes: bands,
+gate bits, cluster membership and roster order. The one per-entrant work
+figure is each admitted entrant's challenge counts while its cohort runs:
+how many of its challenges are scored, of its total, and nothing else (no
+score, leader, order, challenge identity, failure or retry detail; the
+residual is in the [dashboard contract](dashboard-contract.md)).
+
+### Its dashboard documents: `registry.json` and `rosters/<label>.json`
+
+Two `dashboard/v1` documents (bounds rule
+`slop_ninja.dashboard.read_bounds/v3`) back the miner list. The publisher
+writes them under the same allow-list, redaction scan and bound checks as
+every dashboard document (`subnet/publisher/src/dashboard_roster.rs`); the
+feed serves them, and the website is to check them again before the API
+uses them. A missing document leaves the API's earlier values.
+
+`dashboard/v1/registry.json`, schema `slop_ninja.dashboard.registry/v1`,
+bound 64 KiB + 256 rows of 198 bytes, cache 60 s:
+
+```json
+{ "schema": "slop_ninja.dashboard.registry/v1", "network": "testnet",
+  "chain": { "genesis": "0x…", "netuid": 601 }, "generated_at": 1793951220, "sample": false,
+  "rule": "slop_ninja.coordinator.registry/v1", "epoch": 145, "block": 8384078,
+  "rows": [ { "uid": 0, "hotkey": "<ss58>", "hotkey_hex": "<64 hex>", "registration_block": 4100 } ] }
+```
+
+Every registered UID of the subnet, ascending, each hotkey once with both
+spellings, and its registration block: public chain facts, as the
+coordinator's latest signing operation read them (`Keys` and
+`BlockAtRegistration` for every UID below `SubnetworkN`, at the confirmed
+`block` of `epoch`). It is fresh to one tempo: a signing pause leaves the
+last read, which `epoch` and `block` date. Written each run from a
+coordinator that reports the read; `epoch`, `block` and `rows` are all
+`null` while no whole read is available (none yet, more than 256 UIDs, or a
+malformed read).
+
+`dashboard/v1/m/<key>/rosters/<label>.json`, schema
+`slop_ninja.dashboard.roster/v1`, bound 64 KiB + 512 rows of 1 KiB (every
+registered UID plus every former entrant), cache 60 s:
+
+```json
+{ "schema": "slop_ninja.dashboard.roster/v1", "network": "testnet",
+  "chain": { "genesis": "0x…", "netuid": 601 }, "generated_at": 1793951220, "sample": false,
+  "mechanism": "a",
+  "cohort": { "cohort": 18, "label": "testnet-r0-18", "stage": "closed" },
+  "level": "closed", "source": "summary", "as_of": null,
+  "rows": [ { "uid": 7, "hotkey": "<ss58>", "hotkey_hex": "<64 hex>", "status": "scored",
+              "reason_class": null, "roster_position": 2,
+              "result": { "gate": "pass", "copy_gate": "pass", "band": 1,
+                          "cluster": { "uid": 7, "hotkey": "<ss58>" } },
+              "artifact_state": "published", "challenges": null } ],
+  "references": { "index": 0, "current": { "content": "<64 hex>", "artifact": "<64 hex>" },
+                  "predecessor": null } }
+```
+
+| Field | Meaning |
+| --- | --- |
+| `cohort.stage` | The bar stage `now.json` showed when the roster was written (read at tempo boundaries), or `closed` |
+| `level` | How much of a running cohort the publisher publishes (below); `closed` on a closed cohort's roster |
+| `source` | `summary` (a closed cohort's public summary), `admission` (the eval Worker's per-hotkey rows) or `artifacts` (the published artifacts record, from scoring start) |
+| `as_of` | The tempo boundary `{epoch, block}` the eval Worker's rows describe; `null` otherwise |
+| `rows[]` | One per hotkey, in ascending UID order (rows without a UID last), then by hotkey; never roster or score order |
+| `rows[].status` | `none`, `committed`, `uploading`, `verifying`, `verified`, `refused`, `overflow`, `admitted`, `evaluating` (running cohort), or `scored`, `withheld`, `not_executed` (closed cohort) |
+| `rows[].reason_class` | Only with `refused`: `commitment`, `artifact`, `cutoff` or `registration`, never a refusal code or detail |
+| `rows[].roster_position`, `rows[].result` | Closed cohorts only: the 1-based roster order and the summary's `gate` (`pass`, `fail`, `withheld`, `not_executed`), `copy_gate`, `band` and `cluster`. No `q` |
+| `rows[].artifact_state` | `published`, `pending` or `withheld`, from scoring start |
+| `rows[].challenges` | `admitted` and `evaluating` rows of a running roster at the `sessions` level only: `{state, done, total}`, `pending` before the entrant's scoring starts (`done` 0, `total` `null` until the batch is sealed), `running` while `done < total`, `complete` at it; `null` otherwise, and when the eval Worker reports none (an entrant whose content was already published is not scored and has none). Read each run |
+| `references` | Closed cohorts only: `R_k` and `R_k-1` by content and artifact digest, from the summary |
+
+A closed, listed cohort's roster is built from its summary and publication
+record alone and rewritten with its cohort document. It lists the
+entrants only. The non-admitted hotkeys' frozen statuses are not kept
+after close. `scored` covers the gate bits `pass` and `fail`.
+
+A running cohort's roster is written each run at the publisher's
+`DASHBOARD_ROSTER` level; each level includes the ones before it. Testnet
+runs at `sessions`: publishing each miner's intake state while a cohort
+runs was approved on 2026-11-06. No level carries a score, rank, roster
+position, gate, band or cluster before the cohort closes.
+
+| Level | A running cohort's roster |
+| --- | --- |
+| `closed` (the code's default when unset) | none: closed cohorts only |
+| `scoring` | from scoring start, each entrant `evaluating` with its artifact state, from the published artifacts record |
+| `frozen` | the eval Worker's per-hotkey rows: before the roster freezes only `none` or `committed`, from the logged on-chain commitment alone (a session without one reads `none`); from the freeze (once the page has left the admission window) `admitted`, `evaluating` from `generating` on, `refused` with its class, or `overflow` |
+| `sessions` | before the freeze also `uploading`, `verifying`, `verified` and `refused` with its class; from the freeze each admitted entrant's challenge counts (selected on 2026-11-06) |
+
+`admitted` and `evaluating` come from the frozen roster and the stage the
+page shows, never from per-entrant work; only `challenges` does. A running roster is no longer
+rewritten once its cohort leaves the running stages; the closed roster
+replaces it at the same key when the cohort is listed. It is also not
+rewritten when its source disappears, for example when the eval Worker stops
+reporting a frozen cohort's hotkeys during `generating` or `sealing`, before
+the artifacts record exists; it can then lag the stage the page shows, and
+its `cohort.stage` and `as_of` date it.
+
+### Their inputs: the coordinator's registry and the eval Worker's hotkeys
+
+Both documents come from content-free status fields:
+
+- the coordinator's `/status` `chain_journal.registry{rule:
+  "slop_ninja.coordinator.registry/v1", epoch, block, rows[{uid, hotkey (64
+  hex), registration_block}]}`: the latest registration read of a signing
+  step (the coordinator's own commitment or the row snapshot other
+  validators copy, once a tempo in every signer state), kept in the
+  journal (schema v14, one row, never replaced by an earlier block)
+  instead of dropped; rows ascending by UID; more than 256 UIDs answers
+  `rows: null, refused: "over_bound"`; `null` before any read;
+- the eval Worker's `/eval/status` `admission.cohorts[].hotkeys{rule:
+  "slop_ninja.eval.admission_hotkeys/v1", cohort, epoch, block,
+  rows[{hotkey (64 hex), uid, committed_block, state, refusal_class,
+  roster_position}]}` for one cohort, the newest admitting or closing one,
+  else the newest frozen one while its evaluation runs (not closed or
+  abandoned; one report keeps the status inside its arena footprint): each hotkey of the UID map at the stored boundary and
+  each hotkey with a session of the cohort, at most 512 rows, refused whole
+  (`rows: null` with `refused`) rather than truncated. `committed_block` is
+  the block of the hotkey's counted commitment (its latest while the window
+  admits, its last before the cutoff once closed) when that commitment was
+  made inside the admission window; the commitment value is a digest, so
+  which cohort it opens shows only through a session. `state` is the latest
+  session's state (a superseded session is replaced by the later one), else
+  `committed` or `none`; `refusal_class` the closed class of the session's
+  refusal (`commitment`, `artifact`, `cutoff`, `registration`), mapped
+  inside the eval Worker (a refusal no class covers refuses the whole
+  report); `roster_position` (admitted rows from the freeze, commitment
+  order) is informational and never published: the publisher drops it, and
+  the closed roster takes its order from the cohort summary. A session
+  hotkey outside the UID map takes its commitment's UID unless a map row
+  holds it. No session id,
+  digest, object key, size, mint count, timestamp or verdict try leaves the
+  eval Worker;
+- on that frozen cohort, `admission.cohorts[].progress{rule:
+  "slop_ninja.eval.scoring_progress/v1", cohort, sealed, rows[{hotkey (64
+  hex), started, done, total}]}`: `sealed` once the cohort's jobs exist;
+  one row per entrant job, in hotkey order (never roster order), at most
+  256 (`MAX_ROSTER`), refused whole (`rows: null` with `refused`); `done`
+  the documents of its committed chunks (a chunk commits whole, so `done`
+  moves in steps of `scorer.chunk_docs`, and a model error counts as
+  resolved), `total` all its chunks' documents, `started` its first claim.
+  No prediction, outcome, score, job or chunk number, lane, attempt, crash,
+  fault, timing or roster position leaves the eval Worker. The publisher
+  reads it whole (the rule, the cohort, at most 256 rows in ascending
+  hotkey order, `1 <= total`, `done <= total`, nothing done before
+  `started`, no row before `sealed`) and publishes `pending` (not started),
+  `running` or `complete` with the two counts.
+
+The publisher reads each whole or not at all (the closed vocabularies,
+ascending distinct UIDs, distinct hotkeys, the bounds); a malformed field
+never fails the rest of the status.

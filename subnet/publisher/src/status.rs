@@ -41,6 +41,118 @@ pub struct WorkerView {
     /// The status gate's `access` report (`None` from a Worker built before
     /// the gate). Private: alert rules only, never the public snapshot.
     pub access: Option<AccessView>,
+    /// The coordinator's registry read (`chain_journal.registry`, rule
+    /// [`REGISTRY_RULE`]): `None` when the status carries no such field (a
+    /// coordinator built before it), `Some(None)` when the field is there
+    /// but null, refused or not whole and well formed.
+    pub registry: Option<Option<RegistryView>>,
+}
+
+/// The coordinator's registry rule this publisher reads.
+pub const REGISTRY_RULE: &str = "slop_ninja.coordinator.registry/v1";
+
+/// Every registered UID of the subnet as the coordinator's latest signing
+/// operation read them (`Keys` and `BlockAtRegistration` below
+/// `SubnetworkN`) at the confirmed block `block` of epoch `epoch`: rows in
+/// strictly ascending UID order, each hotkey once, at most
+/// `contract::registry::ROWS` rows, each registered at or before `block`.
+/// Public chain facts.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct RegistryView {
+    pub epoch: u64,
+    pub block: u64,
+    /// `(uid, hotkey, registration_block)`.
+    pub rows: Vec<(u16, [u8; 32], u64)>,
+}
+
+/// The eval Worker's per-hotkey admission rule this publisher reads.
+pub const ADMISSION_HOTKEYS_RULE: &str = "slop_ninja.eval.admission_hotkeys/v1";
+
+/// The per-hotkey admission states the eval Worker reports, in the order a
+/// hotkey moves through them.
+pub const ADMISSION_STATES: &[&str] = &[
+    "none",
+    "committed",
+    "uploading",
+    "verifying",
+    "verified",
+    "refused",
+    "overflow",
+    "admitted",
+];
+
+/// The closed refusal classes (the eval Worker maps each refusal code to
+/// one; no code or detail leaves it).
+pub const REFUSAL_CLASSES: &[&str] = &["commitment", "artifact", "cutoff", "registration"];
+
+/// One admission cohort as `/eval/status` reports it
+/// (`admission.cohorts[]`).
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct AdmissionCohortView {
+    pub cohort: u64,
+    /// The epoch its roster froze at; `None` before the freeze.
+    pub frozen_epoch: Option<u64>,
+    /// Its per-hotkey states (`hotkeys`, rule [`ADMISSION_HOTKEYS_RULE`]):
+    /// `None` when absent, refused or not whole and well formed.
+    pub hotkeys: Option<HotkeysView>,
+    /// Its entrants' scoring counts (`progress`, rule
+    /// [`SCORING_PROGRESS_RULE`]): `None` when absent, refused, for another
+    /// cohort, or not whole and well formed.
+    pub progress: Option<ScoringProgressView>,
+}
+
+/// The eval Worker's per-entrant scoring progress rule this publisher reads.
+pub const SCORING_PROGRESS_RULE: &str = "slop_ninja.eval.scoring_progress/v1";
+
+/// A frozen cohort's per-entrant scoring counts, read with the status:
+/// whether its jobs exist yet (`sealed`), and for each entrant job its
+/// hotkey, whether its scoring started, and its resolved and total
+/// documents. Counts only: the eval Worker reports nothing else, and
+/// anything else in a row is not read.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct ScoringProgressView {
+    pub sealed: bool,
+    /// Ascending hotkeys, each once, at most `contract::roster::ENTRANTS`.
+    pub rows: Vec<ScoringProgressRow>,
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct ScoringProgressRow {
+    pub hotkey: [u8; 32],
+    pub started: bool,
+    pub done: u32,
+    /// At least 1 and at least `done`.
+    pub total: u32,
+}
+
+impl ScoringProgressView {
+    pub fn row(&self, hotkey: &[u8; 32]) -> Option<&ScoringProgressRow> {
+        self.rows.binary_search_by(|r| r.hotkey.cmp(hotkey)).ok().and_then(|i| self.rows.get(i))
+    }
+}
+
+/// A cohort's per-hotkey admission states as of the tempo boundary `epoch`
+/// (first block `block`): each hotkey of the UID map at that boundary and
+/// each hotkey with a session of the cohort, once, at most
+/// `contract::roster::ROWS` rows.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct HotkeysView {
+    pub epoch: u64,
+    pub block: u64,
+    pub rows: Vec<HotkeyRow>,
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct HotkeyRow {
+    pub hotkey: [u8; 32],
+    /// Its UID at the boundary, when it holds one.
+    pub uid: Option<u16>,
+    /// The block of its logged commitment naming the cohort.
+    pub committed_block: Option<u64>,
+    /// One of [`ADMISSION_STATES`].
+    pub state: String,
+    /// One of [`REFUSAL_CLASSES`], exactly when `state` is `refused`.
+    pub refusal_class: Option<String>,
 }
 
 /// A Worker's `access` report: which status tokens it has installed (never
@@ -332,6 +444,9 @@ pub struct EvalView {
     /// rule [`UID_MAP_RULE`]): `None` when absent, refused by the
     /// coordinator, or not whole and well formed.
     pub uid_map: Option<UidMapView>,
+    /// The admission cohorts (`admission.cohorts[]`) with their freeze and,
+    /// when reported, per-hotkey states.
+    pub admission: Vec<AdmissionCohortView>,
 }
 
 /// The coordinator's UID map rule this publisher reads.
@@ -450,6 +565,82 @@ struct ChainJournalJson {
     journal: Option<JournalJson>,
     signing: Option<SigningJson>,
     watchdog: Option<WatchdogJson>,
+    /// Present (even `null`) only from a coordinator that reports it.
+    #[serde(deserialize_with = "present")]
+    registry: Option<Lenient<RegistryJson>>,
+}
+
+/// A field that may be malformed without failing the status it sits in:
+/// anything that is not the expected shape reads as [`Lenient::Other`].
+#[derive(Deserialize)]
+#[serde(untagged)]
+enum Lenient<T> {
+    Ok(T),
+    Other(serde::de::IgnoredAny),
+}
+
+impl<T> Lenient<T> {
+    fn ok(self) -> Option<T> {
+        match self {
+            Lenient::Ok(t) => Some(t),
+            Lenient::Other(_) => None,
+        }
+    }
+}
+
+/// A key that is present, whatever its value (`null` included).
+fn present<'de, D: serde::Deserializer<'de>, T: Deserialize<'de>>(d: D) -> Result<Option<T>, D::Error> {
+    T::deserialize(d).map(Some)
+}
+
+#[derive(Deserialize)]
+struct RegistryJson {
+    rule: Option<String>,
+    epoch: Option<u64>,
+    block: Option<u64>,
+    rows: Option<Vec<RegistryRowJson>>,
+}
+
+#[derive(Deserialize)]
+struct RegistryRowJson {
+    uid: u64,
+    hotkey: String,
+    registration_block: u64,
+}
+
+/// A 32-byte key as 64 lowercase hex characters.
+fn key64(s: &str) -> Option<[u8; 32]> {
+    if s.len() != 64 || !s.bytes().all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b)) {
+        return None;
+    }
+    let mut key = [0u8; 32];
+    hex::decode_to_slice(s, &mut key).ok()?;
+    Some(key)
+}
+
+/// The registry only when it is whole: the known rule, its epoch and block,
+/// rows within the contract's bound in strictly ascending UID order, each
+/// hotkey once and registered at or before the block. Anything else drops
+/// the whole read.
+fn registry_view(j: RegistryJson) -> Option<RegistryView> {
+    if j.rule.as_deref() != Some(REGISTRY_RULE) {
+        return None;
+    }
+    let (epoch, block, rows) = (j.epoch?, j.block?, j.rows?);
+    if rows.len() > crate::dashboard::contract::registry::ROWS {
+        return None;
+    }
+    let mut out: Vec<(u16, [u8; 32], u64)> = Vec::with_capacity(rows.len());
+    let mut keys = std::collections::BTreeSet::new();
+    for r in rows {
+        let uid = u16::try_from(r.uid).ok()?;
+        let key = key64(&r.hotkey)?;
+        if out.last().is_some_and(|(u, _, _)| *u >= uid) || !keys.insert(key) || r.registration_block > block {
+            return None;
+        }
+        out.push((uid, key, r.registration_block));
+    }
+    Some(RegistryView { epoch, block, rows: out })
 }
 
 #[derive(Deserialize, Default)]
@@ -619,6 +810,106 @@ struct AdmissionJson {
 struct AdmissionCohortJson {
     cohort: Option<u64>,
     admitted: Option<u64>,
+    frozen_epoch: Option<u64>,
+    hotkeys: Option<Lenient<HotkeysJson>>,
+    progress: Option<Lenient<ScoringProgressJson>>,
+}
+
+#[derive(Deserialize)]
+struct ScoringProgressJson {
+    rule: Option<String>,
+    cohort: Option<u64>,
+    sealed: Option<bool>,
+    rows: Option<Vec<ScoringProgressRowJson>>,
+}
+
+#[derive(Deserialize)]
+struct ScoringProgressRowJson {
+    hotkey: String,
+    started: bool,
+    done: u64,
+    total: u64,
+}
+
+/// The counts only when whole: the known rule and this cohort, rows within
+/// the roster's entrant bound in strictly ascending hotkey order, none
+/// before the seal, each with `1 <= total`, `done <= total` and no done
+/// document before its scoring started. Anything else drops them all.
+fn progress_view(j: ScoringProgressJson, cohort: u64) -> Option<ScoringProgressView> {
+    if j.rule.as_deref() != Some(SCORING_PROGRESS_RULE) || j.cohort != Some(cohort) {
+        return None;
+    }
+    let (sealed, rows) = (j.sealed?, j.rows?);
+    if rows.len() > crate::dashboard::contract::roster::ENTRANTS || (!sealed && !rows.is_empty()) {
+        return None;
+    }
+    let mut out: Vec<ScoringProgressRow> = Vec::with_capacity(rows.len());
+    for r in rows {
+        let hotkey = key64(&r.hotkey)?;
+        let (done, total) = (u32::try_from(r.done).ok()?, u32::try_from(r.total).ok()?);
+        if total == 0 || done > total || (done > 0 && !r.started) || out.last().is_some_and(|p| p.hotkey >= hotkey) {
+            return None;
+        }
+        out.push(ScoringProgressRow { hotkey, started: r.started, done, total });
+    }
+    Some(ScoringProgressView { sealed, rows: out })
+}
+
+#[derive(Deserialize)]
+struct HotkeysJson {
+    rule: Option<String>,
+    epoch: Option<u64>,
+    block: Option<u64>,
+    rows: Option<Vec<HotkeyRowJson>>,
+}
+
+#[derive(Deserialize)]
+struct HotkeyRowJson {
+    hotkey: String,
+    uid: Option<u64>,
+    committed_block: Option<u64>,
+    state: String,
+    refusal_class: Option<String>,
+}
+
+/// The per-hotkey states only when they are whole: the known rule, its
+/// boundary, at most the roster bound's rows, each hotkey once with a state
+/// from the closed list and a refusal class from the closed list exactly
+/// when refused, distinct UIDs. Anything else drops them all.
+fn hotkeys_view(j: HotkeysJson) -> Option<HotkeysView> {
+    if j.rule.as_deref() != Some(ADMISSION_HOTKEYS_RULE) {
+        return None;
+    }
+    let (epoch, block, rows) = (j.epoch?, j.block?, j.rows?);
+    if rows.len() > crate::dashboard::contract::roster::ROWS {
+        return None;
+    }
+    let mut keys = std::collections::BTreeSet::new();
+    let mut uids = std::collections::BTreeSet::new();
+    let mut out = Vec::with_capacity(rows.len());
+    for r in rows {
+        let hotkey = key64(&r.hotkey)?;
+        let uid = match r.uid {
+            Some(u) => Some(u16::try_from(u).ok()?),
+            None => None,
+        };
+        let state = ADMISSION_STATES.iter().find(|s| **s == r.state)?;
+        let class_ok = match r.refusal_class.as_deref() {
+            Some(c) => *state == "refused" && REFUSAL_CLASSES.contains(&c),
+            None => *state != "refused",
+        };
+        if !class_ok || !keys.insert(hotkey) || uid.is_some_and(|u| !uids.insert(u)) {
+            return None;
+        }
+        out.push(HotkeyRow {
+            hotkey,
+            uid,
+            committed_block: r.committed_block,
+            state: (*state).to_owned(),
+            refusal_class: r.refusal_class,
+        });
+    }
+    Some(HotkeysView { epoch, block, rows: out })
 }
 
 #[derive(Deserialize, Default)]
@@ -854,7 +1145,9 @@ fn worker_view(j: ServiceJson) -> WorkerView {
     let c = j.chain_journal.unwrap_or_default();
     let journal_missing = c.journal.is_none();
     let journal = c.journal.unwrap_or_default();
+    let registry = c.registry.map(|r| r.ok().and_then(registry_view));
     WorkerView {
+        registry,
         access,
         mode: c.mode,
         mode_age_ms: c.mode_age_ms,
@@ -1032,10 +1325,23 @@ fn eval_view(j: EvalJson) -> EvalView {
         epoch_live: j.observed.epoch_live,
         admitted: j
             .admission
+            .as_ref()
+            .map(|a| a.cohorts.iter().filter_map(|c| c.cohort.zip(c.admitted)).collect())
+            .unwrap_or_default(),
+        admission: j
+            .admission
             .map(|a| {
                 a.cohorts
                     .into_iter()
-                    .filter_map(|c| c.cohort.zip(c.admitted))
+                    .filter_map(|c| {
+                        let cohort = c.cohort?;
+                        Some(AdmissionCohortView {
+                            cohort,
+                            frozen_epoch: c.frozen_epoch,
+                            hotkeys: c.hotkeys.and_then(Lenient::ok).and_then(hotkeys_view),
+                            progress: c.progress.and_then(Lenient::ok).and_then(|p| progress_view(p, cohort)),
+                        })
+                    })
                     .collect()
             })
             .unwrap_or_default(),

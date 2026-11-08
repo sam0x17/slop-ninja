@@ -27,6 +27,8 @@ pub enum ConfigError {
     Format,
     /// `ARTIFACT_COPY` is neither `stream` nor `server`.
     Copy,
+    /// `DASHBOARD_ROSTER` is not one of the roster levels.
+    Roster,
     Prefix,
     /// Artifact publication is enabled without one of its guards.
     Guards(&'static str),
@@ -48,6 +50,7 @@ impl core::fmt::Display for ConfigError {
             Self::Url(v) => write!(f, "{v} must be an https URL without credentials"),
             Self::Format => f.write_str("ALERT_SINK_FORMAT must be json, slack or discord"),
             Self::Copy => f.write_str("ARTIFACT_COPY must be stream or server"),
+            Self::Roster => f.write_str("DASHBOARD_ROSTER must be closed, scoring, frozen or sessions"),
             Self::Prefix => f.write_str("RECORD_LABEL_PREFIX must use the cohort label alphabet"),
             Self::Guards(v) => write!(f, "ARTIFACTS_FROM_EPOCH is set but {v}"),
             Self::Duration(v, min) => {
@@ -204,6 +207,11 @@ pub struct Config {
     /// Wall time after which a run starts no new step (a cohort
     /// verification or an artifact copy). Default: one cron period.
     pub run_wall_budget_ms: u64,
+    /// How much of a running cohort's per-hotkey status the dashboard
+    /// roster documents carry (`DASHBOARD_ROSTER`, tracked in
+    /// `wrangler.toml`; unset or empty: `closed`). The held-out exposure
+    /// review picks the level ([`crate::dashboard::RosterLevel`]).
+    pub dashboard_roster: crate::dashboard::RosterLevel,
 }
 
 #[derive(Deserialize)]
@@ -498,6 +506,10 @@ pub fn parse(get: impl Fn(&str) -> Option<String>) -> Result<Config, ConfigError
         renotify_ms,
         heartbeat,
         run_wall_budget_ms: number(&get, "RUN_WALL_BUDGET_MS", CRON_PERIOD_MS)?,
+        dashboard_roster: match get("DASHBOARD_ROSTER").as_deref().map(str::trim) {
+            None | Some("") => crate::dashboard::RosterLevel::Closed,
+            Some(v) => crate::dashboard::RosterLevel::parse(v).ok_or(ConfigError::Roster)?,
+        },
     })
 }
 
@@ -524,6 +536,22 @@ mod tests {
         assert!(c.sink.is_none() && c.heartbeat.is_none() && !c.publish_artifacts);
         assert_eq!(c.artifact_copy, CopyMode::Stream, "stream until G7-x qualifies a cross-bucket copy");
         assert_eq!(c.rules.fallback_ms, 360 * 12 * 1000);
+        assert_eq!(c.dashboard_roster, crate::dashboard::RosterLevel::Closed, "closed cohorts only by default");
+    }
+
+    /// The tracked testnet setting is the approved intake level: each
+    /// miner's admission state while a cohort runs, no result before close.
+    #[test]
+    fn the_tracked_roster_level_is_sessions() {
+        let toml = include_str!("../wrangler.toml");
+        let values: Vec<&str> = toml
+            .lines()
+            .filter_map(|l| l.trim().strip_prefix("DASHBOARD_ROSTER"))
+            .filter_map(|rest| rest.trim().strip_prefix('='))
+            .map(|v| v.trim().trim_matches('"'))
+            .collect();
+        assert_eq!(values, ["sessions"], "one tracked value");
+        assert_eq!(crate::dashboard::RosterLevel::parse(values[0]), Some(crate::dashboard::RosterLevel::Sessions));
     }
 
     #[test]
@@ -560,6 +588,17 @@ mod tests {
         );
         assert!(with("PUBLISH_RECEIPTS", "false").is_ok());
         assert!(with("ALERT_RELAY", "yes").is_err());
+        assert_eq!(with("DASHBOARD_ROSTER", "everything").unwrap_err(), ConfigError::Roster);
+        assert_eq!(with("DASHBOARD_ROSTER", "Frozen").unwrap_err(), ConfigError::Roster);
+        for (v, level) in [
+            ("", crate::dashboard::RosterLevel::Closed),
+            ("closed", crate::dashboard::RosterLevel::Closed),
+            ("scoring", crate::dashboard::RosterLevel::Scoring),
+            ("frozen", crate::dashboard::RosterLevel::Frozen),
+            ("sessions", crate::dashboard::RosterLevel::Sessions),
+        ] {
+            assert_eq!(with("DASHBOARD_ROSTER", v).unwrap().dashboard_roster, level, "{v:?}");
+        }
     }
 
     /// The relay sink (decision D18) and the https sinks: one at a time;

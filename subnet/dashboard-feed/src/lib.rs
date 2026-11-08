@@ -106,6 +106,15 @@ mod tests {
             route("GET", "/dashboard/v1/m/a/months/2026-11.json", false),
             Route::Object { doc: Doc::Month("a", 2026, 11), head: false }
         );
+        // Rule v3: the registry and the per-cohort rosters.
+        assert_eq!(
+            route("GET", "/dashboard/v1/registry.json", false),
+            Route::Object { doc: Doc::Registry, head: false }
+        );
+        assert_eq!(
+            route("HEAD", "/dashboard/v1/m/a/rosters/testnet-r0-20.json", false),
+            Route::Object { doc: Doc::Roster("a", "testnet-r0-20".into()), head: true }
+        );
         for m in ["POST", "PUT", "DELETE", "PATCH", "OPTIONS", "get"] {
             assert_eq!(route(m, "/dashboard/v1/index.json", false), Route::MethodNotAllowed, "{m}");
         }
@@ -122,6 +131,9 @@ mod tests {
             "/dashboard/v1/m/a/cohorts/index.json",
             "/dashboard/v1/m/z/now.json",
             "/dashboard/v1/m/a/months/2026-13.json",
+            "/dashboard/v1/m/a/rosters/index.json",
+            "/dashboard/v1/m/a/rosters/../now.json",
+            "/dashboard/v1/m/a/registry.json",
             "/v1/status.json",
             "/v1/cohorts/index.json",
             "/index.html",
@@ -157,5 +169,10 @@ mod tests {
         assert_eq!(headers(&now)[1].1, "public, max-age=60");
         assert_eq!(headers(&cohort)[1].1, "public, max-age=300");
         assert_eq!(headers(&cohort)[0].1, "application/json");
+        let roster = Doc::Roster("a", "c1".into());
+        assert_eq!(status(&roster, Stored::Present { size: crate::contract::bounds::ROSTER_STATUS as u64 }), 200);
+        assert_eq!(status(&roster, Stored::Present { size: crate::contract::bounds::ROSTER_STATUS as u64 + 1 }), 502);
+        assert_eq!(headers(&roster)[1].1, "public, max-age=60");
+        assert_eq!(status(&Doc::Registry, Stored::Present { size: crate::contract::bounds::REGISTRY as u64 + 1 }), 502);
     }
 }

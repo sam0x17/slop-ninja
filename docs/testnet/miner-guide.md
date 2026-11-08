@@ -30,6 +30,7 @@ closes.
 | Validators committing the launch burn row ([Rewards](#13-rewards)) | live since November 3, 2026: both SlopNinja validators commit and reveal it on subnet 601 each tempo |
 | `R_0` reference package and training companion | built and checked; attached to the testnet release until public access opens ([`R_0` archives](#r_0-archives-optional)) |
 | S2c span package | built and checked; downloadable when public access opens ([Reference model](#reference-model)) |
+| Status API (`https://slop.ninja/api/`), read-only JSON for each cohort ([The status API](#the-status-api)) | rolling out with the website; each miner's intake state while a cohort runs follows with the coordinator, eval and publisher updates after the current deploy batch |
 
 The [training guide](training-guide.md) produces an admissible artifact from
 public material and ends with `pack` and `check`. `commit` needs only the
@@ -759,6 +760,37 @@ outside hotkeys (`not_found`).
 
 Session states: `uploading`, `verifying`, `verified`, `refused`, `admitted`,
 `overflow` and `superseded` (a newer commitment replaced it).
+
+### The status API
+
+The [Testnet Status](https://slop.ninja/status/) page's tracker links to a
+read-only JSON API that needs no key and allows any origin (CORS):
+
+```sh
+curl -s https://slop.ninja/api/v1/testnet/a/status          # the current cohort
+curl -s https://slop.ninja/api/v1/testnet/a/cohorts         # every listed cohort
+curl -s https://slop.ninja/api/v1/testnet/a/cohorts/<label> # one cohort
+curl -s https://slop.ninja/api/                             # endpoints and schemas
+```
+
+A cohort's answer has its stage and phase history, tempos credited and
+required, admission progress, the work percent, the expected stage end and
+close with estimated times, the pause state, the references and the miner
+list with each hotkey's status for the cohort. The estimated times are lower
+bounds: a cohort can run later, never earlier. The API is unsigned and
+publishes no score, rank or result before a cohort closes; after it closes,
+each entrant's gate bits, band, cluster and roster position. Use `status`
+for your own sessions' details: the API shows one status per hotkey
+(`committed`, `uploading`, `verifying`, `verified`, `refused` with a class,
+`overflow`, `admitted`, `evaluating`, then `scored`, `withheld` or
+`not_executed`), and until its per-hotkey documents are live it shows only
+part of that list. While a cohort is scored, each admitted entrant's row also
+has `challenges` (`pending` until its scoring starts, then `done` of `total`).
+These are counts only, with no score, and they update about once a minute. Set
+your miner on the status page to see a checklist for your hotkey: registered,
+commitment seen, upload verified, admitted, challenges started, and how many
+are done, each with its next step. The fields and their sources are in the
+[public layout](public-layout.md#the-public-status-api-slopninjaapi).
 
 ## 12. At the cutoff and the cohort close
 

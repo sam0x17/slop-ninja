@@ -42,6 +42,7 @@ fn settings(c: &ChainBinding) -> Settings<'_> {
         operator_notice: false,
         record_prefix: Some("testnet-r0-"),
         publish_from_epoch: Some(76),
+        roster: RosterLevel::Closed,
     }
 }
 
@@ -1114,6 +1115,8 @@ fn a_run_writes_only_dashboard_keys_and_rebuilds_cohort_documents_on_change() {
         "dashboard/v1/m/a/cohorts/index.json",
         "dashboard/v1/m/a/cohorts/testnet-r0-c5.json",
         "dashboard/v1/m/a/cohorts/testnet-r0-c6.json",
+        "dashboard/v1/m/a/rosters/testnet-r0-c5.json",
+        "dashboard/v1/m/a/rosters/testnet-r0-c6.json",
     ] {
         assert!(keys.contains(&k.to_owned()), "{k} in {keys:?}");
         let bytes = dash.bytes(k).unwrap();
@@ -1129,14 +1132,15 @@ fn a_run_writes_only_dashboard_keys_and_rebuilds_cohort_documents_on_change() {
     let mut idx2 = idx.clone();
     idx2.cohorts[1].artifacts_pending = 1;
     idx2.cohorts[1].artifacts_published = 2;
+    // Each closed cohort's document and its roster (rule v3).
     let pass = run(&mut memo, &o, &idx2, true);
-    assert_eq!(pass.written.len(), 5, "{:?}", pass.written);
+    assert_eq!(pass.written.len(), 7, "{:?}", pass.written);
     // Out of wall time: the rebuild stops and resumes next run.
     idx2.cohorts[1].artifacts_pending = 0;
     let pass = run(&mut memo, &o, &idx2, false);
     assert!(pass.incomplete && pass.written.len() == 3);
     let pass = run(&mut memo, &o, &idx2, true);
-    assert_eq!(pass.written.len(), 5);
+    assert_eq!(pass.written.len(), 7);
     // The store refuses anything outside the grammar or the allow-list.
     assert_eq!(block_on(out.put("v1/status.json", b"{}".to_vec())), Err(StoreError::NotAllowed));
     let mut bad: Value = serde_json::from_slice(&dash.bytes("dashboard/v1/m/a/now.json").unwrap()).unwrap();
@@ -2034,3 +2038,6 @@ fn a_cohort_listed_before_quantization_keeps_entrants_and_bands_without_scores()
     assert!(bands.iter().all(|b| b.lower.is_none() && b.upper.is_none()));
     assert_eq!(d.reference.as_ref().unwrap().score, None);
 }
+
+#[path = "dashboard_roster_tests.rs"]
+mod roster_tests;

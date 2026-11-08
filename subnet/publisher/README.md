@@ -140,6 +140,7 @@ client reads and the alert posts the relay reads are the same code.
 | `config` | vars and secrets; the compiled trust roots |
 | `store` | the object-store seam, with an in-memory store for tests |
 | `dashboard` | the public dashboard's `dashboard/v1` documents, their allow-list and bounds (the key grammar and bounds are `../dashboard-feed/src/contract.rs`, shared with the feed Worker) |
+| `dashboard_roster` | (inside `dashboard`) the registry (`registry.json`) and per-cohort roster (`m/a/rosters/<label>.json`) documents behind the public status API's miner list, their checks, and the `DASHBOARD_ROSTER` levels for a running cohort |
 | `cf` | Workers entry points (`wasm32` only): cron, R2 adapter, status reads, the `PublisherState` Durable Object |
 | `durable` | the Durable Object state and its state-call bodies: JSON both ways (parsed with `serde_json`, never the runtime's `Request::json`), `u64` map keys read from a number or its decimal string |
 
@@ -624,8 +625,10 @@ phases.
 ## Dashboard documents
 
 After the publication pass, each run writes the public dashboard's
-documents (`index.json`, `m/a/now.json`, `m/a/cohorts/index.json` and one
-document per listed or ended cohort) under `dashboard/v1/` into the
+documents (`index.json`, `m/a/now.json`, `m/a/cohorts/index.json`, one
+document per listed or ended cohort, and from bounds rule v3 the registry
+`registry.json` and the per-cohort rosters `m/a/rosters/<label>.json`)
+under `dashboard/v1/` into the
 dashboard bucket (binding `DASHBOARD_TESTNET`). That bucket holds nothing
 else, and only the private dashboard feed Worker (`../dashboard-feed`) reads
 it. The website reaches the feed through a service binding. Without the
@@ -650,6 +653,21 @@ when their inputs change; a rebuild the wall budget cuts short resumes after
 its last document while its inputs stay the same. Their summary and
 publication reads are reserved from the run's memory budget. A refused write
 is alerted like a refused publication.
+
+The registry is written each run from a coordinator whose `/status` reports
+`chain_journal.registry` (journal schema v14 on). A closed, listed
+cohort's roster is rebuilt with its cohort document from the same summary
+and publication record; a running cohort's roster is written each run at
+the `DASHBOARD_ROSTER` level (tracked in `wrangler.toml`: `sessions` on
+testnet, the approved public intake state; `closed`, none, when
+unset), from the eval Worker's `admission.cohorts[].hotkeys` or, from
+scoring start without them, the published artifacts record. At `sessions`
+each admitted entrant's row also carries its challenge counts
+(`challenges{state, done, total}`, from `admission.cohorts[].progress`,
+rule `slop_ninja.eval.scoring_progress/v1`, read each run): counts only,
+under the decision of 2026-11-06. No level publishes a score, rank,
+roster position, gate, band or cluster before close. The fields, levels and inputs are in
+[`docs/testnet/public-layout.md`](../../docs/testnet/public-layout.md#its-dashboard-documents-registryjson-and-rosterslabeljson).
 
 Every stage carries a start (its phase's boundary point: epoch, boundary
 block, time to the minute and how the time is known) and stops where the next

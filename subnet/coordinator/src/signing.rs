@@ -3825,6 +3825,7 @@ fn apply_registration(
     let Some(neurons) = read_neurons(rt, cfg, p.population, values)? else {
         return Ok(failed("registration_unreadable")?);
     };
+    registry::save(sql, o.epoch, at_block.number, p.population, &neurons, now_ms)?;
     let summary = match &t.verified {
         Verified::V1(v) => {
             let snapshot = match target::snapshot(v.chain(), at_block.number, at_block.hash.0, neurons) {
@@ -5141,6 +5142,7 @@ pub fn status(
 
 pub mod authority;
 pub mod auto;
+pub mod registry;
 pub mod rows;
 pub use authority::{
     PointerOutcome, PointerPlan, Revoked, install_revocation, pointer_object, pointer_outcome, pointer_plan, pointer_written,

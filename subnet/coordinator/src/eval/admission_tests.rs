@@ -1104,6 +1104,19 @@ fn the_cutoff_ranks_caps_queues_overflow_and_refuses_changed_commitments() {
     let late = miner(6, 8, 1, 0x16);
     late.commit(&db, OPEN_BLOCK + 30, 0);
     late.create(&db);
+    // While the window admits, each hotkey's state (intake on the status
+    // page). Every commitment is after the stored boundary, so the UID map
+    // is empty there and each session hotkey takes its commitment's UID.
+    let st = tx(&db, status).unwrap();
+    let h = &st["cohorts"][0]["hotkeys"];
+    assert_eq!((h["rule"].as_str(), h["epoch"].as_u64(), h["block"].as_u64()), (Some(HOTKEYS_RULE), Some(11), Some(OPEN_BLOCK)));
+    let mut want: Vec<(u16, u64, &str)> = ms.iter().zip(positions).map(|(m, (b, _))| (m.uid, b, "verified")).collect();
+    want.push((late.uid, OPEN_BLOCK + 30, "uploading"));
+    want.sort();
+    assert_eq!(
+        hotkey_rows(h),
+        want.iter().map(|(u, b, st)| (Some(*u), Some(*b), (*st).to_owned(), None, None)).collect::<Vec<_>>()
+    );
     let cutoff = OPEN_BLOCK + 360;
     close_at(&db, cutoff);
     let w = tx(&db, window).unwrap().unwrap();
@@ -1220,6 +1233,51 @@ fn the_cutoff_ranks_caps_queues_overflow_and_refuses_changed_commitments() {
     let st = tx(&db, status).unwrap();
     assert_eq!(st["cohorts"][0]["state"], "frozen");
     assert!(!st.to_string().contains(&hex::encode(ms[2].upload.opening.nonce.0)));
+    // From the freeze: the roster's outcome per hotkey, refusals by class
+    // only, roster positions in commitment order on admitted rows. The UID
+    // map at the cutoff boundary now names every committing hotkey, the
+    // seventh (committed, refused a session after the cutoff) included.
+    let h = &st["cohorts"][0]["hotkeys"];
+    assert_eq!((h["epoch"].as_u64(), h["block"].as_u64()), (Some(12), Some(cutoff)));
+    let row = |uid: u16, b: u64, st: &str, class: Option<&str>, pos: Option<u64>| {
+        (Some(uid), Some(b), st.to_owned(), class.map(str::to_owned), pos)
+    };
+    assert_eq!(
+        hotkey_rows(h),
+        [
+            row(ms[0].uid, positions[0].0, "overflow", None, None),
+            row(ms[1].uid, positions[1].0, "admitted", None, Some(2)),
+            row(ms[2].uid, positions[2].0, "admitted", None, Some(1)),
+            row(ms[3].uid, positions[3].0, "refused", Some("commitment"), None),
+            row(ms[4].uid, positions[4].0, "refused", Some("registration"), None),
+            row(late.uid, OPEN_BLOCK + 30, "refused", Some("cutoff"), None),
+            row(after.uid, cutoff - 1, "committed", None, None),
+        ]
+    );
+    let text = h.to_string();
+    for private in [ms[2].session(), hex::encode(ms[2].upload.opening.nonce.0), "commitment_overwritten".into(), "registration_mismatch".into(), "incomplete_at_cutoff".into()] {
+        assert!(!text.contains(&private), "{private}");
+    }
+}
+
+/// `(uid, committed_block, state, refusal_class, roster_position)` of each
+/// `hotkeys` row, in the report's order.
+#[allow(clippy::type_complexity)]
+fn hotkey_rows(h: &Value) -> Vec<(Option<u16>, Option<u64>, String, Option<String>, Option<u64>)> {
+    h["rows"]
+        .as_array()
+        .unwrap_or_else(|| panic!("rows: {h}"))
+        .iter()
+        .map(|r| {
+            (
+                r["uid"].as_u64().map(|u| u as u16),
+                r["committed_block"].as_u64(),
+                r["state"].as_str().unwrap().to_owned(),
+                r["refusal_class"].as_str().map(str::to_owned),
+                r["roster_position"].as_u64(),
+            )
+        })
+        .collect()
 }
 
 /// The v2 path through to the seal's inputs: the frozen plan names each
@@ -4740,4 +4798,148 @@ mod witness {
         });
         assert_eq!(got, Some(key.len()));
     }
+}
+
+/// Every code that can end a session has a public class, the classes are
+/// the publisher's closed list, and request-only codes have none.
+#[test]
+fn every_session_refusal_code_has_a_closed_class() {
+    for code in slop_ninja_admission_wire::ErrorCode::ALL {
+        let class = refusal_class(*code);
+        if code.http_status().is_none() {
+            assert!(class.is_some(), "{code} ends sessions");
+        }
+        assert!(class.is_none_or(|c| REFUSAL_CLASSES.contains(&c)), "{code}");
+    }
+    use slop_ninja_admission_wire::ErrorCode as E;
+    for (code, class) in [
+        (E::CommitmentOverwritten, "commitment"),
+        (E::CommitmentMismatch, "commitment"),
+        (E::ObjectMismatch, "artifact"),
+        (E::ArtifactInvalid, "artifact"),
+        (E::ContractMismatch, "artifact"),
+        (E::ContentMismatch, "artifact"),
+        (E::CheckFailed, "artifact"),
+        (E::ObjectReplaced, "artifact"),
+        (E::IncompleteAtCutoff, "cutoff"),
+        (E::NotRegistered, "registration"),
+        (E::RegistrationMismatch, "registration"),
+    ] {
+        assert_eq!(refusal_class(code), Some(class), "{code}");
+    }
+    assert_eq!(refusal_class(E::Internal), None);
+    assert_eq!(REFUSAL_CLASSES, ["commitment", "artifact", "cutoff", "registration"]);
+}
+
+/// A job row of cohort `seq` with `chunks` chunks of `per` documents, the
+/// first `done` of them committed (`started` when any claim was granted).
+fn progress_job(db: &Sqlite, (seq, job): (i64, i64), role: &str, hotkey: &[u8; 32], (chunks, per, done): (i64, i64, i64), started: bool) {
+    let owner = format!(r#"{{"uid":{job},"hotkey":"0x{}","registration_block":5}}"#, hex::encode(hotkey));
+    tx(db, |s| {
+        s.exec(
+            "INSERT INTO jobs (seq, job, role, artifact, package_sha256, manifest_key, owner, status, chunks, done_chunks, started_ms,
+                fault, attempts, isolated_crashes, artifact_failed)
+             VALUES (?, ?, ?, 'art', 'pk', 'mk', ?, ?, ?, ?, ?, ?, 7, 3, ?)",
+            &[
+                seq.into(),
+                job.into(),
+                role.into(),
+                owner.clone().into(),
+                (if done == chunks { "done" } else if started { "faulted" } else { "pending" }).into(),
+                chunks.into(),
+                done.into(),
+                if started { SqlValue::Integer(1_000) } else { SqlValue::Null },
+                (if started && done < chunks { SqlValue::Text("scorer_fault_detail".into()) } else { SqlValue::Null }),
+                (if started { SqlValue::Text("artifact_failure_code".into()) } else { SqlValue::Null }),
+            ],
+        )?;
+        for k in 0..chunks {
+            s.exec(
+                "INSERT INTO chunks (seq, job, chunk, first_task, count, status, attempt) VALUES (?, ?, ?, ?, ?, ?, 4)",
+                &[seq.into(), job.into(), k.into(), (k * per).into(), per.into(), (if k < done { "done" } else { "pending" }).into()],
+            )?;
+        }
+        Ok::<(), crate::sql::StoreError>(())
+    })
+    .expect("job");
+}
+
+/// The frozen cohort's `progress`: sealed only once jobs exist, entrant
+/// rows only (no reference), in hotkey order rather than job (roster)
+/// order, counts of committed chunk documents, and nothing of a job's
+/// fault, attempts, crashes or failure codes.
+#[test]
+fn the_frozen_cohort_reports_each_entrants_challenge_counts_only() {
+    let db = Sqlite::open();
+    tx(&db, |s| crate::sql::migrate(s, &EVAL_COHORT_SCHEMA)).unwrap();
+    tx(&db, |s| {
+        s.exec("INSERT INTO adm_cohorts (seq, cohort, state, open_block) VALUES (1, 6, 'frozen', 100)", &[])?;
+        s.exec(
+            "INSERT INTO cohorts (seq, label, cohort, plan, plan_sha256, phase, phase_since_ms, queued_ms)
+             VALUES (1, 'c6', 6, '{}', 'x', 'generating', 1, 1)",
+            &[],
+        )
+    })
+    .unwrap();
+    // Before the seal: no jobs, every admitted entrant pending.
+    let st = tx(&db, status).unwrap();
+    let frozen = &st["cohorts"][0];
+    assert_eq!(frozen["cohort"], 6);
+    assert_eq!(frozen["progress"], json!({"rule": PROGRESS_RULE, "cohort": 6, "sealed": false, "rows": []}));
+    // Sealed: a reference, then entrants in roster order whose hotkeys sort
+    // the other way.
+    let (a, b, c) = ([0xee; 32], [0x11; 32], [0x77; 32]);
+    progress_job(&db, (1, 0), "reference", &[0x99; 32], (3, 8, 3), true);
+    progress_job(&db, (1, 1), "entrant", &a, (4, 8, 2), true);
+    progress_job(&db, (1, 2), "entrant", &b, (4, 8, 0), false);
+    progress_job(&db, (1, 3), "entrant", &c, (4, 8, 4), true);
+    let st = tx(&db, status).unwrap();
+    let p = &st["cohorts"][0]["progress"];
+    assert_eq!(
+        *p,
+        json!({"rule": PROGRESS_RULE, "cohort": 6, "sealed": true, "rows": [
+            {"hotkey": hex::encode(b), "started": false, "done": 0, "total": 32},
+            {"hotkey": hex::encode(c), "started": true, "done": 32, "total": 32},
+            {"hotkey": hex::encode(a), "started": true, "done": 16, "total": 32},
+        ]})
+    );
+    let text = p.to_string();
+    for private in ["scorer_fault_detail", "artifact_failure_code", "faulted", "\"job\"", "attempt", "chunk", &hex::encode([0x99; 32])] {
+        assert!(!text.contains(private), "{private}");
+    }
+    // Once the cohort closes it reports neither rows nor counts (its
+    // roster comes from its summary).
+    tx(&db, |s| s.exec("UPDATE cohorts SET phase = 'closed' WHERE seq = 1", &[])).unwrap();
+    let st = tx(&db, status).unwrap();
+    assert!(st["cohorts"][0].get("progress").is_none() && st["cohorts"][0].get("hotkeys").is_none());
+    // While the next cohort admits, only it reports per-hotkey rows, and
+    // without counts; the frozen one reports nothing, even still running.
+    tx(&db, |s| {
+        s.exec("UPDATE cohorts SET phase = 'scoring' WHERE seq = 1", &[])?;
+        s.exec("INSERT INTO adm_cohorts (seq, cohort, state, open_block) VALUES (2, 7, 'admitting', 900)", &[])
+    })
+    .unwrap();
+    let st = tx(&db, status).unwrap();
+    assert_eq!((st["cohorts"][0]["cohort"].as_u64(), st["cohorts"][1]["cohort"].as_u64()), (Some(7), Some(6)));
+    assert!(st["cohorts"][0].get("hotkeys").is_some() && st["cohorts"][0].get("progress").is_none());
+    assert!(st["cohorts"][1].get("hotkeys").is_none() && st["cohorts"][1].get("progress").is_none());
+}
+
+/// A report that cannot be read whole is refused whole: more entrant jobs
+/// than the roster bound, or an owner without a hotkey.
+#[test]
+fn a_progress_report_out_of_bounds_or_unreadable_is_refused_whole() {
+    let db = Sqlite::open();
+    tx(&db, |s| crate::sql::migrate(s, &EVAL_COHORT_SCHEMA)).unwrap();
+    tx(&db, |s| s.exec("INSERT INTO adm_cohorts (seq, cohort, state, open_block) VALUES (1, 6, 'frozen', 100)", &[])).unwrap();
+    for n in 0..=PROGRESS_ROWS as u16 {
+        let key: [u8; 32] = [&n.to_be_bytes()[..], &[0x42; 30]].concat().try_into().unwrap();
+        progress_job(&db, (1, i64::from(n)), "entrant", &key, (1, 8, 0), false);
+    }
+    let p = tx(&db, status).unwrap()["cohorts"][0]["progress"].clone();
+    assert_eq!((p["rows"].is_null(), p["refused"].as_str()), (true, Some("over_bound")));
+    tx(&db, |s| s.exec("DELETE FROM jobs WHERE job > 0", &[])).unwrap();
+    tx(&db, |s| s.exec("UPDATE jobs SET owner = '{\"uid\":0}'", &[])).unwrap();
+    let p = tx(&db, status).unwrap()["cohorts"][0]["progress"].clone();
+    assert_eq!((p["rows"].is_null(), p["refused"].as_str()), (true, Some("invalid_owner")));
 }

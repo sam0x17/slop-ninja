@@ -1,0 +1,99 @@
+{
+  "as_of": null,
+  "chain": {
+    "genesis": "0x8f9cf856bf558a14440e75569c9e58594757048d7b3a84b5d25f6bd978263105",
+    "netuid": 601
+  },
+  "cohort": {
+    "cohort": 6,
+    "label": "testnet-r0-c6",
+    "stage": "closed"
+  },
+  "generated_at": 1790509740,
+  "level": "closed",
+  "mechanism": "a",
+  "network": "testnet",
+  "references": {
+    "current": {
+      "artifact": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "content": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    },
+    "index": 1,
+    "predecessor": {
+      "artifact": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "content": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+    }
+  },
+  "rows": [
+    {
+      "artifact_state": "pending",
+      "challenges": null,
+      "hotkey": "5C7LYpP2ZH3tpKbvVvwiVe54AapxErdPBbvkYhe6y9ZBkqWt",
+      "hotkey_hex": "0202020202020202020202020202020202020202020202020202020202020202",
+      "reason_class": null,
+      "result": {
+        "band": 2,
+        "cluster": null,
+        "copy_gate": "fail",
+        "gate": "fail"
+      },
+      "roster_position": 2,
+      "status": "scored",
+      "uid": 2
+    },
+    {
+      "artifact_state": "pending",
+      "challenges": null,
+      "hotkey": "5C8etthaGJi5SkQeEDSaK32ABBjkhwDeK9ksQCTLEGM3EH14",
+      "hotkey_hex": "0303030303030303030303030303030303030303030303030303030303030303",
+      "reason_class": null,
+      "result": {
+        "band": null,
+        "cluster": null,
+        "copy_gate": "pass",
+        "gate": "not_executed"
+      },
+      "roster_position": 3,
+      "status": "not_executed",
+      "uid": 5
+    },
+    {
+      "artifact_state": "pending",
+      "challenges": null,
+      "hotkey": "5C9yEy27yLNG5BDMxVwS8RyGBneZB1ouShazFhGZVP8thK5z",
+      "hotkey_hex": "0404040404040404040404040404040404040404040404040404040404040404",
+      "reason_class": null,
+      "result": {
+        "band": null,
+        "cluster": null,
+        "copy_gate": null,
+        "gate": "withheld"
+      },
+      "roster_position": 4,
+      "status": "withheld",
+      "uid": 7
+    },
+    {
+      "artifact_state": "published",
+      "challenges": null,
+      "hotkey": "5C62Ck4UrFPiBtoCmeSrgF7x9yv9mn38446dhCpsi2mLHiFT",
+      "hotkey_hex": "0101010101010101010101010101010101010101010101010101010101010101",
+      "reason_class": null,
+      "result": {
+        "band": 1,
+        "cluster": {
+          "hotkey": "5C62Ck4UrFPiBtoCmeSrgF7x9yv9mn38446dhCpsi2mLHiFT",
+          "uid": 9
+        },
+        "copy_gate": "pass",
+        "gate": "pass"
+      },
+      "roster_position": 1,
+      "status": "scored",
+      "uid": 9
+    }
+  ],
+  "sample": false,
+  "schema": "slop_ninja.dashboard.roster/v1",
+  "source": "summary"
+}

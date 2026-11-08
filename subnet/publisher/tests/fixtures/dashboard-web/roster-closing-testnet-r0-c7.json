@@ -1,0 +1,91 @@
+{
+  "as_of": {
+    "block": 8041760,
+    "epoch": 116
+  },
+  "chain": {
+    "genesis": "0x8f9cf856bf558a14440e75569c9e58594757048d7b3a84b5d25f6bd978263105",
+    "netuid": 601
+  },
+  "cohort": {
+    "cohort": 7,
+    "label": "testnet-r0-c7",
+    "stage": "admission_closing"
+  },
+  "generated_at": 1790504700,
+  "level": "frozen",
+  "mechanism": "a",
+  "network": "testnet",
+  "references": null,
+  "rows": [
+    {
+      "artifact_state": null,
+      "challenges": null,
+      "hotkey": "5C7LYpP2ZH3tpKbvVvwiVe54AapxErdPBbvkYhe6y9ZBkqWt",
+      "hotkey_hex": "0202020202020202020202020202020202020202020202020202020202020202",
+      "reason_class": null,
+      "result": null,
+      "roster_position": null,
+      "status": "committed",
+      "uid": 1
+    },
+    {
+      "artifact_state": null,
+      "challenges": null,
+      "hotkey": "5C8etthaGJi5SkQeEDSaK32ABBjkhwDeK9ksQCTLEGM3EH14",
+      "hotkey_hex": "0303030303030303030303030303030303030303030303030303030303030303",
+      "reason_class": null,
+      "result": null,
+      "roster_position": null,
+      "status": "committed",
+      "uid": 2
+    },
+    {
+      "artifact_state": null,
+      "challenges": null,
+      "hotkey": "5C62Ck4UrFPiBtoCmeSrgF7x9yv9mn38446dhCpsi2mLHiFT",
+      "hotkey_hex": "0101010101010101010101010101010101010101010101010101010101010101",
+      "reason_class": null,
+      "result": null,
+      "roster_position": null,
+      "status": "none",
+      "uid": 3
+    },
+    {
+      "artifact_state": null,
+      "challenges": null,
+      "hotkey": "5C9yEy27yLNG5BDMxVwS8RyGBneZB1ouShazFhGZVP8thK5z",
+      "hotkey_hex": "0404040404040404040404040404040404040404040404040404040404040404",
+      "reason_class": null,
+      "result": null,
+      "roster_position": null,
+      "status": "admitted",
+      "uid": 4
+    },
+    {
+      "artifact_state": null,
+      "challenges": null,
+      "hotkey": "5CBHb3LfgN2Shc25gnSHwpvNCPZMe6QAaFR77C5nkVvkAK1o",
+      "hotkey_hex": "0505050505050505050505050505050505050505050505050505050505050505",
+      "reason_class": "artifact",
+      "result": null,
+      "roster_position": null,
+      "status": "refused",
+      "uid": 5
+    },
+    {
+      "artifact_state": null,
+      "challenges": null,
+      "hotkey": "5CCbw7fDPPgdL2poR4w9mDsUCzUA7AzRhoFDxgu21cibdUmW",
+      "hotkey_hex": "0606060606060606060606060606060606060606060606060606060606060606",
+      "reason_class": null,
+      "result": null,
+      "roster_position": null,
+      "status": "overflow",
+      "uid": null
+    }
+  ],
+  "sample": false,
+  "schema": "slop_ninja.dashboard.roster/v1",
+  "source": "admission"
+}

@@ -19,6 +19,21 @@ pub fn encode(account: &AccountId) -> String {
     bs58::encode(payload).into_string()
 }
 
+/// The 32-byte public key of an SS58 (prefix 42) address: `None` for
+/// anything [`encode`] would not have produced (another prefix, length or
+/// checksum, or a non-canonical spelling).
+pub fn decode(address: &str) -> Option<AccountId> {
+    if address.len() > 64 {
+        return None;
+    }
+    let bytes = bs58::decode(address).into_vec().ok()?;
+    if bytes.len() != 35 || bytes[0] != PREFIX {
+        return None;
+    }
+    let account = AccountId(bytes[1..33].try_into().ok()?);
+    (encode(&account) == address).then_some(account)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -33,5 +48,9 @@ mod tests {
             encode(&account),
             "5GrwvaEF5zXb26Fz9rcQpDWS57CtERHpNehXCPcNoHGKutQY"
         );
+        assert_eq!(decode("5GrwvaEF5zXb26Fz9rcQpDWS57CtERHpNehXCPcNoHGKutQY"), Some(account));
+        for bad in ["", "5GrwvaEF5zXb26Fz9rcQpDWS57CtERHpNehXCPcNoHGKutQX", "0x00", "5Grwva", "1111"] {
+            assert_eq!(decode(bad), None, "{bad}");
+        }
     }
 }

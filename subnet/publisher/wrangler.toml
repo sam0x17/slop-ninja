@@ -102,6 +102,19 @@ HEARTBEAT_ENABLED = "false"
 # Wall time after which a run starts no new step (a cohort verification or an
 # artifact copy): one cron period. Each step renews the run's two-minute lease.
 RUN_WALL_BUDGET_MS = "60000"
+# How much of a running cohort's per-hotkey status the dashboard roster
+# documents carry (dashboard/v1/m/a/rosters/<label>.json, src/dashboard_roster.rs):
+#   closed    closed cohorts only, from their public summaries (the default)
+#   scoring   + a running cohort's roster from scoring start (the published
+#             artifacts.json record)
+#   frozen    + the eval Worker's per-hotkey rows: none/committed before the
+#             freeze, admitted/evaluating/refused (class)/overflow from it
+#   sessions  + upload and verification states before the freeze
+# Testnet runs at sessions: showing each miner's intake state while a
+# cohort runs was approved on 2026-11-06. No
+# level shows a score, rank, roster position, gate, band or cluster before
+# the cohort closes (src/dashboard_roster.rs checks every roster written).
+DASHBOARD_ROSTER = "sessions"
 # The public record (tracked here, never passed with --var, so a deploy from
 # any tree carries the record that tree names; a chain-record restart changes
 # both in one commit, from the restart record's "publisher" values):

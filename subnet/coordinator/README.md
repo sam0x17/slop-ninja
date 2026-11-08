@@ -1007,6 +1007,18 @@ once per code (`row_record_failed`; `row_record_signed` on success), and
 cleared once the journaled record covers the installed authorization and
 the latest row again. The publisher alerts either after a tempo
 (`row_record_stalled`).
+
+Each successful registration read of either step (`Keys` and
+`BlockAtRegistration` of every UID below `SubnetworkN`) is also kept
+(journal schema v14, `sign_registry`, one row; an earlier block never
+replaces a later read) and reported on the journal's `/status` as
+`registry{rule: "slop_ninja.coordinator.registry/v1", epoch, block,
+rows[{uid, hotkey, registration_block}]}`, ascending by UID, `null` before
+any read, `rows: null` with `refused: "over_bound"` above 256 UIDs. Public
+chain facts and no new RPC call: the publisher's `dashboard/v1/registry.json`
+(`signing::registry`). The alerts relay's status view drops it. Rolling
+the coordinator back below the build that adds v14 is refused by the
+journal migration (`NewerStoredVersion`), so v14 is a floor.
 The journal's plan names the objects (key, digest, length); the Worker
 fetches an object's bytes from the journal only when the bucket lacks it.
 Each pass checks every object the pointer names (a missing one, or one of
@@ -1440,7 +1452,15 @@ a 15-minute alarm wall). The cohort object stays the only authority:
   job), each job's isolated crashes and artifact failures, cold-path,
   cold-path CPU and chunk-time percentiles, host CPU models, generation call
   times and throttles, the timeline, and spend against the budget and the
-  ledger.
+  ledger. Its admission part gives one cohort's per-hotkey intake rows
+  (`admission.cohorts[].hotkeys`, rule `slop_ninja.eval.admission_hotkeys/v1`):
+  the newest admitting or closing cohort, else the newest frozen one while
+  its evaluation runs. That frozen cohort also carries each entrant job's
+  challenge counts (`progress`, rule `slop_ninja.eval.scoring_progress/v1`,
+  `eval::admission::progress`): whether the jobs exist yet, and per entrant
+  hotkey whether its scoring started and its committed chunks' documents of
+  all its documents. These are counts only, in hotkey order, at most 256
+  rows and refused whole beyond that; the publisher publishes them.
 
 **Active tempos.** The phase minimums count active tempos, not raw epoch-index
 differences (`live_epoch_single_increment_v3`), by chain epochs observed and

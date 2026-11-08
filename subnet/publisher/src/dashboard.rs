@@ -22,6 +22,10 @@
 //! quantization block `{rule, width}` of the summary they come from, and
 //! [`check`] refuses any score that is not on that grid ([`grid_check`]).
 //!
+//! The registry (`registry.json`) and the per-cohort rosters
+//! (`m/a/rosters/<label>.json`) that back the public status API's miner
+//! list are built in [`roster`] (`dashboard_roster.rs`).
+//!
 //! Stage times are tempo boundaries. A stage is shown as of the last boundary
 //! the coordinator observed: a change the engine logged at a boundary step
 //! (an opening, a publication, a close) is seen at that boundary, any other
@@ -45,9 +49,13 @@ pub mod contract;
 
 pub use contract::Doc;
 
+#[path = "dashboard_roster.rs"]
+mod roster;
+pub use roster::*;
+
 /// Bumped whenever a document's derivation changes, so every cohort
 /// document is rebuilt once ([`Memo::cohorts_key`]).
-pub const RULES: &str = "slop_ninja.dashboard.publisher/v2";
+pub const RULES: &str = "slop_ninja.dashboard.publisher/v3";
 
 /// The `cohort/v1` bar stages in order, with their kind (progress-hero
 /// spec, section 2).
@@ -885,6 +893,8 @@ pub fn allowed_paths(doc: &Doc) -> BTreeSet<String> {
             add("entrants[]", ENTRANT);
             add("entrants[].artifact", ARTIFACT);
         }
+        Doc::Registry => add("", REGISTRY_PATHS),
+        Doc::Roster(..) => add("", ROSTER_PATHS),
         // Month documents (P3) are not written yet: nothing is allowed.
         Doc::Month(..) => return BTreeSet::new(),
     }
@@ -1024,10 +1034,22 @@ pub fn check(key: &str, bytes: &[u8]) -> Result<Doc, String> {
         clean(&mut c);
         if c == d { Ok(()) } else { Err("stage times or blocks fail the contract's checks") }
     }
-    match doc {
-        Doc::Now(_) => unchanged::<NowDoc>(v, clean_now),
-        Doc::Cohorts(_) => unchanged::<CohortsDoc>(v, clean_cohorts),
-        Doc::Cohort(..) => unchanged::<CohortDoc>(v, clean_cohort),
+    // The registry and the rosters: their own shape and row checks.
+    match &doc {
+        Doc::Now(_) => unchanged::<NowDoc>(v, clean_now).map_err(str::to_owned),
+        Doc::Cohorts(_) => unchanged::<CohortsDoc>(v, clean_cohorts).map_err(str::to_owned),
+        Doc::Cohort(..) => unchanged::<CohortDoc>(v, clean_cohort).map_err(str::to_owned),
+        Doc::Registry => serde_json::from_value::<RegistryDoc>(v)
+            .map_err(|_| "not the contract's shape".to_owned())
+            .and_then(|d| check_registry(&d)),
+        Doc::Roster(_, label) => serde_json::from_value::<RosterDoc>(v)
+            .map_err(|_| "not the contract's shape".to_owned())
+            .and_then(|d| {
+                if d.cohort.label != *label {
+                    return Err("a roster under another cohort's key".into());
+                }
+                check_roster(&d)
+            }),
         _ => Ok(()),
     }
     .map_err(|why| format!("{key}: {why}"))?;
@@ -1446,6 +1468,8 @@ pub struct Settings<'a> {
     pub operator_notice: bool,
     pub record_prefix: Option<&'a str>,
     pub publish_from_epoch: Option<u64>,
+    /// How much of a running cohort's per-hotkey status the rosters carry.
+    pub roster: RosterLevel,
 }
 
 fn minute(ms: u64) -> u64 {
@@ -2748,6 +2772,33 @@ async fn cohort_facts<'b, S: Store>(
     })
 }
 
+/// The running cohort's published artifacts record
+/// (`v1/cohorts/<label>/artifacts.json`, written by this publisher at
+/// scoring start), read within the cohort document's bound and its stored
+/// size after reserving its memory. Absent before scoring starts.
+async fn start_record<'b, S: Store>(
+    public: &crate::store::PublicStore<'_, S>,
+    budget: &'b crate::arena::Budget,
+    label: &str,
+) -> Result<Option<(crate::artifacts::StartRecord, crate::arena::Hold<'b>)>, String> {
+    let key = crate::layout::artifacts_record(label);
+    let bound = contract::bounds::ROSTER as u64;
+    let size = match public.head(&key).await {
+        Ok(Some(m)) if m.size <= bound => m.size,
+        Ok(Some(m)) => return Err(format!("{key}: {} bytes exceed {bound}", m.size)),
+        Ok(None) => return Ok(None),
+        Err(e) => return Err(format!("{key}: {e}")),
+    };
+    let hold = budget
+        .reserve(size.saturating_mul(HELD_PER_READ_BYTE))
+        .map_err(|r| format!("{key}: needs {} bytes with {} held of {}", r.want, r.held, r.limit))?;
+    match public.get(&key, bound).await {
+        Ok(Some(b)) => Ok(serde_json::from_slice(&b).ok().map(|r| (r, hold))),
+        Ok(None) => Ok(None),
+        Err(e) => Err(format!("{key}: {e}")),
+    }
+}
+
 /// One dashboard pass: rolls the latched values to the observed boundary
 /// and saves them (`checkpoint`, before any document carries them; nothing
 /// is written when the save fails), writes the registry and the current
@@ -2801,6 +2852,25 @@ pub async fn publish<S: Store>(
     });
     let now = now_doc(s, i.observed, i.index, facts.as_ref(), memo, i.now_ms);
     write(out, &Doc::Now("a"), &now, &mut pass).await;
+    // The registry, from a coordinator that reports it.
+    if let Some(reg) = i.observed.coordinator.as_ref().and_then(|c| c.registry.as_ref()) {
+        write(out, &Doc::Registry, &registry_doc(s, reg.as_ref(), i.now_ms), &mut pass).await;
+    }
+    // The running cohort's roster, at the configured level.
+    if s.roster > RosterLevel::Closed
+        && let Some(label) = now.cohort.label.as_deref()
+    {
+        let start = match start_record(public, i.budget, label).await {
+            Ok(r) => r,
+            Err(why) => {
+                pass.refused.push((format!("dashboard roster {label}"), why));
+                None
+            }
+        };
+        if let Some(doc) = running_roster(s, s.roster, &now, e, start.as_ref().map(|(r, _)| r), i.now_ms) {
+            write(out, &Doc::Roster("a", label.to_owned()), &doc, &mut pass).await;
+        }
+    }
     let (Some(idx), Some(e)) = (i.index, e) else { return pass };
     let x = e.epoch.unwrap_or(u64::MAX);
     drop(since_facts);
@@ -2855,6 +2925,13 @@ pub async fn publish<S: Store>(
                 let doc = cohort_doc(s, &rows, n, f.summary.as_ref(), &f.artifacts, x, i.now_ms);
                 if !write(out, &target, &doc, &mut pass).await {
                     failed = true;
+                }
+                // A closed cohort's roster, from the same summary.
+                if let Some(sm) = f.summary.as_ref().filter(|sm| l.row.state == "closed" && sm.label == l.row.label) {
+                    let roster = closed_roster(s, sm, &f.artifacts, i.now_ms);
+                    if !write(out, &Doc::Roster("a", l.row.label.clone()), &roster, &mut pass).await {
+                        failed = true;
+                    }
                 }
             }
             Err(why) => {

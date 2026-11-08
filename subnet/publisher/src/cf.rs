@@ -1188,6 +1188,7 @@ async fn scheduled(_event: ScheduledEvent, env: Env, ctx: ScheduleContext) {
                 operator_notice: cfg.notice.is_some(),
                 record_prefix: cfg.record_label_prefix.as_deref(),
                 publish_from_epoch: cfg.publish_from_epoch,
+                roster: cfg.dashboard_roster,
             },
             observed: &observed,
             index: index.as_ref(),

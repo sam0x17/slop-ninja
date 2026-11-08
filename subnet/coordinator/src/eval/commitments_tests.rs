@@ -308,6 +308,11 @@ fn a_uid_map_over_its_bound_is_refused_whole() {
 #[test]
 fn the_uid_map_bound_equals_the_dashboard_contracts() {
     assert_eq!(UID_MAP_ROWS, dashboard_contract::uid_map::ROWS);
+    // The per-hotkey admission report: the map plus as many outside it,
+    // the dashboard roster's bound.
+    assert_eq!(crate::eval::admission::HOTKEY_ROWS, dashboard_contract::roster::ROWS);
+    // The coordinator's registry read: one row per UID, the registry's.
+    assert_eq!(crate::signing::registry::ROWS, dashboard_contract::registry::ROWS);
 }
 
 #[path = "../../../dashboard-feed/src/contract.rs"]

@@ -216,6 +216,7 @@ pub fn migrate(sql: &impl Sql, schema: &Schema) -> Result<MigrationReport, Migra
 ///   last pass (confirmed pointer, failure since).
 /// - v11: the inclusion search's body scan; v12: the automatic target
 ///   handoff; v13: the signed coordinator row other validators copy.
+/// - v14: the latest registration read (the public status's `registry`).
 pub const CHAIN_JOURNAL_SCHEMA: Schema = Schema {
     family: "chain_journal",
     migrations: &[
@@ -735,6 +736,22 @@ pub const CHAIN_JOURNAL_SCHEMA: Schema = Schema {
                     updated_at_ms INTEGER NOT NULL
                 ) STRICT",
             ],
+        },
+        // v14: the latest registration read of a signing operation
+        // (`signing::registry`): every UID below `SubnetworkN` with its
+        // hotkey and registration block at the read's confirmed block, one
+        // row overwritten by each later read. Public chain facts, what the
+        // coordinator's status reports as `registry`.
+        Migration {
+            version: 14,
+            statements: &["CREATE TABLE sign_registry (
+                    id INTEGER PRIMARY KEY CHECK (id = 1),
+                    epoch INTEGER NOT NULL,
+                    block_number INTEGER NOT NULL,
+                    population INTEGER NOT NULL,
+                    rows_json TEXT,
+                    updated_at_ms INTEGER NOT NULL
+                ) STRICT"],
         },
     ],
 };

@@ -5013,11 +5013,47 @@ pub fn closure_artifacts(plan: &CohortPlan) -> Value {
     json!({"schema": "slop_ninja.admission.closure_artifacts/v2", "artifacts": list})
 }
 
-/// Content-free admission status for `/eval/status`.
+/// Content-free admission status for `/eval/status`. One cohort also
+/// carries each hotkey's state (`hotkeys`, [`hotkeys::report`]): the
+/// newest admitting or closing cohort, else the newest frozen one while its
+/// evaluation runs, which then also carries each entrant's scoring counts
+/// (`progress`, [`progress::report`]). The publisher's running roster reads
+/// only the cohort `now.json` shows, which is that one: the calendar opens
+/// a cohort only after the previous one closes, and a closed cohort's
+/// roster comes from its summary. One report at most keeps the status
+/// within the cohort control footprint (`arena_witness`).
 pub fn status(sql: &impl Sql) -> R<Value> {
-    let cohorts: Vec<Value> = sql
-        .exec("SELECT seq, cohort, state, open_block, cutoff_block, frozen_epoch, outside, admitted, overflow, close_recorded,
-                want_cutoff FROM adm_cohorts ORDER BY seq DESC LIMIT 8", &[])?
+    let rows = sql.exec(
+        "SELECT seq, cohort, state, open_block, cutoff_block, frozen_epoch, outside, admitted, overflow, close_recorded,
+                want_cutoff FROM adm_cohorts ORDER BY seq DESC LIMIT 8",
+        &[],
+    )?;
+    let newest = |states: &[&str]| -> R<Option<i64>> {
+        for r in &rows {
+            if states.contains(&text(r, 2)?) {
+                return Ok(Some(int(r, 0)?));
+            }
+        }
+        Ok(None)
+    };
+    let admitting = newest(&["admitting", "closing"])?;
+    let frozen = match admitting {
+        Some(_) => None,
+        None => match newest(&["frozen"])? {
+            Some(seq) => {
+                let phase = sql.exec("SELECT phase FROM cohorts WHERE seq = ?", &[i(seq)])?;
+                let ended = match phase.first() {
+                    Some(r) => matches!(text(r, 0)?, "closed" | "abandoned"),
+                    None => false,
+                };
+                (!ended).then_some(seq)
+            }
+            None => None,
+        },
+    };
+    let reported = [admitting, frozen];
+    let at = if reported.iter().any(Option::is_some) { hotkeys::boundary(sql)? } else { None };
+    let cohorts: Vec<Value> = rows
         .iter()
         .map(|r| {
             let seq = int(r, 0)?;
@@ -5026,9 +5062,33 @@ pub fn status(sql: &impl Sql) -> R<Value> {
                 .iter()
                 .map(|x| Ok(json!({"state": text(x, 0)?, "count": int(x, 1)?})))
                 .collect::<R<_>>()?;
-            Ok(json!({"cohort": int(r, 1)?, "state": text(r, 2)?, "open_block": int(r, 3)?, "cutoff_block": opt_int(r, 4),
+            let mut v = json!({"cohort": int(r, 1)?, "state": text(r, 2)?, "open_block": int(r, 3)?, "cutoff_block": opt_int(r, 4),
                 "frozen_epoch": opt_int(r, 5), "outside_entrant": int(r, 6)? == 1, "admitted": int(r, 7)?, "overflow": int(r, 8)?,
-                "close_recorded": int(r, 9)? == 1, "close_wanted_at": opt_int(r, 10), "sessions": states}))
+                "close_recorded": int(r, 9)? == 1, "close_wanted_at": opt_int(r, 10), "sessions": states});
+            if reported.contains(&Some(seq)) {
+                let c = hotkeys::CohortRef {
+                    seq,
+                    cohort: uint(r, 1)?,
+                    open_block: uint(r, 3)?,
+                    cutoff_block: opt_int(r, 4).and_then(|b| u64::try_from(b).ok()),
+                    frozen: text(r, 2)? == "frozen",
+                };
+                let report = match &at {
+                    Some(b) => hotkeys::report(sql, &c, b)?,
+                    None => Value::Null,
+                };
+                if let Some(m) = v.as_object_mut() {
+                    m.insert("hotkeys".into(), report);
+                }
+            }
+            // The frozen cohort's per-entrant scoring counts.
+            if reported[1] == Some(seq) {
+                let report = progress::report(sql, seq, uint(r, 1)?)?;
+                if let Some(m) = v.as_object_mut() {
+                    m.insert("progress".into(), report);
+                }
+            }
+            Ok(v)
         })
         .collect::<R<_>>()?;
     let verdicts: Vec<Value> = sql
@@ -5086,6 +5146,14 @@ pub fn status(sql: &impl Sql) -> R<Value> {
         "objects": objects, "upload_path": platform_status(sql)?, "commitments": commitments::status(sql)?}),
     )
 }
+
+#[path = "admission_hotkeys.rs"]
+pub mod hotkeys;
+pub use hotkeys::{HOTKEY_ROWS, HOTKEYS_RULE, REFUSAL_CLASSES, refusal_class};
+
+#[path = "admission_progress.rs"]
+pub mod progress;
+pub use progress::{PROGRESS_ROWS, PROGRESS_RULE};
 
 #[cfg(test)]
 #[path = "admission_tests.rs"]

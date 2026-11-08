@@ -88,7 +88,7 @@ AUTHORIZATION_PUBLIC_KEY = "6615d6c2dfddb125e94e2e7d3822a1a828654b3a9dd4663abbea
 # the main record. Keep it equal to the eval Worker's EVAL_MAIN_AUTHORITY
 # (plus any EVAL_MAIN_PREVIOUS still closing cohorts); a switch commit
 # changes both. Unset or malformed: the handoff reads nothing and says so.
-AUTO_TARGET_AUTHORITIES = "r0"
+AUTO_TARGET_AUTHORITIES = "r1"
 WEIGHTS_VERSION_KEY = "0"
 # Mortal era of each attempt (a power of two): an uncertain attempt's fate is
 # known at most this many blocks after the block that anchors it.
@@ -257,9 +257,9 @@ SCORER_START_WAIT_MS = "60000"
 # superseded authority admits no plan again, even if a later deploy names it.
 # Earlier authorities are kicked on ticks while they hold work, and are
 # readable at GET /eval/authority/<name>/status.
-EVAL_MAIN_AUTHORITY = "r0"
-EVAL_MAIN_FIRST_COHORT = "14"
-EVAL_MAIN_PREVIOUS = ""
+EVAL_MAIN_AUTHORITY = "r1"
+EVAL_MAIN_FIRST_COHORT = "22"
+EVAL_MAIN_PREVIOUS = "r0"
 
 [env.eval-testnet.ai]
 binding = "AI"

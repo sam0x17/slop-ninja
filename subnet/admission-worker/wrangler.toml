@@ -72,7 +72,7 @@ RPC_URL = "https://test.finney.opentensor.ai"
 # (TESTNET.md, "Upload Worker"): the drill deploy passes the test hotkeys with
 # `--var ADMISSION_HOTKEYS:<list>`, so no hotkey list is tracked here. The
 # switch to "open" is its own commit and its own one-change deploy.
-ADMISSION_ROUTES = "hotkeys"
+ADMISSION_ROUTES = "open"
 
 # No R2 binding: the unsigned cohort read is served from this Worker's
 # one-block edge copy of the cohort snapshot, refreshed through the eval

@@ -51,7 +51,10 @@ decoded into AI spans with exact character offsets and per-span confidence, and
 per-sentence AI share and confidence derive from the same probabilities,
 consistent with the document outputs. Document confidence Brier is the only
 reward; share, attribution and spans are qualification gates only, with span
-thresholds fixed after measurement. The release is R0 (seed 17) plus the S0+
+thresholds fixed after measurement. Never train or evaluate spans under 24
+words: mask shorter AI spans out of the span loss rather than labelling them
+human, leave them out of span scoring, and never decode a span under 24 words.
+Every AI word still counts toward document share and involvement. The release is R0 (seed 17) plus the S0+
 token head, with document outputs bit-identical to R0; S2c is the adopted span
 head for the first package that serves spans (`docs/a-spans-results.md`), and
 S0+ stays shipped until then. Never name a span package as R_0 in a signed
@@ -297,6 +300,13 @@ that epoch) until the operator restores or removes it; signed commitments and
 their reveals stay recoverable. Coordinator outages pause protocol progress indefinitely;
 retain and resume the same cohort and its evidence. Never skip or expire it
 because time passed, or claim that this also pauses Subtensor's native emissions.
+Never let our own rules lock the operator out. Every precondition in the
+evaluation, coordinator, publisher, validator and deploy tooling needs a
+reasonable, journaled operator path past it: the operator can always decide to
+start a new cohort, change references, install or pause a template, or restart
+the record without first writing code. Moving forward never requires reading
+retired or superseded state, and an install respects a paused calendar. Escape
+paths keep the never-skip, no-expiry and no-double-sign rules and are recorded.
 The sole dependence on other validators is timely on-chain submission and reveal of the
 coordinator's signed weight rows. Their acknowledgments, versions,
 availability, and adopting stake never gate evaluation, transitions, service,

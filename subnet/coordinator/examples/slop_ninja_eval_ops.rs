@@ -70,7 +70,8 @@
 //!   authorities), the publisher's `RECORD_LABEL_PREFIX` and
 //!   `PUBLISH_FROM_EPOCH` (no earlier cohort opened at or after it; also the
 //!   coordinator's `restart_target` `from_epoch` and the launch bundle's
-//!   issued epoch), the reference, and the probe record's key; and `DIR/probe-plan.json`, the
+//!   issued epoch), the coordinator's `AUTO_TARGET_AUTHORITIES` (NAME, committed
+//!   with the three authority vars), the reference, and the probe record's key; and `DIR/probe-plan.json`, the
 //!   probe build that creates the restarted chain record: ARTIFACT.json as
 //!   R_0 with no predecessor, no entrants, probe version V (default 1), the
 //!   authority's first cohort number and label `<prefix>probe-v<V>`, every
@@ -169,7 +170,11 @@
 //!   succession or lists a cohort) unless `--freeze`. With `--first-deploy`
 //!   (the one deploy of authority support only) the status must be an eval
 //!   status of a build that reports no authority, and the tree must track
-//!   the original. The vars are never passed with `--var`.
+//!   the original. Every mode also refuses a tree whose coordinator
+//!   `AUTO_TARGET_AUTHORITIES` (`[env.testnet.vars]` of the same file) does
+//!   not name the tracked authority (a named one): the automatic handoff
+//!   would leave its cohorts outside the record. The vars are never passed
+//!   with `--var`.
 use serde_json::{Value, json};
 use sha2::{Digest as _, Sha256};
 use slop_ninja_coordinator::config::{Authority, DeployMode, DeployedAuthority, deploy_check};
@@ -490,12 +495,22 @@ fn report_summary(pos: &[String]) {
 /// The `[env.eval-testnet.vars]` table of a tracked `wrangler.toml`: each
 /// `KEY = "VALUE"` line of that section (the form the file uses).
 fn eval_vars(path: &str) -> BTreeMap<String, String> {
+    let vars = section_vars(path, "[env.eval-testnet.vars]");
+    if vars.is_empty() {
+        fail(&format!("{path}: no [env.eval-testnet.vars] section"));
+    }
+    vars
+}
+
+/// The `KEY = "VALUE"` lines of one `[...]` section of a tracked
+/// `wrangler.toml` (empty when the section is absent).
+fn section_vars(path: &str, section: &str) -> BTreeMap<String, String> {
     let text = std::fs::read_to_string(path).unwrap_or_else(|e| fail(&format!("read {path}: {e}")));
     let mut vars = BTreeMap::new();
     let mut inside = false;
     for line in text.lines().map(str::trim) {
         if line.starts_with('[') {
-            inside = line == "[env.eval-testnet.vars]";
+            inside = line == section;
             continue;
         }
         if !inside || line.starts_with('#') {
@@ -507,10 +522,31 @@ fn eval_vars(path: &str) -> BTreeMap<String, String> {
             vars.insert(k.trim().to_owned(), v.to_owned());
         }
     }
-    if vars.is_empty() {
-        fail(&format!("{path}: no [env.eval-testnet.vars] section"));
-    }
     vars
+}
+
+/// The coordinator's automatic handoff hands in only the cohorts of the
+/// authorities its tracked `AUTO_TARGET_AUTHORITIES` names (`[env.testnet.vars]`
+/// of the same `wrangler.toml`, `signing::auto::Record`). A tree whose eval
+/// authority is not among them would leave every cohort of that authority
+/// `outside` the record, so the coordinator would never install its
+/// targets: refused. The original authority has no label prefix to bind.
+fn auto_target_check(path: &str, tracked: &Authority) -> Result<(), String> {
+    let Some(prefix) = tracked.label_prefix() else {
+        return Ok(());
+    };
+    let coord = section_vars(path, "[env.testnet.vars]");
+    let named = coord.get("AUTO_TARGET_AUTHORITIES").map(String::as_str);
+    let record = slop_ninja_coordinator::signing::auto::Record::parse(named)
+        .map_err(|code| format!("the tree's AUTO_TARGET_AUTHORITIES does not name a record ({code})"))?;
+    if !record.admits(&format!("{prefix}0")) {
+        return Err(format!(
+            "the tree's AUTO_TARGET_AUTHORITIES ({}) does not name the tracked eval authority {}: the coordinator would leave its cohorts outside the record (change both in the same commit)",
+            named.unwrap_or_default(),
+            tracked.name()
+        ));
+    }
+    Ok(())
 }
 
 /// The authority a tracked `wrangler.toml` names for the main instance.
@@ -539,7 +575,8 @@ fn authority_check(flags: &BTreeMap<String, String>) {
         (false, false, true) => DeployMode::FirstDeploy,
         _ => fail("--first-deploy takes neither --switch nor --freeze"),
     };
-    match deploy_check(&tracked, &status, target.as_ref(), mode) {
+    let wrangler: String = flag(flags, "wrangler");
+    match deploy_check(&tracked, &status, target.as_ref(), mode).and_then(|line| auto_target_check(&wrangler, &tracked).map(|()| line)) {
         Ok(line) => println!("{line}"),
         Err(why) => {
             println!("refused: {why}");
@@ -666,6 +703,11 @@ fn restart(flags: &BTreeMap<String, String>) {
         // Commit these in [env.eval-testnet.vars] (never --var).
         "vars": {"EVAL_MAIN_AUTHORITY": name, "EVAL_MAIN_FIRST_COHORT": first.to_string(),
             "EVAL_MAIN_PREVIOUS": previous.join(",")},
+        // Commit this in the coordinator's [env.testnet.vars], in the same
+        // commit as the three above: the automatic handoff hands in only the
+        // named authorities' cohorts (`authority-check` refuses a tree whose
+        // eval authority it does not name).
+        "coordinator": {"AUTO_TARGET_AUTHORITIES": name},
         // Commit these in the publisher's [env.testnet.vars].
         "publisher": {"RECORD_LABEL_PREFIX": prefix, "PUBLISH_FROM_EPOCH": from_epoch.to_string()},
         // The coordinator's restart_target from_epoch and the launch bundle's issued epoch.

@@ -2333,13 +2333,21 @@ staged by the tracked pin, one change per deploy):
    block, manifest key). `<dir>/restart.json` holds the three authority vars
    to commit (`EVAL_MAIN_FIRST_COHORT` is one past the replaced authority's
    highest cohort number; `EVAL_MAIN_PREVIOUS` lists the earlier named
-   authorities), the publisher's `RECORD_LABEL_PREFIX` and
+   authorities), the coordinator's `AUTO_TARGET_AUTHORITIES` (the new
+   name), the publisher's `RECORD_LABEL_PREFIX` and
    `PUBLISH_FROM_EPOCH`, `record_from_epoch` (the same epoch), R_0 and the
    probe record's key; `<dir>/probe-plan.json` is the probe build.
 4. **Switch.** Commit exactly the three vars from `restart.json` in
-   `[env.eval-testnet.vars]` (a one-line-per-var commit, nothing else), push
+   `[env.eval-testnet.vars]` and its `coordinator` value,
+   `AUTO_TARGET_AUTHORITIES`, in `[env.testnet.vars]` (a one-line-per-var
+   commit, nothing else; the coordinator's automatic handoff hands in only
+   the cohorts of the authorities that var names, so a coordinator deployed
+   from a tree that still names the replaced one leaves every restarted
+   cohort `outside` the record), push
    it to main, and deploy eval-testnet from it after `authority-check
-   --switch` passes. It passes only when the tree's predecessors are the
+   --switch` passes. Every `authority-check` also refuses a tree whose
+   `AUTO_TARGET_AUTHORITIES` does not name its tracked (named) eval
+   authority. It passes only when the tree's predecessors are the
    deployed authority's and then the deployed one, the deployed authority
    holds no cohort that is not closed or abandoned and reports `work: false`
    (no closure, spend settlement, purge of private results and summaries, or
@@ -2394,8 +2402,16 @@ staged by the tracked pin, one change per deploy):
    `testnet-<name>-<s>`, a named artifact spec's digest frozen with the plan
    in `fanout.score.artifact_spec_sha256`). A standing template's
    `label_prefix` is `testnet-<name>`; its install needs the same succession,
-   and its calendar numbers from the first cohort.
-6. **Launch bundle and the coordinator.** With `F` the restart record's
+   and its calendar numbers from one past every cohort held (the probe
+   build holds the first cohort number, so the first standing cohort is
+   numbered one past it). An install that is not a replay always leaves the
+   calendar unpaused (`calendar::install`), and once the probe build has
+   closed the next step queues a cohort from it, so install the template
+   only when that cohort may open.
+6. **Launch bundle and the coordinator.** Deploy the coordinator first from
+   a main that contains the switch commit (signing paused, journal schema
+   checked, resumed only after the restart below), so its
+   `AUTO_TARGET_AUTHORITIES` names the new authority. With `F` the restart record's
    `record_from_epoch` and `E` the current epoch (`E >= F`):
 
    ```text
@@ -2431,11 +2447,17 @@ staged by the tracked pin, one change per deploy):
    bucket) from its installed bundle at the next cron tick, and the publisher
    copies it; outside validators fetch it once the public host is deployed.
    validator2 holds the
-   earlier chain's target under the same trust roots, so install by hand
+   earlier chain's target under the same trust roots, so reset it by hand
    (validator README, "Trust roots and restarted chain records"): stop the
-   dispatch unit, run `reset-target`, install the launch bundle file from
-   step 6, start the unit. Rotated roots would instead set the record aside
-   on their own (`held_target_authority_changed`).
+   dispatch unit, run `rollback-check` (it must exit 0; never compact), run
+   `reset-target`, start the unit. A release validator takes only the
+   coordinator's signed row bundle: the launch bundle file from step 6 is
+   not installed there (a T12 bundle defers with `bundle_schema_retired`).
+   Its `[fetch]` (validator2: the row mirror) reads the row the coordinator
+   signs under the restarted launch authorization; until the pointer
+   carries it, `fetch` reports `row_unpublished` (exit 75, retried). Rotated
+   roots would instead set the record aside on their own
+   (`held_target_authority_changed`).
 8. **Publisher.** Commit `RECORD_LABEL_PREFIX` and `PUBLISH_FROM_EPOCH` from
    `restart.json` in the publisher's `[env.testnet.vars]` and deploy it from
    that commit after `record-check --restart` passes. Its next run sees the

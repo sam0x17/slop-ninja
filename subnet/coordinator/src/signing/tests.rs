@@ -2417,6 +2417,100 @@ fn a_held_target_restart_installs_the_restarted_launch_bundle_and_keeps_every_ob
     assert_eq!(r.previous, None);
 }
 
+/// The shape of the 2026-11-06 chain-record restart: the held target is a
+/// cohort target the earlier record activated, and the stored active bundle
+/// no longer verifies under this build (its records are an earlier format;
+/// here its authorization bytes no longer authenticate). The signer prepares
+/// nothing on it, and the restart route installs the restarted record's
+/// launch bundle without reading the stored bundle; the next commit takes a
+/// later epoch, and the stored bundle never verifies or installs again.
+#[test]
+fn a_restart_replaces_a_held_target_whose_stored_bundle_no_longer_verifies() {
+    let mut h = H::new();
+    tx(&h.db, |sql| {
+        install_target(sql, &h.cfg, &h.trusted, &launch_bundle_json(1), T0)
+    })
+    .unwrap()
+    .unwrap();
+    h.resume();
+    h.until(80, committed);
+    let first = h.ops()[0].clone();
+    // The earlier record's cohort target activated, and its stored bundle no
+    // longer verifies.
+    let held_at = first.epoch;
+    let activated = slop_ninja_protocol::ActiveTarget::restore(
+        &chain_601(),
+        slop_ninja_protocol::Digest([0x5a; 32]),
+        Some(held_at),
+    )
+    .unwrap();
+    let launch = tx(&h.db, |sql| held_target(sql, &h.cfg)).unwrap();
+    tx(&h.db, |sql| record_held(sql, &launch, &activated, T0))
+        .unwrap()
+        .unwrap();
+    let mut stale: serde_json::Value = serde_json::from_str(&launch_bundle_json(1)).unwrap();
+    let mut auth = hex::decode(stale["authorization"]["authorization"].as_str().unwrap()).unwrap();
+    *auth.last_mut().unwrap() ^= 0x01;
+    stale["authorization"]["authorization"] = serde_json::json!(hex::encode(auth));
+    let stale = serde_json::to_string(&stale).unwrap();
+    tx(&h.db, |sql| {
+        sql.exec(
+            "UPDATE sign_targets SET bundle = ? WHERE active = 1",
+            &[stale.as_str().into()],
+        )
+        .map(|_| ())
+    })
+    .unwrap();
+    assert!(matches!(
+        tx(&h.db, |sql| active_target(sql, &h.cfg, &h.trusted)).unwrap(),
+        Some(Err(_))
+    ));
+    // Nothing is prepared on it, however long it runs.
+    h.until(400, |h| h.ops()[0].state == "revealed");
+    h.blocks(2 * 360);
+    assert_eq!(h.ops().len(), 1, "nothing is prepared on a bundle that does not verify");
+    // The restart, paused, at a first epoch after the held activation.
+    tx(&h.db, |sql| pause(sql, "operator_hold", T0)).unwrap();
+    let from = held_at + 1;
+    let r = tx(&h.db, |sql| {
+        restart_target(sql, &h.cfg, &h.trusted, &launch_bundle_json(held_at), held_at, T0)
+    })
+    .unwrap()
+    .unwrap_err();
+    assert_eq!(r.code, "restart_before_held_record");
+    let r = tx(&h.db, |sql| {
+        restart_target(sql, &h.cfg, &h.trusted, &launch_bundle_json(from), from, T0)
+    })
+    .unwrap()
+    .unwrap();
+    assert_eq!(
+        r.previous,
+        Some((slop_ninja_protocol::Digest([0x5a; 32]).to_string(), Some(held_at)))
+    );
+    assert_eq!(r.from_epoch, from);
+    let active = tx(&h.db, |sql| active_target(sql, &h.cfg, &h.trusted))
+        .unwrap()
+        .unwrap()
+        .unwrap();
+    assert_eq!(active.digest, r.installed);
+    assert!(
+        tx(&h.db, |sql| held_target(sql, &h.cfg))
+            .unwrap()
+            .is_launch_burn()
+    );
+    // The stored bundle of the record set aside never installs again.
+    let old = tx(&h.db, |sql| install_target(sql, &h.cfg, &h.trusted, &stale, T0))
+        .unwrap()
+        .unwrap_err();
+    assert!(!old.code.is_empty());
+    h.resume();
+    h.until(800, |h| h.ops().len() == 2 && committed(h));
+    let ops = h.ops();
+    assert!(ops[1].epoch > ops[0].epoch, "the restarted target's first commit takes a later epoch");
+    let attempts: usize = ops.iter().map(|o| o.attempts.len()).sum();
+    assert_eq!((attempts, h.chain.accepted.len()), (2, 2), "nothing is sent twice");
+}
+
 /// The floor a restart sets: launch bundles issued, and cohort bundles
 /// opened, at or after the restarted record's first epoch.
 #[test]

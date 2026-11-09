@@ -1326,8 +1326,9 @@ fn reference_set(sql: &impl Sql, inputs: &SealInputs) -> R<(ReferenceSet, u64)> 
 
 /// The policy the manifest binds by digest: the gates, the canary, and the
 /// draw policy (the reuse limit and gap with their unit, the rewrite prompt
-/// set and the reuse rule), so the reuse values are frozen in the signed
-/// manifest, not only in the private plan.
+/// set and the reuse rule, and, for a plan that names them, the exposed-pool
+/// reuse rule and the further parent pools), so the reuse values are frozen
+/// in the signed manifest, not only in the private plan.
 fn gate_policy_digest(v: &RewardV1Plan) -> R<Digest> {
     let j = gate_policy_json(v);
     Ok(domain_hash("slop_ninja.eval/gate-policy/v2", j.to_string().as_bytes()))
@@ -1343,6 +1344,19 @@ pub fn gate_policy_json(v: &RewardV1Plan) -> Value {
     // documents, and so their digests, are unchanged).
     if let (Some(i), Some(o)) = (&v.incentive, j.as_object_mut()) {
         o.insert("incentive".into(), json!({"rule": i.rule, "provisional_gates": i.provisional_gates}));
+    }
+    // The exposed-pool reuse rule (`plan::ExposedReuse`), which lifts the
+    // limit and gap above, and the further parent pools join the reuse
+    // policy for plans that name them, so the manifest never binds a limit
+    // the draw did not apply (other plans' policy documents, and so their
+    // digests, are unchanged).
+    if let Some(r) = j.get_mut("reuse").and_then(Value::as_object_mut) {
+        if let Some(x) = v.reuse.exposed {
+            r.insert("exposed".into(), json!(x.name()));
+        }
+        if !v.parent_pools.is_empty() {
+            r.insert("parent_pools".into(), json!(v.parent_pools.iter().map(|p| p.pool_id.as_str()).collect::<Vec<_>>()));
+        }
     }
     j
 }

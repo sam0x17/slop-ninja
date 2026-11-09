@@ -3516,6 +3516,18 @@ fn v3_plans_validate_their_reward_v1_parameters() {
     assert!(refused(b.clone()).starts_with("reward_v1.probes"));
     b.reward_v1.as_mut().unwrap().probes.clear();
     b.validate(none).unwrap();
+    // A probe build names neither the exposed-pool reuse rule nor a further
+    // parent pool.
+    let mut e = b.clone();
+    e.reward_v1.as_mut().unwrap().reuse.exposed = Some(super::plan::ExposedReuse::TestnetUnlimitedV1);
+    assert!(refused(e).starts_with("reward_v1.parent_pools and reward_v1.reuse.exposed (none in a probe build)"));
+    let mut e = b.clone();
+    e.reward_v1.as_mut().unwrap().parent_pools = vec![super::plan::PoolRef {
+        pool_id: "q".into(),
+        manifest_key: "pools/q/manifest.json".into(),
+        manifest_sha256: hex::encode([7; 32]),
+    }];
+    assert!(refused(e).starts_with("reward_v1.parent_pools and reward_v1.reuse.exposed (none in a probe build)"));
 }
 
 #[test]
@@ -3626,6 +3638,23 @@ fn v3_the_exposed_pool_rule_lifts_k_and_g_and_parent_pools_join() {
     assert_eq!(json["exposed"], "testnet_exposed_parents_unlimited_v1");
     assert!(serde_json::to_value(base.reward_v1.as_ref().unwrap().reuse).unwrap().get("exposed").is_none(), "absent when unused");
     assert!(serde_json::from_value::<Reuse>(json!({"max_uses": 4, "min_gap": 7, "exposed": "unlimited"})).is_err());
+    // The policy the manifest binds names the rule and the further pools, so
+    // its digest differs from the plain K and G policy's; a plan naming
+    // neither keeps its policy document (and digest) as before.
+    let policy = v3::gate_policy_json(lifted.reward_v1.as_ref().unwrap());
+    assert_eq!(policy["reuse"]["exposed"], "testnet_exposed_parents_unlimited_v1");
+    assert_eq!(policy["reuse"]["parent_pools"], json!(["q"]));
+    let plain = v3::gate_policy_json(base.reward_v1.as_ref().unwrap());
+    assert_eq!(
+        plain["reuse"].as_object().unwrap().keys().map(String::as_str).collect::<BTreeSet<_>>(),
+        ["gap_unit", "max_uses", "min_gap", "rewrite_prompts", "rule"].into_iter().collect::<BTreeSet<_>>()
+    );
+    assert_ne!(policy, plain);
+    let mut rule_only = lifted.reward_v1.clone().unwrap();
+    rule_only.parent_pools.clear();
+    let rule_only = v3::gate_policy_json(&rule_only);
+    assert_eq!(rule_only["reuse"]["exposed"], "testnet_exposed_parents_unlimited_v1");
+    assert!(rule_only["reuse"].get("parent_pools").is_none());
     // Nothing is ineligible under the rule; the further pool's rows are in
     // the ledger set, so a fresh-parent draw skips them.
     let (all, ineligible) = {

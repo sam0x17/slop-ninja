@@ -2412,10 +2412,11 @@ staged by the tracked pin, one change per deploy):
    `label_prefix` is `testnet-<name>`; its install needs the same succession,
    and its calendar numbers from one past every cohort held (the probe
    build holds the first cohort number, so the first standing cohort is
-   numbered one past it). An install that is not a replay always leaves the
-   calendar unpaused (`calendar::install`), and once the probe build has
-   closed the next step queues a cohort from it, so install the template
-   only when that cohort may open.
+   numbered one past it). The first install into the new authority's store
+   leaves the calendar unpaused (`calendar::install`; a later install keeps
+   the calendar's pause), and once the probe build has closed the next step
+   queues a cohort from it, so install the template only when that cohort
+   may open.
 6. **Launch bundle and the coordinator.** Deploy the coordinator first from
    a main that contains the switch commit (signing paused, journal schema
    checked, resumed only after the restart below), so its
@@ -2629,7 +2630,9 @@ If a promotion lands after the install (a cohort in its transition
 promoted an entrant the new probe version never measured), the calendar
 pauses the template with `template_probe_unfingerprinted` instead of
 queuing a cohort that could not package. After that cohort closes, cut
-again (its new references) and reinstall; the install resumes the calendar.
+again (its new references), reinstall, and resume the calendar
+(`POST /eval/template/pause` with `{"paused": false}`): an install keeps
+the calendar's pause.
 
 Live state: first run on 2026-11-04, after the eval store v22 deploy from
 main `2e93dd7f`. The cut `testnet-r0-probe-v2` held cohort number 21 and
@@ -3337,8 +3340,8 @@ it after step 11.
    build. A cohort already queued under a v1 plan cannot be abandoned (only
    a faulted one can): let it open and close under the v1 build too, with
    the template paused so nothing queues after it. The pause delays the
-   next cohort and skips none; the template reinstall in step 7 resumes
-   the calendar. Then, inside the
+   next cohort and skips none; step 7 reinstalls the template and then
+   resumes the calendar (an install keeps the pause). Then, inside the
    lock of each eval window (steps 4 and 6), on the live v1 `GET
    /eval/status` and `GET /eval/load/status` require: no cohort `queued`;
    no session `uploading`, `verifying` or `verified`; no admission window
@@ -3435,7 +3438,9 @@ it after step 11.
    cohort opens: reinstall the standing template with
    `admission.upload_policy` and the v2 `reference.package_sha256` staged
    in step 5 (until the reinstall the calendar stays paused: a template
-   with v1's `part_size` is refused), then add each reference's header
+   with v1's `part_size` is refused), resume the calendar
+   (`POST /eval/template/pause` with `{"paused": false}`; the install keeps
+   the pause), then add each reference's header
    SHA-256 to the publisher's `PRIVATE_DIGESTS` (its content digest is
    unchanged). Record the new R0 package digest in the inventory.
    Rollback: reinstall the previous template version (same-authority

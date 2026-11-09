@@ -2590,7 +2590,9 @@ the output contract); none is compiled in. Differences from the v2 engine:
   ids. Both need the plan's pool and every parent pool in `EXPOSED_POOLS`
   (refused at queue time, `parent_pools_not_exposed` at the draw) and a
   recorded token bound in each pool's manifest; neither may meet a fresh
-  pool or a probe build, and the rule is refused off testnet. The draw
+  pool or a probe build, and the rule is refused off testnet. The gate
+  policy the manifest binds names the rule and the parent pools in its
+  `reuse` block, so no manifest binds a limit the draw lifted. The draw
   summary reports `exposed_reuse`, `parent_pools` and
   `fresh_parent_rows_by_pool`. The rule ends when the paragraph composer goes
   live, whose per-paragraph cap replaces the row ledger.

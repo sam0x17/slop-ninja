@@ -827,6 +827,10 @@ pub struct FitDigests {
     pub heads_sha256: String,
 }
 
+/// One probe version's vectors: the version, the candidate's stored probe
+/// vector and R_0's, in ppb (`None` is a failure).
+pub type ProbeVectors = (u32, Vec<Option<u32>>, Vec<Option<u32>>);
+
 /// What the decision route has read before it checks.
 pub struct DecisionInputs<'a> {
     pub chain_index: u64,
@@ -836,7 +840,7 @@ pub struct DecisionInputs<'a> {
     pub published: bool,
     /// The candidate's stored probe vector on every probe version the
     /// installed template names, with R_0's, in ppb (`None` is a failure).
-    pub vectors: &'a [(u32, Vec<Option<u32>>, Vec<Option<u32>>)],
+    pub vectors: &'a [ProbeVectors],
     pub probe_versions: &'a [u32],
     pub candidate_fit: &'a FitDigests,
     pub r0_fit: &'a FitDigests,

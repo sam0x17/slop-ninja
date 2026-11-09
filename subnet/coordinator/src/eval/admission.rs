@@ -3808,8 +3808,10 @@ pub fn admit_body(run: &LaneRun) -> Value {
     let mut v = json!({"package_sha256": run.package_sha256, "manifest_key": run.manifest_key, "label": run.label,
         "spec_sha256": run.spec_sha256, "limits": run.limits,
         "docs": [{"id": "0", "text": crate::eval::lane_logic::CONTROL_TEXT}]});
-    if spans_required(&run.spec_sha256) {
-        v["spans"] = json!(true);
+    if spans_required(&run.spec_sha256)
+        && let Some(o) = v.as_object_mut()
+    {
+        o.insert("spans".into(), json!(true));
     }
     v
 }

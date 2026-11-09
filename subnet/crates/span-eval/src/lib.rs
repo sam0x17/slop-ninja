@@ -105,9 +105,10 @@ impl Kind {
 }
 
 /// Which gate population a batch document belongs to.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, PartialOrd, Ord)]
 pub enum Population {
     /// Reported only: out-of-scope mixed, model-only, and anything else.
+    #[default]
     Reported = 0,
     /// `M*`: mixed with a gold run of at least [`FLOOR_WORDS`] words.
     InScope = 1,
@@ -205,12 +206,6 @@ pub struct DocStats {
     pub format_fault: Option<FormatFault>,
     /// Decoded spans (reported).
     pub spans: u32,
-}
-
-impl Default for Population {
-    fn default() -> Self {
-        Population::Reported
-    }
 }
 
 impl DocStats {

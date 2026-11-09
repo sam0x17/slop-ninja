@@ -422,13 +422,14 @@ pub async fn run_chunk<I: LaneIo>(io: &mut I, cx: &ChunkCtx<'_>, c: &ChunkClaim,
     // other resolved outcome got its cell where it was decided, and an
     // isolation run's recorded outcomes are kept exactly.
     let mut outcomes = outcomes;
-    if cx.a.spans && outcomes.iter().any(|o| o.artifact_failed && o.span.is_none()) {
-        if let Ok(docs) = read_docs(io, cx, c, cache).await {
-            let sp = SpanCtx { labels: &cache.labels, decoder_min: cx.span_facts.and_then(|f| f.decoder_min) };
-            for o in outcomes.iter_mut().filter(|o| o.artifact_failed && o.span.is_none()) {
-                if let Some(d) = docs.iter().find(|d| d.0 == o.task) {
-                    with_cell(o, &d.1, None, &sp);
-                }
+    if cx.a.spans
+        && outcomes.iter().any(|o| o.artifact_failed && o.span.is_none())
+        && let Ok(docs) = read_docs(io, cx, c, cache).await
+    {
+        let sp = SpanCtx { labels: &cache.labels, decoder_min: cx.span_facts.and_then(|f| f.decoder_min) };
+        for o in outcomes.iter_mut().filter(|o| o.artifact_failed && o.span.is_none()) {
+            if let Some(d) = docs.iter().find(|d| d.0 == o.task) {
+                with_cell(o, &d.1, None, &sp);
             }
         }
     }

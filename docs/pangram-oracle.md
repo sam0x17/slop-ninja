@@ -1,9 +1,9 @@
 # Pangram comparisons and API funding
 
-Whitepaper draft 0.48 and the [Cloudflare design](cloudflare-subnet-draft.md)
-define the current proposal. The coordinator runs the hidden *A* comparison;
-other validators independently derive native rows from signed per-miner scores and
-commit through native commit/reveal without held-out data. The coordinator's finalized
+Whitepaper draft 0.62 and the [Cloudflare design](cloudflare-subnet-draft.md)
+define the current proposal. The coordinator runs the hidden *A* comparison and
+signs the weight row; other validators verify that signed row and commit it
+through native commit/reveal without held-out data or exact scores. The coordinator's finalized
 row is checked afterward. *B* is deferred. This guide describes the comparison
 policy and supporting provider evidence.
 

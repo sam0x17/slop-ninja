@@ -19,14 +19,19 @@ evaluation data.
 The coordinator freezes the cohort's submissions, evaluation semantics,
 workloads, labels, and scoring configuration before evaluation. Signed records
 bind the admitted artifacts, input commitments, outputs, calculation, and
-cohort identity. The coordinator publishes a signed content-free score package
-with each miner's scoring components, eligibility summaries, baseline,
-denominators, allocation parameters, registration identities, and the approved
-calculation and native encoding contract. Every validator, including the coordinator,
-independently derives the native row. Fixed arithmetic, ordering, normalization,
-and rounding must yield identical canonical entries from the same manifest and
-registration bindings; no chain runtime version is an input. Other validators trust the hidden evaluation; they receive no
-documents, labels, per-example predictions, customer text, or private weights.
+cohort identity. The coordinator alone derives the reward outcome and the
+native row. It signs a private score package (exact scores, every hidden
+measurement, the quantization draws, and the receipt root and count), which
+never leaves its storage, and a public quantized result: the grid width, each
+executed entrant's quantized score, band, gate and public-copy gate bits and
+cluster, and the references' quantized scores. Fixed arithmetic, ordering,
+normalization, and rounding over the quantized result yield the canonical row,
+so anyone can recompute it as an advisory check; no chain runtime version is an
+input. The coordinator signs a row record whenever the paid entries change and
+publishes it off-chain before its own hotkey signs anything. Other validators
+verify that record under pinned keys and commit it; they trust the hidden
+evaluation and receive no documents, labels, per-example predictions, exact
+scores, receipts, customer text, or private weights.
 
 The recognized subnet owner sets `commit_reveal_weights_enabled = true` through
 the agreed owner-authorized path under any lease. The operator verifies the
@@ -37,28 +42,32 @@ silent direct-submission fallback. Validators commit in the same target window
 using their own keys, nonces, and durable journals. Neither coordinator finality nor
 another validator's commitment is a prerequisite. Model artifacts are admitted
 through on-chain digest commitments and private uploads; the coordinator
-publishes them in the package after the cohort closes.
+publishes every admitted artifact when its cohort's scoring starts.
 
-Every inference attempt has a content-free receipt in R2. The coordinator's
-signed score package binds the receipt index, object digests, count, and commitment
-root; validators retrieve and verify the full package before new commitments,
-without prompts, responses, or labels.
+Every inference attempt on cohort text has a content-free receipt in R2. The
+coordinator's signed score package binds the receipt index, object digests,
+count, and commitment root. Receipts are coordinator-private audit evidence,
+never published or sent to validators; the coordinator installs a new target
+only when that cohort's receipt index verifies.
 Detailed receipts and the index expire after two subsequent cohorts complete
 and the cohort's target is superseded.
 Compact score inputs and arithmetic records, certificates, roots/counts, calculated
 rows, and chain/accounting recovery state remain. Coordinator silence never
-advances this retention window, and fresh commitments require a retained package
-rather than expired receipt objects.
+advances this retention window. Validators' commitments need only the signed
+row, so deleting receipts never stops them.
 
 The coordinator publishes a signed calculation target and activates its successor
 only when the complete signed score package and retained receipts are available,
-at the next eligible tempo boundary; validators then re-commit it every tempo.
-Publication of newer scores alone does not invalidate the current target; lease
-expiry, revocation, and registration checks still apply. The coordinator later
+at the next eligible tempo boundary; validators then re-commit its signed row
+every tempo. Publication of newer scores alone does not invalidate the current
+target. Its reward-intent authorization never expires: only a newer target or
+a signed revocation ends it, and registration checks still apply. The coordinator later
 certifies its finalized effective row against the calculation. This provides
 consistency evidence without gating another validator's commitment or reveal.
-Public scores make the row reconstructible before reveal; enabling native
-commit/reveal neither prevents copying nor enforces independent calculation.
+The coordinator's row is published off-chain as soon as it is signed and
+follows from the public quantized result, so it is known before any reveal;
+enabling native commit/reveal neither prevents copying nor proves
+verification.
 
 See the [scoring policy](../whitepaper/sections/07-rewards.tex) and
 [cohort lifecycle](../whitepaper/sections/07b-cohorts.tex) for the required
@@ -76,7 +85,7 @@ timely native weight adoption only, with no application-level approval or
 recovery gate. Publication and observed payment are separate records.
 Subtensor's native emissions continue during coordinator pauses.
 
-Parallel commitments avoid sequential reveal stages between validators. Package
+Parallel commitments avoid sequential reveal stages between validators. Row
 verification, inclusion, native reveal timing, finality, and rate limits still
 take time; there is no guarantee of a same-tempo or atomic switch. Timelocked
 commitments may reveal automatically before the coordinator's later audit. A missed

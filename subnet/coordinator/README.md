@@ -2812,15 +2812,15 @@ milestone M7.
   coordinator follows their signed records in the receipts bucket
   ([Automatic target handoff](#automatic-target-handoff)) rather than
   receiving them from a cohort object of its own.
-- **Score publication to validators (M5/M6).** Validators fetch the current
-  authorization and its cohort's records from the publisher's public layout
-  (`[fetch]`), which the publisher copies from the receipts bucket. The
-  public host is not deployed yet: until the user enables public access to
-  the public testnet bucket, validators (the operator's included) install
-  bundles by hand; a validator can read a local copy of the layout
-  (`fetch.base_url = "file:///<dir>/"`, validator README), and installing
-  one for the operator's validator awaits the user's decision (TESTNET.md,
-  "Automatic target handoff").
+- **Row publication to validators (M5/M6).** Validators fetch the
+  authorization pointer and the signed objects it names (the authorization,
+  any refresh and the coordinator's signed row) from the publisher's public
+  layout (`[fetch]`), which the publisher copies from the receipts bucket.
+  They read no cohort record, score package or receipt. The public host is
+  not deployed yet: until public access to the public testnet bucket is
+  enabled, a validator installs each row bundle by hand or reads a local
+  copy of the layout (`fetch.base_url = "file:///<dir>/"`, validator
+  README).
 - **Admission, open items.** The eval Worker decodes no uploaded object:
   the header check runs in the key-free upload Worker, through its service
   binding. Testnet enforces protocol bounds only (decision D6): no per-IP or
@@ -2860,13 +2860,14 @@ milestone M7.
   so a validator whose build predates it refuses such a target's bundle
   (`bundle_too_large`) and keeps its old target. The span outputs are not
   served.
-- **Fresh stock.** No cohort has had an admitted outside entrant, so every
-  draw so far is from `EXPOSED_POOLS` (testnet pool v1 and the
-  public-candidate refill), where a row may be drawn again (never-drawn rows
-  first, never twice in one cohort, the rewrite-source reuse limit and gap
-  kept); a plan naming any other pool is refused at queue time, and the draw
-  faults (`fresh_stock_refused`) unless the frozen roster unlocks the plan's
-  fresh pool.
+- **Fresh stock.** Outside entrants have been admitted since
+  `testnet-r1-23`, but every draw so far is from `EXPOSED_POOLS` (testnet
+  pool v1 and the public-candidate refill), where a row may be drawn again
+  (never-drawn rows first, never twice in one cohort, the rewrite-source
+  reuse limit and gap kept): a standing template names no fresh pool, a plan
+  naming any other pool is refused at queue time, and the draw faults
+  (`fresh_stock_refused`) unless the frozen roster unlocks the plan's fresh
+  pool.
 - **Receipt retention, open points.** The N+2 rule is implemented
   ([Receipt retention](#receipt-retention-the-n2-rule)). A publisher that
   falls more than two completed cohorts behind cannot copy the deleted
@@ -2937,7 +2938,8 @@ milestone M7.
   rests on the live drill (TESTNET.md). Every signing round claims and
   releases the claim, so its generation grows by about one per block.
 - **Liveness alerting.** The liveness record and `/status` verdict detect a
-  wedged ChainJournal, but nothing pages an operator yet, and a wedged
+  wedged ChainJournal and feed the operator's alerts, but no alert pages an
+  operator by phone yet, and a wedged
   instance still needs the redeploy in the runbook. A panic is recovered by
   workers-rs on the next request (qualified live); `state.abort()` is not. The
   instance is also constructed more often than deploys alone explain (see

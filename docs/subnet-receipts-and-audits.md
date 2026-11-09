@@ -1,14 +1,17 @@
 # Receipts and external-detector evidence
 
-Whitepaper draft 0.48 uses coordinator-led *A* evaluation and operator-signed
+Whitepaper draft 0.62 uses coordinator-led *A* evaluation and operator-signed
 service receipts. The [Cloudflare design](cloudflare-subnet-draft.md) and
 [service-evidence guide](service-evidence.md) describe their authority and
 recovery boundaries. This page records the existing receipt/report utilities
 and the limits that still matter when using them.
 
 The coordinator is the operator's lead validator and the serverless service.
-Other validators receive content-free score and receipt packages to check the
-reward calculation; they do not receive the coordinator's private evaluation data.
+Its signed score package and receipts are coordinator-private audit evidence,
+never published or sent to validators. Other validators verify and commit the
+coordinator's signed row; anyone may recompute that row from the public
+quantized result as an advisory check, and no validator receives the
+coordinator's private evaluation data.
 
 ## Current receipt proposal
 

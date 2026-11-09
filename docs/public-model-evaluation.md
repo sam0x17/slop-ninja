@@ -1,17 +1,17 @@
 # Public-model evaluation
 
-[Whitepaper draft 0.60](../whitepaper/slop_ninja.pdf) and the
+[Whitepaper draft 0.62](../whitepaper/slop_ninja.pdf) and the
 [Cloudflare design](cloudflare-subnet-draft.md) define the current proposal.
 Launch admits public *A* artifacts and uses coordinator-led hidden evaluation.
-Every validator independently derives the weight row from signed per-miner
-scores and commits through native commit/reveal. *B* and *C* activate
+The coordinator signs the weight row its private scores imply, and every
+validator verifies that row and commits it through native commit/reveal. *B* and *C* activate
 separately. This guide summarizes evaluation policy; the
 production runner still requires implementation and qualification.
 
 ## What publication provides
 
 An admitted *A* model publishes its weights and everything needed to execute
-its declared calculation when its cohort ends. Its terms let anyone obtain it for
+its declared calculation when its cohort's scoring starts. Its terms let anyone obtain it for
 free, run it locally, and reuse it to train a private *B* model. The coordinator
 hosts a published entrant artifact until its cohort's receipts become deletable,
 at least about 48 hours with daily cohorts, and keeps the current and previous
@@ -25,10 +25,12 @@ require the miner to operate an inference endpoint.
 The coordinator caches qualified artifacts and executes them on common hidden
 inputs under equal limits. This avoids sending benchmark jobs through miner
 endpoints. It retains predictions, failures, input identities, and execution
-settings for signed result records. Validators verify the coordinator's score
-package and receipts, then calculate reward allocations and canonical native
-weights using the common policy. They commit independently; the coordinator's
-finalized row is a later consistency audit. Other validators receive no held-out documents,
+settings for signed result records. The score package and receipts stay
+private to the coordinator, which derives the reward allocation and the
+canonical native row and publishes a quantized result from which anyone can
+recompute that row. Validators verify the coordinator's signed row and commit
+it independently; the coordinator's finalized row is a later consistency
+audit. Other validators receive no held-out documents,
 labels, or per-document predictions and cannot reproduce hidden evaluation. Independent users can run public
 artifacts on their own inputs.
 Honest coordinator scoring and curation remain trust assumptions.

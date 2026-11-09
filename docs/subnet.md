@@ -16,19 +16,25 @@ confidence, and conditional attribution. Word-level explanations are a later
 A extension; grammar-level explanations belong to later B revision
 guidance.
 The operator's lead validator is the coordinator, implemented entirely as
-the serverless service. It executes hidden evaluations, publishes signed per-miner
-scores, and performs its own chain submissions and recovery. Other validators
-independently calculate canonical weight rows and use native commit/reveal
-without receiving held-out data or waiting for the coordinator's row.
-Finalized rows are checked afterward. Rewards follow `reward-v1`: daily cohorts
-scored against a public reference model that changes only on improvement, with
-SN78-style geometric bands. A reads raw text and uses no CFG inputs.
+the serverless service. It executes hidden evaluations, computes the reward
+outcome, signs a private score package (exact scores and every hidden
+measurement) and a public quantized result, signs the weight row they imply,
+and performs its own chain submissions and recovery. Every other validator
+verifies the coordinator's signed row under pinned keys and commits it through
+its own journaled native commit/reveal, without receiving held-out data, exact
+scores or receipts and without waiting for the coordinator's own chain row.
+Anyone may recompute the row from the public quantized result, as an advisory
+check. Finalized rows are checked afterward. Rewards follow `reward-v2`: the
+`reward-v1` band rule with SN78-style geometric bands, computed from quantized
+scores under `quant-v1`, in daily cohorts scored against a public reference
+model that changes on promotion or by a recorded operator decision. A reads
+raw text and uses no CFG inputs.
 B would later revise text toward an authorized voice with preservation and
 editorial evaluation, using the native grammar for edit units and revision
 guidance; C would credit accepted improvements to that grammar once.
 
-A artifacts stay private while their cohort runs, then are published and can be
-self-hosted. The proposed later B path uses
+A artifacts stay private until their cohort's scoring starts, then are
+published and can be self-hosted. The proposed later B path uses
 private adapters in miner-owned Cloudflare accounts, with SlopNinja controlling
 direct requests. Content must remain inaccessible to miners and private weights
 to the public; Cloudflare and SlopNinja are trusted operators. Supporting
@@ -47,8 +53,7 @@ implementation limits.
 The [native chain integration](../subnet/README.md) pins `rtao` and supplies a
 durable weight adapter with journal controls and restart recovery. It is an
 embedding library, not a deployed validator or coordinator. Its integration
-gaps include application authority, by-name composition of weight calls in
-upstream rtao, and journaled MEV-shield dispatch. The coordinator also needs a qualified Rust/Wasm chain
+gaps include application authority and journaled MEV-shield dispatch. The coordinator also needs a qualified Rust/Wasm chain
 signing path and Durable Object journal backend. Live rtao-rpc finalized-block
 webhooks are its per-block heartbeat, with RPC gap backfill and a one-minute
 cron watchdog that falls back to public OpenTensor RPC when deliveries stall;

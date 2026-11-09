@@ -5,10 +5,10 @@ with `rtao` at
 [`fa83052d37b39f002f7a4d3cc5c04f25503e1d11`](https://github.com/sam0x17/rtao/tree/fa83052d37b39f002f7a4d3cc5c04f25503e1d11)
 (immutable tag `snapshot-2026-11-05.2`).
 It is a library, an offline journal-control CLI, and the native validator in
-[`crates/validator`](crates/validator/README.md). The validator verifies a
-coordinator-signed score package (testnet shortcut T12: a local bundle file),
-derives the row with the protocol crate and commits it through this adapter;
-it signs only under `run --dispatch`. [TESTNET-M2.md](crates/validator/TESTNET-M2.md)
+[`crates/validator`](crates/validator/README.md). The validator verifies the
+coordinator's signed row record and the authorization it names under pinned
+keys, with the protocol crate, and commits that row through this adapter; it
+signs only under `run --dispatch`. [TESTNET-M2.md](crates/validator/TESTNET-M2.md)
 is the subnet 601 procedure. The testnet Workers coordinator lives in
 [`coordinator/`](coordinator/README.md) and is deployed on testnet. It follows
 finalized blocks through the webhook heartbeat and a one-minute cron watchdog
@@ -18,7 +18,8 @@ not yet have a production validator or a production Workers coordinator.
 
 The workspace also holds the shared [protocol crate](crates/protocol/README.md).
 It defines versioned records, canonical encoding, domain-separated signatures,
-operation identities and the `testnet-reward-v0` row calculation, and it builds
+operation identities, the `quant-v1` quantization and the `reward-v2` and
+testnet-only `testnet-reward-v0` row calculations, and it builds
 for native targets and `wasm32-unknown-unknown`. This adapter and the
 coordinator take their record and operation definitions from that crate.
 
@@ -188,22 +189,22 @@ outcome and returns `Ok`. An `Err` comes from its finalized recovery, a typed
 storage read or RPC, and the next block retries it, with rtao re-running its
 recovery first.
 
-Application checks must bind the intended row to the actual call. Every validator
-independently calculates the native row from the coordinator's signed per-miner
-score components, baseline, denominators, eligibility summaries, allocation
-parameters, and registration bindings. The calculation contract fixes arithmetic,
-ordering, normalization, rounding, and native encoding. Identical manifests and
-finalized registration bindings must yield identical canonical UID/weight
-entries; the chain runtime version is not an input.
-Other validators trust hidden evaluation and receive no held-out documents, labels,
-per-example predictions, customer text, or private model weights. They verify
-the full score-bound R2 receipt index, counts, and object digests before new
-commitments. The native validator implements this for the T12 bundle: signed
-records, receipt-index root and count, every receipt object, the registration
-snapshot and `testnet-reward-v0`, and for the `reward-v1` bundle also the
-published index, the recomputed outcome, the closure, the reward-intent or
-launch authorization checked at every tempo, and the finalized owner hotkey
-for burned units. No authorization expires: one stays valid until a newer
+Application checks must bind the intended row to the actual call. The
+coordinator alone calculates the native row: it computes the reward outcome
+from its private exact measurements through the public quantized result
+(`reward-v2` under `quant-v1`) and signs a row record for the active target
+whenever the paid entries change. The calculation contract fixes arithmetic,
+ordering, normalization, rounding, and native encoding, so anyone can
+recompute the row from the public result as an advisory check; the chain
+runtime version is not an input. Other validators trust hidden evaluation and
+receive no held-out documents, labels, per-example predictions, exact scores,
+receipts, customer text, or private model weights. The native validator
+verifies the coordinator's signed row record (`slop_ninja.coordinator_row_bundle/v1`;
+earlier package bundles are refused as `bundle_schema_retired`) and the
+reward-intent or launch authorization it names under pinned keys at every
+tempo, checks each paid hotkey's registration against its own finalized
+snapshot, and burns through the finalized owner hotkey's UID the units of a
+registration that snapshot no longer holds. No authorization expires: one stays valid until a newer
 authorization supersedes it or a signed revocation withdraws it, so a silent
 coordinator never stops validators committing the last authorized target.
 Authorization issue by the coordinator itself and the coordinator
@@ -336,12 +337,12 @@ tempo's commit follows.
 | --- | --- |
 | Journaled MEV shield | Explicit/required shielding refuses. The pinned revision supports journaled shield dispatch from per-runtime evidence; this adapter has not qualified it and submits unshielded only. Never retry without the journal to bypass a refusal. Ordinary weight commit/reveal follows the supported upstream path; the pilot still requires downstream testing on a live chain. |
 | Runtime upgrades | No spec gate. Every signed operation is resolved by name against live metadata and deferred alone when it has no type-correct encoding (above). rtao composes weight calls and reads its storage by name when its compiled descriptors no longer match, and follows the stored commit-reveal tag under any runtime code (D-122). What it still refuses defers as `upstream_compose_refused`, `upstream_storage_refused` (which also stops rtao's finalized observation and recovery) and `commit_reveal_version_unencodable`. rtao reads `Timestamp.Now` for its timelock clock by name when the compiled shape no longer matches (D-111); the validator's own by-name read of the same item also keeps the clock anchored. The live spec 486 surface is in [the runtime 486 reference](../docs/subnet-runtime-486-diff.md). |
-| Application authority | The native validator verifies a T12 bundle (signed manifest, package, target and receipt index, every receipt object), reads its registration snapshot, derives the row with `testnet-reward-v0`, and its guard signs only that verified row as a timelocked commit while commit/reveal is enabled. The Workers coordinator verifies the same T12 bundle with the protocol crate and derives its own row from its own registration snapshot (M3). Per-tempo re-commit of the verified target is implemented natively (plan decision 12; each re-commit has its own protocol tempo identity) and ran live on 601. Both also verify `reward-v1` bundles (the launch burn row or a cohort target, with the recomputed outcome, closure and authorization) and commit per-tempo `WeightOperationV2` identities. The native validator also fetches the published records from the public status host, verifies them against its held target and supersedes its target natively: a newer authorization of the same target refreshes it in place, a signed revocation (fetched or installed with `revoke`) withdraws it, and a successor is installed at its eligible boundary once no commitment of the old target is in flight, with the run continuing on it in the same process ([`crates/validator/README.md`](crates/validator/README.md#fetcher)). The coordinator writes the private authorization pointer from its installed bundle and journaled revocations, and the publisher copies it; that path awaits the public host's deployment, and until then the operator installs bundles (T12). No authorization expires. Coordinator row consistency checks, authorization issue by the coordinator itself, and production empty-pool policy still need the production application. rtao holds (does not commit) a row whose positive entries are only the validator itself or the owner hotkey's UID unless the work is queued under its owner-row policy `Submit` (D-093), and then still holds self-only and self-plus-owner rows. A native validator queues a `reward-v1` owner burn row (the launch burn row under the launch authorization, or a verified target whose row pays only the owner UID) under `Submit`, journaled with the work, after checking `MinAllowedWeights` and `MaxWeightsLimit` by name; it queues every other row under `Hold` and defers a tempo whose row rtao would hold (`row_would_be_held`, exit 75), committing nothing while its previous weights stay on chain. rtao decides the hold again at the dispatch block (D-098); queued work it holds there (`OwnerRowHeld`, the owner hotkey's UID moved since the row was derived, say) is retired through rtao's `retire_pending` and the tempo re-derived at the next start. Both sides check bundles against the target they hold active (recorded from checked closures), commit a `reward-v1` row in its max-upscaled form, and the native validator re-derives each tempo's row from a fresh finalized snapshot and retires superseded work that never landed. Elapsed time must not expire the cohort; no validator's delivery gates application progress. |
+| Application authority | The native validator commits only from a coordinator row bundle (`slop_ninja.coordinator_row_bundle/v1`): it verifies the coordinator's signed row and the launch or reward-intent authorization it names under pinned keys, verifies no receipt and recomputes no score, and its guard signs only that verified row as a timelocked commit while commit/reveal is enabled. Earlier bundles of records, score packages or receipts (the T12 fixture package and the `reward-v1` bundles) are retired (`bundle_schema_retired`), a deferral, never a commit. The Workers coordinator derives and signs that row from its own registration snapshot and commits it with its own hotkey (M3). Per-tempo re-commit of the active target is implemented natively, each re-commit under its own `WeightOperationV2` identity, and runs live on 601. The native validator also fetches the published records from the public status host, verifies them against its held target and supersedes its target natively: a newer authorization of the same target refreshes it in place, a signed revocation (fetched or installed with `revoke`) withdraws it, and a successor is installed at its eligible boundary once no commitment of the old target is in flight, with the run continuing on it in the same process ([`crates/validator/README.md`](crates/validator/README.md#fetcher)). The coordinator writes the private authorization pointer from its installed target, journaled revocations and signed rows, and the publisher copies it; until the public host is deployed, an operator installs each row bundle or mirrors the layout locally. No authorization expires. Coordinator row consistency checks and production empty-pool policy still need the production application. rtao holds (does not commit) a row whose positive entries are only the validator itself or the owner hotkey's UID unless the work is queued under its owner-row policy `Submit` (D-093), and then still holds self-only and self-plus-owner rows. A native validator queues an owner burn row (the launch burn row under the launch authorization, or a signed row that pays only the owner UID) under `Submit`, journaled with the work, after checking `MinAllowedWeights` and `MaxWeightsLimit` by name; it queues every other row under `Hold` and defers a tempo whose row rtao would hold (`row_would_be_held`, exit 75), committing nothing while its previous weights stay on chain. rtao decides the hold again at the dispatch block (D-098); queued work it holds there (`OwnerRowHeld`, the owner hotkey's UID moved since the row was derived, say) is retired through rtao's `retire_pending` and the tempo re-derived at the next start. Both sides commit the row in its max-upscaled form, and the native validator checks each tempo's row against a fresh finalized snapshot and retires superseded work that never landed. Elapsed time must not expire the cohort; no validator's delivery gates application progress. |
 | Automatic updates | Signed Rust supervisor, ordered resumable schema migrations, and post-migration recovery remain to be built. Updates must preserve journals and frozen work without waiting for other validators. |
 | Finalized failures and historical missed reveals | A finalized failure is never successful work and never authorizes replacing its signed bytes. Recovery waits (without halting) until its receipt is read, then halts on it until it is reviewed: known weight-call refusals settle automatically by decoded error name and are logged as alerts, and any other needs `review-failure` ([Journal controls](#journal-controls)). Nothing deletes history or clears uncertainty. |
 | Durable evidence size | Native journal images are limited to 64 MiB and retain operation identities. A storage migration is needed before exhaustion. Completed reveal diagnostics retain a 256-outcome ring; cohort evidence requires separate durable retention. |
 | Workers coordinator | The service is also the lead validator. Workers-compatible RPC transport, canonical call encoding, hotkey signing, nonce/attempt journaling, finalized reconciliation, weight/reveal recovery, and a Durable Object journal backend remain to be integrated and qualified. The native synchronous file backend supplies none of that storage integration. |
-| Block webhooks | The rtao-rpc pilot is live for Finney and testnet. The testnet `coordinator/` implements its v1 contract and treats each finalized-block delivery as its heartbeat: it authenticates and persists the delivery before acknowledging, deduplicates by delivery ID and block hash, and advances a parent-linked finalized cursor anchored and audited through read-only RPC. Webhook-advanced blocks stay provisional until RPC confirms them, and scheduling judges due work at that RPC-confirmed watermark. It backfills gaps through bounded RPC and records conflicts as durable faults. A one-minute cron watchdog falls back to RPC after 300 s of webhook silence or when the cursor falls behind. It is deployed on testnet ([TESTNET.md](coordinator/TESTNET.md) records the measured delivery latency and fallback drill); launch lag remains unqualified. |
+| Block webhooks | The rtao-rpc pilot is live for Finney and testnet. The testnet `coordinator/` accepts its `rtao-block-webhooks/1` and `/2` contracts (`/2` pushes each block within about a second of finality) and treats each finalized-block delivery as its heartbeat: it authenticates and persists the delivery before acknowledging, deduplicates by delivery ID and block hash, and advances a parent-linked finalized cursor anchored and audited through read-only RPC. Webhook-advanced blocks stay provisional until RPC confirms them, and scheduling judges due work at that RPC-confirmed watermark. It backfills gaps through bounded RPC and records conflicts as durable faults. A one-minute cron watchdog falls back to RPC after 300 s of webhook silence or when the cursor falls behind. It is deployed on testnet ([TESTNET.md](coordinator/TESTNET.md) records the measured delivery latency and fallback drill); launch lag remains unqualified. |
 | Full validator startup | Upstream `NeuronRuntime` unlocks the signer and starts application callbacks before its scheduler recovery. `slop_ninja_validator` instead opens the journal, records live-metadata readiness of signed operations (never halting on a runtime change; an upstream storage refusal during recovery is a recorded retry), recovers without a signer, checks at finalized state that the subnet exists, the hotkey is registered and commit/reveal is enabled, resumes explicitly, and verifies the package, chooses the row's owner-row policy and refuses a row rtao would hold under it before enqueueing. The dry run never writes the journal's work; only `run --dispatch` enqueues and unlocks the hotkey. On 2026-10-30 the dry run and then live dispatch ran against testnet subnet 601: CRv4 commits from validator2 in epochs 7–11 and 14, each read back as one commit-queue entry and revealed as the exact row, through crash, kill, 429, failover and era-expiry drills with no duplicate commit. Measurements and the rtao limits they exposed (admission window, metagraph polling, reveal replay cost, terminal 429) are in [`crates/validator/TESTNET-M2.md`](crates/validator/TESTNET-M2.md); rtao `0c128160` addressed them (D-094 to D-097), and the validator sizes the admission window from its signing budget, keeps its sessions through refused reconnects and follows only the newest finalized head ([`crates/validator/README.md`](crates/validator/README.md#paced-endpoints)). |
 | Testing | The offline tests cover local storage, adapter controls, journal migration, live-surface resolution against recorded and mutated metadata, package verification, restart at every application boundary, and a signed attempt whose response was lost. Downstream finalized-RPC/reveal recovery fixtures, the live drills in TESTNET-M2.md, a live runtime upgrade, target-Mac filesystem behavior, and hardware power-loss recovery remain untested. Upstream CI does not establish those properties for this application. |
 
@@ -413,8 +414,9 @@ both targets. Two private copies of validator2's journal written at
 `b5553a76` opened and replayed with their work, effects bytes, recorded
 owner-row policies and checkpoints unchanged, and the release build's
 `rollback-check` found nothing in them that `0c128160` would refuse, leaving
-each copy byte-identical. No key was loaded, nothing was submitted, and the
-new pin has not yet run live.
+each copy byte-identical. No key was loaded and nothing was submitted in those
+checks. The pin has run live since November 7, 2026, when validator2 was
+rebuilt at it and resumed committing on subnet 601.
 
 Run focused checks on the authorized compute host, not GitHub Actions. The
 tests write disposable synthetic journals under `SLOP_NINJA_TEST_TMPDIR` when it

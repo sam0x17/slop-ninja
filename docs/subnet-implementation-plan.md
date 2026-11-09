@@ -1,16 +1,17 @@
 # Subnet implementation plan
 
-November 2, 2026. This plan implements the [Cloudflare design](cloudflare-subnet-draft.md)
-and [whitepaper draft 0.60](../whitepaper/main.tex). It describes work to build and qualify;
+November 9, 2026. This plan implements the [Cloudflare design](cloudflare-subnet-draft.md)
+and [whitepaper draft 0.62](../whitepaper/main.tex). It describes work to build and qualify;
 it does not establish a deployed subnet. Launch includes A alone. B and C have
 separate activation requirements. A reads raw text; the native grammar serves
-later B and C. The shared protocol crate implements the
-`reward-v1` calculation, the copy policy, private submission records, the launch
-and reward-intent authorizations, the cohort phase checks and active-target
-bundle verification. On testnet the coordinator's evaluation Worker runs
-`reward-v1` cohorts with them, and the coordinator and the native validator
-verify the resulting bundles and commit their rows; on-chain admission still has
-to be wired into cohorts.
+later B and C. The shared protocol crate implements the `reward-v2`
+calculation (the `reward-v1` band rule on `quant-v1` quantized scores), the
+copy policy, private submission records, the launch and reward-intent
+authorizations, the cohort phase checks and the coordinator's signed row. On
+testnet the coordinator's evaluation Worker runs `reward-v2` cohorts with
+them, admitting entrants from their on-chain commitments; the coordinator
+signs each target's row, and the native validator verifies that row and
+commits it.
 
 The first milestone is a Rust Workers coordinator that can durably sign, submit,
 and recover a weight commitment through restart and uncertain RPC outcomes.
@@ -60,9 +61,10 @@ its own quality, funding, and payment checks.
   rule a burn shrinks the subnet's TAO-side emission share by the burned
   fraction of miner incentive, to zero for a full burn.
 - Cohorts last at least 20 tempos (about one day) and are paid with a lag:
-  validators re-commit the active target every tempo under a bounded
-  authorization lease. No record, identity, or gate carries a chain runtime
-  version.
+  validators re-commit the active target's signed row every tempo under a
+  reward-intent authorization that never expires; only a newer target or a
+  signed revocation ends it. No record, identity, or gate carries a chain
+  runtime version.
 - Updates preserve wallets, journals, pending operations, and frozen evaluation
   semantics. A machine missing several releases runs the required migrations
   sequentially and reconciles external effects before resuming signing.
@@ -114,8 +116,8 @@ application to retire (`retire_pending`). Journaled MEV-shield dispatch (support
 from per-runtime evidence) and the v482 port are not qualified here, and rtao
 declares no validated runtime range. Ordinary weight commit/reveal ran live on
 testnet subnet 601 at `b5553a76` (October 30), and a native validator
-committed and revealed the burn row there at `0c128160` on November 3; the
-move to `fa83052d` has not yet run live. A later
+committed and revealed the burn row there at `0c128160` on November 3 and
+has run at `fa83052d` since November 7. A later
 re-pin, such as one adopting rtao's bounded-memory, zero-copy rework, re-runs
 the subnet tests, the journal migration check and the `no_runtime_gates` lint.
 The Workers journal/transport composition remains implementation work. The
@@ -509,13 +511,15 @@ registration.
    peer acknowledgment. Publish the coordinator's finalized-row certificate later
    as consistency evidence. A new calculation target requires a complete successor
    package and receipts and activates at its boundary; a partial publication does
-   not displace a valid target. Each package is published with a separately
-   signed reward-intent authorization whose lease, frozen in the manifest, is
-   at least two cohorts; a manifest-free launch authorization covers the burn
-   row until the first cohort target activates. Every commitment re-checks the
-   validator's active target, renewals apply from their issue epoch, and beyond
-   the lease validators pause new commitments until a renewal restores it.
-   Pending obligations remain recoverable under their original identities.
+   not displace a valid target. Each package is sealed with a separately
+   signed reward-intent authorization; a manifest-free launch authorization
+   covers the burn row until the first cohort target activates. No
+   authorization expires: it yields commitments from its issue epoch for as
+   long as its target is the validator's active target, and only a newer
+   target or a signed revocation ends it, so a silent coordinator never stops
+   validators committing. Every commitment re-checks the validator's active
+   target. Pending obligations remain recoverable under their original
+   identities.
 
    Delete cohort N's detailed receipts and index after N+1 and N+2 complete and
    `T_N` is superseded, writing receipts in chunks. Keep the artifacts of `R_k`

@@ -677,8 +677,9 @@ impl DurableObject for EvalCohort {
     async fn fetch(&self, mut req: Request) -> Result<Response> {
         let version = match self.schema {
             Ok(v) => v,
-            // P1-F: a store whose migration failed is frozen at its stored
-            // version and read-only (`eval::frozen`).
+            // P1-F: a store whose migration was refused is read-only: frozen
+            // at its stored version when it is not the deployed authority
+            // and the migration failed, else status only (`eval::frozen`).
             Err(code) => return self.frozen_route(&mut req, code).await,
         };
         let storage = self.state.storage();
@@ -1282,51 +1283,45 @@ impl DurableObject for EvalCohort {
 use crate::eval::calendar::{max_job_tasks, package_shape};
 
 impl EvalCohort {
-    /// P1-F: what a frozen store serves: its status from v2-stable columns
-    /// (also as `/status`, for the deployed store whose guard refused the
-    /// build), the publisher's report as `{known, frozen: true}` recording
-    /// nothing, and the successor sweep's purge of one ended cohort's
-    /// receipt rows. Everything else is `store_frozen`.
+    /// P1-F: what a store whose migration was refused serves
+    /// (`eval::frozen::serve`). It is frozen only when the migration failed
+    /// and the store is not the deployed authority (`eval::frozen::mode`):
+    /// then its status, the publisher's report (taken only for its own ended
+    /// cohort, recording nothing; 404 otherwise) and the successor sweep's
+    /// purge, and `store_frozen` for the rest. The deployed store, and any
+    /// store refused as newer or of another family, serves its status read
+    /// only and refuses the rest with the migration code (503), so the
+    /// publisher retries its report.
     async fn frozen_route(&self, req: &mut Request, reason: &'static str) -> Result<Response> {
+        use crate::eval::frozen::{Mode, Reply};
         let storage = self.state.storage();
+        let instance = storage.get::<String>("instance").await.ok().flatten();
+        let authority = storage.get::<String>("authority").await.ok().flatten();
+        let deployed = main_authority(&self.env).ok().map(|a| a.name().to_owned());
+        let mode = crate::eval::frozen::mode(reason, instance.as_deref(), authority.as_deref(), deployed.as_deref());
         let path = req.path();
-        match (req.method(), path.as_str()) {
-            (Method::Get, "/status" | "/frozen/status") => {
-                match transaction(&storage, move |sql| crate::eval::frozen::status(sql, reason)) {
-                    Ok(v) => json(&v),
-                    Err(_) => error("store_unavailable", 503),
-                }
-            }
-            (Method::Post, "/admission/published") => {
-                #[derive(Deserialize)]
-                struct Report {
-                    cohort: u64,
-                    label: String,
-                }
-                let r = match super::cf_io::request_json::<Report>(req, OPERATOR_BODY_BYTES).await {
-                    Ok(r) => r,
-                    Err(e) => return error(e.code(), e.status()),
-                };
-                match transaction(&storage, move |sql| crate::eval::frozen::report(sql, r.cohort, &r.label)) {
-                    Ok(v) => json(&v),
-                    Err(_) => error("store_unavailable", 503),
-                }
-            }
-            (Method::Post, "/frozen/purge") => {
-                #[derive(Deserialize)]
-                struct Purge {
-                    seq: i64,
-                }
-                let p = match super::cf_io::request_json::<Purge>(req, OPERATOR_BODY_BYTES).await {
-                    Ok(p) => p,
-                    Err(e) => return error(e.code(), e.status()),
-                };
-                match transaction(&storage, move |sql| crate::eval::frozen::purge_receipts(sql, p.seq)) {
-                    Ok((receipts, objects)) => json(&j!({"receipts": receipts, "receipt_objects": objects})),
-                    Err(_) => error("store_unavailable", 503),
-                }
-            }
-            _ => error("store_frozen", 409),
+        let method = match req.method() {
+            Method::Get => "GET",
+            Method::Post => "POST",
+            _ => "OTHER",
+        };
+        // Only a frozen store reads a body, each under its route's bound.
+        let bound = match (mode, method, path.as_str()) {
+            (Mode::Frozen, "POST", "/admission/published") => Some(crate::eval::admission::PUBLICATION_REPORT_BYTES),
+            (Mode::Frozen, "POST", "/frozen/purge") => Some(OPERATOR_BODY_BYTES),
+            _ => None,
+        };
+        let body = match bound {
+            Some(b) => match super::cf_io::request_bytes(req, b).await {
+                Ok(v) => v,
+                Err(e) => return error(e.code(), e.status()),
+            },
+            None => Vec::new(),
+        };
+        match transaction(&storage, move |sql| crate::eval::frozen::serve(sql, mode, reason, method, &path, &body)) {
+            Ok(Reply::Json(v)) => json(&v),
+            Ok(Reply::Refused(code, status)) => error(code, status),
+            Err(_) => error("store_unavailable", 503),
         }
     }
 }

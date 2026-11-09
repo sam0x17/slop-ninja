@@ -1,11 +1,20 @@
 # Documentation
 
 This directory contains design notes, research contracts, and the evidence cited
-by [whitepaper draft 0.60](../whitepaper/slop_ninja.pdf), the canonical protocol
+by [whitepaper draft 0.62](../whitepaper/slop_ninja.pdf), the canonical protocol
 proposal. The paper adopts the [Cloudflare design](cloudflare-subnet-draft.md).
 Launch includes *A* alone; *B* and *C* require separate activation decisions.
 *A* reads raw text; the grammar (CFG) notes are grouped under later *B* work
 below.
+
+## Contributor rules
+
+[`AGENTS.md`](../AGENTS.md) states the project rules; these pages hold the
+detail it links to.
+
+- [Reward rules](agents/rewards.md)
+- [Coordinator and validator rules](agents/coordinator.md)
+- [Chain adapter rules](agents/chain-adapter.md)
 
 ## Subnet, privacy, and service operation
 

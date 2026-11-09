@@ -1,0 +1,106 @@
+# Reward rules for contributors
+
+[`AGENTS.md`](../../AGENTS.md) summarizes the *A* reward rules and links
+here for the full set. Whitepaper Section 5 is the canonical statement. Keep
+this page, the whitepaper and the signed manifest aligned when a rule changes.
+
+## Rule and reference
+
+A rewards use `reward-v2`: the `reward-v1` band rule selected on
+2026-10-30 (whitepaper Section 5), computed from quantized scores under
+`quant-v1` (approved 2026-11-04); its lagged-payout, fallback-assumption,
+unregistered-credit and reference-failure defaults remain to be confirmed with
+the implementation. The baseline is the public reference model R_k, re-run on each
+cohort's batch with its predecessor R_{k-1}. An entrant beats R_k when it
+passes the gates and its quantized score reaches the margin cutoff: R_k's
+quantized score plus delta = max(1%, 2 x pooled paired SE) of R_k's headroom,
+rounded up onto the grid, with delta frozen per manifest. Retained clusters are
+those whose heads are at or above the cutoff. After the cohort, the first
+retained head in rank order that also passes every promotion check (an
+exact-score margin of delta over R_k, the strict false-positive tier and the
+lookup canary) becomes R_{k+1}; if none does, R_k stays and credits are
+unchanged. Promotion therefore needs both the rounded quantized cutoff and the
+exact margin.
+
+## Bands
+
+Port SN78's band
+mechanism: r = 0.85 across and within bands, band width w = 2 x pooled
+paired SE before rounding to the grid (about 7% of the 0.062 launch-batch
+headroom at 1k cases, 3.4% at 4k), largest-remainder u16 row,
+exact integer/rational arithmetic, parameters frozen in the signed manifest.
+
+## Quantization, noise and the bit budget
+
+Exact scores stay inside the coordinator. Every released score is quantized on
+a grid no finer than the larger of twice R_k's measured SE and the noise scale,
+after a secret
+offset and seeded discrete-Laplace noise, both keyed by inference content so
+identical copies share one draw. The noise gives epsilon 2 per cohort
+(versioned), split equally over every executed entrant's quantized score
+(a withheld entrant's is charged but never released) and the references';
+given the grid width and which entrants are withheld (both unnoised), it
+protects one batch document within one cohort, and it adds across
+cohorts and across documents that reuse one passage.
+
+Cutoff,
+bands, positions, credits, units and the row use quantized scores alone:
+thresholds and band edges round up onto the grid (so at testnet's full roster,
+where R_k's utility is about 0.85 and the grid is 0.03, the cutoff is one grid
+step above R_k's quantized score, about a fifth of testnet's headroom and well
+above delta, and a band is
+one grid step: wider than 2 x SE and coarser than SN78's literal 2.5 points),
+equal
+quantized scores share credit, ties and equal remainders go in roster order, and
+there is no near-equal drop. Promotion's margin test and the public-copy gate's
+score clause read exact scores privately and release only their outcomes. Gates
+release one bit each; an entrant failing the minimum-success gate is released as
+withheld. These gate, withheld, cluster and promotion outcomes and the grid
+width are unnoised functions of exact scores and hidden data, outside epsilon.
+A versioned per-cohort bit budget counts them with every other released value
+and is checked at plan validation, seal and publication; it caps what is
+released but is not a differential-privacy guarantee.
+
+## Copies
+
+Copies earn nothing: an entrant with the content digest of any artifact
+published by an earlier cohort or as a reference, or within isotonic-aligned RMS <= 0.025 of R_k or R_{k-1} on the batch
+or of any fingerprinted artifact on the private probe without scoring more than
+w/2 above it, fails the public-copy gate. Weight soups of published models are
+legitimate new models; output averages of two encoders do not fit one graph. Near-duplicate clusters (identical content, or within
+the same distance on the batch) get one credit split equally.
+
+## When nobody beats R_k
+
+If nobody beats R_k, score against
+C_N = S(R_{k-1}) + 0.15 x (max_N - S(R_{k-1})), computed on quantized scores
+and rounded up onto the grid, without advancing the reference;
+with no R_{k-1}, or nobody above R_{k-1}'s quantized score, keep the previous target live, or
+burn to the owner UID if none exists. Unregistered credit burns; a reference
+failure holds the package for a signed correction.
+
+## Cohort batches and human stock
+
+Each cohort scores about 1k
+(testnet) or 4k (mainnet, floor 2k) fresh paired cases per model, mixed 20/55/25
+human_only/mixed/model_only and self-weighted by domain x origin, so the human
+share sets the false-positive weight. Half of the generated text is to come
+from frontier models, to which the coordinator has access through configured
+credentials, and half from open models on Workers AI; until the frontier half
+is enabled, testnet batches are generated by open models. The pure-human FPR gate is loose per
+entrant on its own cohort's humans and strict for promotion on the canary's
+fresh CC draw; 7-cohort pooling is monitoring only. A fresh-stock pure-human
+negative is scored once and may be a rewrite source up to 4 times, uses at least
+7 cohorts apart, including in its own cohort; outputs must be batch-invariant.
+Generated challenge documents are counted under the scorer's pinned tokenizer
+when they arrive and again before the seal; one over the scorer's input limit
+is generated again or gives way to a spare, and is never sealed.
+
+Testnet cohorts without an admitted outside entrant with a working artifact draw
+only already-exposed documents (redrawn freely, parent limits kept); the
+coordinator enforces this. Mainnet human stock is pre-cutoff CommonCrawl
+(captured before 2022-11-30), a historical-human proxy with per-domain share
+caps; the public stock is testnet-only. Lookup is reduced, never claimed
+prevented. Two lookup-canary flags block a candidate and the next qualifying
+retained cluster head is promoted; a signed operator review may later clear it without
+changing past promotions.

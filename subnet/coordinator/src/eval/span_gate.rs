@@ -609,6 +609,20 @@ pub struct PackageInputs<'a> {
     pub first_entrant_job: i64,
     /// Whether the cohort drew fresh stock (its population's pool).
     pub fresh: bool,
+    /// The cohort's complete counted bits at the result's grid
+    /// (`quant::cohort_bits` under `RewardV1Plan::counted_terms`, this
+    /// record's term included): the record's `result_bits`.
+    pub counted_bits: u32,
+}
+
+/// The build when the evaluation itself fails: no public record, and why in
+/// the private components. The package is unaffected.
+pub fn evaluation_failed(block: &LocalizationPlan, e: &EvalError) -> LocalizationBuild {
+    LocalizationBuild {
+        record: None,
+        components: json!({"rule": se::GATE_RULE, "mode": block.mode, "error": e.code(),
+            "note": "the span gate evaluation failed: no localization record; the package is unaffected"}),
+    }
 }
 
 /// The cohort's span-gate outcome (module docs). Never an error that holds
@@ -617,11 +631,7 @@ pub struct PackageInputs<'a> {
 pub fn evaluate(sql: &impl Sql, p: &PackageInputs<'_>) -> LocalizationBuild {
     match evaluate_inner(sql, p) {
         Ok(b) => b,
-        Err(e) => LocalizationBuild {
-            record: None,
-            components: json!({"rule": se::GATE_RULE, "mode": p.block.mode, "error": e.code(),
-                "note": "the span gate evaluation failed: no localization record; the package is unaffected"}),
-        },
+        Err(e) => evaluation_failed(p.block, &e),
     }
 }
 
@@ -734,7 +744,7 @@ fn evaluate_inner(sql: &impl Sql, p: &PackageInputs<'_>) -> R<LocalizationBuild>
         state: state_of(state),
         bits: LocalizationOutcomeV1::count_bits(&values),
         entrants: values,
-        result_bits: p.result.budget.total,
+        result_bits: p.counted_bits,
         cases: p.result.cases,
         identify_bits: p.result.params.quant.identify_bits,
         budget_factor: p.result.params.quant.budget_factor,

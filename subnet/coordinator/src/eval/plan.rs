@@ -1049,11 +1049,16 @@ impl RewardV1Plan {
     /// ([`QuantPlan::validate_terms`], [`LivePlan::validate`]), the live
     /// setup's derivation of `L` (`eval::live::prepare`) and the private
     /// recount at packaging (`v3::prepare_package`), so every one counts
-    /// the same complete total. No rule of this build adds a term. A rule
-    /// that publishes a deterministic value from hidden data adds its term
-    /// here, never at a caller, and re-pins the protocol's `L(X)` tables.
+    /// the same complete total. The span gate's record
+    /// (`slop_ninja_protocol::localization::TERMS`, `X + 2` bits) is the one
+    /// term of this build, when the plan names the block. A rule that
+    /// publishes a deterministic value from hidden data adds its term here,
+    /// never at a caller, and re-pins the protocol's `L(X)` tables.
     pub fn counted_terms(&self) -> slop_ninja_protocol::quant::CountedTerms {
-        slop_ninja_protocol::quant::CountedTerms::NONE
+        match &self.localization {
+            Some(_) => slop_ninja_protocol::localization::TERMS,
+            None => slop_ninja_protocol::quant::CountedTerms::NONE,
+        }
     }
 
     /// Whether the seal takes task indices from the seeded rank
@@ -1452,26 +1457,6 @@ impl CohortPlan {
                 // Every rule's counted terms, from the plan's one source.
                 let terms = v1.counted_terms();
                 q.validate_terms(self.n, cap, &terms)?;
-                // The span gate's record adds its bits beside the result's
-                // (`localization::localization_bits`).
-                if v1.localization.is_some() {
-                    let record = slop_ninja_protocol::localization::localization_bits(cap);
-                    let within = slop_ninja_protocol::quant::worst_case_terms(
-                        self.n,
-                        cap,
-                        q.eps_total_milli,
-                        q.identify_bits,
-                        q.budget_factor,
-                        &terms,
-                    )
-                    .is_ok_and(|(w, _)| {
-                        slop_ninja_protocol::localization::within_bound(w.total, record, self.n, q.identify_bits, q.budget_factor)
-                    });
-                    e(
-                        within,
-                        "reward_v1.quant (the worst-case bit budget with the span gate's record exceeds n h / F at this roster cap)",
-                    )?;
-                }
                 if let Some(l) = &v1.live {
                     l.validate(self.n, self.scorer.chunk_docs, cap, q, &terms)?;
                 }

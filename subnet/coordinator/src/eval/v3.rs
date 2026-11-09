@@ -2875,19 +2875,25 @@ pub fn prepare_package(
     // The span gate (report mode): never holds the package.
     let mut localization = None;
     if let Some(block) = &v.localization {
-        let fresh = fresh_allowed(sql, c)?;
-        let built = crate::eval::span_gate::evaluate(
-            sql,
-            &crate::eval::span_gate::PackageInputs {
-                cohort: c,
-                block,
-                result: &result,
-                gate_policy: manifest.gate_policy,
-                n: u32::try_from(n).map_err(|_| EvalError::State("n"))?,
-                first_entrant_job,
-                fresh,
-            },
-        );
+        // Its inputs' reads are inside the capture too: no error here holds
+        // the package.
+        let inputs = fresh_allowed(sql, c).and_then(|fresh| Ok((fresh, u32::try_from(n).map_err(|_| EvalError::State("n"))?)));
+        let built = match inputs {
+            Ok((fresh, n)) => crate::eval::span_gate::evaluate(
+                sql,
+                &crate::eval::span_gate::PackageInputs {
+                    cohort: c,
+                    block,
+                    result: &result,
+                    gate_policy: manifest.gate_policy,
+                    n,
+                    first_entrant_job,
+                    fresh,
+                    counted_bits: live_recount,
+                },
+            ),
+            Err(e) => crate::eval::span_gate::evaluation_failed(block, &e),
+        };
         if let Some(o) = components.as_object_mut() {
             o.insert("schema".into(), json!("slop_ninja_eval_score_components_v3"));
             o.insert("localization".into(), built.components);

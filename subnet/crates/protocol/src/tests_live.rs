@@ -18,8 +18,9 @@ const Q: QuantParams = QuantParams {
     budget_factor: F,
 };
 const LIVE: LiveParams = LiveParams { eps_live_milli: 1000, segments_max: 4 };
-/// The span gate's counted bits: one per executed entrant and one per cohort.
-const SPAN: CountedTerms = CountedTerms { per_executed: 1, per_cohort: 1 };
+/// The span gate's counted term: one bit per executed entrant and two per
+/// cohort (`localization::TERMS`).
+const SPAN: CountedTerms = crate::localization::TERMS;
 const HUNDREDTH: u64 = SCORE_SCALE / 100;
 
 #[test]
@@ -95,14 +96,14 @@ fn the_accounting_at_eight_entrants() {
     let d = live::derive_segments(N, 8, false, &Q, &LIVE, &CountedTerms::NONE).unwrap();
     assert_eq!(d, live::Derivation { segments: 4, counted: 148, live: 135, bound: 800 });
     let d = live::derive_segments(N, 8, false, &Q, &LIVE, &SPAN).unwrap();
-    assert_eq!((d.segments, d.counted, d.live), (4, 157, 135));
+    assert_eq!((d.segments, d.counted, d.live), (4, 158, 135));
     // One reading per subject per checkpoint: X + 1 subjects, R_k-1 has none.
     assert_eq!(live::live_bits(8, 2, w).unwrap(), 45);
     assert_eq!(live::live_bits(8, 0, w).unwrap(), 0);
 }
 
 /// The L(X) table at epsilon_live 1, n 1000, pinned for X = 0..=40 with and
-/// without the span gate's X + 1 term, under both reference shapes.
+/// without the span gate's X + 2 term, under both reference shapes.
 #[test]
 fn the_segment_count_table() {
     let table = |pred: bool, terms: &CountedTerms| -> Vec<u8> {
@@ -284,11 +285,13 @@ fn cohort_bits_adds_every_rule_term() {
     let b = quant::cohort_bits(8, w, false, &CountedTerms::NONE).unwrap();
     assert_eq!((b.quant.total, b.terms, b.total), (148, 0, 148));
     let b = quant::cohort_bits(8, w, false, &SPAN).unwrap();
-    assert_eq!((b.terms, b.total), (9, 157));
+    assert_eq!((b.terms, b.total), (10, 158));
     let (alone, ok) = quant::worst_case(N, 40, 2000, 8, 10).unwrap();
     let (complete, ok2) = quant::worst_case_terms(N, 40, 2000, 8, 10, &CountedTerms::NONE).unwrap();
     assert_eq!((alone, ok), (complete.quant, ok2));
     let (with_span, _) = quant::worst_case_terms(N, 40, 2000, 8, 10, &SPAN).unwrap();
-    // The worst case is the full roster, where the span term adds X + 1.
-    assert_eq!((with_span.total, with_span.terms), (complete.total + 41, 41));
+    // The worst case is the full roster, where the span term adds X + 2:
+    // 746 + 42 = 788 of the 800-bit bound.
+    assert_eq!((with_span.total, with_span.terms), (complete.total + 42, 42));
+    assert_eq!(with_span.total, 788);
 }

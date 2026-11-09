@@ -7654,6 +7654,10 @@ fn span_gate_report_mode_records_cells_and_publishes_one_value_per_scored_entran
     let l = b.localization.as_ref().expect("the localization record");
     l.check_result(&b.result).unwrap();
     assert_eq!(l.bits, 4 + slop_ninja_protocol::localization::STATE_BITS);
+    // Its total is the complete counted total (the package's private
+    // recount): the result's budget plus the record's term.
+    let term = slop_ninja_protocol::localization::TERMS.bits(b.result.budget.executed).unwrap();
+    assert_eq!((l.result_bits, b.live_recount), (b.result.budget.total + term, l.result_bits));
     let comp = &b.components["localization"];
     eprintln!("span gate components: {comp}");
     assert_eq!(b.components["schema"], "slop_ninja_eval_score_components_v3");
@@ -7825,14 +7829,28 @@ fn span_plans_count_the_anchor_job_and_the_record_bits() {
     p.reward_v1.as_mut().unwrap().localization = Some(span_block(anchor));
     assert!(p.anchor_job());
     assert_eq!(p.scored_docs(), docs + 1000, "the anchor job scores the batch");
-    // 746 + 42 = 788 of 800 bits with up to 40 entrants.
+    // The record is the plan's counted term, the one source every caller
+    // reads: 746 + 42 = 788 of 800 bits with up to 40 entrants.
+    use slop_ninja_protocol::live::{self, LiveParams};
+    use slop_ninja_protocol::quant::CountedTerms;
+    let v1 = p.reward_v1.as_ref().unwrap();
+    assert_eq!(v1.counted_terms(), slop_ninja_protocol::localization::TERMS);
     p.validate(none).unwrap();
+    // The live readings' L counts it too, and still fits the bound.
+    let (q, lp) = (v1.quant_params().unwrap(), LiveParams { eps_live_milli: 1000, segments_max: 4 });
+    for pred in [false, true] {
+        let with = live::derive_segments(1000, 40, pred, &q, &lp, &v1.counted_terms()).unwrap();
+        let without = live::derive_segments(1000, 40, pred, &q, &lp, &CountedTerms::NONE).unwrap();
+        assert_eq!(with.counted, without.counted + 42);
+        assert!(u64::from(with.counted + with.live) <= with.bound && with.bound == 800, "{with:?}");
+    }
     // A roster bound of 41 fits today but not with the record.
     let wider = Ceilings { roster_cap: Some(WIDER), ..none };
     let mut today = p.clone();
     today.reward_v1.as_mut().unwrap().localization = None;
+    assert_eq!(today.reward_v1.as_ref().unwrap().counted_terms(), CountedTerms::NONE);
     today.validate(wider).unwrap();
-    assert!(p.validate(wider).unwrap_err().0.contains("span gate's record"));
+    assert!(p.validate(wider).unwrap_err().0.contains("worst-case bit budget"));
     let mut enforce = p.clone();
     enforce.reward_v1.as_mut().unwrap().localization.as_mut().unwrap().mode = super::span_gate::MODE_ENFORCE.into();
     assert_eq!(enforce.validate(none).unwrap_err().0, super::span_gate::ENFORCE_REFUSAL);

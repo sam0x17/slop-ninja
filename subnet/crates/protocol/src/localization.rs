@@ -5,23 +5,32 @@
 //! result, the manifest, the targets and their encodings are as before. It
 //! carries, after close, one value per executed entrant that is not withheld
 //! ([`LocalizationValue`]) and the cohort's three-valued gate state, and it
-//! states its own hidden-data bits beside the result's counted budget:
+//! states its own hidden-data bits and the cohort's complete counted total:
 //!
 //! - one bit per valued entrant (passed or below the anchor; the structural
 //!   values `no_token_head` and `decoder_under_floor` are facts of the
 //!   artifact, public from scoring start, and are counted anyway);
 //! - [`STATE_BITS`] per cohort for the state (`ceil(log2 3)`).
 //!
+//! These bits are a counted term of the cohort's budget ([`TERMS`], a
+//! [`CountedTerms`]): a plan naming the gate adds the term to the one source
+//! every caller reads, so plan validation's worst case, the `live-v1`
+//! segment count ([`crate::live::derive_segments`]) and the packaging
+//! recount ([`crate::quant::cohort_bits`]) all count it. The record's
+//! `result_bits` is that complete total at the result's grid, which must
+//! cover the result's budget plus the term and stay within `n h / F`.
+//!
 //! A withheld or unexecuted entrant gets no value: the minimum-success rule
 //! publishes nothing of a withheld entrant but its identity, and a span value
 //! would leak hidden-data bits for exactly the entrants that rule protects.
-//! [`LocalizationOutcomeV1::check_result`] refuses such a value, and the
-//! combined bound `(result bits + bits) F <= n h` must hold.
+//! [`LocalizationOutcomeV1::check_result`] refuses such a value.
 //!
 //! In report mode the record is advisory: no gate failure of the package
-//! comes from it.
+//! comes from it. Only an applied state carries `below_anchor`: when the
+//! cohort is waived or void, the measured conditions decide no entrant.
 
 use crate::codec::canonical_struct;
+use crate::quant::{self, CountedTerms};
 use crate::quantized_result::{EntrantOutcome, QuantizedResult};
 use crate::records::validate_label;
 use crate::records_v2::tagged_enum;
@@ -109,17 +118,11 @@ impl LocalizationMode {
 /// Bits of the cohort state under the budget's `ceil(log2(alphabet))` rule.
 pub const STATE_BITS: u32 = 2;
 
-/// The plan-time worst case of the record's bits at `roster_cap`: one per
-/// entrant plus the state. Coordinator plan validation adds it to
-/// [`crate::quant::worst_case`]'s total.
-pub fn localization_bits(roster_cap: u16) -> u32 {
-    u32::from(roster_cap) + STATE_BITS
-}
-
-/// Whether `result_bits + bits` stays within `n h / F`.
-pub fn within_bound(result_bits: u32, bits: u32, cases: u32, identify_bits: u16, budget_factor: u16) -> bool {
-    (u64::from(result_bits) + u64::from(bits)) * u64::from(budget_factor) <= u64::from(cases) * u64::from(identify_bits)
-}
+/// The record's counted term: one bit per executed entrant (at least the
+/// valued ones: only a scored entrant gets a value) and [`STATE_BITS`] per
+/// cohort, so `X + 2` at `X` executed entrants. A plan naming the gate
+/// returns it from its counted terms, never adding it at a caller.
+pub const TERMS: CountedTerms = CountedTerms { per_executed: 1, per_cohort: STATE_BITS };
 
 canonical_struct! {
     /// The signed public span outcome of one scored cohort (module docs).
@@ -140,7 +143,10 @@ canonical_struct! {
         pub entrants: Vec<Option<LocalizationValue>>,
         /// This record's hidden-data bits: one per valued entrant plus [`STATE_BITS`].
         pub bits: u32,
-        /// The result's counted budget total.
+        /// The cohort's complete counted bits at the result's grid
+        /// ([`crate::quant::cohort_bits`] under the plan's counted terms):
+        /// the result's budget total plus every rule's term, this record's
+        /// [`TERMS`] included.
         pub result_bits: u32,
         /// `n`, `h` and `F` of the result's budget check.
         pub cases: u32,
@@ -156,8 +162,9 @@ impl LocalizationOutcomeV1 {
     }
 
     /// The record against the cohort's result: the same cohort, manifest and
-    /// roster, the result's digest and budget, and no value for an entrant
-    /// the result shows withheld or not executed.
+    /// roster, the result's digest and bit parameters, a complete total that
+    /// covers the result's budget plus [`TERMS`] at its executed count, and
+    /// no value for an entrant the result shows withheld or not executed.
     pub fn check_result(&self, r: &QuantizedResult) -> Result<()> {
         if self.chain != r.chain
             || self.cohort != r.cohort
@@ -177,7 +184,8 @@ impl LocalizationOutcomeV1 {
                 return Err(Error::Invalid("localization value for a withheld or unexecuted entrant"));
             }
         }
-        if self.result_bits != r.budget.total
+        let counted = TERMS.bits(r.budget.executed)?.checked_add(r.budget.total).ok_or(Error::Overflow("counted bits"))?;
+        if self.result_bits < counted
             || self.cases != r.cases
             || self.identify_bits != r.params.quant.identify_bits
             || self.budget_factor != r.params.quant.budget_factor
@@ -207,8 +215,15 @@ impl Record for LocalizationOutcomeV1 {
         if self.bits != Self::count_bits(&self.entrants) {
             return Err(Error::Mismatch("localization bits"));
         }
-        if !within_bound(self.result_bits, self.bits, self.cases, self.identify_bits, self.budget_factor) {
+        // The complete total counts this record's bits, within `n h / F`.
+        if self.bits > self.result_bits
+            || !quant::within_bound(self.result_bits, self.cases, self.identify_bits, self.budget_factor)
+        {
             return Err(Error::Invalid("localization bits beyond n h / F"));
+        }
+        // Waived or void: the measured conditions decide no entrant.
+        if self.state != LocalizationState::Applied && self.entrants.contains(&Some(LocalizationValue::BelowAnchor)) {
+            return Err(Error::Invalid("localization below_anchor outside an applied state"));
         }
         Ok(())
     }

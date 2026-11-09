@@ -4371,6 +4371,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "slop-ninja-span-eval"
+version = "0.1.0"
+dependencies = [
+ "serde_json",
+]
+
+[[package]]
 name = "slop-ninja-subnet"
 version = "0.1.0"
 dependencies = [

@@ -20,6 +20,7 @@ pub mod coordinator_row;
 mod error;
 mod hash;
 pub mod live;
+pub mod localization;
 mod operation;
 pub mod quant;
 mod quantized_result;
@@ -83,6 +84,7 @@ pub use records_v2::{
     RegistrationSnapshotV2, RewardV1Params, RosterEntry, ScorePackageV2, Stratum, TargetSource,
     WeightRowV2, canonical_fingerprints, MIN_SUCCESS_REASON, QuantDraw, QuantParams, QuantRecord,
 };
+pub use localization::{LocalizationMode, LocalizationOutcomeV1, LocalizationState, LocalizationValue};
 pub use quantized_result::{
     BudgetRecord, EntrantOutcome, NotExecuted, QuantRule, QuantizedResult, ResultBand,
     ResultEntrant, ResultReference,
@@ -97,6 +99,8 @@ mod tests;
 mod tests_coordinator_row;
 #[cfg(test)]
 mod tests_live;
+#[cfg(test)]
+mod tests_localization;
 #[cfg(test)]
 mod tests_quant;
 #[cfg(test)]

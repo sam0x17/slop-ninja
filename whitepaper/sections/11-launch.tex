@@ -144,9 +144,10 @@ coordinator resumes the same cohort. Slow work can move advancement to a later
 tempo without changing evaluation semantics or discarding observations.
 Interrupt coordinator checkpoints across several tempos and verify that
 remaining application deadline budgets survive without retroactively charging
-the silent intervals. An expired coordinator work authorization must stop new
-coordinator work, never validators' commitments, while existing
-chain and customer obligations retain their separate deadlines.
+the silent intervals. Coordinator work is fenced by authorization and
+checkpoint generation, never by elapsed time: a superseded or revoked work
+authorization must stop new coordinator work, never validators' commitments,
+while existing chain and customer obligations retain their separate deadlines.
 
 Rehearse every operator decision of Section~\ref{operator-decisions} on
 testnet from broken and stale states: abandon queued, running, and faulted

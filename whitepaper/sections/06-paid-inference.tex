@@ -287,9 +287,10 @@ bind finalized transactions and each job's allocation. Canonical encodings,
 signature verification, key rotation, and replay protection must be fixed
 before these records authorize funds.
 
-Each inference attempt also has a content-free R2 receipt included in a certified
-cohort package. Section~\ref{cohort-receipt-retention} defines its index, validator
-verification, and deletion after two subsequent cohorts complete. That rolling
+Each inference attempt also has a content-free R2 receipt bound into the
+coordinator's signed cohort package. Section~\ref{cohort-receipt-retention}
+defines its index, the coordinator's verification of it, and its deletion after
+two subsequent cohorts complete and the cohort's target is superseded. That rolling
 window applies to detailed inference receipts, separately from customer delivery
 terms, compact burn/accounting records, and unresolved refund obligations.
 

@@ -228,9 +228,10 @@ windows without requiring a pause write during the outage. Recovery publishes
 the remaining budgets and revised eligible tempo boundaries. Extending an open
 window cannot reopen a frozen roster or a finalized outcome.
 
-Permission to act has a separate clock. New cohort work requires a signed
-authorization bound to cohort, phase, and checkpoint generation, with bounded
-validity in finalized block heights; it fences coordinator work only. Weight commitments use a reward-intent
+Permission to act is separate from that clock. New cohort work requires a
+signed authorization bound to cohort, phase, and checkpoint generation. It has
+no expiry: it stays valid until a newer generation supersedes it or a signed
+revocation withdraws it, and it fences coordinator work only. Weight commitments use a reward-intent
 authorization instead, a separate record signed under the authorization key.
 Each package is sealed with one that names the cohort's manifest and package by
 digest and the target active after it: the package's new target, whose

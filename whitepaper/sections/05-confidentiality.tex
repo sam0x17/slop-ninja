@@ -104,9 +104,10 @@ remain in force during an evaluation pause. Preserving an unfinished benchmark
 cohort indefinitely grants no authority to retain customer documents indefinitely.
 
 Public receipts omit raw document hashes, filenames, titles, and report URLs.
-Validator-accessible R2 inference receipts also exclude prompts, responses,
-held-out labels, and parsed vectors. Their certified package and rolling
-two-cohort deletion rule appear in Section~\ref{cohort-receipt-retention};
+Coordinator-private R2 inference receipts, which are never published or sent
+to validators, also exclude prompts, responses, held-out labels, and parsed
+vectors. Their index and deletion rule appear in
+Section~\ref{cohort-receipt-retention};
 receipt access supplies no right to underlying content or commitment openings.
 Content commitments use canonical encoding, a fresh secret salt, and separate
 domains and lengths, for example:

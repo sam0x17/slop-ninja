@@ -29,8 +29,12 @@ subnet 78's 1\% grace below the incumbent; a fallback cutoff, a SlopNinja rule
 with no subnet 78 counterpart, keeps rewards flowing when nobody reaches that
 margin; a detected copy of any earlier published artifact earns nothing, and
 near-duplicate entrants share one credit equally; and no record, identity, or
-gate carries a chain runtime version. The shared protocol crate implements
-these rules as exact computation~\cite{protocolcrate}.
+gate carries a chain runtime version. Its predecessor \texttt{reward-v1},
+which the rehearsal cohorts of October 31 to November 1, 2026 ran
+(Section~\ref{testnet-reward-v1}), applied the same band rule to exact scores
+and published them; the testnet record restart of November 6 installed
+\texttt{reward-v2} (Section~\ref{operator-decisions}). The shared protocol
+crate implements these rules as exact computation~\cite{protocolcrate}.
 
 \subsection{Freeze the comparison before execution}
 
@@ -236,8 +240,9 @@ diagnostic sets, and any document an earlier testnet cohort drew. These may be
 scored again as pure-human negatives without limit, never-drawn documents first
 and none twice in one cohort, while their uses as rewrite sources keep the
 limits above. Fresh stock is drawn only for a cohort with such an entrant. The
-coordinator enforces the rule: it draws only from pools on its exposed list and
-refuses any plan that names another. Every testnet cohort so far has drawn
+coordinator enforces the rule: it draws from a plan's fresh pool only when the
+frozen roster has such an entrant, and otherwise only from pools on its exposed
+list. Every testnet cohort so far has drawn
 exposed documents only, including the first cohorts with an outside entrant,
 because testnet's standing cohort template names only an exposed pool
 (Section~\ref{testnet-r1}). A score on reused documents shows that an artifact

@@ -43,13 +43,14 @@ fresh AI-side text in parallel lanes, and seal the batch and roster digests. &
 On completion. \\
 Scoring & 3--15 & Publish every admitted artifact as scoring starts; score
 every entrant, \(R_k\), and \(R_{k-1}\) in pairs in parallel lanes, then each
-executed entrant's probe run; work is sized to at most half of this window. &
-On completion. \\
+executed entrant's probe run; work is sized to at most half of this window;
+release segment readings, and show pre-finalized quantized scores as models
+finish. & On completion. \\
 Publication & 15--16 & Bundle receipts; seal and sign the private score
 package, the receipt index, and the public quantized result. & On completion. \\
 Transition & 16--20 & Issue no new challenges. Validators process their chain
 obligations independently. At the closing boundary, publish the openings and
-the quantized result's values. & At least two tempos and the cohort minimum. \\
+the quantized result's remaining values. & At least two tempos and the cohort minimum. \\
 Paused & any & Retain state and receive evidence from already dispatched work.
 Start no new challenge and advance no cohort. & Reconcile the saved state and
 chain, then authorize resumption of the same cohort. \\
@@ -120,9 +121,12 @@ burn issues a new launch authorization, for a fresh record
 
 Validators commit the burn row every tempo until
 some cohort first has a gated entrant whose released score reaches the margin
-cutoff; the
-promotion that normally follows makes \(R_0\) the predecessor for the fallback
-cutoff (Sections~\ref{reference-model} and~\ref{reward-v1}). Native
+cutoff. If that cohort also promotes an entrant, \(R_0\) becomes the
+predecessor that later fallback cutoffs use (Sections~\ref{reference-model}
+and~\ref{reward-v1}). If it promotes none, its target pays its retained
+clusters, \(R_0\) still has no predecessor, and each later cohort in which no
+released score reaches the margin cutoff produces no new target, so that first
+target stays live until a later cohort reaches the margin cutoff. Native
 validators commit the burn row too: their adapter records an explicit,
 journaled policy for submitting a row whose only positive entry is the owner
 hotkey's UID, used for the burn row under the launch authorization or a burn
@@ -154,9 +158,15 @@ own Container instance. Lanes number at least one per scored artifact, and more
 as the batch grows, within the account's Container limits~\cite{cfcontainerlimits},
 the providers' model rate limits through one shared limiter~\cite{cfailimits},
 and, on testnet, the cohort's budget. Lane count changes elapsed time and per-lane start
-cost, never a document's outcome: the scorer's outputs are bitwise identical
-across instance sizes (Section~\ref{existing-evidence-and-implementation-status}).
-Lanes never sign; signing stays in the cohort object's phase transitions.
+cost, never a document's outcome: on one CPU class the scorer's outputs are
+bitwise identical across instance sizes and session settings
+(Section~\ref{existing-evidence-and-implementation-status}). Live scorer hosts
+fall into two arithmetic classes whose outputs differ in their last bits, at
+most \(8.4\times10^{-7}\) on the probability scale on the texts probed, with
+labels and span offsets exact, and a lane does not choose its host's class.
+Such a difference can move a document's utility only in digits far below the
+score grid and the release noise. Lanes never sign; signing stays in the
+cohort object's phase transitions.
 
 Containers start on demand, and nothing runs warm at rest; scoring instances may
 start just in time during the tail of generation, and cold starts are accepted.
@@ -273,11 +283,12 @@ validator holds active and the epoch to be at or after the authorization's
 issue, so an authorization stops yielding commitments once another target
 activates. Existing chain obligations retain their recorded authority and
 native deadlines. If a work
-authorization lapses or its checkpoint cannot be verified, no new coordinator
-work begins until the live coordinator issues another; a lapse never ends or
-skips a cohort and never touches validators' commitments. A fresh
-finalized-chain view is required; a cached height cannot keep a work
-authorization valid indefinitely. One non-coordinator validator's silence never
+authorization is superseded or revoked, or its checkpoint cannot be verified,
+no new coordinator work begins until the live coordinator issues another; this
+never ends or skips a cohort and never touches validators' commitments.
+Acting under a work authorization requires a fresh finalized-chain view, not a
+cached height; staleness pauses that action without ending the authorization.
+One non-coordinator validator's silence never
 stops the shared clock.
 
 Before dependent actions, retain the manifest, roster, artifact and credited
@@ -474,8 +485,9 @@ window defers only the affected validator's delivery. Reconcile its old attempts
 and current authorized target before scheduling another eligible window. Native
 submission and reveal clocks do not extend when coordinator deadlines pause.
 
-The coordinator seals each complete evaluation and durably publishes its score
-package and calculation target. Cohort completion records publication, not
+The coordinator seals each complete evaluation's private score package and
+calculation target, and durably publishes the public result, row record, and
+authorization. Cohort completion records publication, not
 validator adoption or miner payment. At the next permitted boundary after the
 transition minimum, the coordinator may start another cohort even if every
 external validator is offline, outdated, or refusing to submit. Evaluation,
@@ -506,7 +518,9 @@ tempo (Section~\ref{unallocated-rewards}).
 Commit--reveal hides native submissions until reveal. The coordinator's row is
 published off chain as soon as it is signed, before any reveal, and also
 follows from the public quantized result, so this design does not claim to
-prevent copying it or to prove that any validator checked it. Native consensus
+prevent copying it or to prove that any validator checked it. Pre-finalized
+scores and readings (Section~\ref{pre-finalized-scores}) show the row's likely
+shape earlier; they authorize nothing, and validators never read them. Native consensus
 still accepts each validator's own submission and does not enforce this
 off-chain contract.
 

@@ -42,7 +42,10 @@ and score each passage of fresh stock as a pure-human negative at most once. Com
 population and policy before scoring. Release only quantized scores, drawn with
 seeded noise under a per-cohort privacy budget, and count every released value,
 the unnoised gate, public-copy, cluster, and promotion outcomes included, in a
-versioned bit budget. Released values still leak a bounded amount about the
+versioned bit budget. Readings shown while scoring runs have their own
+versioned budget, use disjoint segments of the batch fixed at the seal, and
+count in the same bit budget; showing a released score before the close
+changes neither budget. Released values still leak a bounded amount about the
 batch they describe, the budget adds across cohorts that reuse a passage, and
 coordinated probing across many UIDs remains possible. Secrecy and accurate
 curation remain assumptions. \\
@@ -82,10 +85,15 @@ weaker variant of its own model, can land alone in a lower band and take up to
 45.9\% of the pool, more than each cluster in a crowded band above it; its
 expected credit is not yet measured (Section~\ref{reward-v1}).
 Weight soups of published artifacts are new models and earn normally. Within a
-cohort, near-duplicate entrants share one credit equally, but a party's portion
-of a shared cluster still grows with the hotkeys it registers. Registration cost
-and UID slots are the only brakes on either; different hashes and UIDs do not
-establish independent work or ownership. \\
+cohort, near-duplicate entrants share one credit equally, and a cluster is
+placed by its earliest-admitted member's score, so extra near copies add no
+noise draw toward the cutoff, though a party's portion of a shared cluster
+still grows with the hotkeys it registers; under \texttt{reward-v2}, which
+testnet's current record runs, a cluster is still placed by its
+highest-ranked member. Copies farther apart than
+the near-copy distance draw independently. Registration cost and UID slots
+are the only brakes on these; different hashes and UIDs do not establish
+independent work or ownership. \\
 False reference advance & Eligibility and promotion use the same margin of
 about two paired standard errors of seed retrains. Ten entrants equal to the
 reference promote one in about 14\% of cohorts when they differ from it as seed

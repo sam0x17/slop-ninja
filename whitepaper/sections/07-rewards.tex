@@ -5,7 +5,9 @@ scoring. SlopNinja runs each artifact, the current reference model, and,
 when one exists, the previous reference model on the same fresh hidden batch, retains every prediction and failure, and keeps every
 exact score inside its evaluation service. It releases only quantized scores
 (Section~\ref{quantized-scores}), derives the canonical native row from them
-under the frozen \texttt{reward-v2} rules below, signs that row, and publishes
+under the frozen \texttt{reward-v2} rules below, or under their successor,
+which changes only how a cluster is placed (Section~\ref{reward-v1}), signs
+that row, and publishes
 it off chain. Every other validator verifies the signed row and submits it
 through its own journaled commit--reveal, in parallel with the other validators
 (Section~\ref{cohorts}). Held-out documents, labels, individual predictions,
@@ -41,7 +43,7 @@ crate implements these rules as exact computation~\cite{protocolcrate}.
 A cohort manifest binds its roster of artifact commitments, the raw-text input
 profile and output contract, the reference gallery, the reference models, the
 batch design, the human pool, qualification gates, numerical tolerances, the
-artifact cap and compute limits (Section~\ref{a-artifact-execution}), retry
+parameter bounds and compute limits (Section~\ref{a-artifact-execution}), retry
 policy, the cohort schedule (Section~\ref{cohorts}), and the \texttt{reward-v2}
 and \texttt{quant-v1} parameters, including the privacy and bit budgets. The
 batch design fixes \(n\), the mix, the domain\(\times\)origin
@@ -179,8 +181,10 @@ WET files fill every domain, and draws approximate uniform sampling over unique
 documents by weighting each crawl by its new URLs and down-weighting repeated
 captures. Versioned domain rules assign each excerpt its cohort domain. A fresh
 hand-labelled draw under the current rules found 72\% [64, 79] of documents
-usable at the launch shares, with no domain reaching 90\%; the rest are human
-text under the wrong domain or register. Domain precision is therefore a stated
+usable at the launch shares, with no domain reaching 90\%; the rest are mostly
+human text under the wrong domain or register, and 7 of the 450 documents,
+1.6\%, were machine-made or machine-processed text, which counts as
+unusable. Domain precision is therefore a stated
 limit that sizes the pool, not a launch requirement
 (Section~\ref{cc-stock-evidence}). Launch shares of human parents follow
 per-domain caps derived from each domain's measured frame: essays 51.25\%, news
@@ -236,17 +240,32 @@ roster has no admitted outside entrant with a working artifact, such as a
 rehearsal with only operator or synthetic entrants, draws its human documents
 from already-exposed pools alone: 570 development human documents, 4,593 public
 documents whose only earlier roles were the consumed Test, held-out, or
-diagnostic sets, and any document an earlier testnet cohort drew. These may be
-scored again as pure-human negatives without limit, never-drawn documents first
-and none twice in one cohort, while their uses as rewrite sources keep the
-limits above. Fresh stock is drawn only for a cohort with such an entrant. The
-coordinator enforces the rule: it draws from a plan's fresh pool only when the
-frozen roster has such an entrant, and otherwise only from pools on its exposed
-list. Every testnet cohort so far has drawn
-exposed documents only, including the first cohorts with an outside entrant,
-because testnet's standing cohort template names only an exposed pool
-(Section~\ref{testnet-r1}). A score on reused documents shows that an artifact
-runs and is scored, not how it performs on unseen text.
+diagnostic sets, and any document an earlier testnet cohort drew. Fresh stock
+is drawn only for a cohort with such an entrant. The coordinator enforces the
+rule: it draws from a plan's fresh pool only when the frozen roster has such an
+entrant, and otherwise only from pools on its exposed list. Every testnet
+cohort so far has drawn exposed documents only, including the first cohorts
+with an outside entrant, because testnet's standing cohort template names only
+an exposed pool (Section~\ref{testnet-r1}).
+
+Exposed documents may be scored again as pure-human negatives without limit,
+never-drawn documents first and none twice in one cohort. Their uses as
+rewrite sources need not keep the limits above either. A 1,000-case cohort
+needs about 660 distinct parents, its 550 mixed documents plus a fifth more as
+spares, so under a four-use
+limit with a seven-cohort gap the standing template's draws would stop within
+seven consecutive cohorts, which need more distinct parents than its
+4,593-document pool holds. A versioned testnet-only rule therefore lifts the
+use limit and the gap for exposed pools: a passage first seen in an earlier
+cohort may parent again, at most once in a cohort, after the cohort's own
+negatives and never-parented stock, least recently parented first, and the 570
+development documents join as parents only. The gate policy that the manifest
+binds names the rule, so no manifest binds a limit that its draw lifted, and
+the coordinator refuses the rule off testnet or beside a fresh pool. As of
+November 9 the rule is built and awaits installation between two cohorts. A
+score on reused documents can rest on recognizing the text, so it shows that
+an artifact runs and is scored, not how it performs on unseen text, and
+testnet scores are not evidence of mainnet quality.
 
 \subsection{Lookup exposure and the canary}\label{lookup-exposure}
 
@@ -264,7 +283,8 @@ pretraining exposure, cannot be excluded. The protocol reduces lookup; it does
 not prevent it.
 
 On testnet the exposure is large. The whole public stock fits in a 4.1 MB
-sentence Bloom filter, and its raw text in 327 MB, far below any artifact cap.
+sentence Bloom filter, far below the learned capacity the parameter bounds
+allow, and its raw text in 327 MB.
 Recognizing one domain's documents alone, such as Wikipedia, would gain about
 12\% of the reference's headroom on a 40/40/20 batch, more than the 1,000-case
 margin. On mainnet the frame is web-scale, about 64 billion first-seen URLs, while an artifact at
@@ -282,12 +302,12 @@ understate coverage by up to 1.44 times, and the frame size is known only to
 within a factor of two. Encoders pretrained on web text may already recognize
 Common Crawl pages. A first red team found no membership signal in the
 masked-language-model loss of two small encoders pretrained on data containing
-Common Crawl, and a recognizer fine-tuned from \(R_0\)'s encoder recovered
+Common Crawl, and a linear membership head trained on \(R_0\)'s encoder recovered
 8.5--14.7\% of the pages it was trained on at a 0.1\% false-positive rate, far
 below the ideal index that the caps price; the test on ModernBERT-base's own
 pretrained weights is still owed (Section~\ref{cc-stock-evidence}).
 
-The defences are the artifact cap; breadth of sampling; keyed, secret passage
+The defences are the parameter bounds; breadth of sampling; keyed, secret passage
 choice, which multiplies the keys an attacker must store by about 5.5, the
 average number of valid passages per page; share caps for small or guessable
 domains; text first published after a manifest freezes, such as new
@@ -427,8 +447,9 @@ recipes and of V6 against \(R_0\) are about 13--19\% of headroom at 1,000 cases,
 are much weaker than \(R_0\), so they supply only this scale, and the table's
 figures for structurally different entrants, taken at its midpoint of about
 \(4.6\sigma\) under a normal approximation, are illustrative. Which kind of
-roster the subnet will see is not yet measured. Once independently trained
-models of equal quality compete, promotion rather than fallback is the expected
+roster the subnet will see is not yet measured. Once structurally different
+models of equal quality compete, rather than seed retrains of \(R_k\),
+promotion rather than fallback is the expected
 case, and the reference changes hands among equally good models. The same noise
 can promote a worse model; the strict false-positive tier and the canary bound
 human false positives and lookup, not quality.
@@ -478,12 +499,17 @@ decision appears in the next signed manifest, so the sequence of signed
 manifests is its record, and it never changes a sealed cohort. Credit is bound
 to its own cohort's package and target (Section~\ref{lagged-payout}), so a
 reference decision moves no earned reward; it sets the margin for later cohorts
-and, while the launch burn lasts, the bar that ends it. SlopNinja plans one such
-decision on testnet, announced in advance on the public status page: replacing
-\(R_0\) by the next reference it trains, retrained and recalibrated on
-normalised, length-matched positives (Section~\ref{human-stock}), only if that
-model passes every required gate; the replacement takes \(R_0\)'s position,
-with no predecessor. No span package is named \(R_0\). Mainnet opens its own
+and, while the launch burn lasts, the bar that ends it. Before the first cohort
+that enforces the span gate (Section~\ref{span-outputs}), SlopNinja makes one
+span-equivalent decision on testnet: \(R_0\)'s position passes to its first
+span package, whose document outputs are \(R_0\)'s and whose probe
+predictions match \(R_0\)'s within the measured difference between scorer
+hosts, so no reward input changes. SlopNinja also plans one replacement, announced in
+advance on the public status page: replacing \(R_0\) by the next reference it
+trains, retrained and recalibrated on normalised, length-matched positives
+(Section~\ref{human-stock}), only if that model passes every required gate, the
+span gate included; the replacement takes \(R_0\)'s position, with no
+predecessor. Mainnet opens its own
 fresh record, whose first reference is the one testnet holds at that
 time, with no predecessor; reference decisions remain available there under
 the same signed public records. A testnet
@@ -522,7 +548,8 @@ each executed entrant and for both references, is a quantized score
  \hat S_i=g\,\min\Bigl(\lfloor 1/g\rfloor,\;\max\bigl(0,\;\bigl\lfloor(S_i+\eta_i+o_i)/g\bigr\rfloor\bigr)\Bigr)
 \]
 under the versioned rule \texttt{quant-v1}, so every released score is a grid
-value. The largest is \(g\lfloor 1/g\rfloor\), which is 1 only when \(g\)
+value; the readings of Section~\ref{pre-finalized-scores} follow their own
+rule. The largest is \(g\lfloor 1/g\rfloor\), which is 1 only when \(g\)
 divides 1: on a 0.03 grid it is 0.99. The grid width \(g\) is the larger
 of twice \(R_k\)'s sampling standard error, measured on the cohort's own batch,
 and the noise scale below, rounded up on a versioned ladder. The offset \(o_i\)
@@ -536,8 +563,11 @@ equally over every executed entrant's quantized score and the references': with
 one batch document moves an exact score by at most \(1/n\), so, given the grid
 width and which entrants are withheld, it changes the joint distribution of the
 released scores by at most a factor \(e^{2}\). The budget adds across cohorts
-and across documents that reuse one passage, so the reuse limits of
-Section~\ref{cohort-batch} bound a passage's total. Released scores are
+and across documents that reuse one passage. For fresh stock the reuse limits
+of Section~\ref{cohort-batch} bound a passage's total; testnet's exposed
+documents, which may be drawn again without limit
+(Section~\ref{human-stock}), have no such bound, an accepted limit for text
+that is already public or consumed. Released scores are
 therefore coarse and noisy: they bound what a score reveals about any one
 document, and they hide small differences between entrants.
 
@@ -554,20 +584,93 @@ which entrants are withheld. The gate, public-copy, withheld, cluster, and
 promotion outcomes and the grid width are deterministic functions of exact
 scores and hidden data, released without noise and outside the
 \(\varepsilon\) accounting. A versioned per-cohort bit budget counts them at
-full face value with every released score and is checked when the plan is
+full face value with every released score, every reading of
+Section~\ref{pre-finalized-scores}, and the span-gate record of
+Section~\ref{aggregation-and-failure-policy}, and is checked when the plan is
 validated, at the seal, and at publication; a cohort over budget is held, never
 published or skipped. The bit budget caps what is released; it is not a
 differential-privacy guarantee.
 
 The noise has a cost. Its standard deviation is \(\sqrt2/(n\varepsilon_v)\). On
 testnet, at 1,000 cases and the full roster of 40 entrants, it is about 0.030
-(a noise scale of about 0.021), against a sampling standard error of at most
-about 0.011, so the release noise dominates the score differences between close
-entrants, and the grid is 0.03; with five entrants it is about 0.005. At
+(a noise scale of about 0.021), against \(R_k\)'s sampling standard error of
+at most about 0.011, so the release noise dominates the score differences
+between close entrants, and the grid is 0.03. With five entrants the noise is
+about 0.005, and the grid then follows \(R_k\)'s measured standard error: it
+was 0.02 in testnet's first eight-entrant cohorts. At
 mainnet's planned 4,000 cases and 256 entrants it would be about 0.046 (a noise
 scale of about 0.032), rewards would be mostly noise, and
 the current bit budget would refuse the plan, so the budget, \(n\), or the split
 must be revisited before mainnet. These are stated limits.
+
+\subsection{Pre-finalized scores}\label{pre-finalized-scores}
+
+While a cohort is scored, after its roster is frozen and its batch sealed, the
+status page shows how each executed entrant is doing. Nothing shown here enters
+a cutoff, band, credit, gate, cluster, promotion, or row, and the released
+scores of Section~\ref{quantized-scores} are computed exactly as they would be
+without it.
+
+An executed entrant's quantized score, or its withheld outcome, depends only on
+its own predictions on the batch, \(R_k\)'s predictions on the batch, the
+cohort's private seed, and counts fixed at the seal. Once the entrant has
+finished every assigned document and \(R_k\) has finished the batch without a
+failure, the coordinator computes that value with the same code and draw that
+the result uses and shows it, marked pre-finalized. The references' quantized
+scores, and the margin cutoff that follows from \(R_k\)'s, appear the same way,
+each once the references it depends on have finished without a failure.
+Showing a value earlier changes neither the value nor any term of the privacy
+or bit budgets. A signed correction can still replace it, and the correction
+keeps the original record.
+
+Before that, a cohort can release segment readings under the versioned rule
+\texttt{live-v1}. The seal splits the batch, never the probe or audit
+documents, into \(L\) segments of \(\lfloor n/L\rfloor\) or \(\lceil
+n/L\rceil\) documents by the private task order, so the split does not depend
+on labels, outcomes, or timing. When a model has resolved every document of
+segments \(1,\dots,s\) with \(s<L\), the coordinator releases its reading for
+segment \(s\) once: the floor of its mean utility on that segment plus exact
+discrete-Laplace noise and a secret offset, drawn from their own seeded
+streams, on a grid whose width is the noise scale rounded up on the ladder. The
+last segment is never released alone. Readings are released for each executed
+entrant and for \(R_k\), and the status page shows the running mean of an
+entrant's readings beside \(R_k\)'s on the same documents, with the noise's
+standard deviation. An entrant whose attributable failures in the released
+segments already exceed the minimum-success limit receives no further reading.
+
+Readings are charged to their own versioned privacy parameter
+\(\varepsilon_\ell\), set to 1 per cohort and split equally over the executed
+entrants and \(R_k\). The task order comes from a secret seeded rank, which
+acts as a uniformly random permutation of the sealed documents, so replacing
+one batch document changes the readings of one segment per model, each by at
+most \(1/\lfloor n/L\rfloor\) before noise. Given the grid widths and the
+withheld outcomes, the released scores and readings together therefore change
+by at most a factor \(e^{\varepsilon+\varepsilon_\ell}\) per cohort, one power
+of \(e\) more than the released scores alone, and the budget adds across
+cohorts and across documents that reuse one passage. Every reading counts in the bit budget at
+full face value. Once the batch is sealed, \(L\) is set to the largest value,
+up to the plan's maximum, for which the cohort's worst-case bit budget,
+counting every value any rule releases, still holds at its executed roster, so
+a larger roster receives fewer readings and possibly none. At 1,000 cases and
+eight executed entrants, \(L=4\): readings at a quarter, a half, and three
+quarters of the batch, whose running means have noise standard deviations of
+about 0.053, 0.038, and 0.031, against about 0.006 for the released score.
+Above about 33 to 35 executed entrants, depending on the other values the
+cohort releases, there are none. The operator can stop and resume readings,
+for one cohort or all, without a deployment.
+
+No rank, band, cutoff mode, gate, public-copy, cluster, or unit value is
+released before the close. Pre-finalized scores and readings give everyone an
+earlier view of which published models are doing well: on testnet's calendar a
+few tempos before the close, and on the mainnet calendar of
+Table~\ref{tab:cohort-phases} up to about eleven tempos, over half a day,
+before it, so a competitor
+can build on a strong published model up to one cohort sooner. A reading is
+released when its segment is resolved, so its timing shows roughly where the
+segment ends in the task order, as the challenge counts already show each
+model's progress. On testnet, where exposed documents are drawn again without
+limit, the added budget makes a passage's total grow faster. These are stated
+limits.
 
 \subsection{From scores to credits}\label{reward-v1}
 
@@ -661,11 +764,24 @@ cohort's cutoff.
 
 The calculation proceeds in seven steps over the gated entrants. Every score it
 compares is a quantized score; cluster membership uses the private near-copy
-distance. Entrants are
-ordered by quantized score, then by roster order, which is admission order:
-finalized commitment block, then extrinsic index. This \emph{rank order} breaks
-every tie below; no exact score enters it.
+distance. The \emph{roster order} is admission order: finalized commitment
+block, then extrinsic index. Step 1 gives the cluster placement of the
+successor of \texttt{reward-v2}, a separate reward rule with its own
+identifier in every manifest and row record. \texttt{reward-v2} itself, which
+testnet's current record runs, applies the cutoff first, then walks only the
+gated entrants at or above it, ordered by quantized score and then roster
+order, and places each cluster by that walk's first member, its highest-ranked
+one; the other steps are the same.
 \begin{enumerate}\tightlist
+\item \emph{Clusters.} Walk every gated entrant in roster order. The first
+entrant not yet assigned heads a cluster that also contains every later
+unassigned entrant with identical inference content or within the near-copy
+distance of the head on the batch, judged by distance alone, with no score
+clause; there is no chaining through other members. A cluster takes its head's
+quantized score, so the noise draw of its earliest-admitted member places it,
+and no other member's score moves it. Clusters are ordered by that score, then
+by their heads' roster order. This \emph{rank order} breaks every tie below;
+no exact score enters it.
 \item \emph{Cutoff.} When \(\hat S_{R_k}=1\), which needs a grid width that
 divides 1, no cutoff applies, neither margin
 nor fallback, and the cohort produces no new target (end of this step).
@@ -673,15 +789,16 @@ Otherwise thresholds are rounded up onto the grid. Let
 \(T=\hat S_{R_k}+\delta(1-\hat S_{R_k})\) and \(\hat T=g\lceil T/g\rceil\);
 when \(\hat S_{R_k}\) is the largest grid value and below 1, \(\hat T\) lies
 above every releasable score, so no entrant reaches it. If
-any gated entrant has \(\hat S_i\geq\hat T\), the cutoff is \(\hat T\).
-Otherwise, when \(R_{k-1}\) exists and some gated entrant scores strictly above
+any cluster's score \(\hat S\) reaches \(\hat T\), the cutoff is \(\hat T\).
+Otherwise, when \(R_{k-1}\) exists and some cluster scores strictly above
 \(\hat S_{R_{k-1}}\), the cohort is scored against the fallback cutoff
 \[
  C_N=\hat S_{R_{k-1}}+0.15\,\bigl(\max_N-\hat S_{R_{k-1}}\bigr),\qquad
  \hat C_N=g\lceil C_N/g\rceil,
 \]
-where \(\max_N\) is the top gated quantized score in cohort \(N\), so
-\(\hat C_N\leq\max_N\). The fallback removes the
+where \(\max_N\) is the top cluster score in cohort \(N\), so
+\(\hat C_N\leq\max_N\). Clusters whose score reaches the cutoff are
+\emph{retained}; the others earn nothing. The fallback removes the
 bottom 15\% of the score range that would earn against the previous reference,
 so rewards keep flowing to the current cohort; the reference does not advance.
 The anchor is \(R_{k-1}\) rather than \(R_k\) because no entrant's released
@@ -702,14 +819,9 @@ unrounded margin, so the margin cutoff is one grid step above
 fallback cutoff applies, the cohort produces no new target: the previous target
 stays live, and if there has never
 been one the row sends the whole pool to the owner hotkey's UID, which burns it.
-\item \emph{Clusters.} Walk the gated entrants at or above the cutoff in rank
-order. The first entrant not yet assigned heads a cluster that also contains
-every later unassigned entrant with identical inference content or within the
-near-copy distance of the head on the batch, judged by distance alone, with no
-score clause. The cluster takes its head's quantized score and position; there is no chaining through other members.
 \item \emph{Bands.} Round the band width up to whole grid steps,
 \(W=g\max(1,\lceil w/g\rceil)\) with \(w=2\sigma(1-\hat S_{R_k})\), and place
-each cluster in band \(b=\min(\lfloor\hat S/W\rfloor,\lceil 1/W\rceil-1)\) on
+each retained cluster in band \(b=\min(\lfloor\hat S/W\rfloor,\lceil 1/W\rceil-1)\) on
 the absolute score grid, so band edges lie on the grid. Rank occupied bands
 \(\kappa=0,\dots,B-1\) from the top, and rank the clusters within band
 \(\kappa\) as \(\mu=0,\dots,n_\kappa-1\) in rank order.
@@ -770,7 +882,7 @@ holds at most 256 entrants, the subnet's UID limit.
 A band's share depends on its rank among occupied bands, not on how many
 clusters it holds, so credit is not monotone in score across a band boundary. A
 cluster alone in the lower of two occupied bands receives 45.9\% however many
-clusters share the band above, 2.2 times the best of three there and 3.1 times
+clusters share the band above, 2.2 times the best of three there and 3.2 times
 the best of five; alone in the third of three bands, it receives 28.1\%. Subnet
 78's 2.5-point bands seldom divide a roster, so its experience does not cover
 this case. Bands here often do: the paired difference between two equally good
@@ -788,12 +900,26 @@ described below.
 Subnet 78's near-equal drop is not used. Distinct quantized scores differ by at
 least one grid step, far more than subnet 78's \(w/250\), so a drop could act
 only on exact ties, which share credit instead; the content check, the
-public-copy gate, and clustering remove copies first. Among equal quantized
-scores, roster order still decides two things: which entrant heads a cluster,
-and so which later entrants join it, since membership is measured against the
-head; and the order in which promotion tests tied heads, so the earliest
-admitted head that passes is promoted even when a later tied head has a higher
-exact score.
+public-copy gate, and clustering remove copies first. Roster order decides
+which entrant heads a cluster, and so which later entrants join it, since
+membership is measured against the head, and which quantized score places the
+cluster. Among equal quantized scores it also sets the order in which
+promotion tests tied heads, so the earliest admitted head that passes is
+promoted even when a later tied head has a higher exact score.
+
+Placing a cluster by its earliest-admitted member removes a lottery. Identical
+copies already share one noise draw, but near copies with different content
+draw independently, so a cluster placed by its best member would let a party
+that enters several near copies of one model take the best of their draws
+toward the cutoff, which an entrant equal to \(R_k\) reaches alone about 35\%
+of the time at testnet's full roster. Under placement by the earliest-admitted
+member, extra near copies add no draw, and an honest entrant that shares no
+cluster is unaffected. Copies farther apart than the near-copy distance still
+draw independently, and registration cost and UID slots are the only brakes on
+them. As a reward-rule change, placement by the earliest-admitted member
+takes effect only through a fresh record under the successor rule
+(Section~\ref{operator-decisions}), and mainnet's first record opens under
+it; testnet's current record keeps \texttt{reward-v2}'s placement.
 
 The near-copy distance removes exact and recalibrated copies and sets a minimum
 price on a perturbed copy; it neither prevents one nor bounds what one earns. To
@@ -863,7 +989,7 @@ margin can be promoted.
 
 Exact copies are found by inference-content digest against the
 published-artifact index, which holds every entrant artifact of every closed
-cohort and every initial reference \(R_0\): an entrant fails the content check
+cohort and every record's first reference: an entrant fails the content check
 exactly when its digest is in that index, and such an entrant is never
 executed. The digests
 are public, so anyone can repeat this check. Re-running every
@@ -950,10 +1076,17 @@ entry in roster order, its identity and outcome: not executed, withheld, or its
 quantized score, gate and public-copy bits, and cluster, with its band rank and
 units. It also records each term of the cohort's bit budget, and it carries no
 exact score, standard error, offset, noise draw, statistic, probe value, attempt
-count, or receipt value. Its allow-listed values are published when the cohort
-closes, on the public status host and the status page at
-\texttt{slop.ninja/testnet/status} for testnet; the artifacts were published when scoring
-started, and the commitment openings follow at the close. An entrant that fails
+count, or receipt value. Each quantized score and withheld outcome in it is
+shown on the status page, marked pre-finalized, as soon as it is fixed
+(Section~\ref{pre-finalized-scores}); its remaining allow-listed values are
+published when the cohort closes, on the public status host and the status
+page at \texttt{slop.ninja/testnet/status} for testnet; the artifacts were
+published when scoring started, and the commitment openings follow at the
+close. A separate signed record gives, for each scored entrant that is not
+withheld, whether it passed the span gate, and for the cohort whether the gate
+applied, was waived, or was voided (Section~\ref{span-outputs}); it states
+these bits beside the result's own budget, and the plan-time bit budget counts
+them. Per-entrant span metrics stay private. An entrant that fails
 artifact qualification is never executed and carries no score. Compact
 numerical inputs and calculated rows survive the detailed receipts' retention
 window.

@@ -117,7 +117,8 @@ words.
 The first span package combines S2c's seed-17 weights with that 24-word
 decoder and a span confidence map refitted on CAL under the floor. Its graph and
 tokenizer are byte-identical to the earlier S2c package's, its document outputs
-equal \(R_0\)'s on 215 synthetic, 200 local, and 15 parity requests, its Rust
+equal \(R_0\)'s on the local host on 215 synthetic, 200 local, and 15 parity
+requests, its Rust
 FP64 replay matches within \(2.1\times10^{-6}\) in token probability, and
 its CPU latency and memory stay within the earlier package's own
 round-to-round spread. Retrospectively, on the 5,173 consumed-Test mixed
@@ -132,14 +133,30 @@ calibrated than an identity map on the Test, with expected calibration error
 0.016; its CAL fit has only 128 negative runs. These are one-seed figures
 without a bootstrap, and spans of 24--49 words remain the weakest band. The
 package passes the current artifact spec unchanged, though that spec cannot
-refuse a shorter decoder minimum at admission, and it replaces the earlier
-S2c package after its own live probe.
+refuse a shorter decoder minimum at admission.
+
+On November 9 the package replaced the earlier S2c package as SlopNinja's
+span-serving package, after operator probes on the live evaluation scorer
+emitted the same spans as the local run, one 26-word span on one probe text
+and none on the other, with exactly the same offsets and labels. Live scorer
+hosts fall into two arithmetic classes: one reproduces the local host's
+outputs bit for bit, and the other differs in the last bits. Every probe of the
+package ran on the second class, where its document outputs equalled
+\(R_0\)'s, and its sentence outputs the earlier S2c package's, bit for bit, as
+recorded on that class, and lay within \(8.4\times10^{-7}\) of the local run,
+the same spread that \(R_0\) and the earlier package show between the
+classes. Live probe checks are therefore class-aware: a probe must be bit-exact
+to outputs already recorded on its own class, or to the local run on the class
+that matches it, with labels and offsets exact on every class. The probe reply
+names no host, so the class is identified by those matches.
 
 \paragraph{Sealed competitive Test, October 30, 2026.}
 \(R_0\) and Pangram 4.1 were evaluated once on a sealed Test under a
 pre-registered protocol~\cite{competitiveprotocol}. The Test has 14,904 documents
 (10,495 primary) in 5,030 source groups, including 3,286 primary human documents
-and 826 positives from twelve hosted frontier models. \textit{A} scored every
+and 826 positives from twelve hosted frontier models. Its human documents are
+whole-paragraph excerpts of 150 to 450 words, so its results describe passages
+of that length, not longer documents. \textit{A} scored every
 document with no execution failure. Pangram was observed on a pre-registered
 random subsample of 2,950 primary documents, one of them missing; the paired
 comparison uses a Horvitz--Thompson estimate of the full primary value. Both
@@ -450,8 +467,18 @@ that index by digest, since every active-target bundle embeds the whole index,
 which outgrows the coordinator's single stored value at about 5,000 published
 artifacts, about 130 full testnet cohorts; and the signed automatic updater
 with its resumable migrations (Section~\ref{participant-updates}), so
-participants update by hand. Detailed-receipt deletion runs, with the one gap
-noted in Section~\ref{cohort-receipt-retention}.
+participants update by hand. Also specified but not yet implemented are the
+pre-finalized scores and segment readings of
+Section~\ref{pre-finalized-scores}; artifact spec v5 and the span-equivalent
+reference decision of Section~\ref{reference-model}; the successor of
+\texttt{reward-v2}, which places a near-copy cluster by its earliest-admitted
+member, while \texttt{reward-v2}, which the protocol crate implements and
+testnet runs, places it by its highest-ranked member
+(Section~\ref{reward-v1}); and the public detection
+pages, the paid detection API, and the pot of Section~\ref{testnet-revenue}. The
+testnet exposed-pool reuse rule of Section~\ref{human-stock} is built and, as
+of November 9, awaits installation. Detailed-receipt deletion runs, with the
+one gap noted in Section~\ref{cohort-receipt-retention}.
 Testnet cohorts still run in a separate evaluation service. Native signing,
 commit--reveal, and recovery were exercised on testnet
 (the \hyperref[testnet-m2]{``Testnet weight commitments''} paragraph below). The
@@ -472,10 +499,9 @@ nor a serverless signing path is claimed as deployed evidence here.
 Research utilities include corpus/evaluation tools, a public Pangram-report
 reader, and an HPKE receipt prototype whose trusted assignments come from its
 caller. That prototype establishes neither a deployed key registry nor the
-customer protocol~\cite{receipts}. The reported \textit{B} experiment
-uses a host-side author-conditioned proposer; it establishes neither a trained
-grammar-based \textit{B} ranker nor independently validated joint preservation, author-fit, and
-evasion performance. A production origin service and a commercially validated
+customer protocol~\cite{receipts}. No trained grammar-based \textit{B}
+ranker exists, and no experiment has yet validated joint preservation,
+author-fit, and evasion performance. A production origin service and a commercially validated
 transformation service both remain to be demonstrated.
 
 \paragraph{Testnet weight commitments, October 30, 2026.}\label{testnet-m2}
@@ -542,17 +568,21 @@ again under a carrying package's authorization; every reveal read back equal
 to the committed row. After the fixes both signers kept their own record of
 the active target, refused the launch authorization after activation, and
 re-derived each tempo's row from that tempo's snapshot, and a plan naming a
-fresh pool was refused. No live row has yet paid two UIDs, because no
-available artifact beats the reference by the margin while staying clear of
-every published one: the max-upscaled form of such a row, promotion, the
-fallback cutoff, and canary re-audits are covered by tests alone, and the
+fresh pool was refused. No live row paid two UIDs in these rehearsals,
+because no available artifact beat the reference by the margin while staying
+clear of every published one: the max-upscaled form of such a row, promotion,
+the fallback cutoff, and canary re-audits were then covered by tests alone, and the
 fault drills of the \hyperref[testnet-m2]{``Testnet weight commitments''}
 paragraph have not been repeated under
 \texttt{reward-v1}.
 
 \paragraph{Testnet record restart and open cohorts, November 6 to 9, 2026.}\label{testnet-r1}
-After a rehearsal cohort promoted a test entrant, the operator restarted
-testnet's record from \(R_0\) by decision instead of keeping that promotion.
+On November 6 a rehearsal cohort of the testnet record then running, whose
+reference was \(R_0\), promoted a test miner's entry, one of SlopNinja's own
+experimental models, which cleared the margin;
+its target, a row paying that one UID, was never committed. The operator
+restarted testnet's record from \(R_0\) by decision instead of keeping that
+promotion.
 With signing paused, the coordinator set a restart floor, kept the target it
 set aside in its record, and committed the \texttt{reward-v2} burn row from the
 floor under a new launch authorization. A fresh record then began at \(R_0\)

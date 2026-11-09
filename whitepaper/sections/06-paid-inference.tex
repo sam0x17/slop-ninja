@@ -18,8 +18,12 @@ does not authorize a paid product. Each product needs its own cost,
 availability, privacy, and delivery qualification; book-length inputs remain
 outside an offer until those properties have been measured at that size.
 
-Customer inference principal is converted to subnet alpha where needed and
-burned. It pays neither a direct miner fee nor an operator margin. The economic
+The principal of a paid job, a quoted and reserved workload
+(Section~\ref{reservation-and-delivery}), is converted to subnet alpha where
+needed and burned. It pays neither a direct miner fee nor an operator margin.
+The detection page's paid API is sold differently: its revenue joins the pot
+of Section~\ref{testnet-revenue}, net of the fees deducted at source, before
+and after the subnet's registration. The economic
 hypothesis is that customer demand purchases alpha where conversion is required
 and removes alpha from supply through burns. Compared with retaining those
 tokens, this may support alpha's market value for holders, including miners
@@ -40,26 +44,84 @@ alpha holders. The policy's commercial viability remains to be measured.
 \subsection{Revenue before mainnet}\label{testnet-revenue}
 
 Testnet runs for several months before the mainnet subnet is registered, and
-SlopNinja plans to earn revenue during that period. The first sources are free
-public AI-detection pages, supported by advertising, on which \textit{A} scores
-submitted text, together with other products. That revenue accrues in a pot
-whose balance is publicly visible. Once the mainnet subnet is registered, the
-pot buys that subnet's alpha and burns it. Until then no mainnet alpha exists
-to burn, and testnet tokens carry no market value, so the pot only accumulates.
-The pages run a published, qualified \textit{A} artifact in SlopNinja's own
-runtime, like the paid API, so submitted text reaches no miner, and they carry
-the served model's published limitations. A page's verdict is a detector output
-under those limits, not a determination of authorship.
+SlopNinja plans to earn revenue during that period. The first product is a
+free public detection page: a visitor pastes text without an account, and the
+page sets no cookie and stores no text. It runs SlopNinja's first span package
+(Section~\ref{span-outputs}) in SlopNinja's own runtime, a single Cloudflare
+Container that sleeps while the page is idle, so submitted text reaches no
+miner, and no submitted text is reused for training without consent. The page
+opens once its serving parity, abuse controls, and wording have been checked,
+and it says that the package's public download is pending until it is
+published.
 
-Several points remain to be specified: who holds the pot and on which chain and
-in which asset, how its balance and each purchase and burn are published and
-reconciled, and how any paid job accepted before registration enters it. The
-pot's purchase after registration is separate from the per-job burns below:
-the per-job route, including card payments converted to native TAO through
-Coinbase Onramp, applies to paid jobs once the subnet's alpha exists, and both
-channels end in alpha burns. Whether the pot buys through the same route is
-among the points to specify. Neither the pot nor its later burn changes how
-miners or validators are rewarded.
+The page reports what \textit{A} has measured and no more. Its headline is one
+of four evidence bands, set at the package's calibrated 1\% and 0.1\% human
+false-positive points and 50\%, each shown with the rates of human and
+AI-involved Test documents that fell in it. In the band from 50\% to the 1\%
+point, human and AI-involved documents land at similar rates, and the page says
+that such a score carries little evidence. Under the band come the two document
+percentages, with a note that the confidence figure assumes a mix in which
+about two of three documents involve AI, and overstates the chance for a
+reader whose texts are mostly human. Human false positives were measured only
+on texts of 150 to 450 words, so the page scores no text under 150 words, and
+marks longer texts as outside the measured range until those lengths are
+measured. AI spans of at least 24 words are highlighted only in the two
+strongest bands. The page gives no human verdict, explains that web text and
+fiction are flagged more often than the headline rates suggest, and states
+that a detector output is not a determination of authorship.
+
+No advertising or analytics script runs on the page that holds pasted text.
+Advertising runs only on the site's content pages, once an advertising network
+has approved them, with advertisers that sell text humanizing, essay writing,
+or detection bypass blocked, and with no ads on the pages for writers who were
+flagged, on the pot's page, or on policy pages. A paid detection API, priced
+at the hypothesis below, reached by key, and paid in advance, follows once the
+package is published, and other paid detection products may follow it. They
+are paid through a merchant-of-record card processor or directly in TAO and
+settle through the pot, before and after the subnet's registration, rather
+than one job at a time.
+
+Everything that the detection product's advertising networks, sponsors, and
+payment processors pay out to SlopNinja goes into a public pot, before any of
+SlopNinja's own costs, which it pays separately and never from the pot. The
+payouts arrive net of the fees and revenue shares that networks and processors
+deduct at source, so, unlike the per-job route below, where SlopNinja funds
+processing fees and the whole price is burned, the pot receives what is
+actually paid out. A later product joins the pot only through a published
+change to its charter. The pot
+is held as native TAO in a published two-of-three multisignature account on
+the main Bittensor chain, whose signers are distinct from every subnet and
+operator key, one of them held by an independent person. Payouts are converted
+to TAO each month, and the pot is never staked and never pays SlopNinja. A
+public page lists gross payouts, conversions, the balance, and burns, each with
+its transaction, and a signed monthly statement whose hash is recorded on
+chain. Once the mainnet subnet is registered and its emissions have started,
+the pot buys and burns that subnet's alpha in daily tranches, each limit-priced
+and sized to the subnet's pool, and each bound to the registration by the
+subnet's network number, its registration block, and its owner account; if any
+of them no longer matches, burns stop until SlopNinja publishes what happens
+next. No pot money buys or burns testnet tokens. If SlopNinja publicly abandons mainnet,
+the pot's TAO is burned. A change to what the pot's money may be used for
+applies only to money received after the change is published; for money
+already received, SlopNinja may re-plan the timing and size of burns by a
+published notice, and the money is still only burned. The charter, these
+rules, and the wording below are reviewed by legal and tax advisers before the
+first deposit.
+
+Advertising networks forbid inviting people to view or click ads, and a pledge
+that ties advertising income to burns could be read as such an invitation. So
+no SlopNinja page or post suggests that visiting, using, sharing, or clicking
+anything increases burns, the detection page does not promote the pot, and
+traffic to pages with ads is watched for invalid activity, with ads switched
+off pending review when it appears.
+
+The pot's purchases are separate from the per-job burns below. Those apply to
+paid jobs, the quoted and reserved workloads of
+Section~\ref{reservation-and-delivery}, once the subnet's alpha exists, and
+the per-job card route through Coinbase Onramp remains the candidate for them
+after it is qualified.
+Neither the pot nor its later burn changes how miners or validators are
+rewarded.
 
 \subsection{Pricing and cost calibration}\label{market-pricing-in-alpha}
 
@@ -164,8 +226,11 @@ The planned funding routes are:
 \text{alpha payment} &\longrightarrow \text{burn}.
 \end{aligned}
 \]
-Coinbase Onramp is the selected candidate for card-to-native-TAO funding.
-TAO.com's documented integration supports direct TAO delivery, but
+For paid jobs, Coinbase Onramp is the selected candidate for card-to-native-TAO
+funding; the detection API and the products sold beside it use the
+merchant-of-record card processor or direct TAO payments of
+Section~\ref{testnet-revenue}, and their proceeds join the pot. TAO.com's documented integration supports direct TAO
+delivery, but
 SlopNinja's access, supported card types and jurisdictions, recipient wallets,
 limits, holds, and refunds still need qualification~\cite{coinbaseonramp}.
 Credit-card support cannot be inferred from a documented debit-card flow.
@@ -182,7 +247,7 @@ details. Payment systems receive opaque job references, not customer documents
 or author samples. At cent-scale prices, minimum purchases and fees may require
 a funded balance spanning multiple jobs; that product rule remains open.
 
-All inference principal follows the selected burn route. The operator funds
+All paid-job principal follows the selected burn route. The operator funds
 processing, conversion, and chain fees separately, including any shortfall
 when a provider deducts fees from its output. Customers bear their own wallet
 submission fees unless the offer explicitly sponsors them. Optional external
@@ -214,7 +279,7 @@ does not replace the promised purchase-and-burn accounting.
 \subsection{Reservation, execution, and delivery}\label{reservation-and-delivery}
 \label{application-and-agent-integration}
 
-The API and an MCP integration expose quote, reserve, submit, status, and
+The paid-job API and an MCP integration expose quote, reserve, submit, status, and
 result operations~\cite{mcp2026}. A quote binds the accepted pipeline and cost
 profile, price and currency, input limits, attempt budget, acceptance and
 delivery cutoffs, retention, and refund terms. Size and service requirements

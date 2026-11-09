@@ -19,9 +19,10 @@ Test (Section~\ref{existing-evidence-and-implementation-status}). It was
 noninferior as a single artifact, but its recipe missed the legal-opinions slice
 limit. Later reference changes follow Section~\ref{reference-model}: the cohort
 promotion rule, plus signed operator reference decisions with recorded reasons,
-among them a planned replacement of the testnet's \(R_0\), announced in
-advance, by the next reference SlopNinja trains, only if it passes every
-required gate; external comparisons continue under
+among them the span-equivalent decision that passes \(R_0\)'s position to
+SlopNinja's first span package and a planned replacement of the testnet's
+\(R_0\), announced in advance, by the next reference SlopNinja trains, only if
+it passes every required gate; external comparisons continue under
 Section~\ref{pangram-evidence-and-assigned-audits}. Within each new architecture,
 compare the joint model with origin-only and attribution-only controls using
 matched encoder capacity, data, and training budgets. Measure whether
@@ -83,13 +84,15 @@ in one split. Report source-balanced share error, failures, uncertainty, and
 transfer to held-out generators and editing procedures alongside binary-label
 confidence calibration. Neither a calibrated involvement score nor accurate
 pure-human/pure-model classification establishes fractional accuracy.
-Measure span outputs under the 24-word floor with the metrics of
-Section~\ref{span-outputs}, and fix the span gate's thresholds from those
-measurements, at levels SlopNinja's first span package passes, before the
-standing template's next version enforces it. Add the 24-word decoder minimum
-to a later artifact spec so that admission can refuse a shorter one, and
-measure the span package's calibration on fresh documents with more negative
-runs than its Calibration fit holds (Section~\ref{span-package-evidence}).
+Measure span outputs under the 24-word floor on the sealed batches of closed
+testnet cohorts, fix the span gate's margins from those measurements, and
+confirm them on live cohorts that report the gate without enforcing it before
+the standing template enforces it; measure again before enforcing on a changed
+cohort population, mainnet's included. Artifact spec v5 adds the 24-word
+decoder minimum and the token-level head requirement, so that admission refuses
+other artifacts, and needs a miner client release. Measure the span package's
+calibration on fresh documents with more negative runs than its Calibration fit
+holds (Section~\ref{span-package-evidence}).
 Word-level
 explanations are a later qualification and do not delay launch; their tests
 must establish explanation faithfulness as specified in
@@ -230,7 +233,7 @@ exactly, and validators on both platforms must commit the signed row unchanged
 except that the burn entry and the units of a registration their own snapshot
 no longer holds go to the UID of their own snapshot's owner hotkey.
 
-Verify the \texttt{reward-v2} and \texttt{quant-v1} calculation against
+Verify the \texttt{reward-v2}, successor, and \texttt{quant-v1} calculations against
 hand-worked fixtures: the grid width, offset, and noise draws, including one
 shared draw for identical copies under several hotkeys, the withheld output of
 the minimum-success gate, the bit budget at plan validation, seal, and
@@ -238,8 +241,9 @@ publication, the rounded margin cutoff and promotion on the exact margin, the
 fallback cutoff with and without a
 predecessor reference, a cohort with no new target, with and without a previous
 target, a perfect reference, the public-copy gate on the batch and on the probe,
-the canonical fingerprint of identical content, cluster formation and equal
-splits, tie groups, band boundaries on the grid, a lone cluster below a
+the canonical fingerprint of identical content, cluster formation and
+placement under each rule, equal splits,
+the span-gate record's bits, tie groups, band boundaries on the grid, a lone cluster below a
 crowded band, largest-remainder units with equal remainders in roster order,
 a departed hotkey's burn, a deferred burn row, a reference-model failure, a
 promotion that passes to the next retained cluster head, the max-upscaled committed row, and allocations and caps. Exercise the launch authorization
@@ -300,11 +304,18 @@ single Rust supervisor's handoff, exclusive journal and signer ownership, and
 schema-compatible rollback without losing newer transaction evidence.
 
 The cohort length, batch size and mix, human stock, authorization rule, reward
-rule, score quantization, copy policy, artifact cap, and the treatment of a
+rule, score quantization, copy policy, parameter bounds, and the treatment of a
 cohort with no new target are fixed above, except that mainnet's privacy
 budget, batch size, or budget split must change first: at 4,000 cases and 256
 entrants the current values make rewards mostly noise, and the bit budget
-refuses the plan. Before live rewards, settle active-time accounting,
+refuses the plan. Qualify the \texttt{live-v1} budget of
+Section~\ref{pre-finalized-scores} at mainnet's batch size and roster together
+with the quantization budget. Before mainnet,
+also close the timing channel that slow arithmetic on chosen inputs could open
+in the published challenge counts, by flushing subnormal values to zero after
+requalifying every served output or by coarsening the published progress
+times; refusing subnormal weights at admission removes only its simplest
+lever. Before live rewards, settle active-time accounting,
 retry and canonical-attempt rules, gate thresholds, including both
 false-positive tiers, correction authority, the criteria of the signed review
 that clears a blocked candidate, and shared-failure treatment, choosing them on
@@ -332,10 +343,13 @@ cohort. Qualify Coinbase Onramp's native-TAO route, available card methods,
 wallet requirements, transfer holds, and any additional Solana entry route.
 Verify burn authority under the actual ownership or lease arrangement.
 Test duplicate provider events, late finality, failed conversion, burn
-allocation, and original-payment refunds. Specify the revenue pot's custody,
-chain, asset, and public accounting (Section~\ref{testnet-revenue}), reconcile
-its published balance with its revenue records, and, after registration, verify
-each purchase and burn against finalized chain state. Burned principal is unavailable for
+allocation, and original-payment refunds, and qualify the merchant-of-record
+processor for the detection API. Rehearse the revenue pot's multisignature custody,
+monthly statement, and tranche mechanics on testnet with test funds before its
+first deposit
+(Section~\ref{testnet-revenue}), reconcile its published balance with its
+payout records, and, after registration, verify each purchase and burn against
+finalized chain state. Burned principal is unavailable for
 refunds or operations, so operating funds and reserves must exist separately.
 
 Measure actual pipeline costs before fixing the pricing multiplier or promising

@@ -27,8 +27,9 @@ share as separate percentages, and attributes human and model contributors
 where supported. It also locates AI-written spans of at least 24 words, with
 per-sentence share and confidence (Section~\ref{span-outputs}); shorter edits
 count toward both document percentages but are not localized. The scorer
-serves span outputs, and from the next cohort template every entry must emit
-spans and pass a span gate, while the reward stays document-level. Explanations
+serves span outputs, and once the standing cohort template enforces a span
+gate, measured against SlopNinja's first span package on the same batch, every
+entry must emit spans and pass it, while the reward stays document-level. Explanations
 tied to particular words or constructions are later extensions.
 
 Human writers have recurring habits of expression. Language models can also
@@ -76,8 +77,10 @@ gallery match. Neither a matching human profile nor a low detector score proves
 human-only origin. An unavailable prediction must remain an error or abstention,
 never a default human label.
 
-The launch evaluates English complete documents within declared length and
-resource bounds. Span outputs rely on retained exact span labels; multilingual
+The launch evaluates English documents within declared length and resource
+bounds. The evidence so far comes from passages whose human documents are
+whole-paragraph excerpts of 150 to 450 words; other lengths need their own
+measurements. Span outputs rely on retained exact span labels; multilingual
 detection and manuscript-scale support each require suitable data and
 measurements. Handling an embedded
 foreign phrase, equation, or code block does not establish detection quality
@@ -115,8 +118,8 @@ explanations each need their own evidence.
 The first paid product is hosted AI detection for applications, publishers,
 researchers, and document workflows that need to assess AI involvement in
 writing, with origin probabilities and attribution as additional detail.
-\textit{A} artifacts become freely executable when their cohort's scoring starts. The paid API
-offers maintained attribution profiles, bounded execution of a qualified
+\textit{A} artifacts become freely executable when their cohort's scoring starts. Paid
+access, through the detection API or quoted jobs, offers maintained attribution profiles, bounded execution of a qualified
 artifact, private delivery, and integration convenience. An \textit{A} detection job
 runs the raw-text model alone, with no grammar parse. Publishing a model does not establish
 that users will pay for hosting it; the commercial pilot must measure repeat
@@ -127,11 +130,16 @@ During that period SlopNinja plans to earn revenue from free,
 advertising-supported public detection pages served by \textit{A} and from
 other products, accruing in a publicly visible pot that buys and burns the
 subnet's alpha once mainnet is registered (Section~\ref{testnet-revenue}).
+The detection page itself carries no advertising and stores no text; ads run
+on the site's content pages, and a paid detection API follows once the served package is
+published. The pot is a published multisignature TAO account with a public
+ledger of every payout, conversion, and burn.
 The coordinator decides when measured quality is sufficient to open sales and
 which workloads may be sold. Benchmark eligibility alone does not enable
 checkout. The initial price hypothesis aims below Pangram's standalone API
 rate, subject to an independently evaluated quality comparison and measured
-costs. Customer inference principal buys and burns alpha. Spendable operating
+costs. The principal of a quoted paid job buys and burns alpha, while the
+detection API's revenue joins the pot. Spendable operating
 funds and refund reserves must come from an explicitly funded treasury,
 independently of the burn (Section~\ref{revenue-and-costs}).
 

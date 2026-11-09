@@ -41,7 +41,7 @@ public and is never recalled. The coordinator deletes its private admission
 copy once the cohort closes and publication is recorded, and keeps the current
 and previous reference artifacts hosted for evaluation while they are
 references (Section~\ref{cohort-receipt-retention}). Hosted execution through
-the paid API is charged separately.
+the paid APIs is charged separately.
 Miners may keep their training recipes and permitted training corpora private.
 
 Project code and documentation are licensed MIT OR Apache-2.0, except files and
@@ -233,10 +233,12 @@ confidences are capped at it.
 
 Span localization covers AI-written spans of at least 24 words. A shorter
 edit, such as a replaced word, a clause, or one short sentence, carries too
-little signal to locate reliably: the first span head reached character F1 of
+little signal to locate reliably: the release's initial frozen-encoder span
+head of October 31 reached character F1 of
 only 0.05 on clause edits and 0.17 on single-sentence edits
-(Section~\ref{span-evidence}). Spans under 24 words are therefore never
-trained on, evaluated, or decoded. Training masks the tokens of a shorter
+(Section~\ref{span-evidence}). Under the current rule, spans under 24 words
+are therefore not trained on, evaluated, or decoded; the first span package's
+weights predate the rule, as described below. Training masks the tokens of a shorter
 model-produced span out of the span loss rather than relabelling them human.
 Evaluation removes shorter gold spans from the recall denominator, counts their
 characters neither as true nor as false positives, and ignores an unmatched
@@ -258,24 +260,56 @@ sentence confidences. Agreement with the document
 outputs needs no gate, because the emission guarantees it; the gap between mean
 word probability and document share before the tilt is reported as a
 diagnostic, since the tilt costs word-level accuracy wherever the document
-share is the less accurate estimate. The span measures include the
-false-positive rate of human sentences inside mixed documents, reported
-separately from the pure-human document gate, because identical human words
-score higher next to AI text than alone (Section~\ref{cohort-mix-evidence}).
+share is the less accurate estimate. The span gate includes the in-context
+false-positive rate, the share of human characters inside mixed documents that
+decoded spans cover, counted separately from the pure-human document gate,
+because identical human words score higher next to AI text than alone
+(Section~\ref{cohort-mix-evidence}).
 
-Spans are part of every entry. From the next version of SlopNinja's standing
-cohort template, every entrant must emit spans in the output contract's span
-format, the scorer evaluates them under the 24-word floor, and an entrant below
-the span gate's thresholds fails that gate and earns no credit
-(Section~\ref{reward-v1}). The thresholds are fixed after measurement, before
-the first manifest that enforces them, at levels that SlopNinja's first span
-package passes. Span outputs carry no reward weight: document involvement Brier
-remains the only reward quantity. Enforcing the gate does not by itself change
-the reference; reference changes follow Section~\ref{reference-model}.
+Spans are part of every entry. From the first cohort manifest that enforces
+the span gate, every entrant carries a token-level head whose decoder never
+emits a run under 24 words: artifact spec v5 refuses any other artifact at
+admission, and a manifest that enforces the gate under an earlier spec fails
+such an entrant at scoring. The scorer requests spans for every document it
+scores in such a cohort, and an entrant that fails the gate earns no credit
+(Section~\ref{reward-v1}). The gate compares each entrant with a fixed
+anchor, SlopNinja's first span package, on the same cohort batch under the
+24-word floor. Over mixed documents whose model-produced span has at least 24
+words, the entrant's mean character F1 may be at most a fixed margin below the
+anchor's, and its in-context false-positive rate at most a fixed margin above
+it; over the batch's human-only documents, the number on which it decodes a
+span may exceed the anchor's by at most a fixed margin. A document whose
+prediction or span emission fails counts as decoding nothing in a mixed
+document and as carrying a span in a human one. Character F1 alone does not
+separate localization from marking whole documents: on spliced documents whose
+rewritten share is large, one span over every involved document reaches a high
+F1 while covering all the human text beside it, so the in-context rate is gated
+with it.
 
-SlopNinja's first span package keeps \(R_0\)'s encoder and document heads
-frozen, so its document outputs are bit-identical to \(R_0\)'s and confidence,
-share, and reward scoring do not change. Its token head, S2c, reads a trained
+The margins are fixed after measurement on the sealed batches of closed testnet
+cohorts. The design target is that floor-compliant heads as good as
+SlopNinja's own, trained with other seeds, with another recipe, or on public
+material only, fail in at most about one cohort in \(365\times256\), a
+modelled rate rather than a guarantee, and that heads placing spans by position
+or document share alone do not pass; the margins are rounded in the miner's
+favour, so the gate is a floor against unusable outputs, not an improvement
+target. The manifest binds the margins with the anchor's identity. If the
+anchor fails to emit spans or to separate from such trivial heads on a cohort's
+batch, or the cohort's population differs from the one measured, the measured
+conditions decide no entrant in that cohort, and its public record says so;
+the operator may also void the gate for one cohort, with a recorded reason,
+before its package is sealed. Neither waiver holds a package, and no miner can
+trigger one. Before any manifest enforces the gate, it runs in report mode,
+measured and published without failing anyone, on at least three live cohorts,
+at least two of which complete after the tools miners need to check their
+heads against the anchor are public. Span outputs carry no reward weight:
+document involvement Brier remains the only reward quantity, and enforcing the
+gate does not by itself change the reference (Section~\ref{reference-model}).
+
+SlopNinja's first span package under the 24-word floor, which replaced an
+earlier package with the same S2c weights and a decoder that allowed 10-word
+spans, keeps \(R_0\)'s encoder and document heads frozen, so on the same CPU class its document outputs are bit-identical to
+\(R_0\)'s, and confidence, share, and reward scoring do not change. Its token head, S2c, reads a trained
 copy of the encoder's last four layers and final norm, about 20 million
 parameters (Section~\ref{s2c-evidence}). Its weights were fitted before the
 floor; a retrain that masked shorter spans matched them within seed noise and
@@ -286,15 +320,21 @@ confidence map is fitted on the Calibration split under the floor. Retrospective
 151 of 6,132 human documents, 2.5\%; on held-out spliced rewrites its character
 F1 is 0.639 (Section~\ref{span-package-evidence}). The tower adds 18--20\% of
 the encoder's CPU time, and its graph forms a separate allow-listed class with
-its own parameter bound (Section~\ref{a-artifact-execution}). \(R_0\) remains
-testnet's first reference, and no span package is named \(R_0\). The current
-artifact spec checks only that a decoder's minimum span length is at least one
-word, so admission cannot yet refuse a decoder with a shorter minimum; a later
-spec version adds that check. Cohort scoring does not evaluate spans yet; that
-evaluation is planned with the span gate (Section~\ref{implementation-status}).
-Under the gate the scorer is to evaluate every emitted span under the floor, so
-a short decoded run over human text would count against its entrant even
-before admission can refuse such a decoder.
+its own parameter bound (Section~\ref{a-artifact-execution}). Since November 9,
+2026 it is SlopNinja's span-serving package, the model its public detection
+pages are to run (Section~\ref{testnet-revenue}). Because its document outputs
+are \(R_0\)'s, this package is to take \(R_0\)'s position on testnet before
+the first cohort that enforces the gate, by a signed reference decision
+(Section~\ref{operator-decisions}) that leaves the record without a
+predecessor and changes no score, margin, or cutoff; it is not the planned
+replacement by a retrained reference. Before that decision it runs once as an
+ordinary cohort entry, so that, as for any reference, its artifact is
+published, its content digest enters the published-artifact index, and its
+probe fingerprint is recorded. The current artifact spec checks only that
+a decoder's minimum span length is at least one word; artifact spec v5 refuses
+an artifact without a token-level head or with a decoder whose minimum span is
+under 24 words. Until a manifest enforces the gate, cohort scoring does not
+evaluate spans (Section~\ref{implementation-status}).
 
 A further extension could identify words and constructions that materially
 influence a score, starting from the token-level outputs. Test explanations by
@@ -316,8 +356,9 @@ allow-listed tokenizer, which the artifact's own must match byte for byte, and
 runs the graph on CPU in a SlopNinja-controlled Cloudflare
 Container under the cohort's declared length and resource limits; an input beyond the artifact's limit returns an explicit
 unsupported-length result. Cohort batches stay within the declared profile.
-While the span gate is inactive, an entrant with document heads only, like
-\(R_0\), is admissible (Section~\ref{span-outputs}).
+Until a manifest enforces the span gate, an entrant with document heads only
+is admissible; from that manifest on, every entrant carries the token-level
+head (Section~\ref{span-outputs}).
 The reference \(R_0\) is a ModernBERT-base encoder~\cite{modernbert} of
 about 150M parameters with a 2,048-token limit, fine-tuned from the earlier V6
 detector on raw tokens, with origin, share, and attribution heads
@@ -477,8 +518,9 @@ Within a cohort, identical inference content, or predictions within the
 near-copy distance on the cohort batch, forms one cluster that receives one
 credit split equally among its members (Section~\ref{reward-v1}). The
 commitment nonce is excluded from content identity. The finalized commitment
-block and extrinsic index, the admission order, break ties between equal
-quantized scores and so choose which of the tied entrants heads a cluster and
+block and extrinsic index, the admission order, choose which member heads a
+cluster, whose quantized score then places the whole cluster, and break ties
+between equal quantized scores, and so choose which of the tied cluster heads
 can become the next reference. This order
 assigns no authorship: it cannot establish who originally trained a model.
 Already-published artifacts may enter but earn nothing

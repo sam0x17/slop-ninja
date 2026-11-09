@@ -8178,6 +8178,37 @@ fn an_operator_abandon_drains_running_lanes_and_signs_late_phases() {
     assert_eq!(op_abandon(&db, &op_req(body), now + 72_000), Err("cohort_closed"));
 }
 
+/// From scoring on (live scores may already show entrants' final values),
+/// an operator abandon needs the offline signature, so the token alone
+/// cannot decline a known result; a faulted cohort in scoring keeps the
+/// token-level abandonment of its fault.
+#[test]
+fn a_scoring_abandon_needs_the_offline_key_and_a_fault_keeps_its_token_path() {
+    let db = Sqlite::open();
+    sql::migrate(&db, &EVAL_COHORT_SCHEMA).unwrap();
+    let p = wide(20, 0);
+    let seq = tx(&db, |s| engine::queue(s, &cfg(), &serde_json::to_vec(&p).unwrap(), 1_000_000)).unwrap();
+    db.conn.execute("UPDATE cohorts SET phase = 'scoring' WHERE seq = ?1", [seq]).unwrap();
+    let body = json!({"decision": "drill-s1", "reason": "operator_decision", "label": p.label, "expect": {"phase": "scoring"}});
+    assert_eq!(op_abandon(&db, &op_req(body.clone()), 1_000_100), Err("authorization_required"));
+    assert_eq!((phase(&db, seq).as_str(), db.count("operator_actions")), ("scoring", 0), "refused: nothing changes");
+    let v = op_abandon(&db, &op_signed("eval.abandon", body), 1_000_200).unwrap();
+    assert_eq!((v["signed"].clone(), v["phase_at_abandon"].clone(), v["abandoned"].clone()), (json!(true), json!("scoring"), json!(true)));
+    assert_eq!(phase(&db, seq), "abandoned");
+    // A faulted cohort in scoring: the abandonment of its fault needs only
+    // the token, as before.
+    let p2 = {
+        let mut x = wide(20, 0);
+        x.label = format!("{}-b", p.label);
+        x.cohort = p.cohort + 1;
+        x
+    };
+    let seq2 = tx(&db, |s| engine::queue(s, &cfg(), &serde_json::to_vec(&p2).unwrap(), 1_000_300)).unwrap();
+    db.conn.execute("UPDATE cohorts SET phase = 'scoring', fault = 'scorer_failed' WHERE seq = ?1", [seq2]).unwrap();
+    assert!(tx(&db, |s| engine::abandon(s, &p2.label, "scorer_failed", 1_000_400)).unwrap());
+    assert_eq!(phase(&db, seq2), "abandoned");
+}
+
 // ------------------------------------------- closure decline, release (D7)
 
 /// D7(d)(ii): a faulted closure is declined only under the offline key; the

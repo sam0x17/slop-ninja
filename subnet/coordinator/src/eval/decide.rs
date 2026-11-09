@@ -8,9 +8,10 @@
 //!   or without a fault. A queued cohort is withdrawn, an admission window
 //!   closes as abandoned, a cohort with lanes running first drains (no new
 //!   claim, renewal or attempt extension; it ends once every held claim has
-//!   passed, [`finish_drains`]), and a cohort in packaging or the transition,
-//!   whose outcome may already be known, is abandoned in place and needs the
-//!   offline operator-decision key. The number stays used, the abandonment
+//!   passed, [`finish_drains`]), and a cohort in packaging or the transition
+//!   is abandoned in place. From scoring on, when entrants' results may
+//!   already be known (live scores may publish each final value once it is
+//!   fixed), the abandon needs the offline operator-decision key. The number stays used, the abandonment
 //!   record (version 2) names the phase and the digests that existed, and a
 //!   cohort with no fault publishes fault `none`.
 //! - [`closure_decline`] (D7(d)(ii)): the operator declines a faulted
@@ -92,9 +93,13 @@ pub const SCHEMA_V30: &[&str] = &[
 /// reason.
 pub const OPERATOR_DECISION: &str = "operator_decision";
 
-/// The phases whose abandon needs the offline signature: the package (and
-/// possibly the target) is already in the bucket.
-const SIGNED_PHASES: &[&str] = &["packaging", "transition"];
+/// The phases whose abandon needs the offline signature (a decision that
+/// declines a known result needs the offline key): from scoring on,
+/// entrants' final values may already be public (live scores may show each
+/// one once it is fixed), and from packaging the package (and possibly the
+/// target) is in the bucket. A faulted cohort keeps the token-level
+/// abandonment of a fault (`engine::abandon`).
+const SIGNED_PHASES: &[&str] = &["scoring", "packaging", "transition"];
 /// The phases with lanes that may hold claims.
 const DRAIN_PHASES: &[&str] = &["generating", "sealing", "scoring"];
 

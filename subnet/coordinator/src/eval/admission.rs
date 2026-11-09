@@ -3800,11 +3800,26 @@ impl AdmitLimits {
     }
 }
 
-/// The scorer lane's admission route body (`AScorer` `POST /admit`).
+/// The scorer lane's admission route body (`AScorer` `POST /admit`). A
+/// cohort that names a spec requiring a token head (spec v5) also asks for
+/// the control document's spans ([`spans_required`]): span emission must run
+/// on it (`control_document:span_emission`), whatever it emits.
 pub fn admit_body(run: &LaneRun) -> Value {
-    json!({"package_sha256": run.package_sha256, "manifest_key": run.manifest_key, "label": run.label,
+    let mut v = json!({"package_sha256": run.package_sha256, "manifest_key": run.manifest_key, "label": run.label,
         "spec_sha256": run.spec_sha256, "limits": run.limits,
-        "docs": [{"id": "0", "text": crate::eval::lane_logic::CONTROL_TEXT}]})
+        "docs": [{"id": "0", "text": crate::eval::lane_logic::CONTROL_TEXT}]});
+    if spans_required(&run.spec_sha256) {
+        v["spans"] = json!(true);
+    }
+    v
+}
+
+/// Whether the spec a cohort names by digest requires a token head, so its
+/// admission runs score the control document with spans.
+pub fn spans_required(spec_sha256: &str) -> bool {
+    slop_ninja_artifact_check::spec::Version::ALL
+        .into_iter()
+        .any(|v| v.requires_token_head() && v.spec_sha256() == spec_sha256)
 }
 
 impl LaneRun {
@@ -4140,6 +4155,10 @@ pub fn classify(status: Option<u16>, body: &Value) -> LaneOutcome {
             let control = sha_hex_of(crate::eval::lane_logic::CONTROL_TEXT.as_bytes());
             match body["results"].as_array().map(Vec::as_slice) {
                 Some([one]) => match crate::eval::score::outcome(one, &control).0 {
+                    // A run that asked for spans (spec v5) needs the emission to run.
+                    slop_ninja_protocol::Outcome::Prediction { .. } if body["spans"] == true && one["span_status"] != "ok" => {
+                        LaneOutcome::ArtifactFailure("control_document:span_emission".into())
+                    }
                     slop_ninja_protocol::Outcome::Prediction { .. } => LaneOutcome::Admitted,
                     slop_ninja_protocol::Outcome::InfrastructureError => {
                         LaneOutcome::Platform("control_document_unmatched".into())

@@ -169,6 +169,17 @@ pub struct AScorer {
     /// Whether the instance last prepared reports single use, so requests
     /// name the cohort (`scorer_client::sent`).
     single_use: Cell<bool>,
+    /// Whether the instance last prepared takes `"sentences": false`
+    /// (`/healthz` `build.score_fields`), so span requests carry spans only.
+    spans_only: Cell<bool>,
+}
+
+/// The span facts of the artifact the lane's instance loaded (its `/healthz`
+/// load facts), kept in the lane object's storage by package.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+struct StoredFacts {
+    package: String,
+    facts: crate::eval::span_gate::SpanFacts,
 }
 
 #[derive(Deserialize)]
@@ -202,6 +213,9 @@ struct AdmitRequest {
     spec_sha256: String,
     limits: crate::eval::admission::AdmitLimits,
     docs: Vec<RunDoc>,
+    /// Spec v5 cohorts: the control document is scored with spans.
+    #[serde(default)]
+    spans: bool,
 }
 
 
@@ -220,7 +234,7 @@ struct Cold {
 
 impl DurableObject for AScorer {
     fn new(state: State, env: Env) -> Self {
-        Self { state, env, single_use: Cell::new(false) }
+        Self { state, env, single_use: Cell::new(false), spans_only: Cell::new(false) }
     }
 
     async fn fetch(&self, mut req: Request) -> Result<Response> {
@@ -304,8 +318,8 @@ impl DurableObject for AScorer {
                 let _ = self.state.storage().set_alarm(IDLE_MS).await;
                 let docs: Vec<(u32, String, String)> =
                     run.docs.iter().enumerate().map(|(n, d)| (d.id.parse().unwrap_or(n as u32), d.text.clone(), sha_hex(d.text.as_bytes()))).collect();
-                match self.score_docs(&art, &docs, l.doc_timeout_ms, Some(label), Some(run.spec_sha256.as_str()), false).await {
-                    Ok((results, _)) => json(&j!({"outcome": "loaded", "results": results, "fresh": cold.started})),
+                match self.score_docs(&art, &docs, l.doc_timeout_ms, Some(label), Some(run.spec_sha256.as_str()), run.spans).await {
+                    Ok((results, _)) => json(&j!({"outcome": "loaded", "results": results, "fresh": cold.started, "spans": run.spans})),
                     Err(e) => json(&j!({"outcome": "loaded", "error": format!("{e:?}"), "fresh": cold.started})),
                 }
             }
@@ -428,7 +442,7 @@ impl LaneIo for WorkerIo<'_> {
             return Err(ScoreFailure::Died);
         }
         self.lane
-            .score_docs(self.art, docs, timeout_ms, Some(self.a.label.as_str()), self.a.spec_sha256.as_deref(), false)
+            .score_docs(self.art, docs, timeout_ms, Some(self.a.label.as_str()), self.a.spec_sha256.as_deref(), self.a.spans)
             .await
     }
 
@@ -620,6 +634,7 @@ impl AScorer {
         cold.start_ms = now_ms() - t0;
         cold.limits = h["build"]["limits"].clone();
         self.single_use.set(sc::names_cohort(&h));
+        self.spans_only.set(sc::takes_sentences_field(&h));
         let cohort = sc::sent(&h, cohort);
         // The spec digest is sent only when the scorer lists it, so the spec
         // sent is the cohort's whenever the prepare goes on.
@@ -666,6 +681,12 @@ impl AScorer {
             cold.cpu_ms = cgroup_cpu(&h["cpu_ms"]);
             let s: i64 = get_kv(&st, "s_cpu").await.unwrap_or(0);
             let _ = st.put("s_cpu", s.max(cold.cpu_ms as i64)).await;
+            // The loaded artifact's span facts (token head, decoder), for a
+            // span cohort's format check and structural conditions.
+            if h["package"].as_str() == Some(art.package_sha256.as_str()) && h["state"] == "ready" {
+                let facts = StoredFacts { package: art.package_sha256.clone(), facts: crate::eval::span_gate::SpanFacts::of_healthz(&h) };
+                let _ = st.put("span_facts", facts).await;
+            }
         }
         let _ = st.put("last_use_ms", now_ms() as i64).await;
         Ok(cold)
@@ -859,7 +880,7 @@ impl AScorer {
             return Err(ScoreFailure::NotDispatched);
         }
         let port = c.get_tcp_port(PORT).map_err(|_| ScoreFailure::NotDispatched)?;
-        let body = sc::score_body(&art.package_sha256, cohort.filter(|_| self.single_use.get()), docs, spans);
+        let body = sc::score_body_with(&art.package_sha256, cohort.filter(|_| self.single_use.get()), docs, spans, spans && self.spans_only.get());
         let st = self.state.storage();
         let _ = st.put("last_use_ms", now_ms() as i64).await;
         let t0 = now_ms();
@@ -1152,7 +1173,12 @@ impl AScorer {
                         }
                     }
                     let mut io = WorkerIo { lane: self, inst, r: &r, k, a: &a, art: &art, t0 };
-                    let cx = ChunkCtx { r: &r, name: &k.name, a: &a, art: &art, seed: &seed, prefix: &prefix };
+                    let facts = if a.spans {
+                        get_kv::<StoredFacts>(&st, "span_facts").await.filter(|f| f.package == art.package_sha256).map(|f| f.facts)
+                    } else {
+                        None
+                    };
+                    let cx = ChunkCtx { r: &r, name: &k.name, a: &a, art: &art, seed: &seed, prefix: &prefix, span_facts: facts.as_ref() };
                     match lane_logic::run_chunk(&mut io, &cx, &c, &mut cache).await {
                         ChunkEnd::Next => {}
                         ChunkEnd::Rearm(ms) => return LaneEnd::Rearm(ms as i64),

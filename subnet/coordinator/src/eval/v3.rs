@@ -1345,6 +1345,13 @@ pub fn gate_policy_json(v: &RewardV1Plan) -> Value {
     if let (Some(i), Some(o)) = (&v.incentive, j.as_object_mut()) {
         o.insert("incentive".into(), json!({"rule": i.rule, "provisional_gates": i.provisional_gates}));
     }
+    // The span gate's block (`span_gate::LocalizationPlan`) joins the policy
+    // under schema v3 for plans that name it; every other plan's document,
+    // and so its digest, is unchanged.
+    if let (Some(l), Some(o)) = (&v.localization, j.as_object_mut()) {
+        o.insert("schema".into(), json!("slop_ninja_eval_gate_policy_v3"));
+        o.insert("localization".into(), l.policy_json());
+    }
     // The exposed-pool reuse rule (`plan::ExposedReuse`), which lifts the
     // limit and gap above, and the further parent pools join the reuse
     // policy for plans that name them, so the manifest never binds a limit
@@ -1599,7 +1606,7 @@ pub mod inject {
 pub fn spec_tokenizer_sha256(v: slop_ninja_artifact_check::spec::Version) -> &'static str {
     use slop_ninja_artifact_check::spec::{TOKENIZER_SHA256, Version};
     match v {
-        Version::V1 | Version::V2 | Version::V3 | Version::V4 => TOKENIZER_SHA256,
+        Version::V1 | Version::V2 | Version::V3 | Version::V4 | Version::V5 => TOKENIZER_SHA256,
     }
 }
 
@@ -2095,6 +2102,13 @@ pub fn apply_seal(sql: &impl Sql, seq: i64, b: &SealBuild, puts: u64, now_ms: u6
         }
         job += 1;
     }
+    // The span gate's anchor job, after every entrant (entrant job numbers
+    // are positional): the batch only, with spans, when the anchor is not
+    // the reference's package.
+    let anchor = c.plan.reward_v1.as_ref().and_then(|v| v.localization.as_ref()).filter(|l| l.anchor_job(&c.plan.reference));
+    if let Some(l) = anchor {
+        roster.push((job, crate::eval::span_gate::ANCHOR_ROLE, &l.anchor, n));
+    }
     for (job, role, a, tasks) in &roster {
         let id = a.id().map_err(|e| EvalError::Plan(e.0))?;
         let chunks = (tasks + per - 1) / per;
@@ -2452,6 +2466,9 @@ pub struct PackageV3 {
     /// The private recount of the cohort's counted bits at the measured
     /// grid (`quant::cohort_bits`), for the live terms.
     pub live_recount: u32,
+    /// The span gate's public record (`span_gate`), signed beside the result
+    /// as `localization.signed`, for a plan that names the gate.
+    pub localization: Option<slop_ninja_protocol::LocalizationOutcomeV1>,
 }
 
 /// The active reward-v1 target digest: the last activated cohort target, or
@@ -2596,7 +2613,7 @@ pub fn prepare_package(
         // A reference's vectors are its batch tasks in task order, which is
         // the layout's batch order already; an entrant's cover every task and
         // are permuted in place, so no job's vectors are held twice.
-        if let (Some(layout), false) = (&layout, matches!(text(j, 1)?, "reference" | "previous_reference")) {
+        if let (Some(layout), false) = (&layout, crate::eval::span_gate::batch_only(text(j, 1)?)) {
             jv.permute_into_layout(layout, &mut visited)?;
         }
         vectors.insert(job, jv);
@@ -2855,7 +2872,40 @@ pub fn prepare_package(
     if let (Some(l), Some(o)) = (published_limits(plan)?, components.as_object_mut()) {
         o.insert("limits".into(), l);
     }
-    Ok(PackageV3 { manifest, package, result, target, components, vectors: vectors_out, state: st, live_defects, live_recount })
+    // The span gate (report mode): never holds the package.
+    let mut localization = None;
+    if let Some(block) = &v.localization {
+        let fresh = fresh_allowed(sql, c)?;
+        let built = crate::eval::span_gate::evaluate(
+            sql,
+            &crate::eval::span_gate::PackageInputs {
+                cohort: c,
+                block,
+                result: &result,
+                gate_policy: manifest.gate_policy,
+                n: u32::try_from(n).map_err(|_| EvalError::State("n"))?,
+                first_entrant_job,
+                fresh,
+            },
+        );
+        if let Some(o) = components.as_object_mut() {
+            o.insert("schema".into(), json!("slop_ninja_eval_score_components_v3"));
+            o.insert("localization".into(), built.components);
+        }
+        localization = built.record;
+    }
+    Ok(PackageV3 {
+        manifest,
+        package,
+        result,
+        target,
+        components,
+        vectors: vectors_out,
+        state: st,
+        live_defects,
+        live_recount,
+        localization,
+    })
 }
 
 #[cfg(test)]

@@ -971,5 +971,12 @@ pub const EVAL_COHORT_SCHEMA: Schema = Schema {
             version: 28,
             statements: crate::eval::live::SCHEMA_V28,
         },
+        // v29: the span gate (report mode): each prediction's span cell,
+        // each job's load facts, the operator's void journal and
+        // span-equivalent reference decisions.
+        Migration {
+            version: 29,
+            statements: crate::eval::span_gate::SCHEMA_V29,
+        },
     ],
 };

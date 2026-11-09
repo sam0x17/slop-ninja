@@ -1090,6 +1090,21 @@ impl DurableObject for EvalCohort {
                     Ok::<_, engine::EvalError>(j!({"vendor": vendor.code(), "cleared": cleared}))
                 }))
             }
+            (Method::Post, "/span-gate/void") => {
+                let v = match super::cf_io::request_json::<crate::eval::span_gate::VoidRequest>(&mut req, OPERATOR_BODY_BYTES).await {
+                    Ok(v) => v,
+                    Err(super::cf_io::JsonError::Parse) => return error("bad_request", 400),
+                    Err(e) => return error(e.code(), e.status()),
+                };
+                tx_reply(transaction(&storage, move |sql| crate::eval::span_gate::void(sql, &v, now)))
+            }
+            (Method::Post, "/references/decision") => {
+                // Built behind the reference-override route: a decision
+                // changes reward inputs, so it needs the offline
+                // operator-decision key's signature, which this deployment
+                // cannot verify yet. Nothing is read or written.
+                error(crate::eval::span_gate::DECISION_REFUSAL_NO_KEY.split(':').next().unwrap_or("operator_key_unavailable"), 422)
+            }
             (Method::Post, "/hold") => {
                 if instance != engine::INSTANCE_LOAD {
                     return error("load_instance_only", 404);
@@ -2937,6 +2952,11 @@ impl EvalCohort {
         ];
         if let Some(t) = &b.target {
             objects.push(("target.signed", package::signed_bytes(t.clone(), &package_key).map_err(|e| e.0)?));
+        }
+        // The span gate's public record, private beside the package until the
+        // publisher copies its values after close.
+        if let Some(l) = &b.localization {
+            objects.push(("localization.signed", package::signed_bytes(l.clone(), &package_key).map_err(|e| e.0)?));
         }
         objects.push((
             "keys.json",

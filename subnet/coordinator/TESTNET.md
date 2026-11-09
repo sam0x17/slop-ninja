@@ -914,6 +914,22 @@ printf 'Authorization: Bearer %s\n' "$(cat $S/eval_operator_token)" |
 #   drill, or the cohort's own fault code (public-safe codes: the signed abandonment record
 #   carries it; no figures, account or provider names; legacy budget codes publish as
 #   resource_guard)
+# the span gate (report mode; eval::span_gate): a plan's optional reward_v1.localization block
+#   (rule slop_ninja_span_gate_v1, eval_rule slop_ninja_span_eval_floor24_v1, decoder_rule
+#   slop_ninja_span_decoder_v1, floor 24, mode "report" (this build refuses "enforce"), the anchor as
+#   a reference entry plus its anchor_content, emission_max_failed, metric char_f1, and once measured
+#   the margins and the threshold record's digests) makes every scoring request ask for spans, adds
+#   an `anchor` job (the batch only) when the anchor is not the reference's package, and signs
+#   cohorts/<label>/localization.signed beside result.signed at packaging (one value per scored
+#   entrant, the cohort state applied|waived|void; never a gate failure of the package). Older eval
+#   builds refuse a plan naming the block, so never roll the eval Worker back below it once one is
+#   stored (store v29).
+# void one cohort's measured span conditions before its packaging starts (journaled, idempotent):
+#   POST /eval/span-gate/void {"label", "decision", "reason"[, "withdraw": true]}
+#   (decision_reused for another body under a used id; span_gate_void_after_packaging once
+#   packaging starts)
+# span-equivalent reference decision: POST /eval/references/decision refuses every request with
+#   operator_key_unavailable until the offline operator-decision key exists; nothing is read or written
 # the load-rehearsal instance: GET /eval/load/status; POST /eval/load/{plan,clear,abandon,hold}
 #   (a load plan is slop_ninja_eval_load_plan_v1; {"hold": true} makes every claim answer Paused)
 # load plans and gates: examples/slop_ninja_eval_ops.rs (load-plan; gate --for deploy|load on both

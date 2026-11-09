@@ -116,6 +116,8 @@ refusal_codes!(
     "too_many_parameters",
     "graph_not_allowed",
     "graph_class",
+    "token_head_required",
+    "span_decoder_floor",
     "profile_id",
 );
 
@@ -355,9 +357,18 @@ fn load_query(package: &str, cohort: Option<&str>, spec: Option<&str>) -> String
 
 /// A score request body; `cohort` is omitted, not `null`, when none is sent,
 /// and `spans` is sent only when asked (the operator probe of a package with a
-/// token head: each prediction then carries its sentences and spans; cohort
-/// lanes never ask, and the scorer's document outputs are the same either way).
+/// token head, and the lanes of a cohort whose plan names the span gate: each
+/// prediction then carries its spans; the scorer's document outputs are the
+/// same either way).
 pub fn score_body(package: &str, cohort: Option<&str>, docs: &[(u32, String, String)], spans: bool) -> String {
+    score_body_with(package, cohort, docs, spans, false)
+}
+
+/// [`score_body`]; with `spans_only`, also `"sentences": false`, which a
+/// scorer advertising the field ([`takes_sentences_field`]) answers with the
+/// spans alone. An older scorer refuses the unknown field, so it is sent only
+/// to a scorer that lists it.
+pub fn score_body_with(package: &str, cohort: Option<&str>, docs: &[(u32, String, String)], spans: bool, spans_only: bool) -> String {
     let docs: Vec<Value> = docs.iter().map(|(t, text, _)| json!({"id": t.to_string(), "text": text})).collect();
     let mut v = json!({"package": package, "docs": docs});
     if let Some(c) = cohort {
@@ -365,8 +376,17 @@ pub fn score_body(package: &str, cohort: Option<&str>, docs: &[(u32, String, Str
     }
     if spans {
         v["spans"] = json!(true);
+        if spans_only {
+            v["sentences"] = json!(false);
+        }
     }
     v.to_string()
+}
+
+/// Whether a scorer's `/healthz` lists the optional `sentences` request
+/// field (`build.score_fields`).
+pub fn takes_sentences_field(h: &Value) -> bool {
+    h["build"]["score_fields"].as_array().is_some_and(|f| f.iter().any(|x| x == "sentences"))
 }
 
 #[cfg(test)]
@@ -612,6 +632,13 @@ mod tests {
         // Spans only when the probe asks.
         let spans: Value = serde_json::from_str(&score_body(P, None, &docs, true)).unwrap();
         assert_eq!(spans, json!({"package": P, "spans": true, "docs": [{"id": "7", "text": "x"}]}));
+        // Spans only, to a scorer that lists the field; never without spans.
+        let only: Value = serde_json::from_str(&score_body_with(P, None, &docs, true, true)).unwrap();
+        assert_eq!(only, json!({"package": P, "spans": true, "sentences": false, "docs": [{"id": "7", "text": "x"}]}));
+        let plain: Value = serde_json::from_str(&score_body_with(P, None, &docs, false, true)).unwrap();
+        assert!(plain.get("sentences").is_none());
+        assert!(takes_sentences_field(&json!({"build": {"score_fields": ["spans", "sentences"]}})));
+        assert!(!takes_sentences_field(&json!({"build": {}})));
     }
 
     /// The recorded codes survive the cohort's code sanitizer (`textgen_safe`:

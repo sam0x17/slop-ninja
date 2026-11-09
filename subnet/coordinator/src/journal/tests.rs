@@ -681,6 +681,9 @@ fn migrations_are_pinned_by_content() {
         // v28: live values while a cohort is scored (live-scores lane; never
         // deployed).
         "5d0d0d2fa61d296e",
+        // v29: the span gate in report mode (span cells, job load facts, the
+        // void journal, reference decisions; never deployed).
+        "d079dfe9c1e54ccb",
     ];
     // v1-v10 are deployed on both testnet Workers; v11 is the stuck-states
     // lane's; v12 the automatic target handoff's; v13 the signed coordinator

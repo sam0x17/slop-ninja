@@ -576,7 +576,14 @@ fn chain_references(sql: &impl Sql) -> R<Option<NextReferences>> {
     let chain = sql.exec("SELECT current, predecessor FROM reference_state WHERE id = 1", &[])?;
     let Some(r) = chain.first() else { return Ok(None) };
     let current_content = text(r, 0)?.to_owned();
-    let current = resolve(sql, &current_content)?.ok_or(EvalError::Plan(
+    // A span-equivalent reference decision names the staged package for its
+    // content, never the entry cohort's upload (`span_gate`).
+    let decided = crate::eval::span_gate::decided_reference(sql, &current_content)?;
+    let current = match decided {
+        Some(a) => Some(as_reference(a)),
+        None => resolve(sql, &current_content)?,
+    }
+    .ok_or(EvalError::Plan(
         "template_reference_unresolved: the reference chain names an artifact no stored cohort records",
     ))?;
     let previous_content = engine::opt_text(r, 1);

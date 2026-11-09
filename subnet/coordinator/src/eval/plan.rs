@@ -589,6 +589,13 @@ pub struct RewardV1Plan {
     /// refuses any plan naming it.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub live: Option<LivePlan>,
+    /// The span gate (`crate::eval::span_gate`): absent in plans written
+    /// before it (never serialized when absent, so stored plans keep their
+    /// digests). This build accepts report mode only. An eval build older
+    /// than this field refuses any plan naming it (`deny_unknown_fields`),
+    /// so it is never rolled back below it once one is stored.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub localization: Option<crate::eval::span_gate::LocalizationPlan>,
 }
 
 /// The `reward_v1.live` block (`slop_ninja_protocol::live`): what a running
@@ -1321,7 +1328,19 @@ impl CohortPlan {
 
     /// Scored artifacts: R_k, R_{k-1} when present, then the entrants.
     pub fn jobs(&self) -> usize {
-        1 + usize::from(self.previous_reference.is_some()) + self.entrants.len()
+        1 + usize::from(self.previous_reference.is_some()) + self.entrants.len() + usize::from(self.anchor_job())
+    }
+
+    /// Whether the cohort schedules the span gate's anchor job (after every
+    /// entrant): its plan names the gate and the anchor is not the
+    /// reference's package.
+    pub fn anchor_job(&self) -> bool {
+        !self.is_probe_build()
+            && self
+                .reward_v1
+                .as_ref()
+                .and_then(|v| v.localization.as_ref())
+                .is_some_and(|l| l.anchor_job(&self.reference))
     }
 
     /// Documents the cohort's jobs score, one attempt each: under reward-v1
@@ -1331,7 +1350,8 @@ impl CohortPlan {
     pub fn scored_docs(&self) -> u64 {
         match &self.reward_v1 {
             Some(_) if !self.is_probe_build() => {
-                let refs = 1 + u64::from(self.previous_reference.is_some());
+                // The span gate's anchor job scores the batch like a reference.
+                let refs = 1 + u64::from(self.previous_reference.is_some()) + u64::from(self.anchor_job());
                 refs * u64::from(self.n) + self.entrants.len() as u64 * self.entrant_docs()
             }
             _ => self.jobs() as u64 * u64::from(self.n),
@@ -1432,9 +1452,34 @@ impl CohortPlan {
                 // Every rule's counted terms, from the plan's one source.
                 let terms = v1.counted_terms();
                 q.validate_terms(self.n, cap, &terms)?;
+                // The span gate's record adds its bits beside the result's
+                // (`localization::localization_bits`).
+                if v1.localization.is_some() {
+                    let record = slop_ninja_protocol::localization::localization_bits(cap);
+                    let within = slop_ninja_protocol::quant::worst_case_terms(
+                        self.n,
+                        cap,
+                        q.eps_total_milli,
+                        q.identify_bits,
+                        q.budget_factor,
+                        &terms,
+                    )
+                    .is_ok_and(|(w, _)| {
+                        slop_ninja_protocol::localization::within_bound(w.total, record, self.n, q.identify_bits, q.budget_factor)
+                    });
+                    e(
+                        within,
+                        "reward_v1.quant (the worst-case bit budget with the span gate's record exceeds n h / F at this roster cap)",
+                    )?;
+                }
                 if let Some(l) = &v1.live {
                     l.validate(self.n, self.scorer.chunk_docs, cap, q, &terms)?;
                 }
+            }
+            if let Some(l) = &v1.localization {
+                e(!probe_build, "reward_v1.localization (none in a probe build)")?;
+                e(v1.quant.is_some(), "reward_v1.localization (needs reward_v1.quant)")?;
+                l.validate(self.n)?;
             }
             e(
                 v1.live.is_none() || (v1.quant.is_some() && !probe_build),
@@ -1820,13 +1865,14 @@ pub(crate) mod tests {
         assert_eq!(load_spec_sha256_of(Version::V2.id()), Some(Version::V2.spec_sha256()));
         assert_eq!(load_spec_sha256_of(Version::V3.id()), Some(Version::V3.spec_sha256()));
         assert_eq!(load_spec_sha256_of(Version::V4.id()), Some(Version::V4.spec_sha256()));
-        assert!(load_spec_sha256_of("slop_ninja_a_artifact_spec_v5").is_none() && load_spec_sha256_of("v3").is_none());
+        assert_eq!(load_spec_sha256_of(Version::V5.id()), Some(Version::V5.spec_sha256()));
+        assert!(load_spec_sha256_of("slop_ninja_a_artifact_spec_v6").is_none() && load_spec_sha256_of("v3").is_none());
         // The digests the live scorer lists in /healthz (scorer go-live, 2026-11-02).
         assert_eq!(Version::V2.spec_sha256(), "0f25e636ba52b45269c0a4d0520c2f01550b51325bb6399d4ddae418c8384b50");
         assert_eq!(Version::V3.spec_sha256(), "0bb326a93b1f4669018dadac3186f08bcc0ac527983eed0c75ce1e889e970d25");
         // The size bound comes from the class and JSON bounds without the
         // spec record, and equals the admission bounds'.
-        for v in [Version::V2, Version::V3, Version::V4] {
+        for v in [Version::V2, Version::V3, Version::V4, Version::V5] {
             assert_eq!(
                 crate::eval::admission::files_bytes(v),
                 crate::eval::admission::SpecBounds::of(v).map(|b| b.files_bytes)

@@ -191,6 +191,34 @@ fn fake_results(db: &Sqlite, seq: i64, docs: &[(u32, String, String)]) -> Vec<Va
         .collect()
 }
 
+/// The span fields of a span cohort's replies, from the sim's hook.
+fn with_spans(
+    db: &Sqlite,
+    seq: i64,
+    job: i64,
+    docs: &[(u32, String, String)],
+    mut results: Vec<Value>,
+    h: &dyn Fn(i64, &str, &str, Option<(u32, u32)>) -> Option<(Value, Value)>,
+) -> Vec<Value> {
+    for (r, (task, text, _)) in results.iter_mut().zip(docs) {
+        if *task == lane_logic::CONTROL_TASK || r["status"] != "ok" {
+            continue;
+        }
+        let (kind, a, b): (String, Option<i64>, Option<i64>) = db
+            .conn
+            .query_row("SELECT kind, span_start, span_end FROM docs WHERE seq = ?1 AND task = ?2", rusqlite::params![seq, task], |r| {
+                Ok((r.get(0)?, r.get(1)?, r.get(2)?))
+            })
+            .unwrap();
+        let gold = a.zip(b).map(|(a, b)| (a as u32, b as u32));
+        if let Some((status, spans)) = h(job, &kind, text, gold) {
+            r["span_status"] = status;
+            r["prediction"]["spans"] = spans;
+        }
+    }
+    results
+}
+
 /// Scorer stand-in for reward-v1 tests: predictions from the sim's hook.
 fn predicted(db: &Sqlite, seq: i64, job: i64, docs: &[(u32, String, String)], p: &dyn Fn(i64, &str, u32) -> (f64, f64)) -> Vec<Value> {
     docs.iter()
@@ -346,7 +374,18 @@ struct Sim<'a> {
     /// Generation v2: the vendor stand-in, and every ledger key settled.
     vendor: VendorHook<'a>,
     settled: Vec<(String, u64)>,
+    /// The span gate: each job's load facts, and each job's span reply per
+    /// document.
+    span_facts: Option<FactsHook<'a>>,
+    spans: Option<SpanHook<'a>>,
 }
+
+/// A scoring lane's load facts by job.
+type FactsHook<'a> = Box<dyn Fn(i64) -> Option<super::span_gate::SpanFacts> + 'a>;
+/// A scorer's span fields for one document: `(job, kind, text, gold byte
+/// run)` to the reply's `span_status` and `prediction.spans` (`None`: no
+/// emission ran, as for an artifact without a token head).
+type SpanHook<'a> = Box<dyn Fn(i64, &str, &str, Option<(u32, u32)>) -> Option<(Value, Value)> + 'a>;
 
 impl<'a> Sim<'a> {
     fn new(db: &'a Sqlite, cfg: EvalConfig, now: u64) -> Self {
@@ -395,6 +434,8 @@ impl<'a> Sim<'a> {
             settle_calls: 0,
             vendor: Box::new(gen_v2_tests::fake_vendor),
             settled: Vec::new(),
+            span_facts: None,
+            spans: None,
         }
     }
 
@@ -816,6 +857,9 @@ impl<'a> Sim<'a> {
         self.rcpt.insert(format!("{prefix}/chunk-map.json"), b"{}".to_vec());
         self.rcpt.insert(format!("{prefix}/package.signed"), b.package.to_bytes().unwrap());
         self.rcpt.insert(format!("{prefix}/result.signed"), b.result.to_bytes().unwrap());
+        if let Some(l) = &b.localization {
+            self.rcpt.insert(format!("{prefix}/localization.signed"), l.to_bytes().unwrap());
+        }
         // Every entrant's header, as publication at scoring start copies it,
         // checks against the package: the files manifest v2 lists the header
         // whose digest the package binds (`EntrantScore::artifact`).
@@ -992,7 +1036,8 @@ impl<'a> Sim<'a> {
                     let seed = engine::cohort_seed(&self.cfg.private_seed, &a.label);
                     let prefix = engine::receipt_prefix(&a.label);
                     let art = a.artifact.clone().unwrap();
-                    let cx = ChunkCtx { r, name, a: &a, art: &art, seed: &seed, prefix: &prefix };
+                    let facts = self.span_facts.as_ref().and_then(|f| f(c.job));
+                    let cx = ChunkCtx { r, name, a: &a, art: &art, seed: &seed, prefix: &prefix, span_facts: facts.as_ref() };
                     let mut io = SimIo { sim: self, lane: name.to_owned(), r: r.clone(), claim: c.clone(), a: a.clone(), die: None };
                     match lane_logic::block_on(lane_logic::run_chunk(&mut io, &cx, &c, &mut cache)) {
                         ChunkEnd::Next => {}
@@ -1179,6 +1224,10 @@ impl LaneIo for SimIo<'_, '_> {
             (Some(p), _) => predicted_doc(self.sim.db, self.r.seq, self.claim.job, docs, p.as_ref()),
             (None, Some(p)) => predicted(self.sim.db, self.r.seq, self.claim.job, docs, p.as_ref()),
             (None, None) => fake_results(self.sim.db, self.r.seq, docs),
+        };
+        let results = match &self.sim.spans {
+            Some(h) if self.a.spans => with_spans(self.sim.db, self.r.seq, self.claim.job, docs, results, h.as_ref()),
+            _ => results,
         };
         let ok = || (results.clone(), engine::CallTiming { call_ms: 9_000, server_ms: 8_500, load_ms: 0, cpu_ms: 30_000 });
         match (self.sim.score)(&req) {
@@ -2763,7 +2812,7 @@ fn the_v3_cohort_store_migrates_in_place_to_v7() {
         )
         .unwrap();
     let report = sql::migrate(&db, &EVAL_COHORT_SCHEMA).unwrap();
-    assert_eq!((report.from, report.to), (3, 28));
+    assert_eq!((report.from, report.to), (3, 29));
     let st = status(&db, 5);
     assert_eq!(st["cohorts"][0]["phase"], "closed");
     assert_eq!(st["cohorts"][0]["jobs"][0]["status"], "done", "the jobs table was rebuilt with its rows");
@@ -3080,6 +3129,7 @@ fn v3_block(probes: Vec<super::plan::ProbeRef>) -> super::plan::RewardV1Plan {
         probe_cut: false,
         quant: Some(super::plan::tests::quant_block()),
         live: None,
+        localization: None,
     }
 }
 
@@ -7440,7 +7490,7 @@ fn store_v23_seeds_the_boundary_journal_from_cohort_history_without_work_times()
         )
         .unwrap();
     let report = sql::migrate(&db, &EVAL_COHORT_SCHEMA).unwrap();
-    assert_eq!((report.from, report.to), (22, 28));
+    assert_eq!((report.from, report.to), (22, 29));
     let got: Vec<(u64, Option<u64>, Option<u64>)> = journal(&db).iter().map(|r| (r.epoch, r.block, r.observed_ms)).collect();
     assert_eq!(
         got,
@@ -7477,3 +7527,313 @@ mod gen_v2_tests;
 
 #[path = "live_tests.rs"]
 mod live_tests;
+
+// ------------------------------------------------------------- span gate
+
+fn span_block(anchor: super::plan::ArtifactJson) -> super::span_gate::LocalizationPlan {
+    use slop_ninja_span_eval as se;
+    super::span_gate::LocalizationPlan {
+        rule: se::GATE_RULE.into(),
+        eval_rule: se::EVAL_RULE.into(),
+        decoder_rule: se::DECODER_RULE.into(),
+        floor: 24,
+        mode: super::span_gate::MODE_REPORT.into(),
+        anchor,
+        anchor_content: "ab".repeat(32),
+        margins: Some(super::span_gate::MarginsPlan {
+            f1_ppb: slop_ninja_span_eval::PPB as u32 / 10,
+            in_context_ppb: slop_ninja_span_eval::PPB as u32 / 20,
+            humans: 1,
+            n_humans: 4,
+        }),
+        emission_max_failed: 2,
+        metric: super::span_gate::METRIC_CHAR_F1.into(),
+        anchor_drift: None,
+        in_scope_min: None,
+        population_sha256: None,
+        record_sha256: None,
+        basis: Some("synthetic test margins".into()),
+    }
+}
+
+fn facts(token_head: bool, min: Option<u32>) -> super::span_gate::SpanFacts {
+    super::span_gate::SpanFacts {
+        token_head,
+        decoder_rule: min.map(|_| slop_ninja_span_eval::DECODER_RULE.to_owned()),
+        decoder_min: min,
+    }
+}
+
+/// One span over `[a, b)` of `text`, as the scorer emits it.
+fn emitted(text: &str, a: u32, b: u32) -> Value {
+    json!([{"start_byte": a, "end_byte": b, "words": slop_ninja_span_eval::words(&text[a as usize..b as usize]),
+        "start_char": 0, "end_char": 0, "ai_share_percent": 90.0, "ai_confidence_percent": 90.0}])
+}
+
+/// A span cohort with an anchor job and four entrants: one that localizes
+/// like the anchor, one without a token head, one whose decoder is under the
+/// floor, and one that marks whole documents.
+fn span_cohort<'a>(
+    db: &'a Sqlite,
+    spans: impl Fn(i64, &str, &str, Option<(u32, u32)>) -> Option<(Value, Value)> + 'a,
+    prep: impl FnOnce(&mut Sim<'a>),
+) -> (Sim<'a>, i64, v3::PackageV3) {
+    let (mut sim, weak, probe_ref) = probe_built(db);
+    let id = super::plan::tests::identity;
+    let anchor = v3_artifact(&mut sim, id(30, 0xd0), [1, 2, 3, 30, 5]);
+    let good = v3_artifact(&mut sim, id(31, 0xd1), [1, 2, 3, 31, 5]);
+    let plain = v3_artifact(&mut sim, id(32, 0xd2), [1, 2, 3, 32, 5]);
+    let short = v3_artifact(&mut sim, id(33, 0xd3), [1, 2, 3, 33, 5]);
+    let whole = v3_artifact(&mut sim, id(34, 0xd4), [1, 2, 3, 34, 5]);
+    let mut p = plan_v3(2, "testnet-span-gate", 20, weak);
+    p.entrants = vec![good, plain, short, whole];
+    p.allow_list = vec![id(31, 0xd1), id(32, 0xd2), id(33, 0xd3), id(34, 0xd4)];
+    {
+        let v = p.reward_v1.as_mut().unwrap();
+        v.probes = vec![probe_ref];
+        v.localization = Some(span_block(anchor));
+    }
+    assert_eq!(p.jobs(), 6, "the anchor job follows the four entrants");
+    sim.predict = Some(Box::new(|job, kind, task| {
+        let c = match job {
+            0 => model_conf(1, kind, task, (35.0, 65.0, 70.0), 10.0),
+            _ => model_conf(4, kind, task, (3.0, 95.0, 97.0), 7.0),
+        };
+        (c, c * 0.4)
+    }));
+    // Jobs: 0 the reference (no token head), 1 to 4 the entrants, 5 the anchor.
+    sim.span_facts = Some(Box::new(|job| {
+        Some(match job {
+            1 | 4 | 5 => facts(true, Some(24)),
+            3 => facts(true, Some(10)),
+            _ => facts(false, None),
+        })
+    }));
+    sim.spans = Some(Box::new(spans));
+    prep(&mut sim);
+    let seq = open_cohort(db, &p, 20, sim.now);
+    run_to_close(&mut sim, db, seq, 22);
+    let b = sim.packages_v3.pop().unwrap();
+    (sim, seq, b)
+}
+
+/// The scorer stand-in's spans: the localizing heads emit the gold run when
+/// it has at least 24 words, the whole-document head the whole document.
+fn localizing(job: i64, _kind: &str, text: &str, gold: Option<(u32, u32)>) -> Option<(Value, Value)> {
+    let floor = |a: u32, b: u32| slop_ninja_span_eval::words(&text[a as usize..b as usize]) >= 24;
+    match job {
+        1 | 3 | 5 => Some((json!("ok"), gold.filter(|g| floor(g.0, g.1)).map_or(json!([]), |g| emitted(text, g.0, g.1)))),
+        4 => {
+            let end = text.len() as u32;
+            Some((json!("ok"), if floor(0, end) { emitted(text, 0, end) } else { json!([]) }))
+        }
+        _ => None,
+    }
+}
+
+#[test]
+fn span_gate_report_mode_records_cells_and_publishes_one_value_per_scored_entrant() {
+    use slop_ninja_protocol::{LocalizationState, LocalizationValue};
+    let db = Sqlite::open();
+    let (sim, seq, b) = span_cohort(&db, localizing, |_| {});
+    // Report mode: no span gate failure enters the package.
+    assert!(!b.package.span_gate);
+    assert!(b.package.entrants.iter().all(|e| e.gate_failures.iter().all(|g| g.gate != slop_ninja_protocol::Gate::Span)));
+    // The anchor job scored the batch with spans; every resolved batch
+    // prediction of every job carries a cell.
+    let q = |sql: &str| -> i64 { db.conn.query_row(sql, rusqlite::params![seq], |r| r.get(0)).unwrap() };
+    assert_eq!(q("SELECT COUNT(*) FROM jobs WHERE seq = ?1 AND role = 'anchor' AND job = 5"), 1);
+    assert_eq!(q("SELECT COUNT(*) FROM preds WHERE seq = ?1 AND job = 5"), 20);
+    assert_eq!(
+        q("SELECT COUNT(*) FROM preds p JOIN docs d ON d.seq = p.seq AND d.task = p.task WHERE p.seq = ?1 AND d.docset = 'batch' AND p.span_pop IS NULL"),
+        0
+    );
+    assert_eq!(q("SELECT COUNT(*) FROM jobs WHERE seq = ?1 AND span_facts IS NULL"), 0);
+    // The receipt index covers the anchor job's attempts like any other's.
+    assert!(q("SELECT COUNT(*) FROM receipts WHERE seq = ?1 AND job = 5") >= 20);
+    let l = b.localization.as_ref().expect("the localization record");
+    l.check_result(&b.result).unwrap();
+    assert_eq!(l.bits, 4 + slop_ninja_protocol::localization::STATE_BITS);
+    let comp = &b.components["localization"];
+    eprintln!("span gate components: {comp}");
+    assert_eq!(b.components["schema"], "slop_ninja_eval_score_components_v3");
+    assert_eq!(comp["anchor"]["job"], 5);
+    let in_scope = comp["anchor"]["stats"]["in_scope"].as_u64().unwrap();
+    assert_eq!(l.entrants[1], Some(LocalizationValue::NoTokenHead));
+    assert_eq!(l.entrants[2], Some(LocalizationValue::DecoderUnderFloor));
+    assert_eq!(l.entrants[0], Some(LocalizationValue::Passed));
+    if in_scope > 0 && comp["waiver"].is_null() {
+        assert_eq!(l.state, LocalizationState::Applied);
+        assert_eq!(l.entrants[3], Some(LocalizationValue::BelowAnchor), "{comp}");
+    } else {
+        // A batch with no in-scope document is waived (a trivial policy
+        // cannot be told apart), and the measured conditions decide no entrant.
+        assert_eq!(l.state, LocalizationState::Waived, "{comp}");
+    }
+    assert_eq!(comp["entrants"][0]["advisory"], "passed");
+    // The signed record sits beside the result.
+    let prefix = engine::receipt_prefix("testnet-span-gate");
+    let signed = &sim.rcpt[&format!("{prefix}/localization.signed")];
+    assert_eq!(slop_ninja_protocol::LocalizationOutcomeV1::from_bytes(signed).unwrap(), *l);
+}
+
+#[test]
+fn a_malformed_span_reply_commits_its_document_outcome_and_waives_the_cohort() {
+    use slop_ninja_protocol::LocalizationState;
+    let db = Sqlite::open();
+    // The anchor's replies carry a span the text cannot hold.
+    let (_sim, seq, b) = span_cohort(&db, |job, kind, text, gold| {
+        if job == 5 && kind == "mixed" {
+            return Some((json!("ok"), json!([{"start_byte": 0, "end_byte": text.len() as u32 + 7, "words": 99}])));
+        }
+        localizing(job, kind, text, gold)
+    }, |_| {});
+    // The anchor's document outcomes are committed as usual: nothing holds.
+    let n: i64 = db.conn.query_row("SELECT COUNT(*) FROM preds WHERE seq = ?1 AND job = 5 AND outcome = 1", rusqlite::params![seq], |r| r.get(0)).unwrap();
+    assert_eq!(n, 20);
+    let l = b.localization.as_ref().unwrap();
+    assert_eq!(l.state, LocalizationState::Waived);
+    assert_eq!(b.components["localization"]["waiver"], "waived.format_fault");
+    // Structural values still apply; the measured conditions decide no entrant.
+    assert_eq!(l.entrants[3], Some(slop_ninja_protocol::LocalizationValue::Passed));
+}
+
+#[test]
+fn the_operator_void_is_journaled_idempotent_and_closes_at_packaging() {
+    use super::span_gate::{VoidRequest, void, voided};
+    let db = Sqlite::open();
+    let (sim, weak, probe_ref) = probe_built(&db);
+    let mut p = plan_v3(2, "testnet-span-void", 20, weak.clone());
+    p.reward_v1.as_mut().unwrap().probes = vec![probe_ref];
+    p.reward_v1.as_mut().unwrap().localization = Some(span_block(weak));
+    let seq = open_cohort(&db, &p, 20, sim.now);
+    let req = |decision: &str, reason: &str, withdraw| VoidRequest {
+        label: "testnet-span-void".into(),
+        decision: decision.into(),
+        reason: reason.into(),
+        withdraw,
+    };
+    let now = sim.now;
+    let r = tx(&db, |s| void(s, &req("d-1", "anchor misconfigured", false), now)).unwrap();
+    assert_eq!(r["voided"], true);
+    assert!(tx(&db, |s| voided(s, seq)).unwrap());
+    // The same decision replays; another body under its id is refused.
+    assert_eq!(tx(&db, |s| void(s, &req("d-1", "anchor misconfigured", false), now)).unwrap()["replayed"], true);
+    assert_eq!(tx(&db, |s| void(s, &req("d-1", "other", false), now)).unwrap_err().code(), "decision_reused");
+    assert!(tx(&db, |s| void(s, &req("d-2", "again", false), now)).unwrap_err().code().starts_with("span_gate_already_voided"));
+    tx(&db, |s| void(s, &req("d-3", "fixed", true), now)).unwrap();
+    assert!(!tx(&db, |s| voided(s, seq)).unwrap());
+    assert!(tx(&db, |s| void(s, &req("d-4", "no void", true), now)).unwrap_err().code().starts_with("span_gate_not_voided"));
+    // Once packaging starts the void is refused.
+    db.conn.execute("UPDATE cohorts SET phase = 'packaging' WHERE seq = ?1", rusqlite::params![seq]).unwrap();
+    assert!(tx(&db, |s| void(s, &req("d-5", "late", false), now)).unwrap_err().code().starts_with("span_gate_void_after_packaging"));
+    // A cohort without the block has no gate to void.
+    let unknown = VoidRequest { label: "nope".into(), ..req("d-6", "x", false) };
+    assert_eq!(tx(&db, |s| void(s, &unknown, now)).unwrap_err().code(), "cohort_unknown");
+}
+
+#[test]
+fn a_voided_cohort_publishes_state_void_with_structural_values() {
+    use slop_ninja_protocol::{LocalizationState, LocalizationValue};
+    let db = Sqlite::open();
+    let (mut sim, weak, probe_ref) = probe_built(&db);
+    let id = super::plan::tests::identity;
+    let good = v3_artifact(&mut sim, id(31, 0xd1), [1, 2, 3, 31, 5]);
+    let plain = v3_artifact(&mut sim, id(32, 0xd2), [1, 2, 3, 32, 5]);
+    // The anchor is the reference's package: no anchor job.
+    let mut p = plan_v3(2, "testnet-span-voided", 20, weak.clone());
+    p.entrants = vec![good, plain];
+    p.allow_list = vec![id(31, 0xd1), id(32, 0xd2)];
+    {
+        let v = p.reward_v1.as_mut().unwrap();
+        v.probes = vec![probe_ref];
+        v.localization = Some(span_block(weak));
+    }
+    assert_eq!(p.jobs(), 3);
+    sim.predict = Some(Box::new(|_, kind, task| {
+        let c = model_conf(1, kind, task, (35.0, 65.0, 70.0), 10.0);
+        (c, c * 0.4)
+    }));
+    sim.span_facts = Some(Box::new(|job| Some(if job == 2 { facts(false, None) } else { facts(true, Some(24)) })));
+    sim.spans = Some(Box::new(|job, kind, text, gold| localizing(if job == 0 { 5 } else { job }, kind, text, gold)));
+    let seq = open_cohort(&db, &p, 20, sim.now);
+    let now = sim.now;
+    let req = super::span_gate::VoidRequest {
+        label: "testnet-span-voided".into(),
+        decision: "void-1".into(),
+        reason: "operator check".into(),
+        withdraw: false,
+    };
+    tx(&db, |s| super::span_gate::void(s, &req, now)).unwrap();
+    run_to_close(&mut sim, &db, seq, 22);
+    let b = sim.packages_v3.pop().unwrap();
+    let l = b.localization.unwrap();
+    assert_eq!(l.state, LocalizationState::Void);
+    assert_eq!(b.components["localization"]["waiver"], "void.operator");
+    assert_eq!(b.components["localization"]["anchor"]["job"], 0, "the reference's job is the anchor's");
+    assert_eq!(l.entrants, vec![Some(LocalizationValue::Passed), Some(LocalizationValue::NoTokenHead)]);
+}
+
+#[test]
+fn span_plans_count_the_anchor_job_and_the_record_bits() {
+    // The testnet roster bound, and one more.
+    const ENTRANTS: usize = 40;
+    const WIDER: usize = ENTRANTS + 1;
+    let none = Ceilings { roster_cap: Some(ENTRANTS), accept_reward_v0: false };
+    let weak = super::plan::tests::artifact(super::plan::tests::identity(0, 0xb0), 1);
+    let anchor = super::plan::tests::artifact(super::plan::tests::identity(30, 0xd0), 2);
+    let probe = super::plan::ProbeRef { version: 1, size: 1024, key: "probes/v1/record.json".into(), sha256: hex::encode([1; 32]) };
+    let mut p = plan_v3(2, "testnet-span-plan", 1000, weak.clone());
+    {
+        let v = p.reward_v1.as_mut().unwrap();
+        v.probes = vec![probe];
+        v.canary.draw_humans = 200;
+        // The testnet bit parameters: n 1,000, eps 2, h 8, F 10.
+        let q = v.quant.as_mut().unwrap();
+        (q.eps_total_milli, q.identify_bits, q.budget_factor) = (2000, 8, 10);
+    }
+    p.validate(none).unwrap();
+    let docs = p.scored_docs();
+    p.reward_v1.as_mut().unwrap().localization = Some(span_block(anchor));
+    assert!(p.anchor_job());
+    assert_eq!(p.scored_docs(), docs + 1000, "the anchor job scores the batch");
+    // 746 + 42 = 788 of 800 bits with up to 40 entrants.
+    p.validate(none).unwrap();
+    // A roster bound of 41 fits today but not with the record.
+    let wider = Ceilings { roster_cap: Some(WIDER), ..none };
+    let mut today = p.clone();
+    today.reward_v1.as_mut().unwrap().localization = None;
+    today.validate(wider).unwrap();
+    assert!(p.validate(wider).unwrap_err().0.contains("span gate's record"));
+    let mut enforce = p.clone();
+    enforce.reward_v1.as_mut().unwrap().localization.as_mut().unwrap().mode = super::span_gate::MODE_ENFORCE.into();
+    assert_eq!(enforce.validate(none).unwrap_err().0, super::span_gate::ENFORCE_REFUSAL);
+    // The gate policy document binds the block under schema v3; a plan
+    // without it keeps its v2 document byte for byte.
+    let before = v3::gate_policy_json(today.reward_v1.as_ref().unwrap());
+    assert_eq!(before["schema"], "slop_ninja_eval_gate_policy_v2");
+    assert!(before.get("localization").is_none());
+    let after = v3::gate_policy_json(p.reward_v1.as_ref().unwrap());
+    assert_eq!(after["schema"], "slop_ninja_eval_gate_policy_v3");
+    assert_eq!(after["localization"]["rule"], "slop_ninja_span_gate_v1");
+}
+
+#[test]
+fn an_anchor_that_fails_to_load_waives_the_cohort_and_holds_nothing() {
+    use slop_ninja_protocol::{LocalizationState, LocalizationValue};
+    let db = Sqlite::open();
+    // The anchor job (5) never loads: its documents are model errors, never a reference failure.
+    let (_sim, seq, b) = span_cohort(&db, localizing, |sim| {
+        sim.start = Box::new(|job, _| if job == 5 { Err(RestartFailure::Artifact { code: "artifact load failed", definitive: false }) } else { Ok(()) });
+    });
+    let failed: i64 = db
+        .conn
+        .query_row("SELECT COUNT(*) FROM preds WHERE seq = ?1 AND job = 5 AND outcome != 1", rusqlite::params![seq], |r| r.get(0))
+        .unwrap();
+    assert_eq!(failed, 20);
+    let l = b.localization.as_ref().unwrap();
+    assert_eq!(l.state, LocalizationState::Waived);
+    assert_eq!(b.components["localization"]["waiver"], "waived.anchor_missing");
+    assert_eq!(l.entrants[1], Some(LocalizationValue::NoTokenHead));
+    assert_eq!(l.entrants[3], Some(LocalizationValue::Passed));
+}

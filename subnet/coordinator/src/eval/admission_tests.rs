@@ -146,6 +146,7 @@ fn admission_plan(cohort: u64, cap: u16) -> plan::CohortPlan {
         probe_cut: false,
         quant: Some(plan::tests::quant_block()),
         live: None,
+        localization: None,
     });
     p.admission = Some(admission_block(cap));
     p
@@ -1048,6 +1049,19 @@ fn classify_reads_the_reply_and_counts_only_the_artifacts_own_failures() {
         "a load that succeeded but could not score the control document is no admission"
     );
     assert!(matches!(classify(Some(200), &json!({})), LaneOutcome::Platform(_)));
+    // Spec v5 runs ask for the control document's spans: the emission must run.
+    let mut asked = control_result("ok");
+    asked["spans"] = json!(true);
+    assert!(matches!(classify(Some(200), &asked), LaneOutcome::ArtifactFailure(c) if c == "control_document:span_emission"));
+    asked["results"][0]["span_status"] = json!({"unsupported": "nonfinite token state"});
+    assert!(matches!(classify(Some(200), &asked), LaneOutcome::ArtifactFailure(c) if c == "control_document:span_emission"));
+    asked["results"][0]["span_status"] = json!("ok");
+    assert_eq!(classify(Some(200), &asked), LaneOutcome::Admitted);
+    {
+        use slop_ninja_artifact_check::spec::Version;
+        assert!(spans_required(&Version::V5.spec_sha256()));
+        assert!(!spans_required(&Version::V4.spec_sha256()) && !spans_required("00"));
+    }
     // Definitive: the scorer's recorded refusal codes, and an unknown one.
     assert!(
         matches!(classify(Some(502), &err("refused graph_op_not_allowed")), LaneOutcome::Refused(c) if c == "graph_op_not_allowed")
@@ -2657,12 +2671,15 @@ fn copies_of_published_artifacts_and_plans_without_operator_hotkeys_never_unlock
     v3p.fanout.as_mut().unwrap().score.artifact_spec = Some(b3.spec_id.into());
     let parsed = plan::CohortPlan::parse(&serde_json::to_vec(&v3p).unwrap(), cfg().ceilings).unwrap();
     assert_eq!(parsed.load_spec_sha256(), Some(b3.spec_sha256.as_str()));
-    assert_eq!(ADMISSION_SPECS, &[spec::SPEC_ID_V2, spec::SPEC_ID_V3, spec::SPEC_ID_V4]);
+    assert_eq!(ADMISSION_SPECS, &[spec::SPEC_ID_V2, spec::SPEC_ID_V3, spec::SPEC_ID_V4, spec::SPEC_ID_V5]);
     // The v3 object bound fits one URL life and one PUT (no part count);
     // spec v4's is v3's (it admits what v3 admits).
     assert!(b3.object_bytes <= policy::MAX_L_AT_B_MIN.min(policy::R2_SINGLE_PUT_MAX));
     let b4 = SpecBounds::of(Version::V4).unwrap();
     assert_eq!((b4.graph_bytes, b4.files_bytes, b4.object_bytes), (b3.graph_bytes, b3.files_bytes, b3.object_bytes));
+    // Spec v5 (v4 plus the span requirements) has v4's bounds.
+    let b5 = SpecBounds::of(Version::V5).unwrap();
+    assert_eq!((b5.graph_bytes, b5.files_bytes, b5.object_bytes), (b4.graph_bytes, b4.files_bytes, b4.object_bytes));
     let mut v4p = v3p.clone();
     let a = v4p.admission.as_mut().unwrap();
     a.artifact_spec = b4.spec_id.into();
@@ -3407,7 +3424,7 @@ fn store_v21_restarts_the_reader_call_maxima_and_keeps_the_failure_count() {
     let max = tx(&db, |q| q.exec("SELECT plan_ms_max FROM commit_reader WHERE id = 1", &[])).unwrap();
     assert_eq!(crate::sql::int(&max[0], 0).unwrap(), 3000);
     let report = tx(&db, |s| crate::sql::migrate(s, &EVAL_COHORT_SCHEMA)).unwrap();
-    assert_eq!((report.from, report.to), (20, 28));
+    assert_eq!((report.from, report.to), (20, 29));
     let c = calls(&db);
     assert_eq!((c["plan_ms_max"].as_i64(), c["ingest_ms_max"].as_i64(), c["failed"].as_i64()), (Some(0), Some(0), Some(1)));
     assert_eq!(c["plan_ms_last"], 80);
@@ -4302,7 +4319,7 @@ fn store_v25_refuses_a_live_v1_admission_then_replaces_the_session_tables() {
         )
         .unwrap();
     let report = tx(&db, |s| crate::sql::migrate(s, &EVAL_COHORT_SCHEMA)).unwrap();
-    assert_eq!((report.from, report.to), (24, 28));
+    assert_eq!((report.from, report.to), (24, 29));
     let queued: std::collections::BTreeSet<(String, Option<String>)> =
         tx(&db, |s| object_deletes_due(s, 10, crate::wire::MAX_SAFE_INTEGER)).unwrap().into_iter().collect();
     let want: std::collections::BTreeSet<(String, Option<String>)> = ["d", "e"]

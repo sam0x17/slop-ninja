@@ -64,6 +64,9 @@ slop-ninja-r2-presign = { path = "../crates/r2-presign" }
 # Generation v2: the plan field, the generator manifest, the measurement set
 # and the generation Worker's interface (requests, outcomes, bounds).
 slop-ninja-gen-core = { path = "../crates/gen-core" }
+# The span gate's statistics, trivial policies and paired gate (exact
+# integers, sized from each document), shared with the local scorer.
+slop-ninja-span-eval = { path = "../crates/span-eval", features = ["json"] }
 hmac = "0.12"
 serde = { version = "1", features = ["derive"] }
 # float_roundtrip is declared here, not only inherited from artifact-check:

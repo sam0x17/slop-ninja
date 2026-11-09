@@ -65,6 +65,7 @@ pub mod receipts;
 pub mod retention;
 pub mod score;
 pub mod scorer_client;
+pub mod span_gate;
 pub mod succession;
 pub mod v3;
 

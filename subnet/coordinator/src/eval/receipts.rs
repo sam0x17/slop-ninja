@@ -182,6 +182,11 @@ pub struct TaskOutcome {
     /// the document stays unresolved (`lane_logic::unanswered`).
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub unattributed: bool,
+    /// The span gate's statistics of a resolved batch document, for a cohort
+    /// that requests spans (`span_gate::SpanCell`). Never part of a receipt:
+    /// receipts are a function of the document outcome alone.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub span: Option<crate::eval::span_gate::SpanCell>,
 }
 
 impl TaskOutcome {
@@ -201,6 +206,7 @@ impl TaskOutcome {
             isolated_crash: false,
             artifact_failed: false,
             unattributed: false,
+            span: None,
         }
     }
 

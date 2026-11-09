@@ -816,6 +816,12 @@ pub struct Assignment {
     /// are admitted by the scorer's unnamed-load spec (spec v2).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub spec_sha256: Option<String>,
+    /// Scoring lanes of a cohort whose plan names the span gate
+    /// (`reward_v1.localization`): every request asks for spans (never the
+    /// sentences), and each resolved batch document's outcome carries its
+    /// span cell (`span_gate::SpanCell`).
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub spans: bool,
 }
 
 fn assignment_for(sql: &impl Sql, c: &Cohort, kind: &str, l: &LaneRow, now: u64) -> R<Assignment> {
@@ -853,6 +859,7 @@ fn assignment_for(sql: &impl Sql, c: &Cohort, kind: &str, l: &LaneRow, now: u64)
         // Only scoring lanes load an artifact.
         // The digest the plan froze, never one rebuilt per report.
         a.spec_sha256 = c.plan.load_spec_sha256().map(str::to_owned);
+        a.spans = c.plan.reward_v1.as_ref().is_some_and(|v| v.localization.is_some());
     }
     if kind == "score"
         && let Some(job) = l.job
@@ -876,9 +883,13 @@ fn assignment_for(sql: &impl Sql, c: &Cohort, kind: &str, l: &LaneRow, now: u64)
     }
     if let Some(job) = l.job {
         let idx = job as usize;
+        // Job numbers: the reference, its predecessor, the entrants, then the
+        // span gate's anchor job when the plan schedules one.
+        let anchor = c.plan.reward_v1.as_ref().and_then(|v| v.localization.as_ref()).filter(|l| l.anchor_job(&c.plan.reference));
         let roster: Vec<&crate::eval::plan::ArtifactJson> = std::iter::once(&c.plan.reference)
             .chain(c.plan.previous_reference.iter())
             .chain(c.plan.entrants.iter())
+            .chain(anchor.map(|l| &l.anchor))
             .collect();
         if let Some(art) = roster.get(idx) {
             a.artifact = Some(ArtifactRef {
@@ -1227,7 +1238,8 @@ pub enum ClaimReply {
 /// alone.
 fn unresolved(sql: &impl Sql, seq: i64, job: i64, first: i64, count: i64) -> R<Vec<(u32, String)>> {
     let role = sql.exec("SELECT role FROM jobs WHERE seq = ? AND job = ?", &[i(seq), i(job)])?;
-    let reference = role.first().map(|r| text(r, 0)).transpose()?.is_some_and(|r| r == "reference" || r == "previous_reference");
+    // References and the span gate's anchor score the batch only.
+    let reference = role.first().map(|r| text(r, 0)).transpose()?.is_some_and(crate::eval::span_gate::batch_only);
     let rows = if reference {
         sql.exec(
             "SELECT w.task, w.text_sha256 FROM (
@@ -1306,7 +1318,8 @@ pub fn claim_chunk(sql: &impl Sql, r: &LaneRef, name: &str, now: u64) -> R<Claim
         return Ok(ClaimReply::Done);
     }
     let artifact_failed = opt_text(&js[0], 1).is_some();
-    let reference = text(&js[0], 2)? != "entrant";
+    // A reference is never attributed; an entrant and the span gate's anchor are.
+    let reference = !crate::eval::span_gate::attributable(text(&js[0], 2)?);
     let range = sql.exec("SELECT chunk_lo, chunk_hi FROM lanes WHERE seq = ? AND kind = 'score' AND lane = ?", &[i(r.seq), i(r.lane)])?;
     let (lo, hi) = (int(&range[0], 0)?, int(&range[0], 1)?);
     let candidates = sql.exec(
@@ -1434,6 +1447,10 @@ pub struct ChunkCommit {
     /// The lane's cumulative metering at the commit.
     #[serde(default)]
     pub meter: Meter,
+    /// A span cohort: the loaded artifact's token head and decoder (the
+    /// scorer's load facts), recorded once per job.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub span_facts: Option<crate::eval::span_gate::SpanFacts>,
 }
 
 /// A lane's cumulative metering in this cohort: container provisioned time,
@@ -1516,7 +1533,7 @@ pub fn commit_chunk(sql: &impl Sql, cfg: &EvalConfig, r: &LaneRef, name: &str, c
     if cm.outcomes.iter().any(|o| o.unattributed) {
         // Only a reference's model error is left unattributed.
         let role = sql.exec("SELECT role FROM jobs WHERE seq = ? AND job = ?", &[i(seq), i(cm.job)])?;
-        if role.first().is_none_or(|r| text(r, 0).is_ok_and(|x| x == "entrant")) || cm.outcomes.iter().any(|o| o.unattributed && o.class != 2) {
+        if role.first().is_none_or(|r| text(r, 0).is_ok_and(crate::eval::span_gate::attributable)) || cm.outcomes.iter().any(|o| o.unattributed && o.class != 2) {
             return Err(EvalError::State("an unattributed outcome outside a reference's model error"));
         }
     }
@@ -1577,21 +1594,29 @@ pub fn commit_chunk(sql: &impl Sql, cfg: &EvalConfig, r: &LaneRef, name: &str, c
     }
     for o in cm.outcomes.iter().filter(|o| o.resolves()) {
         sql.exec(
-            "INSERT INTO preds (seq, job, task, attempt, outcome, inv_ppb, share_ppb, human_profile, ai_profile, token_count)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            "INSERT INTO preds (seq, job, task, attempt, outcome, inv_ppb, share_ppb, human_profile, ai_profile, token_count,
+                 span_pop, span_f1, span_fp, span_human, span_flags, span_spans)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             &[
-                i(seq),
-                i(cm.job),
-                i(i64::from(o.task)),
-                i(i64::from(cm.attempt)),
-                i(i64::from(o.class)),
-                o.inv_ppb.map_or(SqlValue::Null, |v| i(i64::from(v))),
-                o.share_ppb.map_or(SqlValue::Null, |v| i(i64::from(v))),
-                o.human.clone().map_or(SqlValue::Null, s),
-                o.ai.clone().map_or(SqlValue::Null, s),
-                o.tokens.map_or(SqlValue::Null, |t| i(i64::from(t))),
-            ],
+                &[
+                    i(seq),
+                    i(cm.job),
+                    i(i64::from(o.task)),
+                    i(i64::from(cm.attempt)),
+                    i(i64::from(o.class)),
+                    o.inv_ppb.map_or(SqlValue::Null, |v| i(i64::from(v))),
+                    o.share_ppb.map_or(SqlValue::Null, |v| i(i64::from(v))),
+                    o.human.clone().map_or(SqlValue::Null, s),
+                    o.ai.clone().map_or(SqlValue::Null, s),
+                    o.tokens.map_or(SqlValue::Null, |t| i(i64::from(t))),
+                ][..],
+                &crate::eval::span_gate::cell_values(o.span.as_ref())[..],
+            ]
+            .concat(),
         )?;
+    }
+    if let Some(f) = &cm.span_facts {
+        crate::eval::span_gate::record_facts(sql, seq, cm.job, f)?;
     }
     let window = sql.exec("SELECT first_task, count FROM chunks WHERE seq = ? AND job = ? AND chunk = ?", &[i(seq), i(cm.job), i(cm.chunk)])?;
     let window = window.first().ok_or(EvalError::State("chunk"))?;
@@ -1950,7 +1975,7 @@ pub fn artifact_failure(sql: &impl Sql, r: &LaneRef, job: i64, code: &str, defin
     }
     event(sql, r.seq, &r.kind, r.lane, "artifact_failure", 0, now)?;
     let role = text(row, 0)?.to_owned();
-    if role != "entrant" && definitive {
+    if !crate::eval::span_gate::attributable(&role) && definitive {
         // A reference the scorer refuses definitively (a deterministic check)
         // is refused again on every fresh instance: pause the cohort now
         // (`scorer_unavailable`, resumable by an operator clear once a scorer
@@ -1975,7 +2000,7 @@ pub fn artifact_failure(sql: &impl Sql, r: &LaneRef, job: i64, code: &str, defin
         engine::fault_with_cause(sql, r.seq, engine::SCORER_UNAVAILABLE, Some(&format!("definitive:{role}")), now)?;
         return Ok(false);
     }
-    if role != "entrant" || matches!(text(row, 2)?, "done" | "faulted") {
+    if !crate::eval::span_gate::attributable(&role) || matches!(text(row, 2)?, "done" | "faulted") {
         if c.phase == "scoring" {
             engine::note_scorer_failure(sql, r.seq, engine::ScorerCause::Slot, Some(job), now)?;
         }

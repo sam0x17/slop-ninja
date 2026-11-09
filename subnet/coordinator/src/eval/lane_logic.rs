@@ -20,6 +20,7 @@ use crate::eval::engine::{self, CallTiming, ScorerCause};
 use crate::eval::lanes::{ArtifactRef, Assignment, ChunkClaim, ChunkCommit, IsoReply, LaneRef, Meter};
 use crate::eval::receipts::{self, ChunkFacts, TaskOutcome};
 use crate::eval::score;
+use crate::eval::span_gate::{self, SpanFacts, SpanLabel};
 use serde_json::{Value, json};
 use sha2::{Digest as _, Sha256};
 use std::collections::BTreeMap;
@@ -73,16 +74,47 @@ pub fn claim_docs(claim: &ChunkClaim, texts: &BTreeMap<u32, (String, String)>) -
 /// Outcomes for every task from a scorer reply; a task the reply does not
 /// answer (or answers with another text digest) is an infrastructure error.
 pub fn outcomes_from_results(docs: &[(u32, String, String)], results: &[Value]) -> Vec<TaskOutcome> {
+    outcomes_with_spans(docs, results, None)
+}
+
+/// A span cohort's context for the outcomes of one claim: the batch
+/// documents' labels (from the sealed shards) and the loaded artifact's
+/// decoder minimum (its load facts), for the format check.
+pub struct SpanCtx<'a> {
+    pub labels: &'a BTreeMap<u32, SpanLabel>,
+    pub decoder_min: Option<u32>,
+}
+
+/// [`outcomes_from_results`]; with `sp`, each resolved batch document's
+/// outcome also carries its span cell (`span_gate::cell`): from the reply's
+/// spans for a prediction, else as a failed prediction. The document outcome
+/// itself never depends on the span fields.
+pub fn outcomes_with_spans(docs: &[(u32, String, String)], results: &[Value], sp: Option<&SpanCtx<'_>>) -> Vec<TaskOutcome> {
     let by_id: BTreeMap<&str, &Value> = results.iter().filter_map(|r| Some((r["id"].as_str()?, r))).collect();
     docs.iter()
-        .map(|(task, _, sha)| match by_id.get(task.to_string().as_str()) {
+        .map(|(task, text, sha)| match by_id.get(task.to_string().as_str()) {
             Some(v) => {
                 let (o, h, a, t) = score::outcome(v, sha);
-                TaskOutcome::new(*task, &o, h, a, t)
+                let mut out = TaskOutcome::new(*task, &o, h, a, t);
+                if let Some(sp) = sp {
+                    let reply = (out.class == 1).then_some(*v);
+                    with_cell(&mut out, text, reply, sp);
+                }
+                out
             }
             None => TaskOutcome::infrastructure(*task),
         })
         .collect()
+}
+
+/// Sets a resolved batch document's span cell (`reply`: the scorer's reply
+/// when the prediction succeeded).
+fn with_cell(o: &mut TaskOutcome, text: &str, reply: Option<&Value>, sp: &SpanCtx<'_>) {
+    if o.resolves()
+        && let Some(label) = sp.labels.get(&o.task)
+    {
+        o.span = span_gate::cell(text, label, reply, sp.decoder_min);
+    }
 }
 
 /// A reference job's document left without an answer (the scorer's error
@@ -188,6 +220,8 @@ pub struct ChunkCtx<'a> {
     pub art: &'a ArtifactRef,
     pub seed: &'a [u8; 32],
     pub prefix: &'a str,
+    /// A span cohort: the loaded artifact's load facts, when known.
+    pub span_facts: Option<&'a SpanFacts>,
 }
 
 /// How a claimed chunk ended for the lane loop.
@@ -203,8 +237,19 @@ pub enum ChunkEnd {
     Throw,
 }
 
-/// Batch shards already read in this invocation, by key.
-pub type ShardCache = BTreeMap<String, BTreeMap<u32, (String, String)>>;
+/// Batch shards already read in this invocation: their texts by key and, for
+/// a span cohort, their batch documents' labels by task.
+#[derive(Debug, Default)]
+pub struct ShardCache {
+    texts: BTreeMap<String, BTreeMap<u32, (String, String)>>,
+    labels: BTreeMap<u32, SpanLabel>,
+}
+
+impl ShardCache {
+    pub fn new() -> Self {
+        Self::default()
+    }
+}
 
 /// A hand-back body that counts a scorer failure with its cause
 /// (`engine::note_scorer_failure`), so the cohort object knows whether its
@@ -255,7 +300,7 @@ async fn put_retry<I: LaneIo>(io: &mut I, receipts: bool, key: &str, body: &[u8]
 /// nothing was dispatched.
 async fn read_docs<I: LaneIo>(io: &mut I, cx: &ChunkCtx<'_>, c: &ChunkClaim, cache: &mut ShardCache) -> Result<Docs, &'static str> {
     for (key, sha) in &c.shards {
-        if cache.contains_key(key) {
+        if cache.texts.contains_key(key) {
             continue;
         }
         if cx.a.faults.r2_outage_until_ms > io.now_ms() {
@@ -266,11 +311,15 @@ async fn read_docs<I: LaneIo>(io: &mut I, cx: &ChunkCtx<'_>, c: &ChunkClaim, cac
             Ok(Some(b)) => b,
             _ => return Err("batch shard read"),
         };
-        cache.insert(key.clone(), shard_texts(&body, sha)?);
+        let texts = shard_texts(&body, sha)?;
+        if cx.a.spans {
+            cache.labels.extend(span_gate::shard_labels(&body)?);
+        }
+        cache.texts.insert(key.clone(), texts);
     }
     let mut texts = BTreeMap::new();
     for key in c.shards.iter().map(|s| &s.0) {
-        if let Some(t) = cache.get(key) {
+        if let Some(t) = cache.texts.get(key) {
             texts.extend(t.iter().map(|(k, v)| (*k, v.clone())));
         }
     }
@@ -337,8 +386,10 @@ pub async fn run_chunk<I: LaneIo>(io: &mut I, cx: &ChunkCtx<'_>, c: &ChunkClaim,
                 return ChunkEnd::Rearm(FAILURE_REARM_MS);
             }
         };
+        let decoder_min = cx.span_facts.and_then(|f| f.decoder_min);
+        let sp = cx.a.spans.then_some(SpanCtx { labels: &cache.labels, decoder_min });
         if c.isolate {
-            let iso = isolate(io, cx, c, &docs, &done).await;
+            let iso = isolate(io, cx, c, &docs, &done, sp.as_ref()).await;
             let done: BTreeMap<u32, TaskOutcome> = done.into_iter().chain(iso.new.iter().map(|o| (o.task, o.clone()))).collect();
             match iso.end {
                 IsoEnd::Complete => (merge(c, &done, false), false, iso.timing),
@@ -352,7 +403,9 @@ pub async fn run_chunk<I: LaneIo>(io: &mut I, cx: &ChunkCtx<'_>, c: &ChunkClaim,
             }
         } else {
             match io.score(&docs, c.lease_ms.saturating_sub(15_000).max(5_000)).await {
-                Ok((results, t)) => (outcomes_from_results(&docs, &results).into_iter().map(|o| unanswered(c, o)).collect(), false, t),
+                Ok((results, t)) => {
+                    (outcomes_with_spans(&docs, &results, sp.as_ref()).into_iter().map(|o| unanswered(c, o)).collect(), false, t)
+                }
                 Err(ScoreFailure::NotDispatched) => {
                     let _ = call(io, "/lane/give-back", cx, c, slot).await;
                     return ChunkEnd::Rearm(FAILURE_REARM_MS);
@@ -364,6 +417,21 @@ pub async fn run_chunk<I: LaneIo>(io: &mut I, cx: &ChunkCtx<'_>, c: &ChunkClaim,
             }
         }
     };
+    // A span cohort's documents left as model errors because the job's
+    // artifact failed carry their cells too (a failed prediction). Every
+    // other resolved outcome got its cell where it was decided, and an
+    // isolation run's recorded outcomes are kept exactly.
+    let mut outcomes = outcomes;
+    if cx.a.spans && outcomes.iter().any(|o| o.artifact_failed && o.span.is_none()) {
+        if let Ok(docs) = read_docs(io, cx, c, cache).await {
+            let sp = SpanCtx { labels: &cache.labels, decoder_min: cx.span_facts.and_then(|f| f.decoder_min) };
+            for o in outcomes.iter_mut().filter(|o| o.artifact_failed && o.span.is_none()) {
+                if let Some(d) = docs.iter().find(|d| d.0 == o.task) {
+                    with_cell(o, &d.1, None, &sp);
+                }
+            }
+        }
+    }
     if io.fault(Fault::DieBeforePut).await {
         return ChunkEnd::Died;
     }
@@ -474,6 +542,7 @@ async fn commit<I: LaneIo>(
         crashed,
         reconciled,
         meter: io.meter().await,
+        span_facts: if cx.a.spans { cx.span_facts.cloned() } else { None },
     };
     let body = json!({"lane": cx.r, "name": cx.name, "commit": cm});
     // A lost reply is retried by the next reconciliation (an exact repeat
@@ -565,7 +634,14 @@ async fn artifact_failed<I: LaneIo>(io: &mut I, cx: &ChunkCtx<'_>, job: i64, cod
 ///    budget and that no newer kick superseded it; otherwise it hands the
 ///    attempt back with everything recorded so far, uncounted, and the next
 ///    claim continues the same attempt. No attempt number is spent on that.
-pub async fn isolate<I: LaneIo>(io: &mut I, cx: &ChunkCtx<'_>, c: &ChunkClaim, docs: &[(u32, String, String)], done: &BTreeMap<u32, TaskOutcome>) -> Isolation {
+pub async fn isolate<I: LaneIo>(
+    io: &mut I,
+    cx: &ChunkCtx<'_>,
+    c: &ChunkClaim,
+    docs: &[(u32, String, String)],
+    done: &BTreeMap<u32, TaskOutcome>,
+    sp: Option<&SpanCtx<'_>>,
+) -> Isolation {
     let mut out = Isolation { new: Vec::new(), end: IsoEnd::Complete, calls: 0, restarts: 0, reproduced: 0, timing: CallTiming::default() };
     let doc_ms = cx.a.doc_timeout_ms.max(1_000);
     let control = vec![(CONTROL_TASK, CONTROL_TEXT.to_owned(), sha_hex(CONTROL_TEXT.as_bytes()))];
@@ -592,7 +668,7 @@ pub async fn isolate<I: LaneIo>(io: &mut I, cx: &ChunkCtx<'_>, c: &ChunkClaim, d
         let outcome = match io.score(one, doc_ms).await {
             Ok((results, t)) => {
                 add(&mut out.timing, t);
-                outcomes_from_results(one, &results).remove(0)
+                outcomes_with_spans(one, &results, sp).remove(0)
             }
             Err(ScoreFailure::NotDispatched) => return stop(out, IsoEnd::Yield { failure: Some(ScorerCause::Slot) }),
             Err(ScoreFailure::Failed) => TaskOutcome::infrastructure(doc.0),
@@ -618,12 +694,16 @@ pub async fn isolate<I: LaneIo>(io: &mut I, cx: &ChunkCtx<'_>, c: &ChunkClaim, d
                 match io.score(one, doc_ms).await {
                     Ok((results, t)) => {
                         add(&mut out.timing, t);
-                        outcomes_from_results(one, &results).remove(0)
+                        outcomes_with_spans(one, &results, sp).remove(0)
                     }
                     Err(ScoreFailure::Died) => {
                         fresh_needed = true;
                         out.reproduced += 1;
-                        TaskOutcome::isolated_crash(doc.0)
+                        let mut o = TaskOutcome::isolated_crash(doc.0);
+                        if let Some(sp) = sp {
+                            with_cell(&mut o, &doc.1, None, sp);
+                        }
+                        o
                     }
                     Err(ScoreFailure::Failed) => TaskOutcome::infrastructure(doc.0),
                     Err(ScoreFailure::NotDispatched) => return stop(out, IsoEnd::Yield { failure: Some(ScorerCause::Slot) }),
@@ -827,9 +907,9 @@ mod tests {
         let a = Assignment { label: "l".into(), doc_timeout_ms: 60_000, ..Default::default() };
         let art = ArtifactRef { id: String::new(), package_sha256: String::new(), manifest_key: String::new() };
         let r = LaneRef { seq: 1, kind: "score".into(), lane: 0, generation: 1 };
-        let cx = ChunkCtx { r: &r, name: "lane", a: &a, art: &art, seed: &[0; 32], prefix: "p" };
+        let cx = ChunkCtx { r: &r, name: "lane", a: &a, art: &art, seed: &[0; 32], prefix: "p", span_facts: None };
         let done: BTreeMap<u32, TaskOutcome> = done.iter().map(|o| (o.task, o.clone())).collect();
-        block_on(isolate(f, &cx, &c, &d, &done))
+        block_on(isolate(f, &cx, &c, &d, &done, None))
     }
 
     fn classes(v: &[TaskOutcome]) -> Vec<(u32, u8, bool)> {

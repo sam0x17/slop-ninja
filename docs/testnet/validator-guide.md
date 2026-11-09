@@ -56,7 +56,7 @@ the hidden evaluation is part of the protocol.
 | --- | --- |
 | `slop_ninja_validator` startup checks, `observe`, the dry run and journaled dispatch | built and tested on Linux x86_64; live commits, per-tempo re-commits and fault drills ran on subnet 601 on October 30, 2026, under a fixture package |
 | Verification of the coordinator's signed row (`slop_ninja.coordinator_row_bundle/v1`; earlier package bundles are refused as `bundle_schema_retired`) | in the current source (build from source, [section 2](#2-install)); validator release binaries follow in a later release |
-| The coordinator's signed row | built and tested offline; the coordinator build that signs it is not yet deployed |
+| The coordinator's signed row | live: the deployed coordinator signs a row record for the active target whenever its paid entries change |
 | Published rows on the public status host | not yet live |
 | The row fetcher (`[fetch]`) | built and tested offline against the publisher's layout; waits for the public host, so until it is live every validator installs each row bundle by hand or reads a local mirror (below). The coordinator signs each closed cohort's authorization itself, so the pointer names the current one with no operator step |
 | Continuous dispatch, successor supersession and persistent user units | built and tested offline; not yet run unattended across cohorts on subnet 601 |
@@ -156,10 +156,11 @@ hotkey_file = "/home/operator/.bittensor/wallets/my-wallet/hotkeys/my-validator"
 - **Trusted keys.** Take the three keys from the release's
   `testnet-trust.json` (schema `slop_ninja_testnet_trust_roots_v1`). They are
   Ed25519 application keys, never chain keys. Pin them; never trust a
-  `keys.json` published beside a bundle. The keys in the repository's
-  `subnet/coordinator/testnet-trust.json` today are rehearsal keys; they will
-  be rotated before the testnet is announced, so use the file from the signed
-  release.
+  `keys.json` published beside a bundle. The signed release's
+  `testnet-trust.json` is the repository's
+  `subnet/coordinator/testnet-trust.json` byte for byte; take it from the
+  release, whose signature covers it. A rotation of these keys comes as a
+  signed release or trust update.
 - **`[package]`** names the bundle file the validator verifies. With
   `[fetch]`, the validator writes it there itself; without `[fetch]`, you
   install it. Without `[package]`, `run` stops after startup.

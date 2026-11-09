@@ -51,7 +51,7 @@ an entrant beats it by the required margin, no miner earns and the pool burns.
 *B* and *C* activate separately. *B* is trained adversarially against *A* and
 uses the native English grammar (CFG) to define its edit units.
 
-The [whitepaper](whitepaper/slop_ninja.pdf) (draft 0.61) describes the full
+The [whitepaper](whitepaper/slop_ninja.pdf) (draft 0.62) describes the full
 design, its trust model and its evidence boundaries.
 
 ## Testnet status
@@ -61,11 +61,19 @@ Testnet subnet 601 is the rehearsal. It has no monetary value.
 - **Running:** mechanism *A*, one cohort a day (20 tempos of 360 blocks),
   scored against the reference model `R_0`. Both SlopNinja validators commit
   and reveal the launch burn row every tempo.
-- **Admission:** limited to SlopNinja's operator test hotkeys during the
-  admission v2 rollout. Until admission is open to your hotkey, do not commit:
-  a commitment you cannot upload costs the chain fee and admits nothing.
-- **Releases:** no signed release is published yet. Build the clients from
-  source as the guides describe.
+- **Admission:** open to every hotkey registered on subnet 601. Commit and
+  upload anew for every cohort: a commitment counts for one cohort only, and a
+  model you entered before is a published copy that earns nothing, so each
+  cohort needs a new model.
+- **Releases:** `testnet-v0.1.0`, published November 9, 2026 on the
+  repository's Releases page, holds the signed miner client and artifact
+  checker for Linux x86_64 and `R_0`'s reference package (`3c0ecc37`).
+  Validators, and miners on other platforms, build from source as the guides
+  describe.
+- **Scores:** every released score is quantized on a grid with seeded noise
+  (`quant-v1`), and credit and rank follow the quantized scores; exact scores
+  stay with the coordinator. The [miner guide](docs/testnet/miner-guide.md#13-rewards)
+  explains the grid, the noise and the cutoff.
 - **Follow along:** the [status page](https://slop.ninja/testnet/status/), the
   [public API](https://slop.ninja/api/), the [whitepaper](whitepaper/slop_ninja.pdf)
   and [@SlopNinja](https://x.com/SlopNinja) on X.

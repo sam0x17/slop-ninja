@@ -2,8 +2,12 @@
 
 SlopNinja publishes its own *A* models as reference packages. A package is
 an admitted artifact's six files ([artifact spec](artifact-spec.md)) as the
-scorer stores them: content-addressed parts of at most 64 MiB and the parts
-manifest that lists them, whose SHA-256 is the package digest. Beside them
+scorer stores them, with the manifest that lists them, whose SHA-256 is the
+package digest. A package has one of two layouts. In the parts layout
+(`slop_ninja_a_artifact_files_v1`) each file is split into content-addressed
+parts of at most 64 MiB, which the parts manifest lists. In the files layout
+(`slop_ninja_a_artifact_files_v2`) the files manifest lists each file whole,
+with the storage key and entity tag of the coordinator's copy. Beside them
 are the package's licence notices and the synthetic reference cases its
 export manifest binds.
 
@@ -12,10 +16,12 @@ The packages are published under the
 licence (CC BY-SA 4.0). They go to the testnet public bucket, where public
 access stays off until the announce. Until public access opens, the `R_0`
 package and its [training companion](#training-companion) are attached to
-the testnet release as `slop-ninja-r0-reference-package-143ca2d9.tar` and
-`slop-ninja-r0-training-companion-143ca2d9.tar`
-([`R_0` archives](miner-guide.md#r_0-archives-optional)); the S2c span
-package is not downloadable until then. The [public layout](public-layout.md)
+the testnet release `testnet-v0.1.0` as
+`slop-ninja-r0-reference-package-3c0ecc37.tar` and
+`slop-ninja-r0-training-companion-3c0ecc37.tar`
+([`R_0` archives](miner-guide.md#r_0-archives-optional)): R0's artifact spec
+v3 package in the files layout, the package the `testnet-r1-` cohorts name.
+The S2c span package is not downloadable until then. The [public layout](public-layout.md)
 gives their paths.
 
 ## The two packages
@@ -25,18 +31,19 @@ gives their paths.
 | Role | the testnet reference `R_0`, scored in every cohort | SlopNinja's first span-serving package (role `span_head`); never `R_0` |
 | Model | R0, the released *A* document model | R0's encoder and document heads, unchanged, with the S2c span tower and token head |
 | Graph class | `a-plain-f32band-v1` | `a-tower-f32band-v1` |
-| Spec | v1, v2 and v3 | v3 only |
-| `profile_id` | `slop_ninja_a_artifact_spec_v2/a-plain-f32band-v1` | `slop_ninja_a_artifact_spec_v3/a-tower-f32band-v1` |
-| Package digest | `143ca2d95954e502a053fdd2c6deb6501e3e55273846dc04e310a3ee84c57f0c` | `daff49c2232e176bb7d3ca793b9e3f8d36273845af77495450edcfc8a2486aef` |
+| Spec | v1 to v4 | v3 and v4 |
+| `profile_id` | `slop_ninja_a_artifact_spec_v3/a-plain-f32band-v1` (the package the cohorts name); `slop_ninja_a_artifact_spec_v2/a-plain-f32band-v1` (the parts package) | `slop_ninja_a_artifact_spec_v3/a-tower-f32band-v1` |
+| Package digest | `3c0ecc37376a9287f595f8389fe66faade00c663fd19f772eeb51abb7822c9fe` (spec v3, files layout: the package the cohorts name and the release attaches); `143ca2d95954e502a053fdd2c6deb6501e3e55273846dc04e310a3ee84c57f0c` (spec v2, parts layout); both hold the same six files byte for byte | `daff49c2232e176bb7d3ca793b9e3f8d36273845af77495450edcfc8a2486aef` (parts layout) |
 | Inference-content digest | `d7232991612ae9693477a152d73e2b6ca5ac83b2d9cf5cd78e1eac4ecf96a36f` | `1681956c422fc6514cebd24870bb22071f11d55fd9ea4fa93ceb0bafb66a573c` |
 | Graph SHA-256 | `08848d95…ca4cb7` (601,028,257 bytes) | `cecccf46…5478c3` (681,508,964 bytes) |
 | Parameters | 150,302,832 | 170,592,385 |
-| Parts | 14 | 16 |
+| Parts | 14 in the parts layout; the files layout lists the six files whole | 16 |
 | Synthetic reference cases | 3 | 215 |
 
 **`R_0`** is R0, the released *A* document model, with its provenance
 paths stripped: the package the coordinator names by content digest and
-parts-manifest SHA-256 from the chain-record restart on. Its graph,
+package digest from the chain-record restart on, as the spec v3 package
+`3c0ecc37`. Its graph,
 tokenizer, weights and calibration values and knots are R0's byte for byte;
 only the location strings the tools recorded (the normalization's run
 directories in `contract.json`) now keep their final component, and the
@@ -85,23 +92,30 @@ v1/reference/packages/<package digest>/
   provenance-rewrite.json              what the provenance rewrite changed (below); not a package file
 ```
 
-To rebuild a file, concatenate its parts in the parts manifest's order and
-check each part's and the file's SHA-256. With the six files in one
+The release's `R_0` archives use the files layout instead: `artifact-files.json`
+is the files manifest, `files/<sha256>` holds each file whole, and there is no
+`package.json`; the [miner guide](miner-guide.md#r_0-archives-optional) gives
+the commands that check and unpack it. In the parts layout, rebuild a file by
+concatenating its parts in the parts manifest's order and checking each
+part's and the file's SHA-256. With the six files in one
 directory:
 
 ```sh
 slop_ninja_artifact_check --spec v3 check-dir DIR     # the graph class, parameters and inference-content digest above
 slop_ninja_a_served_profile pack --spec v3 --model-dir DIR --out PARTS   # S2c's package digest above
-slop_ninja_a_served_profile pack --spec v2 --model-dir DIR --out PARTS   # R_0's package digest above
+slop_ninja_a_served_profile pack --spec v2 --model-dir DIR --out PARTS   # R_0's spec v2 package digest above
 slop_ninja_a_local_score --model-dir DIR --docs reference/reference-requests.jsonl \
   --reference reference/reference-predictions.json --spans --out results.jsonl --ort-lib LIB
 ```
 
-`check-dir` also prints a package digest, under the spec's own
-`profile_id`: S2c's above under spec v3, and `R_0`'s above under spec v2
-(`slop_ninja_artifact_check --spec v2 check-dir DIR`; spec v1 and v3 give
-other package digests for the same inference-content digest). A cohort that
-names spec v3 loads `R_0`'s spec v2 package by that spec too.
+`check-dir` prints the inference-content digest (`content_sha256`), the graph
+class and the parameter count, not a package digest. `slop_ninja_a_served_profile
+pack` rebuilds a parts manifest under the spec's own `profile_id`: S2c's
+package digest under spec v3, and the spec v2 `R_0` package's under spec v2
+(other specs give other package digests for the same inference-content
+digest). A files manifest also records where the coordinator's copy is
+stored, so the spec v3 `R_0` package's digest is checked by hashing its
+`artifact-files.json`, not rebuilt from the six files.
 
 ## Provenance rewrite
 

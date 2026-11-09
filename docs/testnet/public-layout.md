@@ -12,8 +12,9 @@ coordinator's unsigned cohort read, `GET /admission/v2/cohort`) read these
 paths. The JSON status API the website serves from the dashboard documents
 is described [at the end](#the-public-status-api-slopninjaapi).
 
-**State: not yet live.** The publisher is built and tested, but not
-deployed. The public host, its domain (decision D5) and public access are set
+**State: public access not yet enabled.** The publisher is deployed and
+writes this layout to the testnet public bucket, but the bucket is not yet
+readable: the public host, its domain (decision D5) and public access are set
 up at announce time. Until then, `R_0`'s reference package and its training
 companion are attached to the testnet release as two tar archives that
 extract to `R_0`'s package directory below

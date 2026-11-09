@@ -7,8 +7,8 @@ packing and checking, the commitment, the upload, what happens when a cohort
 closes, how rewards work, and what each refusal means.
 
 Testnet has no monetary value. Read the [terms](terms.md) before you submit:
-submissions are licensed CC BY-SA 4.0 and become public after their cohort
-closes.
+submissions are licensed CC BY-SA 4.0, and an admitted artifact becomes
+public when its cohort's scoring starts.
 
 ## What is live
 
@@ -22,25 +22,25 @@ closes.
 | [Training guide](training-guide.md) and its public recipe, the path from ModernBERT-base and public data to an admissible artifact | in the repository; tested end to end on Linux x86_64 with CUDA (a smoke run) |
 | Release public key | published on the [landing page](README.md#release-key) |
 | Public repository | [sam0x17/slop-ninja](https://github.com/sam0x17/slop-ninja) |
-| Signed release binaries (Linux x86_64) | not yet live: the miner client and the artifact checker, built from the public repository, signed and smoke-tested when the release is published; a validator release follows later |
+| Signed release binaries (Linux x86_64) | live: `testnet-v0.1.0`, published November 9, 2026, holds the miner client and the artifact checker, built from the public repository, signed and smoke-tested; a validator release follows later |
 | Coordinator unsigned cohort read (`GET /admission/v2/cohort`), used by `check`, `commit`, `status` and `next-cohort`, served by the upload Worker at `https://testnet-admission.slop.ninja` | live |
-| Coordinator signed admission routes, used by `upload`, `repair` and the hotkey view of `status`; the artifact goes straight to R2 under presigned URLs they return | open only to SlopNinja's operator test hotkeys during the admission v2 rollout: until they are open to you, an outside hotkey's signed request is answered `not_found` (exit 1) |
+| Coordinator signed admission routes, used by `upload`, `repair` and the hotkey view of `status`; the artifact goes straight to R2 under presigned URLs they return | open to every hotkey registered on subnet 601 since November 7, 2026; an unregistered hotkey is answered `not_registered` |
 | Public status host (`--public`), with the published packages, leaderboard and artifacts | not yet live; until it is, `status` and `next-cohort` show the calendar from the coordinator's unsigned cohort read |
 | The coordinator's admission origin pinned in the release trust file | pinned: `https://testnet-admission.slop.ninja` |
 | Validators committing the launch burn row ([Rewards](#13-rewards)) | live since November 3, 2026: both SlopNinja validators commit and reveal it on subnet 601 each tempo |
 | `R_0` reference package and training companion | built and checked; attached to the testnet release until public access opens ([`R_0` archives](#r_0-archives-optional)) |
 | S2c span package | built and checked; downloadable when public access opens ([Reference model](#reference-model)) |
-| Status API (`https://slop.ninja/api/`), read-only JSON for each cohort ([The status API](#the-status-api)) | rolling out with the website; each miner's intake state while a cohort runs follows with the coordinator, eval and publisher updates after the current deploy batch |
+| Status API (`https://slop.ninja/api/`), read-only JSON for each cohort ([The status API](#the-status-api)) | live; each miner's intake state while a cohort runs is not filled in yet and follows with pending evaluation and publisher updates |
 | `status` intake answers and `resolve` ([Status](#11-status), [Resolve](#resolve-intake-automatically)) | built and tested against simulated answers on Linux x86_64; their per-miner answers fill in as the status API publishes each miner's intake state and challenge counts |
 
 The [training guide](training-guide.md) produces an admissible artifact from
 public material and ends with `pack` and `check`. `commit` needs only the
 unsigned cohort read and the chain, so it signs and submits an on-chain
 commitment for any registered hotkey whenever a cohort admits. `upload` needs
-the signed routes, which are open only to SlopNinja's operator test hotkeys
-during the admission v2 rollout. **Do not commit
-until they are open to you**: a commitment you cannot upload costs the chain
-fee and admits nothing. The steps below say where they depend on a piece that
+the signed routes, which are open to every registered hotkey. **Each cohort
+needs a new commitment and a new model**: a commitment counts for one cohort
+only, and a model you entered before is a published copy that is not executed
+([Copies](#13-rewards)). The steps below say where they depend on a piece that
 is not yet live. The public repository is
 <https://github.com/sam0x17/slop-ninja>; this page will name the status host
 when it goes live. The release key is on the [landing page](README.md#release-key).
@@ -69,15 +69,14 @@ when it goes live. The release key is on the [landing page](README.md#release-ke
 
 ### Release binaries (Linux x86_64)
 
-Releases appear on the public repository's Releases page; none is published
-yet.
-The first release holds:
+Releases appear on the public repository's Releases page. The first,
+`testnet-v0.1.0`, published on November 9, 2026, holds:
 
 - the Linux x86_64 binaries `slop_ninja_miner` and
   `slop_ninja_artifact_check`;
 - `testnet-trust.json`, the trust file;
-- two optional tar archives, `slop-ninja-r0-reference-package-143ca2d9.tar`
-  and `slop-ninja-r0-training-companion-143ca2d9.tar`: `R_0`'s reference
+- two optional tar archives, `slop-ninja-r0-reference-package-3c0ecc37.tar`
+  and `slop-ninja-r0-training-companion-3c0ecc37.tar`: `R_0`'s reference
   package and its training companion, about 1.2 GB together
   ([below](#r_0-archives-optional));
 - `SHA256SUMS`, the digests of those five files, and its detached signature
@@ -119,54 +118,64 @@ You need the two archives only to score against `R_0` locally or to start
 training from its encoder ([Warm start from
 R0](training-guide.md#warm-start-from-r0)). The public data host is not
 enabled yet, so they are attached to the release until public access opens;
-then the package directory they hold is also downloadable from the [public
+then `R_0`'s reference package is also downloadable from the [public
 layout](public-layout.md). Both are licensed CC BY-SA 4.0; the package's
 `NOTICE.md`, which also covers the companion, says how to credit R0 and its
-base model. The companion archive does not yet carry its own copy of that
-notice or of the base model's licence: both are in the reference-package
-archive, as `NOTICE.md` and `upstream/ModernBERT-base-LICENSE`, so keep the
-two archives together when you pass the companion on.
+base model. The companion archive does not carry its own copy of that notice
+or of the base model's licence: both are in the reference-package archive, as
+`NOTICE.md` and `upstream/ModernBERT-base-LICENSE`, so keep the two archives
+together when you pass the companion on.
+
+The archives hold R0's artifact spec v3 package, the package the
+`testnet-r1-` cohorts name. Its digest is the SHA-256 of its files manifest,
+`artifact-files.json` (`slop_ninja_a_artifact_files_v2`), byte for byte as
+the coordinator stores it, and both archives are rooted at that digest.
+Extracted into one directory they give the manifest; `files/<sha256>`, the six
+model files, each whole and named by its SHA-256; `NOTICE.md` and
+`upstream/ModernBERT-base-LICENSE`; `reference/`, the three synthetic
+reference cases R0's export manifest binds, with their FP64 predictions;
+`provenance-rewrite.json` ([reference
+packages](reference-packages.md#provenance-rewrite)); and, from the
+companion archive, `training/companion.json` and `training/parts/<sha256>`,
+R0's encoder and its classifier config as 64 MiB parts. The [reference
+packages](reference-packages.md) page describes the package.
 
 The archive files are covered by `SHA256SUMS`, so verify them with the
-commands above. Both are rooted at the package digest, so extracted into one
-directory they give `R_0`'s package directory, byte for byte as the [public
-layout](public-layout.md) lists it under
-`v1/reference/packages/143ca2d95954e502a053fdd2c6deb6501e3e55273846dc04e310a3ee84c57f0c/`.
-In the directory holding the release files, extract them and check the package
-digest and every part:
+commands above. In the directory holding the release files, extract them and
+check the package digest and every file and part:
 
 ```sh
-tar -xf slop-ninja-r0-reference-package-143ca2d9.tar
-tar -xf slop-ninja-r0-training-companion-143ca2d9.tar
-cd 143ca2d95954e502a053fdd2c6deb6501e3e55273846dc04e310a3ee84c57f0c
-sha256sum artifact-files.json   # must print 143ca2d95954e502a053fdd2c6deb6501e3e55273846dc04e310a3ee84c57f0c
-for f in parts/* training/parts/*; do printf '%s  %s\n' "${f##*/}" "$f"; done | sha256sum -c --quiet
+tar -xf slop-ninja-r0-reference-package-3c0ecc37.tar
+tar -xf slop-ninja-r0-training-companion-3c0ecc37.tar
+cd 3c0ecc37376a9287f595f8389fe66faade00c663fd19f772eeb51abb7822c9fe
+sha256sum artifact-files.json   # must print 3c0ecc37376a9287f595f8389fe66faade00c663fd19f772eeb51abb7822c9fe
+for f in files/* training/parts/*; do printf '%s  %s\n' "${f##*/}" "$f"; done | sha256sum -c --quiet
 ```
 
-The last command prints nothing when every part matches its name. Then
-rebuild the six model files into `../r0-artifact` and the companion (R0's
-encoder `model/encoder.safetensors` and its `runtime-base/config.json`) into
-`../r0-companion`, by concatenating each file's parts in the listed order, and
-check every rebuilt file. This needs `jq`; extracting and rebuilding take
-about 2.4 GB of disk beside the archives.
+The last command prints nothing when every file and part matches its name.
+Then put the six model files under their names in `../r0-artifact`, rebuild
+the companion (R0's encoder `model/encoder.safetensors` and its
+`runtime-base/config.json`) into `../r0-companion` by concatenating each
+file's parts in the listed order, and check both. This needs `jq`;
+extracting and rebuilding take about 2.4 GB of disk beside the archives.
 
 ```sh
 mkdir ../r0-artifact ../r0-companion
-jq -r '.files[] | .name as $n | .parts[] | "\(.sha256) \($n)"' artifact-files.json |
-  while read -r h name; do cat "parts/$h" >> "../r0-artifact/$name"; done
-jq -r '.files[] | "\(.sha256)  ../r0-artifact/\(.name)"' artifact-files.json | sha256sum -c
+jq -r '.files[] | "\(.sha256) \(.name)"' artifact-files.json |
+  while read -r h name; do cp "files/$h" "../r0-artifact/$name"; done
 jq -r '.files[] | .name as $n | .parts[] | "\(.sha256) \($n)"' training/companion.json |
   while read -r h name; do mkdir -p "../r0-companion/${name%/*}"; cat "training/parts/$h" >> "../r0-companion/$name"; done
 jq -r '.files[] | "\(.sha256)  ../r0-companion/\(.name)"' training/companion.json | sha256sum -c
-slop_ninja_artifact_check --spec v2 check-dir ../r0-artifact
+slop_ninja_artifact_check --spec v3 check-dir ../r0-artifact
 ```
 
-Both `sha256sum -c` commands must print `OK` for every file, and `check-dir`
-must report the inference-content digest
-`d7232991612ae9693477a152d73e2b6ca5ac83b2d9cf5cd78e1eac4ecf96a36f` and the
-package digest above. The rebuild appends to the files it writes, so run it
-once, into the new directories the `mkdir` creates. `../r0-artifact` is the
-directory to give the [local scorer](#score-it-locally-optional), and
+`check-dir` must report graph class `a-plain-f32band-v1` and the
+inference-content digest (`content_sha256`)
+`d7232991612ae9693477a152d73e2b6ca5ac83b2d9cf5cd78e1eac4ecf96a36f`, and
+`sha256sum -c` must print `OK` for both companion files. The rebuild appends
+to the files it writes, so run it once, into the new directory the `mkdir`
+creates. `../r0-artifact` is the directory to give the [local
+scorer](#score-it-locally-optional), and
 `../r0-companion/model/encoder.safetensors` is the encoder for the warm start.
 
 ### Build from source
@@ -372,8 +381,9 @@ Check the directory before you pack it:
 slop_ninja_artifact_check check-dir ./my-artifact
 ```
 
-A pass prints the report (graph class, parameters, package digest) and exits
-0. A refusal prints `refused <code>: <detail>` and exits 2; a path it cannot
+A pass prints the report as JSON (the spec, the inference-content digest
+`content_sha256`, the graph class and its report, the role files and the
+parameter count) and exits 0. A refusal prints `refused <code>: <detail>` and exits 2; a path it cannot
 read is refused as `object`. A usage error exits 64, and `--help` exits 0.
 
 There is no small example artifact that passes. The graph class fixes the
@@ -425,7 +435,7 @@ it admits); otherwise it exits 3 with the note `cohort_unknown: no cohort is
 admitting`.
 
 `check` uses the artifact spec the cohort names; without a cohort, the newest
-spec the build defines (spec v3). A note `artifact_spec_mismatch` means the
+spec the build defines (spec v4). A note `artifact_spec_mismatch` means the
 cohort checks a spec your build does not define: update the client.
 
 The JSON files are published with the artifact when its cohort's scoring
@@ -646,10 +656,9 @@ slop_ninja_miner commit --artifact ./my-artifact.bin --dry-run
 slop_ninja_miner commit --artifact ./my-artifact.bin
 ```
 
-Both forms need only the coordinator's unsigned cohort read (live) and the
-chain; nothing here uses a signed admission route. Do not commit yet: the
-signed routes `upload` needs are not yet open to outside hotkeys ([What is
-live](#what-is-live)). `commit` reads the admitting cohort from the cohort read and your registration from finalized chain state, makes a fresh
+Both forms need only the coordinator's unsigned cohort read and the chain;
+nothing here uses a signed admission route. Commit only when the artifact is
+packed and checked and you can upload it in the window. `commit` reads the admitting cohort from the cohort read and your registration from finalized chain state, makes a fresh
 secret 256-bit nonce and the opening, and stores the opening in the state
 directory with mode 0600 before it signs anything. It then signs
 `Commitments.set_commitment(601, [Raw44(payload)])` with the hotkey, where the
@@ -660,8 +669,17 @@ names endpoints.
 
 Rules:
 
-- **One cohort per opening.** An opening names exactly one cohort and can never
-  be carried to a later one.
+- **One cohort per opening; commit again every cohort.** An opening names
+  exactly one cohort and can never be carried to a later one. Nothing carries
+  over between cohorts: to enter the next cohort, commit again inside its
+  window and upload again.
+- **A new model every cohort.** Once your artifact is admitted, it is
+  published when its cohort's scoring starts, and every published artifact
+  counts as a copy in every later cohort, your own included. Entering the
+  same model again (the same inference content) gets it admitted but not
+  executed, so it earns nothing; a near copy of it fails the public-copy gate
+  ([Copies earn nothing](#13-rewards)). Train or change the model before each
+  commitment.
 - **The last commitment counts.** The chain keeps one commitment per hotkey; a
   new one overwrites the old and moves you to the new position. `commit`
   refuses a second opening for the same cohort unless you pass `--replace`.
@@ -684,7 +702,7 @@ opening.
 slop_ninja_miner upload --artifact ./my-artifact.bin
 ```
 
-`upload` (signed routes not yet open to outside hotkeys) opens a session for
+`upload` opens a session for
 your opening, PUTs the object's header straight to R2 with the URL the
 session returns, asks for the file URLs (the coordinator checks the header
 first, so an artifact doomed by its header is refused before any file is
@@ -789,8 +807,7 @@ prints only the local openings and a line saying the cohort and the
 coordinator's view were not read; without a named hotkey it skips the
 coordinator's view and says so. A signed read the coordinator refuses (for
 example `not_registered` for a hotkey without a UID) exits 1 with the code.
-The public snapshot is not yet live, and the hotkey view is not yet open to
-outside hotkeys (`not_found`).
+The public snapshot is not yet live.
 
 Session states: `uploading`, `verifying`, `verified`, `refused`, `admitted`,
 `overflow` and `superseded` (a newer commitment replaced it).
@@ -878,10 +895,6 @@ It never does these by itself:
 - **Commit from the feed alone.** A commitment the status API has not shown
   yet may only be its minute of lag: `resolve` decides from the chain, and
   uploads a landed commitment instead of committing again.
-- **Commit while the signed routes are closed to your hotkey.** Until they
-  open to every miner ([What is live](#what-is-live)), a commitment could not
-  be uploaded.
-
 Each pass is idempotent, so running it again (or from cron) is safe; one
 pass at a time acts on a state directory (`resolve.lock`). Every decision and
 its outcome is appended to `resolve-log.jsonl` in the state directory (mode
@@ -902,9 +915,10 @@ When admission closes, the coordinator:
    admits the first 40, the testnet roster cap (`admitted`);
 4. marks the rest `overflow`.
 
-**Overflow does not carry over.** To enter the next cohort, commit again inside
-its window and upload again; you are ranked by the new commitment. An overflow
-upload is deleted at the close.
+**Nothing carries over, overflow included.** To enter the next cohort, commit
+again inside its window and upload again; you are ranked by the new
+commitment. An overflow upload is deleted at the close. An admitted model is
+published when scoring starts, so the next cohort needs a new one.
 
 The cohort then runs without you:
 
@@ -920,11 +934,12 @@ The cohort then runs without you:
   one exists, score the same documents, each document independently. Every
   executed entrant also runs once on a private 1,024-document probe used for
   the public-copy gate.
-- **Publication.** The coordinator signs and publishes the score package and
-  its receipt index, nominally by tempo 18.
-- **Transition.** At least two tempos with no new challenges. At the closing boundary
-  the coordinator publishes every admitted entrant's opening, and the cohort's
-  target activates.
+- **Package.** The coordinator signs its score package (the exact scores and
+  every hidden measurement) and its receipt index, nominally by tempo 18. Both
+  stay private to the coordinator.
+- **Transition.** At least two tempos with no new challenges. At the closing
+  boundary the coordinator publishes every admitted entrant's opening and the
+  cohort's quantized result, and the cohort's target activates.
 
 Validators then commit the cohort's row at every tempo during the next cohort,
 so cohort *N* is paid during the following day while cohort *N*+1 is scored.
@@ -940,13 +955,18 @@ What becomes public, and what never does:
 
 - **Public when scoring starts:** your artifact (header and files), if
   admitted.
-- **Public after the close:** your opening; the signed package with your
-  hotkey, UID, commitment position, artifact digest (your header's SHA-256),
-  exact score, each failed gate with its reason code, your cluster, credit and
-  integer units.
-- **Never public:** the hidden documents, their labels and per-document
-  predictions. Refused, overflow and superseded uploads are deleted
-  no later than the close and never published.
+- **Public after the close:** your opening, and the cohort's quantized
+  result: for each executed entrant in roster order, its hotkey and UID, its
+  quantized score (the result's `q` field) unless it is withheld
+  ([Rewards](#13-rewards)), its band, one bit for whether it passed the gates,
+  one for the public-copy gate, and its cluster, with the grid width and both
+  references' quantized scores. The
+  coordinator's signed row, with each paid UID's integer weight, is published
+  beside its authorization.
+- **Never public:** exact scores, which gate failed and why, the hidden
+  documents, their labels and per-document predictions, and the coordinator's
+  score package and receipts. Refused, overflow and superseded uploads are
+  deleted no later than the close and never published.
 
 ## 13. Rewards
 
@@ -960,14 +980,38 @@ false-positive tier are gates: they decide eligibility and carry no reward
 weight. The testnet gate thresholds are provisional and will be published in
 each signed cohort manifest (not yet live). A failed gate earns nothing.
 
-**The paper rule applies on testnet.** Until some entrant beats the reference
-by the margin `δ`, no miner earns: the active target is the burn row, which
-gives the whole pool to the subnet owner hotkey's UID, which burns it.
-`δ` is `max(0.01, 2σ)`, where `σ` is the pooled paired standard error of `q`
-at the batch size. At 1,000 documents under the whitepaper's 20/55/25 mix,
-`σ` is about 0.035, so `δ` is about 0.07: an entrant must cut the reference's
-remaining loss by about 7%. Each manifest freezes its exact value. The status
-snapshot's mode and notice say which regime is in force.
+**Released scores are quantized and noisy.** Exact scores never leave the
+coordinator. Every released score, yours and both references', is a quantized
+score under the versioned rule `quant-v1`: the coordinator adds a secret
+offset and seeded discrete-Laplace noise to the exact score and rounds the
+result down onto a grid of width `g`. The offset and the noise are drawn from
+the cohort's private seed, its manifest and the model's inference content, so
+identical copies under several hotkeys share one draw. The noise is set by
+a privacy parameter ε = 2 per cohort, divided equally among every executed
+entrant's score and the references', so the noise grows with the roster. `g`
+is the
+larger of twice `R_k`'s standard error on the batch and the noise scale,
+rounded up on a versioned ladder. At 1,000 documents and the full roster of
+40 entrants, the noise's standard deviation is about 0.030 and the grid is
+0.03; with five entrants the noise is about 0.005. The cutoff, bands, ranks,
+credit, units and the row all compare quantized scores, never exact ones. An
+entrant whose attributable failures exceed the minimum-success gate's limit is
+withheld: its score is drawn but not released.
+
+**The paper rule applies on testnet.** Until some gated entrant's quantized
+score reaches the margin cutoff, no miner earns: the active target is the burn
+row, which gives the whole pool to the subnet owner hotkey's UID, which burns
+it. The margin is `δ = max(0.01, 2σ)`, where `σ` is the pooled paired standard
+error of `q` at the batch size; at 1,000 documents under the whitepaper's
+20/55/25 mix, `δ` is about 0.07 of the reference's remaining loss, and each
+manifest freezes its exact value. The cutoff is `R_k`'s quantized score plus
+`δ` times its quantized remaining loss, rounded up onto the grid. At testnet's
+full roster the 0.03 grid is wider than that margin, so the cutoff is one grid
+step above `R_k`'s quantized score. Release noise cuts both ways: it can keep
+an entrant that truly beats `R_k` by the margin below the cutoff, and an
+entrant no better than `R_k` reaches the cutoff about 35% of the time at the
+full roster. The status snapshot's mode and notice say which regime is in
+force.
 
 **Committing the burn row is live.** Both of SlopNinja's validators commit
 and reveal the burn row on subnet 601 each tempo (see the
@@ -975,57 +1019,68 @@ and reveal the burn row on subnet 601 each tempo (see the
 2026 the chain held both validators' rows as weight 1.0 on the owner UID and
 nothing for any miner UID. Expect no payout while the burn regime lasts.
 
-When a gated entrant beats `R_k` by `δ`:
+When a gated entrant's quantized score reaches the cutoff:
 
-- every gated entrant at or above the cutoff `S_R + δ(1 - S_R)` earns;
-- the top-ranked eligible entrant that also passes the promotion checks
-  becomes the next reference, `R_{k+1}`. Its artifact was published when its
-  cohort's scoring started. The whitepaper's promotion checks are the strict pure-human
-  false-positive tier and the lookup canary. **Testnet only:** promotions on
-  testnet run without the lookup canary, and the leaderboard says so. An
-  operator drill of the blocking path, named in the cohort's plan, can still
-  flag a candidate and block its promotion. The canary is required before
-  mainnet.
+- every gated entrant at or above the cutoff earns;
+- the first retained cluster head in rank order whose exact score beats
+  `R_k`'s by the margin (tested privately; only the outcome is released) and
+  that also passes the promotion checks becomes the next reference, `R_{k+1}`.
+  Its artifact was published when its cohort's scoring started. The
+  whitepaper's promotion checks are the strict pure-human false-positive tier
+  and the lookup canary. **Testnet only:** promotions on testnet run without
+  the lookup canary, and the leaderboard says so. An operator drill of the
+  blocking path, named in the cohort's plan, can still flag a candidate and
+  block its promotion. The canary is required before mainnet.
 
-Once a predecessor reference `R_{k-1}` exists, a cohort in which nobody clears
-the margin, but some gated entrant beats `R_{k-1}`, is scored against a fallback
-cutoff between `R_{k-1}`'s score and the top score, so rewards keep flowing;
-the reference does not advance. In any other case the previous target stays
-live.
+Once a predecessor reference `R_{k-1}` exists, a cohort in which nobody
+reaches the margin cutoff, but some gated entrant's quantized score is above
+`R_{k-1}`'s, is scored against a fallback cutoff between `R_{k-1}`'s quantized
+score and the top one, so rewards keep flowing; the reference does not
+advance. In any other case the previous target stays live.
 
-Credit within the eligible set follows `reward-v1`'s band rule: entrants whose
-predictions are near-identical share one cluster; clusters are placed in score
-bands about two standard errors wide; credit falls geometrically by 0.85 per
-band and per rank within a band; and the shares are rounded into 65,535 integer
-units by largest remainder. A lone cluster takes the whole pool, and two take
-54.1% and 45.9%. Rank order is score, then commitment position, then hotkey
-bytes; within a band it sets the split even when the difference is below the
-noise. The whitepaper's rewards section gives every step.
+Credit among the entrants at or above the cutoff follows `reward-v2`, the
+whitepaper's band rule on quantized scores. Entrants with the same inference
+content, or within the near-copy distance of a cluster's head on the batch,
+share one cluster. Clusters are placed
+in bands at least one grid step wide (one 0.03 step at the full roster);
+credit falls geometrically by 0.85 per band and per rank within a band;
+clusters with equal quantized scores share the credit of their positions
+equally; each member of a cluster gets an equal share of its credit; and the
+shares are rounded into 65,535 integer units by largest remainder. A lone
+cluster takes the whole pool; two with different quantized scores take 54.1%
+and 45.9%, and two with equal ones 50% each. Rank order is quantized score,
+then roster order (commitment block, then extrinsic index), and equal
+remainders also go in roster order; no exact score enters it. The
+whitepaper's rewards section gives every step.
 
-**Copies earn nothing.** An entrant whose inference content equals any
-published artifact's is not executed. One within the near-copy distance of a
-published artifact, or of either reference, fails the public-copy gate unless
-it scores more than half a band above it.
+**Copies earn nothing.** Every artifact published by an earlier cohort or as a
+reference counts, including your own earlier entries. An entrant whose
+inference content equals any published artifact's is not executed: entering
+the model you entered before gets it admitted but never scored, so every
+cohort needs a new model. One within the near-copy distance of a published
+artifact, or of either reference, fails the public-copy gate unless it scores
+more than half a band above it.
 
 ### Reference model
 
 Testnet's reference is `R_0`, SlopNinja's released *A* document model,
-scored in every cohort. Its score on each batch is in the signed package, and
-it is the bar that ends the launch burn. Its
+scored in every cohort. Its quantized score on each batch is in the cohort's
+published result, and it is the bar that ends the launch burn. Its
 [reference package](reference-packages.md) (the six files as the scorer
-loads them, package `143ca2d9…c57f0c`) is published under CC BY-SA 4.0,
-attached to the testnet release until public access opens
-([`R_0` archives](#r_0-archives-optional)), so you can score it locally with
-the same engine as your own artifact. SlopNinja's S2c span package is
+loads them, the spec v3 package `3c0ecc37…22c9fe` that the cohorts name) is
+published under CC BY-SA 4.0, attached to the testnet release until public
+access opens ([`R_0` archives](#r_0-archives-optional)), so you can score it
+locally with the same engine as your own artifact. SlopNinja's S2c span package is
 published when public access opens; it is a span-serving package, not a
 reference.
 
-The testnet reference will be replaced at most once outside the promotion rule:
-by a better reference SlopNinja trains, only if it passes every required gate,
-and announced in advance on the status page. The replacement takes `R_0`'s
-place with no predecessor and moves no reward already earned. Every later change
-follows the promotion rule above. An entrant that becomes the reference was
-already published when its cohort's scoring started.
+Besides promotion, the reference changes only by an operator reference
+decision with a recorded reason ([terms](terms.md#operator-decisions)). One
+is planned: replacing `R_0` by the next reference SlopNinja trains, only if it
+passes every required gate, announced in advance on the status page. The
+replacement takes `R_0`'s place with no predecessor and moves no reward
+already earned. An entrant that becomes the reference was already published
+when its cohort's scoring started.
 
 ## 14. Refusals and what they mean
 
@@ -1074,7 +1129,7 @@ here exits 1.
 | `not_needed` | `repair` for an object that is present or no longer needed | nothing to do |
 | `session_not_uploading` | the session no longer takes uploads | read `status` and act on the current session |
 | `request_expired`, `rate_limited`, `paused`, `unavailable`, `internal` | transient | retried automatically; a long `paused` means the coordinator is catching up, and the cutoff moves later |
-| `bad_signature`, `forbidden`, `request_validity_too_long`, `content_digest_mismatch`, `bad_request`, `unsupported_media_type`, `not_found` | a malformed or wrongly signed request; until the signed routes open to outside hotkeys ([What is live](#what-is-live)), also every signed request from an outside hotkey (`not_found`) | update the client; report it if it persists; for `not_found` from an outside hotkey, wait for the routes to open |
+| `bad_signature`, `forbidden`, `request_validity_too_long`, `content_digest_mismatch`, `bad_request`, `unsupported_media_type`, `not_found` | a malformed or wrongly signed request, or an unknown session or cohort (`not_found`) | update the client; report it if it persists |
 
 ### Session refusals
 
@@ -1090,8 +1145,8 @@ here exits 1.
 | `incomplete_at_cutoff` | cutoff | the session was not completed before the close |
 | `not_registered`, `registration_mismatch` | cutoff | the registration changed before the cutoff |
 
-After scoring, the package lists each failed gate with its reason code. An
-attributable failed, missing or invalid result scores zero utility for that
+After scoring, the private package records each failed gate with its reason;
+the published result carries only the gate bits. An attributable failed, missing or invalid result scores zero utility for that
 document and keeps its weight. A Container crash or out-of-memory failure
 counts against your artifact only when it reproduces on a fresh instance with
 the document scored alone; otherwise it is an infrastructure error, and
@@ -1106,8 +1161,9 @@ Open an issue in the public repository's **Issues** tab. Include:
 - the command, its exit code and the refusal code;
 - the cohort, your hotkey's public address and the session id from `status`.
 
-Never post your mnemonic, keyfiles or password. Before the cohort closes, never
-post your artifact or opening: they let others enter your model. Report a
+Never post your mnemonic, keyfiles or password. Never post your artifact
+before your cohort's scoring starts, or your opening before the cohort
+closes: they let others enter your model. Report a
 security problem privately to [security@slop.ninja](mailto:security@slop.ninja), not in a public issue
 ([security policy](../../SECURITY.md)).
 

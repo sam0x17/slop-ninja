@@ -9,8 +9,8 @@ pull request or discussion for it.
 Anything that could let someone:
 
 - obtain hidden evaluation data (texts, labels, per-document predictions),
-  another miner's artifact or opening before its cohort closes, or private
-  model weights;
+  exact scores, another miner's artifact before its cohort's scoring starts
+  or its opening before the cohort closes, or private model weights;
 - change a score, a roster, a signed package, a weight row or a published
   record without the signing keys;
 - upload or be admitted outside the admission rules (an unsigned or

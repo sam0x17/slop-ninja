@@ -174,16 +174,16 @@ core dumps are off.
   scorer's image deployed and its digest pinned (`SCORER_BINARY_SHA256` in the
   coordinator's `wrangler.toml`) and the cases uploaded through admission or
   an operator plan.
-- **The reference chain at deployment.** This scorer refuses the reward-v1
-  rehearsal artifacts as they were built (`refused profile_id`, and
+- **The rehearsal artifacts.** This scorer refuses the reward-v1 rehearsal
+  artifacts as they were built (`refused profile_id`, and
   `refused tokenizer_mismatch` for `no-load`). Their
   spec v2 re-encode keeps each artifact's values and its drill role
   ([Deployment prerequisites](../../inference/a-container-serve/README.md#deployment-prerequisites)),
-  under new package and content digests, while the main instance's reference
-  chain names the earlier rehearsal reference. With this scorer deployed, the
-  main instance runs no reward-v1 cohort until its chain record is restarted
-  (the chain-record restart makes the released R0, as its path-stripped
-  package `143ca2d9…c57f0c`, R_0).
+  under new package and content digests. The main instance no longer names
+  the rehearsal reference: its chain record was restarted on November 6, 2026
+  with the released R0 as R_0, named by its spec v3 package
+  `3c0ecc37…22c9fe` (the same six files as the path-stripped spec v2 package
+  `143ca2d9…c57f0c`).
 - **The live memory limit.** Record `memory_limit` from a live `/healthz` of
   the deployed instance (the operator scorer probe's reply carries it as
   `cold.limits`); the 507 guard relies on it.

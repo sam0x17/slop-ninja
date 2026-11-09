@@ -15,9 +15,9 @@ The recipe gives you a pipeline that produces an admissible artifact. It is
 not a strong detector, and nothing here measures how it would score in a
 cohort. Improving the data and the training is the miner's job.
 
-## Where this guide stops today
+## Where this guide stops
 
-Steps 1 to 13 run now, offline after the downloads, and end with `check`
+Steps 1 to 13 run offline after the downloads, and end with `check`
 exiting 3 (every local check passed; no cohort to compare with). With the
 release trust file set (`SLOP_NINJA_TRUST`; [miner guide step
 7](miner-guide.md#7-choose-the-endpoints)), `check` and `next-cohort` read the
@@ -28,11 +28,10 @@ cohort's when the read names them (note `next_cohort`), and exits 0 on a
 pass; otherwise it exits 3. `commit` needs only that unsigned read and the
 chain, so while a cohort admits it signs and submits an on-chain commitment
 for any registered hotkey. `upload`, `repair` and the hotkey view of `status`
-need the coordinator's signed admission routes, which are not yet open to
-outside hotkeys: their signed requests are answered `not_found` (exit 1)
-([What is live](miner-guide.md#what-is-live)). Do not commit until those
-routes are open to you: a commitment you cannot upload costs the chain fee
-and admits nothing.
+need the coordinator's signed admission routes, which are open to every
+registered hotkey ([What is live](miner-guide.md#what-is-live)). A commitment
+counts for one cohort only, and a model you entered before counts as a
+published copy and is not executed, so enter a new model in each cohort.
 
 ## Getting the code
 
@@ -54,9 +53,10 @@ repository is <https://github.com/sam0x17/slop-ninja>. The commands fetch everyt
   and passes the promotion checks becomes the next reference, as the
   whitepaper's promotion rule says. Its artifact was published when its
   cohort's scoring started, like every admitted artifact.
-- **One replacement outside promotion.** Separately, SlopNinja may replace
-  R0 at most once with a better reference it trains, only if that model passes
-  every required gate, announced in advance on the status page.
+- **Reference decisions.** Separately, the operator may set the reference by
+  a recorded decision ([terms](terms.md#operator-decisions)). One is planned:
+  replacing R0 by the next reference SlopNinja trains, only if that model
+  passes every required gate, announced in advance on the status page.
 - **The burn rule.** Testnet follows the whitepaper's rule: no miner earns,
   and the pool burns, until an entrant beats the reference by δ. The
   [miner guide's Rewards section](miner-guide.md#13-rewards) gives the score,
@@ -217,11 +217,12 @@ tested host produced byte-identical encoder weights and graph (digests in the
 [smoke run](#smoke-run)). Another GPU, driver or library version can change
 the weights. So two miners who run the recipe unchanged on the same software
 can get identical or nearly identical artifacts. Under the reward rule
-(`reward-v1`; the [miner guide's Rewards section](miner-guide.md#13-rewards),
+(`reward-v2`; the [miner guide's Rewards section](miner-guide.md#13-rewards),
 and the whitepaper's section "Benchmark scoring and native rewards",
 subsection "From scores to credits"), near-duplicate artifacts share one
-credit, and copies of a published artifact earn nothing. Change something
-that matters.
+credit, and copies of a published artifact earn nothing, your own earlier
+entries included. Change something that matters, and train a new model for
+each cohort.
 
 ### Training data and evaluation text
 
@@ -506,9 +507,8 @@ decided about the artifact. The [miner guide](miner-guide.md#6-pack-and-check)
 lists the codes.
 
 `pack` writes `artifact.obj` with mode 0600. Keep it, and the working
-directory's other copies of the weights, private until the cohort closes.
-This is where the guide stops today. Once the signed admission routes are open
-to outside hotkeys, continue with the miner guide from
+directory's other copies of the weights, private until the cohort's scoring
+starts. Continue with the miner guide from
 [step 7](miner-guide.md#7-choose-the-endpoints) (endpoints, commitment and
 upload), with a registered hotkey ([steps 3 and 4](miner-guide.md#3-wallet-and-hotkey)).
 
@@ -520,7 +520,7 @@ upload), with a registered hotkey ([steps 3 and 4](miner-guide.md#3-wallet-and-h
 classifier config, listed in the package's `training/companion.json` as
 64 MiB parts, under the same CC BY-SA 4.0 licence. Until public access
 opens, the companion is attached to the testnet release as
-`slop-ninja-r0-training-companion-143ca2d9.tar`; then its parts are also
+`slop-ninja-r0-training-companion-3c0ecc37.tar`; then its parts are also
 downloadable from the [public layout](public-layout.md). To start from R0's
 encoder instead of ModernBERT-base, rebuild the file from its parts and check
 its SHA-256 (the [miner guide](miner-guide.md#r_0-archives-optional) gives

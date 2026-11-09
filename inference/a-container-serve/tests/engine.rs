@@ -132,17 +132,27 @@ struct Weights {
     w: Vec<f32>,
     w3: Vec<f32>,
     w4: Vec<f32>,
+    /// Divide the span tower's states by the token id, so a row with id 0
+    /// (the synthetic tokenizer's `[CLS]`) is NaN; the warm-up document has
+    /// no id 0, so such an artifact loads.
+    tower_nan_at_id0: bool,
 }
 
 fn weights(scale: f32) -> Weights {
     let row = |k: f32| (0..N).map(|j| ((j as f32 * 0.37 + k).sin()) * 0.5).collect::<Vec<f32>>();
-    Weights { shift: 0.0, scale, w: row(0.1), w3: row(1.3), w4: row(2.9) }
+    Weights { shift: 0.0, scale, w: row(0.1), w3: row(1.3), w4: row(2.9), tower_nan_at_id0: false }
 }
 
 /// h = (sum of masked ids - shift) * scale * W; token_states_i = id_i * mask_i * scale * W3;
-/// span_tower_token_states_i = id_i * mask_i * scale * W4.
+/// span_tower_token_states_i = id_i * mask_i * scale * W4 (divided by id_i * mask_i
+/// with `tower_nan_at_id0`).
 fn graph(wt: &Weights, token_states: bool, tower: bool) -> Vec<u8> {
     let mut g = Vec::new();
+    let tower_nodes = if wt.tower_nan_at_id0 {
+        vec![node("Mul", &["us", "w4"], &["t0"], &[]), node("Div", &["t0", "u"], &[TOWER_STATES], &[])]
+    } else {
+        vec![node("Mul", &["us", "w4"], &[TOWER_STATES], &[])]
+    };
     let nodes = [
         node("Cast", &["input_ids"], &["xf"], &[("to", 1)]),
         node("Cast", &["attention_mask"], &["mf"], &[("to", 1)]),
@@ -154,9 +164,8 @@ fn graph(wt: &Weights, token_states: bool, tower: bool) -> Vec<u8> {
         node("Unsqueeze", &["xm", "axes2"], &["u"], &[]),
         node("Mul", &["u", "scale"], &["us"], &[]),
         node("Mul", &["us", "w3"], &[TOKEN_STATES], &[]),
-        node("Mul", &["us", "w4"], &[TOWER_STATES], &[]),
     ];
-    for n in &nodes {
+    for n in nodes.iter().chain(&tower_nodes) {
         bytes(&mut g, 1, n);
     }
     bytes(&mut g, 2, b"synthetic");
@@ -510,6 +519,40 @@ fn a_heads_v3_token_head_reads_the_span_tower_states() {
         assert_eq!(r["prediction"]["spans"], serde_json::to_value(&x.spans).unwrap());
         assert_eq!(r["prediction"]["sentences"], serde_json::to_value(&x.sentences).unwrap());
         assert_eq!(r["prediction"]["ai_confidence_percent"], json!(pred.prediction.ai_confidence_percent));
+    }
+    fs::remove_dir_all(&dir).unwrap();
+}
+
+/// States read only to emit spans are read leniently: a tower whose states
+/// are not finite fails the emission (`span_status` unsupported), and the
+/// document's outcome and outputs are those of the same request without
+/// spans.
+#[test]
+fn non_finite_span_tower_states_fail_the_emission_not_the_document() {
+    let Some(lib) = lib() else { return };
+    let mut wt = weights(1e-3);
+    wt.tower_nan_at_id0 = true;
+    let dir = artifact("tower-nan", Form::Tower, &wt, true, true);
+    let model = Model::load_without_admission(&dir, &contract_sha(&dir), GRAPH, 1, 1, &lib).unwrap();
+    assert!(model.needs.tower_states && !model.needs.token_states);
+    let h = heads(&dir);
+    for (i, d) in DOCS.iter().enumerate() {
+        let plain = model.score_with(&i.to_string(), d, false);
+        let spans = model.score_with_sentences(&i.to_string(), d, true, false);
+        assert_eq!(plain["status"], "ok", "{plain}");
+        assert_eq!(spans["status"], "ok", "{spans}");
+        assert_eq!(spans["output_sha256"], plain["output_sha256"]);
+        let pred = h.predict(&reference(&wt, &ids(&model, d)).0, &[], &[], &[]).unwrap();
+        assert_eq!(plain["prediction"], serde_json::to_value(&pred.prediction).unwrap());
+        // The document prediction is the plain request's, with the failed
+        // emission's fields null.
+        let mut doc = spans["prediction"].clone();
+        let fields = doc.as_object_mut().unwrap();
+        assert!(fields.remove("sentences").is_some_and(|v| v.is_null()) && fields.remove("spans").is_some_and(|v| v.is_null()));
+        assert_eq!(doc, plain["prediction"]);
+        let why = spans["span_status"]["unsupported"].as_str().unwrap_or_default();
+        assert!(why.contains(TOWER_STATES), "{spans}");
+        assert!(spans.get("span_output_sha256").is_none(), "{spans}");
     }
     fs::remove_dir_all(&dir).unwrap();
 }

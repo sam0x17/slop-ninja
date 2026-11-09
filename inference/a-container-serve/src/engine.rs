@@ -339,6 +339,9 @@ pub struct Graph {
     pub token_states: Option<Vec<f32>>,
     /// The first `n` rows of [`TOWER_STATES`], when asked for.
     pub tower_states: Option<Vec<f32>>,
+    /// Why a state read only for span emission could not be read
+    /// ([`forward_for`]): it fails the emission, never the document.
+    pub emission_error: Option<String>,
 }
 
 /// Runs the graph on one document and reads `h`.
@@ -359,6 +362,15 @@ fn states(o: &ort::session::SessionOutputs<'_>, name: &str, n: usize, m: usize) 
 
 /// Runs the graph on one document and reads `h` plus the token states `want` names.
 pub fn forward_with(s: &mut Session, ids: &[u32], want: Needs) -> Result<Graph> {
+    forward_for(s, ids, want, Needs::default())
+}
+
+/// [`forward_with`], reading the states `emission` names (those `want` asks
+/// for only to emit spans) leniently: a missing, misshapen or non-finite one
+/// is left `None` with the reason in [`Graph::emission_error`], so it fails
+/// the span emission alone. `h` and the states the document outputs read
+/// stay strict, so a span request never changes a document's outcome.
+pub fn forward_for(s: &mut Session, ids: &[u32], want: Needs, emission: Needs) -> Result<Graph> {
     let n = ids.len();
     ensure!(n > 0 && n <= MAX_TOKENS, "over-limit input ({n} tokens)");
     let m = n.div_ceil(BLOCK) * BLOCK;
@@ -374,9 +386,23 @@ pub fn forward_with(s: &mut Session, ids: &[u32], want: Needs) -> Result<Graph> 
     let (_, d) = o["h"].try_extract_tensor::<f32>()?;
     let h = d.to_vec();
     ensure!(h.len() == WIDTH && h.iter().all(|v| v.is_finite()), "invalid h");
-    let token_states = if want.token_states { Some(states(&o, TOKEN_STATES, n, m)?) } else { None };
-    let tower_states = if want.tower_states { Some(states(&o, TOWER_STATES, n, m)?) } else { None };
-    Ok(Graph { h, token_states, tower_states })
+    let mut emission_error = None;
+    let mut read = |name: &str, wanted: bool, lenient: bool| -> Result<Option<Vec<f32>>> {
+        if !wanted {
+            return Ok(None);
+        }
+        match states(&o, name, n, m) {
+            Ok(rows) => Ok(Some(rows)),
+            Err(e) if lenient => {
+                emission_error.get_or_insert_with(|| format!("{e:#}"));
+                Ok(None)
+            }
+            Err(e) => Err(e),
+        }
+    };
+    let token_states = read(TOKEN_STATES, want.token_states, emission.token_states)?;
+    let tower_states = read(TOWER_STATES, want.tower_states, emission.tower_states)?;
+    Ok(Graph { h, token_states, tower_states, emission_error })
 }
 
 fn widen(v: &[f32]) -> Vec<f64> {
@@ -552,6 +578,12 @@ impl Model {
             token_states: span_head || (emit && self.needs.token_states),
             tower_states: emit && self.needs.tower_states,
         };
+        // States read only to emit spans: a failure there fails the emission
+        // (`span_status` unsupported), never the document.
+        let emission_only = Needs {
+            token_states: !span_head && emit && self.needs.token_states,
+            tower_states: emit && self.needs.tower_states,
+        };
         let mut session = {
             let mut pool = self.pool.lock().unwrap();
             loop {
@@ -561,7 +593,7 @@ impl Model {
                 pool = self.free.wait(pool).unwrap();
             }
         };
-        let g = forward_with(&mut session, &ids, want);
+        let g = forward_for(&mut session, &ids, want, emission_only);
         self.pool.lock().unwrap().push(session);
         self.free.notify_one();
         let out = g.and_then(|g| {
@@ -573,20 +605,23 @@ impl Model {
             } else {
                 self.heads.predict(&h, &[], &[], &[])?
             };
-            Ok((p, tokens, tower))
+            Ok((p, tokens, tower, g.emission_error))
         });
         match out {
-            Ok((out, tokens, tower)) => {
+            Ok((out, tokens, tower, emission_error)) => {
                 let mut prediction = serde_json::to_value(&out.prediction).unwrap_or(Value::Null);
                 let output_sha = sha(&serde_json::to_vec(&prediction).unwrap_or_default());
                 let mut r = json!({"id": id, "status": "ok", "text_sha256": text_sha, "token_count": ids.len(),
                     "prediction": prediction.clone(), "output_sha256": output_sha});
                 if emit {
                     let states = TokenStates { final_norm: &tokens, span_tower: tower.as_deref() };
-                    let emitted = self.heads.token_logits(&states, &words).and_then(|logits| {
-                        let logits = logits.context("token head")?;
-                        self.heads.emit_spans(text, &offsets, &words, &logits, &out.prediction)
-                    });
+                    let emitted = match emission_error {
+                        Some(e) => Err(anyhow!(e)),
+                        None => self.heads.token_logits(&states, &words).and_then(|logits| {
+                            let logits = logits.context("token head")?;
+                            self.heads.emit_spans(text, &offsets, &words, &logits, &out.prediction)
+                        }),
+                    };
                     match emitted {
                         Ok(x) => {
                             prediction["sentences"] = serde_json::to_value(&x.sentences).unwrap_or(Value::Null);

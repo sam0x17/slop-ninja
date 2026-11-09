@@ -88,9 +88,9 @@ pub const CASES: &[Case] = &[
     },
     Case {
         name: "subnormal-weights",
-        expect: Expect::Bounded,
+        expect: Expect::Refused("graph_subnormal_initializer"),
         manifest_only: false,
-        what: "every FLOAT initializer value set to 1e-39, a float32 subnormal: admitted; subnormal arithmetic can be slow on CPUs without flush-to-zero",
+        what: "every FLOAT initializer value set to 1e-39, a float32 subnormal: refused by the initializer value rule (slop_ninja_onnx_no_subnormal_initializers_v1), which removes the constant lever on arithmetic speed on CPUs without flush-to-zero",
     },
     Case {
         name: "custom-domain",

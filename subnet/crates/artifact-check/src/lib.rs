@@ -174,6 +174,9 @@ pub enum Refusal {
         field: u64,
     },
     GraphCustomDomain(String),
+    /// A `FLOAT` initializer holds a float32 subnormal value
+    /// (`onnx::INITIALIZER_RULE`).
+    GraphSubnormal,
     GraphExternalData,
     GraphUnsupported(String),
     GraphOpNotAllowed(String),
@@ -218,6 +221,7 @@ impl Refusal {
             Refusal::GraphUnknownField { .. } => "graph_unknown_field",
             Refusal::GraphCustomDomain(_) => "graph_custom_domain",
             Refusal::GraphExternalData => "graph_external_data",
+            Refusal::GraphSubnormal => "graph_subnormal_initializer",
             Refusal::GraphUnsupported(_) => "graph_unsupported",
             Refusal::GraphOpNotAllowed(_) => "graph_op_not_allowed",
             Refusal::GraphDtypeNotAllowed(_) => "graph_dtype_not_allowed",
@@ -273,6 +277,7 @@ impl std::fmt::Display for Refusal {
             }
             Refusal::GraphCustomDomain(d) => write!(f, "graph: custom operator domain {d:?}"),
             Refusal::GraphExternalData => write!(f, "graph: external tensor data"),
+            Refusal::GraphSubnormal => write!(f, "graph: a FLOAT initializer holds a float32 subnormal value ({})", crate::onnx::INITIALIZER_RULE),
             Refusal::GraphUnsupported(d) => write!(f, "graph: unsupported {d}"),
             Refusal::GraphOpNotAllowed(op) => {
                 write!(f, "graph: operator {op:?} is not allow-listed")

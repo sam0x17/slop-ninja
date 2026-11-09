@@ -107,6 +107,7 @@ refusal_codes!(
     "graph_unknown_field",
     "graph_custom_domain",
     "graph_external_data",
+    "graph_subnormal_initializer",
     "graph_unsupported",
     "graph_op_not_allowed",
     "graph_dtype_not_allowed",

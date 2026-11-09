@@ -50,6 +50,16 @@ pub const STRUCTURE_DIGEST_TAG: &[u8] = b"slop_ninja_onnx_structure_v2\0";
 /// Name of the structure stream, which spec v4 states the class rule by.
 pub const STRUCTURE_STREAM_ID: &str = "slop_ninja_onnx_structure_stream_v1";
 
+/// The initializer value rule ([`GraphPolicy::refuse_subnormal`]): every
+/// `FLOAT` initializer value is finite and not a float32 subnormal. A
+/// subnormal weight gives a model a constant lever on its arithmetic speed
+/// on CPUs without flush-to-zero; refusing them removes that lever only
+/// (small normal weights can still produce subnormal intermediate values).
+/// Constant node tensors are fixed by the class's structure stream, so the
+/// rule reads initializers alone. A scorer build carrying it is deployed
+/// only once no admitted artifact is measured to ship one.
+pub const INITIALIZER_RULE: &str = "slop_ninja_onnx_no_subnormal_initializers_v1";
+
 /// ONNX `TensorProto.DataType` values.
 pub mod dtype {
     pub const FLOAT: i32 = 1;
@@ -96,6 +106,9 @@ pub struct GraphPolicy<'a> {
     pub attr_types: &'a [i64],
     /// Largest number of floating-point parameters.
     pub max_parameters: u64,
+    /// Refuse a float32 subnormal value in a `FLOAT` initializer
+    /// ([`INITIALIZER_RULE`]).
+    pub refuse_subnormal: bool,
 }
 
 /// Content-free facts about a graph that passed the walk.
@@ -898,7 +911,9 @@ impl<'p> GraphScan<'p> {
             Sink::Data { float, elide } => {
                 let (float, elide) = (*float, *elide);
                 if float {
-                    self.check_finite(part)?;
+                    // Initializer payloads are the elided ones.
+                    let subnormal = elide && self.policy.refuse_subnormal;
+                    self.check_finite(part, subnormal)?;
                 }
                 // An elided payload never reaches the structure stream.
                 if !elide {
@@ -940,9 +955,19 @@ impl<'p> GraphScan<'p> {
         Ok(())
     }
 
-    /// Refuses a non-finite `FLOAT` value in an elided payload.
-    fn check_finite(&mut self, mut part: &[u8]) -> Result<(), Refusal> {
-        let bad = || malformed("non-finite float value");
+    /// Refuses a non-finite `FLOAT` value, and with `subnormal` a float32
+    /// subnormal one ([`INITIALIZER_RULE`]).
+    fn check_finite(&mut self, mut part: &[u8], subnormal: bool) -> Result<(), Refusal> {
+        let check = |w: [u8; 4]| -> Result<(), Refusal> {
+            let v = f32::from_le_bytes(w);
+            if !v.is_finite() {
+                return Err(malformed("non-finite float value"));
+            }
+            if subnormal && v.is_subnormal() {
+                return Err(Refusal::GraphSubnormal);
+            }
+            Ok(())
+        };
         if self.carry_len > 0 {
             let take = (4 - self.carry_len).min(part.len());
             self.carry[self.carry_len..self.carry_len + take].copy_from_slice(&part[..take]);
@@ -951,14 +976,12 @@ impl<'p> GraphScan<'p> {
             if self.carry_len < 4 {
                 return Ok(());
             }
-            if !f32::from_le_bytes(self.carry).is_finite() {
-                return Err(bad());
-            }
+            check(self.carry)?;
             self.carry_len = 0;
         }
         let (words, tail) = part.as_chunks::<4>();
-        if !words.iter().all(|w| f32::from_le_bytes(*w).is_finite()) {
-            return Err(bad());
+        for w in words {
+            check(*w)?;
         }
         self.carry[..tail.len()].copy_from_slice(tail);
         self.carry_len = tail.len();

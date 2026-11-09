@@ -531,6 +531,7 @@ pub const GRAPH_POLICY: GraphPolicy<'static> = GraphPolicy {
     dtypes: DTYPES,
     attr_types: ATTR_TYPES,
     max_parameters: MAX_PARAMETERS,
+    refuse_subnormal: true,
 };
 
 /// The graph walk's policy for a graph of `class`: [`GRAPH_POLICY`] with the

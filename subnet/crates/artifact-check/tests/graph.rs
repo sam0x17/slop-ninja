@@ -476,3 +476,30 @@ fn the_parameter_bound_refuses_before_the_payload_is_read() {
         Err(Refusal::TooManyParameters { .. })
     ));
 }
+
+/// The initializer value rule (`onnx::INITIALIZER_RULE`): a float32
+/// subnormal `FLOAT` initializer value is refused
+/// (`graph_subnormal_initializer`), however the file is chunked; zero and
+/// the smallest normal value pass; a subnormal in a Constant node tensor is
+/// structure (fixed by the class's reference stream), not this rule's.
+#[test]
+fn subnormal_initializers_are_refused() {
+    let tiny = f32::from_bits(1);
+    assert!(tiny.is_subnormal());
+    for v in [tiny, -tiny, 1e-39, f32::MIN_POSITIVE / 2.0] {
+        assert_eq!(scan(&small_graph([1., v, 3., 4.], 0.5)), Err(Refusal::GraphSubnormal), "{v:e}");
+    }
+    for v in [0.0, -0.0, f32::MIN_POSITIVE, 1e-30] {
+        assert!(scan(&small_graph([1., v, 3., 4.], 0.5)).is_ok(), "{v:e}");
+    }
+    assert!(scan(&small_graph([1., 2., 3., 4.], tiny)).is_ok(), "a constant node tensor");
+    assert_eq!(Refusal::GraphSubnormal.code(), "graph_subnormal_initializer");
+    // One byte at a time: the value split across chunks is still refused.
+    let g = small_graph([1., 2., tiny, 4.], 0.5);
+    let mut s = GraphScan::new(g.len() as u64, spec::GRAPH_POLICY);
+    let fed: Result<(), Refusal> = g.chunks(1).try_for_each(|b| s.update(b));
+    assert_eq!(fed.and_then(|()| s.finish().map(|_| ())), Err(Refusal::GraphSubnormal));
+    // The rule is a policy field: without it the same graph passes.
+    let off = onnx::GraphPolicy { refuse_subnormal: false, ..spec::GRAPH_POLICY };
+    assert!(onnx::scan(&small_graph([1., tiny, 3., 4.], 0.5), off).is_ok());
+}

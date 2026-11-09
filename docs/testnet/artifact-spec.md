@@ -209,6 +209,10 @@ refuses each of these:
 - attribute types other than FLOAT, INT, STRING, TENSOR and INTS;
 - a tensor whose payload length differs from its shape;
 - non-finite float values;
+- a float32 subnormal value in a `FLOAT` initializer (rule
+  `slop_ninja_onnx_no_subnormal_initializers_v1`, every spec version, from
+  the build that added it; constant node tensors are fixed by the class's
+  structure stream);
 - a data field before `data_type`, a repeated `data_type`, unpacked
   `float_data`, and malformed varints or lengths.
 

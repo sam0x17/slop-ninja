@@ -1658,7 +1658,7 @@ through epoch 54. Later rehearsals give a credited artifact a synthetic
 owner unless the drill needs a committable row.
 
 **Plans.** Every v3 plan: n = 1,000, mix 20/55/25, K = 4 tempos, admission 1,
-transition 2, 3 attempts, `sigma` 0.035 (whitepaper 0.57, Section 7), so
+transition 2, 3 attempts, `sigma` 0.035 (whitepaper Section 5), so
 `delta` = 0.07, a lease of 8 tempos, rewrite-source reuse of at most 4 parent
 uses 7 cohorts apart, probe v1 (1,024 documents), canary audit draws of 100
 humans, 20% generation spares, and the testnet provisional gates: operating

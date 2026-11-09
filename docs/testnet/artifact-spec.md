@@ -1,15 +1,20 @@
 # A artifact spec
 
-Three versions are defined. **Spec v1** (`slop_ninja_a_artifact_spec_v1`) is
+Four versions are defined. **Spec v1** (`slop_ninja_a_artifact_spec_v1`) is
 the first; this page describes it, and its values and digest are unchanged.
 **Spec v2** (`slop_ninja_a_artifact_spec_v2`) keeps every v1 value and adds
 span heads; [Spec v2](#spec-v2) lists exactly what it changes. **Spec v3**
 (`slop_ninja_a_artifact_spec_v3`) keeps every v2 value for the plain and span
 classes and adds the span tower class; [Spec v3](#spec-v3) lists exactly what
-it changes. A cohort names the spec it checks by id and digest, and the
+it changes. **Spec v4** (`slop_ninja_a_artifact_spec_v4`) admits exactly what
+spec v3 admits and states the graph class rule as the byte comparison of
+structure streams; [Spec v4](#spec-v4) lists exactly what it changes. No
+version refuses a span decoder whose minimum span is under 24 words, the floor
+the span gate is to evaluate spans under; that check needs a later spec
+version. A cohort names the spec it checks by id and digest, and the
 scorer admits each of the cohort's artifacts by that spec: a load names it
 by digest, and a load that names none is admitted by spec v2. The scorer
-admits by spec v2 or v3, never by spec v1, which bounds no JSON file, so an
+admits by spec v2, v3 or v4, never by spec v1, which bounds no JSON file, so an
 artifact spec v1 admits can still be refused when its JSON exceeds spec v2's
 budgets. Testnet cohorts opened by the standing template name spec v3.
 Spec v3 admits every artifact spec v2 admits, with the same results, and adds

@@ -46,6 +46,10 @@ detail it links to.
   [validator guide](testnet/validator-guide.md) and [terms](testnet/terms.md)
 - [A artifact spec (testnet)](testnet/artifact-spec.md)
 - [Admission API (testnet)](testnet/admission-api.md)
+- [Reference packages (testnet)](testnet/reference-packages.md)
+- [Public object layout (testnet)](testnet/public-layout.md) and the
+  [dashboard data contract](testnet/dashboard-contract.md)
+- [Scorer threat model (testnet)](testnet/scorer-threat-model.md)
 - [Service evidence and recovery](service-evidence.md)
 - [Receipts and external-detector evidence](subnet-receipts-and-audits.md)
 - [Executable receipt-envelope prototype and version-1 schema](receipt-envelope.md)

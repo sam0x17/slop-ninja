@@ -8,7 +8,7 @@ validators' launch and reward-intent authorizations, the published-artifact
 index and near-copy relation of copy policy B + D, the verification of an
 active-target bundle, the `quant-v1` score quantization and its public
 `QuantizedResult`, and two row calculations: `reward-v2`, the band rule of
-whitepaper Section 7 computed from quantized scores only, and the
+whitepaper Section 5 computed from quantized scores only, and the
 testnet-only `testnet-reward-v0`. It is
 pure computation, with no I/O, clock, randomness or chain access, and it builds
 for native targets and `wasm32-unknown-unknown`. Chain submission stays in the

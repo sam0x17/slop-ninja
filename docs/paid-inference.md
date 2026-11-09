@@ -1,6 +1,6 @@
 # Paid inference
 
-Whitepaper draft 0.48 proposes hosted *A* first, with paid access opened at the
+Whitepaper draft 0.62 proposes hosted *A* first, with paid access opened at the
 coordinator's discretion after quality and service qualification. SlopNinja
 serves the public model. Later private *B* serving requires separate activation.
 The [whitepaper's paid-service section](../whitepaper/sections/06-paid-inference.tex)

@@ -52,7 +52,8 @@ when scoring starts permit inspection but do not prove the absence of a trigger.
 Recognition and lookup of human text & The human side is existing text, and a
 mixed document keeps its source's unreplaced words, so recognizing human text
 can separate origins without detecting AI involvement. Admission allows only
-the allow-listed graphs, of at most 160 million parameters, with the
+the allow-listed graphs, of at most 160 million parameters, or 173.5 million
+in the span tower class, with the
 allow-listed tokenizer and schema-validated files, and excludes an explicit
 text index. On mainnet, sampling breadth over Common Crawl, keyed secret passage
 choice, and share caps hold the estimated gain to about 0.5\% of headroom, or
@@ -97,11 +98,18 @@ re-measurement each cohort, the easier pass against a worse reference, and the
 displaced model's role as fallback anchor limit the drift, but no rule bounds
 it; it is measured before launch. Two lookup-canary flags, or a failed strict false-positive
 tier, pass the promotion to the next qualifying retained cluster head
-(Section~\ref{reference-model}). The one change outside that rule, a single
-replacement of the testnet's \(R_0\), announced in advance, by the next
-reference SlopNinja trains, only if it passes every required gate, applies only
-to later cohorts, so it moves no earned credit; while the launch burn lasts, it
-can raise the bar that ends it. \\
+(Section~\ref{reference-model}). An operator reference decision, the one
+change outside that rule, applies only to later cohorts, so it moves no earned
+credit; while the launch burn lasts, it can raise or lower the bar that ends
+it. \\
+Operator escape paths & Abandonment, refusal to pay, restarts, reward-rule
+changes, and reference decisions are journaled, publish signed records with
+their reasons, and, when they decline a result, change reward inputs, or
+restart the record, need an offline operator-decision key
+(Section~\ref{operator-decisions}). They never reassign paid rewards or skip a
+cohort by time, but an operator can still use them to withhold pay from a
+finished cohort or to reset the baseline; the records make such choices
+visible, not impossible. \\
 Prompt injection or malicious model data & Admit bounded data-driven models,
 validate formats, and deny executable plugins and generated tool calls.
 Untrusted documents cannot modify scoring rules or authorize disclosure. \\

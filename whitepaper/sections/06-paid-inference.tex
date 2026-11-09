@@ -37,6 +37,30 @@ earn. This commits the treasury to funding operations and refund reserves
 separately, accepting that exposure in pursuit of a benefit shared with other
 alpha holders. The policy's commercial viability remains to be measured.
 
+\subsection{Revenue before mainnet}\label{testnet-revenue}
+
+Testnet runs for several months before the mainnet subnet is registered, and
+SlopNinja plans to earn revenue during that period. The first sources are free
+public AI-detection pages, supported by advertising, on which \textit{A} scores
+submitted text, together with other products. That revenue accrues in a pot
+whose balance is publicly visible. Once the mainnet subnet is registered, the
+pot buys that subnet's alpha and burns it. Until then no mainnet alpha exists
+to burn, and testnet tokens carry no market value, so the pot only accumulates.
+The pages run a published, qualified \textit{A} artifact in SlopNinja's own
+runtime, like the paid API, so submitted text reaches no miner, and they carry
+the served model's published limitations. A page's verdict is a detector output
+under those limits, not a determination of authorship.
+
+Several points remain to be specified: who holds the pot and on which chain and
+in which asset, how its balance and each purchase and burn are published and
+reconciled, and how any paid job accepted before registration enters it. The
+pot's purchase after registration is separate from the per-job burns below:
+the per-job route, including card payments converted to native TAO through
+Coinbase Onramp, applies to paid jobs once the subnet's alpha exists, and both
+channels end in alpha burns. Whether the pot buys through the same route is
+among the points to specify. Neither the pot nor its later burn changes how
+miners or validators are rewarded.
+
 \subsection{Pricing and cost calibration}\label{market-pricing-in-alpha}
 
 The operator quotes a fixed price for a bounded workload using a versioned

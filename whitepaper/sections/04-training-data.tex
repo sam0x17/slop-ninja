@@ -44,8 +44,9 @@ be recoverable from the final text alone.
 Documented untouched human examples supply zero-share targets; complete
 generation records with every final word retained from model output supply
 one-share targets. Intermediate shares require the span evidence above. The
-same exact spans supervise and evaluate span localization
-(Section~\ref{span-outputs}).
+same exact spans supervise and evaluate span localization where they reach 24
+words; shorter ones still count in the share and involvement labels but are
+masked out of span training and scoring (Section~\ref{span-outputs}).
 
 Vary replacement size, position, topic, generator, and editing intensity,
 including dispersed edits and complete rewrites. All variants of one source

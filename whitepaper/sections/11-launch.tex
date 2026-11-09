@@ -1,7 +1,9 @@
 \section{Development and launch
 criteria}\label{development-and-launch-criteria}
 
-Launch begins with \textit{A} alone. A rights-cleared offline comparison comes
+Launch begins with \textit{A} alone. Testnet runs for several months before
+the mainnet subnet is registered, and the rehearsals below run there. A
+rights-cleared offline comparison comes
 before live rewards; a coordinator-scored network rehearsal comes before paid
 service. Neither completing a cohort nor qualifying for rewards authorizes
 sales. The coordinator opens a bounded commercial workload only after recording
@@ -16,7 +18,8 @@ reference \(R_0\) was compared with Pangram on a sealed, pre-registered
 Test (Section~\ref{existing-evidence-and-implementation-status}). It was
 noninferior as a single artifact, but its recipe missed the legal-opinions slice
 limit. Later reference changes follow Section~\ref{reference-model}: the cohort
-promotion rule, plus a single replacement of the testnet's \(R_0\), announced in
+promotion rule, plus signed operator reference decisions with recorded reasons,
+among them a planned replacement of the testnet's \(R_0\), announced in
 advance, by the next reference SlopNinja trains, only if it passes every
 required gate; external comparisons continue under
 Section~\ref{pangram-evidence-and-assigned-audits}. Within each new architecture,
@@ -80,11 +83,14 @@ in one split. Report source-balanced share error, failures, uncertainty, and
 transfer to held-out generators and editing procedures alongside binary-label
 confidence calibration. Neither a calibrated involvement score nor accurate
 pure-human/pure-model classification establishes fractional accuracy.
-Measure span outputs with the metrics of Section~\ref{span-outputs}, fix the
-span gate's thresholds from those measurements before enforcing it, and qualify
-span heads in the scorer before admission accepts the span graph. The first
-package that serves spans also needs a calibrated, replayed export with the
-adopted S2c head (Section~\ref{span-outputs}). Word-level
+Measure span outputs under the 24-word floor with the metrics of
+Section~\ref{span-outputs}, and fix the span gate's thresholds from those
+measurements, at levels SlopNinja's first span package passes, before the
+standing template's next version enforces it. Add the 24-word decoder minimum
+to a later artifact spec so that admission can refuse a shorter one, and
+measure the span package's calibration on fresh documents with more negative
+runs than its Calibration fit holds (Section~\ref{span-package-evidence}).
+Word-level
 explanations are a later qualification and do not delay launch; their tests
 must establish explanation faithfulness as specified in
 Section~\ref{span-outputs}.
@@ -142,6 +148,18 @@ the silent intervals. An expired coordinator work authorization must stop new
 coordinator work, never validators' commitments, while existing
 chain and customer obligations retain their separate deadlines.
 
+Rehearse every operator decision of Section~\ref{operator-decisions} on
+testnet from broken and stale states: abandon queued, running, and faulted
+cohorts; refuse to pay a finished cohort by each route; switch to burn and open
+a fresh record while a cohort is held, with validators following the new launch
+authorization without a manual reset; change the reward rule through a fresh
+record; set references by decision; and re-register the subnet on the same
+chain with a rotated authorization key. Verify that each decision is journaled
+and published with its reason, that the high-stakes ones refuse a missing or
+wrong operator-decision signature, that a lost operator-decision key can be
+rotated without it, that no cohort is skipped by time, no number reused, and no
+commitment signed twice, and that rows from before a restart floor are refused.
+
 Qualify \texttt{rtao-rpc} webhook delivery. Reject unauthorized
 notifications; duplicate and reorder valid ones, lose deliveries across several
 tempos, and interrupt the handler between durable recording and acknowledgment.
@@ -184,9 +202,13 @@ Section~\ref{testnet-m2}) covered commitment, per-tempo re-commitment, and
 recovery under a fixture package, and the \texttt{reward-v1} rehearsal
 (the ``Testnet reward rehearsal'' paragraph in
 Section~\ref{testnet-reward-v1}) covered verification, commitment, and a
-carried target under \texttt{reward-v1} packages for a row paying one UID.
+carried target under \texttt{reward-v1} packages for a row paying one UID, and
+the record restart (Section~\ref{testnet-r1}) covered the native validator's
+commitment and reveal of the \texttt{reward-v2} burn row under a restart's
+launch authorization.
 Still required are a live row paying several UIDs, the fault drills under the
-coordinator's signed \texttt{reward-v2} rows, native validators' commitment of the burn row,
+coordinator's signed \texttt{reward-v2} rows, native validators' commitment
+of an all-burn row under a cohort target whose credited miners have all left,
 qualification of the coordinator's own signing, and an immunity period above
 the first-payout lag.
 Successful scheduling alone does not prove finalized execution or cohort
@@ -309,7 +331,10 @@ cohort. Qualify Coinbase Onramp's native-TAO route, available card methods,
 wallet requirements, transfer holds, and any additional Solana entry route.
 Verify burn authority under the actual ownership or lease arrangement.
 Test duplicate provider events, late finality, failed conversion, burn
-allocation, and original-payment refunds. Burned principal is unavailable for
+allocation, and original-payment refunds. Specify the revenue pot's custody,
+chain, asset, and public accounting (Section~\ref{testnet-revenue}), reconcile
+its published balance with its revenue records, and, after registration, verify
+each purchase and burn against finalized chain state. Burned principal is unavailable for
 refunds or operations, so operating funds and reserves must exist separately.
 
 Measure actual pipeline costs before fixing the pricing multiplier or promising

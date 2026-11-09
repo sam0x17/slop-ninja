@@ -24,11 +24,11 @@ model-only, or mixed production history. Model-only and mixed work both count
 as AI involvement under the declared labeling policy. The detector reports
 confidence in any AI involvement and estimated AI-written or rewritten text
 share as separate percentages, and attributes human and model contributors
-where supported. It also locates AI-written spans with per-sentence share and
-confidence (Section~\ref{span-outputs}). The release package pairs the first
-reference, a document model, with a span head, but the scoring runtime does not
-run span heads yet, so cohort scoring at launch and the first paid service are
-document-level. Explanations
+where supported. It also locates AI-written spans of at least 24 words, with
+per-sentence share and confidence (Section~\ref{span-outputs}); shorter edits
+count toward both document percentages but are not localized. The scorer
+serves span outputs, and from the next cohort template every entry must emit
+spans and pass a span gate, while the reward stays document-level. Explanations
 tied to particular words or constructions are later extensions.
 
 Human writers have recurring habits of expression. Language models can also
@@ -49,8 +49,8 @@ incentives are ready.
 The three logical mechanisms have distinct jobs:
 \begin{itemize}\tightlist
 \item \textit{A}, AI detection and attribution: one text model estimates AI
-involvement from production origin, matches human or AI-model profiles, and,
-once span outputs are qualified, locates AI spans. Entrant models are
+involvement from production origin, matches human or AI-model profiles, and
+locates AI spans of at least 24 words. Entrant models are
 published, licensed CC BY-SA 4.0, when each daily evaluation cohort's scoring
 starts.
 Launch includes \textit{A} alone.
@@ -122,6 +122,11 @@ runs the raw-text model alone, with no grammar parse. Publishing a model does no
 that users will pay for hosting it; the commercial pilot must measure repeat
 use, willingness to pay, false-positive disputes, and delivery cost.
 
+Testnet runs for several months before the mainnet subnet is registered.
+During that period SlopNinja plans to earn revenue from free,
+advertising-supported public detection pages served by \textit{A} and from
+other products, accruing in a publicly visible pot that buys and burns the
+subnet's alpha once mainnet is registered (Section~\ref{testnet-revenue}).
 The coordinator decides when measured quality is sufficient to open sales and
 which workloads may be sold. Benchmark eligibility alone does not enable
 checkout. The initial price hypothesis aims below Pangram's standalone API

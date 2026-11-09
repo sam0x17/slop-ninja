@@ -103,16 +103,20 @@ this production contract. Native participants retain their own hotkeys.
 The coordinator's validator hotkey is controlled within the serverless service,
 with durable signing ownership and transaction recovery. Its authorization and
 receipt keys remain distinct from that hotkey; other validators' keys never
-enter the service.
+enter the service. High-stakes operator decisions, such as declining a cohort's result
+or restarting the record, are signed with a further operator-decision key that
+is kept offline (Section~\ref{operator-decisions}).
 
-Miner and validator clients install signed updates automatically and
-independently. A participant that has missed several releases follows the
+Miner and validator clients are to install signed updates automatically and
+independently. A participant that has missed several releases is to follow the
 supported sequence of resumable schema migrations before resuming its work.
-Updates preserve unfinished obligations and reconcile chain submissions before
-retrying them. No participant waits for another to update or migrate. The
+Updates must preserve unfinished obligations and reconcile chain submissions
+before retrying them. No participant waits for another to update or migrate. The
 release, migration, and conditional rollback requirements appear in
-Section~\ref{cohorts}; automatic recovery must satisfy its compatibility and
-journal checks before new signing is allowed.
+Section~\ref{participant-updates}; automatic recovery must satisfy its
+compatibility and journal checks before new signing is allowed. This updater is
+planned and not yet built (Section~\ref{implementation-status}); until it
+exists, participants update by hand.
 
 The coordinator is entirely serverless on Cloudflare Workers and Durable
 Objects~\cite{cfworkers,cfdo}. Shared Rust code defines canonical messages,

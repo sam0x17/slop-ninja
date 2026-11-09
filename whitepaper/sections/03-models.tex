@@ -231,65 +231,70 @@ confidences nor multiplying their complements yields a document probability.
 It remains the document head's calibrated output, and sentence and span
 confidences are capped at it.
 
+Span localization covers AI-written spans of at least 24 words. A shorter
+edit, such as a replaced word, a clause, or one short sentence, carries too
+little signal to locate reliably: the first span head reached character F1 of
+only 0.05 on clause edits and 0.17 on single-sentence edits
+(Section~\ref{span-evidence}). Spans under 24 words are therefore never
+trained on, evaluated, or decoded. Training masks the tokens of a shorter
+model-produced span out of the span loss rather than relabelling them human.
+Evaluation removes shorter gold spans from the recall denominator, counts their
+characters neither as true nor as false positives, and ignores an unmatched
+decoded run that lies mostly over such words. The decoder never emits a span
+under 24 words. A shorter edit is still AI involvement: every model-produced
+word counts in the document's share and involvement labels, so the floor
+changes only what the span output must locate. The floor is a versioned rule
+bound into the training protocol, the evaluation, and the decoder.
+
 The training labels already exist: retained exact model-produced spans for mixed
 documents, all-AI labels for model-only documents, and all-human labels for
 human-only documents (Section~\ref{training-data-and-evaluation-separation}).
-Qualification measures token-level Brier score, character-span intersection over
-union and F1 against the retained spans, span-boundary error, and sentence-level
-calibration. Each cohort reports these measures as a qualification gate whose
-thresholds are fixed after measurement; span outputs earn no reward, and
-document involvement Brier remains the reward. Agreement with the document
+Qualification measures, under the floor, word-level Brier score, character
+precision, recall, and F1, span precision and recall, with decoded runs matched
+one to one to gold spans at an intersection over union of at least 0.5, recall
+in span-length bands of 24--49, 50--99, and 100 or more words, the number of
+human documents that carry a decoded span, and the calibration of span and
+sentence confidences. Agreement with the document
 outputs needs no gate, because the emission guarantees it; the gap between mean
 word probability and document share before the tilt is reported as a
 diagnostic, since the tilt costs word-level accuracy wherever the document
-share is the less accurate estimate. The span gate includes the
+share is the less accurate estimate. The span measures include the
 false-positive rate of human sentences inside mixed documents, reported
 separately from the pure-human document gate, because identical human words
-score higher next to AI text than alone (Section~\ref{cohort-mix-evidence});
-like every span measure it carries no reward weight.
+score higher next to AI text than alone (Section~\ref{cohort-mix-evidence}).
 
-The release package pairs \(R_0\), the first reference model, with such a head
-(Section~\ref{span-evidence}). The head was
-trained on \(R_0\) with the encoder and document heads frozen, so its document
-outputs are bit-identical to \(R_0\)'s. Its decoder was chosen under a limit of
-spans on at most 22 of 570 development human documents, which it meets with no
-slack. On held-out spliced rewrites it reaches mean per-document character F1
-0.410 and recall 0.402, counting a document without a decoded span as zero, and
-precision 0.862 over the documents in which it decodes one.
-It decodes no span in 42\% of those documents and mostly misses clause and
-single-sentence edits, at character F1 0.051 and 0.167. Retrospectively, on the
-consumed sealed Test, 2.5\% of human documents carry a decoded span, and text
-written by a base model is almost never found. A joint fine-tune of encoder and
-heads found more spans but scored human documents clearly worse before
-calibration, so it was not adopted.
+Spans are part of every entry. From the next version of SlopNinja's standing
+cohort template, every entrant must emit spans in the output contract's span
+format, the scorer evaluates them under the 24-word floor, and an entrant below
+the span gate's thresholds fails that gate and earns no credit
+(Section~\ref{reward-v1}). The thresholds are fixed after measurement, before
+the first manifest that enforces them, at levels that SlopNinja's first span
+package passes. Span outputs carry no reward weight: document involvement Brier
+remains the only reward quantity. Enforcing the gate does not by itself change
+the reference; reference changes follow Section~\ref{reference-model}.
 
-SlopNinja has adopted a follow-up head, S2c, as its span head for the first
-package that serves spans; until span serving lands, the shipped head above
-stays in the release package. S2c keeps the encoder and document heads frozen
-and feeds the token head through a trained copy of the encoder's last four
-layers and final norm. Its document outputs are byte-identical to \(R_0\)'s at
-every seed, so confidence, share, and reward scoring do not change. Its own
-decoder puts spans on 21 of the 570 development human documents, within the
-limit, though seeds 29 and 41 give 22 and 27. Compared without span calibration
-maps, on the held-out spliced rewrites it reaches character F1 0.519 and span
-F1 0.485, against 0.410 and 0.241 for the shipped head (0.245 with its maps);
-retrospectively, on the consumed Test, its mixed-document character F1 is 0.535
-against 0.478, but with calibration 3.4\% of human documents carry a span
-against 2.5\% (Section~\ref{s2c-evidence}). The tower adds 18--20\% of the
-encoder's CPU time and about 20 million parameters, which puts such a graph
-outside both allow-listed graphs and above the 160 million parameter limit
-(Section~\ref{a-artifact-execution}); admitting such a graph needs a versioned
-manifest that widens both. No calibrated package with S2c has been built or
-replayed yet. \(R_0\) remains testnet's first reference, and no span package
-is named \(R_0\) (Section~\ref{reference-model}).
-
-Until a cohort manifest enforces the span gate, the token-level head is
-optional and its outputs are reported without affecting eligibility; from that
-manifest on, every entrant must provide it. The allow-list names the graph with
-the token-level head from launch, but the scorer does not run span heads yet,
-so admission refuses that graph until span serving qualifies
-(Section~\ref{a-artifact-execution}). Enforcing the gate does not by itself
-change the reference; reference changes follow Section~\ref{reference-model}.
+SlopNinja's first span package keeps \(R_0\)'s encoder and document heads
+frozen, so its document outputs are bit-identical to \(R_0\)'s and confidence,
+share, and reward scoring do not change. Its token head, S2c, reads a trained
+copy of the encoder's last four layers and final norm, about 20 million
+parameters (Section~\ref{s2c-evidence}). Its weights were fitted before the
+floor; a retrain that masked shorter spans matched them within seed noise and
+was not adopted. Its decoder emits only runs of at least 24 words, and its span
+confidence map is fitted on the Calibration split under the floor. Retrospectively, on the consumed Test, it reaches character F1
+0.544 on mixed documents that contain a span of at least 24 words, recovers
+36\%, 44\%, and 56\% of gold spans in the three length bands, and puts a span on
+151 of 6,132 human documents, 2.5\%; on held-out spliced rewrites its character
+F1 is 0.639 (Section~\ref{span-package-evidence}). The tower adds 18--20\% of
+the encoder's CPU time, and its graph forms a separate allow-listed class with
+its own parameter bound (Section~\ref{a-artifact-execution}). \(R_0\) remains
+testnet's first reference, and no span package is named \(R_0\). The current
+artifact spec checks only that a decoder's minimum span length is at least one
+word, so admission cannot yet refuse a decoder with a shorter minimum; a later
+spec version adds that check. Cohort scoring does not evaluate spans yet; that
+evaluation is planned with the span gate (Section~\ref{implementation-status}).
+Under the gate the scorer is to evaluate every emitted span under the floor, so
+a short decoded run over human text would count against its entrant even
+before admission can refuse such a decoder.
 
 A further extension could identify words and constructions that materially
 influence a score, starting from the token-level outputs. Test explanations by
@@ -373,26 +378,31 @@ Validator duties follow Section~\ref{participants-and-the-two-kinds-of-work};
 the scoring trust assumption is stated in
 Section~\ref{trust-assumptions-and-adversarial-behavior}.
 
-The manifest's allow-list names two graphs: the reference's ModernBERT-base
-architecture and the same architecture with the token-level span head, each
-with matching operators and shapes and integer arithmetic on token identifiers
-only in the embedding lookup. An artifact has at most 160 million
-parameters; \(R_0\) has 149.6 million. Its tokenizer must match the
-allow-listed tokenizer byte for byte. Its calibration, contract, and other
-declared files must validate against fixed schemas for their roles, such as a
-monotone piecewise-linear calibration map whose knot count the schema bounds,
-and a file without a declared role is rejected. These rules bound the total
-size at about 700 MB, against the 610.6 MB of \(R_0\)'s artifact object, whose
-graph file is 601 MB, so no separate byte cap
-applies. The scorer serves only the graph without the span head today, so
-admission refuses the span graph, recognized from the graph file's length in
-the artifact object's header (below), until span serving
-qualifies~\cite{artifactspec}. Where a limit is needed it derives in this way from structure, such as
-the allow-list, a schema, or a measured bound, and is versioned in the manifest
-rather than hard-wired, because a fixed limit that later models outgrow can
+The manifest's allow-list names three graph classes, each with matching
+operators and shapes and integer arithmetic on token identifiers only in the
+embedding lookup: the reference's ModernBERT-base architecture; the same
+architecture exposing its final-norm token states to a token-level span head;
+and a tower class that adds trained copies of encoder layers 18--21 and the
+final norm for that head (Section~\ref{span-outputs}). Each class has its own
+parameter bound, derived from its structure: 160 million parameters for the
+first two classes and 173.5 million for the tower class, against 150.3 million
+in \(R_0\)'s package and 170.6 million in the first span package. An artifact's tokenizer
+must match the allow-listed tokenizer byte for byte. Its calibration, contract,
+and other declared files must validate against fixed schemas for their roles,
+such as a monotone piecewise-linear calibration map whose knot count the schema
+bounds, and a file without a declared role is rejected. A class fixes its graph
+file's length, about 601 MB for the first two classes and 681.5 MB for the tower
+class, and every other file is bounded by its schema or by the runtime that
+reads it, so no separate byte cap applies; \(R_0\)'s artifact object is
+610.6 MB. The scorer serves all three classes, and testnet cohorts admit them
+under the current artifact spec~\cite{artifactspec}. Where a limit is needed it
+derives in this way from structure, such as the allow-list, a schema, or a
+measured bound, and is versioned in the manifest rather than hard-wired, because
+a fixed limit that later models outgrow can
 strand a subnet. The allow-list widens only through a versioned manifest. The
-cap bounds what an artifact can memorize, an estimated 40--72 MB of learned
-capacity, and an embedded index or lookup table
+bound limits what an artifact can memorize, an estimated 40--72 MB of learned
+capacity at 160 million parameters and up to about 78 MB in the tower class,
+and an embedded index or lookup table
 of text fails admission (Section~\ref{lookup-exposure}). The scorer has no
 network access, online learning, cross-job prompt cache, or undeclared mutable
 state. Qualification exercises resource bounds and numerical

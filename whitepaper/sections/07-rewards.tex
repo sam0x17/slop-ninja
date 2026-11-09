@@ -73,9 +73,10 @@ Fresh AI-side text, both partial rewrites and model-only mirrors, is generated
 for each cohort by hosted models under a per-cohort budget, by parallel
 generation lanes that share the providers' published rate
 limits~\cite{cfailimits} (Section~\ref{fan-out}). Half of the generated text
-comes from frontier models through the OpenAI and Anthropic APIs, with requests
-spread equally across the effort or reasoning levels each model offers, and half
-from a spread of open models on Workers AI. Each request draws a voice profile
+comes from frontier models, to which the coordinator has access through
+configured credentials, with requests spread equally across the effort or
+reasoning levels each model offers, and half from a spread of open models on
+Workers AI. Each request draws a voice profile
 from a versioned library or, for a quarter of requests, none, leaving the
 model's default voice. Model, span length, edit intensity, effort, and voice
 rotate per source, and each document records them. Held-out passages may be
@@ -236,10 +237,11 @@ scored again as pure-human negatives without limit, never-drawn documents first
 and none twice in one cohort, while their uses as rewrite sources keep the
 limits above. Fresh stock is drawn only for a cohort with such an entrant. The
 coordinator enforces the rule: it draws only from pools on its exposed list and
-refuses any plan that names another. On-chain admission is not yet wired into
-cohorts, so every testnet cohort so far has drawn exposed documents only. A
-score on reused documents shows that an artifact runs and is scored, not how it
-performs on unseen text.
+refuses any plan that names another. Every testnet cohort so far has drawn
+exposed documents only, including the first cohorts with an outside entrant,
+because testnet's standing cohort template names only an exposed pool
+(Section~\ref{testnet-r1}). A score on reused documents shows that an artifact
+runs and is scored, not how it performs on unseen text.
 
 \subsection{Lookup exposure and the canary}\label{lookup-exposure}
 
@@ -263,7 +265,9 @@ Recognizing one domain's documents alone, such as Wikipedia, would gain about
 margin. On mainnet the frame is web-scale, about 64 billion first-seen URLs, while an artifact at
 the cap holds an estimated 40--72 MB of learned capacity: 160 million parameters
 at the 2 to 3.6 bits per parameter that language models have been measured to
-store~\cite{allenzhuknowledge,morrismemorize}. Against that capacity,
+store~\cite{allenzhuknowledge,morrismemorize}; the span tower class's bound of
+173.5 million parameters raises that capacity, and each gain below that the
+capacity bounds, by about 8\%. Against that capacity,
 estimated gains are at most about 0.09\% of headroom under uniform sampling over
 unique documents, 0.31--0.46\% if sampling followed captures, and 2.3--3.4\% if
 every domain had an equal share. The share caps hold the total to about 0.5\%
@@ -462,23 +466,22 @@ shared margin; their size on simulated rosters is measured before launch
 (Section~\ref{protocol-checks-before-launch}).
 
 Testnet opens a fresh record of cohorts and references, with \(R_0\) as its
-first reference and no predecessor. One change there falls outside the promotion
-rule: \(R_0\) may be replaced once by the next reference SlopNinja trains,
-retrained and recalibrated on normalised, length-matched positives
-(Section~\ref{human-stock}), and only if that model passes every required
-gate. The public dashboard (\texttt{slop.ninja/dashboard}) announces the
-replacement in advance. The
-replacement takes \(R_0\)'s position, with no predecessor, and appears in the
-next signed manifest, so the sequence of signed manifests is its record. Credit
-is bound to its own cohort's package and target (Section~\ref{lagged-payout}),
-so the replacement moves no earned reward. It sets the margin for later cohorts
-and, while the launch burn lasts, the bar that ends it. A span package,
-whether the release package or the first one that serves spans, has different
-inference content from \(R_0\), so naming it as the reference would itself use
-that one replacement, although its document outputs are identical; no span
-package is named \(R_0\), and the replacement stays available. Mainnet opens
-its own fresh record, whose first reference is the one testnet holds at that
-time, with no predecessor and no separate one-time replacement. A testnet
+first reference and no predecessor. Outside the promotion rule, the operator
+may also set the current and previous references by a signed reference
+decision that records its reason (Section~\ref{operator-decisions}). The
+decision appears in the next signed manifest, so the sequence of signed
+manifests is its record, and it never changes a sealed cohort. Credit is bound
+to its own cohort's package and target (Section~\ref{lagged-payout}), so a
+reference decision moves no earned reward; it sets the margin for later cohorts
+and, while the launch burn lasts, the bar that ends it. SlopNinja plans one such
+decision on testnet, announced in advance on the public status page: replacing
+\(R_0\) by the next reference it trains, retrained and recalibrated on
+normalised, length-matched positives (Section~\ref{human-stock}), only if that
+model passes every required gate; the replacement takes \(R_0\)'s position,
+with no predecessor. No span package is named \(R_0\). Mainnet opens its own
+fresh record, whose first reference is the one testnet holds at that
+time, with no predecessor; reference decisions remain available there under
+the same signed public records. A testnet
 promotion can rest partly on lookup, since testnet's stock is recognizable in
 full, its strict tier is drawn from the same pools, and its canary has no
 anchors. Mainnet scores that reference only on its own batches, where
@@ -566,7 +569,8 @@ must be revisited before mainnet. These are stated limits.
 An entrant is \emph{gated} when its artifact qualification, its public-copy
 gate, its share and attribution gates, its minimum-success gate, and the
 per-entrant tier of its pure-human false-positive gate pass, together with the
-span gate once a manifest enforces it. Gate failures
+span gate from the first manifest that enforces it
+(Section~\ref{span-outputs}). Gate failures
 earn no credit. The margin is
 \[
  \delta=\max\bigl(0.01,\;2\sigma\bigr),
@@ -942,8 +946,8 @@ quantized score, gate and public-copy bits, and cluster, with its band rank and
 units. It also records each term of the cohort's bit budget, and it carries no
 exact score, standard error, offset, noise draw, statistic, probe value, attempt
 count, or receipt value. Its allow-listed values are published when the cohort
-closes, on the public status host and the dashboard at
-\texttt{slop.ninja/dashboard}; the artifacts were published when scoring
+closes, on the public status host and the status page at
+\texttt{slop.ninja/testnet/status} for testnet; the artifacts were published when scoring
 started, and the commitment openings follow at the close. An entrant that fails
 artifact qualification is never executed and carries no score. Compact
 numerical inputs and calculated rows survive the detailed receipts' retention

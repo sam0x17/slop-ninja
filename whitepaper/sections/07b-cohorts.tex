@@ -113,23 +113,27 @@ the launch authorization covers the tempos after the package that produces the
 first cohort target is sealed and before that target activates. From that
 activation every validator refuses the launch authorization, at each tempo's
 commitment as well as when checking it, so it is never accepted again; later
-packages without a cohort target carry forward the activated target, so nothing
-authorizes the burn row again.
+packages without a cohort target carry forward the activated target, so within
+a record nothing authorizes the burn row again. Only an operator's switch to
+burn issues a new launch authorization, for a fresh record
+(Section~\ref{operator-decisions}).
 
 Validators commit the burn row every tempo until
 some cohort first has a gated entrant whose released score reaches the margin
 cutoff; the
 promotion that normally follows makes \(R_0\) the predecessor for the fallback
-cutoff (Sections~\ref{reference-model} and~\ref{reward-v1}). At the current
-\texttt{rtao} pin only the coordinator commits it. Native validators abstain
-while the active row is all burn, as for a cohort target whose credited miners
-have all left: \texttt{rtao} holds a row whose only positive entries are the
-owner's or the validator's own UID instead of committing it, so the validator
-defers each such tempo, commits nothing, and leaves its previous weights on
-chain. This abstention is a limitation of the pin, not the policy: after every
-credited miner has left, those weights can still pay a UID's new occupant, which
-the no-transfer rule below forbids, so native commitment of the burn row is a
-launch requirement (Section~\ref{protocol-checks-before-launch}).
+cutoff (Sections~\ref{reference-model} and~\ref{reward-v1}). Native
+validators commit the burn row too: their adapter records an explicit,
+journaled policy for submitting a row whose only positive entry is the owner
+hotkey's UID, used for the burn row under the launch authorization or a burn
+target, and only when the chain's weight limits and the validator's own permit
+allow it; otherwise that tempo defers. At the current \texttt{rtao} pin every
+other row whose only positive entries are the owner's or the validator's own UID
+is held instead, as for a cohort target whose credited miners have all left:
+the validator defers each such tempo, commits nothing, and leaves its previous
+weights on chain. Those weights can still pay a UID's new occupant, which the
+no-transfer rule below forbids, so committing such a row natively is a launch
+requirement (Section~\ref{protocol-checks-before-launch}).
 That regime has no bounded duration; no miner earns
 during it, and the burn withholds the subnet's TAO-side emission, while under
 the documented rules validators and the owner still receive their
@@ -258,8 +262,11 @@ as the signed row records it, is later than the held target's, and then records
 the row's target as active. One that missed several activations therefore moves
 straight to the current row's target, without the rows or packages in between.
 The coordinator moves its record only through each cohort's checked closure,
-so each target it activates names the target it held as its predecessor. The launch
-authorization is accepted only while no cohort target has activated. At every
+so each target it activates names the target it held as its predecessor, except
+at an operator's restart (Section~\ref{operator-decisions}). A launch
+authorization is accepted only while no cohort target of its record has
+activated: the first one before any cohort target, or a restart's, issued at the
+restart floor after the target the validator holds. At every
 tempo a new commitment also requires the authorized target to be the one the
 validator holds active and the epoch to be at or after the authorization's
 issue, so an authorization stops yielding commitments once another target
@@ -294,7 +301,7 @@ computation does. A frozen attempt-order rule selects one canonical outcome;
 never choose the best answer returned across retries. The late result of an
 old worker cannot advance a newer checkpoint or reopen a finalized score.
 
-\subsection{What pauses and what continues}
+\subsection{What pauses and what continues}\label{pause-behavior}
 
 Coordinator downtime suspends protocol progress and cohort scheduling. It does
 not remove unfinished tasks from the denominator, turn them into miner failures,
@@ -303,7 +310,7 @@ finish and persist evidence, but its completion cannot authorize another task.
 Resume only after reconciling in-flight attempts and late results. If scoring
 was final before the outage, resume publication or the transition without
 rescoring. Missing evidence leaves the cohort paused until a reviewed resolution
-is possible.
+is possible or the operator abandons it (Section~\ref{operator-decisions}).
 
 A per-attempt compute limit remains the bound frozen for that attempt. Queue
 delay, operator suspension, and unresolved infrastructure faults are not measured
@@ -311,6 +318,72 @@ model compute. A limit violation already established remains an outcome.
 Customer delivery/refund terms, credential expiry, transaction mortality, and
 native chain reveal windows retain their own clocks. Extending a
 coordinator-owned deadline cannot extend those obligations or renew an expired credential.
+
+\subsection{Operator decisions}\label{operator-decisions}
+
+No precondition in the evaluation service, the coordinator, the publisher, or a
+validator may lock the operator out. Each has a journaled operator path past
+it, so the operator can always decide to start a new cohort, change the
+references, install or pause a cohort template, or restart the record without
+first changing code. Moving forward never requires reading retired or
+superseded state, and a paused cohort calendar stays paused, across a template
+install, until the operator resumes it. These paths keep the protocol's other
+rules: no cohort is skipped or expired because time passed, cohort numbers are
+never reused, each validator signs at most one commitment per chain, subnet
+registration, hotkey, and epoch and never resubmits blindly, validators keep
+committing the last signed row, and no decision recreates a lock it removes.
+
+Each decision is journaled before it takes effect and leaves a signed,
+content-free public record that states its reason. Decisions that decline a
+result, change reward inputs, or restart the record are also signed with a
+separate operator-decision key, kept offline with a recorded backup. That key is
+distinct from the coordinator's hotkey and from its authorization and receipt
+keys, and only the coordinator and the evaluation service verify it; validators
+keep verifying rows, authorizations, and revocations under the pinned
+authorization key alone. Rotating the operator-decision key is a recorded
+configuration change of those two services that needs no signature under the
+old key, so losing it locks nothing. The paths are these:
+\begin{itemize}\tightlist
+\item \emph{Abandon.} The operator may end any cohort that has not closed,
+including a queued cohort or one with no fault. The abandonment record names the
+cohort's phase and digests, the cohort produces no target, and its number is
+never reused. An abandonment in packaging or the transition, when the outcome
+may already be known, declines that outcome and needs the operator-decision key.
+\item \emph{Refusal to pay.} The operator may refuse to pay a finished cohort by
+declining its closure, by abandoning it late, or by naming it in a switch to
+burn, each under the operator-decision key. A declined result is never
+installed. Later targets chain from each cohort's target, so continuing after a
+refusal goes through a switch to burn and a fresh record.
+\item \emph{Start over.} To stop paying the current record, the operator switches
+the coordinator to burn. With signing paused, the coordinator sets a restart
+floor one epoch after the last finalized one, installs the burn row from the
+floor under a launch authorization issued at that epoch, and names in the
+signed restart record every cohort that opened before the floor without being
+handled, so no cohort is dropped silently. The operator then opens a fresh
+record whose first reference is \(R_0\), with no predecessor. Winners of the
+earlier record are never paid again. Validators accept the restart through that
+launch authorization, which was issued after the target they hold, and refuse
+rows from before its floor; none needs a manual reset.
+\item \emph{Reward-rule change.} A new reward rule takes effect only through a
+fresh record under that rule, reached by the same switch to burn; no record
+carries across reward rules.
+\item \emph{Reference decision.} The operator may set the current and previous
+references directly, with a recorded reason, outside a fresh record
+(Section~\ref{reference-model}).
+\item \emph{Re-registration.} If the subnet is registered again on the same
+chain, the restart also rotates the authorization key, so no authorization or
+row signed for the earlier registration verifies under the new one; validators
+receive the new key through a signed release or trust update.
+\end{itemize}
+
+These paths remain available on mainnet, with the same signatures and public
+records. No outage triggers one: coordinator silence pauses the cohort
+(Section~\ref{pause-behavior}), and only an explicit decision ends, declines, or
+restarts. A decision changes only future work and payment. Commitments already
+submitted keep their recorded authority and reveal under their original rules,
+and rewards already paid are never reassigned. The decisions extend the trust
+the pilot already places in the operator
+(Section~\ref{trust-assumptions-and-adversarial-behavior}).
 
 \subsection{Coordinator rows and commit--reveal}\label{independent-weight-calculation}
 
@@ -511,8 +584,12 @@ of content digests is retained indefinitely. A durable serverless cleanup task
 deletes eligible objects,
 invalidates access, and records completion. Delete managed replicas and caches
 as well; do not retain a separate indefinite archive of these detailed receipts.
-Previously downloaded copies cannot be recalled. This deletion is not yet
-implemented, and the testnet coordinator so far retains every receipt.
+Previously downloaded copies cannot be recalled. The testnet evaluation service
+runs this deletion. One gap remains as of November 9: the receipts of the
+cohorts run just before the testnet record restart
+(Section~\ref{testnet-r1}) are not yet deleted, because the step that lets the
+new record release them waits on an older record's store that no longer
+answers.
 
 Two completed successors are a deliberate pilot retention choice: they keep
 recent audit evidence available while limiting the number of completed cohorts

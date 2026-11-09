@@ -21,21 +21,23 @@ service; \textit{B} activates after its editing, private-serving, and reward
 requirements are qualified. \textit{A} is one text model with a shared encoder
 for origin and attribution. It reports estimated AI-written or rewritten text
 share and confidence in any AI involvement as separate percentages and
-attributes human and model contributors. A specified span output locates
-AI-written spans with per-sentence share and confidence but is not yet served.
-AI-involvement Brier score is the only reward
-quantity; share, attribution, and spans are qualification gates. On a sealed,
+attributes human and model contributors. A span output locates AI-written
+spans of at least 24 words, with per-sentence share and confidence; shorter
+edits still count in both document percentages. AI-involvement Brier score is
+the only reward quantity; share, attribution, and spans are qualification gates,
+and from the next cohort template every entry must emit spans and pass the span
+gate. On a sealed,
 pre-registered Test the \textit{A} baseline's document model, the first reference,
 was noninferior to Pangram
 4.1, with balanced Brier 0.0518 against 0.0551 after both detectors' outputs
 pass through the same map fitted on a separate Calibration split, but the
 pre-registered verdict failed because its three-seed recipe missed one domain
-slice. The release package adds a span head that leaves those document outputs
-unchanged; on held-out spliced rewrites it recovers on average about 40\% of a
-document's AI-written characters and mostly misses clause and single-sentence
-edits. The first package that serves spans will use an adopted head with an
-added encoder tower, which recovers about 53\% at about a fifth more encoder
-time but puts spans on more human documents.
+slice. SlopNinja's first span package leaves those document outputs
+unchanged and adds a span head on a four-layer encoder tower, at about a fifth
+more encoder time. Retrospectively, on the consumed Test, it reaches character
+F1 0.544 on spans of at least 24 words, finding 36\% of spans of 24--49 words
+and 56\% of spans of 100 or more, and puts a span on 2.5\% of human
+documents.
 \textit{A} reads raw text and uses no context-free-grammar (CFG) features: a
 CFG-only detector failed its first real-data test, and CFG writer vectors scored
 below \textit{A}'s encoder on writer verification and added little on top of the
@@ -68,14 +70,14 @@ from Common Crawl pages captured before November 30, 2022, a historical-human
 proxy drawn with capped domain shares that limit lookup by memorizing models and
 checked by era gates; testnet uses a smaller public stock and, for cohorts
 without a working outside entrant, reuses only documents already exposed. The
-protocol takes half of each batch's generated text from frontier models and half
-from open models on Workers AI; Section~\ref{implementation-status} records
+protocol takes half of each batch's generated text from frontier models, to
+which the coordinator has access through configured credentials, and half from
+open models on Workers AI; Section~\ref{implementation-status} records
 which of these steps testnet runs today.
-Testnet starts from the first reference and may replace it once, announced in
-advance, with the next qualified reference, which takes its place with no
-predecessor; mainnet later opens a fresh record
-of cohorts with the reference testnet then holds. Otherwise the
-reference changes only when an entrant whose released score reaches the margin
+Testnet starts from the first reference; mainnet later opens a fresh record of
+cohorts with the reference testnet then holds. The reference changes when the
+operator sets it by a recorded decision, as planned on testnet for the next
+qualified reference, or when an entrant whose released score reaches the margin
 cutoff also beats it by the margin in exact score and passes the promotion
 checks. Rewards are paid on released scores: until a
 cohort first has an entrant whose released score reaches the margin cutoff, or a
@@ -99,14 +101,25 @@ under never expires. A cohort lasts at least
 20 tempos, about a day, ends with a transition that issues no new challenges,
 and is paid during the following cohort. Slow work, missed wakeups, and
 coordinator outages preserve the same cohort for recovery, and no record or
-gate depends on a chain runtime version. This protocol pause does not stop the
+gate depends on a chain runtime version. No rule locks the operator out: it can
+abandon a cohort, refuse to pay one, set the references, or switch to burn and
+open a fresh record, each by a journaled decision with a signed public record,
+the high-stakes ones under a separate offline key; none skips a cohort because
+time passed or signs a commitment twice. This protocol pause does not stop the
 chain or its emissions. Production applications use
 Rust: native participants use \texttt{rtao}, while the coordinator is to run on
 Cloudflare Workers with durable state and separately qualified chain integration,
 woken by finalized-block notifications rather than a resident server.
 
-The coordinator opens the initial paid detection service when measured quality
-supports a bounded workload. Customers may fund jobs by card, TAO, or subnet alpha. Inference
+Testnet runs for several months before the mainnet subnet is registered. On
+November 7, 2026 its admission opened to every registered hotkey, and a
+cohort with an outside entrant has since run end to end there. During this period
+SlopNinja plans to earn revenue from free, advertising-supported public
+detection pages served by \textit{A} and from other products. The revenue
+accrues in a publicly visible pot that, once the mainnet subnet is registered,
+buys and burns its alpha; the pot's custody and public accounting remain to be
+specified. The coordinator opens the paid detection service when measured
+quality supports a bounded workload. Customers may fund jobs by card, TAO, or subnet alpha. Inference
 principal converts to alpha and is burned; it does not directly reimburse
 serving costs. Burns are intended to support token value, with no guaranteed
 market response. SlopNinja funds public-model execution and operating reserves

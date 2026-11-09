@@ -60,8 +60,7 @@ continuations, and 156 of 6,132 humans carry a decoded span. The head adds about
 on one CPU thread. The protocol's selected arm, the joint fine-tune with spliced
 rewrites, reached character F1 0.560, but its uncalibrated human-only Brier rose
 from 0.061 to 0.093, and calibrated it flagged 6 Test humans at the 0.1\%
-operating point, where \(R_0\) flags none, so it was not adopted. The f32
-Container serving build does not yet carry the span head.
+operating point, where \(R_0\) flags none, so it was not adopted.
 
 \paragraph{Adopted span head S2c, November 1, 2026.}\label{s2c-evidence}
 A pre-registered follow-up fitted three arms from the same lineage and data,
@@ -91,12 +90,50 @@ shipped head, and 210 of 6,132 humans carry a span, against 156, so it does not
 hold the shipped head's human rate there. Its Rust FP64 replay matches the
 reference within \(4.4\times10^{-6}\) in token probability with every offset
 equal, against the same \(10^{-5}\) bound. The tower adds 18--20\% of encoder
-CPU time, 5.3 seconds at 2,048 tokens on one thread, and no calibrated package
-with it has been built or replayed. Its development human gates are optimistic,
-because the baseline's early stopping and the earlier decoder limit used those
-humans. SlopNinja adopted S2c on November 1, 2026 as its span head
-for the first package that serves spans; until then the shipped configuration
-keeps the head above.
+CPU time, 5.3 seconds at 2,048 tokens on one thread. Its development human gates
+are optimistic, because the baseline's early stopping and the earlier decoder
+limit used those humans. SlopNinja adopted S2c on November 1, 2026 as the span
+head of its first span package. A calibrated S2c package with this 10-word
+decoder was exported, replayed, and served by the live scorer in operator
+probes from November 2, its predictions, sentences, and spans equal to the
+local run.
+
+\paragraph{First span package under the 24-word floor, November 7 to 9, 2026.}\label{span-package-evidence}
+The span figures above count spans of every length. Spans under 24 words are
+no longer scored or decoded (Section~\ref{span-outputs}), so the figures below,
+all under the floor, are not comparable with them. Under a floor evaluation
+whose protocol and decoder selection were frozen before any held-out output was
+read~\cite{spanspackage}, S2c with a decoder whose shortest run is 24 words matched or slightly
+exceeded its 10-word decoder's character F1 on development documents, by
+\(+0.003\), and on the consumed Test, by \(+0.006\), lost on the spliced
+rewrites, 0.633 against 0.652, and put a span on about 27\% fewer Test humans,
+140 against 191, all as three-seed means. A retrain that masked shorter
+spans out of the span loss stayed within about one seed standard deviation of
+S2c everywhere and was not adopted. A 16-word floor gained only on the spliced
+rewrites, whose short edits it targets; on the Test its 16--23-word runs had
+precision 0.07 and its character F1 fell by 0.016, so the floor stays at 24
+words.
+
+The first span package combines S2c's seed-17 weights with that 24-word
+decoder and a span confidence map refitted on CAL under the floor. Its graph and
+tokenizer are byte-identical to the earlier S2c package's, its document outputs
+equal \(R_0\)'s on 215 synthetic, 200 local, and 15 parity requests, its Rust
+FP64 replay matches within \(2.1\times10^{-6}\) in token probability, and
+its CPU latency and memory stay within the earlier package's own
+round-to-round spread. Retrospectively, on the 5,173 consumed-Test mixed
+documents with a gold span of at least 24 words, it reaches character F1 0.544,
+with precision 0.922 and recall 0.534, span precision 0.771 and recall 0.505,
+and recall of 0.361, 0.440, and 0.559 in the 24--49, 50--99, and 100-plus-word
+bands; 151 of 6,132 humans carry a span. On the 545 re-read spliced rewrites of
+the report half with such a span, its character F1 is 0.639 and its band
+recalls are 0.555, 0.803, and 0.894. The refitted span confidence is better
+calibrated than an identity map on the Test, with expected calibration error
+0.010 against 0.014, but overconfident on the spliced rewrites, 0.056 against
+0.016; its CAL fit has only 128 negative runs. These are one-seed figures
+without a bootstrap, and spans of 24--49 words remain the weakest band. The
+package passes the current artifact spec unchanged, though that spec cannot
+refuse a shorter decoder minimum at admission, and it replaces the earlier
+S2c package after its own live probe.
 
 \paragraph{Sealed competitive Test, October 30, 2026.}
 \(R_0\) and Pangram 4.1 were evaluated once on a sealed Test under a
@@ -355,66 +392,71 @@ representation (Section~\ref{later-b}).
 \subsection{Implementation status}\label{implementation-status}
 
 \paragraph{Implementation boundary.}\label{native-implementation-boundary}
-The native Rust adapter in this repository pins \texttt{rtao} main
-\texttt{b5553a76} (October 30, 2026)~\cite{nativeadapter}. It uses durable
+The native Rust adapter in this repository pins \texttt{rtao}
+\texttt{fa83052d} (November 5, 2026)~\cite{nativeadapter}. It uses durable
 journals, signer-free restart reconciliation, persistent weight/reveal
 scheduling, semantic guards, and explicit pause/resume. Its journal uses schema
 3 and migrates schema-1 and schema-2 journals on open, refusing any it cannot
 carry over with the original bytes retained. Nothing compares a runtime spec or
 transaction version: signed operations resolve by name in live metadata, and
-only an operation without a type-correct encoding is deferred. That revision
-still refuses production journaled shield dispatch, and its compatibility record
-declares no validated runtime range, which no SlopNinja component
-requires~\cite{rtaoshield,rtaocompat}. Adapter, validator, and protocol tests,
-including a journal-migration fixture, mutated-metadata cases, and metadata
-fuzzing, passed with Clippy on Linux on October 30 and 31, 2026, without keys or
-transactions, and the native validator's live testnet commitments ran at this
-pin (the \hyperref[testnet-m2]{``Testnet weight commitments''} and
-\hyperref[testnet-reward-v1]{``Testnet reward rehearsal''} paragraphs below). A later repin to newer \texttt{rtao} waits until
-upstream finishes its bounded-memory rework and then repeats these tests.
+only an operation without a type-correct encoding is deferred. At this pin
+\texttt{rtao} composes weight calls, and reads the storage of its weight
+preflight, scheduler, and reveal watcher, through compiled descriptors while
+their live shapes match and by name otherwise, and it follows the chain's
+stored commit--reveal version. What it can read neither way is recorded as a
+deferral; for a storage item, finalized observation, reveal tracking, recovery,
+and both weight operations then stop together until the chain or \texttt{rtao}
+changes. Two such stops are known risks for a later runtime: metadata larger
+than the coordinator can store in one value, about 1 MB, and a changed layout
+of the epoch-index keys, which the evaluation service still reads through a
+compiled layout. \texttt{rtao} supports journaled shield dispatch from
+per-runtime evidence, but the adapter submits unshielded only, and no runtime
+range is declared validated, which no SlopNinja component requires. Adapter,
+validator, miner, and protocol tests passed with Clippy on Linux at this pin,
+without keys or transactions. The native validator's live testnet commitments
+ran at the earlier pin \texttt{b5553a76}
+(the \hyperref[testnet-m2]{``Testnet weight commitments''} and
+\hyperref[testnet-reward-v1]{``Testnet reward rehearsal''} paragraphs below) and
+at this one (the \hyperref[testnet-r1]{``Testnet record restart''} paragraph).
 
-At this pin the weight scheduler still composes through compiled call descriptors,
-so a moved call index or changed argument shape defers the weight operation
-until upstream composes by name. It also reads 23 storage items through
-compiled descriptors with no by-name fallback. If an upgrade changes any one of
-them, finalized observation, reveal tracking, and recovery stop along with both
-weight operations; the adapter records an alerted deferral and retries, but
-cannot observe or recover until upstream reads those items by name. Its
-timelock encoder supports a single commit--reveal version, so a different
-on-chain version defers commits~\cite{nativeadapter}. The production native
-validator and the serverless coordinator, which is itself the lead validator,
-remain unfinished, as does finalized-RPC recovery qualification. The shared
-protocol crate implements the \texttt{reward-v2} calculation over
-\texttt{quant-v1} quantized scores with the per-cohort bit budget, the
-public-copy gate and near-copy relation, private submission records, the launch
-and reward-intent authorizations, which never expire, with their signed
-revocations, the coordinator's signed row record, the cohort phase checks, and
-the check of a row against the target its holder has active, as exact
-computation that reproduces byte for byte on native and wasm32
-targets~\cite{protocolcrate}. Direct R2 admission with publication at scoring
-start, \texttt{reward-v2} with quantized scores, and generation that takes half
-of a cohort's text from frontier models are implemented but not yet deployed:
-on testnet the coordinator's evaluation service still runs \texttt{reward-v1}
-cohorts, building probe
-versions and fingerprints, keeping the published-artifact index, measuring the
-gates, and signing packages, and the coordinator and the native validator
-verify them and commit the resulting rows (the
-\hyperref[testnet-reward-v1]{``Testnet reward rehearsal''} paragraph below).
-Not yet implemented are signed corrections; the commitment call's chain
-encoding and on-chain admission, so the operator declares each roster; the
-lookup canary's statistic, since testnet has no anchors and its flags come
-only from drills; scoring the canary's audit draws for promotion candidates
-only (today every executed entrant scores them); rebuilding the published-artifact
-index instead of trusting the coordinator's copy; binding that index by digest,
-since every active-target bundle embeds the whole index, which outgrows the
-coordinator's single stored value at about 5,000 published artifacts, about 130
-full testnet cohorts; detailed-receipt deletion; and span serving. Testnet
-cohorts still run in a separate evaluation service, and validators receive
-packages as operator-installed bundles rather than fetching them. Native
-signing, commit--reveal, and recovery were exercised on testnet
-(the \hyperref[testnet-m2]{``Testnet weight commitments''} paragraph below). The coordinator's own commit and reveal have also run
-live there through the Workers chain path, but its signing is not yet
-qualified.
+The production native validator and the serverless coordinator, which is itself
+the lead validator, remain unfinished, as does finalized-RPC recovery
+qualification. The shared protocol crate implements the \texttt{reward-v2}
+calculation over \texttt{quant-v1} quantized scores with the per-cohort bit
+budget, the public-copy gate and near-copy relation, private submission
+records, the launch and reward-intent authorizations, which never expire, with
+their signed revocations, the coordinator's signed row record, the cohort phase
+checks, and the check of a row against the target its holder has active, as
+exact computation that reproduces byte for byte on native and wasm32
+targets~\cite{protocolcrate}. Since the testnet record restart, testnet cohorts
+run \texttt{reward-v2} with quantized scores, take on-chain digest commitments
+and direct R2 uploads under the current artifact spec from every registered
+hotkey, and publish every admitted artifact when scoring starts. The
+coordinator's evaluation service builds probe versions and fingerprints, keeps
+the published-artifact index, measures the gates, and signs packages; the
+coordinator commits the resulting rows, and the native validator fetches the
+signed rows from a mirror of the coordinator's published layout and commits
+them. Generation that takes half of a cohort's text from frontier models is
+implemented but not yet enabled, so testnet batches are generated by open models
+on Workers AI. Not yet implemented are signed corrections; the operator
+decisions of Section~\ref{operator-decisions} other than the record restart and
+the abandonment of a faulted cohort, including the operator-decision key; the
+span gate, and with it any evaluation of spans in cohort scoring; the lookup
+canary's statistic, since testnet has no anchors and its
+flags come only from drills; scoring the canary's audit draws for promotion
+candidates only (today every executed entrant scores them); rebuilding the
+published-artifact index instead of trusting the coordinator's copy; binding
+that index by digest, since every active-target bundle embeds the whole index,
+which outgrows the coordinator's single stored value at about 5,000 published
+artifacts, about 130 full testnet cohorts; and the signed automatic updater
+with its resumable migrations (Section~\ref{participant-updates}), so
+participants update by hand. Detailed-receipt deletion runs, with the one gap
+noted in Section~\ref{cohort-receipt-retention}.
+Testnet cohorts still run in a separate evaluation service. Native signing,
+commit--reveal, and recovery were exercised on testnet
+(the \hyperref[testnet-m2]{``Testnet weight commitments''} paragraph below). The
+coordinator's own commit and reveal have also run live there through the
+Workers chain path, but its signing is not yet qualified.
 
 The coordinator additionally requires Workers-compatible transport, chain
 encoding and signing, a Durable Object intent/attempt journal, and recovery for
@@ -507,3 +549,34 @@ fallback cutoff, and canary re-audits are covered by tests alone, and the
 fault drills of the \hyperref[testnet-m2]{``Testnet weight commitments''}
 paragraph have not been repeated under
 \texttt{reward-v1}.
+
+\paragraph{Testnet record restart and open cohorts, November 6 to 9, 2026.}\label{testnet-r1}
+After a rehearsal cohort promoted a test entrant, the operator restarted
+testnet's record from \(R_0\) by decision instead of keeping that promotion.
+With signing paused, the coordinator set a restart floor, kept the target it
+set aside in its record, and committed the \texttt{reward-v2} burn row from the
+floor under a new launch authorization. A fresh record then began at \(R_0\)
+under \texttt{reward-v2}, \texttt{quant-v1}, and the current artifact spec,
+with a probe build as its first cohort. The native validator, rebuilt at the
+current \texttt{rtao} pin and reset by hand, verified that launch authorization
+and committed and revealed the burn row, each reveal equal to the committed row.
+The restart also needed code changes; the operator decisions of
+Section~\ref{operator-decisions} specify journaled paths that need neither.
+On November 7 admission opened to every registered hotkey, and within minutes
+an outside participant, registered from a coldkey that is not the operator's,
+committed and uploaded an artifact. The first standing cohort of the new
+record, with \(K=20\) tempos, 16 of them for admission, 1,000 cases, and
+provisional gate thresholds, then ran end to end unattended. Its eight
+entrants, seven operator test miners entering distinct versions of SlopNinja's
+own models and the outside entrant, each committed on chain and uploaded
+straight to R2; every admitted artifact was published when scoring started; all
+eight were scored; one test miner passed every gate, and the other seven, the
+outside entrant among them, each failed at least one. Nobody was promoted, and
+the cohort closed and published its results on the public status
+page~\cite{testnetstatus}, which also lists each running cohort's intake. A
+second standing cohort, again with an outside entrant among eight, finished
+scoring on November 9. Both drew exposed documents only
+(Section~\ref{human-stock}), so their scores show that artifacts run and are
+scored, not how they perform on unseen text. A drill that deletes an admitted
+object to exercise upload repair has not yet run in a live cohort, and no live
+row has yet paid two UIDs.

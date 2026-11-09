@@ -188,7 +188,9 @@ canonical_struct! {
     /// it had not handled; `unlisted` every number up to `last` (the highest
     /// opened number the operator read) that was not listed then, so a
     /// pre-floor cohort found later is named in a signed record either way.
-    /// Signed with the authorization key.
+    /// `statement` is the offline-signed statement's SHA-256; `None` for a
+    /// restart made while the coordinator had no operator-decision key
+    /// configured (a token-level restart). Signed with the authorization key.
     pub struct ChainRestart {
         pub chain: ChainBinding,
         pub floor: u64,
@@ -199,7 +201,7 @@ canonical_struct! {
         pub past: Vec<RestartPassed>,
         pub unlisted: Vec<u64>,
         pub decision: Option<Digest>,
-        pub statement: Digest,
+        pub statement: Option<Digest>,
     }
 }
 
@@ -362,7 +364,7 @@ mod tests {
             past: vec![RestartPassed { cohort: 3, state: "closed".into() }],
             unlisted: vec![4],
             decision: None,
-            statement: Digest([3; 32]),
+            statement: Some(Digest([3; 32])),
         };
         assert!(restart.validate().is_ok());
     }

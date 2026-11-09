@@ -1654,9 +1654,18 @@ fn signed(body: serde_json::Value) -> serde_json::Value {
     crate::operator::tests::signed_body(&op_key().0, "coordinator.restart", &to, body)
 }
 
-fn decide_restart(h: &H, body: serde_json::Value, observed: u64) -> Result<serde_json::Value, &'static str> {
+fn decide_restart_full(h: &H, body: serde_json::Value, observed: u64) -> Result<serde_json::Value, crate::signing::decide::Refused> {
     let (_, key) = op_key();
     tx(&h.db, |sql| crate::signing::decide::decide(sql, &h.cfg, &h.trusted, body, Some(&key), Some(observed), T0)).unwrap()
+}
+
+fn decide_restart(h: &H, body: serde_json::Value, observed: u64) -> Result<serde_json::Value, &'static str> {
+    decide_restart_full(h, body, observed).map_err(|r| r.code)
+}
+
+fn previewed(mut body: serde_json::Value) -> serde_json::Value {
+    body["preview"] = serde_json::json!(true);
+    body
 }
 
 /// P1-R with review-p1-final M1: a regular cohort is open while the number
@@ -1768,4 +1777,93 @@ fn a_pre_floor_cohort_found_after_a_restart_is_recorded_with_its_addendum() {
     let reason: String = h.db.conn.query_row("SELECT reason FROM sign_restart_past WHERE floor = 300 AND cohort = 13", [], |r| r.get(0)).unwrap();
     assert_eq!(reason, "restarted_past_unlisted");
     assert_eq!(h.db.conn.query_row("SELECT COUNT(*) FROM sign_restart_records WHERE kind = 'addendum'", [], |r| r.get::<_, i64>(0)).unwrap(), 1);
+}
+
+/// The restart runbook (read the set, preview, post the previewed
+/// set) needs one signature per body. The status shows the set S at the
+/// next floor; a signed preview may leave `past` out and answers the
+/// computed set; a post without it, or a preview or post with another set,
+/// is refused with the set as `detail`; the restart's own checks (signing
+/// active) refuse the preview and the post as their own codes, never as a
+/// store error; every refusal changes nothing; and afterwards the status
+/// shows each journaled number with its reason.
+#[test]
+fn the_restart_runbook_reads_the_set_previews_it_and_posts_it() {
+    use serde_json::json;
+    let h = H::new();
+    let mut b = Bucket::new(1000);
+    let c11 = no_target(11);
+    b.put(&c11, false);
+    pass(&h, &mut b);
+    h.observe_epoch(249);
+    let view = tx(&h.db, crate::signing::restart_view).unwrap();
+    assert_eq!(view.next_floor, Some(250));
+    assert_eq!(view.past.iter().map(|p| p.cohort).collect::<Vec<_>>(), vec![11], "status shows the set at the next floor");
+    let counts = |h: &H| (h.db.count("sign_held_target_resets"), h.db.count("sign_restart_past"), h.db.count("operator_actions"));
+    let before = counts(&h);
+    // A signed preview naming no set: every check, and the computed set.
+    let mut ask = restart_body(&h, "runbook-ask", 250, 250, &[], &[], Some(12));
+    for field in ["past", "unlisted"] {
+        ask.as_object_mut().unwrap().remove(field);
+    }
+    let v = decide_restart(&h, signed(previewed(ask.clone())), 300).unwrap();
+    assert_eq!(v["past_named"], json!(false));
+    assert_eq!((v["effect"]["past"][0]["cohort"].clone(), v["effect"]["unlisted"].clone()), (json!(11), json!([12])));
+    // The same body posted: refused, naming the set.
+    let r = decide_restart_full(&h, signed(ask), 300).unwrap_err();
+    assert_eq!(r.code, "past_missing");
+    let d = r.detail.expect("the refusal names the set");
+    assert_eq!((d["floor"].clone(), d["past"][0]["cohort"].clone(), d["unlisted"].clone()), (json!(250), json!(11), json!([12])));
+    // Another set: refused in the preview and the post, naming the set.
+    let wrong = restart_body(&h, "runbook-wrong", 250, 250, &[], &[], Some(12));
+    let r = decide_restart_full(&h, signed(previewed(wrong.clone())), 300).unwrap_err();
+    assert_eq!((r.code, r.detail.unwrap()["past"][0]["cohort"].clone()), ("past_changed", json!(11)));
+    assert_eq!(decide_restart(&h, signed(wrong), 300), Err("past_changed"));
+    // Signing active: the restart's own check refuses the preview and the
+    // post with its code.
+    let set_state = |state: &str| {
+        tx(&h.db, |sql| sql.exec("UPDATE signer SET state = ? WHERE id = 1", &[state.into()]).map(|_| ())).unwrap();
+    };
+    set_state("active");
+    let body = signed(restart_body(&h, "runbook-post", 250, 250, &[11], &[12], Some(12)));
+    assert_eq!(decide_restart(&h, previewed(body.clone()), 300), Err("signing_active"));
+    let r = decide_restart_full(&h, body.clone(), 300).unwrap_err();
+    assert_eq!(r.code, "signing_active");
+    assert!(r.detail.is_some());
+    assert_eq!(counts(&h), before, "every refusal changes nothing");
+    // Paused: the preview with the set passes, and the post under the same
+    // signature restarts.
+    set_state("paused");
+    let v = decide_restart(&h, previewed(body.clone()), 300).unwrap();
+    assert_eq!((v["past_named"].clone(), v["effect"]["signed"].clone()), (json!(true), json!(true)));
+    let v = decide_restart(&h, body, 300).unwrap();
+    assert_eq!(v["past"][0]["cohort"], 11);
+    let view = tx(&h.db, crate::signing::restart_view).unwrap();
+    let rows: Vec<(u64, String)> = view.recorded.iter().map(|r| (r.cohort, r.reason.clone())).collect();
+    assert_eq!(rows, vec![(11, "restarted_past".to_owned()), (12, "named_unlisted".to_owned())]);
+    assert_eq!((view.recorded_total, view.records_unwritten), (2, 1));
+}
+
+/// While no operator key is configured the restart is token-level,
+/// so a coordinator deployed before its key still has its brake: the
+/// action is logged unsigned and the record names no statement. A body
+/// carrying an authorization is refused (`operator_key_unconfigured`), and
+/// once a key is configured the token alone is refused.
+#[test]
+fn with_no_operator_key_configured_the_restart_is_token_level() {
+    let h = H::new();
+    let no_key = |body: serde_json::Value| {
+        tx(&h.db, |sql| crate::signing::decide::decide(sql, &h.cfg, &h.trusted, body, None, Some(300), T0)).unwrap().map_err(|r| r.code)
+    };
+    let body = restart_body(&h, "nokey-1", 250, 250, &[], &[], None);
+    assert_eq!(no_key(signed(body.clone())), Err("operator_key_unconfigured"));
+    assert_eq!(decide_restart(&h, body.clone(), 300), Err("authorization_required"), "a configured key needs the signature");
+    let v = no_key(body).unwrap();
+    assert_eq!(v["signed"], serde_json::json!(false));
+    assert_eq!(tx(&h.db, restart_floor).unwrap(), Some(250));
+    let signed_flag: i64 = h.db.conn.query_row("SELECT signed FROM operator_actions", [], |r| r.get(0)).unwrap();
+    assert_eq!(signed_flag, 0);
+    let rec: String = h.db.conn.query_row("SELECT record_hex FROM sign_restart_records", [], |r| r.get(0)).unwrap();
+    let rec = <slop_ninja_protocol::decisions::ChainRestart as Record_>::from_bytes(&hex::decode(rec).unwrap()).unwrap();
+    assert_eq!(rec.statement, None);
 }

@@ -84,7 +84,7 @@ use serde_json::{Value, json};
 use slop_ninja_protocol::ChainBinding;
 use slop_ninja_protocol::operator::OperatorKey;
 
-use super::{SignConfig, attempt, attempt_subject, held_target, log, restart_floor, restart_target};
+use super::{SignConfig, attempt, attempt_subject, held_target, log, restart_checks, restart_floor, restart_target};
 use crate::sql::{SqlValue, bind_u64};
 use crate::operator::{self, Address, Begin, Request};
 use crate::sql::{Sql, StoreError, text, uint};
@@ -107,8 +107,34 @@ fn set(v: &mut Value, key: &str, value: Value) {
     }
 }
 
-/// An operator request's answer: the effect, or a refusal code.
-pub type Answer = Result<Value, &'static str>;
+/// A refused operator request: its code and, for a restart, the restart
+/// set the journal computed (content-free numbers, labels and states), so
+/// the operator can name it without guessing.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Refused {
+    pub code: &'static str,
+    pub detail: Option<Value>,
+}
+
+impl From<&'static str> for Refused {
+    fn from(code: &'static str) -> Self {
+        Refused { code, detail: None }
+    }
+}
+
+impl Refused {
+    /// The admin route's answer: `{"refused": code}`, with `detail` beside
+    /// it when present.
+    pub fn to_json(&self) -> Value {
+        match &self.detail {
+            Some(d) => json!({"refused": self.code, "detail": d}),
+            None => json!({"refused": self.code}),
+        }
+    }
+}
+
+/// An operator request's answer: the effect, or a refusal.
+pub type Answer = Result<Value, Refused>;
 
 /// D5's operator action (`attempt_resolve`, request field `op`: the
 /// operation id or its last characters): asks the journal to run the live
@@ -127,11 +153,11 @@ pub fn attempt_resolve(
     match operator::begin(sql, req, "coordinator.attempt_resolve", false, key, &address(&chain))? {
         Ok(Begin::Answer(v)) => return Ok(Ok(v)),
         Ok(Begin::Proceed(_)) => {}
-        Err(code) => return Ok(Err(code)),
+        Err(code) => return Ok(Err(code.into())),
     }
     let want = req.body.get("op").and_then(Value::as_str).unwrap_or_default();
     if want.is_empty() {
-        return Ok(Err("op_missing"));
+        return Ok(Err("op_missing".into()));
     }
     let rows = sql.exec(
         "SELECT op_id, attempt, state FROM sign_attempts WHERE state IN ('submitted', 'uncertain', 'included')
@@ -147,10 +173,10 @@ pub fn attempt_resolve(
         }
     }
     let Some((op_id, n, state)) = found else {
-        return Ok(Err("attempt_not_live"));
+        return Ok(Err("attempt_not_live".into()));
     };
     if req.expect.get("state").and_then(Value::as_str) != Some(state.as_str()) {
-        return Ok(Err("expect_mismatch"));
+        return Ok(Err("expect_mismatch".into()));
     }
     let subject = attempt_subject(&op_id, n);
     let backoff = sql
@@ -163,7 +189,7 @@ pub fn attempt_resolve(
         return Ok(Ok(json!({"preview": true, "effect": effect})));
     }
     if attempt(sql, &op_id, n)?.is_none() {
-        return Ok(Err("attempt_not_live"));
+        return Ok(Err("attempt_not_live".into()));
     }
     sql.exec("DELETE FROM sign_failures WHERE subject = ? AND settled = 0", &[subject.as_str().into()])?;
     log(sql, now_ms, None, Some(&op_id), Some(n), "attempt_resolve", Some("operator: check the evidence now"))?;
@@ -187,12 +213,12 @@ pub fn decide(
     let action = body.get("action").and_then(Value::as_str).unwrap_or_default().to_owned();
     let req = match operator::parse(body) {
         Ok(r) => r,
-        Err(code) => return Ok(Err(code)),
+        Err(code) => return Ok(Err(code.into())),
     };
     match action.as_str() {
         "attempt_resolve" => attempt_resolve(sql, cfg, &req, key, now_ms),
         "restart" => restart(sql, cfg, trusted, &req, key, finalized_epoch, now_ms),
-        _ => Ok(Err("unknown_action")),
+        _ => Ok(Err("unknown_action".into())),
     }
 }
 
@@ -299,20 +325,45 @@ fn u64_list(v: Option<&Value>) -> Option<Vec<u64>> {
     v?.as_array()?.iter().map(Value::as_u64).collect()
 }
 
-/// P1-R, "burn now" (`action: "restart"`, under the offline key): with
-/// signing paused, sets the held target aside and installs the launch burn
-/// row from floor `floor` (the existing [`restart_target`] and its floors),
-/// with the P1 checks: `floor` at most the finalized epoch + 1
-/// (`restart_future`, D13); the launch authorization issued at `floor`
-/// (`restart_issue_mismatch`); `floor` above every epoch holding a signed
-/// attempt (`epoch_signed`); no unresolved attempt (`attempt_unresolved`);
-/// `expect.held` the held target; and `past` / `unlisted` exactly the
-/// journal's [`restart_set`] (`past_changed`). Planned operations of epochs
-/// at or after `floor` with no attempt are dropped and planned again under
-/// the burn row. Each cohort in `past` is journaled as `restarted_past` in
-/// `sign_restart_past`, which no handoff query reads, and a signed,
-/// content-free `ChainRestart` record names the floor, the launch
-/// authorization, `last`, `past` and `unlisted`. A refusal changes nothing.
+/// The restart set as the refusals and the preview show it.
+fn set_json(floor: u64, last: Option<u64>, set: &RestartSet) -> Value {
+    let (past, info, unlisted) = set;
+    let info: Vec<Value> = info.iter().map(|(n, state)| json!({"cohort": n, "state": state})).collect();
+    json!({"floor": floor, "last": last, "past": past, "unlisted": unlisted, "info": info})
+}
+
+/// P1-R, "burn now" (`action: "restart"`, under the offline key once
+/// `OPERATOR_DECISION_KEY` is configured): with signing paused, sets the
+/// held target aside and installs the launch burn row from floor `floor`
+/// (the existing [`restart_target`] and its floors), with the P1 checks:
+/// `floor` at most the finalized epoch + 1 (`restart_future`, D13); the
+/// launch authorization issued at `floor` (`restart_issue_mismatch`);
+/// `floor` above every epoch holding a signed attempt (`epoch_signed`); no
+/// unresolved attempt (`attempt_unresolved`); `expect.held` the held
+/// target; [`super::restart_checks`] (signing paused, the floors, the launch
+/// bundle), each refused as its own code; and `past` / `unlisted` exactly
+/// the journal's [`restart_set`] (`past_missing`, `past_changed`).
+///
+/// Every refusal after the floor is read carries the restart set the
+/// journal computed for this `floor` and `last` (`detail`: `past`,
+/// `unlisted` and the preview's `info`), so one refused request tells the
+/// operator exactly what to name. A preview runs every check and writes
+/// nothing; it may leave `past` and `unlisted` out, and then answers the
+/// computed set with `past_named: false` (named ones are compared as in the
+/// post). The signing status shows the set at the next floor
+/// (`restart.past`).
+///
+/// Planned operations of epochs at or after `floor` with no attempt are
+/// dropped and planned again under the burn row. Each cohort in `past` is
+/// journaled as `restarted_past` in `sign_restart_past`, which no handoff
+/// query reads, and a signed, content-free `ChainRestart` record names the
+/// floor, the launch authorization, `last`, `past` and `unlisted`. A refusal
+/// changes nothing.
+///
+/// While no operator key is configured (`key` is `None`), the restart is a
+/// token-level action, so a coordinator deployed before its key still has a
+/// brake: it is logged unsigned and its record names no statement. Once a
+/// key is configured it needs the offline signature.
 pub fn restart(
     sql: &impl Sql,
     cfg: &SignConfig,
@@ -323,30 +374,30 @@ pub fn restart(
     now_ms: u64,
 ) -> Result<Answer, StoreError> {
     let chain = chain_of(cfg);
-    let statement = match operator::begin(sql, req, "coordinator.restart", true, key, &address(&chain))? {
+    let statement = match operator::begin(sql, req, "coordinator.restart", key.is_some(), key, &address(&chain))? {
         Ok(Begin::Answer(v)) => return Ok(Ok(v)),
-        Ok(Begin::Proceed(st)) => match st {
-            Some(st) => st,
-            None => return Ok(Err("authorization_required")),
-        },
-        Err(code) => return Ok(Err(code)),
+        Ok(Begin::Proceed(st)) => st,
+        Err(code) => return Ok(Err(code.into())),
     };
-    let Some(floor) = req.body.get("floor").and_then(Value::as_u64) else { return Ok(Err("floor_missing")) };
+    let Some(floor) = req.body.get("floor").and_then(Value::as_u64) else { return Ok(Err("floor_missing".into())) };
     let bundle = req.body.get("bundle").and_then(Value::as_str).unwrap_or_default().to_owned();
     let last = req.body.get("last").and_then(Value::as_u64);
-    let (Some(named_past), Some(named_unlisted)) = (u64_list(req.body.get("past")), u64_list(req.body.get("unlisted"))) else {
-        return Ok(Err("past_missing"));
-    };
+    // The set this floor passes, from the journal alone; every refusal
+    // from here names it.
+    let computed_set = restart_set(sql, floor, last)?;
+    let detail = set_json(floor, last, &computed_set);
+    let refuse = |code: &'static str| -> Result<Answer, StoreError> { Ok(Err(Refused { code, detail: Some(detail.clone()) })) };
+    let (past, info, unlisted) = computed_set;
     // D13: the floor is bounded by finalized chain state, from the journal's
     // own schedule and the Worker's RPC reading.
     let finalized = super::authority::finalized_epoch(sql)?.max(observed_epoch);
-    let Some(finalized) = finalized else { return Ok(Err("finalized_unknown")) };
+    let Some(finalized) = finalized else { return refuse("finalized_unknown") };
     if floor > finalized.saturating_add(1) {
-        return Ok(Err("restart_future"));
+        return refuse("restart_future");
     }
     let held = held_target(sql, cfg)?;
     if req.expect.get("held").and_then(Value::as_str) != Some(held.digest().to_string().as_str()) {
-        return Ok(Err("expect_mismatch"));
+        return refuse("expect_mismatch");
     }
     // No epoch at or after the floor holds a signed attempt, and no attempt
     // is unresolved: an epoch holds one operation, and nothing is signed
@@ -359,41 +410,45 @@ pub fn restart(
             _ => None,
         });
     if signed_max.is_some_and(|e| e >= floor) {
-        return Ok(Err("epoch_signed"));
+        return refuse("epoch_signed");
     }
     if !sql.exec("SELECT 1 FROM sign_attempts WHERE state IN ('signed', 'sending', 'submitted', 'uncertain') LIMIT 1", &[])?.is_empty() {
-        return Ok(Err("attempt_unresolved"));
+        return refuse("attempt_unresolved");
     }
+    // Every check of the restart itself (signing paused, the floors, the
+    // launch bundle), before anything is written: each refusal is its own
+    // code, in the preview too.
+    let launch = match restart_checks(sql, cfg, trusted, &bundle, floor)? {
+        Ok(l) => l,
+        Err(r) => return refuse(r.code),
+    };
     // The launch authorization's issue epoch is the floor: validators see
     // only that number (P1-V).
-    let issued = match crate::target::parse_v2(bundle.as_bytes()).and_then(|b| {
-        let launch = slop_ninja_protocol::ActiveTarget::launch(&chain).map_err(|_| crate::target::Refusal { code: "launch_target", detail: String::new() })?;
-        crate::target::verify_v2(&b, trusted, &cfg.genesis.0, cfg.netuid, &launch)
-    }) {
-        Ok(v) => match v.checked_terms(trusted) {
-            Ok(t) => (t.issued_epoch, t.digest),
-            Err(_) => return Ok(Err("authorization_refused")),
-        },
-        Err(r) => return Ok(Err(r.code)),
-    };
-    if issued.0 != floor {
-        return Ok(Err("restart_issue_mismatch"));
+    if launch.issued_epoch != floor {
+        return refuse("restart_issue_mismatch");
     }
-    let (past, info, unlisted) = restart_set(sql, floor, last)?;
     let computed: Vec<u64> = past.iter().map(|p| p.cohort).collect();
-    let mut named = named_past.clone();
-    named.sort_unstable();
-    named.dedup();
-    let mut computed_sorted = computed.clone();
-    computed_sorted.sort_unstable();
-    computed_sorted.dedup();
-    if named != computed_sorted || named_unlisted != unlisted {
-        return Ok(Err("past_changed"));
-    }
+    let named = match (u64_list(req.body.get("past")), u64_list(req.body.get("unlisted"))) {
+        (Some(mut p), Some(u)) => {
+            p.sort_unstable();
+            p.dedup();
+            let mut c = computed.clone();
+            c.sort_unstable();
+            c.dedup();
+            if p != c || u != unlisted {
+                return refuse("past_changed");
+            }
+            true
+        }
+        // A preview may ask for the set instead of naming it.
+        _ if req.preview => false,
+        _ => return refuse("past_missing"),
+    };
     let effect = json!({"floor": floor, "held": held.digest().to_string(), "held_activated_epoch": held.activated_epoch(),
-        "launch_authorization": issued.1.to_string(), "last": last, "past": past, "unlisted": unlisted, "info": info});
+        "launch_authorization": launch.digest.to_string(), "last": last, "past": past, "unlisted": unlisted, "info": info,
+        "signed": statement.is_some()});
     if req.preview {
-        return Ok(Ok(json!({"preview": true, "effect": effect})));
+        return Ok(Ok(json!({"preview": true, "past_named": named, "effect": effect})));
     }
     // Planned operations at or after the floor that never signed are dropped
     // and planned again under the burn row.
@@ -405,7 +460,8 @@ pub fn restart(
     let previous = (!held.is_launch_burn()).then(|| (held.digest(), held.activated_epoch()));
     let restarted = match restart_target(sql, cfg, trusted, &bundle, floor, now_ms)? {
         Ok(r) => r,
-        // A refusal after the checks above rolls the whole action back.
+        // Checked above in this transaction: a refusal here is a defect,
+        // and it rolls the whole action back.
         Err(r) => return Err(StoreError(r.code)),
     };
     for p in &past {
@@ -434,7 +490,7 @@ pub fn restart(
     let record = slop_ninja_protocol::decisions::ChainRestart {
         chain: chain.clone(),
         floor,
-        launch_authorization: issued.1,
+        launch_authorization: launch.digest,
         previous_target: previous.map(|p| p.0),
         previous_activated_epoch: previous.and_then(|p| p.1),
         last,
@@ -455,7 +511,7 @@ pub fn restart(
     let mut out = effect;
     set(&mut out, "restarted", serde_json::to_value(&restarted).unwrap_or_default());
     set(&mut out, "replanned_epochs", json!(dropped));
-    let seq = operator::record(sql, req, "coordinator.restart", Some(&statement), &out, Some(finalized), now_ms)?;
+    let seq = operator::record(sql, req, "coordinator.restart", statement.as_ref(), &out, Some(finalized), now_ms)?;
     set(&mut out, "operator_seq", json!(seq));
     Ok(Ok(out))
 }

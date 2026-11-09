@@ -237,6 +237,18 @@ pub fn configured_key(value: Option<&str>) -> Result<Option<OperatorKey>, &'stat
     }
 }
 
+/// What `OPERATOR_DECISION_KEY` holds, for the status routes and the
+/// deploy probe: `configured`, `unconfigured` (unset: every signed decision
+/// refuses `operator_key_unconfigured`, except the coordinator restart,
+/// which is token-level until a key is configured) or `invalid`.
+pub fn key_state(value: Option<&str>) -> &'static str {
+    match configured_key(value) {
+        Ok(Some(_)) => "configured",
+        Ok(None) => "unconfigured",
+        Err(_) => "invalid",
+    }
+}
+
 /// What the action log knows of a decision id.
 #[derive(Clone, Debug, PartialEq)]
 pub enum Prior {

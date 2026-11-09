@@ -905,6 +905,11 @@ impl DurableObject for EvalCohort {
                 }) {
                     Ok(mut v) => {
                         v["schema_version"] = j!(version);
+                        // Whether the offline operator-decision key is
+                        // configured (the deploy probe reads it).
+                        v["operator_key"] = j!(crate::operator::key_state(
+                            self.env.var("OPERATOR_DECISION_KEY").ok().map(|v| v.to_string()).as_deref()
+                        ));
                         v["instance"] = j!(instance);
                         v["authority"] = j!(self.state.id().to_string());
                         v["authority_name"] = j!(cfg.authority.name());

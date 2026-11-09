@@ -3637,7 +3637,7 @@ fn attempt_resolve_reruns_the_evidence_check_without_deciding_it() {
     let tail: String = op_id.chars().rev().take(12).collect::<String>().chars().rev().collect();
     let state = h.ops()[0].attempts[0].state.clone();
     let decide = |h: &H, body: serde_json::Value| {
-        tx(&h.db, |sql| super::decide::decide(sql, &h.cfg, &h.trusted, body, None, None, h.now.get())).unwrap()
+        tx(&h.db, |sql| super::decide::decide(sql, &h.cfg, &h.trusted, body, None, None, h.now.get())).unwrap().map_err(|r| r.code)
     };
     let wrong = serde_json::json!({"action": "attempt_resolve", "decision": "d5-0", "reason": "operator_decision", "op": tail, "expect": {"state": "included"}});
     assert_eq!(decide(&h, wrong), Err("expect_mismatch"));
@@ -3678,7 +3678,7 @@ fn burn_now_refuses_a_signed_epoch_and_replans_an_unsigned_one() {
         crate::operator::tests::signed_body(&k, "coordinator.restart", &to, b)
     };
     let decide = |h: &H, b: serde_json::Value, observed: u64| {
-        tx(&h.db, |sql| super::decide::decide(sql, &h.cfg, &h.trusted, b, Some(&key), Some(observed), T0)).unwrap()
+        tx(&h.db, |sql| super::decide::decide(sql, &h.cfg, &h.trusted, b, Some(&key), Some(observed), T0)).unwrap().map_err(|r| r.code)
     };
     let resets = h.counter("held_target_resets");
     assert_eq!(decide(&h, body("drill-e1", signed_epoch), signed_epoch + 5), Err("epoch_signed"));

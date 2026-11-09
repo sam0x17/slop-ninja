@@ -568,10 +568,20 @@ impl DurableObject for ChainJournal {
                 }) {
                     Ok((status, signing, registry)) => {
                         let mut value = serde_json::to_value(&status)?;
-                        let signing = match signing {
+                        let mut signing = match signing {
                             Some(sg) => serde_json::to_value(&sg)?,
                             None => serde_json::json!({"configured": false}),
                         };
+                        // Whether the offline operator-decision key is
+                        // configured (the deploy probe reads it).
+                        if let Some(map) = signing.as_object_mut() {
+                            map.insert(
+                                "operator_key".into(),
+                                serde_json::json!(crate::operator::key_state(
+                                    self.env.var("OPERATOR_DECISION_KEY").ok().map(|v| v.to_string()).as_deref()
+                                )),
+                            );
+                        }
                         let instance = serde_json::json!({
                             "age_ms": now.saturating_sub(self.started_ms),
                             "requests": self.requests.get(),
@@ -866,7 +876,8 @@ fn admin(
                 now,
             )? {
                 Ok(v) => v,
-                Err(code) => json!({"refused": code}),
+                // A restart's refusal names the restart set beside its code.
+                Err(r) => r.to_json(),
             },
         },
         "install_target" => match signing::install_target(
@@ -914,11 +925,11 @@ fn admin(
         // A chain record restarted under the same trust roots: the
         // restarted record's launch bundle replaces the held target in one
         // transaction (`signing::restart_target`); a refusal changes nothing.
-        // P1-R: a restart is an operator decision under the offline key
-        // (`/signing/decide`, action `restart`); the unsigned route only
-        // says so.
+        // P1-R: a restart is an operator decision (`/signing/decide`,
+        // action `restart`), under the offline key once one is configured
+        // and token-level until then; this route only says so.
         "restart_target" if signing::RESTART_NEEDS_DECISION => json!({"refused": {"code": "restart_needs_decision",
-            "detail": "post the restart to /signing/decide with the offline operator-decision signature"}}),
+            "detail": "post the restart to /signing/decide (action restart; the offline operator-decision signature once OPERATOR_DECISION_KEY is configured)"}}),
         "restart_target" => match signing::restart_target(
             sql,
             cfg,

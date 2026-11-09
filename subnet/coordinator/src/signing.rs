@@ -1401,8 +1401,9 @@ pub fn restart_floor_ok(
     }
 }
 
-/// P1-R: the unsigned `/signing/restart` route refuses; a restart is the
-/// signed operator decision `decide::restart`.
+/// P1-R: the old `/signing/restart` route refuses; a restart is the
+/// operator decision `decide::restart` (signed once an operator key is
+/// configured, token-level until then).
 pub const RESTART_NEEDS_DECISION: bool = true;
 
 /// What an operator restart of the held target did ([`restart_target`]).
@@ -1419,42 +1420,32 @@ pub struct Restarted {
     pub from_epoch: u64,
 }
 
-/// Operator restart of the held target for a chain record restarted under
-/// the same trust roots (the eval Worker's new main authority, R_0 with no
-/// predecessor): the coordinator's own counterpart of the native validator's
-/// `reset-target`. One transaction, refused unless signing is paused: the
-/// restarted record's first epoch `from_epoch` (the restart record's
-/// `PUBLISH_FROM_EPOCH`) must be after the epoch the held target activated
-/// and not before an earlier restart's, and the supplied bundle must be a
-/// launch bundle that verifies against the launch burn row and was issued at
-/// or after `from_epoch`; then the held
-/// record is moved to the reset history (never deleted), the bundle is
-/// installed as the only active target, and `from_epoch` becomes the floor
-/// every later bundle must meet ([`restart_floor_ok`]). A refusal changes
-/// nothing, so this action is never a probe.
-///
-/// `from_epoch` must also exceed every epoch an installed bundle was issued
-/// or opened at ([`record_epoch`], `restart_regressed`), the earlier
-/// restarts' own launch bundles included. So a second restart can never
-/// reuse the first one's floor while the launch burn row is held (no
-/// activation to bound it): every bundle of a record set aside was issued or
-/// opened before its restart's floor, or installed since, and so below the
-/// next one.
-///
-/// Operations, attempts and reveals are left alone: a live attempt keeps
-/// reconciling from finalized state and is never sent again, committed
-/// operations keep their read-back and reveal checks, and an operation that
-/// never reached the chain is never signed under another target (an epoch
-/// holds one operation, `commit_ops.epoch` being unique, so the restarted
-/// target's first commit takes the next free epoch).
-pub fn restart_target(
+/// The launch authorization a restart installs, as [`restart_checks`] read it.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct RestartLaunch {
+    /// The epoch the launch authorization was issued at.
+    pub issued_epoch: u64,
+    /// The launch authorization's digest.
+    pub digest: slop_ninja_protocol::Digest,
+}
+
+/// Every check [`restart_target`] makes before it writes anything, for a
+/// restart from `from_epoch` with the launch bundle `bundle_json`: signing
+/// paused (`signing_active`), `from_epoch` not before an earlier restart's
+/// floor nor at or before the held activation or the record's high-water
+/// mark (`restart_regressed`, `restart_before_held_record`), and the bundle
+/// a launch bundle that verifies against the launch burn row and was issued
+/// at or after `from_epoch`. The operator decision (`decide::restart`) runs
+/// it first, preview included, so each of these refusals is answered as its
+/// own code and nothing is written. Returns the launch authorization's
+/// issue epoch and digest.
+pub fn restart_checks(
     sql: &impl Sql,
     cfg: &SignConfig,
     keys: &slop_ninja_protocol::TrustedKeys,
     bundle_json: &str,
     from_epoch: u64,
-    now_ms: u64,
-) -> Result<Result<Restarted, target::Refusal>, StoreError> {
+) -> Result<Result<RestartLaunch, target::Refusal>, StoreError> {
     let refuse = |code: &'static str, detail: &str| {
         Ok(Err(target::Refusal {
             code,
@@ -1516,16 +1507,60 @@ pub fn restart_target(
             "a restart installs the restarted record's launch bundle",
         );
     }
-    let issued = match verified.checked_terms(keys) {
-        Ok(terms) => terms.issued_epoch,
+    let terms = match verified.checked_terms(keys) {
+        Ok(terms) => terms,
         Err(e) => return refuse("authorization_refused", &e.to_string()),
     };
+    let issued = terms.issued_epoch;
     if let Err(code) = restart_floor_ok(from_epoch, Some(issued), None) {
         return refuse(
             code,
             "the launch authorization was issued before from_epoch",
         );
     }
+    Ok(Ok(RestartLaunch { issued_epoch: issued, digest: terms.digest }))
+}
+
+/// Operator restart of the held target for a chain record restarted under
+/// the same trust roots (the eval Worker's new main authority, R_0 with no
+/// predecessor): the coordinator's own counterpart of the native validator's
+/// `reset-target`. One transaction, refused unless signing is paused: the
+/// restarted record's first epoch `from_epoch` (the restart record's
+/// `PUBLISH_FROM_EPOCH`) must be after the epoch the held target activated
+/// and not before an earlier restart's, and the supplied bundle must be a
+/// launch bundle that verifies against the launch burn row and was issued at
+/// or after `from_epoch`; then the held
+/// record is moved to the reset history (never deleted), the bundle is
+/// installed as the only active target, and `from_epoch` becomes the floor
+/// every later bundle must meet ([`restart_floor_ok`]). A refusal changes
+/// nothing, so this action is never a probe.
+///
+/// `from_epoch` must also exceed every epoch an installed bundle was issued
+/// or opened at ([`record_epoch`], `restart_regressed`), the earlier
+/// restarts' own launch bundles included. So a second restart can never
+/// reuse the first one's floor while the launch burn row is held (no
+/// activation to bound it): every bundle of a record set aside was issued or
+/// opened before its restart's floor, or installed since, and so below the
+/// next one.
+///
+/// Operations, attempts and reveals are left alone: a live attempt keeps
+/// reconciling from finalized state and is never sent again, committed
+/// operations keep their read-back and reveal checks, and an operation that
+/// never reached the chain is never signed under another target (an epoch
+/// holds one operation, `commit_ops.epoch` being unique, so the restarted
+/// target's first commit takes the next free epoch).
+pub fn restart_target(
+    sql: &impl Sql,
+    cfg: &SignConfig,
+    keys: &slop_ninja_protocol::TrustedKeys,
+    bundle_json: &str,
+    from_epoch: u64,
+    now_ms: u64,
+) -> Result<Result<Restarted, target::Refusal>, StoreError> {
+    let issued = match restart_checks(sql, cfg, keys, bundle_json, from_epoch)? {
+        Ok(launch) => launch.issued_epoch,
+        Err(r) => return Ok(Err(r)),
+    };
     let held = held_target(sql, cfg)?;
     let previous =
         (!held.is_launch_burn()).then(|| (held.digest().to_string(), held.activated_epoch()));
@@ -5138,11 +5173,82 @@ pub struct SigningStatus {
     /// Automatic target handoff: the closed cohorts handled, the next one
     /// waiting and the last failure ([`auto::view`]).
     pub auto_target: auto::AutoView,
+    /// P1-R: the set a restart at the next floor must name and the
+    /// journal's pre-floor record ([`restart_view`]).
+    pub restart: RestartView,
     pub schedule_block: Option<u64>,
     pub claim: Option<claims::ClaimStatus>,
     pub ops: Vec<OpStatus>,
     pub drills: Vec<(String, u64)>,
     pub log: Vec<serde_json::Value>,
+}
+
+/// One row of the restart's pre-floor record (`sign_restart_past`).
+#[derive(Clone, Debug, Serialize)]
+pub struct RestartPastRow {
+    pub floor: u64,
+    pub cohort: u64,
+    pub label: Option<String>,
+    pub state: String,
+    /// `restarted_past` (named by the restart), `named_unlisted` (named as
+    /// unlisted, no label seen yet) or `restarted_past_unlisted` (a
+    /// pre-floor label found after the restart).
+    pub reason: String,
+}
+
+/// What a restart would pass now, and what restarts passed (P1-R).
+#[derive(Clone, Debug, Serialize)]
+pub struct RestartView {
+    /// The highest floor a restart may take now: the finalized epoch + 1
+    /// (D13), when the journal knows it.
+    pub next_floor: Option<u64>,
+    /// The set S a restart at `next_floor` must name as `past`
+    /// ([`decide::restart_set`]). Its `unlisted` numbers depend on the
+    /// `last` the operator reads from the eval; a refused or previewed
+    /// restart answers the whole set for the floor and `last` it names.
+    pub past: Vec<decide::PastCohort>,
+    /// The latest restart's pre-floor record, each number with its reason.
+    pub recorded: Vec<RestartPastRow>,
+    /// Pre-floor rows across every restart.
+    pub recorded_total: u64,
+    /// Signed restart records (and addenda) not yet written.
+    pub records_unwritten: u64,
+}
+
+/// The restart view of the signing status.
+pub fn restart_view(sql: &impl Sql) -> Result<RestartView, StoreError> {
+    let next_floor = authority::finalized_epoch(sql)?.map(|e| e.saturating_add(1));
+    let past = match next_floor {
+        Some(f) => decide::restart_set(sql, f, None)?.0,
+        None => Vec::new(),
+    };
+    let recorded = sql
+        .exec(
+            "SELECT floor, cohort, label, state, reason FROM sign_restart_past
+             WHERE floor = (SELECT MAX(floor) FROM sign_restart_past) ORDER BY cohort",
+            &[],
+        )?
+        .iter()
+        .map(|r| {
+            Ok(RestartPastRow {
+                floor: uint(r, 0)?,
+                cohort: uint(r, 1)?,
+                label: opt_t(r, 2),
+                state: text(r, 3)?.to_owned(),
+                reason: text(r, 4)?.to_owned(),
+            })
+        })
+        .collect::<Result<Vec<_>, StoreError>>()?;
+    let count = |q: &str| -> Result<u64, StoreError> {
+        sql.exec(q, &[])?.first().map_or(Err(StoreError("restart view count")), |r| uint(r, 0))
+    };
+    Ok(RestartView {
+        next_floor,
+        past,
+        recorded,
+        recorded_total: count("SELECT COUNT(*) FROM sign_restart_past")?,
+        records_unwritten: count("SELECT COUNT(*) FROM sign_restart_records WHERE written_ms IS NULL")?,
+    })
 }
 
 fn opt_u(r: &crate::sql::Row, i: usize) -> Option<u64> {
@@ -5347,6 +5453,7 @@ pub fn status(
         authorization: authority::view(sql, now_ms)?,
         row_record: rows::view(sql, now_ms)?,
         auto_target: auto::view(sql, now_ms)?,
+        restart: restart_view(sql)?,
         schedule_block: sql
             .exec("SELECT block_number FROM chain_schedule WHERE id = 1", &[])?
             .first()

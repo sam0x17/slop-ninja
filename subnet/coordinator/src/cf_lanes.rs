@@ -682,10 +682,14 @@ impl AScorer {
             let s: i64 = get_kv(&st, "s_cpu").await.unwrap_or(0);
             let _ = st.put("s_cpu", s.max(cold.cpu_ms as i64)).await;
             // The loaded artifact's span facts (token head, decoder), for a
-            // span cohort's format check and structural conditions.
-            if h["package"].as_str() == Some(art.package_sha256.as_str()) && h["state"] == "ready" {
-                let facts = StoredFacts { package: art.package_sha256.clone(), facts: crate::eval::span_gate::SpanFacts::of_healthz(&h) };
-                let _ = st.put("span_facts", facts).await;
+            // span cohort's format check and structural conditions. A scorer
+            // image older than the decoder fact reports none: nothing is
+            // stored, so the job records no facts (`facts_missing`).
+            if h["package"].as_str() == Some(art.package_sha256.as_str())
+                && h["state"] == "ready"
+                && let Some(facts) = crate::eval::span_gate::SpanFacts::of_healthz(&h)
+            {
+                let _ = st.put("span_facts", StoredFacts { package: art.package_sha256.clone(), facts }).await;
             }
         }
         let _ = st.put("last_use_ms", now_ms() as i64).await;

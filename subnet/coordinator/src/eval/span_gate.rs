@@ -256,15 +256,25 @@ pub struct SpanFacts {
 }
 
 impl SpanFacts {
-    /// From a ready scorer's `/healthz` (`load.release`).
-    pub fn of_healthz(h: &Value) -> Self {
+    /// From a ready scorer's `/healthz` (`load.release`). `None` when the
+    /// facts are unknown: a token head with no `decoder` load fact at all
+    /// (`null` is the fact "no decoder"; an absent field is a scorer image
+    /// older than the fact). Such a job records no facts, so its entrant
+    /// gets no value (`facts_missing`) rather than `decoder_under_floor`.
+    /// A load without a token head is a fact on every scorer image.
+    pub fn of_healthz(h: &Value) -> Option<Self> {
         let r = &h["load"]["release"];
-        let d = &r["decoder"];
-        SpanFacts {
-            token_head: r["token_head"] == true,
+        let token_head = r["token_head"] == true;
+        let d = r.get("decoder");
+        if token_head && d.is_none() {
+            return None;
+        }
+        let d = d.unwrap_or(&Value::Null);
+        Some(SpanFacts {
+            token_head,
             decoder_rule: d["rule"].as_str().map(str::to_owned),
             decoder_min: d["min_words"].as_u64().and_then(|m| u32::try_from(m).ok()),
-        }
+        })
     }
 
     pub fn structure(&self) -> Structure<'_> {

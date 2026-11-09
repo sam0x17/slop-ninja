@@ -106,6 +106,33 @@ fn cells_come_from_the_reply_or_a_failed_prediction() {
     assert!(cell(&text, &broken, None, Some(24)).is_none());
 }
 
+/// Load facts from `/healthz`: a token head with no decoder field (a scorer
+/// image older than the decoder fact) gives no facts, never "decoder under
+/// the floor"; a `null` decoder is the fact "no decoder"; a load without a
+/// token head is a fact on every image.
+#[test]
+fn load_facts_need_the_decoder_field_for_a_token_head() {
+    let h = |release: Value| json!({"state": "ready", "load": {"release": release}});
+    let old_tower = h(json!({"arm": "s2c", "token_head": true, "span_tower": true}));
+    assert_eq!(SpanFacts::of_healthz(&old_tower), None);
+    let d24 = SpanFacts::of_healthz(&h(json!({"token_head": true,
+        "decoder": {"rule": se::DECODER_RULE, "min_words": 24}})))
+    .unwrap();
+    assert_eq!(se::structural(&d24.structure()), None);
+    assert_eq!((d24.decoder_rule.as_deref(), d24.decoder_min), (Some(se::DECODER_RULE), Some(24)));
+    let short = SpanFacts::of_healthz(&h(json!({"token_head": true,
+        "decoder": {"rule": se::DECODER_RULE, "min_words": 10}})))
+    .unwrap();
+    assert_eq!(se::structural(&short.structure()), Some(se::Reason::Floor));
+    let none = SpanFacts::of_healthz(&h(json!({"token_head": true, "decoder": null}))).unwrap();
+    assert_eq!(se::structural(&none.structure()), Some(se::Reason::Floor));
+    // R0's release guard reports neither field, on old and new images.
+    let r0 = SpanFacts::of_healthz(&h(json!({"arm": "r0", "seed": 17}))).unwrap();
+    assert_eq!(se::structural(&r0.structure()), Some(se::Reason::Missing));
+    let plain = SpanFacts::of_healthz(&h(json!({"token_head": false}))).unwrap();
+    assert!(!plain.token_head);
+}
+
 #[test]
 fn shard_labels_read_batch_documents_only() {
     let lines = [

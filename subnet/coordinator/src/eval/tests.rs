@@ -7677,6 +7677,34 @@ fn span_gate_report_mode_records_cells_and_publishes_one_value_per_scored_entran
     assert_eq!(slop_ninja_protocol::LocalizationOutcomeV1::from_bytes(signed).unwrap(), *l);
 }
 
+/// A scorer image older than the decoder load fact reports a token head and
+/// no decoder: those jobs record no facts, so their entrants get no value
+/// (`facts_missing`), never `decoder_under_floor`; a load without a token
+/// head is still a fact.
+#[test]
+fn a_scorer_image_without_the_decoder_fact_gives_token_heads_no_value() {
+    use slop_ninja_protocol::LocalizationValue;
+    let db = Sqlite::open();
+    let (_sim, seq, b) = span_cohort(&db, localizing, |sim| {
+        sim.span_facts = Some(Box::new(|job| {
+            let release = match job {
+                1 | 3 | 4 | 5 => json!({"token_head": true, "span_tower": true}),
+                _ => json!({"arm": "r0", "seed": 17}),
+            };
+            super::span_gate::SpanFacts::of_healthz(&json!({"state": "ready", "load": {"release": release}}))
+        }));
+    });
+    let q = |sql: &str| -> i64 { db.conn.query_row(sql, rusqlite::params![seq], |r| r.get(0)).unwrap() };
+    assert_eq!(q("SELECT COUNT(*) FROM jobs WHERE seq = ?1 AND span_facts IS NULL"), 4);
+    let l = b.localization.as_ref().expect("the localization record");
+    l.check_result(&b.result).unwrap();
+    assert_eq!(l.entrants, vec![None, Some(LocalizationValue::NoTokenHead), None, None]);
+    assert_eq!(l.bits, 1 + slop_ninja_protocol::localization::STATE_BITS);
+    for pos in [0, 2, 3] {
+        assert_eq!(b.components["localization"]["entrants"][pos]["reason"], "facts_missing", "{pos}");
+    }
+}
+
 #[test]
 fn a_malformed_span_reply_commits_its_document_outcome_and_waives_the_cohort() {
     use slop_ninja_protocol::LocalizationState;

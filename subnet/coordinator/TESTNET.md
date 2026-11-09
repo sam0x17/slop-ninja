@@ -924,6 +924,10 @@ printf 'Authorization: Bearer %s\n' "$(cat $S/eval_operator_token)" |
 #   entrant, the cohort state applied|waived|void; never a gate failure of the package). Older eval
 #   builds refuse a plan naming the block, so never roll the eval Worker back below it once one is
 #   stored (store v29).
+#   Deploy order: the scorer image with the decoder load fact (`/healthz` load.release.decoder and
+#   build.score_fields) first, then this eval Worker, and only then a template naming the block. A
+#   job on an older image records no load facts for a token head, so its entrant gets no value
+#   (facts_missing in the private components), never decoder_under_floor.
 # void one cohort's measured span conditions before its packaging starts (journaled, idempotent):
 #   POST /eval/span-gate/void {"label", "decision", "reason"[, "withdraw": true]}
 #   (decision_reused for another body under a used id; span_gate_void_after_packaging once

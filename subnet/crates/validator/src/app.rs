@@ -280,7 +280,13 @@ pub fn is_deferral(code: &str) -> bool {
     is_row_deferral(code)
         || matches!(
             code,
-            "authorization_refused" | "authorization_revoked" | "pending_operation_unsettled" | "bundle_schema_retired"
+            "authorization_refused"
+                | "authorization_revoked"
+                | "pending_operation_unsettled"
+                | "bundle_schema_retired"
+                // P1-V: a pre-restart row or launch row waits for the next.
+                | "restart_stale"
+                | "row_before_restart"
         )
 }
 
@@ -491,15 +497,72 @@ async fn apply_v2<P: AppPorts>(
         netuid,
         mechanism: 0,
     };
-    let held = match ports.held_target()? {
+    let (held, floor) = match ports.held_target()? {
         Some(file) => match file.restore(&chain) {
-            Ok(held) => held,
+            Ok(held) => (held, file.restart_floor),
             Err(refusal) => return Ok(refused(refusal)),
         },
-        None => slop_ninja_protocol::ActiveTarget::launch(&chain).map_err(|e| anyhow::anyhow!("{e}"))?,
+        None => (slop_ninja_protocol::ActiveTarget::launch(&chain).map_err(|e| anyhow::anyhow!("{e}"))?, None),
     };
-    let authorized = match crate::package_v2::verify(bytes, &keys, &genesis, netuid, &held) {
-        Ok(a) => std::sync::Arc::new(a),
+    // P1-V: the floor this bundle leaves held, and whether it is a restart
+    // (a launch row accepted over an activated target).
+    let mut next_floor = floor;
+    let mut restart = false;
+    let verified = match crate::package_v2::verify(bytes, &keys, &genesis, netuid, &held) {
+        // A launch row over an activated target is a coordinator restart
+        // (P1-R): accepted when its authorization was issued after the held
+        // activation and at or above the held floor; the validator then
+        // holds the launch burn row with the issue epoch as its floor.
+        Err(refusal) if !held.is_launch_burn() => {
+            let launch = slop_ninja_protocol::ActiveTarget::launch(&chain).map_err(|e| anyhow::anyhow!("{e}"))?;
+            match crate::package_v2::verify(bytes, &keys, &genesis, netuid, &launch) {
+                Ok(a) if a.verified.is_launch() => {
+                    let issued = a.verified.terms().issued_epoch;
+                    let activated = held.activated_epoch().unwrap_or(0);
+                    if issued <= activated || floor.is_some_and(|f| issued < f) {
+                        return Ok(deferred(Refusal {
+                            code: "restart_stale",
+                            detail: format!("a launch row issued at {issued}, not after the held activation {activated} and floor {floor:?}"),
+                        }));
+                    }
+                    next_floor = Some(issued);
+                    restart = true;
+                    Ok(a)
+                }
+                _ => Err(refusal),
+            }
+        }
+        other => other,
+    };
+    let authorized = match verified {
+        Ok(a) => {
+            if !restart && let Some(f) = floor {
+                // While a floor is held: a launch row issued before it, or a
+                // row that activated before it, is a pre-restart row.
+                if a.verified.is_launch() {
+                    let issued = a.verified.terms().issued_epoch;
+                    if issued < f {
+                        return Ok(deferred(Refusal {
+                            code: "restart_stale",
+                            detail: format!("a launch row issued at {issued}, before the restart floor {f}"),
+                        }));
+                    }
+                    next_floor = Some(issued.max(f));
+                } else if a.verified.active.activated_epoch().is_some_and(|e| e < f) {
+                    return Ok(deferred(Refusal {
+                        code: "row_before_restart",
+                        detail: format!("a row activated before the restart floor {f}"),
+                    }));
+                }
+            } else if !restart && a.verified.is_launch() && held.is_launch_burn() {
+                // Holding the launch row with no floor yet: a launch row's
+                // issue epoch becomes the floor (every launch row after the
+                // coordinator's first install is a restart, so its issue
+                // epoch is the coordinator's own floor).
+                next_floor = Some(a.verified.terms().issued_epoch);
+            }
+            std::sync::Arc::new(a)
+        }
         // An installed bundle of a retired schema (an upgrade over a v1 or
         // v3 bundle): nothing new is committed until a row bundle is
         // installed, but the process, its recovery and its fetcher keep
@@ -534,15 +597,24 @@ async fn apply_v2<P: AppPorts>(
     }
     authorized.set_revocations(&loaded);
     let active = authorized.verified.active.clone();
-    if active != held {
+    if restart {
+        ports
+            .record_target(&HeldTargetFile::of(&active).with_floor(next_floor))
+            .context("held target write failed")?;
+        tracing::info!(event = "held_target_restarted", target = %active.digest(), restart_floor = ?next_floor, previous = %held.digest());
+    } else if active != held {
         if !advances(&held, &active) {
             return Ok(refused(Refusal {
                 code: "held_target_regressed",
                 detail: "the bundle would move the held target backwards".into(),
             }));
         }
-        ports.record_target(&HeldTargetFile::of(&active)).context("held target write failed")?;
+        // A later target keeps the floor: its rows activate after it.
+        ports.record_target(&HeldTargetFile::of(&active).with_floor(next_floor)).context("held target write failed")?;
         tracing::info!(event = "held_target_recorded", target = %active.digest(), activated_epoch = ?active.activated_epoch());
+    } else if next_floor != floor {
+        ports.record_target(&HeldTargetFile::of(&active).with_floor(next_floor)).context("held target write failed")?;
+        tracing::info!(event = "restart_floor_raised", restart_floor = ?next_floor);
     }
     let summary = authorized.summary();
     tracing::info!(

@@ -299,9 +299,22 @@ pub struct HeldTargetFile {
     /// keys when next written.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub authority: Option<String>,
+    /// P1-V: the issue epoch of the latest restart's launch authorization
+    /// this validator accepted, while it holds the launch burn row: a row
+    /// that activated before it, or a launch row issued before it, is
+    /// refused (`row_before_restart`, `restart_stale`), so no pre-restart
+    /// row verifies again, also after a validator restart. `None` in a v1
+    /// file, and before any restart.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub restart_floor: Option<u64>,
 }
 
-pub const HELD_TARGET_SCHEMA: &str = "slop_ninja.validator_held_target/v1";
+/// The held-target file's schema: v2 adds `restart_floor`. A v1 file is read
+/// as floor `None` and rewritten as v2 on the next record; a build that only
+/// reads v1 refuses a v2 file, so a rollback over P1-V rolls forward only.
+pub const HELD_TARGET_SCHEMA: &str = "slop_ninja.validator_held_target/v2";
+/// The schema before P1-V, still read.
+pub const HELD_TARGET_SCHEMA_V1: &str = "slop_ninja.validator_held_target/v1";
 
 /// The authority a held-target record belongs to: SHA-256 over a domain tag
 /// and the package, receipt and authorization public keys.
@@ -329,7 +342,14 @@ impl HeldTargetFile {
             target: hex::encode(active.digest().0),
             activated_epoch: active.activated_epoch(),
             authority: None,
+            restart_floor: None,
         }
+    }
+
+    /// The record with restart floor `floor` (P1-V).
+    pub fn with_floor(mut self, floor: Option<u64>) -> Self {
+        self.restart_floor = floor;
+        self
     }
 
     /// The record bound to `keys`.
@@ -340,7 +360,7 @@ impl HeldTargetFile {
 
     pub fn restore(&self, chain: &ChainBinding) -> Result<ActiveTarget, Refusal> {
         let bad = |what: &str| Refusal::new("held_target_invalid", what.to_owned());
-        if self.schema != HELD_TARGET_SCHEMA {
+        if self.schema != HELD_TARGET_SCHEMA && self.schema != HELD_TARGET_SCHEMA_V1 {
             return Err(bad("schema"));
         }
         if self.genesis != hex::encode(chain.genesis.0) || self.netuid != chain.netuid || self.mechanism != chain.mechanism {

@@ -2326,13 +2326,19 @@ fn reward_v1_targets_switch_through_retained_work_and_refuse_rollbacks() -> Resu
     // launch authorization after the first activation.
     let ops = app.summary()?.operations;
     app.epoch = 101;
-    for (bundle, what) in [(rv1::bundle(&first, &before), "replaced target"), (rv1::launch(95), "launch bundle")] {
-        app.bundle = bundle;
-        match block_on(apply(&mut app, &head(), Mode::Dispatch, &Faults::none()))? {
-            AppOutcome::Refused { code, .. } => assert_eq!(code, "bundle_unverified", "{what}"),
-            other => panic!("{what}: expected a refusal, got {other:?}"),
-        }
+    app.bundle = rv1::bundle(&first, &before);
+    match block_on(apply(&mut app, &head(), Mode::Dispatch, &Faults::none()))? {
+        AppOutcome::Refused { code, .. } => assert_eq!(code, "bundle_unverified", "replaced target"),
+        other => panic!("replaced target: expected a refusal, got {other:?}"),
     }
+    // P1-V: a launch row issued before the held activation is not a restart:
+    // a deferral, and nothing changes.
+    app.bundle = rv1::launch(95);
+    match block_on(apply(&mut app, &head(), Mode::Dispatch, &Faults::none()))? {
+        AppOutcome::Deferred { code, .. } => assert_eq!(code, "restart_stale", "launch bundle"),
+        other => panic!("launch bundle: expected a deferral, got {other:?}"),
+    }
+    assert_eq!(app.held.as_ref().and_then(|h| h.activated_epoch), Some(100));
     assert_eq!(app.summary()?.operations, ops);
     // A restart on the held target joins its retained operation.
     app.bundle = rv1::bundle(&second, &before);
@@ -2653,4 +2659,55 @@ fn bundles_of_cohort_records_and_receipts_are_retired() {
     row["extra"] = serde_json::json!(1);
     let err = crate::package_v2::verify(&serde_json::to_vec(&row).unwrap(), &keys, &TESTNET_GENESIS.0, rv1::RV1_NETUID, &held).unwrap_err();
     assert_eq!(err.code, "bundle_malformed");
+}
+
+/// P1-V: a coordinator restart's launch row is accepted over an activated
+/// held target when it was issued after the activation; the validator then
+/// holds the launch burn row with the issue epoch as its restart floor
+/// (held file v2), and a replayed older launch row is a deferral
+/// (`restart_stale`). A v1 file reads as floor `None`.
+#[test]
+fn a_restart_launch_row_is_accepted_over_an_activated_target_and_raises_the_floor() -> Result<()> {
+    let root = scratch()?;
+    let config = config(root.path())?;
+    init_journal(&config, identity())?;
+    let mut app = TestApp::open(&config, &bundle())?;
+    let activated = slop_ninja_protocol::ActiveTarget::restore(&chain(), slop_ninja_protocol::Digest([0x5a; 32]), Some(40))
+        .map_err(|e| anyhow::anyhow!("{e}"))?;
+    // A v1 file (written before P1-V) is read with no floor.
+    let mut v1 = crate::package_v2::HeldTargetFile::of(&activated);
+    v1.schema = crate::package_v2::HELD_TARGET_SCHEMA_V1.into();
+    assert_eq!(v1.restore(&chain()).map_err(|r| anyhow::anyhow!(r.code))?, activated);
+    app.held = Some(v1);
+    // Issued before the activation: a pre-restart launch row.
+    app.bundle = launch_bundle(30);
+    app.epoch = 60;
+    match block_on(apply(&mut app, &head(), Mode::DryRun, &Faults::none()))? {
+        AppOutcome::Deferred { code, .. } => assert_eq!(code, "restart_stale"),
+        other => panic!("expected a deferral, got {other:?}"),
+    }
+    assert_eq!(app.held.as_ref().and_then(|h| h.activated_epoch), Some(40), "nothing changed");
+    // Issued after it: the restart is accepted with floor 50.
+    app.bundle = launch_bundle(50);
+    match block_on(apply(&mut app, &head(), Mode::DryRun, &Faults::none()))? {
+        AppOutcome::DryRun { entries, .. } => assert_eq!(entries, vec![(owner().uid, 65535)]),
+        other => panic!("expected the burn row, got {other:?}"),
+    }
+    let held = app.held.clone().context("held")?;
+    assert_eq!(held.schema, crate::package_v2::HELD_TARGET_SCHEMA);
+    assert_eq!((held.activated_epoch, held.restart_floor), (None, Some(50)));
+    // A replayed older launch row is refused while the floor is held.
+    app.bundle = launch_bundle(45);
+    match block_on(apply(&mut app, &head(), Mode::DryRun, &Faults::none()))? {
+        AppOutcome::Deferred { code, .. } => assert_eq!(code, "restart_stale"),
+        other => panic!("expected a deferral, got {other:?}"),
+    }
+    // A second restart raises the floor (the replay of a row activated in
+    // between would then fall below it).
+    app.bundle = launch_bundle(70);
+    app.epoch = 80;
+    block_on(apply(&mut app, &head(), Mode::DryRun, &Faults::none()))?;
+    assert_eq!(app.held.as_ref().and_then(|h| h.restart_floor), Some(70));
+    assert!(crate::app::is_deferral("restart_stale") && crate::app::is_deferral("row_before_restart"));
+    Ok(())
 }

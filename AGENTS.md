@@ -355,10 +355,9 @@ and detector orchestration. Use Python only where an NLP/ML dependency requires
 it. Current exceptions are the spaCy and transformer bridges called
 by Rust; the A training, export, final-block, spans and Tier C recipes and their tests in
 `grammar/crates/grammar-eval/python/`; the V6 detector runner in
-`baseline/detector/ml/`; the A CPU qualification oracle; and the author-evidence
-trainers that reproduce cited results. Delete Python that no current check,
-recipe or cited evidence uses. Keep corpus handling, feature extraction and
-vector geometry in Rust.
+`baseline/detector/ml/`; and the A CPU qualification oracle. Delete Python that
+no current check, recipe or cited evidence uses. Keep corpus handling, feature
+extraction and vector geometry in Rust.
 
 Run CPU-heavy builds, parsing, tests, and corpus audits on the build host that
 owns the checkout, not on CI. Use durable

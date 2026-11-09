@@ -132,15 +132,17 @@ chronological splits are checked. Global Voices uses its bound article features
 and preserves their declared row order. No source parsing or external model
 calls were needed.
 
-[`projection_author.py`](../grammar/crates/grammar-eval/python/projection_author.py)
-handles PyTorch fitting and inference. Training refuses TEST or transfer inputs;
-evaluation binds the frozen selection and checkpoints and performs zero
-optimizer updates. Zero or nonfinite document/prototype norms fail explicitly.
-The three focused mathematical tests check date weighting, excluded-date
-invariance and gradients, reference-only evaluation pooling, and zero-norm
-failure. Rust formatting, workspace tests and Clippy passed.
+`projection_author.py` handled PyTorch fitting and inference. It has since been
+removed from the tree; its source and tests remain in Git history, for example
+at commit `7f1d68db` (`grammar/crates/grammar-eval/python/`). Training refused
+TEST or transfer inputs; evaluation bound the frozen selection and checkpoints
+and performed zero optimizer updates. Zero or nonfinite document/prototype
+norms failed explicitly. The three focused mathematical tests checked date
+weighting, excluded-date invariance and gradients, reference-only evaluation
+pooling, and zero-norm failure. Rust formatting, workspace tests and Clippy
+passed.
 
-With the frozen local protocol and exports:
+With the frozen local protocol and exports, from a checkout of that commit:
 
 ```sh
 .venv/bin/python grammar/crates/grammar-eval/python/projection_author.py train \

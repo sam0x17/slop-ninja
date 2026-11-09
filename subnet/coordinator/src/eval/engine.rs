@@ -1434,7 +1434,9 @@ pub fn abandon_marker_due(sql: &impl Sql, cfg: &EvalConfig, due_by: Option<u64>)
         return Ok(None);
     }
     let rows = sql.exec(
-        "SELECT seq FROM cohorts WHERE phase = 'abandoned' AND abandon_marker_ms IS NULL AND abandon_marker_retry_ms <= ?
+        "SELECT seq FROM cohorts WHERE (phase = 'abandoned'
+                OR (phase = 'closed' AND closure_digest = 'probe-build' AND json_extract(plan, '$.reward_v1.probe_cut') = 1))
+            AND abandon_marker_ms IS NULL AND abandon_marker_retry_ms <= ?
          ORDER BY seq LIMIT 1",
         &[match due_by {
             Some(n) => bind_u64(n)?,
@@ -1463,6 +1465,20 @@ pub fn abandon_marker_failed(sql: &impl Sql, seq: i64, code: &str, now_ms: u64) 
 /// [`RESOURCE_GUARD`] ([`published_code`]).
 pub fn abandonment_record(sql: &impl Sql, cfg: &EvalConfig, seq: i64) -> R<(String, AbandonmentRecord)> {
     let c = cohort(sql, seq)?;
+    if c.phase == "closed" && c.plan.is_probe_cut() {
+        // D2: a probe cut consumed its number and closed with no target; its
+        // record lets the coordinator's handoff pass the number.
+        let r = &sql.exec("SELECT closed_epoch FROM cohorts WHERE seq = ?", &[i(seq)])?[0];
+        let record = slop_ninja_protocol::decisions::ProbeCutRecord {
+            chain: cfg.chain.clone(),
+            cohort: c.plan.cohort,
+            cohort_label: c.label.clone(),
+            probe_version: c.plan.reward_v1.as_ref().and_then(|v| v.probe_version).unwrap_or(0),
+            cut_epoch: opt_int(r, 0).map_or(0, |e| e as u64),
+        };
+        let key = format!("{}/{}", receipt_prefix(&c.label), slop_ninja_admission_wire::receipts::PROBE_CUT_RECORD);
+        return Ok((key, AbandonmentRecord::ProbeCut(record)));
+    }
     if c.phase != "abandoned" {
         return Err(EvalError::State("abandonment record of a cohort not abandoned"));
     }
@@ -1524,12 +1540,14 @@ fn digest_opt(d: Option<&str>) -> R<Option<Digest>> {
 pub enum AbandonmentRecord {
     V1(slop_ninja_protocol::submission::CohortAbandonment),
     V2(slop_ninja_protocol::decisions::CohortAbandonmentV2),
+    /// A probe cut's end (D2), written by the same step.
+    ProbeCut(slop_ninja_protocol::decisions::ProbeCutRecord),
 }
 
 /// The abandonment record of `seq` is durable in the receipts bucket.
 pub fn abandon_marker_written(sql: &impl Sql, seq: i64, now_ms: u64) -> R<()> {
     sql.exec(
-        "UPDATE cohorts SET abandon_marker_ms = ? WHERE seq = ? AND phase = 'abandoned' AND abandon_marker_ms IS NULL",
+        "UPDATE cohorts SET abandon_marker_ms = ? WHERE seq = ? AND phase IN ('abandoned','closed') AND abandon_marker_ms IS NULL",
         &[bind_u64(now_ms)?, i(seq)],
     )?;
     Ok(())

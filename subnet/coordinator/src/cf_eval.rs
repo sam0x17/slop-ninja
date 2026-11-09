@@ -1815,6 +1815,7 @@ impl EvalCohort {
                         let bytes = match record {
                             engine::AbandonmentRecord::V1(r) => package::signed_bytes(r, &package_key),
                             engine::AbandonmentRecord::V2(r) => package::signed_bytes(r, &package_key),
+                            engine::AbandonmentRecord::ProbeCut(r) => package::signed_bytes(r, &package_key),
                         }
                         .map_err(|_| "abandonment record signing")?;
                         put(&self.env, RECEIPTS_BUCKET, &key, bytes).await.map_err(|_| "abandonment record put")?;

@@ -661,6 +661,7 @@ impl<'a> Sim<'a> {
                     let bytes = match record {
                         engine::AbandonmentRecord::V1(r) => slop_ninja_protocol::sign(r, &pk).unwrap().to_bytes().unwrap(),
                         engine::AbandonmentRecord::V2(r) => slop_ninja_protocol::sign(r, &pk).unwrap().to_bytes().unwrap(),
+                        engine::AbandonmentRecord::ProbeCut(r) => slop_ninja_protocol::sign(r, &pk).unwrap().to_bytes().unwrap(),
                     };
                     self.rcpt.insert(key, bytes);
                     tx(self.db, |s| engine::abandon_marker_written(s, seq, now)).unwrap();
@@ -1277,7 +1278,7 @@ impl LaneIo for SimIo<'_, '_> {
 fn v1_record(db: &Sqlite, seq: i64) -> slop_ninja_protocol::submission::CohortAbandonment {
     match tx(db, |s| engine::abandonment_record(s, &cfg(), seq)).unwrap().1 {
         engine::AbandonmentRecord::V1(r) => r,
-        engine::AbandonmentRecord::V2(_) => panic!("a faulted cohort's abandonment is version 1"),
+        _ => panic!("a faulted cohort's abandonment is version 1"),
     }
 }
 
@@ -7128,6 +7129,18 @@ fn a_probe_cut_runs_beside_open_cohorts_and_the_reinstalled_template_governs_onl
     // It runs at once beside them, at the same epoch, to its close.
     let cohorts_before = tx(&db, engine::cohorts).unwrap().len();
     assert_eq!(sim.run(cut_seq, 3_000), "closed", "fault {:?}", fault_of(&db, cut_seq));
+    // D2: the cut's signed record names its number, so the coordinator's
+    // handoff passes it with no operator gap record.
+    for _ in 0..3 {
+        sim.tick();
+    }
+    let key = format!("cohorts/testnet-probe-v2/{}", slop_ninja_admission_wire::receipts::PROBE_CUT_RECORD);
+    let rec = slop_ninja_protocol::Signed::<slop_ninja_protocol::decisions::ProbeCutRecord>::open(
+        sim.rcpt.get(&key).expect("the probe cut's record is written"),
+        &slop_ninja_protocol::fixtures::trusted_keys(),
+    )
+    .unwrap();
+    assert_eq!((rec.cohort, rec.cohort_label.as_str(), rec.probe_version), (4, "testnet-probe-v2", 2));
     assert_eq!(tx(&db, engine::cohorts).unwrap().len(), cohorts_before, "the calendar queued nothing beside the cut");
     assert_eq!((cohort_row(&db, c2), cohort_row(&db, c3)), before, "the open cohorts are unchanged");
     assert!(tx(&db, |s| super::calendar::due_any(s, 0)).unwrap().is_none(), "cohort 3 is still queued");

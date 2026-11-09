@@ -149,6 +149,112 @@ pub mod object {
     /// The eval Worker's marker, written before a cohort's first detailed
     /// receipt is deleted under the N+2 rule.
     pub const RECEIPTS_RETIRED: &str = "receipts-retired.json";
+    /// The eval Worker's signed end records of a cohort that closes without
+    /// a target (D2): an abandonment (either version), a declined closure,
+    /// and a probe cut's record.
+    pub const ABANDONED: &str = slop_ninja_admission_wire::receipts::ABANDONMENT_RECORD;
+    pub const CLOSURE_DECLINED: &str = slop_ninja_admission_wire::receipts::CLOSURE_DECLINED_RECORD;
+    pub const PROBE_CUT: &str = slop_ninja_admission_wire::receipts::PROBE_CUT_RECORD;
+}
+
+/// Read bound of an end record (`object::ABANDONED`, `CLOSURE_DECLINED`,
+/// `PROBE_CUT`).
+pub const END_RECORD_BYTES: usize = slop_ninja_admission_wire::receipts::ABANDONMENT_RECORD_BOUND as usize;
+
+/// An eval-signed end of a cohort with no target (D2), opened under the
+/// trusted package key.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct EndRecord {
+    pub source: &'static str,
+    pub chain: ChainBinding,
+    pub cohort: u64,
+    pub label: String,
+    /// The epoch the restart floor is compared with when the cohort has no
+    /// in-record manifest: an abandonment's `abandoned_epoch`, a probe cut's
+    /// `cut_epoch`, a decline's `declined_epoch`.
+    pub epoch: Option<u64>,
+}
+
+/// Opens `bytes` as the end record stored under `name`; `None` when it does
+/// not verify under the package key or does not decode.
+pub fn open_end(name: &str, bytes: &[u8], keys: &TrustedKeys) -> Option<EndRecord> {
+    match name {
+        object::ABANDONED => slop_ninja_protocol::decisions::open_abandonment(bytes, keys).ok().map(|a| EndRecord {
+            source: "eval_abandoned",
+            chain: a.chain,
+            cohort: a.cohort,
+            label: a.cohort_label,
+            epoch: a.abandoned_epoch,
+        }),
+        object::CLOSURE_DECLINED => Signed::<slop_ninja_protocol::decisions::ClosureDeclined>::open(bytes, keys).ok().map(|d| EndRecord {
+            source: "eval_closure_declined",
+            chain: d.chain,
+            cohort: d.cohort,
+            label: d.cohort_label,
+            epoch: d.declined_epoch,
+        }),
+        object::PROBE_CUT => Signed::<slop_ninja_protocol::decisions::ProbeCutRecord>::open(bytes, keys).ok().map(|c| EndRecord {
+            source: "eval_probe_cut",
+            chain: c.chain,
+            cohort: c.cohort,
+            label: c.cohort_label,
+            epoch: Some(c.cut_epoch),
+        }),
+        _ => None,
+    }
+}
+
+/// D2: passes cohort `label` by an eval-signed end record. Only a record of
+/// this chain, for this label, under the main record's prefixes, at or after
+/// the current restart floor (the label's manifest opening epoch, or the
+/// record's own epoch when it has none) and naming the label's own number is
+/// passed, and only while the label is neither handled nor pending; anything
+/// else is `record_chain_mismatch` (shown on `/status`, nothing passed).
+/// Journaled as `auto_abandoned` with the record's source. Returns the
+/// number passed.
+pub fn pass_by_record(
+    sql: &impl Sql,
+    cfg: &super::SignConfig,
+    record: &Record,
+    label: &str,
+    end: &EndRecord,
+    now_ms: u64,
+) -> Result<Result<u64, &'static str>, StoreError> {
+    let rows = sql.exec("SELECT state, cohort, opened_epoch FROM sign_auto_labels WHERE label = ?", &[label.into()])?;
+    let Some(r) = rows.first() else {
+        return Ok(Err("label_unknown"));
+    };
+    let state = text(r, 0)?.to_owned();
+    if matches!(state.as_str(), "handled" | "passed") {
+        return Ok(Err("label_already_passed"));
+    }
+    if !sql.exec("SELECT 1 FROM sign_auto_pending WHERE label = ?", &[label.into()])?.is_empty() {
+        return Ok(Err("label_pending"));
+    }
+    let floor = restart_floor(sql)?.unwrap_or(0);
+    let labelled = opt_u(r, 1);
+    let opened = opt_u(r, 2);
+    // An earlier chain record's end (before the restart floor) is never
+    // passed; it is that record's, so it is not shown as a failure either.
+    if opened.or(end.epoch).is_none_or(|e| e < floor) {
+        return Ok(Err("record_chain_mismatch"));
+    }
+    let mismatch = end.chain != chain_of(cfg)
+        || end.label != label
+        || !record.admits(label)
+        || labelled.is_some_and(|c| c != end.cohort)
+        || !matches!(state.as_str(), "in_record" | "unsealed");
+    if mismatch {
+        note_failure(sql, label, "record_chain_mismatch", now_ms)?;
+        return Ok(Err("record_chain_mismatch"));
+    }
+    sql.exec(
+        "UPDATE sign_auto_labels SET state = 'passed', cohort = ?, opened_epoch = ?, detail = ? WHERE label = ?",
+        &[bind_u64(end.cohort)?, opened.or(end.epoch).map_or(Ok(SqlValue::Null), bind_u64)?, end.source.into(), label.into()],
+    )?;
+    log(sql, now_ms, None, None, None, "auto_target_abandoned", Some(&format!("{} {label} {}", end.cohort, end.source)))?;
+    clear_failure_of(sql, &[label], now_ms)?;
+    Ok(Ok(end.cohort))
 }
 
 /// The key of `name` under cohort `label`'s prefix.
@@ -1498,9 +1604,17 @@ pub async fn run_pass<I: PassIo, K: AuthorizationKeySource + Clone + 'static>(
             },
             Step::Resolve { label } => match io.read(&key(&label, object::MANIFEST), SOURCE_BYTES).await {
                 Ok(manifest) => {
+                    let unsealed = manifest.is_none();
                     let (c, t, r, f, now) = (cfg.clone(), keys.clone(), record.clone(), fingerprint.clone(), io.now_ms());
                     rep.resolved += 1;
-                    io.tx(move |sql| note_manifest(sql, &c, &t, &r, &f, &label, manifest.as_deref(), now).map(|_| ()))
+                    let l2 = label.clone();
+                    let noted = io.tx(move |sql| note_manifest(sql, &c, &t, &r, &f, &l2, manifest.as_deref(), now).map(|_| ()));
+                    // D2: a cohort ended with no manifest (an abandonment
+                    // before its seal, a probe cut) passes by its record.
+                    if noted.is_ok() && unsealed && record.admits(&label) {
+                        pass_unsealed(io, cfg, keys, record, &label).await;
+                    }
+                    noted
                 }
                 // A manifest no bundle could hold: left unsealed (read
                 // again at the next listing), with the failure shown.
@@ -1557,6 +1671,32 @@ fn progressed(rep: &PassReport) -> bool {
     rep.deferred > 0 || rep.handled.iter().any(|h| h.new)
 }
 
+/// The first of `names` under `label` that is a verified end record.
+async fn end_of<I: PassIo>(io: &mut I, keys: &TrustedKeys, label: &str, names: &[&str]) -> Result<Option<EndRecord>, ()> {
+    for name in names {
+        match io.read(&key(label, name), END_RECORD_BYTES).await {
+            Ok(Some(bytes)) => {
+                if let Some(end) = open_end(name, &bytes, keys) {
+                    return Ok(Some(end));
+                }
+            }
+            Ok(None) | Err(ReadError::TooLarge) => {}
+            Err(ReadError::Unavailable) => return Err(()),
+        }
+    }
+    Ok(None)
+}
+
+/// D2 for a label with no manifest: its abandonment or probe-cut record, if
+/// one verifies, passes its number. A read that fails leaves it unsealed
+/// for the next listing.
+async fn pass_unsealed<I: PassIo>(io: &mut I, cfg: &super::SignConfig, keys: &TrustedKeys, record: &Record, label: &str) {
+    if let Ok(Some(end)) = end_of(io, keys, label, &[object::ABANDONED, object::PROBE_CUT]).await {
+        let (c, r, l, now) = (cfg.clone(), record.clone(), label.to_owned(), io.now_ms());
+        let _ = io.tx(move |sql| pass_by_record(sql, &c, &r, &l, &end, now));
+    }
+}
+
 /// One check step (module docs): the labels in cohort order, each closed one
 /// handed in, until one is not closed or cannot be handled.
 async fn check<I: PassIo, K: AuthorizationKeySource + Clone + 'static>(
@@ -1594,8 +1734,40 @@ async fn check<I: PassIo, K: AuthorizationKeySource + Clone + 'static>(
             return out_of_budget(io, rep, label);
         }
         let closure = match io.read(&key(label, object::CLOSURE), SOURCE_BYTES).await {
-            Ok(Some(c)) => c,
+            Ok(Some(c)) => {
+                // A closure beside an end record is a conflict: nothing is
+                // installed from it and the stall is shown.
+                let mut conflict = false;
+                for name in [object::ABANDONED, object::CLOSURE_DECLINED] {
+                    match io.exists(&key(label, name)).await {
+                        Ok(true) => conflict = true,
+                        Ok(false) => {}
+                        Err(()) if io.past_deadline() => return out_of_budget(io, rep, label),
+                        Err(()) => return unavailable(io, rep, label),
+                    }
+                }
+                if conflict {
+                    note(io, label, "abandon_conflict")?;
+                    return Ok(CheckEnd::Stop);
+                }
+                c
+            }
             Ok(None) => {
+                // D2: an eval-signed end (an abandonment, a declined
+                // closure) passes the number; the next label is checked.
+                match end_of(io, keys, label, &[object::ABANDONED, object::CLOSURE_DECLINED]).await {
+                    Ok(Some(end)) => {
+                        let (c, r, l, now) = (cfg.clone(), record.clone(), label.clone(), io.now_ms());
+                        if io.tx(move |sql| pass_by_record(sql, &c, &r, &l, &end, now))?.is_ok() {
+                            step_progressed = true;
+                            continue;
+                        }
+                        return Ok(CheckEnd::Stop);
+                    }
+                    Ok(None) => {}
+                    Err(()) if io.past_deadline() => return out_of_budget(io, rep, label),
+                    Err(()) => return unavailable(io, rep, label),
+                }
                 let c = cfg.clone();
                 if let Some((first, code)) = io.tx(move |sql| pending_wait(sql, &c))? {
                     // Pending intermediates wait for a later cohort with

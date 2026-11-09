@@ -1535,3 +1535,101 @@ fn arena_witness_the_signing_reads_fit_the_journal_footprint_at_the_bundle_bound
     let _ = signing_reads(&h);
     crate::arena_witness::witness(R_JOURNAL_FETCH.route(), JOURNAL_BASE_BYTES / 2, || signing_reads(&h));
 }
+
+// ------------------------------------------------- eval-signed ends (D2)
+
+fn abandonment(label: &str, cohort: u64, chain: ChainBinding, epoch: u64) -> Vec<u8> {
+    let r = slop_ninja_protocol::decisions::CohortAbandonmentV2 {
+        chain,
+        cohort,
+        cohort_label: label.into(),
+        cohort_manifest: None,
+        fault: "none".into(),
+        reason: "operator_decision".into(),
+        abandoned_epoch: Some(epoch),
+        phase_at_abandon: "queued".into(),
+        score_package: None,
+        result: None,
+        target: None,
+        operator: true,
+        decision: None,
+        statement: None,
+    };
+    sign(r, &keys_fx::package_key()).unwrap().to_bytes().unwrap()
+}
+
+/// D2: an in-record cohort that never closes is passed by the eval's signed
+/// abandonment record, and the next cohort is handed in with no operator
+/// step; a queued cohort abandoned before its seal (no manifest) and a probe
+/// cut pass by number; a record of another chain passes nothing.
+#[test]
+fn eval_signed_ends_pass_their_numbers_with_no_operator_step() {
+    let h = H::new();
+    let mut b = Bucket::new(1000);
+    let c2 = no_target(2);
+    b.put(&c2, false); // never closes
+    let c3 = no_target(3);
+    b.put(&c3, true);
+    let r = pass(&h, &mut b);
+    assert!(r.handled.is_empty());
+    assert_eq!(h.view().error.as_deref(), Some("earlier_cohort_unclosed"));
+    // A record of another chain: refused, nothing passed.
+    let mut other = chain();
+    other.netuid += 1;
+    b.objects.insert(key(&c2.label, object::ABANDONED), abandonment(&c2.label, 2, other, 1));
+    h.observe_epoch(1);
+    let r = pass(&h, &mut b);
+    assert!(r.handled.is_empty());
+    assert_eq!(h.view().error.as_deref(), Some("record_chain_mismatch"));
+    // The eval's own record passes 2, and 3 is handed in.
+    b.objects.insert(key(&c2.label, object::ABANDONED), abandonment(&c2.label, 2, chain(), 1));
+    h.observe_epoch(2);
+    assert_eq!(outcomes(&pass(&h, &mut b)), vec![(3, Some("no_target"))]);
+    assert!(h.logged("auto_target_abandoned").iter().any(|d| d.as_deref() == Some(&format!("2 {} eval_abandoned", c2.label)[..])));
+    // Number 4 was abandoned while queued (no manifest), 5 is a probe cut
+    // (no manifest), 6 closes: all pass by their records.
+    let l4 = "synthetic-reward-v1-4-queued".to_owned();
+    b.objects.insert(key(&l4, object::ABANDONED), abandonment(&l4, 4, chain(), 3));
+    let l5 = "synthetic-reward-v1-probe-v2".to_owned();
+    let cut = slop_ninja_protocol::decisions::ProbeCutRecord { chain: chain(), cohort: 5, cohort_label: l5.clone(), probe_version: 2, cut_epoch: 3 };
+    b.objects.insert(key(&l5, object::PROBE_CUT), sign(cut, &keys_fx::package_key()).unwrap().to_bytes().unwrap());
+    let c6 = no_target(6);
+    b.put(&c6, true);
+    h.observe_epoch(3);
+    assert_eq!(outcomes(&pass(&h, &mut b)), vec![(6, Some("no_target"))]);
+    assert_eq!(h.view().error, None);
+    let counts: BTreeMap<String, u64> = h.view().labels.into_iter().collect();
+    assert_eq!(counts.get("passed"), Some(&3));
+}
+
+/// D2: a declined closure passes its number; a closure written beside an
+/// end record is a conflict, and nothing is installed from it.
+#[test]
+fn a_declined_closure_passes_and_a_closure_beside_an_end_record_conflicts() {
+    let h = H::new();
+    let mut b = Bucket::new(1000);
+    let c2 = no_target(2);
+    b.put(&c2, false);
+    let decline = slop_ninja_protocol::decisions::ClosureDeclined {
+        chain: chain(),
+        cohort: 2,
+        cohort_label: c2.label.clone(),
+        cohort_manifest: None,
+        score_package: None,
+        declined_target: None,
+        phase: "closed".into(),
+        fault: "closure_failed".into(),
+        declined_epoch: Some(2),
+        decision: None,
+        statement: Digest([9; 32]),
+    };
+    b.objects.insert(key(&c2.label, object::CLOSURE_DECLINED), sign(decline, &keys_fx::package_key()).unwrap().to_bytes().unwrap());
+    let c3 = no_target(3);
+    b.put(&c3, true);
+    b.objects.insert(key(&c3.label, object::ABANDONED), abandonment(&c3.label, 3, chain(), 2));
+    let r = pass(&h, &mut b);
+    assert!(r.handled.is_empty(), "{r:?}");
+    let v = h.view();
+    assert_eq!((v.error.as_deref(), v.error_label.as_deref()), (Some("abandon_conflict"), Some(c3.label.as_str())));
+    assert!(h.logged("auto_target_abandoned").iter().any(|d| d.as_deref() == Some(&format!("2 {} eval_closure_declined", c2.label)[..])));
+}

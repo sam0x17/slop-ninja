@@ -1,0 +1,62 @@
+[package]
+name = "slop-ninja-detect-worker"
+version = "0.1.0"
+edition = "2024"
+license = "MIT OR Apache-2.0"
+publish = false
+description = "Worker behind the free slop.ninja detect page: bounded intake, Turnstile, exact token count, a tickets-only fair queue and one scorer Container"
+
+# Its own workspace, like the other Workers: it links no chain code, no
+# coordinator signing code and nothing of hidden evaluation. It shares only
+# pure crates: the arena, the scorer's token count and the scorer client.
+[workspace]
+members = ["."]
+resolver = "3"
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[features]
+# Native witness tests: the arena is the test binary's global allocator.
+arena-witness = ["slop-ninja-arena/knobs"]
+
+[dependencies]
+# The global allocator (wasm32): every invocation allocates in its own
+# bounded scope arena, under this crate's memory model
+# (`memory-model.json`). Unmeasured, so `observe` (migration step 1), as the
+# other Workers.
+slop-ninja-arena = { path = "../crates/arena", features = ["glue-spill", "unmeasured-model", "observe"] }
+# The scorer's exact token count under the pinned tokenizer (compiled-in table).
+slop-ninja-scorer-tokens = { path = "../crates/scorer-tokens" }
+# The scorer client's pure half (load routes, bindings, refusals).
+slop-ninja-scorer-client = { path = "../crates/scorer-client" }
+# The files manifest v2 the lane loads by.
+slop-ninja-artifact-check = { path = "../crates/artifact-check", default-features = false }
+hex = "0.4"
+hmac = "0.12"
+serde = { version = "1", features = ["derive"] }
+# Scorer probabilities parse to the exact f64 the scorer printed, so the
+# band cut compares the scorer's own value.
+serde_json = { version = "1", features = ["float_roundtrip"] }
+sha2 = "0.10"
+
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+futures-channel = { version = "0.3", default-features = false, features = ["alloc"] }
+futures-util = { version = "0.3", default-features = false, features = ["alloc"] }
+js-sys = "0.3"
+wasm-bindgen = "0.2"
+wasm-bindgen-futures = "0.4"
+worker = "0.8.7"
+
+[dev-dependencies]
+# The scorer's NFC crate and version: the escape factor test recomputes the
+# body bound from its tables.
+unicode-normalization-alignments = "=0.1.12"
+
+[build-dependencies]
+serde_json = "1"
+
+[profile.release]
+opt-level = "s"
+lto = true
+codegen-units = 1

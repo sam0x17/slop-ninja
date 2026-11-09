@@ -1,0 +1,125 @@
+{
+  "cases": [
+    {
+      "english_stopword_share": 0.5614035087719298,
+      "latin_letter_share": 1.0,
+      "name": "english_prose",
+      "screen": null,
+      "text": "The river was higher than it had been in years, and the old bridge at the end of the lane had started to groan when the wind came off the hills. We walked down anyway, because there was nothing else to do on a Sunday, and my sister wanted to see if the ducks were still there."
+    },
+    {
+      "english_stopword_share": 0.5517241379310345,
+      "latin_letter_share": 1.0,
+      "name": "english_upper",
+      "screen": null,
+      "text": "THE COMMITTEE WOULD LIKE TO THANK ALL OF THE VOLUNTEERS WHO GAVE THEIR TIME THIS YEAR, AND WE HOPE TO SEE YOU AT THE NEXT MEETING IN THE SPRING."
+    },
+    {
+      "english_stopword_share": 0.0,
+      "latin_letter_share": 1.0,
+      "name": "english_list",
+      "screen": "english_stopword_share_below_0_20",
+      "text": "Apples, pears, plums, cherries, grapes, melons, lemons, limes, oranges, peaches, apricots, figs, dates, kiwis, mangoes, papayas."
+    },
+    {
+      "english_stopword_share": 0.0,
+      "latin_letter_share": 1.0,
+      "name": "french",
+      "screen": "english_stopword_share_below_0_20",
+      "text": "Le matin, nous sommes partis tôt pour éviter la chaleur. La route longeait la rivière et les champs étaient déjà dorés sous le soleil d'été."
+    },
+    {
+      "english_stopword_share": 0.0,
+      "latin_letter_share": 1.0,
+      "name": "german",
+      "screen": "english_stopword_share_below_0_20",
+      "text": "Am Morgen sind wir früh losgefahren, um der Hitze zu entgehen. Die Straße führte am Fluss entlang, und die Felder leuchteten schon golden."
+    },
+    {
+      "english_stopword_share": 0.0,
+      "latin_letter_share": 1.0,
+      "name": "spanish",
+      "screen": "english_stopword_share_below_0_20",
+      "text": "Por la mañana salimos temprano para evitar el calor. El camino seguía el río y los campos ya brillaban dorados bajo el sol del verano."
+    },
+    {
+      "english_stopword_share": 0.0,
+      "latin_letter_share": 0.0,
+      "name": "russian",
+      "screen": "latin_letter_share_below_0_90",
+      "text": "Утром мы выехали рано, чтобы избежать жары. Дорога шла вдоль реки, и поля уже золотились под летним солнцем."
+    },
+    {
+      "english_stopword_share": 0.0,
+      "latin_letter_share": 0.0,
+      "name": "greek",
+      "screen": "latin_letter_share_below_0_90",
+      "text": "Το πρωί φύγαμε νωρίς για να αποφύγουμε τη ζέστη. Ο δρόμος ακολουθούσε το ποτάμι και τα χωράφια έλαμπαν ήδη χρυσά."
+    },
+    {
+      "english_stopword_share": 0.0,
+      "latin_letter_share": 0.0,
+      "name": "chinese",
+      "screen": "latin_letter_share_below_0_90",
+      "text": "早上我们很早就出发了，为了避开炎热。道路沿着河流延伸，田野在夏日阳光下已经金黄。"
+    },
+    {
+      "english_stopword_share": 0.5517241379310345,
+      "latin_letter_share": 0.963963963963964,
+      "name": "english_with_cyrillic_quote",
+      "screen": null,
+      "text": "In the letter she wrote that the word for river is река, and that the town by the water was where they had all grown up together as children."
+    },
+    {
+      "english_stopword_share": 0.0,
+      "latin_letter_share": 1.0,
+      "name": "vietnamese",
+      "screen": "english_stopword_share_below_0_20",
+      "text": "Buổi sáng chúng tôi đi sớm để tránh cái nóng. Con đường chạy dọc theo dòng sông và những cánh đồng đã vàng rực dưới nắng hè."
+    },
+    {
+      "english_stopword_share": 0.0,
+      "latin_letter_share": 0.0,
+      "name": "digits_only",
+      "screen": "latin_letter_share_below_0_90",
+      "text": "1234 5678 9012 3456 7890 1234 5678"
+    },
+    {
+      "english_stopword_share": 0.0,
+      "latin_letter_share": 0.0,
+      "name": "no_letters",
+      "screen": "latin_letter_share_below_0_90",
+      "text": "... --- !!! ??? ;;; ,,,"
+    },
+    {
+      "english_stopword_share": 0.26666666666666666,
+      "latin_letter_share": 1.0,
+      "name": "code",
+      "screen": null,
+      "text": "fn main() { let x = vec![1, 2, 3]; for i in x.iter() { println!(\"{}\", i); } }"
+    },
+    {
+      "english_stopword_share": 0.5714285714285714,
+      "latin_letter_share": 1.0,
+      "name": "dotted_capital_i",
+      "screen": null,
+      "text": "İt was the İnn by the road that we had all heard about, and it was there that the old man told us the story of the flood."
+    },
+    {
+      "english_stopword_share": 0.7857142857142857,
+      "latin_letter_share": 1.0,
+      "name": "long_tokens",
+      "screen": null,
+      "text": "Thisisaverylongwordwithoutanyspacesthatgoesonandon the of and to a in that is was antidisestablishmentarianism supercalifragilistic the of"
+    },
+    {
+      "english_stopword_share": 0.5384615384615384,
+      "latin_letter_share": 0.98989898989899,
+      "name": "ligature_and_accents",
+      "screen": null,
+      "text": "The café on the corner served crème brûlée, and the naïve waiter said the ﬁsh was fresh, which it was not, but we ate it anyway."
+    }
+  ],
+  "note": "Synthetic texts. Verdicts and shares are the human pools' text::english_screen, latin_letter_share and english_stopword_share (grammar/crates/grammar-a-pools), recorded by its tests/english_screen_fixture.rs.",
+  "schema": "slop_ninja_english_screen_fixture_v1"
+}

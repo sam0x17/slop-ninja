@@ -1,0 +1,214 @@
+//! What the page may say about a text, from A's measured evidence.
+//!
+//! - **Length.** Human false-positive rates were measured only on texts of
+//!   150 to 450 whitespace words (the human pools' word count). A shorter
+//!   text gets no score; a longer one is scored with a label.
+//! - **Bands.** Four evidence bands on the calibrated involvement
+//!   probability, cut at the release's Calibration-split operating points
+//!   (`docs/a-baseline-release.md`): the 1% human-FPR point and the 0.1%
+//!   point (the top isotonic level), and 50%. The scorer prints
+//!   `ai_confidence_percent` as the probability times 100, and multiplying
+//!   by 100 is monotone in floating point, so comparing the percentage with
+//!   each cut times 100, computed the same way, is the same comparison.
+//! - **Spans.** Passages are shown only in the two strong bands, only when
+//!   the span switch is on, and never under 24 words.
+//! - **Notices.** Control markers the tokenizer reads as special tokens, and
+//!   invisible or control characters, are named, never removed.
+
+/// The 1% human-FPR operating point on the Calibration split.
+pub const STRONG_CUT: f64 = 0.9090909090909091;
+/// The 0.1% point, the top clipped isotonic level.
+pub const VERY_STRONG_CUT: f64 = 0.9998820476527482;
+/// Below this the result is in the weak band.
+pub const UNCLEAR_CUT: f64 = 0.5;
+/// The span floor: no passage under 24 words is ever shown.
+pub const SPAN_MIN_WORDS: u64 = 24;
+
+/// The raw added tokens of the pinned tokenizer (its special tokens), which
+/// the scorer splits out of the text before normalization. A test checks
+/// the list against the compiled-in table.
+pub const MARKERS: &[&str] = &["<|padding|>", "<|endoftext|>", "[UNK]", "[CLS]", "[SEP]", "[PAD]", "[MASK]"];
+
+/// An evidence band.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
+pub enum Band {
+    Weak,
+    Unclear,
+    Strong,
+    VeryStrong,
+}
+
+impl Band {
+    /// The band of a scorer's `ai_confidence_percent`.
+    pub fn of_percent(p: f64) -> Option<Band> {
+        if !p.is_finite() || !(0.0..=100.0).contains(&p) {
+            return None;
+        }
+        Some(if p >= VERY_STRONG_CUT * 100. {
+            Band::VeryStrong
+        } else if p >= STRONG_CUT * 100. {
+            Band::Strong
+        } else if p >= UNCLEAR_CUT * 100. {
+            Band::Unclear
+        } else {
+            Band::Weak
+        })
+    }
+
+    pub fn code(self) -> &'static str {
+        match self {
+            Band::VeryStrong => "very_strong",
+            Band::Strong => "strong",
+            Band::Unclear => "unclear",
+            Band::Weak => "weak",
+        }
+    }
+
+    pub fn from_code(s: &str) -> Option<Band> {
+        [Band::VeryStrong, Band::Strong, Band::Unclear, Band::Weak].into_iter().find(|b| b.code() == s)
+    }
+
+    /// Whether passages may be highlighted in this band.
+    pub fn shows_spans(self) -> bool {
+        matches!(self, Band::Strong | Band::VeryStrong)
+    }
+}
+
+/// Where a text's length sits against the measured range.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum LengthBin {
+    /// 150 to 450 words: human false positives measured.
+    Measured,
+    /// 451 words to 2,048 tokens: scored, labelled.
+    Longer,
+}
+
+impl LengthBin {
+    pub fn code(self) -> &'static str {
+        match self {
+            LengthBin::Measured => "150_450",
+            LengthBin::Longer => "over_450",
+        }
+    }
+
+    pub fn from_code(s: &str) -> Option<LengthBin> {
+        [LengthBin::Measured, LengthBin::Longer].into_iter().find(|b| b.code() == s)
+    }
+}
+
+/// Whitespace words, the human pools' count (`grammar_a_form::text::words`).
+pub fn words(s: &str) -> usize {
+    s.split_whitespace().count()
+}
+
+/// The length decision before any scoring: `Err(words)` when too short.
+pub fn length_bin(words: usize) -> Result<LengthBin, usize> {
+    if words < crate::bound::MIN_WORDS {
+        Err(words)
+    } else if words <= crate::bound::MEASURED_MAX_WORDS {
+        Ok(LengthBin::Measured)
+    } else {
+        Ok(LengthBin::Longer)
+    }
+}
+
+/// The control markers present in `s`, in [`MARKERS`] order.
+pub fn markers_in(s: &str) -> impl Iterator<Item = &'static str> + '_ {
+    MARKERS.iter().copied().filter(move |m| s.contains(m))
+}
+
+/// Whether `s` holds an invisible or control character other than tab,
+/// line feed and carriage return: C0 and C1 controls, and the format
+/// characters the page cannot show (zero-width, direction marks, word
+/// joiner, byte-order mark, soft hyphen).
+pub fn has_invisible(s: &str) -> bool {
+    s.chars().any(|c| {
+        let u = c as u32;
+        (c.is_control() && !matches!(c, '\t' | '\n' | '\r'))
+            || matches!(u, 0xAD | 0x180E | 0x200B..=0x200F | 0x202A..=0x202E | 0x2060..=0x2064 | 0xFEFF)
+    })
+}
+
+/// A percentage floored to tenths, as an integer number of tenths.
+pub fn tenths_floor(p: f64) -> u16 {
+    if !p.is_finite() || p <= 0.0 {
+        return 0;
+    }
+    let t = (p * 10.0).floor();
+    if t >= 1000.0 { 1000 } else { t as u16 }
+}
+
+/// The confidence as the page prints it: floored to one decimal, "above
+/// 99.9%" at the top and never 100%, "below 1%" at the bottom.
+pub fn confidence_text(p: f64) -> String {
+    let t = tenths_floor(p);
+    if p > 99.9 {
+        "above 99.9%".into()
+    } else if t < 10 {
+        "below 1%".into()
+    } else {
+        format!("{}.{}%", t / 10, t % 10)
+    }
+}
+
+/// The share as the page prints it: whole percent, rounded down so the
+/// share never reads above the confidence, "below 1%" under one.
+pub fn share_text(share: f64, confidence: f64) -> String {
+    let s = if share.is_finite() { share.min(confidence).max(0.0) } else { 0.0 };
+    if s < 1.0 { "below 1%".into() } else { format!("about {}%", s.floor() as u32) }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn bands_cut_at_the_operating_points() {
+        assert_eq!(Band::of_percent(STRONG_CUT * 100.), Some(Band::Strong));
+        assert_eq!(Band::of_percent(VERY_STRONG_CUT * 100.), Some(Band::VeryStrong));
+        // The scorer prints probability × 100; the top level lands in the top band.
+        assert_eq!(Band::of_percent(0.9998820476527482 * 100.), Some(Band::VeryStrong));
+        assert_eq!(Band::of_percent(0.9090909090909091 * 100.), Some(Band::Strong));
+        assert_eq!(Band::of_percent(90.90), Some(Band::Unclear));
+        assert_eq!(Band::of_percent(50.0), Some(Band::Unclear));
+        assert_eq!(Band::of_percent(49.99), Some(Band::Weak));
+        assert_eq!(Band::of_percent(0.0), Some(Band::Weak));
+        assert_eq!(Band::of_percent(f64::NAN), None);
+        assert_eq!(Band::of_percent(100.5), None);
+        assert!(Band::Strong.shows_spans() && Band::VeryStrong.shows_spans());
+        assert!(!Band::Unclear.shows_spans() && !Band::Weak.shows_spans());
+        for b in [Band::VeryStrong, Band::Strong, Band::Unclear, Band::Weak] {
+            assert_eq!(Band::from_code(b.code()), Some(b));
+        }
+    }
+
+    #[test]
+    fn length_policy() {
+        assert_eq!(length_bin(149), Err(149));
+        assert_eq!(length_bin(150), Ok(LengthBin::Measured));
+        assert_eq!(length_bin(450), Ok(LengthBin::Measured));
+        assert_eq!(length_bin(451), Ok(LengthBin::Longer));
+        assert_eq!(words("  one\ttwo\nthree  "), 3);
+    }
+
+    #[test]
+    fn display_rules() {
+        assert_eq!(confidence_text(97.36), "97.3%");
+        assert_eq!(confidence_text(VERY_STRONG_CUT * 100.), "above 99.9%");
+        assert_eq!(confidence_text(99.9), "99.9%");
+        assert_eq!(confidence_text(0.4), "below 1%");
+        assert_eq!(confidence_text(1.0), "1.0%");
+        assert_eq!(share_text(34.7, 97.0), "about 34%");
+        assert_eq!(share_text(50.0, 40.0), "about 40%");
+        assert_eq!(share_text(0.3, 10.0), "below 1%");
+        assert_eq!(tenths_floor(100.0), 1000);
+    }
+
+    #[test]
+    fn notices() {
+        assert_eq!(markers_in("a [SEP] b [MASK]").collect::<Vec<_>>(), vec!["[SEP]", "[MASK]"]);
+        assert!(has_invisible("a\u{200B}b"));
+        assert!(has_invisible("a\u{1}b"));
+        assert!(!has_invisible("a\tb\nc\r\n"));
+    }
+}

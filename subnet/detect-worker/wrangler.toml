@@ -1,0 +1,138 @@
+# SlopNinja detect Worker: Wrangler configuration (tracked).
+#
+# The service behind the free slop.ninja/detect/ page. The website Worker
+# reaches it only through its service binding (DETECT_TESTNET) and forwards
+# /api/detect/v1/* unchanged; this Worker has no route, no custom domain, no
+# default workers_dev subdomain and no preview URLs. It holds the DetectGate object (one,
+# memory only) and the DetectLane object with its scorer Container (one at
+# launch). It shares no instance, object, binding or bucket with hidden
+# evaluation.
+#
+# Every resource serves the testnet reference package, so every name carries
+# -testnet; each deploys with --tag testnet and carries the vars NETWORK and
+# PRODUCT. Resource names here are placeholders; the operator's private
+# resource-name table holds the real ones. Deploy only through the deploy
+# wrappers. Order: the package bucket and its copy of the reference package
+# (server-side copy, same keys, entity tags checked), the Turnstile widget,
+# then this Worker (with its secret and the site key), then the website
+# deploy that adds the service binding:
+#
+#   wrangler r2 bucket create detect-packages-bucket-testnet   # no public access
+#   wrangler secret put TURNSTILE_SECRET --env testnet          # from stdin
+#   WRANGLER_WRITE_LOGS=false WRANGLER_SEND_METRICS=false wrangler deploy \
+#     --env testnet --tag testnet --var TURNSTILE_SITE_KEY:<site key> \
+#     --var PACKAGE_SHA256:<files manifest sha256> \
+#     --var PACKAGE_MANIFEST_KEY:<manifest key> \
+#     --var PACKAGE_SPEC_SHA256:<spec v3 record sha256> \
+#     --var PUBLISHED_PACKAGE_DIGEST:<parts manifest sha256> \
+#     --message "slop-ninja detect testnet <sha8>"
+#
+# The package vars are the journaled serving pointer: switching the package
+# is a deploy of new values, recorded by the wrapper. The switches
+# DETECT_TOOL and DETECT_SPANS ("on" or "off") are the operator's kill
+# switches, flipped and reverted the same way. No account ID belongs here.
+# The top level is a local-only shell with no bindings, triggers or route.
+
+name = "slop-ninja-detect-local-testnet"
+main = "build/index.js"
+compatibility_date = "2026-10-20"
+workers_dev = false
+preview_urls = false
+
+[build]
+command = "worker-build --release"
+
+[observability]
+enabled = false
+
+[triggers]
+crons = []
+
+# ------------------------------------------------------------------ testnet
+
+[env.testnet]
+name = "slop-ninja-detect-testnet"
+workers_dev = false
+preview_urls = false
+
+# No logs: the Worker writes none, and no Logpush or Tail Worker is attached.
+[env.testnet.observability]
+enabled = false
+
+[env.testnet.triggers]
+crons = []
+
+[env.testnet.vars]
+NETWORK = "testnet"
+PRODUCT = "detect"
+# Kill switches: "off" turns the tool (a static "temporarily unavailable"
+# state) or the highlighted passages off; anything else is on.
+DETECT_TOOL = "on"
+DETECT_SPANS = "on"
+# The page's version line says "publication pending" until this is
+# "published" (the reference package bucket's public-access go).
+PUBLICATION = "pending"
+# siteverify must report this hostname (and the action detect_score).
+TURNSTILE_HOSTNAME = "slop.ninja"
+# Where the copy's files sit: the staged manifest's own bucket label.
+PACKAGE_BUCKET_LABEL = "admission"
+# Scorer build identity: the instance must report these digests (the
+# pinned a-scorer image, as the eval Worker pins it).
+SCORER_ORT_SHA256 = "fc44112fbe06d7d689c57e11d3862031f64711007e4ee020f8eed5185fd2c1d3"
+SCORER_BINARY_SHA256 = "7030a86f46114b72929d64e71c377b6416d9bdad9ca71d92e9fd467c94e6a74f"
+# Liveness parameters from measured times (re-measured at the launch gate):
+# a fresh instance answered within seconds but a start during a Container
+# rollout stalled past a minute; R0's cold load took 26-41 s, the span
+# package's graph is larger, and one restart stalled to a 180 s port
+# timeout; one 2,048-token scan is about 5 s warm.
+SCORER_START_WAIT_MS = "60000"
+LOAD_WAIT_MS = "180000"
+# An admitted scan's lease: a cold start, a load and one scan.
+SCAN_LEASE_MS = "300000"
+# The instance sleeps after 10 idle minutes (the serving measurements' value).
+IDLE_MS = "600000"
+# How long a waiting ticket's ask is held; a closed tab loses its place in
+# the line within twice this.
+QUEUE_HOLD_MS = "20000"
+
+[[env.testnet.durable_objects.bindings]]
+name = "DETECT_GATE"
+class_name = "DetectGate"
+
+[[env.testnet.durable_objects.bindings]]
+name = "DETECT_LANE"
+class_name = "DetectLane"
+
+[[env.testnet.migrations]]
+tag = "v1"
+new_sqlite_classes = ["DetectGate", "DetectLane"]
+
+# The pinned a-scorer image (the same Dockerfile and ignored build context
+# the eval Worker's scorer uses; see the a-container-serve README). One
+# standard-3 instance: one session fits its memory under the scorer's
+# structural bound. Raising max_instances is a decision, never an autoscale.
+[[env.testnet.containers]]
+class_name = "DetectLane"
+name = "a-scorer-detect-testnet"
+image = "../../inference/a-container-serve/container/scorer.Dockerfile"
+image_build_context = "../../inference/a-container-serve/container/build"
+instance_type = "standard-3"
+max_instances = 1
+
+# Read only: the product's own copy of the reference package's load files.
+[[env.testnet.r2_buckets]]
+binding = "DETECT_PACKAGES_TESTNET"
+bucket_name = "detect-packages-bucket-testnet"
+
+# Warm forwards: one per Cloudflare location per period (the binding's
+# shortest), keyed by a constant. One start request is all the instance needs.
+[[env.testnet.ratelimits]]
+name = "DETECT_WARM_LIMIT"
+namespace_id = "6010"
+simple = { limit = 1, period = 10 }
+
+# Content-free data points only: outcome, band, length and token bins, cold
+# or warm, service time, feedback buttons.
+[[env.testnet.analytics_engine_datasets]]
+binding = "DETECT_METRICS"
+dataset = "slop_ninja_detect_testnet"

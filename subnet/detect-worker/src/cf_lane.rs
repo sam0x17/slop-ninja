@@ -1,0 +1,431 @@
+//! `DetectLane` (wasm32 only): one scorer Container instance and its load.
+//!
+//! The instance runs the pinned `a-scorer` image (the build identity it
+//! reports must equal `SCORER_BINARY_SHA256` and `SCORER_ORT_SHA256`) with
+//! Internet access off, one session and two threads, and is loaded once
+//! with the reference package from this product's own bucket: the files
+//! manifest v2 at `PACKAGE_MANIFEST_KEY`, whose SHA-256 must be
+//! `PACKAGE_SHA256` (the scorer's load digest), by the artifact spec
+//! `PACKAGE_SPEC_SHA256`. Every file must name the bucket label
+//! `PACKAGE_BUCKET_LABEL` (the copy keeps the staged keys and the label,
+//! so the manifest bytes and the load digest are the staged package's) and
+//! a pinned entity tag; each chunk is a ranged read pinned to that tag and
+//! piped to the instance as a stream, so no byte of the package enters this
+//! isolate and nothing is hashed.
+//!
+//! Internal routes, called only by this Worker and the gate:
+//! - `/warm`: starts the instance if none runs (the load follows in the
+//!   alarm) and answers at once.
+//! - `/score`: one admitted request body, streamed to the instance's
+//!   `/v1/score`; the reply returns to the Worker, which applies the
+//!   allow-list. A second request while one runs gets 409: the lane holds no
+//!   queue of bodies.
+//!
+//! A start or load that fails destroys the instance; new starts then wait
+//! `SCORER_START_WAIT_MS` doubled per consecutive failure, never longer
+//! than the idle timeout. Nothing here logs.
+
+use crate::cf::ms_var;
+use crate::cf_io::{self, now_ms};
+use crate::{routes, silence_panics};
+use futures_util::future::{Either, select};
+use js_sys::{Function, Reflect};
+use serde_json::Value;
+use slop_ninja_artifact_check::files_manifest::{FilesManifest, MAX_MANIFEST_BYTES};
+use slop_ninja_scorer_client::{self as sc, Entry, Ours, Prep, Slot};
+use std::cell::Cell;
+use std::time::Duration;
+use wasm_bindgen::{JsCast, JsValue};
+use worker::{
+    ContainerStartupOptions, Delay, DurableObject, Env, Fetcher, Headers, Method, Request, RequestInit, Response, ResponseBody, Result, State,
+    durable_object,
+};
+
+const PORT: u16 = 8080;
+/// The package bucket.
+const PACKAGES: &str = "DETECT_PACKAGES_TESTNET";
+/// One session fits standard-3's memory under the scorer's structural bound;
+/// two do not. Two threads use the instance's two vCPUs.
+const SESSIONS: &str = "1";
+const THREADS: &str = "2";
+/// One chunk: the scorer's largest transfer (the spec's part size).
+const CHUNK_BYTES: u64 = slop_ninja_artifact_check::spec::PART_BYTES;
+/// How often a waiting start or load asks the instance again.
+const POLL_MS: u64 = 250;
+
+fn container_call(raw: &JsValue, name: &str, arg: &JsValue) -> std::result::Result<JsValue, &'static str> {
+    let f: Function = Reflect::get(raw, &JsValue::from_str(name))
+        .ok()
+        .and_then(|f| f.dyn_into().ok())
+        .ok_or("container method")?;
+    f.call1(raw, arg).map_err(|_| "container call")
+}
+
+async fn port_fetch(port: &Fetcher, method: Method, path: &str, body: Option<JsValue>, len: Option<u64>) -> Result<Response> {
+    let mut init = RequestInit::new();
+    init.with_method(method);
+    let headers = Headers::new();
+    headers.set("content-type", "application/json")?;
+    if let Some(n) = len {
+        headers.set("content-length", &n.to_string())?;
+    }
+    init.with_headers(headers);
+    if let Some(b) = body {
+        init.with_body(Some(b));
+    }
+    port.fetch(format!("http://container{path}"), Some(init)).await
+}
+
+async fn healthz(port: &Fetcher) -> Option<Value> {
+    let mut r = port_fetch(port, Method::Get, "/healthz", None, None).await.ok()?;
+    if r.status_code() != 200 {
+        cf_io::discard(&mut r);
+        return None;
+    }
+    cf_io::response_json::<Value>(&mut r, 64 * 1024).await.ok()
+}
+
+async fn sleep(ms: u64) {
+    Delay::from(Duration::from_millis(ms)).await;
+}
+
+/// The lane's deployment: what it loads and how long it waits.
+struct Plan {
+    package: String,
+    manifest_key: String,
+    spec: String,
+    label: String,
+    binary: Option<String>,
+    ort: Option<String>,
+    start_wait_ms: u64,
+    load_wait_ms: u64,
+    idle_ms: u64,
+}
+
+fn var(env: &Env, name: &str) -> Option<String> {
+    env.var(name).ok().map(|v| v.to_string().trim().to_owned()).filter(|v| !v.is_empty())
+}
+
+impl Plan {
+    fn of(env: &Env) -> Option<Plan> {
+        Some(Plan {
+            package: var(env, "PACKAGE_SHA256")?,
+            manifest_key: var(env, "PACKAGE_MANIFEST_KEY")?,
+            spec: var(env, "PACKAGE_SPEC_SHA256")?,
+            label: var(env, "PACKAGE_BUCKET_LABEL")?,
+            binary: var(env, "SCORER_BINARY_SHA256"),
+            ort: var(env, "SCORER_ORT_SHA256"),
+            start_wait_ms: ms_var(env, "SCORER_START_WAIT_MS").unwrap_or(60_000),
+            load_wait_ms: ms_var(env, "LOAD_WAIT_MS").unwrap_or(180_000),
+            idle_ms: ms_var(env, "IDLE_MS").unwrap_or(600_000),
+        })
+    }
+}
+
+#[durable_object(alarm)]
+pub struct DetectLane {
+    state: State,
+    env: Env,
+    busy: Cell<bool>,
+    loading: Cell<bool>,
+    failures: Cell<u32>,
+    retry_at: Cell<u64>,
+}
+
+/// Clears a flag when the holder ends, however it ends.
+struct Flag<'a>(&'a Cell<bool>);
+
+impl Drop for Flag<'_> {
+    fn drop(&mut self) {
+        self.0.set(false);
+    }
+}
+
+impl DetectLane {
+    fn may_start(&self) -> bool {
+        now_ms() >= self.retry_at.get()
+    }
+
+    fn failed(&self, plan: &Plan) {
+        let n = self.failures.get().saturating_add(1);
+        self.failures.set(n);
+        let wait = plan.start_wait_ms.saturating_mul(1u64 << n.saturating_sub(1).min(16)).min(plan.idle_ms);
+        self.retry_at.set(now_ms().saturating_add(wait));
+    }
+
+    async fn destroy(&self) {
+        if let Some(c) = self.state.container()
+            && c.running()
+        {
+            let _ = c.destroy(Some("detect lane")).await;
+        }
+    }
+
+    async fn set_inactivity(&self, ms: u64) {
+        if let Some(c) = self.state.container()
+            && let Ok(v) = container_call(c.as_ref(), "setInactivityTimeout", &JsValue::from_f64(ms as f64))
+            && let Ok(p) = v.dyn_into::<js_sys::Promise>()
+        {
+            let _ = wasm_bindgen_futures::JsFuture::from(p).await;
+        }
+    }
+
+    /// Starts the instance if none runs (Internet off, one session, two
+    /// threads). `false`: no binding, or a start is not allowed yet.
+    async fn start(&self, plan: &Plan) -> bool {
+        let Some(c) = self.state.container() else { return false };
+        if c.running() {
+            return true;
+        }
+        if !self.may_start() {
+            return false;
+        }
+        let mut opts = ContainerStartupOptions::new();
+        opts.enable_internet(false);
+        opts.add_env("A_SESSIONS", SESSIONS);
+        opts.add_env("A_THREADS", THREADS);
+        if c.start(Some(opts)).is_err() {
+            self.failed(plan);
+            return false;
+        }
+        self.set_inactivity(plan.idle_ms).await;
+        true
+    }
+
+    /// Makes the instance ready with the package, starting and loading as
+    /// needed, within the plan's start and load waits.
+    async fn prepare(&self, plan: &Plan) -> std::result::Result<Fetcher, &'static str> {
+        let c = self.state.container().ok_or("no container binding")?;
+        if c.running() {
+            let h = match c.get_tcp_port(PORT) {
+                Ok(port) => healthz(&port).await,
+                Err(_) => None,
+            };
+            if !matches!(sc::entry(h.as_ref(), &plan.package, None, Some(&plan.spec)), Entry::Keep) && h.is_some() {
+                self.destroy().await;
+            }
+        }
+        if !self.start(plan).await {
+            return Err("start");
+        }
+        let port = c.get_tcp_port(PORT).map_err(|_| "container port")?;
+        let until = now_ms().saturating_add(plan.start_wait_ms);
+        let h = loop {
+            if let Some(h) = healthz(&port).await {
+                break h;
+            }
+            if now_ms() >= until {
+                self.destroy().await;
+                self.failed(plan);
+                return Err("container did not answer");
+            }
+            sleep(POLL_MS).await;
+        };
+        // Build identity: the binary and runtime library the pinned digests name.
+        for (field, want) in [("/build/binary_sha256", &plan.binary), ("/build/ort_sha256", &plan.ort)] {
+            if let Some(w) = want
+                && h.pointer(field).and_then(Value::as_str) != Some(w.as_str())
+            {
+                self.destroy().await;
+                self.failed(plan);
+                return Err("scorer build identity");
+            }
+        }
+        let n = |p: &str| h.pointer(p).and_then(Value::as_u64);
+        if n("/build/sessions") != Some(1) || n("/build/threads") != Some(2) {
+            self.destroy().await;
+            self.failed(plan);
+            return Err("scorer sessions or threads");
+        }
+        let spec = match sc::spec_sent(&h, Some(&plan.spec)) {
+            Ok(s) => s,
+            Err(_) => {
+                self.destroy().await;
+                self.failed(plan);
+                return Err(sc::SPEC_NOT_SERVED);
+            }
+        };
+        match sc::slot(&h, &plan.package, None, spec) {
+            Slot::Ours(Ours::Ready) => {}
+            Slot::Ours(Ours::Receiving | Ours::Loading) => self.wait_ready(&port, plan, spec).await?,
+            _ => {
+                if let Err(e) = self.load(&port, plan, spec).await {
+                    self.destroy().await;
+                    self.failed(plan);
+                    return Err(e.code());
+                }
+            }
+        }
+        self.failures.set(0);
+        self.retry_at.set(0);
+        Ok(port)
+    }
+
+    async fn wait_ready(&self, port: &Fetcher, plan: &Plan, spec: Option<&str>) -> std::result::Result<(), &'static str> {
+        let until = now_ms().saturating_add(plan.load_wait_ms);
+        while now_ms() < until {
+            if let Some(h) = healthz(port).await {
+                match sc::slot(&h, &plan.package, None, spec) {
+                    Slot::Ours(Ours::Ready) => return Ok(()),
+                    Slot::Ours(Ours::Failed) => return Err("load failed"),
+                    _ => {}
+                }
+            }
+            sleep(POLL_MS * 2).await;
+        }
+        Err("load outlasted its wait")
+    }
+
+    /// The load: manifest, missing chunks as pinned ranged reads streamed
+    /// to their offsets, then the load and a bounded wait for ready.
+    async fn load(&self, port: &Fetcher, plan: &Plan, spec: Option<&str>) -> std::result::Result<(), Prep> {
+        let bucket = self.env.bucket(PACKAGES).map_err(|_| Prep::Infra("package bucket"))?;
+        let deadline = now_ms().saturating_add(plan.load_wait_ms);
+        let manifest = match cf_io::r2_bytes(&bucket, &plan.manifest_key, MAX_MANIFEST_BYTES, Some(deadline)).await {
+            Ok(Some(m)) => m,
+            Ok(None) => return Err(Prep::Infra("package manifest missing")),
+            Err(_) => return Err(Prep::Infra("package manifest read")),
+        };
+        if hex::encode(<sha2::Sha256 as sha2::Digest>::digest(&manifest)) != plan.package {
+            return Err(Prep::Infra("package manifest digest"));
+        }
+        let files: FilesManifest = serde_json::from_slice(&manifest).map_err(|_| Prep::Infra("package manifest json"))?;
+        if files.files.iter().any(|f| f.bucket != plan.label || f.etag.is_none()) {
+            return Err(Prep::Infra("package file outside the bound bucket or unpinned"));
+        }
+        let mut r = port_fetch(
+            port,
+            Method::Post,
+            &sc::prepare_path(&plan.package, None, spec),
+            Some(js_sys::Uint8Array::from(manifest.as_slice()).into()),
+            Some(manifest.len() as u64),
+        )
+        .await
+        .map_err(|_| Prep::Infra("prepare call"))?;
+        let status = r.status_code();
+        let body = cf_io::response_json::<Value>(&mut r, 1 << 20).await.unwrap_or(Value::Null);
+        let missing = sc::prepare_reply(status, &body)?;
+        drop(body);
+        for (index, offset) in missing {
+            let f = files.files.get(index).ok_or(Prep::Infra("chunk index"))?;
+            let len = f.bytes.checked_sub(offset).filter(|l| *l > 0).ok_or(Prep::Infra("chunk offset"))?.min(CHUNK_BYTES);
+            let etag = f.etag.clone().ok_or(Prep::Infra("chunk etag"))?;
+            let get = bucket.get(f.key.clone()).range(worker::Range::OffsetWithLength { offset, length: len }).only_if(
+                worker::Conditional { etag_matches: Some(etag), etag_does_not_match: None, uploaded_before: None, uploaded_after: None },
+            );
+            let obj = match get.execute().await {
+                Err(_) => return Err(Prep::Infra("chunk read")),
+                Ok(None) => return Err(Prep::Infra(sc::OBJECT_MISSING)),
+                Ok(Some(o)) => o,
+            };
+            let Some(body) = obj.body() else { return Err(Prep::Infra(sc::OBJECT_CHANGED)) };
+            let stream = match body.response_body().map_err(|_| Prep::Infra("chunk body"))? {
+                ResponseBody::Stream(s) => s,
+                _ => return Err(Prep::Infra("chunk stream")),
+            };
+            let path = sc::chunk_path(index, offset);
+            let put = port_fetch(port, Method::Put, &path, Some(stream.into()), Some(len));
+            let left = deadline.saturating_sub(now_ms());
+            let mut r = match select(Box::pin(put), Box::pin(Delay::from(Duration::from_millis(left)))).await {
+                Either::Left((r, _)) => r.map_err(|_| Prep::Infra("chunk upload"))?,
+                Either::Right(_) => return Err(Prep::Infra("package stream timeout")),
+            };
+            let code = r.status_code();
+            cf_io::discard(&mut r);
+            if !matches!(code, 200 | 201) {
+                return Err(sc::chunk_refused(code));
+            }
+        }
+        let mut r = port_fetch(port, Method::Post, &sc::load_path(&plan.package, None, spec), None, None)
+            .await
+            .map_err(|_| Prep::Infra("load call"))?;
+        let status = r.status_code();
+        if !matches!(status, 200 | 202) {
+            let body = cf_io::response_json::<Value>(&mut r, 1 << 20).await.unwrap_or(Value::Null);
+            return Err(sc::load_reply(status, &body).unwrap_or(Prep::Infra("load refused")));
+        }
+        cf_io::discard(&mut r);
+        self.wait_ready(port, plan, spec).await.map_err(Prep::Infra)
+    }
+
+    async fn score(&self, req: Request) -> Result<Response> {
+        let Some(plan) = Plan::of(&self.env) else { return Ok(Response::empty()?.with_status(503)) };
+        if self.busy.get() {
+            return Ok(Response::empty()?.with_status(409));
+        }
+        self.busy.set(true);
+        let _busy = Flag(&self.busy);
+        // A warm start may be loading in the alarm: wait for it rather
+        // than load twice.
+        let mut waited = 0;
+        while self.loading.get() && waited < plan.load_wait_ms {
+            sleep(POLL_MS * 2).await;
+            waited += POLL_MS * 2;
+        }
+        let port = match self.prepare(&plan).await {
+            Ok(p) => p,
+            Err(_) => return Ok(Response::empty()?.with_status(503)),
+        };
+        let len = req.headers().get("content-length").ok().flatten().and_then(|v| v.trim().parse::<u64>().ok());
+        let body = req.inner().body().map(JsValue::from);
+        let mut r = match port_fetch(&port, Method::Post, "/v1/score", body, len).await {
+            Ok(r) => r,
+            Err(_) => {
+                self.destroy().await;
+                return Ok(Response::empty()?.with_status(503));
+            }
+        };
+        if r.status_code() != 200 {
+            cf_io::discard(&mut r);
+            return Ok(Response::empty()?.with_status(503));
+        }
+        match cf_io::response_bytes(&mut r, routes::REPLY_BYTES).await {
+            Ok(bytes) => {
+                let mut out = Response::from_bytes(bytes)?;
+                out.headers_mut().set("Content-Type", "application/json")?;
+                Ok(out)
+            }
+            Err(_) => Ok(Response::empty()?.with_status(503)),
+        }
+    }
+}
+
+impl DurableObject for DetectLane {
+    fn new(state: State, env: Env) -> Self {
+        silence_panics();
+        Self { state, env, busy: Cell::new(false), loading: Cell::new(false), failures: Cell::new(0), retry_at: Cell::new(0) }
+    }
+
+    async fn fetch(&self, req: Request) -> Result<Response> {
+        silence_panics();
+        if req.method() != Method::Post {
+            return Ok(Response::empty()?.with_status(405));
+        }
+        match req.path().as_str() {
+            "/warm" => {
+                let Some(plan) = Plan::of(&self.env) else { return Ok(Response::empty()?.with_status(503)) };
+                if !self.start(&plan).await {
+                    return Ok(Response::empty()?.with_status(503));
+                }
+                self.state.storage().set_alarm(0i64).await?;
+                Ok(Response::empty()?.with_status(202))
+            }
+            "/score" => self.score(req).await,
+            _ => Ok(Response::empty()?.with_status(404)),
+        }
+    }
+
+    async fn alarm(&self) -> Result<Response> {
+        silence_panics();
+        let Some(plan) = Plan::of(&self.env) else { return Response::empty() };
+        if self.busy.get() || self.loading.get() {
+            return Response::empty();
+        }
+        if self.state.container().is_some_and(|c| c.running()) {
+            self.loading.set(true);
+            let _loading = Flag(&self.loading);
+            let _ = self.prepare(&plan).await;
+        }
+        Response::empty()
+    }
+}

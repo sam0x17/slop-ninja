@@ -15,8 +15,8 @@ hidden evaluation, and it never sees evaluation text.
 ## Request path
 
 ```
-browser ── website Worker ──service binding──► detect Worker
-                                                 │  (text stays here)
+browser ── website Worker ──service binding──► detect Worker ──receipts──► DetectFeedback
+                                                 │  (text stays here)       (one, memory only)
                        ticket + client key only  ▼
                                             DetectGate (one, memory only)
                                                  │ admitted
@@ -35,22 +35,30 @@ browser ── website Worker ──service binding──► detect Worker
   this order:
   1. the content type;
   2. the tool switch;
-  3. a declared length within the body bound (413 unread above it, 411
-     without one);
-  4. a reservation from the isolate's scan memory (503 "busy" unread);
-  5. the body;
+  3. a declared length within the body bound, whose full footprint fits the
+     isolate's scan memory (413 unread above either, 411 without a length);
+  4. the intake reservation from the scan memory: 2 bytes per declared body
+     byte, for the body and the unescaped text (503 "busy" unread);
+  5. the body, which must arrive within Turnstile's 300 s token validity
+     (408 past it; a later body carries an expired token anyway);
   6. the strict envelope;
   7. Turnstile siteverify (single use, hostname and action `detect_score`
      checked);
-  8. the exact token count with the scorer's own tokenizer table;
-  9. the length floor and the English screen.
+  8. the rest of the reservation (503 "busy");
+  9. the exact token count with the scorer's own tokenizer table;
+  10. the length floor and the English screen.
 
   A refusal answers one JSON object. An accepted text gets an NDJSON stream
   of queue positions, then "starting" when the instance is cold, then the
-  result or an error.
-- `POST /api/detect/v1/feedback` with `{"receipt","claim"}`. The receipt is
-  verified once by the gate and counted as a content-free data point (band,
-  length bin, package, button).
+  result or an error. A line the reader does not accept within one hold
+  (`QUEUE_HOLD_MS`) ends the stream.
+- `POST /api/detect/v1/feedback` with `{"receipt","claim"}`. It needs no
+  challenge, so it never reaches the admission gate. A receipt of the wrong
+  shape is refused in the Worker. Any other goes to the `DetectFeedback`
+  object, which accepts each valid receipt once; it is then counted as a
+  content-free data point (band, length bin, package, button). A flood of
+  junk or replayed receipts loads only that object, and a scan waits at most
+  one hold for its receipt (it answers without one otherwise).
 
 ## Bounds, derived rather than tuned
 
@@ -60,8 +68,9 @@ browser ── website Worker ──service binding──► detect Worker
 | Body | 2,046 × 512 × 9 + 2,048 + 26 = 9,430,042 bytes | the longest token (512 bytes), the largest escaped-JSON-to-NFC ratio (9, U+01D5), the Turnstile token's documented length and the envelope's fixed bytes; tests recompute 512 from the tokenizer table and 9 from the scorer's NFC crate |
 | Text | 2,046 × 512 × 3 bytes | a decomposed character is at most 3 times its NFC bytes (recomputed by a test); a longer text is refused without being tokenized |
 | Forwarded body | the scorer's 8 MiB | measured on the body built here; refused, never truncated |
-| Isolate scan memory | the memory model's linear memory less the stack, the glue partition, the objects' memory and warm requests | `routes.rs`; each score request reserves 83 bytes per body byte (body, text, NFC copy, the tokenizer's scratch, the forwarded body) plus the reply bound before it reads anything |
-| Gate tickets | the gate's 8 MiB table at 128 bytes per ticket | `routes.rs` |
+| Isolate scan memory | the memory model's linear memory less the stack, the glue partition, the objects' memory and warm requests | `routes.rs`; each score request reserves 83 bytes per body byte (body, text, NFC copy, the tokenizer's scratch, the forwarded body) plus the reply bound: 2 of those bytes before it reads anything, the rest once Turnstile passes |
+| Gate tickets | the gate's 8 MiB table at 256 bytes per ticket (with its waiting ask's channel) | `routes.rs` |
+| Used receipt ids | the feedback object's 1 MiB at 64 bytes per id; past it the object starts a new key, which only loses votes on older receipts | `routes.rs`, `receipt.rs` |
 | Concurrent scans | 1 | one standard-3 instance (`max_instances` 1) with one session; more is a decision |
 
 An added token with `lstrip` (`[MASK]`) also takes the whitespace before it,
@@ -70,6 +79,37 @@ body bound as too large, which only ever refuses more. The isolate scan memory
 refuses, as too large, any request that could not fit even alone (about 1 MB
 of body); no text within the token limit written as ordinary prose comes
 near that.
+
+## Liveness
+
+Every wait is bounded, and nothing needs an operator to recover
+(`waits.rs`, `cf_lane.rs`).
+
+| Wait | Value | What it bounds |
+|---|---|---|
+| `SCORER_START_WAIT_MS` | 60 s | a started instance answering its health check |
+| `LOAD_WAIT_MS` | 180 s | the package load, or a wait for one already running |
+| `SCORE_WAIT_MS` | 60 s | one score call and its reply (a 2,048-token scan is about 5 s warm on standard-3) |
+| `QUEUE_HOLD_MS` | 20 s | a waiting ask (its call gets two holds), the score path's other internal calls, each line written to the reader |
+| scan lease | derived: the three waits plus one hold | an admitted ticket at the gate |
+
+- The lane works within the time the Worker sends: what is left of the
+  three waits since the ticket's admission. Every instance call, health
+  checks included, is raced against its stage's end, and a wait for a load
+  running in the alarm counts against the same time. The lease is that
+  bound plus one hold, so the gate never admits the next ticket while the
+  lane may still be busy.
+- A score call that outlasts `SCORE_WAIT_MS` destroys the instance. A
+  failed call destroys it unless it still reports the package ready (then
+  only the request failed). A start or load that fails destroys it, and new
+  starts back off from `SCORER_START_WAIT_MS`, doubling, never past the idle
+  timeout.
+- A waiting ask is answered early only when its ticket is admitted (or
+  gone), otherwise at the end of its hold with its current position. A
+  queue change therefore wakes one ask, not every waiting one.
+
+The values are deployment parameters from measured times, re-measured at
+the launch gate; they are not abuse thresholds.
 
 ## Evidence rules the result follows
 
@@ -97,6 +137,9 @@ near that.
   address's network prefix (the first 24 bits of an IPv4 address, the first
   64 bits of an IPv6 address) under a key held only in the gate's memory and
   replaced each UTC day. It orders the fair queue and refuses nobody.
+- The feedback object holds its receipt key and the ids already voted, in
+  memory only. A receipt is a random id, the band and the length bin under
+  an HMAC tag: nothing derived from the text.
 - Panics write nothing. workers-rs installs a hook that prints the panic
   message, and a string-slicing panic's message quotes the string, so every
   entry point replaces it first (`silence_panics`). The crate also denies the
@@ -135,7 +178,17 @@ The comparison test for the English screen also runs in
 ## Status
 
 The build is complete and offline-tested. Not yet done: the measured memory
-model, Cloudflare latency and cold-start measurements, a parity run of the
-public synthetic reference cases on the detect Container, the privacy canary
-through the live path, and the abuse-path checks. The resources do not exist
-yet.
+model, Cloudflare latency and cold-start measurements (including the
+liveness waits above), a parity run of the public synthetic reference cases
+on the detect Container, the privacy canary through the live path, and the
+abuse-path checks. Those include:
+
+- a flood of junk and replayed feedback receipts never reaches the gate, and
+  scans keep their admission latency during it;
+- a slow score body holds only its intake reservation, and is cut at the
+  token validity (or the edge is shown to buffer request bodies);
+- a hung or failing instance is destroyed and the lane serves again without
+  an operator;
+- waiting tickets cost one ask per hold each, whatever the queue's changes.
+
+The resources do not exist yet.

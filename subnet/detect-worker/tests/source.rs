@@ -19,8 +19,10 @@ const SOURCES: &[&str] = &[
     "receipt.rs",
     "gate.rs",
     "routes.rs",
+    "waits.rs",
     "cf.rs",
     "cf_gate.rs",
+    "cf_feedback.rs",
     "cf_lane.rs",
 ];
 
@@ -56,7 +58,7 @@ fn first_statement(s: &str, sig: &str) -> String {
 fn every_entry_point_silences_panics_first() {
     let cf = src("cf.rs");
     assert_eq!(first_statement(&cf, "pub fn fetch("), "silence_panics();");
-    for name in ["cf_gate.rs", "cf_lane.rs"] {
+    for name in ["cf_gate.rs", "cf_feedback.rs", "cf_lane.rs"] {
         let s = src(name);
         assert_eq!(first_statement(&s, "fn new(state: State, env: Env)"), "silence_panics();", "{name} new");
         assert_eq!(first_statement(&s, "async fn fetch("), "silence_panics();", "{name} fetch");
@@ -73,6 +75,61 @@ fn the_allow_list_reads_no_hash_or_attribution() {
     for field in ["text_sha256:", "output_sha256:", "attribution:", "origin:", "sentences:", "ms:"] {
         assert!(!structs.contains(field), "answer.rs reads {field}");
     }
+}
+
+/// The body of the function starting at `sig`, to its closing brace at the
+/// start of a line.
+fn function_body<'a>(s: &'a str, sig: &str) -> &'a str {
+    let at = s.find(sig).unwrap_or_else(|| panic!("missing {sig}"));
+    let end = s[at..].find("\n}\n").map_or(s.len(), |e| at + e);
+    &s[at..end]
+}
+
+#[test]
+fn feedback_never_reaches_the_admission_gate() {
+    // The feedback route needs no challenge: it calls the feedback object,
+    // drops a receipt of the wrong shape first, and never calls the gate.
+    let cf = src("cf.rs");
+    let route = function_body(&cf, "async fn feedback(");
+    assert!(!route.contains("gate_call") && !route.contains("gate_tell") && !route.contains("GATE"), "the feedback route reaches the gate");
+    assert!(route.contains("feedback_call::<FeedbackReply, _>(env, \"/vote\""));
+    let shape = route.find("receipt::parse(").expect("shape check");
+    let call = route.find("feedback_call").expect("feedback call");
+    assert!(shape < call, "the shape check runs before any object call");
+    let gate = src("cf_gate.rs");
+    let code = &gate[gate.find("\nuse ").expect("code")..];
+    for banned in ["\"/feedback\"", "receipt", "Ledger", "Claim"] {
+        assert!(!code.contains(banned), "cf_gate.rs handles {banned}");
+    }
+    let w = fs::read_to_string(format!("{}/wrangler.toml", env!("CARGO_MANIFEST_DIR"))).expect("wrangler.toml");
+    assert!(w.contains("class_name = \"DetectFeedback\""));
+}
+
+#[test]
+fn the_scan_lease_is_derived_and_every_lane_call_is_bounded() {
+    let w = fs::read_to_string(format!("{}/wrangler.toml", env!("CARGO_MANIFEST_DIR"))).expect("wrangler.toml");
+    let vars: Vec<&str> = w.lines().map(str::trim).filter(|l| !l.starts_with('#')).collect();
+    assert!(!vars.iter().any(|l| l.starts_with("SCAN_LEASE_MS")), "the lease is derived, not a var");
+    for v in ["SCORER_START_WAIT_MS", "LOAD_WAIT_MS", "SCORE_WAIT_MS", "QUEUE_HOLD_MS"] {
+        assert!(vars.iter().any(|l| l.starts_with(&format!("{v} = "))), "{v}");
+    }
+    // Every instance call in the lane goes through a deadline: each function
+    // that calls `port_fetch` (other than its definition) races it with
+    // `within(...)`.
+    let lane = src("cf_lane.rs");
+    let starts: Vec<usize> = lane.match_indices("fn ").map(|(i, _)| i).filter(|i| lane[..*i].ends_with("async ") || lane[..*i].ends_with("    ") || lane[..*i].ends_with('\n')).collect();
+    let mut calling = 0;
+    for (k, start) in starts.iter().enumerate() {
+        let end = starts.get(k + 1).copied().unwrap_or(lane.len());
+        let f = &lane[*start..end];
+        if f.starts_with("fn port_fetch(") || !f.contains("port_fetch(") {
+            continue;
+        }
+        calling += 1;
+        assert!(f.contains("within("), "an unbounded instance call in {}", &f[..f.find('(').unwrap_or(0)]);
+    }
+    assert!(calling >= 3, "healthz, load and score call the instance");
+    assert!(lane.contains("Outlasted its bound: a hung instance is destroyed."));
 }
 
 #[test]

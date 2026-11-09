@@ -7,26 +7,32 @@
 //!   forwarded to the gate, which starts the one instance only if none is
 //!   awake. Every other warm is answered "starting" with no forward.
 //! - `POST /api/detect/v1/score`: `{"text","turnstile"}`. In order: content
-//!   type; the tool switch; a declared length within the body bound (413
-//!   unread above it); a reservation from the isolate's scan memory (503
-//!   unread when busy); the body; the strict envelope; Turnstile siteverify
-//!   (single use, hostname and action checked); the exact token count; the
-//!   length floor; the English screen. Refusals answer one JSON object. An
-//!   accepted text gets an NDJSON stream: queue positions, "starting" on a
-//!   cold instance, then the result or an error. The gate sees a ticket and
-//!   a client key, never the text, which stays in this invocation.
-//! - `POST /api/detect/v1/feedback`: a receipt and a button, verified once
-//!   by the gate and counted as a content-free data point.
+//!   type; the tool switch; a declared length within the body bound and a
+//!   full footprint that fits the isolate's scan memory (413 unread above
+//!   either); the intake reservation (503 unread when busy); the body, read
+//!   within Turnstile's token validity (408 past it); the strict envelope;
+//!   Turnstile siteverify (single use, hostname and action checked); the rest
+//!   of the reservation (503 when busy); the exact token count; the length
+//!   floor; the English screen. Refusals answer one JSON object. An accepted
+//!   text gets an NDJSON stream: queue positions, "starting" on a cold
+//!   instance, then the result or an error. Each line is written within one
+//!   hold, or the reader is taken as gone. The gate sees a ticket and a
+//!   client key, never the text, which stays in this invocation.
+//! - `POST /api/detect/v1/feedback`: a receipt and a button. A receipt of
+//!   the wrong shape is refused here; any other goes to the `DetectFeedback`
+//!   object (never the gate), which accepts it once, and is counted as a
+//!   content-free data point.
 //! - anything else: 404 (405 for another method on a route).
 //!
 //! Every answer carries `Cache-Control: no-store`. No answer echoes input,
 //! and nothing here writes a console line.
 
 use crate::answer::{self, Outcome, PackageLine};
-use crate::cf_io::{self, now_ms};
+use crate::cf_io::{self, Settled, now_ms};
 use crate::envelope;
 use crate::policy::{self, Band, LengthBin};
 use crate::routes::{self, ScanMemory, NoRoom};
+use crate::waits::Waits;
 use crate::{bound, english, silence_panics};
 use serde::{Deserialize, Serialize};
 use slop_ninja_arena::{ArenaAlloc, AsyncRoute, glue};
@@ -47,6 +53,8 @@ thread_local! {
 
 /// The gate object (one).
 pub(crate) const GATE: &str = "DETECT_GATE";
+/// The feedback object (one).
+const FEEDBACK: &str = "DETECT_FEEDBACK";
 /// The lane objects (one per Container instance; one at launch).
 pub(crate) const LANE: &str = "DETECT_LANE";
 /// The warm forward limiter (rate-limit binding, limit 1 per its shortest period).
@@ -227,6 +235,13 @@ impl Reserved {
     fn take(bytes: usize) -> std::result::Result<Reserved, NoRoom> {
         SCAN_MEMORY.with(|b| b.take(bytes)).map(|()| Reserved(bytes))
     }
+
+    /// Reserves `more` on top of what this already holds.
+    fn grow(&mut self, more: usize) -> std::result::Result<(), NoRoom> {
+        SCAN_MEMORY.with(|b| b.take(more))?;
+        self.0 = self.0.saturating_add(more);
+        Ok(())
+    }
 }
 
 impl Drop for Reserved {
@@ -263,6 +278,17 @@ pub(crate) fn package(env: &Env) -> Option<Package> {
 
 pub(crate) fn ms_var(env: &Env, name: &str) -> Option<u64> {
     var(env, name).and_then(|v| v.parse::<u64>().ok()).filter(|v| *v > 0)
+}
+
+/// The deployment's liveness waits (the scan lease derives from them).
+pub(crate) fn waits(env: &Env) -> Waits {
+    let d = Waits::DEFAULT;
+    Waits {
+        start_ms: ms_var(env, "SCORER_START_WAIT_MS").unwrap_or(d.start_ms),
+        load_ms: ms_var(env, "LOAD_WAIT_MS").unwrap_or(d.load_ms),
+        score_ms: ms_var(env, "SCORE_WAIT_MS").unwrap_or(d.score_ms),
+        hold_ms: ms_var(env, "QUEUE_HOLD_MS").unwrap_or(d.hold_ms),
+    }
 }
 
 // ------------------------------------------------------------------- warm
@@ -321,6 +347,36 @@ async fn warm(req: &Request, env: &Env) -> web_sys::Response {
 
 // --------------------------------------------------------------- gate calls
 
+/// One call to a singleton object (`binding`, named `name`), bounded by
+/// `timeout_ms` (the platform enforces it on the call and its reply).
+/// `None` on any failure; `Some(None)` for a bodiless 2xx.
+async fn object_call<T: serde::de::DeserializeOwned, B: Serialize>(
+    env: &Env,
+    binding: &str,
+    name: &str,
+    path: &str,
+    body: Option<&B>,
+    timeout_ms: u64,
+) -> Option<Option<T>> {
+    let ns = env.durable_object(binding).ok()?;
+    let id = ns.id_from_name(name).ok()?;
+    let stub = id.get_stub().ok()?;
+    let text = match body {
+        Some(b) => Some(serde_json::to_string(b).ok()?),
+        None => None,
+    };
+    let req = cf_io::internal_request(&format!("https://{name}{path}"), Method::Post, text.as_deref(), Some(timeout_ms)).ok()?;
+    let mut res = stub.fetch_with_request(req).await.ok()?;
+    match res.status_code() {
+        200 => cf_io::response_json::<T>(&mut res, 64 * 1024).await.ok().map(Some),
+        204 => Some(None),
+        _ => {
+            cf_io::discard(&mut res);
+            None
+        }
+    }
+}
+
 /// One call to the gate object. `None` on any failure: the callers answer
 /// with a fixed code.
 pub(crate) async fn gate_call<T: serde::de::DeserializeOwned, B: Serialize>(
@@ -329,20 +385,17 @@ pub(crate) async fn gate_call<T: serde::de::DeserializeOwned, B: Serialize>(
     body: Option<&B>,
     timeout_ms: u64,
 ) -> Option<T> {
-    let ns = env.durable_object(GATE).ok()?;
-    let id = ns.id_from_name("gate").ok()?;
-    let stub = id.get_stub().ok()?;
-    let text = match body {
-        Some(b) => Some(serde_json::to_string(b).ok()?),
-        None => None,
-    };
-    let req = cf_io::internal_request(&format!("https://gate{path}"), Method::Post, text.as_deref(), Some(timeout_ms)).ok()?;
-    let mut res = stub.fetch_with_request(req).await.ok()?;
-    if res.status_code() != 200 {
-        cf_io::discard(&mut res);
-        return None;
-    }
-    cf_io::response_json::<T>(&mut res, 64 * 1024).await.ok()
+    object_call::<T, B>(env, GATE, "gate", path, body, timeout_ms).await.flatten()
+}
+
+/// A gate call whose answer is only its success.
+async fn gate_tell<B: Serialize>(env: &Env, path: &str, body: &B, timeout_ms: u64) -> bool {
+    object_call::<serde::de::IgnoredAny, B>(env, GATE, "gate", path, Some(body), timeout_ms).await.is_some()
+}
+
+/// One call to the feedback object (never the gate).
+async fn feedback_call<T: serde::de::DeserializeOwned, B: Serialize>(env: &Env, path: &str, body: &B, timeout_ms: u64) -> Option<T> {
+    object_call::<T, B>(env, FEEDBACK, "feedback", path, Some(body), timeout_ms).await.flatten()
 }
 
 #[derive(Serialize)]
@@ -355,7 +408,6 @@ struct EnterReq<'a> {
 struct AskReq<'a> {
     ticket: &'a str,
     hold_ms: u64,
-    version: u64,
 }
 
 #[derive(Serialize)]
@@ -363,10 +415,12 @@ struct DoneReq<'a> {
     ticket: &'a str,
     #[serde(skip_serializing_if = "Option::is_none")]
     served_ms: Option<u64>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    band: Option<&'static str>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    length: Option<&'static str>,
+}
+
+#[derive(Serialize)]
+struct IssueReq {
+    band: &'static str,
+    length: &'static str,
 }
 
 #[derive(Deserialize)]
@@ -379,25 +433,26 @@ struct GateStatus {
     #[serde(default)]
     estimate_ms: Option<u64>,
     #[serde(default)]
-    version: u64,
-    #[serde(default)]
     awake: bool,
     #[serde(default)]
     tool: bool,
 }
 
 #[derive(Deserialize)]
-struct DoneReply {
+struct IssueReply {
     #[serde(default)]
     receipt: Option<String>,
 }
 
 // ------------------------------------------------------------------ score
 
-/// The NDJSON stream of an accepted text.
+/// The NDJSON stream of an accepted text. Each write must complete within
+/// `bound_ms` (one hold): a reader that takes longer to accept a line is
+/// taken as gone, so no invocation waits on a reader indefinitely.
 struct Lines {
     writer: JsValue,
     open: bool,
+    bound_ms: u64,
 }
 
 impl Lines {
@@ -408,16 +463,15 @@ impl Lines {
         let Ok(mut bytes) = serde_json::to_vec(v) else { return false };
         bytes.push(b'\n');
         let chunk = js_sys::Uint8Array::from(bytes.as_slice());
-        self.open = matches!(
-            wasm_bindgen_futures::JsFuture::from(write_chunk(&self.writer, &chunk)).await,
-            Ok(v) if v.as_bool() == Some(true)
-        );
+        let until = now_ms().saturating_add(self.bound_ms);
+        self.open = matches!(cf_io::settle(write_chunk(&self.writer, &chunk), Some(until)).await, Settled::Value(v) if v.as_bool() == Some(true));
         self.open
     }
 
     async fn close(&mut self) {
         if self.open {
-            let _ = wasm_bindgen_futures::JsFuture::from(close_writer(&self.writer)).await;
+            let until = now_ms().saturating_add(self.bound_ms);
+            let _ = cf_io::settle(close_writer(&self.writer), Some(until)).await;
             self.open = false;
         }
     }
@@ -507,13 +561,19 @@ pub(crate) enum LaneFail {
     Busy,
     Restarting,
     Unavailable,
+    /// The instance is up and ready, and its scorer refused this request.
+    Refused,
 }
 
-async fn lane_score(env: &Env, body: &str, timeout_ms: u64) -> std::result::Result<Vec<u8>, LaneFail> {
+/// The lane's score call. The lane works within `left_ms` (sent with the
+/// call); the call itself is allowed that time plus one hold, so the lane's
+/// own answer, including a timeout's, arrives before this gives up on it.
+async fn lane_score(env: &Env, body: &str, left_ms: u64, hold_ms: u64) -> std::result::Result<Vec<u8>, LaneFail> {
     let ns = env.durable_object(LANE).map_err(|_| LaneFail::Unavailable)?;
     let id = ns.id_from_name("lane-0").map_err(|_| LaneFail::Unavailable)?;
     let stub = id.get_stub().map_err(|_| LaneFail::Unavailable)?;
-    let req = cf_io::internal_request("https://lane/score", Method::Post, Some(body), Some(timeout_ms))
+    let url = format!("https://lane/score?left_ms={left_ms}");
+    let req = cf_io::internal_request(&url, Method::Post, Some(body), Some(left_ms.saturating_add(hold_ms)))
         .map_err(|_| LaneFail::Unavailable)?;
     let mut res = stub.fetch_with_request(req).await.map_err(|_| LaneFail::Restarting)?;
     match res.status_code() {
@@ -521,6 +581,10 @@ async fn lane_score(env: &Env, body: &str, timeout_ms: u64) -> std::result::Resu
         409 => {
             cf_io::discard(&mut res);
             Err(LaneFail::Busy)
+        }
+        502 => {
+            cf_io::discard(&mut res);
+            Err(LaneFail::Refused)
         }
         _ => {
             cf_io::discard(&mut res);
@@ -564,14 +628,21 @@ async fn score(mut req: Request, env: Env, answer: &Answer) {
     if declared > bound::RAW_BODY_BYTES {
         return answer.send(fail(413, "too_large"));
     }
+    // The full footprint must fit alone; until Turnstile passes, only the
+    // intake (the body and the unescaped text) is reserved.
     let reservation = routes::scan_footprint(Some(declared));
-    let _held = match Reserved::take(reservation) {
+    if reservation > routes::SCAN_MEMORY_BYTES {
+        return answer.send(fail(413, "too_large"));
+    }
+    let intake = routes::intake_footprint(declared);
+    let mut held = match Reserved::take(intake) {
         Ok(h) => h,
         Err(NoRoom::Busy) => return answer.send(fail(503, "busy")),
         Err(NoRoom::TooLarge) => return answer.send(fail(413, "too_large")),
     };
     let Ok(limit) = usize::try_from(declared) else { return answer.send(fail(413, "too_large")) };
-    let body = match cf_io::request_bytes(&mut req, limit).await {
+    let until = started.saturating_add(crate::TURNSTILE_TOKEN_VALIDITY_MS);
+    let body = match cf_io::request_bytes_until(&mut req, limit, Some(until)).await {
         Ok(b) => b,
         Err(e) => return answer.send(fail(e.status(), "body")),
     };
@@ -583,6 +654,9 @@ async fn score(mut req: Request, env: Env, answer: &Answer) {
         Verify::Passed => {}
         Verify::Refused => return answer.send(fail(403, "turnstile")),
         Verify::Unavailable => return answer.send(fail(503, "turnstile_unavailable")),
+    }
+    if held.grow(reservation.saturating_sub(intake)).is_err() {
+        return answer.send(fail(503, "busy"));
     }
     let text: &str = &request.text;
     if text.trim().is_empty() {
@@ -619,9 +693,10 @@ async fn score(mut req: Request, env: Env, answer: &Answer) {
         return answer.send(refused("too_long", None, Some(tokens)));
     }
     // Accepted: from here the answer is a stream.
+    let w = waits(&env);
     let pair = ndjson_pair();
     let (readable, writer) = (pair.get(0), pair.get(1));
-    let mut lines = Lines { writer, open: true };
+    let mut lines = Lines { writer, open: true, bound_ms: w.hold_ms };
     let init = web_sys::ResponseInit::new();
     init.set_status(200);
     if let Ok(h) = web_sys::Headers::new() {
@@ -635,8 +710,9 @@ async fn score(mut req: Request, env: Env, answer: &Answer) {
         Ok(r) => answer.send(r),
         Err(_) => return answer.send(fail(500, "internal")),
     }
-    run(&env, &req, &mut lines, &pkg, fwd, text, tokens, words, length, started).await;
+    run(&env, &req, &mut lines, &w, &pkg, fwd, text, tokens, words, length, started).await;
     lines.close().await;
+    drop(held);
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -644,6 +720,7 @@ async fn run(
     env: &Env,
     req: &Request,
     lines: &mut Lines,
+    w: &Waits,
     pkg: &Package,
     fwd: String,
     text: &str,
@@ -652,26 +729,28 @@ async fn run(
     length: LengthBin,
     started: u64,
 ) {
-    let hold = ms_var(env, "QUEUE_HOLD_MS").unwrap_or(20_000);
-    let lease = ms_var(env, "SCAN_LEASE_MS").unwrap_or(300_000);
+    let hold = w.hold_ms;
     let ip = req.headers().get("cf-connecting-ip").ok().flatten();
     let prefix = ip.as_deref().and_then(crate::address_prefix).unwrap_or_else(|| "none".into());
     let Some(mut st) = gate_call::<GateStatus, _>(env, "/enter", Some(&EnterReq { prefix: &prefix, hold_ms: hold }), hold).await else {
         let _ = lines.line(&Fail { state: "error", code: "unavailable" }).await;
         return;
     };
-    let ticket = std::mem::take(&mut st.ticket);
+    let ticket_id = std::mem::take(&mut st.ticket);
+    let ticket = ticket_id.as_str();
+    let done = move |served_ms: Option<u64>| DoneReq { ticket, served_ms };
     loop {
         match st.status.as_str() {
             "admitted" => break,
             "queued" => {
                 let q = Queued { state: "queued", position: st.position.unwrap_or(1), estimate_ms: st.estimate_ms };
                 if !lines.line(&q).await {
-                    let _ = gate_call::<serde::de::IgnoredAny, _>(env, "/leave", Some(&DoneReq { ticket: &ticket, served_ms: None, band: None, length: None }), hold).await;
+                    let _ = gate_tell(env, "/leave", &done(None), hold).await;
                     return;
                 }
-                let ask = AskReq { ticket: &ticket, hold_ms: hold, version: st.version };
-                // The gate holds the ask until the line moves or the hold ends.
+                let ask = AskReq { ticket, hold_ms: hold };
+                // The gate holds the ask until the ticket is admitted or the
+                // hold ends.
                 match gate_call::<GateStatus, _>(env, "/ask", Some(&ask), hold.saturating_mul(2)).await {
                     Some(next) => st = next,
                     None => {
@@ -691,28 +770,34 @@ async fn run(
             }
         }
     }
+    // The admission's clock: the lane gets what is left of its bound.
+    let admitted_at = now_ms();
     if !st.tool {
-        let _ = gate_call::<serde::de::IgnoredAny, _>(env, "/done", Some(&DoneReq { ticket: &ticket, served_ms: None, band: None, length: None }), hold).await;
+        let _ = gate_tell(env, "/done", &done(None), hold).await;
         let _ = lines.line(&Fail { state: "error", code: "tool_off" }).await;
         return;
     }
     let cold = !st.awake;
     if cold && !lines.line(&Phase { state: "starting" }).await {
-        let _ = gate_call::<serde::de::IgnoredAny, _>(env, "/done", Some(&DoneReq { ticket: &ticket, served_ms: None, band: None, length: None }), hold).await;
+        let _ = gate_tell(env, "/done", &done(None), hold).await;
         return;
     }
     let t0 = now_ms();
-    let scored = lane_score(env, &fwd, lease).await;
+    let scored = match w.lane_left_ms(t0.saturating_sub(admitted_at)) {
+        Some(left) => lane_score(env, &fwd, left, hold).await,
+        None => Err(LaneFail::Restarting),
+    };
     drop(fwd);
     let served = now_ms().saturating_sub(t0);
     let reply = match scored {
         Ok(r) => r,
         Err(f) => {
-            let _ = gate_call::<serde::de::IgnoredAny, _>(env, "/done", Some(&DoneReq { ticket: &ticket, served_ms: None, band: None, length: None }), hold).await;
+            let _ = gate_tell(env, "/done", &done(None), hold).await;
             let code = match f {
                 LaneFail::Busy => "busy",
                 LaneFail::Restarting => "restarting",
                 LaneFail::Unavailable => "unavailable",
+                LaneFail::Refused => "scorer",
             };
             metric(env, code, "", length.code(), Some(tokens), cold, served);
             let _ = lines.line(&Fail { state: "error", code }).await;
@@ -723,8 +808,16 @@ async fn run(
     drop(reply);
     match outcome {
         Outcome::Scored { band, confidence, share, tokens: scorer_tokens, spans } => {
-            let done = DoneReq { ticket: &ticket, served_ms: Some(served), band: Some(band.code()), length: Some(length.code()) };
-            let receipt = gate_call::<DoneReply, _>(env, "/done", Some(&done), hold).await.and_then(|d| d.receipt).unwrap_or_default();
+            // The slot is freed and the receipt issued at once: the receipt
+            // comes from the feedback object, which answers within a hold or
+            // the result carries no receipt.
+            let issue = IssueReq { band: band.code(), length: length.code() };
+            let (_, receipt) = futures_util::future::join(
+                gate_tell(env, "/done", &done(Some(served)), hold),
+                feedback_call::<IssueReply, _>(env, "/issue", &issue, hold),
+            )
+            .await;
+            let receipt = receipt.and_then(|r| r.receipt).unwrap_or_default();
             let line = answer::answer(
                 band,
                 confidence,
@@ -741,11 +834,11 @@ async fn run(
             let _ = lines.line(&line).await;
         }
         Outcome::Declined(code) => {
-            let _ = gate_call::<serde::de::IgnoredAny, _>(env, "/done", Some(&DoneReq { ticket: &ticket, served_ms: Some(served), band: None, length: None }), hold).await;
+            let _ = gate_tell(env, "/done", &done(Some(served)), hold).await;
             let _ = lines.line(&Refused { state: "refused", code, words: Some(words), tokens: Some(tokens) }).await;
         }
         Outcome::Fault => {
-            let _ = gate_call::<serde::de::IgnoredAny, _>(env, "/done", Some(&DoneReq { ticket: &ticket, served_ms: None, band: None, length: None }), hold).await;
+            let _ = gate_tell(env, "/done", &done(None), hold).await;
             metric(env, "fault", "", length.code(), Some(tokens), cold, served);
             let _ = lines.line(&Fail { state: "error", code: "scorer" }).await;
         }
@@ -779,8 +872,13 @@ async fn feedback(mut req: Request, env: &Env) -> web_sys::Response {
     };
     let Ok(f) = serde_json::from_slice::<FeedbackReq<'_>>(&body) else { return fail(400, "malformed_request") };
     let Some(claim) = crate::receipt::Claim::from_code(f.claim) else { return fail(400, "malformed_request") };
+    // A receipt of the wrong shape never leaves this invocation; any other
+    // goes to the feedback object, never to the admission gate.
+    if crate::receipt::parse(f.receipt).is_none() {
+        return fail(409, "receipt");
+    }
     let fwd = FeedbackFwd { receipt: f.receipt, claim: claim.code() };
-    match gate_call::<FeedbackReply, _>(env, "/feedback", Some(&fwd), 10_000).await {
+    match feedback_call::<FeedbackReply, _>(env, "/vote", &fwd, waits(env).hold_ms).await {
         Some(r) => {
             // Content-free: the band, length bin, package and button.
             if let (Some(b), Some(l), Ok(ds)) = (Band::from_code(&r.band), LengthBin::from_code(&r.length), env.analytics_engine(METRICS)) {

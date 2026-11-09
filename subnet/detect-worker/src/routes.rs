@@ -6,11 +6,17 @@
 //! a request waiting in the queue keeps its text. So each isolate keeps one
 //! fixed share of linear memory for scans, derived from the memory model,
 //! and each score request reserves its worst-case footprint from it, sized
-//! from its declared body length, before reading a byte of the body. A
-//! request that does not fit gets 503 "busy, try again" unread; one that
-//! could never fit, even alone, is refused as too large. The scan memory is a
-//! byte pool rather than a count of worst-case arenas, so short texts do not
-//! each hold a 9 MB arena.
+//! from its declared body length, in two steps. Before reading a byte of the
+//! body it reserves only what the request holds until Turnstile has passed
+//! (the body and the unescaped text, [`intake_footprint`]); after Turnstile
+//! passes it reserves the rest of [`scan_footprint`]. A body that arrives
+//! slowly, which needs no challenge, therefore holds 2 bytes of scan memory
+//! per declared byte, not the whole footprint, and only until Turnstile's
+//! token validity ends (the Worker's read deadline). A request that does not
+//! fit gets 503 "busy, try again" (unread at the first step); one that could
+//! never fit, even alone, is refused as too large before anything is read.
+//! The scan memory is a byte pool rather than a count of worst-case arenas,
+//! so short texts do not each hold a 9 MB arena.
 
 use crate::bound;
 use slop_ninja_arena::{AsyncRoute, limits, model};
@@ -68,15 +74,26 @@ pub const LARGEST_INVOCATION_BYTES: usize = SCORE_CONTROL_BYTES + slop_ninja_are
 /// per byte).
 pub const BYTES_PER_BODY_BYTE: usize = 1 + 1 + 3 + 72 + 6;
 
+/// Of those, the bytes a score request holds before Turnstile has passed:
+/// the body and the unescaped text.
+pub const INTAKE_BYTES_PER_BODY_BYTE: usize = 1 + 1;
+
 /// The Durable Objects' share of an isolate they may share with the
-/// Worker: the gate's ticket table ([`GATE_TABLE_BYTES`]) and the lane's
-/// manifest and replies.
+/// Worker: the gate's ticket table ([`GATE_TABLE_BYTES`]), the feedback
+/// ledger's used ids ([`FEEDBACK_TABLE_BYTES`]) and the lane's manifest and
+/// replies.
 pub const GATE_TABLE_BYTES: usize = 8 * MIB;
+pub const FEEDBACK_TABLE_BYTES: usize = MIB;
 pub const LANE_RESIDENT_BYTES: usize = REPLY_BYTES + 2 * MIB;
 
-/// Bytes one ticket holds in the gate: its waiting entry, its owner entry
-/// and their B-tree and deque overhead, rounded up.
-pub const TICKET_BYTES: usize = 128;
+/// The feedback ledger's used-id bound, from its memory share. Past it the
+/// ledger starts over with a new key (`receipt::Ledger::stale`).
+pub const MAX_USED_IDS: usize = FEEDBACK_TABLE_BYTES / crate::receipt::USED_ID_BYTES;
+
+/// Bytes one ticket holds in the gate: its waiting entry, its owner entry,
+/// its turn in the round-robin order, the waiting ask's channel and its
+/// waiter entry, and their B-tree, deque and allocator overhead, rounded up.
+pub const TICKET_BYTES: usize = 256;
 /// The gate's ticket table bound, from its memory share.
 pub const MAX_TICKETS: usize = GATE_TABLE_BYTES / TICKET_BYTES;
 
@@ -88,6 +105,7 @@ pub const SCAN_MEMORY_BYTES: usize = model::LINEAR_MEMORY_BYTES
     .saturating_sub(model::STACK_BYTES)
     .saturating_sub(model::GLUE_BUDGET_BYTES)
     .saturating_sub(GATE_TABLE_BYTES)
+    .saturating_sub(FEEDBACK_TABLE_BYTES)
     .saturating_sub(LANE_RESIDENT_BYTES)
     .saturating_sub(WARM_CONTROL_BYTES * 16);
 
@@ -97,6 +115,14 @@ pub fn scan_footprint(body_bytes: Option<u64>) -> usize {
     let n = body_bytes.unwrap_or(bound::RAW_BODY_BYTES).min(bound::RAW_BODY_BYTES);
     let n = usize::try_from(n).unwrap_or(usize::MAX);
     n.saturating_mul(BYTES_PER_BODY_BYTE).saturating_add(SCORE_CONTROL_BYTES)
+}
+
+/// The part of [`scan_footprint`] a score request reserves before reading its
+/// body: what it holds until Turnstile has passed.
+pub fn intake_footprint(body_bytes: u64) -> usize {
+    let n = body_bytes.min(bound::RAW_BODY_BYTES);
+    let n = usize::try_from(n).unwrap_or(usize::MAX);
+    n.saturating_mul(INTAKE_BYTES_PER_BODY_BYTE)
 }
 
 /// The isolate's scan reservations (wasm32 isolates are single-threaded).
@@ -161,6 +187,30 @@ mod tests {
         assert!(SCAN_MEMORY_BYTES / one >= 32, "scan memory {SCAN_MEMORY_BYTES}, one {one}");
         // No declared length reserves the bound, which no isolate holds.
         assert!(scan_footprint(None) > SCAN_MEMORY_BYTES);
+    }
+
+    #[test]
+    fn a_body_before_turnstile_holds_only_its_intake() {
+        // The largest body that could fit alone.
+        let declared = ((SCAN_MEMORY_BYTES - SCORE_CONTROL_BYTES) / BYTES_PER_BODY_BYTE) as u64;
+        let (intake, full) = (intake_footprint(declared), scan_footprint(Some(declared)));
+        assert!(full <= SCAN_MEMORY_BYTES && intake < full);
+        // Unsolved slow bodies of that size: about forty of them fit side by
+        // side, where one full footprint takes the whole scan memory.
+        assert!(SCAN_MEMORY_BYTES / intake >= 40, "intake {intake}, scan memory {SCAN_MEMORY_BYTES}");
+        // Two steps reserve exactly the full footprint.
+        let b = ScanMemory::new();
+        b.take(intake).unwrap();
+        b.take(full - intake).unwrap();
+        assert_eq!(b.held(), full);
+        b.give_back(full);
+        assert_eq!(b.held(), 0);
+    }
+
+    #[test]
+    fn the_feedback_ledger_fits_its_share() {
+        const { assert!(MAX_USED_IDS * crate::receipt::USED_ID_BYTES <= FEEDBACK_TABLE_BYTES) };
+        const { assert!(MAX_USED_IDS >= 16_000) };
     }
 
     #[test]

@@ -1,16 +1,20 @@
-//! Content-free feedback receipts.
+//! Content-free feedback receipts and the ledger that accepts each once.
 //!
 //! Each result carries a receipt: a random 128-bit id, the band, the length
-//! bin and an HMAC-SHA-256 tag over those three under the gate's in-memory
-//! key. "Is this wrong?" sends the receipt and the button, nothing else: no
-//! text and no hash of it. The gate accepts a receipt once, so a solved scan
-//! yields at most one vote, and the band cannot be forged. The key lives
-//! only in the gate object's memory; when the object restarts, older
-//! receipts stop verifying, which only loses votes.
+//! bin and an HMAC-SHA-256 tag over those three under a key held only in the
+//! memory of the `DetectFeedback` object. "Is this wrong?" sends the receipt
+//! and the button, nothing else: no text and no hash of it. The ledger
+//! accepts a receipt once, so a solved scan yields at most one vote, and the
+//! band cannot be forged. Feedback has its own object, never the admission
+//! gate, so a flood of feedback requests (which need no challenge) loads
+//! only that object. When the object restarts, or its key changes at a new
+//! UTC day or when its used-id set reaches its memory share, older receipts
+//! stop verifying, which only loses votes.
 
 use crate::policy::{Band, LengthBin};
 use hmac::{Hmac, Mac};
 use sha2::Sha256;
+use std::collections::BTreeSet;
 
 type HmacSha256 = Hmac<Sha256>;
 
@@ -60,8 +64,10 @@ pub fn issue(key: &[u8; 32], id: &[u8; 16], band: Band, len: LengthBin) -> Optio
     Some(format!("{}.{}.{}.{}", hex::encode(id), band.code(), len.code(), hex::encode(t)))
 }
 
-/// A verified receipt's id, band and length bin.
-pub fn verify(key: &[u8; 32], receipt: &str) -> Option<([u8; 16], Band, LengthBin)> {
+/// A receipt's parts, checked for shape only (no key): the id, band, length
+/// bin and tag. The Worker drops a receipt that fails this before any object
+/// call.
+pub fn parse(receipt: &str) -> Option<([u8; 16], Band, LengthBin, [u8; TAG])> {
     let mut parts = receipt.split('.');
     let (id_hex, band, len, tag_hex) = (parts.next()?, parts.next()?, parts.next()?, parts.next()?);
     if parts.next().is_some() || id_hex.len() != 32 || tag_hex.len() != 2 * TAG {
@@ -72,9 +78,67 @@ pub fn verify(key: &[u8; 32], receipt: &str) -> Option<([u8; 16], Band, LengthBi
     let (band, len) = (Band::from_code(band)?, LengthBin::from_code(len)?);
     let mut got = [0u8; TAG];
     hex::decode_to_slice(tag_hex, &mut got).ok()?;
+    Some((id, band, len, got))
+}
+
+/// A verified receipt's id, band and length bin.
+pub fn verify(key: &[u8; 32], receipt: &str) -> Option<([u8; 16], Band, LengthBin)> {
+    let (id, band, len, got) = parse(receipt)?;
     let want = tag(key, &id, band, len)?;
     let diff = want.iter().zip(got.iter()).fold(0u8, |a, (x, y)| a | (x ^ y));
     (diff == 0).then_some((id, band, len))
+}
+
+/// Bytes one used id holds in the ledger: 16 bytes of key in a B-tree node
+/// of at most 11 keys that splits half full, the node's links, and the
+/// allocator's header, rounded up.
+pub const USED_ID_BYTES: usize = 64;
+
+/// The `DetectFeedback` object's memory: today's key and the ids already
+/// voted under it. Nothing is persisted.
+#[derive(Debug)]
+pub struct Ledger {
+    day: u64,
+    key: [u8; 32],
+    used: BTreeSet<[u8; 16]>,
+    max_used: usize,
+}
+
+impl Ledger {
+    /// A ledger for UTC day `day` whose used-id set holds at most `max_used`
+    /// ids (its memory share over [`USED_ID_BYTES`]).
+    pub fn new(day: u64, key: [u8; 32], max_used: usize) -> Ledger {
+        Ledger { day, key, used: BTreeSet::new(), max_used }
+    }
+
+    /// Whether the ledger needs a new key before its next call: a new UTC
+    /// day, or a full used-id set (starting over then only loses the votes
+    /// of receipts issued under the old key, and nothing is refused).
+    pub fn stale(&self, day: u64) -> bool {
+        day != self.day || self.used.len() >= self.max_used
+    }
+
+    /// Starts over with a new key for `day`.
+    pub fn renew(&mut self, day: u64, key: [u8; 32]) {
+        self.day = day;
+        self.key = key;
+        self.used = BTreeSet::new();
+    }
+
+    /// A receipt for one scored result.
+    pub fn issue(&self, id: &[u8; 16], band: Band, len: LengthBin) -> Option<String> {
+        issue(&self.key, id, band, len)
+    }
+
+    /// Accepts a valid receipt once: its band and length bin.
+    pub fn vote(&mut self, receipt: &str) -> Option<(Band, LengthBin)> {
+        let (id, band, len) = verify(&self.key, receipt)?;
+        self.used.insert(id).then_some((band, len))
+    }
+
+    pub fn used(&self) -> usize {
+        self.used.len()
+    }
 }
 
 #[cfg(test)]
@@ -93,6 +157,37 @@ mod tests {
         assert_eq!(verify(&key, "x"), None);
         assert_eq!(verify(&key, &format!("{r}.extra")), None);
         assert!(!r.contains("text"));
+    }
+
+    #[test]
+    fn the_ledger_accepts_each_receipt_once_and_stays_within_its_share() {
+        let mut l = Ledger::new(1, [1u8; 32], 2);
+        let a = l.issue(&[1u8; 16], Band::Weak, LengthBin::Longer).unwrap();
+        let b = l.issue(&[2u8; 16], Band::Unclear, LengthBin::Measured).unwrap();
+        assert_eq!(l.vote(&a), Some((Band::Weak, LengthBin::Longer)));
+        assert_eq!(l.vote(&a), None, "a receipt counts once");
+        assert_eq!(l.vote("junk"), None);
+        assert!(!l.stale(1));
+        assert_eq!(l.vote(&b), Some((Band::Unclear, LengthBin::Measured)));
+        // Full: the next call starts over with a new key.
+        assert!(l.stale(1));
+        l.renew(1, [2u8; 32]);
+        assert_eq!(l.used(), 0);
+        let c = l.issue(&[3u8; 16], Band::Strong, LengthBin::Measured).unwrap();
+        assert_eq!(l.vote(&a), None, "older receipts stop verifying");
+        assert_eq!(l.vote(&c), Some((Band::Strong, LengthBin::Measured)));
+        // A new UTC day starts over too.
+        assert!(l.stale(2));
+    }
+
+    #[test]
+    fn parse_checks_shape_only() {
+        let r = issue(&[7u8; 32], &[3u8; 16], Band::Strong, LengthBin::Measured).unwrap();
+        assert!(parse(&r).is_some());
+        assert!(parse(&r.replace(".strong.", ".weak.")).is_some(), "shape only: the tag is checked by the ledger");
+        for bad in ["", "x", "a.b.c.d", &format!("{r}.extra"), &r[1..]] {
+            assert!(parse(bad).is_none(), "{bad}");
+        }
     }
 
     #[test]

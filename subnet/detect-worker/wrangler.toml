@@ -4,9 +4,9 @@
 # reaches it only through its service binding (DETECT_TESTNET) and forwards
 # /api/detect/v1/* unchanged; this Worker has no route, no custom domain, no
 # default workers_dev subdomain and no preview URLs. It holds the DetectGate object (one,
-# memory only) and the DetectLane object with its scorer Container (one at
-# launch). It shares no instance, object, binding or bucket with hidden
-# evaluation.
+# memory only), the DetectFeedback object (one, memory only) and the
+# DetectLane object with its scorer Container (one at launch). It shares no
+# instance, object, binding or bucket with hidden evaluation.
 #
 # Every resource serves the testnet reference package, so every name carries
 # -testnet; each deploys with --tag testnet and carries the vars NETWORK and
@@ -84,15 +84,21 @@ SCORER_BINARY_SHA256 = "7030a86f46114b72929d64e71c377b6416d9bdad9ca71d92e9fd467c
 # a fresh instance answered within seconds but a start during a Container
 # rollout stalled past a minute; R0's cold load took 26-41 s, the span
 # package's graph is larger, and one restart stalled to a 180 s port
-# timeout; one 2,048-token scan is about 5 s warm.
+# timeout; one 2,048-token scan is 4.7 s p50 and 5.1 s p95 warm on
+# standard-3 (docs/a-container-serving.md), so a score call still running
+# after a minute is hung, and the instance is destroyed. An admitted scan's
+# lease is not a var: the code derives it as these three waits plus one
+# QUEUE_HOLD_MS (src/waits.rs), so the gate never admits the next ticket
+# while the lane may still be busy.
 SCORER_START_WAIT_MS = "60000"
 LOAD_WAIT_MS = "180000"
-# An admitted scan's lease: a cold start, a load and one scan.
-SCAN_LEASE_MS = "300000"
+SCORE_WAIT_MS = "60000"
 # The instance sleeps after 10 idle minutes (the serving measurements' value).
 IDLE_MS = "600000"
 # How long a waiting ticket's ask is held; a closed tab loses its place in
-# the line within twice this.
+# the line within twice this. It also bounds the score path's other
+# internal calls (an ask's call gets two holds) and every line written to
+# the reader.
 QUEUE_HOLD_MS = "20000"
 
 [[env.testnet.durable_objects.bindings]]
@@ -103,9 +109,15 @@ class_name = "DetectGate"
 name = "DETECT_LANE"
 class_name = "DetectLane"
 
+# Feedback receipts and their used ids: its own object, so the feedback
+# route (no challenge) never reaches the admission gate.
+[[env.testnet.durable_objects.bindings]]
+name = "DETECT_FEEDBACK"
+class_name = "DetectFeedback"
+
 [[env.testnet.migrations]]
 tag = "v1"
-new_sqlite_classes = ["DetectGate", "DetectLane"]
+new_sqlite_classes = ["DetectGate", "DetectLane", "DetectFeedback"]
 
 # The pinned a-scorer image (the same Dockerfile and ignored build context
 # the eval Worker's scorer uses; see the a-container-serve README). One

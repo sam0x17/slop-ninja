@@ -12,8 +12,14 @@
 //!   times their sessions, a deployment decision, never an autoscale.
 //! - **Leases.** A waiting ticket stays while its invocation keeps asking
 //!   (each ask renews it for the hold the invocation names); an admitted one
-//!   until it reports done or its scan lease ends. A ticket whose invocation
-//!   went away is dropped at its lease's end.
+//!   until it reports done or its scan lease ends (`waits::Waits::
+//!   scan_lease_ms`, the lane's own bound plus one hold). A ticket whose
+//!   invocation went away is dropped at its lease's end.
+//! - **Wakes.** A waiting ask is answered early only when its ticket is
+//!   settled (admitted, or dropped from the line); otherwise it is answered
+//!   when its hold ends, with its current position. The gate lists the
+//!   tickets each change settles ([`Gate::take_settled`]), so a queue change
+//!   wakes the one ticket it admits, not every waiting ticket.
 //! - **Warmth.** The gate tracks when the instance can next sleep: the last
 //!   scan's end plus the idle timeout. A warm starts the instance only if
 //!   none is awake and never moves that time; only scans do.
@@ -33,8 +39,9 @@ pub type Client = u64;
 pub struct Config {
     /// Scans that may run at once.
     pub slots: usize,
-    /// An admitted ticket's lease: a cold start plus one scan at the token
-    /// limit (deployment parameter from measured start, load and score times).
+    /// An admitted ticket's lease, derived from the liveness waits
+    /// (`waits::Waits::scan_lease_ms`): the lane's bound for a start, a load
+    /// and one scan, plus one hold.
     pub scan_lease_ms: u64,
     /// The instance's idle timeout (the Container's inactivity timeout).
     pub idle_ms: u64,
@@ -79,8 +86,8 @@ pub struct Gate {
     admitted: BTreeMap<Ticket, u64>,
     awake_until: u64,
     last_service_ms: Option<u64>,
-    /// Bumped on every change a waiting ticket could see.
-    version: u64,
+    /// Waiting tickets admitted or dropped since the last `take_settled`.
+    settled: Vec<Ticket>,
 }
 
 impl Gate {
@@ -93,12 +100,8 @@ impl Gate {
             admitted: BTreeMap::new(),
             awake_until: 0,
             last_service_ms: None,
-            version: 0,
+            settled: Vec::new(),
         }
-    }
-
-    pub fn version(&self) -> u64 {
-        self.version
     }
 
     pub fn tickets(&self) -> usize {
@@ -138,7 +141,6 @@ impl Gate {
         q.push_back(Waiting { ticket, lease_until: now.saturating_add(hold_ms) });
         self.owner.insert(ticket, client);
         self.pump(now);
-        self.version += 1;
         Some(self.status(ticket))
     }
 
@@ -163,7 +165,6 @@ impl Gate {
             self.last_service_ms = Some(ms);
         }
         self.pump(now);
-        self.version += 1;
         known
     }
 
@@ -172,7 +173,6 @@ impl Gate {
         self.admitted.remove(&ticket);
         self.drop_waiting(ticket);
         self.pump(now);
-        self.version += 1;
     }
 
     /// A content-free warm request.
@@ -202,6 +202,14 @@ impl Gate {
         }
     }
 
+    /// The waiting tickets admitted or dropped from the line since the last
+    /// call: the ones whose waiting ask should be answered now. A position
+    /// change alone waits for the hold. The caller takes them after every
+    /// change, so the list holds at most the tickets one change settles.
+    pub fn take_settled(&mut self) -> Vec<Ticket> {
+        std::mem::take(&mut self.settled)
+    }
+
     /// Estimated wait before `position` is admitted: the most recent scan's
     /// service time per place in line (none until a scan completes).
     pub fn estimate_ms(&self, position: usize) -> Option<u64> {
@@ -210,6 +218,7 @@ impl Gate {
 
     fn drop_waiting(&mut self, ticket: Ticket) {
         let Some(client) = self.owner.remove(&ticket) else { return };
+        self.settled.push(ticket);
         if let Some(q) = self.waiting.get_mut(&client) {
             q.retain(|w| w.ticket != ticket);
             if q.is_empty() {
@@ -231,7 +240,6 @@ impl Gate {
         }
         if before != (self.owner.len(), self.admitted.len()) {
             self.pump(now);
-            self.version += 1;
         }
     }
 
@@ -250,8 +258,8 @@ impl Gate {
                 self.order.push_back(client);
             }
             self.owner.remove(&w.ticket);
+            self.settled.push(w.ticket);
             self.admitted.insert(w.ticket, now.saturating_add(self.cfg.scan_lease_ms));
-            self.version += 1;
         }
     }
 
@@ -353,6 +361,32 @@ mod tests {
         g.enter(2, 2, 0, 100_000);
         assert_eq!(g.ask(2, 59_000, 100_000), Status::Queued { position: 1 });
         assert_eq!(g.ask(2, 60_001, 100_000), Status::Admitted);
+    }
+
+    #[test]
+    fn a_queue_change_settles_only_the_ticket_it_admits() {
+        let mut g = gate(1);
+        g.enter(1, 1, 0, 60_000);
+        assert_eq!(g.take_settled(), vec![1], "admitted on entry");
+        for t in 2..50u128 {
+            g.enter(t, t as u64, 0, 60_000);
+        }
+        assert!(g.take_settled().is_empty(), "entries behind the line settle nobody");
+        g.done(1, 1, Some(1_000));
+        assert_eq!(g.take_settled(), vec![2]);
+        assert_eq!(g.status(2), Status::Admitted);
+        g.leave(30, 2);
+        assert_eq!(g.take_settled(), vec![30], "a ticket that left is gone");
+        // An ask that changes nothing settles nobody.
+        g.ask(3, 50_000, 60_000);
+        assert!(g.take_settled().is_empty());
+        // At 100 s the running scan's lease and every ticket that stopped
+        // asking have expired: those are dropped and 3 is admitted.
+        g.ask(3, 100_000, 60_000);
+        let mut settled = g.take_settled();
+        settled.sort_unstable();
+        assert_eq!(settled, (3..50u128).filter(|t| *t != 30).collect::<Vec<_>>());
+        assert_eq!(g.status(3), Status::Admitted);
     }
 
     #[test]

@@ -6,20 +6,20 @@
 //! - `/enter {prefix, hold_ms}`: a new ticket. The client key is an
 //!   HMAC-SHA-256 of the address prefix under a key held only here and
 //!   replaced each UTC day; neither the prefix nor the key is kept.
-//! - `/ask {ticket, hold_ms, version}`: renews the ticket and answers its
-//!   status; while nothing has changed since `version`, the answer waits
-//!   for a change or for `hold_ms`, so positions update without polling.
-//! - `/done {ticket, served_ms?, band?, length?}`: frees the slot; with a
-//!   band, answers a feedback receipt.
-//! - `/leave {ticket}`, `/warm`, `/feedback {receipt, claim}`.
+//! - `/ask {ticket, hold_ms}`: renews the ticket and answers its status.
+//!   While it is queued, the answer waits until the ticket is admitted (or
+//!   gone) or `hold_ms` ends, then carries the current position: a queue
+//!   change wakes only the ticket it admits, so N waiting tickets cost N
+//!   asks per hold, not N per change.
+//! - `/done {ticket, served_ms?}`: frees the slot.
+//! - `/leave {ticket}`, `/warm`.
 //!
-//! No route receives or answers any text.
+//! No route receives or answers any text. Feedback never comes here: it has
+//! its own object (`DetectFeedback`), because its route needs no challenge.
 
-use crate::cf::{self, GateWarm, LANE, ms_var, switch_on};
+use crate::cf::{self, GateWarm, LANE, switch_on, waits};
 use crate::cf_io::{self, now_ms};
-use crate::gate::{Config, Gate, Status};
-use crate::policy::{Band, LengthBin};
-use crate::receipt::{self, Claim};
+use crate::gate::{Config, Gate, Status, Ticket};
 use crate::{routes, silence_panics};
 use futures_channel::oneshot;
 use futures_util::future::select;
@@ -27,14 +27,14 @@ use hmac::{Hmac, Mac};
 use serde::{Deserialize, Serialize};
 use sha2::Sha256;
 use std::cell::RefCell;
-use std::collections::BTreeSet;
+use std::collections::BTreeMap;
 use std::time::Duration;
 use worker::{Delay, DurableObject, Env, Method, Request, Response, Result, State, durable_object};
 
 /// Scans that may run at once: one Container instance (`max_instances`
 /// 1) with one session. Widening is a deployment decision.
 const SLOTS: usize = 1;
-/// One UTC day: the client and receipt keys' lifetime.
+/// One UTC day: the client key's lifetime.
 const DAY_MS: u64 = 86_400_000;
 /// Internal request bodies are a few hundred bytes.
 const BODY_BYTES: usize = 4 * 1024;
@@ -42,8 +42,6 @@ const BODY_BYTES: usize = 4 * 1024;
 struct Keys {
     day: u64,
     client: [u8; 32],
-    receipt: [u8; 32],
-    used: BTreeSet<[u8; 16]>,
 }
 
 fn random<const N: usize>() -> [u8; N] {
@@ -54,10 +52,10 @@ fn random<const N: usize>() -> [u8; N] {
 
 impl Keys {
     fn fresh(day: u64) -> Keys {
-        Keys { day, client: random(), receipt: random(), used: BTreeSet::new() }
+        Keys { day, client: random() }
     }
 
-    /// Replaces both keys at the first call of a new UTC day.
+    /// Replaces the key at the first call of a new UTC day.
     fn today(&mut self, now: u64) -> &mut Keys {
         let day = now / DAY_MS;
         if day != self.day {
@@ -82,7 +80,10 @@ pub struct DetectGate {
     env: Env,
     gate: RefCell<Gate>,
     keys: RefCell<Keys>,
-    waiters: RefCell<Vec<oneshot::Sender<()>>>,
+    /// The waiting ask of each queued ticket (at most one per ticket: a new
+    /// ask replaces the entry of one that returned at its hold's end), woken
+    /// when the ticket settles.
+    waiters: RefCell<BTreeMap<Ticket, oneshot::Sender<()>>>,
 }
 
 #[derive(Deserialize)]
@@ -95,7 +96,6 @@ struct EnterReq {
 struct AskReq {
     ticket: String,
     hold_ms: u64,
-    version: u64,
 }
 
 #[derive(Deserialize)]
@@ -103,16 +103,6 @@ struct DoneReq {
     ticket: String,
     #[serde(default)]
     served_ms: Option<u64>,
-    #[serde(default)]
-    band: Option<String>,
-    #[serde(default)]
-    length: Option<String>,
-}
-
-#[derive(Deserialize)]
-struct FeedbackReq {
-    receipt: String,
-    claim: String,
 }
 
 #[derive(Serialize)]
@@ -123,7 +113,6 @@ struct StatusReply {
     position: Option<usize>,
     #[serde(skip_serializing_if = "Option::is_none")]
     estimate_ms: Option<u64>,
-    version: u64,
     awake: bool,
     tool: bool,
 }
@@ -152,9 +141,15 @@ fn ticket_hex(t: u128) -> String {
 }
 
 impl DetectGate {
-    fn notify(&self) {
-        for w in self.waiters.borrow_mut().drain(..) {
-            let _ = w.send(());
+    /// Wakes the asks of the tickets the last change settled (admitted, or
+    /// dropped from the line) and forgets their entries.
+    fn wake_settled(&self) {
+        let settled = self.gate.borrow_mut().take_settled();
+        let mut ws = self.waiters.borrow_mut();
+        for t in settled {
+            if let Some(tx) = ws.remove(&t) {
+                let _ = tx.send(());
+            }
         }
     }
 
@@ -171,7 +166,6 @@ impl DetectGate {
             status,
             position,
             estimate_ms: position.and_then(|p| g.estimate_ms(p)),
-            version: g.version(),
             awake: g.awake_until() > now,
             tool: switch_on(&self.env, "DETECT_TOOL"),
         })
@@ -201,15 +195,15 @@ impl DurableObject for DetectGate {
         let _ = state;
         let cfg = Config {
             slots: SLOTS,
-            scan_lease_ms: ms_var(&env, "SCAN_LEASE_MS").unwrap_or(300_000),
-            idle_ms: ms_var(&env, "IDLE_MS").unwrap_or(600_000),
+            scan_lease_ms: waits(&env).scan_lease_ms(),
+            idle_ms: cf::ms_var(&env, "IDLE_MS").unwrap_or(600_000),
             max_tickets: routes::MAX_TICKETS,
         };
         Self {
             env,
             gate: RefCell::new(Gate::new(cfg)),
             keys: RefCell::new(Keys::fresh(now_ms() / DAY_MS)),
-            waiters: RefCell::new(Vec::new()),
+            waiters: RefCell::new(BTreeMap::new()),
         }
     }
 
@@ -226,7 +220,7 @@ impl DurableObject for DetectGate {
                 drop(e.prefix);
                 let ticket = u128::from_le_bytes(random());
                 let st = self.gate.borrow_mut().enter(ticket, client, now, e.hold_ms.saturating_mul(2));
-                self.notify();
+                self.wake_settled();
                 match st {
                     Some(st) => self.reply(ticket, st),
                     None => ok_json(&StatusReply {
@@ -234,7 +228,6 @@ impl DurableObject for DetectGate {
                         status: "busy",
                         position: None,
                         estimate_ms: None,
-                        version: 0,
                         awake: false,
                         tool: true,
                     }),
@@ -245,43 +238,31 @@ impl DurableObject for DetectGate {
                 let Some(ticket) = parse_ticket(&a.ticket) else { return status_code(400) };
                 let lease = a.hold_ms.saturating_mul(2);
                 let st = self.gate.borrow_mut().ask(ticket, now, lease);
-                let unchanged = self.gate.borrow().version() == a.version;
-                if matches!(st, Status::Queued { .. }) && unchanged {
+                self.wake_settled();
+                if matches!(st, Status::Queued { .. }) {
                     let (tx, rx) = oneshot::channel();
-                    self.waiters.borrow_mut().push(tx);
+                    self.waiters.borrow_mut().insert(ticket, tx);
                     let _ = select(Box::pin(rx), Box::pin(Delay::from(Duration::from_millis(a.hold_ms)))).await;
-                    let now = now_ms();
-                    let st = self.gate.borrow_mut().ask(ticket, now, lease);
-                    self.notify_if_changed(a.version);
+                    let st = self.gate.borrow_mut().ask(ticket, now_ms(), lease);
+                    self.wake_settled();
                     return self.reply(ticket, st);
                 }
-                self.notify_if_changed(a.version);
                 self.reply(ticket, st)
             }
             "/done" => {
                 let Ok(d) = cf_io::request_json::<DoneReq>(&mut req, BODY_BYTES).await else { return status_code(400) };
                 let Some(ticket) = parse_ticket(&d.ticket) else { return status_code(400) };
-                let known = self.gate.borrow_mut().done(ticket, now, d.served_ms);
-                self.notify();
-                let band = d.band.as_deref().and_then(Band::from_code);
-                let length = d.length.as_deref().and_then(LengthBin::from_code);
-                let receipt = match (known, d.served_ms, band, length) {
-                    (true, Some(_), Some(b), Some(l)) => {
-                        let id: [u8; 16] = random();
-                        let mut keys = self.keys.borrow_mut();
-                        receipt::issue(&keys.today(now).receipt, &id, b, l)
-                    }
-                    _ => None,
-                };
-                ok_json(&ReceiptReply { receipt })
+                self.gate.borrow_mut().done(ticket, now, d.served_ms);
+                self.wake_settled();
+                status_code(204)
             }
             "/leave" => {
                 let Ok(d) = cf_io::request_json::<DoneReq>(&mut req, BODY_BYTES).await else { return status_code(400) };
                 if let Some(ticket) = parse_ticket(&d.ticket) {
                     self.gate.borrow_mut().leave(ticket, now);
-                    self.notify();
+                    self.wake_settled();
                 }
-                ok_json(&ReceiptReply { receipt: None })
+                status_code(204)
             }
             "/warm" => {
                 if !switch_on(&self.env, "DETECT_TOOL") {
@@ -289,54 +270,22 @@ impl DurableObject for DetectGate {
                     return ok_json(&WarmReply { start: false, awake_until: g.awake_until() });
                 }
                 let w = self.gate.borrow_mut().warm(now);
+                // An expiry inside `warm` may admit a waiting ticket.
+                self.wake_settled();
                 if w.start && !self.start_lane().await {
                     self.gate.borrow_mut().asleep();
                 }
                 ok_json(&WarmReply { start: w.start, awake_until: w.awake_until })
-            }
-            "/feedback" => {
-                let Ok(f) = cf_io::request_json::<FeedbackReq>(&mut req, BODY_BYTES).await else { return status_code(400) };
-                if Claim::from_code(&f.claim).is_none() {
-                    return status_code(400);
-                }
-                let mut keys = self.keys.borrow_mut();
-                let k = keys.today(now);
-                match receipt::verify(&k.receipt, &f.receipt) {
-                    Some((id, band, length)) if k.used.insert(id) => {
-                        ok_json(&FeedbackReply { band: band.code(), length: length.code() })
-                    }
-                    _ => status_code(409),
-                }
             }
             _ => status_code(404),
         }
     }
 }
 
-impl DetectGate {
-    fn notify_if_changed(&self, seen: u64) {
-        if self.gate.borrow().version() != seen {
-            self.notify();
-        }
-    }
-}
-
-#[derive(Serialize)]
-struct ReceiptReply {
-    #[serde(skip_serializing_if = "Option::is_none")]
-    receipt: Option<String>,
-}
-
 #[derive(Serialize)]
 struct WarmReply {
     start: bool,
     awake_until: u64,
-}
-
-#[derive(Serialize)]
-struct FeedbackReply {
-    band: &'static str,
-    length: &'static str,
 }
 
 // The Worker reads the warm reply with this shape.

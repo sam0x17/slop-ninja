@@ -16,19 +16,32 @@
 //! Internal routes, called only by this Worker and the gate:
 //! - `/warm`: starts the instance if none runs (the load follows in the
 //!   alarm) and answers at once.
-//! - `/score`: one admitted request body, streamed to the instance's
-//!   `/v1/score`; the reply returns to the Worker, which applies the
-//!   allow-list. A second request while one runs gets 409: the lane holds no
-//!   queue of bodies.
+//! - `/score?left_ms=N`: one admitted request body, streamed to the
+//!   instance's `/v1/score`; the reply returns to the Worker, which applies
+//!   the allow-list. A second request while one runs gets 409: the lane holds
+//!   no queue of bodies. Answers: 200 the scorer's reply; 502 the instance is
+//!   up and ready and its scorer refused this request; 503 the instance could
+//!   not be made ready, or failed and was destroyed.
 //!
-//! A start or load that fails destroys the instance; new starts then wait
-//! `SCORER_START_WAIT_MS` doubled per consecutive failure, never longer
-//! than the idle timeout. Nothing here logs.
+//! **Every wait is bounded** (`waits::Waits`). A score call works within the
+//! time the Worker sends, never more than the lane's own bound: a wait for
+//! a load running in the alarm, the start (`SCORER_START_WAIT_MS`), the load
+//! (`LOAD_WAIT_MS`) and the score call with its reply (`SCORE_WAIT_MS`) are
+//! each cut at their own wait and all at that deadline. Every instance call,
+//! health checks included, is raced against its stage's end, so a hung
+//! instance can hold the lane only until then. A score call that outlasts
+//! its bound destroys the instance; one that fails while the instance no
+//! longer reports the package ready destroys it too. A start or load that
+//! fails destroys the instance; new starts then wait `SCORER_START_WAIT_MS`
+//! doubled per consecutive failure, never longer than the idle timeout. Nothing
+//! needs an operator to recover, and nothing here logs.
 
-use crate::cf::ms_var;
+use crate::cf::{ms_var, waits};
 use crate::cf_io::{self, now_ms};
+use crate::waits::Waits;
 use crate::{routes, silence_panics};
 use futures_util::future::{Either, select};
+use std::future::Future;
 use js_sys::{Function, Reflect};
 use serde_json::Value;
 use slop_ninja_artifact_check::files_manifest::{FilesManifest, MAX_MANIFEST_BYTES};
@@ -76,13 +89,39 @@ async fn port_fetch(port: &Fetcher, method: Method, path: &str, body: Option<JsV
     port.fetch(format!("http://container{path}"), Some(init)).await
 }
 
-async fn healthz(port: &Fetcher) -> Option<Value> {
-    let mut r = port_fetch(port, Method::Get, "/healthz", None, None).await.ok()?;
-    if r.status_code() != 200 {
-        cf_io::discard(&mut r);
+/// Races `fut` against `until` (absolute, `now_ms` clock). `None`: the
+/// deadline came first (the instance call is abandoned).
+async fn within<T>(until: u64, fut: impl Future<Output = T>) -> Option<T> {
+    let left = until.saturating_sub(now_ms());
+    if left == 0 {
         return None;
     }
-    cf_io::response_json::<Value>(&mut r, 64 * 1024).await.ok()
+    match select(Box::pin(fut), Box::pin(Delay::from(Duration::from_millis(left)))).await {
+        Either::Left((v, _)) => Some(v),
+        Either::Right(_) => None,
+    }
+}
+
+/// The instance's health report, if it answers before `until`.
+async fn healthz(port: &Fetcher, until: u64) -> Option<Value> {
+    within(until, async {
+        let mut r = port_fetch(port, Method::Get, "/healthz", None, None).await.ok()?;
+        if r.status_code() != 200 {
+            cf_io::discard(&mut r);
+            return None;
+        }
+        cf_io::response_json::<Value>(&mut r, 64 * 1024).await.ok()
+    })
+    .await
+    .flatten()
+}
+
+/// How a score call ended without a reply.
+enum CallFail {
+    /// The call or its reply body failed in transport.
+    Transport,
+    /// The scorer answered with this status.
+    Status(u16),
 }
 
 async fn sleep(ms: u64) {
@@ -97,8 +136,7 @@ struct Plan {
     label: String,
     binary: Option<String>,
     ort: Option<String>,
-    start_wait_ms: u64,
-    load_wait_ms: u64,
+    waits: Waits,
     idle_ms: u64,
 }
 
@@ -115,8 +153,7 @@ impl Plan {
             label: var(env, "PACKAGE_BUCKET_LABEL")?,
             binary: var(env, "SCORER_BINARY_SHA256"),
             ort: var(env, "SCORER_ORT_SHA256"),
-            start_wait_ms: ms_var(env, "SCORER_START_WAIT_MS").unwrap_or(60_000),
-            load_wait_ms: ms_var(env, "LOAD_WAIT_MS").unwrap_or(180_000),
+            waits: waits(env),
             idle_ms: ms_var(env, "IDLE_MS").unwrap_or(600_000),
         })
     }
@@ -149,7 +186,7 @@ impl DetectLane {
     fn failed(&self, plan: &Plan) {
         let n = self.failures.get().saturating_add(1);
         self.failures.set(n);
-        let wait = plan.start_wait_ms.saturating_mul(1u64 << n.saturating_sub(1).min(16)).min(plan.idle_ms);
+        let wait = plan.waits.start_ms.saturating_mul(1u64 << n.saturating_sub(1).min(16)).min(plan.idle_ms);
         self.retry_at.set(now_ms().saturating_add(wait));
     }
 
@@ -192,13 +229,21 @@ impl DetectLane {
         true
     }
 
+    /// Destroys the instance and counts a failed start or load.
+    async fn give_up(&self, plan: &Plan) {
+        self.destroy().await;
+        self.failed(plan);
+    }
+
     /// Makes the instance ready with the package, starting and loading as
-    /// needed, within the plan's start and load waits.
-    async fn prepare(&self, plan: &Plan) -> std::result::Result<Fetcher, &'static str> {
+    /// needed: the start within `SCORER_START_WAIT_MS`, the load within
+    /// `LOAD_WAIT_MS`, both cut at `deadline`.
+    async fn prepare(&self, plan: &Plan, deadline: u64) -> std::result::Result<Fetcher, &'static str> {
         let c = self.state.container().ok_or("no container binding")?;
+        let w = plan.waits;
         if c.running() {
             let h = match c.get_tcp_port(PORT) {
-                Ok(port) => healthz(&port).await,
+                Ok(port) => healthz(&port, Waits::stage_until(now_ms(), w.start_ms, deadline)).await,
                 Err(_) => None,
             };
             if !matches!(sc::entry(h.as_ref(), &plan.package, None, Some(&plan.spec)), Entry::Keep) && h.is_some() {
@@ -209,14 +254,13 @@ impl DetectLane {
             return Err("start");
         }
         let port = c.get_tcp_port(PORT).map_err(|_| "container port")?;
-        let until = now_ms().saturating_add(plan.start_wait_ms);
+        let until = Waits::stage_until(now_ms(), w.start_ms, deadline);
         let h = loop {
-            if let Some(h) = healthz(&port).await {
+            if let Some(h) = healthz(&port, until).await {
                 break h;
             }
             if now_ms() >= until {
-                self.destroy().await;
-                self.failed(plan);
+                self.give_up(plan).await;
                 return Err("container did not answer");
             }
             sleep(POLL_MS).await;
@@ -226,45 +270,40 @@ impl DetectLane {
             if let Some(w) = want
                 && h.pointer(field).and_then(Value::as_str) != Some(w.as_str())
             {
-                self.destroy().await;
-                self.failed(plan);
+                self.give_up(plan).await;
                 return Err("scorer build identity");
             }
         }
         let n = |p: &str| h.pointer(p).and_then(Value::as_u64);
         if n("/build/sessions") != Some(1) || n("/build/threads") != Some(2) {
-            self.destroy().await;
-            self.failed(plan);
+            self.give_up(plan).await;
             return Err("scorer sessions or threads");
         }
         let spec = match sc::spec_sent(&h, Some(&plan.spec)) {
             Ok(s) => s,
             Err(_) => {
-                self.destroy().await;
-                self.failed(plan);
+                self.give_up(plan).await;
                 return Err(sc::SPEC_NOT_SERVED);
             }
         };
-        match sc::slot(&h, &plan.package, None, spec) {
-            Slot::Ours(Ours::Ready) => {}
-            Slot::Ours(Ours::Receiving | Ours::Loading) => self.wait_ready(&port, plan, spec).await?,
-            _ => {
-                if let Err(e) = self.load(&port, plan, spec).await {
-                    self.destroy().await;
-                    self.failed(plan);
-                    return Err(e.code());
-                }
-            }
+        let until = Waits::stage_until(now_ms(), w.load_ms, deadline);
+        let loaded = match sc::slot(&h, &plan.package, None, spec) {
+            Slot::Ours(Ours::Ready) => Ok(()),
+            Slot::Ours(Ours::Receiving | Ours::Loading) => self.wait_ready(&port, plan, spec, until).await,
+            _ => self.load(&port, plan, spec, until).await.map_err(|e| e.code()),
+        };
+        if let Err(e) = loaded {
+            self.give_up(plan).await;
+            return Err(e);
         }
         self.failures.set(0);
         self.retry_at.set(0);
         Ok(port)
     }
 
-    async fn wait_ready(&self, port: &Fetcher, plan: &Plan, spec: Option<&str>) -> std::result::Result<(), &'static str> {
-        let until = now_ms().saturating_add(plan.load_wait_ms);
+    async fn wait_ready(&self, port: &Fetcher, plan: &Plan, spec: Option<&str>, until: u64) -> std::result::Result<(), &'static str> {
         while now_ms() < until {
-            if let Some(h) = healthz(port).await {
+            if let Some(h) = healthz(port, until).await {
                 match sc::slot(&h, &plan.package, None, spec) {
                     Slot::Ours(Ours::Ready) => return Ok(()),
                     Slot::Ours(Ours::Failed) => return Err("load failed"),
@@ -278,9 +317,8 @@ impl DetectLane {
 
     /// The load: manifest, missing chunks as pinned ranged reads streamed
     /// to their offsets, then the load and a bounded wait for ready.
-    async fn load(&self, port: &Fetcher, plan: &Plan, spec: Option<&str>) -> std::result::Result<(), Prep> {
+    async fn load(&self, port: &Fetcher, plan: &Plan, spec: Option<&str>, deadline: u64) -> std::result::Result<(), Prep> {
         let bucket = self.env.bucket(PACKAGES).map_err(|_| Prep::Infra("package bucket"))?;
-        let deadline = now_ms().saturating_add(plan.load_wait_ms);
         let manifest = match cf_io::r2_bytes(&bucket, &plan.manifest_key, MAX_MANIFEST_BYTES, Some(deadline)).await {
             Ok(Some(m)) => m,
             Ok(None) => return Err(Prep::Infra("package manifest missing")),
@@ -293,17 +331,23 @@ impl DetectLane {
         if files.files.iter().any(|f| f.bucket != plan.label || f.etag.is_none()) {
             return Err(Prep::Infra("package file outside the bound bucket or unpinned"));
         }
-        let mut r = port_fetch(
-            port,
-            Method::Post,
-            &sc::prepare_path(&plan.package, None, spec),
-            Some(js_sys::Uint8Array::from(manifest.as_slice()).into()),
-            Some(manifest.len() as u64),
-        )
+        let prepared = within(deadline, async {
+            let mut r = port_fetch(
+                port,
+                Method::Post,
+                &sc::prepare_path(&plan.package, None, spec),
+                Some(js_sys::Uint8Array::from(manifest.as_slice()).into()),
+                Some(manifest.len() as u64),
+            )
+            .await
+            .map_err(|_| Prep::Infra("prepare call"))?;
+            let status = r.status_code();
+            let body = cf_io::response_json::<Value>(&mut r, 1 << 20).await.unwrap_or(Value::Null);
+            Ok::<_, Prep>((status, body))
+        })
         .await
-        .map_err(|_| Prep::Infra("prepare call"))?;
-        let status = r.status_code();
-        let body = cf_io::response_json::<Value>(&mut r, 1 << 20).await.unwrap_or(Value::Null);
+        .ok_or(Prep::Infra("prepare call timeout"))?;
+        let (status, body) = prepared?;
         let missing = sc::prepare_reply(status, &body)?;
         drop(body);
         for (index, offset) in missing {
@@ -313,10 +357,11 @@ impl DetectLane {
             let get = bucket.get(f.key.clone()).range(worker::Range::OffsetWithLength { offset, length: len }).only_if(
                 worker::Conditional { etag_matches: Some(etag), etag_does_not_match: None, uploaded_before: None, uploaded_after: None },
             );
-            let obj = match get.execute().await {
-                Err(_) => return Err(Prep::Infra("chunk read")),
-                Ok(None) => return Err(Prep::Infra(sc::OBJECT_MISSING)),
-                Ok(Some(o)) => o,
+            let obj = match within(deadline, get.execute()).await {
+                None => return Err(Prep::Infra("package stream timeout")),
+                Some(Err(_)) => return Err(Prep::Infra("chunk read")),
+                Some(Ok(None)) => return Err(Prep::Infra(sc::OBJECT_MISSING)),
+                Some(Ok(Some(o))) => o,
             };
             let Some(body) = obj.body() else { return Err(Prep::Infra(sc::OBJECT_CHANGED)) };
             let stream = match body.response_body().map_err(|_| Prep::Infra("chunk body"))? {
@@ -325,10 +370,9 @@ impl DetectLane {
             };
             let path = sc::chunk_path(index, offset);
             let put = port_fetch(port, Method::Put, &path, Some(stream.into()), Some(len));
-            let left = deadline.saturating_sub(now_ms());
-            let mut r = match select(Box::pin(put), Box::pin(Delay::from(Duration::from_millis(left)))).await {
-                Either::Left((r, _)) => r.map_err(|_| Prep::Infra("chunk upload"))?,
-                Either::Right(_) => return Err(Prep::Infra("package stream timeout")),
+            let mut r = match within(deadline, put).await {
+                Some(r) => r.map_err(|_| Prep::Infra("chunk upload"))?,
+                None => return Err(Prep::Infra("package stream timeout")),
             };
             let code = r.status_code();
             cf_io::discard(&mut r);
@@ -336,16 +380,35 @@ impl DetectLane {
                 return Err(sc::chunk_refused(code));
             }
         }
-        let mut r = port_fetch(port, Method::Post, &sc::load_path(&plan.package, None, spec), None, None)
-            .await
-            .map_err(|_| Prep::Infra("load call"))?;
-        let status = r.status_code();
-        if !matches!(status, 200 | 202) {
-            let body = cf_io::response_json::<Value>(&mut r, 1 << 20).await.unwrap_or(Value::Null);
-            return Err(sc::load_reply(status, &body).unwrap_or(Prep::Infra("load refused")));
+        let started = within(deadline, async {
+            let mut r = port_fetch(port, Method::Post, &sc::load_path(&plan.package, None, spec), None, None)
+                .await
+                .map_err(|_| Prep::Infra("load call"))?;
+            let status = r.status_code();
+            if !matches!(status, 200 | 202) {
+                let body = cf_io::response_json::<Value>(&mut r, 1 << 20).await.unwrap_or(Value::Null);
+                return Err(sc::load_reply(status, &body).unwrap_or(Prep::Infra("load refused")));
+            }
+            cf_io::discard(&mut r);
+            Ok(())
+        })
+        .await
+        .ok_or(Prep::Infra("load call timeout"))?;
+        started?;
+        self.wait_ready(port, plan, spec, deadline).await.map_err(Prep::Infra)
+    }
+
+    /// After a failed score call: keeps an instance that still reports the
+    /// package ready (the request failed, not the instance) and destroys any
+    /// other. `true`: kept.
+    async fn after_failure(&self, port: &Fetcher, plan: &Plan, until: u64) -> bool {
+        if let Some(h) = healthz(port, until).await
+            && sc::slot(&h, &plan.package, None, Some(&plan.spec)) == Slot::Ours(Ours::Ready)
+        {
+            return true;
         }
-        cf_io::discard(&mut r);
-        self.wait_ready(port, plan, spec).await.map_err(Prep::Infra)
+        self.destroy().await;
+        false
     }
 
     async fn score(&self, req: Request) -> Result<Response> {
@@ -355,37 +418,50 @@ impl DetectLane {
         }
         self.busy.set(true);
         let _busy = Flag(&self.busy);
+        let w = plan.waits;
+        let left = req.url().ok().and_then(|u| u.query_pairs().find(|(k, _)| k == "left_ms").and_then(|(_, v)| v.parse::<u64>().ok()));
+        let deadline = w.lane_deadline(now_ms(), left);
         // A warm start may be loading in the alarm: wait for it rather
-        // than load twice.
-        let mut waited = 0;
-        while self.loading.get() && waited < plan.load_wait_ms {
+        // than load twice, within the same deadline.
+        while self.loading.get() && now_ms() < deadline {
             sleep(POLL_MS * 2).await;
-            waited += POLL_MS * 2;
         }
-        let port = match self.prepare(&plan).await {
+        if self.loading.get() {
+            return Ok(Response::empty()?.with_status(503));
+        }
+        let port = match self.prepare(&plan, deadline).await {
             Ok(p) => p,
             Err(_) => return Ok(Response::empty()?.with_status(503)),
         };
+        let until = Waits::stage_until(now_ms(), w.score_ms, deadline);
         let len = req.headers().get("content-length").ok().flatten().and_then(|v| v.trim().parse::<u64>().ok());
         let body = req.inner().body().map(JsValue::from);
-        let mut r = match port_fetch(&port, Method::Post, "/v1/score", body, len).await {
-            Ok(r) => r,
-            Err(_) => {
-                self.destroy().await;
-                return Ok(Response::empty()?.with_status(503));
+        let call = async {
+            let mut r = port_fetch(&port, Method::Post, "/v1/score", body, len).await.map_err(|_| CallFail::Transport)?;
+            let code = r.status_code();
+            if code != 200 {
+                cf_io::discard(&mut r);
+                return Err(CallFail::Status(code));
             }
+            cf_io::response_bytes(&mut r, routes::REPLY_BYTES).await.map_err(|_| CallFail::Transport)
         };
-        if r.status_code() != 200 {
-            cf_io::discard(&mut r);
-            return Ok(Response::empty()?.with_status(503));
-        }
-        match cf_io::response_bytes(&mut r, routes::REPLY_BYTES).await {
-            Ok(bytes) => {
+        match within(until, call).await {
+            Some(Ok(bytes)) => {
                 let mut out = Response::from_bytes(bytes)?;
                 out.headers_mut().set("Content-Type", "application/json")?;
                 Ok(out)
             }
-            Err(_) => Ok(Response::empty()?.with_status(503)),
+            // The scorer refused this request itself: the instance stays.
+            Some(Err(CallFail::Status(400 | 404 | 413 | 422))) => Ok(Response::empty()?.with_status(502)),
+            Some(Err(_)) => {
+                let kept = self.after_failure(&port, &plan, deadline).await;
+                Ok(Response::empty()?.with_status(if kept { 502 } else { 503 }))
+            }
+            None => {
+                // Outlasted its bound: a hung instance is destroyed.
+                self.destroy().await;
+                Ok(Response::empty()?.with_status(503))
+            }
         }
     }
 }
@@ -424,7 +500,9 @@ impl DurableObject for DetectLane {
         if self.state.container().is_some_and(|c| c.running()) {
             self.loading.set(true);
             let _loading = Flag(&self.loading);
-            let _ = self.prepare(&plan).await;
+            let w = plan.waits;
+            let deadline = now_ms().saturating_add(w.start_ms).saturating_add(w.load_ms);
+            let _ = self.prepare(&plan, deadline).await;
         }
         Response::empty()
     }

@@ -12,11 +12,13 @@
 //! - [`english`]: the human pools' English screen, ported;
 //! - [`policy`]: length policy, bands, display rules and notices;
 //! - [`answer`]: the response allow-list and UTF-16 offsets;
-//! - [`receipt`]: content-free feedback receipts;
+//! - [`receipt`]: content-free feedback receipts and their ledger;
 //! - [`gate`]: the tickets-only fair queue and the instance's warmth;
+//! - [`waits`]: the liveness waits and the scan lease derived from them;
 //! - [`routes`]: arena routes, footprints and the isolate's scan memory;
-//! - `cf`, `cf_gate`, `cf_lane` (wasm32): the export, the `DetectGate`
-//!   object and the `DetectLane` object with its Container.
+//! - `cf`, `cf_gate`, `cf_feedback`, `cf_lane` (wasm32): the export, the
+//!   `DetectGate` object, the `DetectFeedback` object and the `DetectLane`
+//!   object with its Container.
 //!
 //! **Privacy.** The text lives in the request's memory only. Nothing derived
 //! from it is stored, logged, cached or returned beyond the allow-list: no
@@ -37,9 +39,12 @@ pub mod gate;
 pub mod policy;
 pub mod receipt;
 pub mod routes;
+pub mod waits;
 
 #[cfg(target_arch = "wasm32")]
 mod cf;
+#[cfg(target_arch = "wasm32")]
+mod cf_feedback;
 #[cfg(target_arch = "wasm32")]
 mod cf_gate;
 #[cfg(target_arch = "wasm32")]
@@ -83,6 +88,11 @@ pub const SCORE_PATH: &str = "/api/detect/v1/score";
 pub const FEEDBACK_PATH: &str = "/api/detect/v1/feedback";
 /// The Turnstile action the page's widget names; siteverify must report it.
 pub const TURNSTILE_ACTION: &str = "detect_score";
+/// A Turnstile token's validity: Cloudflare accepts a token within 300 s of
+/// its issue (server-side validation docs). A score body still arriving
+/// after this long carries an expired token, so the Worker's body read
+/// ends here and refuses nothing a reader could have sent.
+pub const TURNSTILE_TOKEN_VALIDITY_MS: u64 = 300_000;
 
 /// The client key's input: the address's network prefix (IPv4 /24, IPv6
 /// /64, the usual unit a single site or subscriber holds), so one network

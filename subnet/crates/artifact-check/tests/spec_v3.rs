@@ -167,9 +167,9 @@ fn versions_are_named_by_id_and_digest() {
         assert_eq!(Version::named(v.id(), &v.spec_sha256()), Some(v));
         assert_eq!(Version::named(v.id(), &"0".repeat(64)), None);
     }
-    assert_eq!(Version::from_id("slop_ninja_a_artifact_spec_v5"), None);
+    assert_eq!(Version::from_id("slop_ninja_a_artifact_spec_v6"), None);
     assert_eq!(Version::LATEST, Version::V4);
-    assert_eq!(Version::ALL.len(), 4);
+    assert_eq!(Version::ALL.len(), 5);
 }
 
 #[test]

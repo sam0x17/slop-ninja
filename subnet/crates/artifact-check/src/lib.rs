@@ -200,6 +200,11 @@ pub enum Refusal {
     /// The heads and the graph class disagree (span head with a plain graph,
     /// or the reverse).
     GraphClass(String),
+    /// Spec v5: the heads carry no token head.
+    TokenHeadRequired,
+    /// Spec v5: the decoder is not the floor decoder, or its minimum is under
+    /// 24 words.
+    SpanDecoderFloor(String),
 }
 
 impl Refusal {
@@ -230,6 +235,8 @@ impl Refusal {
             Refusal::TooManyParameters { .. } => "too_many_parameters",
             Refusal::GraphNotAllowed { .. } => "graph_not_allowed",
             Refusal::GraphClass(_) => "graph_class",
+            Refusal::TokenHeadRequired => "token_head_required",
+            Refusal::SpanDecoderFloor(_) => "span_decoder_floor",
         }
     }
 }
@@ -307,6 +314,11 @@ impl std::fmt::Display for Refusal {
                 write!(f, "graph is not of an allow-listed graph class's length")
             }
             Refusal::GraphClass(d) => write!(f, "graph class: {d}"),
+            Refusal::TokenHeadRequired => write!(
+                f,
+                "spec v5 needs a token head: heads.json carries document heads only"
+            ),
+            Refusal::SpanDecoderFloor(d) => write!(f, "span decoder floor: {d}"),
         }
     }
 }

@@ -1,7 +1,7 @@
 //! `slop_ninja_artifact_check`: the *A* artifact spec checks.
 //!
 //! ```text
-//! slop_ninja_artifact_check [--spec v1|v2|v3|v4] COMMAND ...
+//! slop_ninja_artifact_check [--spec v1|v2|v3|v4|v5] COMMAND ...
 //! slop_ninja_artifact_check --version                 print the version and every spec digest
 //! slop_ninja_artifact_check spec                      print the spec record and its digests
 //! slop_ninja_artifact_check check-dir DIR             check a model directory
@@ -13,7 +13,7 @@
 //! slop_ninja_artifact_check canonical DIR OUT         re-encode DIR's JSON files in their canonical layouts into OUT
 //! ```
 //!
-//! `--spec` chooses the spec version the checks apply (`v1` to `v4` or a full
+//! `--spec` chooses the spec version the checks apply (`v1` to `v5` or a full
 //! spec id); without it, spec v1. A cohort names its spec by id and digest.
 //! `graph` walks the file with the parameter bound of the version's class of
 //! that length (the plain and span classes' bound otherwise), compares its
@@ -33,8 +33,8 @@ use serde_json::json;
 use slop_ninja_artifact_check::spec::Version;
 use slop_ninja_artifact_check::{Refusal, files, fs, onnx, spec, text};
 
-const USAGE: &str = "usage: slop_ninja_artifact_check [--spec v1|v2|v3|v4] (--version | spec | check-dir DIR | check-object FILE | graph FILE | structure FILE OUT | pack DIR OUT | files DIR OUT | canonical DIR OUT)\n\
---spec: the spec version to check (v1, v2, v3, v4 or a full spec id; default v1)\n\
+const USAGE: &str = "usage: slop_ninja_artifact_check [--spec v1|v2|v3|v4|v5] (--version | spec | check-dir DIR | check-object FILE | graph FILE | structure FILE OUT | pack DIR OUT | files DIR OUT | canonical DIR OUT)\n\
+--spec: the spec version to check (v1, v2, v3, v4, v5 or a full spec id; default v1)\n\
 exit status: 0 success; 2 refused (prints `refused <code>: <detail>`); 64 usage error";
 
 fn version_arg(v: &str) -> Option<Version> {
@@ -43,6 +43,7 @@ fn version_arg(v: &str) -> Option<Version> {
         "v2" => Some(Version::V2),
         "v3" => Some(Version::V3),
         "v4" => Some(Version::V4),
+        "v5" => Some(Version::V5),
         id => Version::from_id(id),
     }
 }

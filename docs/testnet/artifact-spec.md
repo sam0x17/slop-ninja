@@ -1,6 +1,6 @@
 # A artifact spec
 
-Four versions are defined. **Spec v1** (`slop_ninja_a_artifact_spec_v1`) is
+Five versions are defined. **Spec v1** (`slop_ninja_a_artifact_spec_v1`) is
 the first; this page describes it, and its values and digest are unchanged.
 **Spec v2** (`slop_ninja_a_artifact_spec_v2`) keeps every v1 value and adds
 span heads; [Spec v2](#spec-v2) lists exactly what it changes. **Spec v3**
@@ -8,13 +8,15 @@ span heads; [Spec v2](#spec-v2) lists exactly what it changes. **Spec v3**
 classes and adds the span tower class; [Spec v3](#spec-v3) lists exactly what
 it changes. **Spec v4** (`slop_ninja_a_artifact_spec_v4`) admits exactly what
 spec v3 admits and states the graph class rule as the byte comparison of
-structure streams; [Spec v4](#spec-v4) lists exactly what it changes. No
-version refuses a span decoder whose minimum span is under 24 words, the floor
-the span gate is to evaluate spans under; that check needs a later spec
-version. A cohort names the spec it checks by id and digest, and the
+structure streams; [Spec v4](#spec-v4) lists exactly what it changes.
+**Spec v5** (`slop_ninja_a_artifact_spec_v5`) keeps every v4 value and adds
+two refusals: an artifact without a token head, and a span decoder that is
+not `slop_ninja_span_decoder_v1` with a minimum span of at least 24 words, the
+floor the span gate evaluates spans under; [Spec v5](#spec-v5) lists exactly
+what it changes. Spec v1 to v4 refuse neither. A cohort names the spec it checks by id and digest, and the
 scorer admits each of the cohort's artifacts by that spec: a load names it
 by digest, and a load that names none is admitted by spec v2. The scorer
-admits by spec v2, v3 or v4, never by spec v1, which bounds no JSON file, so an
+admits by spec v2, v3, v4 or v5, never by spec v1, which bounds no JSON file, so an
 artifact spec v1 admits can still be refused when its JSON exceeds spec v2's
 budgets. Testnet cohorts opened by the standing template name spec v3.
 Spec v3 admits every artifact spec v2 admits, with the same results, and adds
@@ -864,6 +866,38 @@ single-byte mutation of it and finds them equal.
 
 The guard pin and the scorer mapping schema could later move to the files
 manifest v2; that is not part of spec v4 and would need its own version.
+
+## Spec v5
+
+Spec v5 (`slop_ninja_a_artifact_spec_v5`, digest
+`3bc7560344eca8cba27e44b81b2f7683478e6ef23036de6a4f474d65fa8814a1`) keeps
+every spec v4 value: the same classes, bounds, file table, schemas and object
+sizes. Its record adds `span_requirements` with two refusals, checked after
+every v4 check passes:
+
+| Refusal | When |
+|---|---|
+| `token_head_required` | `heads.json` carries no token head: document heads only (R0's form), or a span head without a token head |
+| `span_decoder_floor` | the decoder of `heads.json`'s `span_emission` is not `slop_ninja_span_decoder_v1`, or its `min_words` is under 24 |
+
+The load guard already binds the heads' span emission spec to the export
+manifest's `span_emission` and the calibration record's `spans`, so the
+heads' decoder is all three. The span output format is unchanged
+(`slop_ninja_span_emission_v1` under contract v2), and the runtime decoder is
+the same, so v5 needs no runtime change: a decoder never emits a span under
+its own minimum.
+
+Spec v5 is defined, listed in `ADMISSION_SPECS` and admitted by when a cohort
+names it; it is not the default (`Version::LATEST` stays v4, and so do the
+miner's `check` and the local scorer). SlopNinja's first span package (the
+S2c tower with the 24-word decoder) passes it with the same class, parameter
+count and content digest as under v4. R0 is refused `token_head_required`,
+and the earlier S2c span package (minimum 10) and the S0+ package (minimum 5)
+are refused `span_decoder_floor`. `tests/spec_v5.rs` pins the v1 to v5
+digests, compares the v5 record with v4's key by key and, with the model
+directories, checks those four artifacts and a 23/24/25-word boundary
+mutation of the decoder (`A_R0_MODEL_DIR`, `A_TOWER_MODEL_DIR`,
+`A_S0P_MODEL_DIR`, `A_D24_MODEL_DIR`).
 
 ## Tests
 

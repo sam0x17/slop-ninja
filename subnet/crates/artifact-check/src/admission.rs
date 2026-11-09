@@ -80,8 +80,10 @@ pub fn files_bytes(v: Version) -> Option<u64> {
 /// The specs an admission run can load by: every admission run names the
 /// cohort's spec digest on its load (`AScorer` `/admit`), so a scorer that
 /// lists the spec admits by it (spec v3 admits the span tower class; spec v4
-/// admits what v3 admits, its graph class rule stated as a byte comparison).
-pub const ADMISSION_SPECS: &[&str] = &[spec::SPEC_ID_V2, spec::SPEC_ID_V3, spec::SPEC_ID_V4];
+/// admits what v3 admits, its graph class rule stated as a byte comparison;
+/// spec v5 admits what v4 admits that carries a token head with the 24-word
+/// floor decoder).
+pub const ADMISSION_SPECS: &[&str] = &[spec::SPEC_ID_V2, spec::SPEC_ID_V3, spec::SPEC_ID_V4, spec::SPEC_ID_V5];
 
 /// Specs the scorer admits a load by: those that bound the JSON role files.
 fn engine_admits(v: Version) -> bool {

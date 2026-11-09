@@ -448,6 +448,10 @@ fn a_heads_v2_token_head_reads_the_final_norm_states_and_emits_spans() {
     let model = Model::load_without_admission(&dir, &contract_sha(&dir), GRAPH, 2, 1, &lib).unwrap();
     assert!(model.emits_spans());
     assert!(model.needs.token_states && !model.needs.tower_states);
+    // The decoder load fact the span gate's structural conditions read.
+    let d = &span_emission()["decoder"];
+    assert_eq!(model.load["release"]["decoder"], serde_json::json!({"rule": d["rule"], "min_words": d["min_words"]}));
+    assert_eq!(model.load["release"]["token_head"], true);
     let h = heads(&dir);
     for (i, d) in DOCS.iter().enumerate() {
         let plain = model.score_with(&i.to_string(), d, false);
@@ -469,6 +473,13 @@ fn a_heads_v2_token_head_reads_the_final_norm_states_and_emits_spans() {
         let x = h.emit_spans(d, &offsets, &words, &logits, &pred.prediction).unwrap();
         assert_eq!(spans["prediction"]["sentences"], serde_json::to_value(&x.sentences).unwrap());
         assert_eq!(spans["prediction"]["spans"], serde_json::to_value(&x.spans).unwrap());
+        // Spans only (cohort scoring): the same spans, no sentences, the same
+        // document outputs and the same span digest.
+        let only = model.score_with_sentences(&i.to_string(), d, true, false);
+        assert!(only["prediction"].get("sentences").is_none());
+        assert_eq!(only["prediction"]["spans"], spans["prediction"]["spans"]);
+        assert_eq!(only["output_sha256"], spans["output_sha256"]);
+        assert_eq!(only["span_output_sha256"], spans["span_output_sha256"]);
         // The tower's states would give other logits: the head reads the declared states.
         let other = h.heads().token_logits(&tower, &words).unwrap().unwrap();
         assert_ne!(other, logits);

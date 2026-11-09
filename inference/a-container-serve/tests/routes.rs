@@ -240,6 +240,8 @@ fn the_scorer_starts_with_a_clean_work_directory_and_no_core_dumps() {
     let h = s.health();
     assert_eq!(h["state"], "empty");
     assert!(h["build"]["limits"]["memory_limit"].as_u64().is_some_and(|m| m > 0), "{h}");
+    // The optional score request fields: `sentences: false` asks for spans only.
+    assert_eq!(h["build"]["score_fields"], serde_json::json!(["spans", "sentences"]), "{h}");
     drop(s);
 }
 
@@ -314,8 +316,8 @@ fn a_prepare_admits_by_the_spec_it_names_and_binds_it() {
     assert_eq!((code, v["error"].as_str()), (409, Some("package_not_ready")), "{v}");
     let limits = &h["build"]["limits"];
     let named: Vec<&str> = limits["specs"].as_array().unwrap().iter().map(|x| x["sha256"].as_str().unwrap()).collect();
-    let v4 = spec::Version::V4.spec_sha256();
-    assert_eq!(named, [v2.as_str(), v3.as_str(), v4.as_str()], "{limits}");
+    let (v4, v5) = (spec::Version::V4.spec_sha256(), spec::Version::V5.spec_sha256());
+    assert_eq!(named, [v2.as_str(), v3.as_str(), v4.as_str(), v5.as_str()], "{limits}");
     assert_eq!(limits["unnamed_load_spec"], spec::Version::V2.id());
     drop(s);
 }

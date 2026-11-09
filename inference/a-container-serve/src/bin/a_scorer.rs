@@ -188,7 +188,15 @@ struct ScoreRequest {
     /// Also return sentences and spans when the artifact has a token head.
     #[serde(default)]
     spans: bool,
+    /// With `spans`: `false` leaves the sentences out of each reply (cohort
+    /// scoring reads the spans only). Advertised in `/healthz` `build.score_fields`.
+    #[serde(default = "yes")]
+    sentences: bool,
     docs: Vec<Doc>,
+}
+
+fn yes() -> bool {
+    true
 }
 
 #[derive(Deserialize)]
@@ -220,7 +228,7 @@ fn score(cfg: &Config, state: &State, body: &[u8]) -> Result<(u16, Value)> {
                 loop {
                     let i = next.fetch_add(1, SeqCst);
                     let Some(d) = r.docs.get(i) else { break };
-                    *results[i].lock().unwrap() = model.score_with(&d.id, &d.text, r.spans);
+                    *results[i].lock().unwrap() = model.score_with_sentences(&d.id, &d.text, r.spans, r.sentences);
                 }
             });
         }
@@ -270,6 +278,7 @@ fn main() -> Result<()> {
         "sessions": cfg.sessions,
         "threads": cfg.threads,
         "limits": limits::report(cfg.sessions),
+        "score_fields": ["spans", "sentences"],
     });
     let state = Arc::new(State {
         slot: Mutex::new(Slot::Empty),

@@ -1371,6 +1371,9 @@ struct HeadsView {
     /// Heads v3 (spec v3): the span tower declaration.
     #[serde(default)]
     span_tower: Option<Value>,
+    /// Heads v2 and v3: the span emission spec, whose decoder spec v5 bounds.
+    #[serde(default)]
+    span_emission: Option<Value>,
     share_mode: String,
     contract_sha256: String,
     base_temperature: f64,
@@ -1763,7 +1766,7 @@ pub fn check_roles_with(
     // checked before the span tower runtime).
     let reads_token_states = match version {
         Version::V1 => span_head,
-        Version::V2 | Version::V3 | Version::V4 => span_head || (token_head && !heads_v3),
+        Version::V2 | Version::V3 | Version::V4 | Version::V5 => span_head || (token_head && !heads_v3),
     };
     if let Some(class) = class {
         if class.span_head != reads_token_states {
@@ -1773,7 +1776,7 @@ pub fn check_roles_with(
                     class.id,
                     if class.span_head { "needs" } else { "has no" }
                 ),
-                Version::V2 | Version::V3 | Version::V4 => format!(
+                Version::V2 | Version::V3 | Version::V4 | Version::V5 => format!(
                     "graph class {} {} heads that read token states",
                     class.id,
                     if class.span_head { "needs" } else { "takes no" }
@@ -1789,6 +1792,27 @@ pub fn check_roles_with(
                 } else {
                     "takes no"
                 }
+            )));
+        }
+    }
+    // Spec v5: a token head, and the floor decoder. The load guard bound the
+    // heads' span emission spec to the export manifest's and the calibration
+    // record's, so the heads' decoder is all three.
+    if version.requires_token_head() && !token_head {
+        return Err(Refusal::TokenHeadRequired);
+    }
+    if let Some((rule, min_words)) = version.span_decoder_floor() {
+        let d = heads.span_emission.as_ref().map(|e| &e["decoder"]);
+        let (got_rule, got_min) = (
+            d.and_then(|d| d["rule"].as_str()),
+            d.and_then(|d| d["min_words"].as_u64()),
+        );
+        if got_rule != Some(rule) || got_min.is_none_or(|m| m < min_words) {
+            return Err(Refusal::SpanDecoderFloor(format!(
+                "decoder {} with min_words {}; spec {} needs {rule} with min_words >= {min_words}",
+                got_rule.unwrap_or("(none)"),
+                got_min.map_or("(none)".to_owned(), |m| m.to_string()),
+                version.id()
             )));
         }
     }

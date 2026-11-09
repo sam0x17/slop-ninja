@@ -53,14 +53,16 @@ pub const WIDTH: usize = 768;
 pub const TOKEN_STATES: &str = "token_states";
 /// Graph output with the span tower's normed token states, `[batch, seq, 768]`.
 pub const TOWER_STATES: &str = "span_tower_token_states";
-/// The newest artifact spec the scorer admits by. Spec v4 admits exactly what
-/// spec v3 admits (its graph class rule is stated as a byte comparison with
-/// the class's reference structure stream), and v3 admits every artifact spec
-/// v2 admits, which is every artifact spec v1 admits whose JSON role files fit
-/// its JSON budget plus the span class, and the tower class; its classes are
-/// every class a load can be admitted under, so the memory model and
-/// `/healthz` cover them. The adversarial set and the local scorer's default
-/// use it.
+/// The default artifact spec of the operator tools. Spec v4 admits exactly
+/// what spec v3 admits (its graph class rule is stated as a byte comparison
+/// with the class's reference structure stream), and v3 admits every artifact
+/// spec v2 admits, which is every artifact spec v1 admits whose JSON role
+/// files fit its JSON budget plus the span class, and the tower class; its
+/// classes are every class a load can be admitted under, so the memory model
+/// and `/healthz` cover them. The adversarial set and the local scorer's
+/// default use it. Spec v5 (v4 plus a required token head with the 24-word
+/// floor decoder) is admitted by when a load names it, and is not the
+/// default.
 pub const NEWEST_SPEC: Version = Version::V4;
 
 /// The spec a load that names none is admitted by: spec v2, the spec testnet
@@ -78,18 +80,30 @@ pub fn admits_by(v: Version) -> bool {
     v.max_json_bytes().is_some() && v.max_json_value_bytes().is_some()
 }
 
-/// A tool's `--spec` value: `v2`, `v3`, `v4` or a full spec id, of a spec the
+/// A tool's `--spec` value: `v2` to `v5` or a full spec id, of a spec the
 /// scorer admits by ([`admits_by`]).
 pub fn spec_arg(id: &str) -> Result<Version> {
     match id {
         "v2" => Ok(Version::V2),
         "v3" => Ok(Version::V3),
         "v4" => Ok(Version::V4),
+        "v5" => Ok(Version::V5),
         id => Version::from_id(id)
             .filter(|v| admits_by(*v))
             .with_context(|| {
-                format!("--spec {id}: not a spec the scorer admits by (v2, v3, v4 or a full spec id)")
+                format!("--spec {id}: not a spec the scorer admits by (v2 to v5 or a full spec id)")
             }),
+    }
+}
+
+/// The decoder load fact: the span decoder's rule and minimum length in words
+/// (`span_emission.decoder` of the heads), or null for an artifact without a
+/// token head. The span gate's structural conditions read it.
+pub fn decoder_fact(heads: &Value) -> Value {
+    let d = &heads["span_emission"]["decoder"];
+    match (d["rule"].as_str(), d["min_words"].as_u64()) {
+        (Some(rule), Some(min_words)) => json!({"rule": rule, "min_words": min_words}),
+        _ => Value::Null,
     }
 }
 
@@ -285,7 +299,7 @@ pub fn guard_any(dir: &Path, contract_sha256: &str) -> Result<(Vec<u8>, Value, O
     let meta = json!({"arm": m["arm"], "seed": m["seed"], "base_temperature": w["base_temperature"],
         "calibration": cal["involvement"]["selected"]["method"], "contract_sha256": ch,
         "export": m["schema"], "heads_schema": w["schema"], "span_head": facts.span_head,
-        "token_head": facts.token_head, "span_tower": facts.tower_states});
+        "token_head": facts.token_head, "span_tower": facts.tower_states, "decoder": decoder_fact(&w)});
     Ok((hb, meta, Some(facts)))
 }
 
@@ -484,6 +498,13 @@ impl Model {
     /// document digest, with their own digest `span_output_sha256` and a
     /// `span_status`.
     pub fn score_with(&self, id: &str, text: &str, spans: bool) -> Value {
+        self.score_with_sentences(id, text, spans, true)
+    }
+
+    /// [`Model::score_with`]; without `sentences`, the reply leaves out the
+    /// sentences and keeps the spans. `span_output_sha256` is the same either
+    /// way: it is computed over both before the sentences are left out.
+    pub fn score_with_sentences(&self, id: &str, text: &str, spans: bool, sentences: bool) -> Value {
         let t0 = Instant::now();
         let text_sha = sha(text.as_bytes());
         if text.trim().is_empty() {
@@ -573,6 +594,9 @@ impl Model {
                             r["span_status"] = json!("ok");
                             let both = json!({"sentences": prediction["sentences"], "spans": prediction["spans"]});
                             r["span_output_sha256"] = json!(sha(&serde_json::to_vec(&both).unwrap_or_default()));
+                            if !sentences && let Some(p) = prediction.as_object_mut() {
+                                p.remove("sentences");
+                            }
                         }
                         Err(e) => {
                             prediction["sentences"] = Value::Null;
@@ -588,5 +612,21 @@ impl Model {
             Err(_) => json!({"id": id, "status": "error", "reason": "model", "text_sha256": text_sha,
                 "token_count": ids.len(), "prediction": null}),
         }
+    }
+}
+
+#[cfg(test)]
+mod decoder_fact_tests {
+    use super::*;
+
+    #[test]
+    fn the_decoder_fact_is_the_heads_decoder_rule_and_minimum() {
+        let h = json!({"span_emission": {"decoder": {"rule": "slop_ninja_span_decoder_v1", "tau_hi": 0.75, "delta": 0.2,
+            "min_words": 24, "gap": 2, "snap": 0.8}}});
+        assert_eq!(decoder_fact(&h), json!({"rule": "slop_ninja_span_decoder_v1", "min_words": 24}));
+        assert_eq!(decoder_fact(&json!({"span_emission": null})), Value::Null);
+        assert_eq!(decoder_fact(&json!({})), Value::Null);
+        assert_eq!(spec_arg("v5").unwrap(), Version::V5);
+        assert!(admits_by(Version::V5));
     }
 }

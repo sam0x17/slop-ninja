@@ -106,9 +106,14 @@ fn spec_v4_has_spec_v3s_classes_and_bounds() {
     assert!(slop_ninja_artifact_check::admission::ADMISSION_SPECS.contains(&spec::SPEC_ID_V4));
 }
 
-/// The versions that define the class of the artifact in `dir`.
+/// The versions up to v4 that define the class of the artifact in `dir`
+/// (spec v5 adds span requirements of its own: `tests/spec_v5.rs`).
 fn versions_of(class: &str) -> Vec<Version> {
-    Version::ALL.into_iter().filter(|v| v.classes().iter().any(|g| g.id == class && v.serves(g))).collect()
+    up_to_v4().filter(|v| v.classes().iter().any(|g| g.id == class && v.serves(g))).collect()
+}
+
+fn up_to_v4() -> impl Iterator<Item = Version> {
+    Version::ALL.into_iter().filter(|v| *v <= Version::V4)
 }
 
 fn code<T>(r: Result<T, Refusal>) -> String {
@@ -150,7 +155,7 @@ fn every_reference_artifact_has_the_same_results_under_each_version_of_its_class
         let class = spec::GRAPHS_V3.iter().find(|g| g.id == newest.graph_class).unwrap();
         assert_eq!(newest.graph.structure_match, Some(true), "{var}");
         assert_eq!(newest.graph.structure_bytes, class.structure_bytes, "{var}");
-        for v in Version::ALL {
+        for v in up_to_v4() {
             let r = fs::check_dir_for(&dir, v);
             if !versions_of(class.id).contains(&v) {
                 assert!(r.is_err(), "{var} {v:?}");

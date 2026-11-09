@@ -355,8 +355,8 @@ mod tests {
 
     #[test]
     fn every_spec_a_load_may_name_has_the_newest_specs_class_bounds() {
-        // Spec v2 to v4; spec v1 bounds no JSON file.
-        assert_eq!(load_specs().collect::<Vec<_>>(), [Version::V2, Version::V3, Version::V4]);
+        // Spec v2 to v5; spec v1 bounds no JSON file.
+        assert_eq!(load_specs().collect::<Vec<_>>(), [Version::V2, Version::V3, Version::V4, Version::V5]);
         assert!(admits_by(UNNAMED_LOAD_SPEC) && NEWEST_SPEC == Version::LATEST);
         for v in load_specs() {
             assert_eq!(v.max_json_bytes(), Some(json_budget()), "{}", v.id());
@@ -368,12 +368,12 @@ mod tests {
                 assert_eq!(class_of_len_for(v, g.bytes), Some(g));
             }
         }
-        // The tower class is served only under spec v3 and v4.
+        // The tower class is served only under spec v3, v4 and v5.
         assert_eq!(class_of_len_for(Version::V2, spec::TOWER_GRAPH.bytes), None);
         assert_eq!(class_of_len_for(Version::V3, spec::TOWER_GRAPH.bytes), Some(&spec::TOWER_GRAPH));
         assert_eq!(class_of_len_for(Version::V4, spec::TOWER_GRAPH.bytes), Some(&spec::TOWER_GRAPH));
         let r = report(REFERENCE_SESSIONS);
-        assert_eq!(r["specs"].as_array().map(Vec::len), Some(3));
+        assert_eq!(r["specs"].as_array().map(Vec::len), Some(4));
         assert_eq!(r["unnamed_load_spec"], UNNAMED_LOAD_SPEC.id());
     }
 

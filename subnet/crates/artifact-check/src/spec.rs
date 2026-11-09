@@ -37,6 +37,9 @@ pub const SPEC_ID_V3: &str = "slop_ninja_a_artifact_spec_v3";
 /// Spec identifier of spec v4.
 pub const SPEC_ID_V4: &str = "slop_ninja_a_artifact_spec_v4";
 
+/// Spec identifier of spec v5.
+pub const SPEC_ID_V5: &str = "slop_ninja_a_artifact_spec_v5";
+
 /// A spec version. The checks take the version they apply; the functions
 /// without a version (`spec_json`, `spec_sha256`, `ObjectCheck::new`,
 /// `fs::check_dir`, `mapping::check_header`, `roles::check_roles`,
@@ -48,12 +51,15 @@ pub enum Version {
     V2,
     V3,
     V4,
+    V5,
 }
 
 impl Version {
-    /// The newest version.
+    /// The default version: the newest a tool uses when none is named. Spec
+    /// v5 is defined and admitted where a cohort names it, but it is not the
+    /// default until a standing template enforces the span gate.
     pub const LATEST: Version = Version::V4;
-    pub const ALL: [Version; 4] = [Version::V1, Version::V2, Version::V3, Version::V4];
+    pub const ALL: [Version; 5] = [Version::V1, Version::V2, Version::V3, Version::V4, Version::V5];
 
     pub fn id(self) -> &'static str {
         match self {
@@ -61,6 +67,7 @@ impl Version {
             Version::V2 => SPEC_ID_V2,
             Version::V3 => SPEC_ID_V3,
             Version::V4 => SPEC_ID_V4,
+            Version::V5 => SPEC_ID_V5,
         }
     }
 
@@ -69,7 +76,7 @@ impl Version {
     pub fn classes(self) -> &'static [GraphClass] {
         match self {
             Version::V1 | Version::V2 => &GRAPHS,
-            Version::V3 | Version::V4 => &GRAPHS_V3,
+            Version::V3 | Version::V4 | Version::V5 => &GRAPHS_V3,
         }
     }
 
@@ -102,7 +109,7 @@ impl Version {
         self.classes().contains(class)
             && match self {
                 Version::V1 => class.served,
-                Version::V2 | Version::V3 | Version::V4 => true,
+                Version::V2 | Version::V3 | Version::V4 | Version::V5 => true,
             }
     }
 
@@ -110,7 +117,7 @@ impl Version {
     pub fn max_json_bytes(self) -> Option<u64> {
         match self {
             Version::V1 => None,
-            Version::V2 | Version::V3 | Version::V4 => Some(MAX_JSON_BYTES_V2),
+            Version::V2 | Version::V3 | Version::V4 | Version::V5 => Some(MAX_JSON_BYTES_V2),
         }
     }
 
@@ -120,7 +127,7 @@ impl Version {
     pub fn max_json_value_bytes(self) -> Option<u64> {
         match self {
             Version::V1 => None,
-            Version::V2 | Version::V3 | Version::V4 => {
+            Version::V2 | Version::V3 | Version::V4 | Version::V5 => {
                 self.classes().iter().map(|g| g.max_json_value_bytes).min()
             }
         }
@@ -133,7 +140,7 @@ impl Version {
     pub fn max_json_value_bytes_for(self, class: &GraphClass) -> Option<u64> {
         match self {
             Version::V1 => None,
-            Version::V2 | Version::V3 | Version::V4 => Some(class.max_json_value_bytes),
+            Version::V2 | Version::V3 | Version::V4 | Version::V5 => Some(class.max_json_value_bytes),
         }
     }
 
@@ -143,18 +150,43 @@ impl Version {
         self >= Version::V3
     }
 
+    /// Spec v5: every artifact carries a token head (`token_head_required`).
+    pub fn requires_token_head(self) -> bool {
+        self >= Version::V5
+    }
+
+    /// Spec v5: the decoder rule and the least decoder minimum every artifact
+    /// declares (`span_decoder_floor`), if the version bounds them.
+    pub fn span_decoder_floor(self) -> Option<(&'static str, u64)> {
+        (self >= Version::V5).then_some((span_floor::DECODER_RULE, span_floor::MIN_WORDS))
+    }
+
     pub fn spec_json(self) -> Value {
         match self {
             Version::V1 => spec_json(),
             Version::V2 => spec_json_v2(),
             Version::V3 => spec_json_v3(),
             Version::V4 => spec_json_v4(),
+            Version::V5 => spec_json_v5(),
         }
     }
 
     pub fn spec_sha256(self) -> String {
         crate::sha256_hex(&serde_json::to_vec(&self.spec_json()).expect("spec serializes"))
     }
+}
+
+/// Spec v5's span requirements: a token head, and the span decoder rule with
+/// a minimum of at least 24 words (the 24-word floor: no span under it is
+/// trained, scored or decoded). The emission format is unchanged
+/// (`slop_ninja_span_emission_v1` under contract v2).
+pub mod span_floor {
+    /// The only decoder rule spec v5 admits.
+    pub const DECODER_RULE: &str = "slop_ninja_span_decoder_v1";
+    /// The least decoder minimum, in words.
+    pub const MIN_WORDS: u64 = 24;
+    pub const TOKEN_HEAD_REQUIRED: &str = "token_head_required";
+    pub const SPAN_DECODER_FLOOR: &str = "span_decoder_floor";
 }
 
 /// Output contract an artifact implements: the protocol header's `contract`,
@@ -982,5 +1014,24 @@ pub fn spec_json_v4() -> Value {
             c["reference_structure"] = json!({"bytes": g.structure_bytes, "sha256": g.structure_stream_sha256});
         }
     }
+    crate::sorted_keys(v)
+}
+
+/// Spec v5 as one JSON value: spec v4's record plus the two span
+/// requirements. Every other value is v4's, so v5 admits exactly what v4
+/// admits that carries a token head whose decoder is
+/// [`span_floor::DECODER_RULE`] with a minimum of at least
+/// [`span_floor::MIN_WORDS`].
+pub fn spec_json_v5() -> Value {
+    let mut v = spec_json_v4();
+    v["schema"] = json!(SPEC_ID_V5);
+    v["span_requirements"] = json!({
+        span_floor::TOKEN_HEAD_REQUIRED: "heads.json carries a token head (heads v2 or v3); document heads alone are refused, as are heads with a span head and no token head",
+        span_floor::SPAN_DECODER_FLOOR: {
+            "rule": span_floor::DECODER_RULE,
+            "min_words": span_floor::MIN_WORDS,
+            "checked": "the decoder of heads.json span_emission, which the load guard binds equal to the export manifest's span_emission and the calibration record's spans",
+        },
+    });
     crate::sorted_keys(v)
 }

@@ -144,8 +144,18 @@ old key, so losing it locks nothing. The paths remain available on mainnet with
 the same signatures and public records. No outage triggers one, a decision
 changes only future work and payment, commitments already submitted reveal
 under their original rules, and rewards already paid are never reassigned.
-Implemented so far: the record restart and the abandonment of a faulted cohort;
-the other paths and the operator-decision key are not yet built.
+Built (subnet/coordinator README, "Operator decisions"): the shared request
+(decision id, reason, `expect`, preview, the offline signature), the
+`operator_actions` log, the operator-decision key's verification (an OpenSSH
+Ed25519 key signing with `ssh-keygen -Y sign`), abandonment of any unclosed
+cohort, the handoff passing eval-signed ends, evidence-based attempt
+resolution, closure decline, release of a cohort's objects, `cohort/start`,
+reference decisions (the general override and the narrow span-equivalent
+route), the signed switch to burn with its restart set, validators following a
+restart's launch row, and the read-only frozen store. Not built yet: the
+closure rewrite, the repack, the automatic probe cut after a reference
+change, the successor's sweep of a frozen store and the frozen upload sweep,
+and the key rotation at re-registration.
 
 ## Block webhooks and the fallback watchdog
 

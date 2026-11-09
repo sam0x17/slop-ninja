@@ -2455,9 +2455,16 @@ staged by the tracked pin, one change per deploy):
    ```
 
    On the coordinator, with the operator token: `{"action": "pause"}` on
-   `POST /signing/control`, then `POST /signing/restart?from_epoch=F` with
-   the bundle file `launch-<name>-eE.json` as the request body, then
-   `{"action": "resume"}` on `/signing/control`. The control route takes
+   `POST /signing/control`, then the signed restart decision on
+   `POST /signing/decide` (README "Operator decisions": `action: restart`,
+   `floor` F, the bundle file's text as `bundle`, `last`, the previewed
+   `past` and `unlisted`, `expect {held}`, and the offline signature; post it
+   first with `"preview": true`), then `{"action": "resume"}` on
+   `/signing/control`. The unsigned `POST /signing/restart?from_epoch=F`
+   refuses (`restart_needs_decision`); the codes below are the restart's own,
+   which the decision also returns, beside `restart_future`,
+   `restart_issue_mismatch`, `epoch_signed`, `attempt_unresolved` and
+   `past_changed`. The control route takes
    only small JSON actions and refuses `restart_target` there. The restart
    route answers 200 with `{"restarted": ...}` (the record set aside, the
    target it replaced, the launch target now installed, `F`) or

@@ -2793,6 +2793,57 @@ is kept outside git.
 These are removed when the coordinator passes Finney qualification after
 milestone M7.
 
+## Operator decisions
+
+Every precondition has a journaled operator path past it (self-lock phase 1).
+Each decision is one request shape (`src/operator.rs`):
+
+```text
+{ "decision": "<id>", "decision_sha256": "<hex>"?, "reason": "<code>",
+  "expect": { ... }, "preview": true|false,
+  "authorization": { "statement": "<text>", "signature": "<SSHSIG armor>" }?,
+  ...action fields }
+```
+
+- `expect` is compare-and-set on the state the operator read
+  (`expect_mismatch` otherwise). The same decision id with the same body
+  replays the recorded effect; another body is `decision_reused`. `preview`
+  runs every check and writes nothing.
+- The body digest is SHA-256 of the canonical JSON without `preview` and
+  `authorization` (keys sorted, no whitespace: `jq -cS 'del(.preview,
+  .authorization)'` without its newline).
+- Decisions that decline a result, change reward inputs or restart the record
+  need the offline operator-decision key: an OpenSSH Ed25519 key whose public
+  line is the Workers' `OPERATOR_DECISION_KEY` var. The operator signs a
+  `slop_ninja operator decision v1` statement (action, decision id and digest,
+  body digest, service, authority, store, chain binding, registration) with
+  `ssh-keygen -Y sign -n slop-ninja-operator-decision`. A statement over another
+  body or action is `authorization_mismatch`; one addressed to another service,
+  authority, store or chain is `authorization_misaddressed`; no key configured
+  is `operator_key_unconfigured`. Only the eval and coordinator Workers verify
+  it.
+- Every accepted action is appended to `operator_actions` in the same
+  transaction as its effect (`GET /eval/operator/actions?from=<seq>`), and each
+  one that changes reward inputs, payouts or the public record writes a signed,
+  content-free record.
+
+| Route | Action | Offline key |
+|---|---|---|
+| `POST /eval/abandon` with `decision` | abandon any unclosed cohort (`expect {phase}`): queued, admission, a drain of running lanes, or in place in packaging or the transition; abandonment record v2 | packaging, transition |
+| `POST /eval/closure/decline` | decline a faulted closure (`expect {phase: closed, closure: faulted}`); `closure-declined.signed` | yes |
+| `POST /eval/release-objects` | record every undecided entrant `withheld` (`expect {phase}`); signed `eval-decision` | no |
+| `POST /eval/cohort/start` | queue one cohort from the installed template, paused or not (`expect {next_cohort}`) | no |
+| `POST /eval/references/decision` | `override`, or `span_equivalent` (R_0's position, index 0, no predecessor; candidate published with stored vectors, equal fit digests, vectors within `tolerance_ppb`) | yes |
+| `POST /signing/decide`, `action: restart` | switch to burn at floor F <= finalized + 1, launch issued at F, `past`/`unlisted` equal to the journal's restart set, `expect {held}`; `chain-restarts/<F>/restart.signed` | yes |
+| `POST /signing/decide`, `action: attempt_resolve` | rerun the live attempt's evidence check now (`expect {state}`) | no |
+
+The unsigned `POST /signing/restart` refuses (`restart_needs_decision`), and
+after the first reward-v1 install a launch bundle installs only through the
+restart (`launch_needs_restart`; a byte-identical re-post is a replay). The
+handoff passes eval-signed ends (an abandonment, a declined closure, a probe
+cut's record) by number. A store whose migration fails is frozen and
+read-only (`/frozen/status`).
+
 ## Not yet implemented
 
 - **Arena: the fan-out lane objects.** `AScorer`, `EvalLane`, `GenLimiter`

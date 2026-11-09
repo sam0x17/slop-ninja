@@ -264,9 +264,9 @@ journaled and publishes a signed, content-free record of its reason; those that
 decline a result, change reward inputs or restart the record also need a
 separate offline operator-decision key, verified only by the coordinator and the
 evaluation service, never by validators. They stay available on mainnet, no
-outage triggers one, and none reassigns paid rewards. Only the record restart
-and abandoning a faulted cohort are implemented; the operator-decision key is
-not yet. `docs/agents/coordinator.md` lists each path in full.
+outage triggers one, and none reassigns paid rewards. Most paths and the
+operator-decision key's verification are built; `docs/agents/coordinator.md`
+lists each path in full and what is not built yet.
 The sole dependence on other validators is timely on-chain submission and reveal of the
 coordinator's signed weight rows. Their acknowledgments, versions,
 availability, and adopting stake never gate evaluation, transitions, service,

@@ -2447,7 +2447,9 @@ staged by the tracked pin, one change per deploy):
    a main that contains the switch commit (signing paused, journal schema
    checked, resumed only after the restart below), so its
    `AUTO_TARGET_AUTHORITIES` names the new authority. With `F` the restart record's
-   `record_from_epoch` and `E` the current epoch (`E >= F`):
+   `record_from_epoch`, the restart's floor `E` is at least `F` and at most
+   the finalized epoch + 1 (`signing.restart.next_floor` in `/status`), and
+   the launch authorization is issued at `E`:
 
    ```text
    reward_v1_verify launch --trust testnet-trust.json --authorization-seed <seed file> \
@@ -2455,35 +2457,43 @@ staged by the tracked pin, one change per deploy):
    ```
 
    On the coordinator, with the operator token: `{"action": "pause"}` on
-   `POST /signing/control`, then the signed restart decision on
-   `POST /signing/decide` (README "Operator decisions": `action: restart`,
-   `floor` F, the bundle file's text as `bundle`, `last`, the previewed
-   `past` and `unlisted`, `expect {held}`, and the offline signature; post it
-   first with `"preview": true`), then `{"action": "resume"}` on
-   `/signing/control`. The unsigned `POST /signing/restart?from_epoch=F`
-   refuses (`restart_needs_decision`); the codes below are the restart's own,
-   which the decision also returns, beside `restart_future`,
-   `restart_issue_mismatch`, `epoch_signed`, `attempt_unresolved` and
-   `past_changed`. The control route takes
-   only small JSON actions and refuses `restart_target` there. The restart
-   route answers 200 with `{"restarted": ...}` (the record set aside, the
-   target it replaced, the launch target now installed, `F`) or
-   `{"refused": {"code": ...}}` with nothing changed: `signing_active` (not
-   paused), `restart_regressed` (`F` before an earlier restart's, or not
-   after the latest epoch an installed bundle was issued or opened at,
-   `record_epoch` in `/status`, the earlier restarts' own launch bundles
-   included),
-   `restart_before_held_record` (`F` at or before the epoch the held target
-   activated), the bundle's own refusals (`bundle_malformed` and the other
-   verification codes), `not_a_launch_bundle`, `authorization_refused`, and
-   `bundle_before_restarted_record` (an authorization issued before `F`).
-   Before the journal, it answers 400 `from_epoch` (the parameter is missing
-   or not a number), 400 `bad_request` (a body that is not UTF-8), 413
-   `body_too_large` (a body over the bundle bound) and 401 without the
-   token. The next commit is the launch burn row; earlier commits keep their
-   read-back and reveal checks, no epoch takes a second operation, and no
-   bundle issued or opened before `F` installs again (`restarted_from_epoch`
-   in `/status`), nor any T12 bundle (`v1_after_restart`).
+   `POST /signing/control`. Read the restart set from `/status`
+   (`signing.restart.past`, the set a restart at `next_floor` must name) and
+   `last` from the eval's status (the highest cohort number with an opening
+   epoch). Then the restart decision on `POST /signing/decide` (README
+   "Operator decisions": `action: restart`, `floor` E, the bundle file's text
+   as `bundle`, `last`, `past` and `unlisted`, `expect {held}`, and the
+   offline signature once `OPERATOR_DECISION_KEY` is configured): post it
+   with `"preview": true`, then for real under the same signature, then
+   `{"action": "resume"}` on `/signing/control`. A preview may leave `past`
+   and `unlisted` out and answers the set it computed. Every refusal changes
+   nothing and answers `{"refused": <code>, "detail": {...}}`, where `detail`
+   is the restart set the journal computed for that floor and `last`, so a
+   refused body tells the operator what to name. The decision's own codes are
+   `restart_future` (a floor past finalized + 1), `restart_issue_mismatch`
+   (the launch issued at another epoch), `epoch_signed`, `attempt_unresolved`,
+   `expect_mismatch`, `past_missing` and `past_changed`. The restart's own,
+   checked before anything is written, preview included, are
+   `signing_active` (not paused), `restart_regressed` (`E` before an earlier
+   restart's, or not after the latest epoch an installed bundle was issued or
+   opened at, `record_epoch` in `/status`, the earlier restarts' own launch
+   bundles included), `restart_before_held_record` (`E` at or before the
+   epoch the held target activated), the bundle's own refusals
+   (`bundle_malformed` and the other verification codes),
+   `not_a_launch_bundle`, `authorization_refused`, and
+   `bundle_before_restarted_record` (an authorization issued before `E`). An
+   accepted restart answers its effect with `restarted` (the record set
+   aside, the target it replaced, the launch target now installed, `E`) and
+   the replanned epochs. Before the journal, the route answers 400
+   `bad_request` (a body that is not JSON), 413 `body_too_large` (a body over
+   the bundle bound) and 401 without the token. The old
+   `POST /signing/restart?from_epoch=E` refuses (`restart_needs_decision`),
+   and the control route takes only small JSON actions and refuses
+   `restart_target` there. The next commit is the launch burn row; earlier
+   commits keep their read-back and reveal checks, no epoch takes a second
+   operation, and no bundle issued or opened before `E` installs again
+   (`restarted_from_epoch` in `/status`), nor any T12 bundle
+   (`v1_after_restart`).
 7. **validator2 and the authorization.** The coordinator writes the private
    authorization pointer (`authorizations/current.json` in the receipts
    bucket) from its installed bundle at the next cron tick, and the publisher

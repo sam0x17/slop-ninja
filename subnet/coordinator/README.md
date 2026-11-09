@@ -2820,8 +2820,12 @@ Each decision is one request shape (`src/operator.rs`):
   `ssh-keygen -Y sign -n slop-ninja-operator-decision`. A statement over another
   body or action is `authorization_mismatch`; one addressed to another service,
   authority, store or chain is `authorization_misaddressed`; no key configured
-  is `operator_key_unconfigured`. Only the eval and coordinator Workers verify
-  it.
+  is `operator_key_unconfigured`, except for the coordinator restart, which is
+  token-level until a key is configured (below). Only the eval and coordinator
+  Workers verify it. Both report the var's state as `operator_key`
+  (`configured`, `unconfigured` or `invalid`) in their status, the eval's
+  `GET /eval/status` and the coordinator's `signing` block, for the deploy
+  probe.
 - Every accepted action is appended to `operator_actions` in the same
   transaction as its effect (`GET /eval/operator/actions?from=<seq>`), and each
   one that changes reward inputs, payouts or the public record writes a signed,
@@ -2829,20 +2833,42 @@ Each decision is one request shape (`src/operator.rs`):
 
 | Route | Action | Offline key |
 |---|---|---|
-| `POST /eval/abandon` with `decision` | abandon any unclosed cohort (`expect {phase}`): queued, admission, a drain of running lanes, or in place in packaging or the transition; abandonment record v2 | packaging, transition |
+| `POST /eval/abandon` with `decision` | abandon any unclosed cohort (`expect {phase}`): queued, admission, a drain of running lanes, or in place in packaging or the transition; abandonment record v2. A faulted cohort can still be abandoned by its fault with the token alone (`POST /eval/abandon` without `decision`) | scoring (live scores may show final values), packaging, transition |
 | `POST /eval/closure/decline` | decline a faulted closure (`expect {phase: closed, closure: faulted}`); `closure-declined.signed` | yes |
 | `POST /eval/release-objects` | record every undecided entrant `withheld` (`expect {phase}`); signed `eval-decision` | no |
 | `POST /eval/cohort/start` | queue one cohort from the installed template, paused or not (`expect {next_cohort}`) | no |
 | `POST /eval/references/decision` | `override`, or `span_equivalent` (R_0's position, index 0, no predecessor; candidate published with stored vectors, equal fit digests, vectors within `tolerance_ppb`) | yes |
-| `POST /signing/decide`, `action: restart` | switch to burn at floor F <= finalized + 1, launch issued at F, `past`/`unlisted` equal to the journal's restart set, `expect {held}`; `chain-restarts/<F>/restart.signed` | yes |
+| `POST /signing/decide`, `action: restart` | switch to burn at floor F <= finalized + 1, launch issued at F, `past`/`unlisted` equal to the journal's restart set, `expect {held}`; `chain-restarts/<F>/restart.signed` | yes, once `OPERATOR_DECISION_KEY` is configured; token-level before (logged unsigned, the record names no statement) |
 | `POST /signing/decide`, `action: attempt_resolve` | rerun the live attempt's evidence check now (`expect {state}`) | no |
 
-The unsigned `POST /signing/restart` refuses (`restart_needs_decision`), and
-after the first reward-v1 install a launch bundle installs only through the
-restart (`launch_needs_restart`; a byte-identical re-post is a replay). The
-handoff passes eval-signed ends (an abandonment, a declined closure, a probe
-cut's record) by number. A store whose migration fails is frozen and
-read-only (`/frozen/status`).
+The restart runs every check before it writes anything, the restart's own
+included (signing paused, `restart_regressed`, `restart_before_held_record`,
+the launch bundle), and answers each refusal as its code in the preview and
+the post: `{"refused": <code>, "detail": {floor, last, past, unlisted,
+info}}`, where `detail` is the restart set the journal computed for that
+floor and `last` (each number with its state). A preview may leave `past` and
+`unlisted` out; it then answers the computed set with `past_named: false`.
+The signing status shows `restart`: `next_floor` (finalized + 1), the set
+`past` a restart there must name, the latest restart's pre-floor rows with
+each number's reason (`restarted_past`, `named_unlisted`,
+`restarted_past_unlisted`) and the restart records not yet written. So the
+runbook reads the set, signs one body, previews it and posts it.
+
+The old `POST /signing/restart` refuses (`restart_needs_decision`), and after
+the first reward-v1 install a launch bundle installs only through the restart
+(`launch_needs_restart`; a byte-identical re-post is a replay). The handoff
+passes eval-signed ends (an abandonment, a declined closure, a probe cut's
+record) by number.
+
+A store whose migration is refused is read-only. Only a failed migration
+(`migration_failed`) of a store that is not the deployed authority freezes
+it: `/frozen/status` (and `/status`), the publisher's report, taken only for
+the store's own closed or abandoned cohort and recording nothing (404
+`cohort_unknown` otherwise, as on the live route), the successor's purge, and
+`store_frozen` for the rest. The deployed store, and any store refused as
+newer (`stored_schema_newer`, a rollback) or of another family, answers its
+status read only and refuses everything else with the migration code (503),
+so the publisher keeps retrying its report.
 
 ## Not yet implemented
 

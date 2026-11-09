@@ -151,11 +151,26 @@ Ed25519 key signing with `ssh-keygen -Y sign`), abandonment of any unclosed
 cohort, the handoff passing eval-signed ends, evidence-based attempt
 resolution, closure decline, release of a cohort's objects, `cohort/start`,
 reference decisions (the general override and the narrow span-equivalent
-route), the signed switch to burn with its restart set, validators following a
-restart's launch row, and the read-only frozen store. Not built yet: the
-closure rewrite, the repack, the automatic probe cut after a reference
-change, the successor's sweep of a frozen store and the frozen upload sweep,
-and the key rotation at re-registration.
+route), the signed switch to burn with its restart set (its preview and every
+refusal name the set the journal computed, and the signing status shows the
+set at the next floor), validators following a restart's launch row, and the
+read-only frozen store (only a non-deployed store whose migration failed
+freezes; the deployed store answers its status and refuses the rest). An
+abandon from scoring on needs the offline key, since live scores may already
+show final values. Until the operator-decision key is configured, the
+coordinator restart is token-level, so a coordinator deployed before its key
+keeps its brake; both services report the key's state as `operator_key` in
+their status. Not built yet: the closure rewrite, the repack, the automatic
+probe cut after a reference change, the successor's sweep of a frozen store
+(with its retention exceptions and pending frozen uploads in status) and the
+frozen upload sweep, the publisher's frozen-store and build-keyed artifact
+rules and its copy of restart records, the `decide new-chain` runbook tool,
+the restart tool's check against the first cohort's opening, the
+validators' deferral of a restart row above their finalized epoch, the
+span-equivalent decision's reading of recorded digests, its staged-package
+and spec-admission checks and the signed byte comparison (today its static
+identity compares the digests the signed body lists), and the key rotation
+at re-registration.
 
 ## Block webhooks and the fallback watchdog
 

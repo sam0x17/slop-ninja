@@ -8,10 +8,13 @@ this page, the whitepaper and the signed manifest aligned when a rule changes.
 
 A rewards use `reward-v2`: the `reward-v1` band rule selected on
 2026-10-30 (whitepaper Section 5), computed from quantized scores under
-`quant-v1` (approved 2026-11-04); its lagged-payout, fallback-assumption,
-unregistered-credit and reference-failure defaults remain to be confirmed with
-the implementation. The baseline is the public reference model R_k, re-run on each
-cohort's batch with its predecessor R_{k-1}. An entrant beats R_k when it
+`quant-v1` (approved 2026-11-04), with its lagged-payout, fallback-assumption,
+unregistered-credit and reference-failure defaults as built (confirmed
+2026-11-09): a cohort's target activates at its close and is paid while the
+next cohort runs, the fallback cutoff and its assumptions are as below,
+unregistered credit burns, and a reference-model failure holds the package for
+a signed correction. The baseline is the public reference model R_k, re-run on
+each cohort's batch with its predecessor R_{k-1}. An entrant beats R_k when it
 passes the gates and its quantized score reaches the margin cutoff: R_k's
 quantized score plus delta = max(1%, 2 x pooled paired SE) of R_k's headroom,
 rounded up onto the grid, with delta frozen per manifest. Retained clusters are

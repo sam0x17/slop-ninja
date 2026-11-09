@@ -151,9 +151,9 @@ uses and activates by its own decision, which may precede B's; B's revised
 mechanism mapping must then also place C's credit. Pilot scoring is coordinator-led.
 A rewards use `reward-v2`: the `reward-v1` band rule selected on
 2026-10-30 (whitepaper Section 5), computed from quantized scores under
-`quant-v1` (approved 2026-11-04); its lagged-payout, fallback-assumption,
-unregistered-credit and reference-failure defaults remain to be confirmed with
-the implementation. Testnet's record restarted from R_0 under `reward-v2` and
+`quant-v1` (approved 2026-11-04), with its lagged-payout, fallback-assumption,
+unregistered-credit and reference-failure defaults as built (confirmed
+2026-11-09). Testnet's record restarted from R_0 under `reward-v2` and
 `quant-v1` on 2026-11-06. The baseline is the public reference model R_k, re-run on each
 cohort's batch with its predecessor R_{k-1}. An entrant beats R_k when it passes
 the gates and its quantized score reaches a margin cutoff frozen per manifest;

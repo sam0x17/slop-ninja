@@ -2087,6 +2087,12 @@ async fn eval_route(mut req: Request, env: Env) -> Result<Response> {
         (Method::Post, "/span-gate/void" | "/references/decision") if instance == "main" => {
             eval_do::forward(&env, instance, Method::Post, &rest, raw).await
         }
+        // The operator action log (`crate::operator`), paged by sequence.
+        (Method::Get, "/operator/actions") => {
+            let from = req.url().ok().and_then(|u| u.query_pairs().find(|(k, _)| k == "from").and_then(|(_, v)| v.parse::<u64>().ok()));
+            let p = format!("/operator/actions?from={}", from.unwrap_or(0));
+            eval_do::forward(&env, instance, Method::Get, &p, None).await
+        }
         // Generation v2: the operator's clear of a vendor pause (a spend cap
         // or a key failure, `gen_v2::resume_vendor`).
         (Method::Post, crate::eval::lanes::GEN_VENDOR_CLEAR_PATH) if instance == "main" => eval_do::forward(&env, instance, Method::Post, &rest, raw).await,

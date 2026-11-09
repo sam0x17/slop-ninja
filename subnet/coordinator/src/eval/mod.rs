@@ -37,6 +37,8 @@
 //!   verifies, then pinned.
 //! - [`boundaries`]: the boundary journal that dates every stage by tempo
 //!   boundaries for the public dashboard.
+//! - [`decide`]: the operator decisions (abandon by decision and its
+//!   drain), journaled through [`crate::operator`].
 //! - [`gen_v2`]: generation v2 in the cohort (rotation at the draw, vendor
 //!   calls at the lanes, outcome classes, vendor pause, spend by vendor,
 //!   private generation records at the seal), behind the refused plan field.
@@ -47,6 +49,7 @@ pub mod calendar;
 pub mod chain;
 pub mod commitments;
 pub mod cost;
+pub mod decide;
 pub mod engine;
 pub mod gen_measure;
 pub mod gen_v2;

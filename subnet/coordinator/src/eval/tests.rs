@@ -657,8 +657,12 @@ impl<'a> Sim<'a> {
                         tx(self.db, |s| engine::abandon_marker_failed(s, seq, "abandonment record put", now)).unwrap();
                         continue;
                     }
-                    let signed = slop_ninja_protocol::sign(record, &slop_ninja_protocol::fixtures::package_key()).unwrap();
-                    self.rcpt.insert(key, signed.to_bytes().unwrap());
+                    let pk = slop_ninja_protocol::fixtures::package_key();
+                    let bytes = match record {
+                        engine::AbandonmentRecord::V1(r) => slop_ninja_protocol::sign(r, &pk).unwrap().to_bytes().unwrap(),
+                        engine::AbandonmentRecord::V2(r) => slop_ninja_protocol::sign(r, &pk).unwrap().to_bytes().unwrap(),
+                    };
+                    self.rcpt.insert(key, bytes);
                     tx(self.db, |s| engine::abandon_marker_written(s, seq, now)).unwrap();
                 }
             }
@@ -1267,6 +1271,13 @@ impl LaneIo for SimIo<'_, '_> {
     }
     async fn meter(&mut self) -> lanes::Meter {
         lanes::Meter { active_ms: 1_000, cpu_ms: 500, do_ms: 1_000 }
+    }
+}
+
+fn v1_record(db: &Sqlite, seq: i64) -> slop_ninja_protocol::submission::CohortAbandonment {
+    match tx(db, |s| engine::abandonment_record(s, &cfg(), seq)).unwrap().1 {
+        engine::AbandonmentRecord::V1(r) => r,
+        engine::AbandonmentRecord::V2(_) => panic!("a faulted cohort's abandonment is version 1"),
     }
 }
 
@@ -2387,7 +2398,7 @@ fn a_budget_paused_cohort_is_abandoned_under_a_neutral_code() {
     sim.tick();
     db.conn.execute("UPDATE cohorts SET fault = 'scoring_budget' WHERE seq = ?1", [seq]).unwrap();
     assert!(tx(&db, |s| engine::abandon(s, &p.label, engine::SCORING_BUDGET, sim.now)).unwrap());
-    let (_, r) = tx(&db, |s| engine::abandonment_record(s, &cfg(), seq)).unwrap();
+    let r = v1_record(&db, seq);
     assert_eq!((r.fault.as_str(), r.reason.as_str()), (engine::RESOURCE_GUARD, engine::RESOURCE_GUARD));
     assert!(!r.fault.contains("budget") && !r.reason.contains("budget"));
     for _ in 0..5 {
@@ -2513,10 +2524,10 @@ fn abandonment_reasons_come_from_a_fixed_vocabulary() {
         assert!(tx(&db, |s| engine::abandon(s, &p.label, bad, 1_000_200)).is_err(), "{bad}");
     }
     assert!(tx(&db, |s| engine::abandon(s, &p.label, "batch_shortfall", 1_000_200)).unwrap());
-    let (_, r) = tx(&db, |s| engine::abandonment_record(s, &cfg(), seq)).unwrap();
+    let r = v1_record(&db, seq);
     assert_eq!(r.reason, "batch_shortfall");
     db.conn.execute("UPDATE cohorts SET abandoned_reason = 'old_free_code' WHERE seq = ?1", [seq]).unwrap();
-    let (_, r) = tx(&db, |s| engine::abandonment_record(s, &cfg(), seq)).unwrap();
+    let r = v1_record(&db, seq);
     assert_eq!(r.reason, "unlisted");
     for code in engine::ABANDON_REASONS {
         assert!(code.bytes().all(|b| b.is_ascii_lowercase() || b == b'_'), "{code}");
@@ -7969,4 +7980,168 @@ fn an_anchor_that_fails_to_load_waives_the_cohort_and_holds_nothing() {
     assert_eq!(b.components["localization"]["waiver"], "waived.anchor_missing");
     assert_eq!(l.entrants[1], Some(LocalizationValue::NoTokenHead));
     assert_eq!(l.entrants[3], Some(LocalizationValue::Passed));
+}
+
+// ------------------------------------------------- operator decisions (D1)
+
+fn op_key() -> (slop_ninja_protocol::SigningKey, slop_ninja_protocol::operator::OperatorKey) {
+    let k = slop_ninja_protocol::SigningKey::from_bytes(&[0x51; 32]);
+    let p = slop_ninja_protocol::operator::OperatorKey::from_bytes(k.verifying_key().to_bytes()).unwrap();
+    (k, p)
+}
+
+fn op_req(body: Value) -> crate::operator::Request {
+    crate::operator::parse(body).unwrap()
+}
+
+fn op_signed(action: &str, body: Value) -> crate::operator::Request {
+    let (k, _) = op_key();
+    let c = cfg();
+    let to = super::decide::address(&c, "main");
+    op_req(crate::operator::tests::signed_body(&k, action, &to, body))
+}
+
+fn op_abandon(db: &Sqlite, req: &crate::operator::Request, now: u64) -> Result<Value, &'static str> {
+    let (_, p) = op_key();
+    tx(db, |s| super::decide::abandon(s, &cfg(), req, Some(&p), now)).unwrap()
+}
+
+fn v2_record(sim: &Sim<'_>, label: &str) -> slop_ninja_protocol::decisions::CohortAbandonmentV2 {
+    let key = format!("cohorts/{label}/{}", engine::ABANDONMENT_KEY);
+    let bytes = sim.rcpt.get(&key).expect("the record is written").clone();
+    slop_ninja_protocol::Signed::<slop_ninja_protocol::decisions::CohortAbandonmentV2>::open(&bytes, &slop_ninja_protocol::fixtures::trusted_keys())
+        .unwrap()
+}
+
+/// D1: a queued cohort with no fault is withdrawn by decision; the number
+/// stays used, the version-2 record names the phase and publishes fault
+/// `none`, the action is logged once, and a replay, a reuse and a preview
+/// behave as the shared mechanism says.
+#[test]
+fn an_operator_abandons_a_queued_cohort_with_no_fault() {
+    let db = Sqlite::open();
+    sql::migrate(&db, &EVAL_COHORT_SCHEMA).unwrap();
+    let p = wide(20, 0);
+    let bytes = serde_json::to_vec(&p).unwrap();
+    let seq = tx(&db, |s| engine::queue(s, &cfg(), &bytes, 1_000_000)).unwrap();
+    assert_eq!(phase(&db, seq), "queued");
+    let body = json!({"decision": "drill-a1", "reason": "operator_decision", "label": p.label, "expect": {"phase": "queued"}});
+    // A wrong expectation changes nothing.
+    let wrong = op_req(json!({"decision": "drill-a0", "reason": "operator_decision", "label": p.label, "expect": {"phase": "admission"}}));
+    assert_eq!(op_abandon(&db, &wrong, 1_000_100), Err("expect_mismatch"));
+    // A preview changes nothing, the action log included.
+    let mut pv = body.clone();
+    pv["preview"] = json!(true);
+    let v = op_abandon(&db, &op_req(pv), 1_000_100).unwrap();
+    assert_eq!(v["effect"]["abandoned"], json!(true));
+    assert_eq!(phase(&db, seq), "queued");
+    assert_eq!(db.count("operator_actions"), 0);
+    // An unlisted reason is refused.
+    let bad = op_req(json!({"decision": "drill-a2", "reason": "because", "label": p.label, "expect": {"phase": "queued"}}));
+    assert_eq!(op_abandon(&db, &bad, 1_000_100), Err("reason_unlisted"));
+    let v = op_abandon(&db, &op_req(body.clone()), 1_000_200).unwrap();
+    assert_eq!((v["abandoned"].clone(), v["operator_seq"].clone()), (json!(true), json!(1)));
+    assert_eq!(phase(&db, seq), "abandoned");
+    // The same decision again replays; another body under it is refused.
+    assert_eq!(op_abandon(&db, &op_req(body.clone()), 1_000_300).unwrap(), v.as_object().map(|m| {
+        let mut m = m.clone();
+        m.remove("operator_seq");
+        Value::Object(m)
+    }).unwrap());
+    let mut other = body.clone();
+    other["reason"] = json!("drill");
+    assert_eq!(op_abandon(&db, &op_req(other), 1_000_300), Err("decision_reused"));
+    assert_eq!(db.count("operator_actions"), 1);
+    // A second decision on the abandoned cohort is refused.
+    let again = op_req(json!({"decision": "drill-a3", "reason": "operator_decision", "label": p.label, "expect": {"phase": "abandoned"}}));
+    assert_eq!(op_abandon(&db, &again, 1_000_300), Err("cohort_abandoned"));
+    // The number stays used.
+    assert!(tx(&db, |s| engine::queue(s, &cfg(), &bytes, 1_000_400)).is_ok_and(|s2| s2 == seq));
+    let mut next = p.clone();
+    next.label = format!("{}-again", p.label);
+    assert!(tx(&db, |s| engine::queue(s, &cfg(), &serde_json::to_vec(&next).unwrap(), 1_000_400)).is_err());
+    // The signed record: version 2, fault none, the phase, by decision.
+    let mut sim = Sim::new(&db, cfg(), 1_000_500);
+    for _ in 0..3 {
+        sim.tick();
+    }
+    let r = v2_record(&sim, &p.label);
+    assert_eq!(
+        (r.cohort, r.fault.as_str(), r.reason.as_str(), r.phase_at_abandon.as_str(), r.operator, r.statement),
+        (p.cohort, "none", "operator_decision", "queued", true, None)
+    );
+    assert_eq!(r.chain, cfg().chain);
+    // Readers of either version see the same end.
+    let key = format!("cohorts/{}/{}", p.label, engine::ABANDONMENT_KEY);
+    let view = slop_ninja_protocol::decisions::open_abandonment(&sim.rcpt[&key], &slop_ninja_protocol::fixtures::trusted_keys()).unwrap();
+    assert!(view.operator);
+}
+
+/// D1: a generating cohort with lanes holding claims drains: no new claim
+/// or renewal, and the abandon completes once the held claims pass; a
+/// cohort in packaging needs the offline signature; a closed cohort is
+/// refused.
+#[test]
+fn an_operator_abandon_drains_running_lanes_and_signs_late_phases() {
+    let db = Sqlite::open();
+    sql::migrate(&db, &EVAL_COHORT_SCHEMA).unwrap();
+    let p = wide(20, 0);
+    let seq = open_cohort(&db, &p, 10, 1_000_000);
+    let mut sim = Sim::new(&db, cfg(), 1_000_010);
+    sim.tick();
+    assert_eq!(phase(&db, seq), "generating");
+    let now = sim.now;
+    db.conn.execute("UPDATE docs SET claim_until_ms = ?1 WHERE seq = ?2 AND idx = 0", rusqlite::params![(now + 60_000) as i64, seq]).unwrap();
+    let body = json!({"decision": "drill-d1", "reason": "operator_decision", "label": p.label, "expect": {"phase": "generating"}});
+    let v = op_abandon(&db, &op_req(body), now).unwrap();
+    assert_eq!((v["draining"].clone(), v["abandoned"].clone()), (json!(true), json!(false)));
+    assert_eq!(phase(&db, seq), "generating");
+    // No new claim while it drains.
+    let lane = LaneRef { seq, kind: "gen".into(), lane: 0, generation: 1 };
+    let grants: BTreeMap<String, u32> = [("x".to_owned(), 1u32)].into_iter().collect();
+    let claim = tx(&db, |s| lanes::gen_claim(s, &cfg(), &lane, "lane", &grants, now + 1));
+    assert!(matches!(claim, Ok(GenClaimReply::Paused) | Ok(GenClaimReply::Fenced)), "{claim:?}");
+    // The drain holds until the claim passes, then the abandon completes.
+    assert!(tx(&db, |s| super::decide::finish_drains(s, now + 1_000)).unwrap().is_empty());
+    assert!(tx(&db, |s| engine::has_work(s, &cfg())).unwrap(), "a draining cohort keeps the alarm armed");
+    assert_eq!(tx(&db, |s| super::decide::finish_drains(s, now + 61_000)).unwrap(), vec![p.label.clone()]);
+    assert_eq!(phase(&db, seq), "abandoned");
+    let mut sim = Sim::new(&db, cfg(), now + 62_000);
+    for _ in 0..3 {
+        sim.tick();
+    }
+    let r = v2_record(&sim, &p.label);
+    assert_eq!((r.phase_at_abandon.as_str(), r.fault.as_str()), ("generating", "none"));
+
+    // Packaging: the outcome may be known, so the token alone is refused.
+    let p2 = {
+        let mut x = wide(20, 0);
+        x.label = format!("{}-b", p.label);
+        x.cohort = p.cohort + 1;
+        x
+    };
+    let bytes = serde_json::to_vec(&p2).unwrap();
+    let seq2 = tx(&db, |s| engine::queue(s, &cfg(), &bytes, now + 70_000)).unwrap();
+    db.conn
+        .execute("UPDATE cohorts SET phase = 'packaging', package_digest = ?1 WHERE seq = ?2", rusqlite::params!["ab".repeat(32), seq2])
+        .unwrap();
+    let body = json!({"decision": "drill-d2", "reason": "operator_decision", "label": p2.label, "expect": {"phase": "packaging"}});
+    assert_eq!(op_abandon(&db, &op_req(body.clone()), now + 70_100), Err("authorization_required"));
+    // Signed for another action, or over another body: refused.
+    assert_eq!(op_abandon(&db, &op_signed("eval.closure_decline", body.clone()), now + 70_100), Err("authorization_mismatch"));
+    let v = op_abandon(&db, &op_signed("eval.abandon", body), now + 70_200).unwrap();
+    assert_eq!((v["signed"].clone(), v["abandoned"].clone()), (json!(true), json!(true)));
+    assert_eq!(phase(&db, seq2), "abandoned");
+    let mut sim = Sim::new(&db, cfg(), now + 71_000);
+    for _ in 0..3 {
+        sim.tick();
+    }
+    let r = v2_record(&sim, &p2.label);
+    assert_eq!(r.phase_at_abandon, "packaging");
+    assert_eq!(r.score_package.map(|d| d.hex()), Some("ab".repeat(32)));
+    assert!(r.statement.is_some());
+    // A closed cohort is refused.
+    db.conn.execute("UPDATE cohorts SET phase = 'closed' WHERE seq = ?1", [seq2]).unwrap();
+    let body = json!({"decision": "drill-d3", "reason": "operator_decision", "label": p2.label, "expect": {"phase": "closed"}});
+    assert_eq!(op_abandon(&db, &op_req(body), now + 72_000), Err("cohort_closed"));
 }

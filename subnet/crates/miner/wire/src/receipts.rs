@@ -153,6 +153,21 @@ pub const ABANDONMENT_RECORD: &str = "abandoned.signed";
 /// envelope come to well under a third of it.
 pub const ABANDONMENT_RECORD_BOUND: u64 = 4 * 1024;
 
+/// The file name, in a private cohort directory, of the eval Worker's signed
+/// `ClosureDeclined` record (`slop_ninja_protocol::decisions`, package key):
+/// the operator declined the cohort's faulted closure, so no closure follows
+/// and its target is never installed. Read like [`ABANDONMENT_RECORD`],
+/// within [`ABANDONMENT_RECORD_BOUND`]. (The abandonment record itself is
+/// version 2 for an abandonment by operator decision; both versions fit the
+/// same bound.)
+pub const CLOSURE_DECLINED_RECORD: &str = "closure-declined.signed";
+
+/// The file name, in a probe cut's private cohort directory, of the eval
+/// Worker's signed `ProbeCutRecord` (package key): the cut consumed its
+/// cohort number and closed without a target. Read within
+/// [`ABANDONMENT_RECORD_BOUND`].
+pub const PROBE_CUT_RECORD: &str = "probe-cut.signed";
+
 /// Written by the coordinator before the first of a cohort's detailed
 /// receipts is deleted: content free, so the publisher can tell receipts
 /// deleted before publication from receipts not stored yet.

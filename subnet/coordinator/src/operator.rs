@@ -41,7 +41,7 @@ use slop_ninja_protocol::{ChainBinding, Digest};
 use crate::sql::{Sql, SqlValue, StoreError, bind_u64, text};
 
 /// The action log's table, created by each store's migration (the eval
-/// store's v28, the chain journal's v15). Its schema never changes.
+/// store's v30, the chain journal's v15). Its schema never changes.
 pub const ACTIONS_TABLE: &str = "CREATE TABLE operator_actions (
     seq INTEGER PRIMARY KEY,
     decision TEXT NOT NULL UNIQUE,
@@ -396,7 +396,7 @@ pub fn begin(
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use super::*;
     use crate::testing::{Sqlite, tx};
     use slop_ninja_protocol::operator::sign_sshsig;

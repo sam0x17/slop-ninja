@@ -898,6 +898,10 @@ pub struct Cohort {
     pub opened_active: Option<u64>,
     pub packaged_active: Option<u64>,
     pub scorer_failures: i64,
+    /// An operator abandon is draining the cohort's lanes
+    /// ([`crate::eval::decide`]): no new claim, renewal or attempt extension,
+    /// and the abandon completes once every outstanding claim has passed.
+    pub draining: bool,
 }
 
 /// Every column but the plan text, which is read and parsed once per plan
@@ -905,7 +909,7 @@ pub struct Cohort {
 /// second, and a wide roster's plan is over 100 KB of JSON.
 const COHORT_COLUMNS: &str = "seq, label, plan_sha256, plan_sha256, phase, queued_epoch, opened_epoch, opened_block,
     packaged_epoch, manifest_digest, task_count, fault, gen_cost_microusd, opened_active, packaged_active,
-    scorer_failures";
+    scorer_failures, draining_ms";
 
 /// Parsed plans kept in memory: the active cohorts of the main and load
 /// instances and the next queued one of each. A miss re-reads and re-parses
@@ -967,6 +971,7 @@ fn cohort_from(sql: &impl Sql, r: &Row) -> R<Cohort> {
         opened_active: u(13),
         packaged_active: u(14),
         scorer_failures: int(r, 15)?,
+        draining: opt_int(r, 16).is_some(),
     })
 }
 
@@ -1338,10 +1343,20 @@ pub fn abandon(sql: &impl Sql, label: &str, reason: &str, now_ms: u64) -> R<bool
     if !abandon_reason_listed(reason, &fault_code) {
         return Err(EvalError::Plan("abandon reason (one of ABANDON_REASONS, or the cohort's fault code)"));
     }
+    abandon_now(sql, seq, reason, Some(&fault_code), now_ms)?;
+    Ok(true)
+}
+
+/// Ends cohort `seq` as abandoned, now: the shared effect of an abandonment
+/// of a faulted cohort ([`abandon`]) and of an operator's
+/// ([`crate::eval::decide::abandon`]). `fault_code` is the fault it was
+/// paused by, `None` for a cohort with none.
+pub(crate) fn abandon_now(sql: &impl Sql, seq: i64, reason: &str, fault_code: Option<&str>, now_ms: u64) -> R<()> {
     let o = observed(sql)?;
     sql.exec(
-        "UPDATE cohorts SET abandoned_reason = ?, abandoned_fault = ?, fault = NULL, closed_epoch = ? WHERE seq = ?",
-        &[s(reason), s(&fault_code), o.epoch.map_or(SqlValue::Null, |e| i(e.index as i64)), i(seq)],
+        "UPDATE cohorts SET abandoned_reason = ?, abandoned_fault = ?, fault = NULL, closed_epoch = ?, draining_ms = NULL
+         WHERE seq = ?",
+        &[s(reason), fault_code.map_or(SqlValue::Null, s), o.epoch.map_or(SqlValue::Null, |e| i(e.index as i64)), i(seq)],
     )?;
     sql.exec("UPDATE docs SET text = NULL, claim_until_ms = 0 WHERE seq = ?", &[i(seq)])?;
     sql.exec("UPDATE chunks SET claim_until_ms = 0 WHERE seq = ?", &[i(seq)])?;
@@ -1354,8 +1369,11 @@ pub fn abandon(sql: &impl Sql, label: &str, reason: &str, now_ms: u64) -> R<bool
             &[bind_u64(e.index)?],
         )?;
     }
-    set_phase(sql, seq, "abandoned", now_ms, &format!("abandoned:{reason} after fault:{fault_code}; no target"))?;
-    Ok(true)
+    let note = match fault_code {
+        Some(f) => format!("abandoned:{reason} after fault:{f}; no target"),
+        None => format!("abandoned:{reason} by operator decision; no target"),
+    };
+    set_phase(sql, seq, "abandoned", now_ms, &note)
 }
 
 /// The reason codes an abandonment may give, besides the cohort's own fault
@@ -1443,13 +1461,41 @@ pub fn abandon_marker_failed(sql: &impl Sql, seq: i64, code: &str, now_ms: u64) 
 /// epoch observed when it was abandoned). A cohort abandoned before reasons
 /// were recorded carries `unrecorded`. Legacy budget codes are published as
 /// [`RESOURCE_GUARD`] ([`published_code`]).
-pub fn abandonment_record(sql: &impl Sql, cfg: &EvalConfig, seq: i64) -> R<(String, slop_ninja_protocol::submission::CohortAbandonment)> {
+pub fn abandonment_record(sql: &impl Sql, cfg: &EvalConfig, seq: i64) -> R<(String, AbandonmentRecord)> {
     let c = cohort(sql, seq)?;
     if c.phase != "abandoned" {
         return Err(EvalError::State("abandonment record of a cohort not abandoned"));
     }
-    let r = &sql.exec("SELECT abandoned_reason, abandoned_fault, closed_epoch FROM cohorts WHERE seq = ?", &[i(seq)])?[0];
+    let r = &sql.exec(
+        "SELECT abandoned_reason, abandoned_fault, closed_epoch, abandon_operator, abandon_phase, abandon_decision,
+            abandon_statement, package_digest, target_digest FROM cohorts WHERE seq = ?",
+        &[i(seq)],
+    )?[0];
     let fault = opt_text(r, 1);
+    let key = format!("{}/{ABANDONMENT_KEY}", receipt_prefix(&c.label));
+    let digest = |idx: usize| opt_text(r, idx).map(|d| parse_digest(&d).ok_or(EvalError::State("abandon digest"))).transpose();
+    if opt_int(r, 3).is_some_and(|o| o != 0) {
+        // By operator decision (`decide::abandon`): version 2, fault `none`
+        // when the cohort had none.
+        let result = crate::eval::v3::state(sql, seq)?.result.map(|h| h.0);
+        let record = slop_ninja_protocol::decisions::CohortAbandonmentV2 {
+            chain: cfg.chain.clone(),
+            cohort: c.plan.cohort,
+            cohort_label: c.label.clone(),
+            cohort_manifest: digest_opt(c.manifest_digest.as_deref())?,
+            fault: fault.as_deref().map_or("none", published_code).to_owned(),
+            reason: opt_text(r, 0).as_deref().map_or("operator_decision", published_code).to_owned(),
+            abandoned_epoch: opt_int(r, 2).map(|e| e as u64),
+            phase_at_abandon: opt_text(r, 4).unwrap_or_else(|| "unrecorded".into()),
+            score_package: digest(7)?,
+            result,
+            target: digest(8)?,
+            operator: true,
+            decision: digest(5)?,
+            statement: digest(6)?,
+        };
+        return Ok((key, AbandonmentRecord::V2(record)));
+    }
     let record = slop_ninja_protocol::submission::CohortAbandonment {
         chain: cfg.chain.clone(),
         cohort: c.plan.cohort,
@@ -1465,7 +1511,19 @@ pub fn abandonment_record(sql: &impl Sql, cfg: &EvalConfig, seq: i64) -> R<(Stri
         },
         abandoned_epoch: opt_int(r, 2).map(|e| e as u64),
     };
-    Ok((format!("{}/{ABANDONMENT_KEY}", receipt_prefix(&c.label)), record))
+    Ok((key, AbandonmentRecord::V1(record)))
+}
+
+fn digest_opt(d: Option<&str>) -> R<Option<Digest>> {
+    d.map(|d| parse_digest(d).ok_or(EvalError::State("manifest digest"))).transpose()
+}
+
+/// The abandonment record a cohort's end writes: version 1 for an
+/// abandonment of a faulted cohort, version 2 for one by operator decision.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum AbandonmentRecord {
+    V1(slop_ninja_protocol::submission::CohortAbandonment),
+    V2(slop_ninja_protocol::decisions::CohortAbandonmentV2),
 }
 
 /// The abandonment record of `seq` is durable in the receipts bucket.
@@ -2034,7 +2092,7 @@ pub fn advance(sql: &impl Sql, now_ms: u64) -> R<Vec<String>> {
 pub fn active(sql: &impl Sql) -> R<Option<Cohort>> {
     let mut cut = None;
     for c in cohorts(sql)? {
-        if !matches!(c.phase.as_str(), "generating" | "sealing" | "scoring" | "packaging") || c.fault.is_some() {
+        if !matches!(c.phase.as_str(), "generating" | "sealing" | "scoring" | "packaging") || c.fault.is_some() || c.draining {
             continue;
         }
         if !c.plan.is_probe_cut() {
@@ -2373,6 +2431,9 @@ pub fn next_work(sql: &impl Sql, cfg: &EvalConfig, now_ms: u64) -> R<Option<Work
     // that keeps returning an error) never holds private results in the
     // bucket. A due closure comes first; one that failed waits out its retry
     // time (or its fault) without holding anything else (`v3::closure_due`).
+    // An operator abandon whose lanes hold no claim any longer completes
+    // first (`decide::finish_drains`).
+    crate::eval::decide::finish_drains(sql, now_ms)?;
     if let Some(seq) = crate::eval::v3::closure_due(sql, Some(now_ms))? {
         return Ok(Some(Work::Close { seq }));
     }
@@ -4327,6 +4388,8 @@ pub fn blocking_work(sql: &impl Sql, cfg: &EvalConfig) -> R<bool> {
 
 fn work(sql: &impl Sql, cfg: &EvalConfig, due_by: Option<u64>) -> R<bool> {
     Ok(active(sql)?.is_some()
+        // An operator abandon draining a cohort's lanes ends at a later step.
+        || !sql.exec("SELECT 1 FROM cohorts WHERE draining_ms IS NOT NULL LIMIT 1", &[])?.is_empty()
         || crate::eval::admission::has_work(sql, cfg, due_by)?
         || (due_by.is_none() && crate::eval::admission::objects_retained(sql)?)
         || crate::eval::v3::closure_due(sql, due_by)?.is_some()

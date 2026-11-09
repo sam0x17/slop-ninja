@@ -243,6 +243,10 @@ fn fault_job(sql: &impl Sql, seq: i64, job: i64, code: &str, now: u64) -> R<()> 
 /// attempt fits (the caller faults the job). Logged in the cohort's phase
 /// log and counted in its status (`attempt_extensions`).
 pub fn extend_attempts(sql: &impl Sql, c: &Cohort, job: i64, chunk: i64, unresolved: u64, now: u64) -> R<Option<u8>> {
+    // A draining cohort extends nothing: no lane can push its claims on.
+    if c.draining {
+        return Ok(None);
+    }
     let row = &sql.exec(
         "SELECT ch.attempt_limit, co.extension_receipts FROM chunks ch JOIN cohorts co ON co.seq = ch.seq
          WHERE ch.seq = ? AND ch.job = ? AND ch.chunk = ?",
@@ -1303,7 +1307,7 @@ pub fn claim_chunk(sql: &impl Sql, r: &LaneRef, name: &str, now: u64) -> R<Claim
     let Some(l) = fence(sql, r)? else { return Ok(ClaimReply::Fenced) };
     touch(sql, r, now)?;
     let c = cohort(sql, r.seq)?;
-    if c.fault.is_some() || !live(sql, now)? {
+    if c.fault.is_some() || c.draining || !live(sql, now)? {
         return Ok(ClaimReply::Paused);
     }
     match c.phase.as_str() {
@@ -1765,6 +1769,11 @@ pub fn chunk_renew(sql: &impl Sql, r: &LaneRef, name: &str, job: i64, chunk: i64
         return Ok(false);
     }
     let c = cohort(sql, r.seq)?;
+    // A draining cohort (an operator abandon) renews no claim: the drain
+    // ends when the held claims pass.
+    if c.draining {
+        return Ok(false);
+    }
     let f = c.plan.fanout().map_err(|e| EvalError::Plan(e.0))?;
     let crashes = int(&sql.exec("SELECT crashes FROM chunks WHERE seq = ? AND job = ? AND chunk = ?", &[i(r.seq), i(job), i(chunk)])?[0], 0)?;
     let lease = if crashes > 0 { f.score.isolation_lease_ms } else { f.score.lease_ms };
@@ -2101,7 +2110,7 @@ pub fn gen_claim(sql: &impl Sql, cfg: &EvalConfig, r: &LaneRef, name: &str, gran
     }
     touch(sql, r, now)?;
     let c = cohort(sql, r.seq)?;
-    if c.fault.is_some() || !live(sql, now)? {
+    if c.fault.is_some() || c.draining || !live(sql, now)? {
         return Ok(GenClaimReply::Paused);
     }
     if c.phase != "generating" {

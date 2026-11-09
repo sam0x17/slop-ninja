@@ -153,6 +153,13 @@ fn eval_config_with(
     })
 }
 
+/// The offline operator-decision key's public half (`OPERATOR_DECISION_KEY`,
+/// an OpenSSH `ssh-ed25519` line): `None` when the deployment names none, so
+/// every signed decision is refused (`operator_key_unconfigured`).
+pub fn operator_key(env: &Env) -> std::result::Result<Option<slop_ninja_protocol::operator::OperatorKey>, &'static str> {
+    crate::operator::configured_key(env.var("OPERATOR_DECISION_KEY").ok().map(|v| v.to_string()).as_deref())
+}
+
 /// The package and receipt signing keys of the main instance. Each must derive
 /// the public trust root configured beside it (`PACKAGE_PUBLIC_KEY`,
 /// `RECEIPT_PUBLIC_KEY`: the T12 roots validators are configured with), so
@@ -1016,6 +1023,16 @@ impl DurableObject for EvalCohort {
                     }
                 }
             }
+            (Method::Get, "/operator/actions") => {
+                let from = req.url().ok().and_then(|u| {
+                    u.query_pairs().find(|(k, _)| k == "from").and_then(|(_, v)| v.parse::<u64>().ok())
+                });
+                tx_reply(transaction(&storage, move |sql| {
+                    let rows = crate::operator::list(sql, from.unwrap_or(0), 200)?;
+                    let (newest, count) = crate::operator::newest(sql)?;
+                    Ok::<_, engine::EvalError>(j!({"newest": newest, "count": count, "actions": rows}))
+                }))
+            }
             (Method::Post, "/clear") => {
                 #[derive(Deserialize)]
                 struct Clear {
@@ -1042,10 +1059,47 @@ impl DurableObject for EvalCohort {
                     label: String,
                     reason: String,
                 }
-                let a = match super::cf_io::request_json::<Abandon>(&mut req, OPERATOR_BODY_BYTES).await {
-                    Ok(a) => a,
+                let body = match super::cf_io::request_json::<Value>(&mut req, OPERATOR_BODY_BYTES).await {
+                    Ok(v) => v,
                     Err(super::cf_io::JsonError::Parse) => return error("bad_request", 400),
                     Err(e) => return error(e.code(), e.status()),
+                };
+                // An operator decision (D1): any cohort not closed, through
+                // the shared request mechanism (`eval::decide::abandon`).
+                if body.get("decision").is_some() {
+                    let r = match crate::operator::parse(body) {
+                        Ok(r) => r,
+                        Err(code) => return error(code, 400),
+                    };
+                    let key = match operator_key(&self.env) {
+                        Ok(k) => k,
+                        Err(code) => return error(code, 503),
+                    };
+                    let label = r.body.get("label").and_then(Value::as_str).unwrap_or_default().to_owned();
+                    let c2 = cfg.clone();
+                    let out = transaction(&storage, move |sql| {
+                        let seq = engine::cohorts(sql)?.into_iter().find(|c| c.label == label).map(|c| c.seq);
+                        let answer = crate::eval::decide::abandon(sql, &c2, &r, key.as_ref(), now)?;
+                        let stop = match (&answer, seq) {
+                            (Ok(v), Some(seq)) if v.get("preview").is_none() => lanes::live_lane_names(sql, seq, &lanes::KINDS)?,
+                            _ => Vec::new(),
+                        };
+                        Ok::<_, engine::EvalError>((answer, stop))
+                    });
+                    return match out {
+                        Ok((Ok(v), stop)) => {
+                            stop_lanes(&self.env, &stop).await;
+                            storage.set_alarm(500i64).await?;
+                            json(&v)
+                        }
+                        Ok((Err(code), _)) => error(code, 409),
+                        Err(TxError::Operation(e)) => error(e.code(), 422),
+                        Err(_) => error("store_unavailable", 503),
+                    };
+                }
+                let a = match serde_json::from_value::<Abandon>(body) {
+                    Ok(a) => a,
+                    Err(_) => return error("bad_request", 400),
                 };
                 let label = a.label.clone();
                 match transaction(&storage, move |sql| {
@@ -1758,7 +1812,11 @@ impl EvalCohort {
                         let (key, record) = transaction(&storage, move |sql| engine::abandonment_record(sql, &c2, seq))
                             .map_err(|_| "abandonment record")?;
                         let (package_key, _) = keys(&self.env).map_err(|_| "package key")?;
-                        let bytes = package::signed_bytes(record, &package_key).map_err(|_| "abandonment record signing")?;
+                        let bytes = match record {
+                            engine::AbandonmentRecord::V1(r) => package::signed_bytes(r, &package_key),
+                            engine::AbandonmentRecord::V2(r) => package::signed_bytes(r, &package_key),
+                        }
+                        .map_err(|_| "abandonment record signing")?;
                         put(&self.env, RECEIPTS_BUCKET, &key, bytes).await.map_err(|_| "abandonment record put")?;
                         Ok::<(), &'static str>(())
                     }

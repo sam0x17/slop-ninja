@@ -1271,8 +1271,19 @@ impl<S: Store, K: Keepalive> Run<'_, S, K> {
     /// counts as no record (the cohort keeps holding, as before it was
     /// written); `Err` when the read did not answer.
     async fn abandoned(&self, private: &str, label: &str) -> Result<bool, String> {
-        use slop_ninja_protocol::submission::CohortAbandonment;
-        let key = layout::join(private, ABANDONMENT);
+        if self.abandonment_read(private, label, ABANDONMENT).await? {
+            return Ok(true);
+        }
+        // A declined closure (an operator decision) ends the cohort the same
+        // way: no closure follows it, so it holds no later cohort.
+        self.abandonment_read(private, label, slop_ninja_admission_wire::receipts::CLOSURE_DECLINED_RECORD).await
+    }
+
+    /// Whether `name` in cohort `label`'s private directory is a verified
+    /// end record for this label and chain: an abandonment (either version)
+    /// or a declined closure.
+    async fn abandonment_read(&self, private: &str, label: &str, name: &str) -> Result<bool, String> {
+        let key = layout::join(private, name);
         let bytes = match self
             .buckets
             .receipts
@@ -1284,10 +1295,14 @@ impl<S: Store, K: Keepalive> Run<'_, S, K> {
         {
             Ok(None) | Err(StoreError::TooLarge { .. }) => return Ok(false),
             Ok(Some(b)) => b,
-            Err(e) => return Err(format!("{ABANDONMENT}: {e}")),
+            Err(e) => return Err(format!("{name}: {e}")),
         };
+        if name == ABANDONMENT {
+            return Ok(slop_ninja_protocol::decisions::open_abandonment(&bytes, &self.cfg.keys)
+                .is_ok_and(|a| a.cohort_label == label && a.chain == self.cfg.chain));
+        }
         Ok(
-            slop_ninja_protocol::Signed::<CohortAbandonment>::open(&bytes, &self.cfg.keys)
+            slop_ninja_protocol::Signed::<slop_ninja_protocol::decisions::ClosureDeclined>::open(&bytes, &self.cfg.keys)
                 .is_ok_and(|a| a.cohort_label == label && a.chain == self.cfg.chain),
         )
     }

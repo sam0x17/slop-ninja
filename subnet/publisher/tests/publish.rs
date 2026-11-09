@@ -2367,6 +2367,71 @@ fn tamper_package(x: &Buckets3, b: &Built) -> Vec<u8> {
 /// cohort, however many runs pass: N+1 is listed only after N's closure is
 /// written and N is listed. The coordinator's abandonment record beside a
 /// packaged cohort without a closure releases the hold; a cohort without a
+/// D1 and D7(c): an abandonment by operator decision (record version 2)
+/// and a declined closure (`closure-declined.signed`) each end a packaged
+/// cohort with no closure, so the next one is listed; neither holds when
+/// it does not verify for this label.
+#[test]
+fn a_version_two_abandonment_or_a_declined_closure_releases_later_cohorts() {
+    let cfg = config(Some(0), false);
+    for declined in [false, true] {
+        let (b, next, x) = two_cohorts();
+        x.receipts
+            .remove(&format!("{}/{}", dir(&b.label), verify::CLOSURE));
+        let name = if declined {
+            slop_ninja_admission_wire::receipts::CLOSURE_DECLINED_RECORD
+        } else {
+            publish::ABANDONMENT
+        };
+        let rec = format!("{}/{}", dir(&b.label), name);
+        let record = |label: &str| {
+            let pk = slop_ninja_protocol::fixtures::package_key();
+            if declined {
+                let r = slop_ninja_protocol::decisions::ClosureDeclined {
+                    chain: cfg.chain.clone(),
+                    cohort: b.c.manifest.cohort,
+                    cohort_label: label.to_owned(),
+                    cohort_manifest: None,
+                    score_package: None,
+                    declined_target: None,
+                    phase: "closed".into(),
+                    fault: "closure_failed".into(),
+                    declined_epoch: Some(2),
+                    decision: None,
+                    statement: slop_ninja_protocol::Digest([4; 32]),
+                };
+                slop_ninja_protocol::sign(r, &pk).unwrap().to_bytes().unwrap()
+            } else {
+                let r = slop_ninja_protocol::decisions::CohortAbandonmentV2 {
+                    chain: cfg.chain.clone(),
+                    cohort: b.c.manifest.cohort,
+                    cohort_label: label.to_owned(),
+                    cohort_manifest: None,
+                    fault: "none".into(),
+                    reason: "operator_decision".into(),
+                    abandoned_epoch: Some(2),
+                    phase_at_abandon: "transition".into(),
+                    score_package: None,
+                    result: None,
+                    target: None,
+                    operator: true,
+                    decision: None,
+                    statement: Some(slop_ninja_protocol::Digest([4; 32])),
+                };
+                slop_ninja_protocol::sign(r, &pk).unwrap().to_bytes().unwrap()
+            }
+        };
+        let mut memo = Memo::default();
+        x.receipts.insert(&rec, record("testnet-other"));
+        let (report, _) = run(&cfg, &x, &mut memo);
+        assert!(report.published.is_empty(), "{declined} {report:?}");
+        x.receipts.insert(&rec, record(&b.label));
+        let (report, idx) = run(&cfg, &x, &mut memo);
+        assert_eq!(report.published, vec![next.label.clone()], "{declined} {report:?}");
+        assert!(!idx.unwrap().contains(&b.label));
+    }
+}
+
 /// package holds nothing.
 #[test]
 fn a_packaged_cohort_without_its_closure_holds_later_ones() {

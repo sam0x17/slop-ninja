@@ -978,5 +978,12 @@ pub const EVAL_COHORT_SCHEMA: Schema = Schema {
             version: 29,
             statements: crate::eval::span_gate::SCHEMA_V29,
         },
+        // v30: operator decisions (self-lock phase 1): the append-only
+        // operator action log, an operator abandon's drain and the
+        // abandonment's decision fields.
+        Migration {
+            version: 30,
+            statements: crate::eval::decide::SCHEMA_V30,
+        },
     ],
 };

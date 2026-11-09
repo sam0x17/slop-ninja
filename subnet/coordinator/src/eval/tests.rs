@@ -650,6 +650,17 @@ impl<'a> Sim<'a> {
                         break;
                     }
                 }
+                Work::DecisionRecord { id } => {
+                    use slop_ninja_protocol::Record as _;
+                    let (key, kind, bytes) = tx(self.db, |s| super::decide::record_of(s, id)).unwrap();
+                    let pk = slop_ninja_protocol::fixtures::package_key();
+                    let signed = match kind.as_str() {
+                        "closure-declined" => slop_ninja_protocol::sign(slop_ninja_protocol::decisions::ClosureDeclined::from_bytes(&bytes).unwrap(), &pk).unwrap().to_bytes().unwrap(),
+                        _ => slop_ninja_protocol::sign(slop_ninja_protocol::decisions::EvalDecision::from_bytes(&bytes).unwrap(), &pk).unwrap().to_bytes().unwrap(),
+                    };
+                    self.rcpt.insert(key, signed);
+                    tx(self.db, |s| super::decide::record_written(s, id, None, now)).unwrap();
+                }
                 Work::AbandonMarker { seq } => {
                     let (key, record) = tx(self.db, |s| engine::abandonment_record(s, &c, seq)).unwrap();
                     if (self.r2)(&key, true) {
@@ -2824,7 +2835,7 @@ fn the_v3_cohort_store_migrates_in_place_to_v7() {
         )
         .unwrap();
     let report = sql::migrate(&db, &EVAL_COHORT_SCHEMA).unwrap();
-    assert_eq!((report.from, report.to), (3, 29));
+    assert_eq!((report.from, report.to), (3, 30));
     let st = status(&db, 5);
     assert_eq!(st["cohorts"][0]["phase"], "closed");
     assert_eq!(st["cohorts"][0]["jobs"][0]["status"], "done", "the jobs table was rebuilt with its rows");
@@ -4539,9 +4550,11 @@ fn a_predecessor_with_closure_settle_or_purge_work_records_no_successor() {
 }
 
 /// A predecessor records no successor while an admitted entrant's objects
-/// are retained (`admission::objects_retained`): the publisher's report not
-/// yet recorded, or its deletes not yet queued. Once superseded it is no
-/// longer kicked, so objects released after that would wait for good.
+/// are retained in a cohort that has not closed (`admission::objects_retained`):
+/// the publisher's report not yet recorded, or its deletes not yet queued.
+/// D7(a): a closed cohort's leftovers never hold succession; the
+/// predecessor stays writable and drains them as reports arrive (a report
+/// arms its alarm).
 #[test]
 fn a_predecessor_retaining_admitted_objects_records_no_successor() {
     use crate::config::{Authority, Supersede};
@@ -4554,7 +4567,7 @@ fn a_predecessor_retaining_admitted_objects_records_no_successor() {
     let req = Supersede::of(&Authority::named("r0b", p.cohort + 1).unwrap()).unwrap();
     db.conn
         .execute(
-            "UPDATE cohorts SET phase = 'closed', reserved_microusd = 1, settled_microusd = 1, purged_ms = 1,
+            "UPDATE cohorts SET phase = 'transition', reserved_microusd = 1, settled_microusd = 1, purged_ms = 1,
                 v3 = NULL, closure_digest = NULL WHERE seq = ?1",
             rusqlite::params![seq],
         )
@@ -4578,9 +4591,15 @@ fn a_predecessor_retaining_admitted_objects_records_no_successor() {
         db.conn.execute(&format!("UPDATE adm_sessions SET {columns}"), []).unwrap();
         assert!(tx(&db, |s| engine::blocking_work(s, &retired)).unwrap(), "{case}");
         let rows = dump(&db);
-        assert_eq!(refused(&db), Err("predecessor_work"), "{case}");
+        // A cohort in its transition is still the predecessor's open work.
+        assert_eq!(refused(&db), Err("predecessor_busy"), "{case}");
         assert_eq!(dump(&db), rows, "{case}: a refusal writes nothing");
     }
+    // D7(a): once the cohort has closed, its retained objects hold nothing.
+    db.conn.execute("UPDATE cohorts SET phase = 'closed' WHERE seq = ?1", [seq]).unwrap();
+    db.conn.execute("UPDATE adm_sessions SET published = 0", []).unwrap();
+    assert!(!tx(&db, |s| crate::eval::admission::objects_retained(s)).unwrap(), "a closed cohort's leftovers");
+    db.conn.execute("UPDATE adm_sessions SET published = 1", []).unwrap();
     let due = |db: &Sqlite| tx(db, |s| engine::has_due_work(s, &retired, 1_000_000)).unwrap();
     let retained_due = due(&db);
     db.conn.execute("UPDATE adm_sessions SET cleaned = 1", []).unwrap();
@@ -7514,7 +7533,7 @@ fn store_v23_seeds_the_boundary_journal_from_cohort_history_without_work_times()
         )
         .unwrap();
     let report = sql::migrate(&db, &EVAL_COHORT_SCHEMA).unwrap();
-    assert_eq!((report.from, report.to), (22, 29));
+    assert_eq!((report.from, report.to), (22, 30));
     let got: Vec<(u64, Option<u64>, Option<u64>)> = journal(&db).iter().map(|r| (r.epoch, r.block, r.observed_ms)).collect();
     assert_eq!(
         got,
@@ -8157,4 +8176,88 @@ fn an_operator_abandon_drains_running_lanes_and_signs_late_phases() {
     db.conn.execute("UPDATE cohorts SET phase = 'closed' WHERE seq = ?1", [seq2]).unwrap();
     let body = json!({"decision": "drill-d3", "reason": "operator_decision", "label": p2.label, "expect": {"phase": "closed"}});
     assert_eq!(op_abandon(&db, &op_req(body), now + 72_000), Err("cohort_closed"));
+}
+
+// ------------------------------------------- closure decline, release (D7)
+
+/// D7(d)(ii): a faulted closure is declined only under the offline key; the
+/// cohort then holds neither `closure_due` nor succession, a later decline
+/// is refused, and the signed `ClosureDeclined` record is written.
+#[test]
+fn a_faulted_closure_is_declined_under_the_offline_key_and_releases_succession() {
+    let db = Sqlite::open();
+    sql::migrate(&db, &EVAL_COHORT_SCHEMA).unwrap();
+    let p = wide(20, 0);
+    let bytes = serde_json::to_vec(&p).unwrap();
+    let seq = tx(&db, |s| engine::queue(s, &cfg(), &bytes, 1_000_000)).unwrap();
+    db.conn
+        .execute(
+            "UPDATE cohorts SET phase = 'closed', v3 = '{}', package_digest = ?1, target_digest = ?2, fault = 'closure_failed'
+             WHERE seq = ?3",
+            rusqlite::params!["cd".repeat(32), "ef".repeat(32), seq],
+        )
+        .unwrap();
+    assert!(tx(&db, |s| super::v3::closure_due(s, None)).unwrap().is_some(), "the faulted closure holds succession");
+    let body = json!({"decision": "drill-c1", "reason": "operator_decision", "label": p.label,
+        "expect": {"phase": "closed", "closure": "faulted"}});
+    let (_, key) = op_key();
+    let decline = |req: &crate::operator::Request| tx(&db, |s| super::decide::closure_decline(s, &cfg(), req, Some(&key), 1_000_100)).unwrap();
+    assert_eq!(decline(&op_req(body.clone())), Err("authorization_required"));
+    let v = decline(&op_signed("eval.closure_decline", body.clone())).unwrap();
+    assert_eq!(v["declined_target"], json!("ef".repeat(32)));
+    assert!(tx(&db, |s| super::v3::closure_due(s, None)).unwrap().is_none(), "declined: no longer due");
+    let again = json!({"decision": "drill-c2", "reason": "operator_decision", "label": p.label,
+        "expect": {"phase": "closed", "closure": "faulted"}});
+    assert_eq!(decline(&op_signed("eval.closure_decline", again)), Err("closure_already_declined"));
+    let mut sim = Sim::new(&db, cfg(), 1_000_200);
+    for _ in 0..3 {
+        sim.tick();
+    }
+    let key = format!("cohorts/{}/{}", p.label, slop_ninja_admission_wire::receipts::CLOSURE_DECLINED_RECORD);
+    let r = slop_ninja_protocol::Signed::<slop_ninja_protocol::decisions::ClosureDeclined>::open(
+        sim.rcpt.get(&key).expect("the decline record is written"),
+        &slop_ninja_protocol::fixtures::trusted_keys(),
+    )
+    .unwrap();
+    assert_eq!((r.cohort, r.fault.as_str()), (p.cohort, "closure_failed"));
+    assert_eq!(r.declined_target.map(|d| d.hex()), Some("ef".repeat(32)));
+    // A cohort whose closure is not faulted is refused.
+    db.conn.execute("UPDATE cohorts SET closure_declined_ms = NULL, fault = NULL WHERE seq = ?1", [seq]).unwrap();
+    let third = json!({"decision": "drill-c3", "reason": "operator_decision", "label": p.label,
+        "expect": {"phase": "closed", "closure": "faulted"}});
+    assert_eq!(decline(&op_signed("eval.closure_decline", third)), Err("closure_not_faulted"));
+}
+
+/// D8: an install keeps the calendar's pause (a reinstall too), and the
+/// operator's `cohort/start` queues exactly one cohort from the installed
+/// template while the calendar stays paused; a second start while that
+/// cohort is queued is refused, and a wrong `next_cohort` changes nothing.
+#[test]
+fn a_paused_calendar_stays_paused_and_cohort_start_queues_one_cohort() {
+    let db = Sqlite::open();
+    let (sim, weak, v1) = probe_built(&db);
+    let mut base = plan_v3(0, "testnet-t-template", 20, weak.clone());
+    base.reward_v1.as_mut().unwrap().canary.draw_humans = 4;
+    let t1 = standing_of("testnet-t", base.clone(), vec![v1.clone()]);
+    template_install(&db, &t1, sim.now).unwrap();
+    assert!(tx(&db, |s| super::calendar::set_paused(s, true)).unwrap());
+    // A reinstall keeps the pause; nothing is due while paused.
+    let r = template_install(&db, &t1, sim.now + 1).unwrap();
+    assert_eq!(r["paused"], json!(true));
+    assert!(tx(&db, |s| super::calendar::due_any(s, 0)).unwrap().is_none());
+    let before = tx(&db, engine::cohorts).unwrap().len();
+    let next = tx(&db, |s| super::calendar::start_now(s, &cfg())).unwrap().unwrap().0;
+    let wrong = op_req(json!({"decision": "drill-s0", "reason": "operator_decision", "expect": {"next_cohort": next + 1}}));
+    assert_eq!(tx(&db, |s| super::decide::cohort_start(s, &cfg(), &wrong, None, sim.now + 2)).unwrap(), Err("expect_mismatch"));
+    let body = op_req(json!({"decision": "drill-s1", "reason": "operator_decision", "expect": {"next_cohort": next}}));
+    let v = tx(&db, |s| super::decide::cohort_start(s, &cfg(), &body, None, sim.now + 2)).unwrap().unwrap();
+    assert_eq!((v["cohort"].clone(), v["calendar_paused"].clone()), (json!(next), json!(true)));
+    let cohorts = tx(&db, engine::cohorts).unwrap();
+    assert_eq!(cohorts.len(), before + 1);
+    assert_eq!(cohorts.last().unwrap().phase, "queued");
+    assert_eq!(tx(&db, super::calendar::paused).unwrap(), Some(true), "the calendar stays paused");
+    let again = op_req(json!({"decision": "drill-s2", "reason": "operator_decision", "expect": {"next_cohort": next + 1}}));
+    assert_eq!(tx(&db, |s| super::decide::cohort_start(s, &cfg(), &again, None, sim.now + 3)).unwrap(), Err("cohort_open_or_queued"));
+    let inline = op_req(json!({"decision": "drill-s3", "reason": "operator_decision", "template": {}, "expect": {"next_cohort": next}}));
+    assert_eq!(tx(&db, |s| super::decide::cohort_start(s, &cfg(), &inline, None, sim.now + 3)).unwrap(), Err("inline_template_unsupported"));
 }

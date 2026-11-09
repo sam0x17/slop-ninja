@@ -13,6 +13,20 @@
 //!   offline operator-decision key. The number stays used, the abandonment
 //!   record (version 2) names the phase and the digests that existed, and a
 //!   cohort with no fault publishes fault `none`.
+//! - [`closure_decline`] (D7(d)(ii)): the operator declines a faulted
+//!   closure under the offline key: the cohort never gets a closure record,
+//!   no longer holds `closure_due` or succession, and a signed
+//!   `ClosureDeclined` record lets the coordinator pass its number (D2).
+//! - [`release_objects`] (D7(b)): the operator records every undecided
+//!   entrant of a cohort as `withheld`, so its upload objects are released,
+//!   with a signed `eval-decision` record (`operator_withheld`).
+//!
+//! - [`cohort_start`] (D8): queues exactly one cohort from the installed
+//!   template now, whether the calendar is paused or not; the calendar stays
+//!   as it was. An install keeps the calendar's pause.
+//!
+//! Records are queued in `decision_records` and written by their own step
+//! ([`engine::Work::DecisionRecord`]); the write never holds other work.
 
 use serde_json::{Value, json};
 
@@ -31,6 +45,20 @@ pub const SCHEMA_V30: &[&str] = &[
     "ALTER TABLE cohorts ADD COLUMN abandon_phase TEXT",
     "ALTER TABLE cohorts ADD COLUMN abandon_decision TEXT",
     "ALTER TABLE cohorts ADD COLUMN abandon_statement TEXT",
+    "ALTER TABLE cohorts ADD COLUMN closure_declined_ms INTEGER",
+    // Signed, content-free decision records awaiting their write to the
+    // receipts bucket (`Work::DecisionRecord`): the record's canonical bytes
+    // (signed at the write with the package key) and its key.
+    "CREATE TABLE decision_records (
+        id INTEGER PRIMARY KEY,
+        key TEXT NOT NULL UNIQUE,
+        kind TEXT NOT NULL CHECK (kind IN ('closure-declined', 'eval-decision')),
+        record_hex TEXT NOT NULL,
+        written_ms INTEGER,
+        retry_ms INTEGER NOT NULL DEFAULT 0,
+        error TEXT,
+        at_ms INTEGER NOT NULL
+    ) STRICT",
 ];
 
 /// The reason code an operator gives for a decision with no other listed
@@ -178,4 +206,212 @@ pub fn finish_drains(sql: &impl Sql, now_ms: u64) -> R<Vec<String>> {
 /// The eval error as a refusal code, for routes that answer one.
 pub fn refusal(e: &EvalError) -> &'static str {
     e.code()
+}
+
+
+/// Queues a signed decision record (written by `Work::DecisionRecord`).
+pub fn queue_record(sql: &impl Sql, key: &str, kind: &str, record_hex: String, now_ms: u64) -> R<()> {
+    sql.exec(
+        "INSERT INTO decision_records (key, kind, record_hex, at_ms) VALUES (?, ?, ?, ?) ON CONFLICT(key) DO NOTHING",
+        &[s(key), s(kind), s(record_hex), bind_u64(now_ms)?],
+    )?;
+    Ok(())
+}
+
+/// The next decision record to write, once its retry time has passed.
+pub fn record_due(sql: &impl Sql, now_ms: u64) -> R<Option<engine::Work>> {
+    let rows = sql.exec(
+        "SELECT id FROM decision_records WHERE written_ms IS NULL AND retry_ms <= ? ORDER BY id LIMIT 1",
+        &[bind_u64(now_ms)?],
+    )?;
+    Ok(rows.first().map(|r| int(r, 0)).transpose()?.map(|id| engine::Work::DecisionRecord { id }))
+}
+
+/// Whether a decision record is still unwritten (whatever its retry time).
+pub fn record_pending(sql: &impl Sql) -> R<bool> {
+    Ok(!sql.exec("SELECT 1 FROM decision_records WHERE written_ms IS NULL LIMIT 1", &[])?.is_empty())
+}
+
+/// A queued record's key, kind and canonical bytes.
+pub fn record_of(sql: &impl Sql, id: i64) -> R<(String, String, Vec<u8>)> {
+    let rows = sql.exec("SELECT key, kind, record_hex FROM decision_records WHERE id = ?", &[i(id)])?;
+    let r = rows.first().ok_or(EvalError::State("decision record"))?;
+    let bytes = hex::decode(text(r, 2)?).map_err(|_| EvalError::State("decision record hex"))?;
+    Ok((text(r, 0)?.to_owned(), text(r, 1)?.to_owned(), bytes))
+}
+
+/// The record's write: done, or failed (retried after `STEP_RETRY_MS`).
+pub fn record_written(sql: &impl Sql, id: i64, error: Option<&str>, now_ms: u64) -> R<()> {
+    match error {
+        None => sql.exec("UPDATE decision_records SET written_ms = ?, error = NULL WHERE id = ?", &[bind_u64(now_ms)?, i(id)])?,
+        Some(e) => sql.exec(
+            "UPDATE decision_records SET retry_ms = ?, error = ? WHERE id = ? AND written_ms IS NULL",
+            &[bind_u64(now_ms.saturating_add(engine::STEP_RETRY_MS))?, s(e), i(id)],
+        )?,
+    };
+    Ok(())
+}
+
+fn label_of(req: &Request) -> String {
+    req.body.get("label").and_then(Value::as_str).unwrap_or_default().to_owned()
+}
+
+/// D7(d)(ii): declines cohort `label`'s faulted closure (request fields
+/// `label`, `expect: {phase: "closed", closure: "faulted"}`), under the
+/// offline operator-decision key. Accepted only for a closed cohort with a
+/// package, no closure record and a fault. The outcome is never installed:
+/// the eval writes no closure for it again, and the signed `ClosureDeclined`
+/// record lets the coordinator pass its number. A decline stops the
+/// payout; it is not an undo (the references `close` wrote stay).
+pub fn closure_decline(sql: &impl Sql, cfg: &EvalConfig, req: &Request, key: Option<&OperatorKey>, now_ms: u64) -> R<Answer> {
+    let label = label_of(req);
+    let authority = cfg.authority.name().to_owned();
+    let statement = match operator::begin(sql, req, "eval.closure_decline", true, key, &address(cfg, &authority))? {
+        Ok(Begin::Answer(v)) => return Ok(Ok(v)),
+        Ok(Begin::Proceed(st)) => st,
+        Err(code) => return Ok(Err(code)),
+    };
+    let rows = sql.exec(
+        "SELECT seq, phase, closure_digest, package_digest, fault, closure_declined_ms, cohort, manifest_digest,
+            target_digest, closed_epoch FROM cohorts WHERE label = ?",
+        &[s(&label)],
+    )?;
+    let Some(r) = rows.first() else { return Ok(Err("cohort_unknown")) };
+    let col = |idx: usize| match r.get(idx) {
+        Some(SqlValue::Text(t)) => Some(t.clone()),
+        _ => None,
+    };
+    let seq = int(r, 0)?;
+    let faulted = text(r, 1)? == "closed" && col(2).is_none() && col(3).is_some() && col(4).is_some();
+    if r.get(5).is_some_and(|v| matches!(v, SqlValue::Integer(_))) {
+        return Ok(Err("closure_already_declined"));
+    }
+    if !faulted {
+        return Ok(Err("closure_not_faulted"));
+    }
+    if expect_str(req, "phase") != Some("closed") || expect_str(req, "closure") != Some("faulted") {
+        return Ok(Err("expect_mismatch"));
+    }
+    let fault = col(4).unwrap_or_default();
+    let digest = |d: Option<String>| d.and_then(|d| engine::parse_digest(&d));
+    let o = engine::observed(sql)?;
+    let record = slop_ninja_protocol::decisions::ClosureDeclined {
+        chain: cfg.chain.clone(),
+        cohort: int(r, 6)? as u64,
+        cohort_label: label.clone(),
+        cohort_manifest: digest(col(7)),
+        score_package: digest(col(3)),
+        declined_target: digest(col(8)),
+        phase: "closed".into(),
+        fault: engine::published_code(&fault).to_owned(),
+        declined_epoch: o.epoch.map(|e| e.index),
+        decision: req.decision_sha256,
+        statement: statement.ok_or(EvalError::State("statement"))?,
+    };
+    let bytes = slop_ninja_protocol::Record::to_bytes(&record).map_err(|_| EvalError::State("closure declined record"))?;
+    let effect = json!({"label": label, "cohort": record.cohort, "fault": fault,
+        "declined_target": record.declined_target.map(|d| d.hex()), "score_package": record.score_package.map(|d| d.hex())});
+    if req.preview {
+        return Ok(Ok(json!({"preview": true, "effect": effect})));
+    }
+    sql.exec("UPDATE cohorts SET closure_declined_ms = ? WHERE seq = ?", &[bind_u64(now_ms)?, i(seq)])?;
+    engine::log_note(sql, seq, &format!("closure_declined:{} by operator decision; never installed", req.reason), now_ms)?;
+    let key = format!("{}/{}", engine::receipt_prefix(&label), slop_ninja_admission_wire::receipts::CLOSURE_DECLINED_RECORD);
+    queue_record(sql, &key, "closure-declined", hex::encode(bytes), now_ms)?;
+    let n = operator::record(sql, req, "eval.closure_decline", statement.as_ref(), &effect, o.epoch.map(|e| e.index), now_ms)?;
+    let mut out = effect;
+    out["operator_seq"] = json!(n);
+    Ok(Ok(out))
+}
+
+/// D7(b): records every undecided admitted entrant of cohort `label` as
+/// `withheld` (request fields `label`, `expect: {phase}`), so its upload
+/// objects are released; a token-level action that writes a signed
+/// `eval-decision` record (`operator_withheld`), since it stops a winner's
+/// artifacts from being published.
+pub fn release_objects(sql: &impl Sql, cfg: &EvalConfig, req: &Request, key: Option<&OperatorKey>, now_ms: u64) -> R<Answer> {
+    let label = label_of(req);
+    let authority = cfg.authority.name().to_owned();
+    let statement = match operator::begin(sql, req, "eval.release_objects", false, key, &address(cfg, &authority))? {
+        Ok(Begin::Answer(v)) => return Ok(Ok(v)),
+        Ok(Begin::Proceed(st)) => st,
+        Err(code) => return Ok(Err(code)),
+    };
+    let Some(c) = engine::cohorts(sql)?.into_iter().find(|c| c.label == label) else {
+        return Ok(Err("cohort_unknown"));
+    };
+    if expect_str(req, "phase") != Some(c.phase.as_str()) {
+        return Ok(Err("expect_mismatch"));
+    }
+    let rows = sql.exec(
+        "SELECT commitment FROM adm_sessions WHERE seq = ? AND state = 'admitted' AND published = 0 ORDER BY commitment",
+        &[i(c.seq)],
+    )?;
+    let commitments: Vec<String> = rows.iter().map(|r| text(r, 0).map(str::to_owned)).collect::<Result<_, _>>()?;
+    let effect = json!({"label": label, "cohort": c.plan.cohort, "withheld": commitments.len()});
+    if req.preview {
+        return Ok(Ok(json!({"preview": true, "effect": effect})));
+    }
+    let entries: Vec<crate::eval::admission::PublicationEntry> = commitments
+        .iter()
+        .map(|c| crate::eval::admission::PublicationEntry { commitment: c.clone(), state: "withheld".into() })
+        .collect();
+    crate::eval::admission::publication_report(sql, c.plan.cohort, &label, &entries, now_ms)?;
+    let o = engine::observed(sql)?;
+    let record = slop_ninja_protocol::decisions::EvalDecision {
+        chain: cfg.chain.clone(),
+        authority: authority.clone(),
+        action: "release_objects".into(),
+        reason: "operator_withheld".into(),
+        cohort: Some(c.plan.cohort),
+        cohort_label: Some(label.clone()),
+        digests: Vec::new(),
+        epoch: o.epoch.map(|e| e.index),
+        decision: req.decision_sha256,
+        statement,
+    };
+    let bytes = slop_ninja_protocol::Record::to_bytes(&record).map_err(|_| EvalError::State("decision record"))?;
+    let n = operator::record(sql, req, "eval.release_objects", statement.as_ref(), &effect, o.epoch.map(|e| e.index), now_ms)?;
+    let key = format!("{}/decisions/{n}.signed", engine::receipt_prefix(&label));
+    queue_record(sql, &key, "eval-decision", hex::encode(bytes), now_ms)?;
+    let mut out = effect;
+    out["operator_seq"] = json!(n);
+    Ok(Ok(out))
+}
+
+/// D8: queues one cohort from the installed template (request fields
+/// `expect: {next_cohort}`), whether the calendar is paused or not; it opens
+/// at the next eligible tempo boundary like any queued cohort, and the
+/// calendar's pause is unchanged. Every plan admission check applies. A
+/// token-level action: an inline template (which changes reward inputs) is
+/// not taken here; install it paused first, then start.
+pub fn cohort_start(sql: &impl Sql, cfg: &EvalConfig, req: &Request, key: Option<&OperatorKey>, now_ms: u64) -> R<Answer> {
+    let authority = cfg.authority.name().to_owned();
+    match operator::begin(sql, req, "eval.cohort_start", false, key, &address(cfg, &authority))? {
+        Ok(Begin::Answer(v)) => return Ok(Ok(v)),
+        Ok(Begin::Proceed(_)) => {}
+        Err(code) => return Ok(Err(code)),
+    }
+    if req.body.get("template").is_some_and(|t| !t.is_null()) {
+        return Ok(Err("inline_template_unsupported"));
+    }
+    let (next, label, bytes) = match crate::eval::calendar::start_now(sql, cfg)? {
+        Ok(v) => v,
+        Err(code) => return Ok(Err(code)),
+    };
+    if req.expect.get("next_cohort").and_then(Value::as_u64) != Some(next) {
+        return Ok(Err("expect_mismatch"));
+    }
+    let paused = crate::eval::calendar::paused(sql)?;
+    let effect = json!({"cohort": next, "label": label, "calendar_paused": paused});
+    if req.preview {
+        return Ok(Ok(json!({"preview": true, "effect": effect})));
+    }
+    let seq = engine::queue(sql, cfg, &bytes, now_ms)?;
+    engine::log_note(sql, seq, "queued by operator decision (cohort/start); the calendar is unchanged", now_ms)?;
+    let o = engine::observed(sql)?;
+    let n = operator::record(sql, req, "eval.cohort_start", None, &effect, o.epoch.map(|e| e.index), now_ms)?;
+    let mut out = effect;
+    out["operator_seq"] = json!(n);
+    Ok(Ok(out))
 }

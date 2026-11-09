@@ -2437,6 +2437,9 @@ pub enum Work {
     /// Write abandoned cohort `seq`'s signed abandonment record
     /// ([`abandonment_record`]) to the receipts bucket, then mark it written.
     AbandonMarker { seq: i64 },
+    /// Write one queued operator decision record
+    /// (`decide::record_of`), then mark it written.
+    DecisionRecord { id: i64 },
 }
 
 /// The next root step or sweep, if any. Phase moves that need no I/O (all
@@ -2515,7 +2518,10 @@ fn retention_work(sql: &impl Sql, cfg: &EvalConfig, now_ms: u64) -> R<Option<Wor
             return Ok(Some(w));
         }
     }
-    abandon_marker_due(sql, cfg, Some(now_ms))
+    if let Some(w) = abandon_marker_due(sql, cfg, Some(now_ms))? {
+        return Ok(Some(w));
+    }
+    crate::eval::decide::record_due(sql, now_ms)
 }
 
 /// Bookkeeping kinds with their own retry time ([`bookkeeping_failed`]): the
@@ -4362,7 +4368,10 @@ pub fn status(sql: &impl Sql, now_ms: u64) -> R<Value> {
 /// it is retried whenever a step runs, so an unreachable predecessor never
 /// keeps this object's alarm armed on its own.
 pub fn has_work(sql: &impl Sql, cfg: &EvalConfig) -> R<bool> {
-    Ok(blocking_work(sql, cfg)? || crate::eval::retention::has_work(sql)? || abandon_marker_due(sql, cfg, None)?.is_some())
+    Ok(blocking_work(sql, cfg)?
+        || crate::eval::retention::has_work(sql)?
+        || abandon_marker_due(sql, cfg, None)?.is_some()
+        || crate::eval::decide::record_pending(sql)?)
 }
 
 /// [`has_work`] counting admission's backed-off steps, clean-ups and object
@@ -4371,6 +4380,7 @@ pub fn has_due_work(sql: &impl Sql, cfg: &EvalConfig, now_ms: u64) -> R<bool> {
     Ok(work(sql, cfg, Some(now_ms))?
         || crate::eval::retention::has_work(sql)?
         || abandon_marker_due(sql, cfg, Some(now_ms))?.is_some()
+        || crate::eval::decide::record_due(sql, now_ms)?.is_some()
         || probe_due(sql, cfg, now_ms)?.is_some()
         || crate::eval::live::due(sql)?)
 }

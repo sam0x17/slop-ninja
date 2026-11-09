@@ -3268,12 +3268,13 @@ pub fn closure_due(sql: &impl Sql, due_by: Option<u64>) -> R<Option<i64>> {
     let rows = match due_by {
         Some(now) => sql.exec(
             "SELECT seq FROM cohorts WHERE phase = 'closed' AND v3 IS NOT NULL AND closure_digest IS NULL
-               AND package_digest IS NOT NULL AND fault IS NULL AND step_retry_ms <= ? ORDER BY seq LIMIT 1",
+               AND package_digest IS NOT NULL AND fault IS NULL AND closure_declined_ms IS NULL AND step_retry_ms <= ?
+             ORDER BY seq LIMIT 1",
             &[bind_u64(now)?],
         )?,
         None => sql.exec(
             "SELECT seq FROM cohorts WHERE phase = 'closed' AND v3 IS NOT NULL AND closure_digest IS NULL
-               AND package_digest IS NOT NULL ORDER BY seq LIMIT 1",
+               AND package_digest IS NOT NULL AND closure_declined_ms IS NULL ORDER BY seq LIMIT 1",
             &[],
         )?,
     };

@@ -4966,7 +4966,8 @@ pub fn objects_retained(sql: &impl Sql) -> R<bool> {
     Ok(!sql
         .exec(
             "SELECT 1 FROM adm_sessions s JOIN adm_cohorts c ON c.seq = s.seq
-             WHERE s.state = 'admitted' AND s.cleaned = 0 AND c.state <> 'abandoned' LIMIT 1",
+             WHERE s.state = 'admitted' AND s.cleaned = 0 AND c.state <> 'abandoned'
+               AND NOT EXISTS (SELECT 1 FROM cohorts co WHERE co.seq = s.seq AND co.phase = 'closed') LIMIT 1",
             &[],
         )?
         .is_empty())

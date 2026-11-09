@@ -9,7 +9,7 @@ const NOW: u64 = 1_793_000_000_000;
 pub(crate) fn journal() -> Sqlite {
     let db = Sqlite::open();
     let report = tx(&db, |sql| migrate(sql, &CHAIN_JOURNAL_SCHEMA)).unwrap();
-    assert_eq!((report.from, report.to), (0, 14));
+    assert_eq!((report.from, report.to), (0, 15));
     db
 }
 
@@ -45,22 +45,22 @@ fn status_of(db: &Sqlite) -> JournalStatus {
 fn migrations_are_versioned_and_idempotent() {
     let db = journal();
     let again = tx(&db, |sql| migrate(sql, &CHAIN_JOURNAL_SCHEMA)).unwrap();
-    assert_eq!((again.from, again.to), (14, 14));
+    assert_eq!((again.from, again.to), (15, 15));
     assert_eq!(
         tx(&db, |sql| migrate(sql, &EVAL_COHORT_SCHEMA)),
         Err(MigrationError::Family)
     );
     db.conn
         .execute(
-            "UPDATE schema_meta SET value = '15' WHERE name = 'version'",
+            "UPDATE schema_meta SET value = '16' WHERE name = 'version'",
             [],
         )
         .unwrap();
     assert_eq!(
         tx(&db, |sql| migrate(sql, &CHAIN_JOURNAL_SCHEMA)),
         Err(MigrationError::NewerStoredVersion {
-            stored: 15,
-            supported: 14
+            stored: 16,
+            supported: 15
         })
     );
     const GAPPED: Schema = Schema {
@@ -94,7 +94,7 @@ fn v1_storage_upgrades_in_place_to_latest() {
         )
         .unwrap();
     let report = tx(&db, |sql| migrate(sql, &CHAIN_JOURNAL_SCHEMA)).unwrap();
-    assert_eq!((report.from, report.to), (1, 14));
+    assert_eq!((report.from, report.to), (1, 15));
     assert_eq!(db.count("deliveries"), 1);
     assert_eq!(db.count("watchdog"), 1);
     assert_eq!(db.count("rpc_budget"), 1);
@@ -508,7 +508,7 @@ fn v2_storage_upgrades_with_the_watermark_seeded_at_its_anchor() {
         )
         .unwrap();
     let report = tx(&db, |sql| migrate(sql, &CHAIN_JOURNAL_SCHEMA)).unwrap();
-    assert_eq!((report.from, report.to), (2, 14));
+    assert_eq!((report.from, report.to), (2, 15));
     let s = status_of(&db);
     assert_eq!((s.cursor, s.confirmed), (Some(block(13)), Some(block(10))));
     assert_eq!(s.provisional_blocks, Some(3));
@@ -684,6 +684,8 @@ fn migrations_are_pinned_by_content() {
         // v29: the span gate in report mode (span cells, job load facts, the
         // void journal, reference decisions; never deployed).
         "d079dfe9c1e54ccb",
+        // v30: operator decisions (self-lock phase 1; never deployed).
+        "539b92bafe91dd80",
     ];
     // v1-v10 are deployed on both testnet Workers; v11 is the stuck-states
     // lane's; v12 the automatic target handoff's; v13 the signed coordinator
@@ -704,6 +706,9 @@ fn migrations_are_pinned_by_content() {
         "229ffbcbe5e0c9c3",
         "215d13cb5f86f2f7",
         "7a26f0d76a54ed59",
+        // v15: operator decisions, consumed_unverified attempts and the
+        // restart's pre-floor record (self-lock phase 1; never deployed).
+        "979f545ae8c9658e",
     ];
     let (e, j) = (digests(&EVAL_COHORT_SCHEMA), digests(&CHAIN_JOURNAL_SCHEMA));
     assert!(e == EVAL && j == JOURNAL, "migrations changed or were not pinned: eval_cohort {e:?}, chain_journal {j:?}");

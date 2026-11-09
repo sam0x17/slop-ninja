@@ -2129,6 +2129,11 @@ async fn eval_route(mut req: Request, env: Env) -> Result<Response> {
         (Method::Post, "/span-gate/void" | "/references/decision") if instance == "main" => {
             eval_do::forward(&env, instance, Method::Post, &rest, raw).await
         }
+        // Operator decisions (`eval::decide`): a declined faulted closure and
+        // the operator's withheld release of a cohort's objects.
+        (Method::Post, "/closure/decline" | "/release-objects" | "/cohort/start") if instance == "main" => {
+            eval_do::forward(&env, instance, Method::Post, &rest, raw).await
+        }
         // The operator action log (`crate::operator`), paged by sequence.
         (Method::Get, "/operator/actions") => {
             let from = req.url().ok().and_then(|u| u.query_pairs().find(|(k, _)| k == "from").and_then(|(_, v)| v.parse::<u64>().ok()));

@@ -1023,6 +1023,66 @@ impl DurableObject for EvalCohort {
                     }
                 }
             }
+            // Operator decisions through the shared request mechanism
+            // (`eval::decide`), main instance only.
+            (Method::Post, "/cohort/start") if main => {
+                let body = match super::cf_io::request_json::<Value>(&mut req, OPERATOR_BODY_BYTES).await {
+                    Ok(v) => v,
+                    Err(super::cf_io::JsonError::Parse) => return error("bad_request", 400),
+                    Err(e) => return error(e.code(), e.status()),
+                };
+                let r = match crate::operator::parse(body) {
+                    Ok(r) => r,
+                    Err(code) => return error(code, 400),
+                };
+                let key = match operator_key(&self.env) {
+                    Ok(k) => k,
+                    Err(code) => return error(code, 503),
+                };
+                // A named authority queues only once every predecessor
+                // recorded it as its successor, as for a plan or template.
+                if let Err(code) = self.succeed(&cfg).await {
+                    return error(code, 409);
+                }
+                let c2 = cfg.clone();
+                match transaction(&storage, move |sql| crate::eval::decide::cohort_start(sql, &c2, &r, key.as_ref(), now)) {
+                    Ok(Ok(v)) => {
+                        storage.set_alarm(500i64).await?;
+                        json(&v)
+                    }
+                    Ok(Err(code)) => error(code, 409),
+                    Err(TxError::Operation(e)) => error(e.code(), 422),
+                    Err(_) => error("store_unavailable", 503),
+                }
+            }
+            (Method::Post, "/closure/decline" | "/release-objects") if main => {
+                let body = match super::cf_io::request_json::<Value>(&mut req, OPERATOR_BODY_BYTES).await {
+                    Ok(v) => v,
+                    Err(super::cf_io::JsonError::Parse) => return error("bad_request", 400),
+                    Err(e) => return error(e.code(), e.status()),
+                };
+                let r = match crate::operator::parse(body) {
+                    Ok(r) => r,
+                    Err(code) => return error(code, 400),
+                };
+                let key = match operator_key(&self.env) {
+                    Ok(k) => k,
+                    Err(code) => return error(code, 503),
+                };
+                let (c2, p2) = (cfg.clone(), path.clone());
+                match transaction(&storage, move |sql| match p2.as_str() {
+                    "/closure/decline" => crate::eval::decide::closure_decline(sql, &c2, &r, key.as_ref(), now),
+                    _ => crate::eval::decide::release_objects(sql, &c2, &r, key.as_ref(), now),
+                }) {
+                    Ok(Ok(v)) => {
+                        storage.set_alarm(500i64).await?;
+                        json(&v)
+                    }
+                    Ok(Err(code)) => error(code, 409),
+                    Err(TxError::Operation(e)) => error(e.code(), 422),
+                    Err(_) => error("store_unavailable", 503),
+                }
+            }
             (Method::Get, "/operator/actions") => {
                 let from = req.url().ok().and_then(|u| {
                     u.query_pairs().find(|(k, _)| k == "from").and_then(|(_, v)| v.parse::<u64>().ok())
@@ -1831,6 +1891,32 @@ impl EvalCohort {
                     // record due again at once: the step ends and the alarm's
                     // re-arm waits.
                     if recorded.is_err() {
+                        return Ok(progress);
+                    }
+                }
+                Work::DecisionRecord { id } => {
+                    // A queued operator decision record, signed now with the
+                    // package key. A failure waits out its retry time.
+                    let r = async {
+                        let (key, kind, bytes) = transaction(&storage, move |sql| crate::eval::decide::record_of(sql, id))
+                            .map_err(|_| "decision record")?;
+                        let (package_key, _) = keys(&self.env).map_err(|_| "package key")?;
+                        use slop_ninja_protocol::Record as _;
+                        let signed = match kind.as_str() {
+                            "closure-declined" => slop_ninja_protocol::decisions::ClosureDeclined::from_bytes(&bytes)
+                                .map_err(|_| "decision record decode")
+                                .and_then(|r| package::signed_bytes(r, &package_key).map_err(|_| "decision record signing")),
+                            _ => slop_ninja_protocol::decisions::EvalDecision::from_bytes(&bytes)
+                                .map_err(|_| "decision record decode")
+                                .and_then(|r| package::signed_bytes(r, &package_key).map_err(|_| "decision record signing")),
+                        }?;
+                        put(&self.env, RECEIPTS_BUCKET, &key, signed).await.map_err(|_| "decision record put")?;
+                        Ok::<(), &'static str>(())
+                    }
+                    .await;
+                    let now = now_ms();
+                    let err = r.err();
+                    if transaction(&storage, move |sql| crate::eval::decide::record_written(sql, id, err, now)).is_err() {
                         return Ok(progress);
                     }
                 }

@@ -703,30 +703,66 @@ pub fn due_any(sql: &impl Sql, first_cohort: u64) -> R<Option<(String, Vec<u8>)>
     let Some(t) = template_ready(sql)? else {
         return Ok(None);
     };
-    let next = next_number(sql, first_cohort)?;
-    let refs = match references(sql, &t) {
-        Ok(r) => r,
-        // The calendar cannot name the chain's references: it pauses with
-        // the reason rather than failing every step.
-        Err(EvalError::Plan(code)) => {
+    match next_plan(sql, &t, first_cohort)? {
+        Ok(v) => Ok(Some(v)),
+        // The calendar cannot name the chain's references, or they lack a
+        // fingerprint: it pauses with the reason rather than failing every
+        // step.
+        Err(code) => {
             note_error(sql, code)?;
             set_paused(sql, true)?;
-            return Ok(None);
+            Ok(None)
         }
+    }
+}
+
+/// Whether the installed template is paused (`None`: no template).
+pub fn paused(sql: &impl Sql) -> R<Option<bool>> {
+    Ok(stored(sql)?.map(|(_, p)| p))
+}
+
+/// D8's "start a cohort now" (`POST /eval/cohort/start`): the next cohort's
+/// plan from the installed template, whether the calendar is paused or not,
+/// when nothing is queued and the latest cohort is in its transition, closed
+/// or abandoned. It changes nothing: the caller queues the plan (which opens
+/// at the next eligible tempo boundary, as every queued cohort does), and
+/// the calendar stays paused or running as it was. A refusal is a code the
+/// operator can act on (install a template, wait for the open cohort, cut a
+/// probe version).
+pub fn start_now(sql: &impl Sql, cfg: &EvalConfig) -> R<Result<(u64, String, Vec<u8>), &'static str>> {
+    if cfg.authority.is_retired() {
+        return Ok(Err("authority_retired"));
+    }
+    let Some((t, _paused)) = stored(sql)? else {
+        return Ok(Err("template_missing"));
+    };
+    let rows = sql.exec(concat!("SELECT phase FROM cohorts WHERE ", not_probe_cut!(), " ORDER BY seq DESC LIMIT 1"), &[])?;
+    if let Some(r) = rows.first()
+        && !matches!(text(r, 0)?, "transition" | "closed" | "abandoned")
+    {
+        return Ok(Err("cohort_open_or_queued"));
+    }
+    let next = next_number(sql, cfg.authority.first_cohort())?;
+    Ok(next_plan(sql, &t, cfg.authority.first_cohort())?.map(|(l, b)| (next, l, b)))
+}
+
+/// The plan of the next cohort from template `t`, or the code of why the
+/// chain's references cannot be named for it.
+fn next_plan(sql: &impl Sql, t: &Template, first_cohort: u64) -> R<Result<(String, Vec<u8>), &'static str>> {
+    let next = next_number(sql, first_cohort)?;
+    let refs = match references(sql, t) {
+        Ok(r) => r,
+        Err(EvalError::Plan(code)) => return Ok(Err(code)),
         Err(e) => return Err(e),
     };
     // A cohort whose references lack a fingerprint on a probe version it
-    // would use cannot package (its probe comparisons need them): the
-    // calendar pauses with the reason instead of queuing it (after a
+    // would use cannot package (its probe comparisons need them): after a
     // promotion the template's probe versions never measured, cut a probe
-    // version on the new chain and reinstall).
+    // version on the new chain and reinstall.
     if unfingerprinted(sql, &t.plan, &refs)?.is_some() {
-        note_error(
-            sql,
+        return Ok(Err(
             "template_probe_unfingerprinted: a reference the next cohort names has no fingerprint on a probe version the template names",
-        )?;
-        set_paused(sql, true)?;
-        return Ok(None);
+        ));
     }
     let mut plan = t.plan.clone();
     plan.cohort = next;
@@ -741,7 +777,7 @@ pub fn due_any(sql: &impl Sql, first_cohort: u64) -> R<Option<(String, Vec<u8>)>
         f.generation.failures_before_pause.get_or_insert(crate::eval::plan::GEN_FAILURES_BEFORE_PAUSE_COMPILED);
     }
     let bytes = serde_json::to_vec(&plan).map_err(|_| EvalError::State("next plan"))?;
-    Ok(Some((plan.label, bytes)))
+    Ok(Ok((plan.label, bytes)))
 }
 
 /// Records why the calendar could not queue the next cohort (for status).

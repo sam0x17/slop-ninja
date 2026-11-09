@@ -359,6 +359,10 @@ struct AdminRequest {
     /// records as abandoned, or takes that record back for.
     #[serde(default)]
     label: Option<String>,
+    /// `decide`: the operator decision's request body
+    /// (`signing::decide::decide`).
+    #[serde(default)]
+    operator: Option<serde_json::Value>,
     /// `auto_gap`: the cohort number the operator records as having no
     /// main-record label.
     #[serde(default)]
@@ -683,7 +687,8 @@ impl ChainJournal {
                     Ok(v) => v,
                     Err(e) => return error(e.code(), e.status()),
                 };
-                match transaction(&storage, move |sql| admin(sql, &cfg, &trusted, &r, now)) {
+                let op_key = crate::operator::configured_key(env.var("OPERATOR_DECISION_KEY").ok().map(|v| v.to_string()).as_deref());
+                match transaction(&storage, move |sql| admin(sql, &cfg, &trusted, &r, op_key, now)) {
                     Ok(v) => json(&v),
                     Err(_) => error("store_unavailable", 503),
                 }
@@ -820,10 +825,27 @@ fn admin(
     cfg: &SignConfig,
     trusted: &slop_ninja_protocol::TrustedKeys,
     r: &AdminRequest,
+    op_key: std::result::Result<Option<slop_ninja_protocol::operator::OperatorKey>, &'static str>,
     now: u64,
 ) -> std::result::Result<serde_json::Value, StoreError> {
     use serde_json::json;
     Ok(match r.action.as_str() {
+        // Operator decisions through the shared request mechanism.
+        "decide" => match op_key {
+            Err(code) => json!({"refused": code}),
+            Ok(key) => match signing::decide::decide(
+                sql,
+                cfg,
+                trusted,
+                r.operator.clone().unwrap_or_default(),
+                key.as_ref(),
+                r.observed_epoch,
+                now,
+            )? {
+                Ok(v) => v,
+                Err(code) => json!({"refused": code}),
+            },
+        },
         "install_target" => match signing::install_target(
             sql,
             cfg,
@@ -1847,7 +1869,7 @@ async fn signing_admin(mut req: Request, env: Env, which: &str) -> Result<Respon
     };
     // A target body is either bundle form; each parser applies its own bound
     // (a reward-v1 bundle: one stored Durable Object value).
-    let limit = if which == "target" || which == "restart" {
+    let limit = if which == "target" || which == "restart" || which == "decide" {
         crate::target::MAX_BUNDLE_BYTES.max(crate::target::MAX_BUNDLE_V2_BYTES)
     } else {
         MAX_OPERATOR_BODY
@@ -1870,6 +1892,7 @@ async fn signing_admin(mut req: Request, env: Env, which: &str) -> Result<Respon
                 observed_epoch: None,
                 label: None,
                 cohort: None,
+                operator: None,
             })?
         }
         "restart" => {
@@ -1892,6 +1915,7 @@ async fn signing_admin(mut req: Request, env: Env, which: &str) -> Result<Respon
                 observed_epoch: None,
                 label: None,
                 cohort: None,
+                operator: None,
             })?
         }
         "revoke" => serde_json::to_string(&AdminRequest {
@@ -1905,7 +1929,25 @@ async fn signing_admin(mut req: Request, env: Env, which: &str) -> Result<Respon
             observed_epoch: epoch_read(&env, &d).await.map(|e| e.index),
             label: None,
             cohort: None,
+            operator: None,
         })?,
+        // An operator decision (`signing::decide`): the body is its request.
+        "decide" => {
+            let Ok(v) = serde_json::from_slice::<serde_json::Value>(&raw) else {
+                return error("bad_request", 400);
+            };
+            serde_json::to_string(&AdminRequest {
+                action: "decide".into(),
+                bundle: None,
+                drill: None,
+                count: None,
+                from_epoch: None,
+                observed_epoch: epoch_read(&env, &d).await.map(|e| e.index),
+                label: None,
+                cohort: None,
+                operator: Some(v),
+            })?
+        }
         "kick" => {
             let budget = Budget::new(crate::arena_routes::UNBOUNDED_FETCH_MS);
             let rounds = drive_sign(&env, &d, format!("kick:{}", now_ms()), TICK_SIGN_ROUNDS, budget).await;
@@ -2230,6 +2272,7 @@ async fn fetch(req: Request, env: Env, ctx: Context, scope: &ScopeRef) -> Result
         (Method::Post, "/signing/kick") => signing_admin(req, env, "kick").await,
         (Method::Post, "/signing/restart") => signing_admin(req, env, "restart").await,
         (Method::Post, "/signing/revoke") => signing_admin(req, env, "revoke").await,
+        (Method::Post, "/signing/decide") => signing_admin(req, env, "decide").await,
         // Reference staging (operator token; its own arena route).
         (_, p) if p.starts_with(crate::eval::reference::PREFIX) => reference_do::route(req, env).await,
         (_, p) if p.starts_with("/eval/") => eval_route(req, env).await,
@@ -2239,7 +2282,7 @@ async fn fetch(req: Request, env: Env, ctx: Context, scope: &ScopeRef) -> Result
         (
             _,
             "/hook" | "/status" | "/fault/clear" | "/signing/target" | "/signing/control"
-            | "/signing/kick" | "/signing/restart" | "/signing/revoke",
+            | "/signing/kick" | "/signing/restart" | "/signing/revoke" | "/signing/decide",
         ) => error("method_not_allowed", 405),
         _ => error("not_found", 404),
     }

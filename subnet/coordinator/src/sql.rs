@@ -217,6 +217,8 @@ pub fn migrate(sql: &impl Sql, schema: &Schema) -> Result<MigrationReport, Migra
 /// - v11: the inclusion search's body scan; v12: the automatic target
 ///   handoff; v13: the signed coordinator row other validators copy.
 /// - v14: the latest registration read (the public status's `registry`).
+/// - v15: operator decisions, `consumed_unverified` attempts and the
+///   restart's pre-floor record (`signing::decide`).
 pub const CHAIN_JOURNAL_SCHEMA: Schema = Schema {
     family: "chain_journal",
     migrations: &[
@@ -752,6 +754,13 @@ pub const CHAIN_JOURNAL_SCHEMA: Schema = Schema {
                     rows_json TEXT,
                     updated_at_ms INTEGER NOT NULL
                 ) STRICT"],
+        },
+        // v15: operator decisions (self-lock phase 1): the operator action
+        // log, attempts that settle as `consumed_unverified` (D5), and the
+        // restart's pre-floor record and signed records (P1-R).
+        Migration {
+            version: 15,
+            statements: crate::signing::decide::SCHEMA_V15,
         },
     ],
 };

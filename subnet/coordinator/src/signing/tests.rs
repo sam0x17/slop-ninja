@@ -196,6 +196,9 @@ struct Fake {
     cr_enabled: bool,
     /// A foreign extrinsic consumes the nonce at the next block.
     foreign_next: bool,
+    /// The next included commit emits no `TimelockedWeightsCommitted` event
+    /// (D5: only its body can tell).
+    drop_commit_event: bool,
     /// Extrinsics (hex) the next block holds before the pooled ones, such as
     /// an upgrade block's runtime code.
     filler_next: Vec<String>,
@@ -307,6 +310,7 @@ impl Fake {
             reveals: vec![],
             cr_enabled: true,
             foreign_next: false,
+            drop_commit_event: false,
             filler_next: vec![],
             reveal_delay: 0,
             reveal_drop: false,
@@ -420,17 +424,19 @@ impl Fake {
                 round,
             });
             self.last_update[usize::from(COORD_UID)] = n;
-            events.push(record(
-                Some(index),
-                chain::SUBTENSOR,
-                "TimelockedWeightsCommitted",
-                Value::Tuple(vec![
-                    Value::Bytes(who.to_vec()),
-                    int(u64::from(NETUID)),
-                    Value::Bytes(chain::sha256(&ciphertext).to_vec()),
-                    int(round),
-                ]),
-            ));
+            if !std::mem::take(&mut self.drop_commit_event) {
+                events.push(record(
+                    Some(index),
+                    chain::SUBTENSOR,
+                    "TimelockedWeightsCommitted",
+                    Value::Tuple(vec![
+                        Value::Bytes(who.to_vec()),
+                        int(u64::from(NETUID)),
+                        Value::Bytes(chain::sha256(&ciphertext).to_vec()),
+                        int(round),
+                    ]),
+                ));
+            }
             events.push(record(
                 Some(index),
                 "System",
@@ -1643,7 +1649,7 @@ fn pruned_history_resolves_the_live_attempt_by_block_bodies() {
     let s = h.status();
     let f = failure(&s, "attempt").expect("the refused probe is a failing subject");
     assert_eq!(f.code, "state_unavailable");
-    assert_eq!(s.health, "failing", "visible in /status");
+    assert_eq!(s.health, "blocked_attempt", "visible in /status");
     assert_eq!(h.counter("sign_search_scans"), 1);
     h.until(200, |h| h.ops()[0].state == "committed");
     let o = &h.ops()[0];
@@ -1937,7 +1943,7 @@ fn v4_storage_upgrades_with_its_signing_journal_intact() {
         )
         .unwrap();
     let report = tx(&db, |sql| migrate(sql, &CHAIN_JOURNAL_SCHEMA)).unwrap();
-    assert_eq!((report.from, report.to), (4, 14));
+    assert_eq!((report.from, report.to), (4, 15));
     let s = tx(&db, signer).unwrap();
     assert_eq!(
         (s.state.as_str(), s.nonce_floor, s.runtime, s.runtime_block),
@@ -3449,19 +3455,13 @@ fn filler_hex(chars: usize, digit: char) -> String {
 /// after the runtime code at index 6 (a 5,734,672-character extrinsic; the
 /// `chain_getBlock` reply is 5,740,192 bytes). The Worker read block bodies
 /// whole under `rpc::MAX_LARGE_RESPONSE_BYTES` (4 MiB), so the inclusion
-/// step answered `TooLarge` every round, the signer-wide time backoff held
-/// everything behind it, and no commit or row snapshot followed from epoch
+/// step answered `TooLarge` every round and no commit followed from epoch
 /// 138 on. This replays that block's shape (synthetic bytes, the measured
-/// extrinsic lengths) against both Worker reads:
-///
-/// - the whole-body read: the refusal counts against the attempt only and
-///   never settles, so the attempt is never displaced, faulted, expired or
-///   sent again, no second nonce is used while it is live, and the row
-///   snapshot keeps being derived;
-/// - then the streamed scan (the fix, deployed onto that same journal): the
-///   attempt is found at index 7 from the same search state, decoded with
-///   its writer runtime, committed and revealed, the nonce floor moves past
-///   it and the next epoch commits on the next nonce, each nonce sent once.
+/// extrinsic lengths). D5: the inclusion block's events are read before its
+/// body, so even a Worker that can hold no part of the body finds the
+/// attempt at index 7 from the commit event (decoded with its writer
+/// runtime), never reads the body, and the next epoch commits on the next
+/// nonce, each nonce sent once.
 #[test]
 fn an_upgrade_block_too_large_to_hold_never_stalls_and_is_reconciled_by_the_streamed_scan() {
     let mut h = H::new();
@@ -3470,9 +3470,6 @@ fn an_upgrade_block_too_large_to_hold_never_stalls_and_is_reconciled_by_the_stre
     h.resume();
     h.until(40, submitted);
     let nonce = h.ops()[0].attempts[0].nonce;
-    // The next block enacts the upgrade and holds the runtime code at index
-    // 6 (after the timestamp and five small extrinsics, as at 8380857), then
-    // the pooled attempt at index 7.
     h.chain.upgrade_next(487);
     let enact = h.chain.head + 1;
     h.chain.filler_next = vec![
@@ -3488,34 +3485,8 @@ fn an_upgrade_block_too_large_to_hold_never_stalls_and_is_reconciled_by_the_stre
     let reply = block_reply(enact, &h.chain.bodies[&enact]);
     assert!(reply.len() > crate::rpc::MAX_LARGE_RESPONSE_BYTES, "{}", reply.len());
     assert!(reply.len().abs_diff(5_740_192) < 2_000, "{}", reply.len());
-    let derived = h.status().row_record.and_then(|v| v.snapshot_derived_epoch);
-    assert!(derived.is_some(), "the row snapshot ran before the stall");
-    // The previous Worker: the body read is refused, round after round.
-    h.until(420, |h| {
-        h.status().row_record.and_then(|v| v.snapshot_derived_epoch) > derived
-            && h.counter("sign_replies_too_large") > DIAG_CAP
-    });
-    let s = h.status();
-    let f = failure(&s, "attempt").unwrap();
-    assert_eq!(f.code, REPLY_TOO_LARGE);
-    assert!(f.failures > DIAG_CAP && !f.settled, "{f:?}");
-    assert_eq!(s.state, "active", "{:?}", s.reason);
-    assert_eq!(h.counter("signing_faults"), 0);
-    assert_eq!(s.backoff_ms, None, "no signer-wide backoff");
-    assert!(s.nonce_floor <= nonce, "nothing moved the floor past the live nonce: {}", s.nonce_floor);
-    let o = &h.ops()[0];
-    assert_eq!((o.state.as_str(), o.attempts.len()), ("committing", 1), "{o:#?}");
-    assert_eq!(o.attempts[0].state, "submitted");
-    assert_eq!(h.ops().len(), 1, "no new work while the attempt is live");
-    assert_eq!(h.chain.accepted.len(), 1, "nothing was sent again");
-    assert!(
-        h.calls.iter().filter(|c| *c == &("block", enact)).count() as u64 > DIAG_CAP,
-        "the same pinned body was asked for again: {:?}",
-        h.calls.iter().filter(|c| c.0 == "block").collect::<Vec<_>>()
-    );
-    // The fix: the same journal, the Worker now scans the body as it streams.
-    h.whole_block_cap = None;
     h.until(80, |h| h.ops()[0].state != "committing");
+    assert!(!h.calls.iter().any(|c| c == &("block", enact)), "the body was never read");
     let o = &h.ops()[0];
     let a = &o.attempts[0];
     assert_eq!(o.state, "committed", "{o:#?}");
@@ -3586,4 +3557,94 @@ fn a_block_match_for_another_target_is_never_read_as_absence() {
         panic!("a block plan")
     };
     assert_eq!(extrinsic, "");
+}
+
+/// D5: the nonce was consumed in a block whose events hold no commit of
+/// this hotkey and whose body is too large to read: no evidence either way.
+/// The attempt settles as `consumed_unverified`, its epoch is never signed
+/// again, the nonce floor moves past it and the next epoch commits on the
+/// next nonce. Nothing is sent twice and nothing faults.
+#[test]
+fn a_consumed_nonce_with_no_readable_evidence_settles_unverified_and_the_next_epoch_commits() {
+    let mut h = H::new();
+    tx(&h.db, |sql| install_target(sql, &h.cfg, &h.trusted, &launch_bundle_json(1), T0)).unwrap().unwrap();
+    h.whole_block_cap = Some(crate::rpc::MAX_LARGE_RESPONSE_BYTES);
+    h.resume();
+    h.until(40, submitted);
+    let nonce = h.ops()[0].attempts[0].nonce;
+    let epoch = h.ops()[0].epoch;
+    h.chain.drop_commit_event = true;
+    h.chain.filler_next = vec![filler_hex(5_734_672, 'f')];
+    h.jump(7);
+    h.until(120, |h| h.ops()[0].attempts[0].state != "submitted");
+    let o = &h.ops()[0];
+    assert_eq!((o.attempts[0].state.as_str(), o.state.as_str()), ("consumed_unverified", "failed"), "{o:#?}");
+    let s = h.status();
+    assert_eq!(s.state, "active", "{:?}", s.reason);
+    assert_eq!(h.counter("signing_faults"), 0);
+    assert_eq!(s.nonce_floor, nonce + 1);
+    assert_eq!(s.attempts_unverified.len(), 1);
+    assert_eq!(s.attempts_unverified[0].nonce, nonce);
+    // The next epoch commits on the next nonce; the settled epoch never
+    // gets a second operation.
+    h.until(800, |h| h.ops().iter().any(|o| o.state == "committed" || o.state == "revealed"));
+    let ops = h.ops();
+    assert!(ops.iter().filter(|o| o.epoch == epoch).count() == 1);
+    let next = ops.iter().find(|o| o.state == "committed" || o.state == "revealed").unwrap();
+    assert!(next.epoch > epoch);
+    assert_eq!(next.attempts[0].nonce, nonce + 1);
+    assert_eq!(h.chain.accepted.len(), 2, "one submission per epoch");
+}
+
+/// D5: a commit event of this hotkey with another reveal round in the
+/// block that consumed the nonce is positive evidence of foreign bytes: a
+/// fault, never "included".
+#[test]
+fn a_commit_event_with_another_round_is_foreign_use() {
+    let mut h = H::new();
+    tx(&h.db, |sql| install_target(sql, &h.cfg, &h.trusted, &launch_bundle_json(1), T0)).unwrap().unwrap();
+    h.resume();
+    h.until(40, submitted);
+    let op_id = h.ops()[0].op_id.clone();
+    h.block();
+    // Make the journaled round differ from the one the chain recorded.
+    h.db.conn.execute("UPDATE sign_attempts SET reveal_round = reveal_round + 1 WHERE op_id = ?1", [op_id]).unwrap();
+    h.until(80, |h| h.ops()[0].attempts[0].state != "submitted");
+    assert_eq!(h.ops()[0].attempts[0].state, "displaced");
+    assert_eq!(h.status().reason.as_deref(), Some("fault:foreign_nonce_use"));
+}
+
+/// D5: the operator's `attempt_resolve` only asks for the evidence check
+/// now: it clears the live attempt's block backoff and nothing else, and is
+/// journaled; a wrong expectation or an attempt that is not live changes
+/// nothing.
+#[test]
+fn attempt_resolve_reruns_the_evidence_check_without_deciding_it() {
+    let mut h = H::new();
+    h.resume();
+    h.send.set(Send::AcceptReportUncertain);
+    h.until(40, |h| h.ops().first().is_some_and(|o| o.attempts.iter().any(|a| a.state == "uncertain")));
+    h.pruned_below = Some(h.chain.head + 40);
+    h.jump(40);
+    assert!(failure(&h.status(), "attempt").is_some());
+    let op_id = h.ops()[0].op_id.clone();
+    let tail: String = op_id.chars().rev().take(12).collect::<String>().chars().rev().collect();
+    let state = h.ops()[0].attempts[0].state.clone();
+    let decide = |h: &H, body: serde_json::Value| {
+        tx(&h.db, |sql| super::decide::decide(sql, &h.cfg, &h.trusted, body, None, None, h.now.get())).unwrap()
+    };
+    let wrong = serde_json::json!({"action": "attempt_resolve", "decision": "d5-0", "reason": "operator_decision", "op": tail, "expect": {"state": "included"}});
+    assert_eq!(decide(&h, wrong), Err("expect_mismatch"));
+    let none = serde_json::json!({"action": "attempt_resolve", "decision": "d5-1", "reason": "operator_decision", "op": "nosuchop", "expect": {"state": state}});
+    assert_eq!(decide(&h, none), Err("attempt_not_live"));
+    let body = serde_json::json!({"action": "attempt_resolve", "decision": "d5-2", "reason": "operator_decision", "op": tail, "expect": {"state": state}});
+    let v = decide(&h, body.clone()).unwrap();
+    assert!(v["cleared_backoff"].is_object(), "{v}");
+    assert!(failure(&h.status(), "attempt").is_none(), "the backoff is cleared");
+    assert_eq!(h.ops()[0].attempts[0].state, state, "the attempt itself is unchanged");
+    assert_eq!(h.db.count("operator_actions"), 1);
+    // The same decision replays its recorded effect.
+    let again = decide(&h, body).unwrap();
+    assert_eq!(again["attempt"], v["attempt"]);
+    assert_eq!(h.db.count("operator_actions"), 1);
 }

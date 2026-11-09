@@ -328,6 +328,13 @@ pub enum ReadPurpose {
         op_id: String,
         attempt: u32,
     },
+    /// D5: the events of the block that consumed an attempt's nonce, read
+    /// before its body: a commit event of this hotkey, netuid and reveal
+    /// round there is the attempt's inclusion.
+    InclusionEvents {
+        op_id: String,
+        attempt: u32,
+    },
     Readback {
         op_id: String,
     },
@@ -822,7 +829,8 @@ fn read_subject(read: &ReadPurpose) -> String {
         ReadPurpose::Preflight | ReadPurpose::Registration { .. } => PREFLIGHT.to_owned(),
         ReadPurpose::NonceCheck { op_id, attempt }
         | ReadPurpose::NonceProbe { op_id, attempt, .. }
-        | ReadPurpose::Events { op_id, attempt } => attempt_subject(op_id, *attempt),
+        | ReadPurpose::Events { op_id, attempt }
+        | ReadPurpose::InclusionEvents { op_id, attempt } => attempt_subject(op_id, *attempt),
         ReadPurpose::Readback { op_id } => format!("readback:{op_id}"),
         ReadPurpose::RevealCheck { op_id }
         | ReadPurpose::RevealProbe { op_id, .. }
@@ -933,6 +941,12 @@ fn short_subject(subject: &str) -> String {
         }
         None => subject.to_owned(),
     }
+}
+
+/// The last 12 characters of an operation ID, for status.
+fn short_op(op_id: &str) -> String {
+    let tail: String = op_id.chars().rev().take(12).collect();
+    tail.chars().rev().collect()
 }
 
 fn note_error(sql: &impl Sql, error: &str, now_ms: u64) -> Result<(), StoreError> {
@@ -1911,11 +1925,15 @@ struct Attempt {
     /// The inclusion search reads block bodies one by one instead of the
     /// nonce at retained blocks ([`attempt_state_unavailable`]).
     search_scan: bool,
+    /// The inclusion block's events were read (D5) and held no commit event
+    /// of this hotkey, so its body decides.
+    events_checked: bool,
 }
 
 const ATTEMPT_COLUMNS: &str =
     "op_id, attempt, nonce, expiry, floor_block, reveal_round, extrinsic_hex,
-    state, search_lo, search_hi, checked_block, included_block, included_index, ciphertext_sha256, search_scan";
+    state, search_lo, search_hi, checked_block, included_block, included_index, ciphertext_sha256, search_scan,
+    events_checked";
 
 fn attempt_from(r: &crate::sql::Row) -> Result<Attempt, StoreError> {
     let opt = |i| match r.get(i) {
@@ -1938,6 +1956,7 @@ fn attempt_from(r: &crate::sql::Row) -> Result<Attempt, StoreError> {
         included_index: opt(12).map(|v| v as u32),
         ciphertext_sha256: text(r, 13)?.to_owned(),
         search_scan: opt(14).is_some_and(|v| v != 0),
+        events_checked: opt(15).is_some_and(|v| v != 0),
     })
 }
 
@@ -2413,7 +2432,7 @@ fn keys_for(
             registration_keys(rt, cfg, active_mechanism(sql)?, population, o.epoch)
         }
         ReadPurpose::NonceCheck { .. } | ReadPurpose::NonceProbe { .. } => nonce_keys(rt, cfg),
-        ReadPurpose::Events { .. } => Ok(vec![
+        ReadPurpose::Events { .. } | ReadPurpose::InclusionEvents { .. } => Ok(vec![
             rt.storage_key("System", "Events", &[])
                 .map_err(SignError::Chain)?,
             upgrade_key(rt)?,
@@ -2595,6 +2614,13 @@ fn attempt_step(
                 }));
             }
             if let (Some(lo), Some(hi)) = (a.search_lo, a.search_hi) {
+                if hi <= lo.saturating_add(1) && !a.events_checked {
+                    // D5: the inclusion block's events first; its body only
+                    // when they hold no commit of this hotkey.
+                    let read = ReadPurpose::InclusionEvents { op_id: a.op_id, attempt: a.attempt };
+                    let keys = keys_for(sql, cfg, rt, &read)?;
+                    return Ok(Some(plan_read(token, retained(sql, hi)?, read, keys)));
+                }
                 if hi <= lo.saturating_add(1) {
                     return Ok(Some(SignPlan::Block {
                         claim: token.clone(),
@@ -2980,7 +3006,37 @@ pub fn on_result_within(
     // same bytes, so it counts against its subject ([`REPLY_TOO_LARGE`]),
     // never as a signer-wide backoff that would hold every other subject.
     let too_large = rpc_error == Some(RpcError::TooLarge) && subject.is_some();
-    let chained = if historical {
+    // D5: an inclusion block whose events cannot be read is decided by its
+    // body; one whose events held no commit of this hotkey and whose body
+    // cannot be read either settles as `consumed_unverified`.
+    let unverifiable = match (&pending, rpc_error) {
+        (SignPlan::Read { read: ReadPurpose::InclusionEvents { op_id, attempt: n }, .. }, Some(RpcError::TooLarge | RpcError::Remote)) => {
+            if let Some(a) = attempt(sql, op_id, *n)? {
+                set_attempt(sql, &a, "events_checked = 1", vec![])?;
+                log(sql, now_ms, a.search_hi, Some(op_id), Some(*n), "inclusion_events_unreadable", None)?;
+            }
+            true
+        }
+        // A body too large to read never answers differently; a refused
+        // historical read keeps its own retry and settle
+        // (`inclusion_unverifiable`).
+        (SignPlan::Block { op_id, attempt: n, .. }, Some(RpcError::TooLarge)) => {
+            match attempt(sql, op_id, *n)? {
+                Some(a) if a.events_checked && !a.search_scan && matches!(a.state.as_str(), "submitted" | "uncertain") => {
+                    consumed_unverified(sql, &a, now_ms)?;
+                    true
+                }
+                _ => false,
+            }
+        }
+        _ => false,
+    };
+    let chained = if unverifiable {
+        if let Some(subject) = &subject {
+            clear_failure(sql, subject)?;
+        }
+        None
+    } else if historical {
         attempt_state_unavailable(sql, &pending, now_ms)?;
         let at = confirmed.map_or(0, |c| c.number);
         if let Some(subject) = &subject {
@@ -3472,6 +3528,9 @@ fn apply_read(
         }
         ReadPurpose::Events { op_id, attempt: n } => {
             apply_events(sql, ctx, rt, at_block, op_id, *n, values, now_ms).map(|_| None)
+        }
+        ReadPurpose::InclusionEvents { op_id, attempt: n } => {
+            apply_inclusion_events(sql, ctx, rt, at_block, op_id, *n, values, now_ms).map(|_| None)
         }
         ReadPurpose::Readback { op_id } => {
             apply_readback(sql, ctx, rt, at_block, op_id, values, now_ms).map(|_| None)
@@ -4246,6 +4305,97 @@ fn displaced(sql: &impl Sql, a: &Attempt, now_ms: u64) -> Result<(), StoreError>
     fail_op(sql, &a.op_id, "nonce_displaced", now_ms)
 }
 
+/// D5: the events of block `at_block`, which consumed attempt `n`'s nonce.
+/// A `TimelockedWeightsCommitted` event whose account is this hotkey, whose
+/// netuid index is this subnet's and whose reveal round is the attempt's is
+/// its inclusion, at that event's extrinsic index (its dispatch is then read
+/// as for any included attempt). A commit event of this hotkey with another
+/// round or netuid is positive evidence of bytes this journal never signed
+/// (`foreign_nonce_use`). No commit event of this hotkey: the body decides,
+/// as before (our own extrinsic may have failed dispatch, which emits no
+/// commit event).
+#[allow(clippy::too_many_arguments)]
+fn apply_inclusion_events(
+    sql: &impl Sql,
+    ctx: &Ctx<'_>,
+    rt: &ChainRuntime,
+    at_block: BlockRef,
+    op_id: &str,
+    n: u32,
+    values: &Values,
+    now_ms: u64,
+) -> Result<(), SignError> {
+    let cfg = ctx.cfg;
+    let Some(a) = attempt(sql, op_id, n)? else {
+        return Ok(());
+    };
+    if !matches!(a.state.as_str(), "submitted" | "uncertain") || a.search_hi != Some(at_block.number) {
+        return Ok(());
+    }
+    let key = rt.storage_key("System", "Events", &[]).map_err(SignError::Chain)?;
+    // Events this build cannot decode are no evidence: the body decides.
+    let Ok(events) = rt.events(values.raw(&key)?) else {
+        set_attempt(sql, &a, "events_checked = 1", vec![])?;
+        log(sql, now_ms, Some(at_block.number), Some(op_id), Some(n), "inclusion_events_unreadable", None)?;
+        return Ok(());
+    };
+    let index_here = storage_index(cfg.netuid, 0).map(u64::from);
+    let ours: Vec<_> = events
+        .iter()
+        .filter(|e| e.pallet == chain::SUBTENSOR && e.name == "TimelockedWeightsCommitted")
+        .filter(|e| e.args().first().and_then(|v| as_account(v)) == Some(cfg.hotkey))
+        .collect();
+    let matching = ours.iter().find(|e| {
+        e.phase == "ApplyExtrinsic"
+            && e.extrinsic_index.is_some()
+            && e.args().get(1).and_then(|v| as_u64(v)) == index_here
+            && e.args().get(3).and_then(|v| as_u64(v)) == Some(a.reveal_round)
+    });
+    if let Some(e) = matching {
+        let i = e.extrinsic_index.unwrap_or_default();
+        let hash = e.args().get(2).and_then(|v| as_bytes(v)).map(hex::encode).unwrap_or_default();
+        set_attempt(
+            sql,
+            &a,
+            "state = 'included', included_block = ?, included_hash = ?, included_index = ?, events_checked = 1",
+            vec![bind_u64(at_block.number)?, at_block.hash.to_hex().into(), SqlValue::Integer(i64::from(i))],
+        )?;
+        journal::bump(sql, "sign_included_by_events")?;
+        log(sql, now_ms, Some(at_block.number), Some(op_id), Some(n), "included", Some(&format!("index {i} by events, commit {hash}")))?;
+        return Ok(());
+    }
+    if !ours.is_empty() {
+        // A commit of this hotkey with another round or netuid consumed
+        // the nonce: positive evidence of foreign bytes.
+        displaced(sql, &a, now_ms)?;
+        return Ok(());
+    }
+    set_attempt(sql, &a, "events_checked = 1", vec![])?;
+    Ok(())
+}
+
+/// D5: an attempt whose nonce was consumed in a block with no commit event
+/// of this hotkey and whose body cannot be read: no evidence either way. Its
+/// epoch is never signed again (its operation fails, `commit_ops.epoch`
+/// stays unique), the nonce floor moves past its nonce, the next epoch is
+/// planned with the next nonce, and the signing status reports it
+/// (`consumed_unverified`). Never a guess that it was included or not.
+fn consumed_unverified(sql: &impl Sql, a: &Attempt, now_ms: u64) -> Result<(), StoreError> {
+    set_attempt(sql, a, "state = 'consumed_unverified', resolved_at_ms = ?", vec![bind_u64(now_ms)?])?;
+    sql.exec("UPDATE signer SET nonce_floor = MAX(nonce_floor, ?) WHERE id = 1", &[bind_u64(a.nonce + 1)?])?;
+    journal::bump(sql, "sign_consumed_unverified")?;
+    log(
+        sql,
+        now_ms,
+        a.search_hi,
+        Some(&a.op_id),
+        Some(a.attempt),
+        "consumed_unverified",
+        Some(&format!("nonce {} block {}", a.nonce, a.search_hi.unwrap_or(0))),
+    )?;
+    fail_op(sql, &a.op_id, "consumed_unverified", now_ms)
+}
+
 #[allow(clippy::too_many_arguments)]
 fn apply_events(
     sql: &impl Sql,
@@ -4881,6 +5031,15 @@ pub struct OpStatus {
     pub attempts: Vec<AttemptStatus>,
 }
 
+/// An attempt settled as `consumed_unverified` (D5).
+#[derive(Clone, Debug, Serialize)]
+pub struct UnverifiedAttempt {
+    pub op: String,
+    pub attempt: u64,
+    pub nonce: u64,
+    pub block: Option<u64>,
+}
+
 /// One subject's deterministic failures.
 #[derive(Clone, Debug, Serialize)]
 pub struct FailureStatus {
@@ -4912,9 +5071,15 @@ pub struct AttemptStatus {
 pub struct SigningStatus {
     pub state: String,
     pub reason: Option<String>,
-    /// `ok`, `backing_off` (RPC errors), `failing` (a subject is backing
+    /// `ok`, `blocked_attempt` (the live attempt's evidence cannot be read
+    /// yet), `backing_off` (RPC errors), `failing` (a subject is backing
     /// off), `diagnostic` (a subject settled) or `paused`/`fault`.
     pub health: String,
+    /// D5: attempts settled as `consumed_unverified` (newest first): their
+    /// nonce was consumed in `block`, whose events hold no commit of this
+    /// hotkey and whose body cannot be read. Their epochs are never signed
+    /// again.
+    pub attempts_unverified: Vec<UnverifiedAttempt>,
     pub hotkey: String,
     pub nonce_floor: u64,
     pub runtime: Option<(u32, u32)>,
@@ -5088,6 +5253,10 @@ pub fn status(
         "fault"
     } else if s.state != "active" {
         "paused"
+    } else if failures.iter().any(|f| !f.settled && f.subject.starts_with("attempt:")) {
+        // D5: the live attempt's own evidence cannot be read yet; it
+        // blocks the next commit until it settles, by evidence only.
+        "blocked_attempt"
     } else if backoff_ms.is_some() {
         "backing_off"
     } else if failures.iter().any(|f| !f.settled) {
@@ -5103,7 +5272,27 @@ pub fn status(
         } else {
             s.budget_used
         };
+    let attempts_unverified = sql
+        .exec(
+            "SELECT op_id, attempt, nonce, search_hi FROM sign_attempts WHERE state = 'consumed_unverified'
+             ORDER BY resolved_at_ms DESC LIMIT 8",
+            &[],
+        )?
+        .iter()
+        .map(|r| {
+            Ok(UnverifiedAttempt {
+                op: short_op(text(r, 0)?),
+                attempt: uint(r, 1)?,
+                nonce: uint(r, 2)?,
+                block: match r.get(3) {
+                    Some(SqlValue::Integer(b)) => Some(*b as u64),
+                    _ => None,
+                },
+            })
+        })
+        .collect::<Result<Vec<_>, StoreError>>()?;
     Ok(SigningStatus {
+        attempts_unverified,
         health: health.to_owned(),
         runtime_block: s.runtime_block,
         runtimes,
@@ -5142,6 +5331,7 @@ pub fn status(
 
 pub mod authority;
 pub mod auto;
+pub mod decide;
 pub mod registry;
 pub mod rows;
 pub use authority::{

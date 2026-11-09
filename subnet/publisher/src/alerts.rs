@@ -418,7 +418,7 @@ fn signing_backing_off(s: &SigningView, r: &Rules) -> Option<Condition> {
     }
     let failing = match (s.last_error_age_ms, s.last_event_age_ms) {
         (Some(err), Some(event)) => s.last_error.is_some() && err < event,
-        _ => matches!(s.health.as_deref(), Some("backing_off" | "failing")),
+        _ => matches!(s.health.as_deref(), Some("backing_off" | "failing" | "blocked_attempt")),
     };
     if !failing {
         return None;

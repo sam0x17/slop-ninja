@@ -724,12 +724,52 @@ pub fn succession_reply(
 
 /// A main authority's own succession record, read only (`GET
 /// /succession/record`): the predecessors' successions its store recorded
-/// (`succession_recorded`, `(name, first cohort)` pairs) and whether it
-/// holds any cohort.
+/// (`succession_recorded`, `(name, first cohort)` pairs), whether it
+/// holds any cohort, and the retention notices it delivered
+/// (`retention_notices`, `(predecessor, after cohort)` pairs, each recorded
+/// only once that predecessor reported nothing left to delete:
+/// `eval::retention::record_notice`). A record from a build before the
+/// notices were reported reads as none delivered.
 #[derive(Clone, Debug, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct SuccessionRecord {
     pub succession_recorded: Vec<(String, u64)>,
     pub holds_cohorts: bool,
+    #[serde(default)]
+    pub retention_notices: Vec<(String, u64)>,
+}
+
+/// Whether `successor` may skip its own retention notice to `predecessor`
+/// because `through`'s record shows the notice already delivered, with the
+/// cohort after which `through` told it. That needs all of:
+/// - `predecessor` is covered through `through`'s record
+///   ([`succession_through`], checked again on the record read now);
+/// - `through` recorded `predecessor`'s succession for a first cohort `f`
+///   (so every cohort `predecessor` holds is below `f`: its highest is at
+///   most `f - 1`), and
+/// - `through` delivered its own notice to `predecessor` after a cohort at
+///   least `f + 1`, so past `predecessor`'s highest cohort + 2, and
+///   recorded it, which it does only once `predecessor` reported nothing
+///   left to delete.
+///
+/// A superseded authority admits nothing again, so nothing it holds can
+/// need a later notice. Otherwise (`None`) this successor tells
+/// `predecessor` itself.
+pub fn retention_covered(successor: &Authority, predecessor: &str, through: &str, record: &SuccessionRecord) -> Option<u64> {
+    if !succession_through(successor, predecessor, through, record) {
+        return None;
+    }
+    let first = record
+        .succession_recorded
+        .iter()
+        .filter(|(p, _)| p == predecessor)
+        .map(|(_, f)| *f)
+        .max()?;
+    record
+        .retention_notices
+        .iter()
+        .filter(|(p, after)| p == predecessor && *after > first)
+        .map(|(_, after)| *after)
+        .max()
 }
 
 /// Whether `successor` counts `predecessor` as superseded through the record
@@ -1734,7 +1774,47 @@ mod tests {
                 .map(|(n, f)| ((*n).to_owned(), *f))
                 .collect(),
             holds_cohorts,
+            retention_notices: Vec::new(),
         }
+    }
+
+    /// Skipping a covered predecessor's notice, on the 2026-11-09 testnet
+    /// shape: r0 recorded `(main, 14)`, ran cohorts 14-21 and delivered its
+    /// notice to main after cohort 16 (main's highest cohort is 13); r1
+    /// (first cohort 22) covers main through r0. r1 skips main only while
+    /// r0's record shows that notice; otherwise it tells main itself.
+    #[test]
+    fn a_covered_predecessor_needs_no_notice_once_its_successor_delivered_one() {
+        let r1 = Authority::named_after("r1", 22, &["r0"]).unwrap();
+        let mut r0 = rec(&[("main", 14)], true);
+        // No notice recorded by r0 (or a record from an older build).
+        assert_eq!(retention_covered(&r1, "main", "r0", &r0), None);
+        // A notice after cohort 14 or 15 is not past main's highest (at most
+        // 13) + 2 by the record alone: r1 tells main itself.
+        r0.retention_notices = vec![("main".into(), 14)];
+        assert_eq!(retention_covered(&r1, "main", "r0", &r0), None);
+        r0.retention_notices = vec![("main".into(), 15)];
+        assert_eq!(retention_covered(&r1, "main", "r0", &r0), Some(15));
+        r0.retention_notices = vec![("other".into(), 30), ("main".into(), 16)];
+        assert_eq!(retention_covered(&r1, "main", "r0", &r0), Some(16));
+        // The cover itself must still hold on the record read now.
+        let mut idle = r0.clone();
+        idle.holds_cohorts = false;
+        assert_eq!(retention_covered(&r1, "main", "r0", &idle), None, "through holds no cohort");
+        let mut late = r0.clone();
+        late.succession_recorded = vec![("main".into(), 23)];
+        assert_eq!(retention_covered(&r1, "main", "r0", &late), None, "recorded for a later first cohort");
+        // Only a predecessor listed before `through` is covered by it, and
+        // never `through` itself.
+        assert_eq!(retention_covered(&r1, "r0", "main", &r0), None);
+        assert_eq!(retention_covered(&r1, "r0", "r0", &r0), None);
+        // An unknown name is never covered.
+        assert_eq!(retention_covered(&r1, "zz", "r0", &r0), None);
+        // The record's JSON from a build before `retention_notices`.
+        let old: SuccessionRecord =
+            serde_json::from_str(r#"{"succession_recorded":[["main",14]],"holds_cohorts":true}"#).unwrap();
+        assert!(old.retention_notices.is_empty());
+        assert_eq!(retention_covered(&r1, "main", "r0", &old), None);
     }
 
     fn pairs(v: &[(&str, u64)]) -> Vec<(String, u64)> {

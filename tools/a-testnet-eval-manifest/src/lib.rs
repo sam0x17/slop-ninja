@@ -487,6 +487,7 @@ pub mod pool_v2;
 pub mod public_candidate;
 pub mod replay;
 pub mod stock;
+pub mod token_bound;
 
 #[cfg(test)]
 mod tests;

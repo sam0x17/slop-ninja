@@ -2009,6 +2009,17 @@ only moves a deletion later.
   a succession or an authority switch (`engine::blocking_work`; the status
   reports them as `retention_work`): whatever remains finishes under the
   successor's notices, so a storage fault there never holds up a restart.
+  Each predecessor not yet told is handled on its own in the same step
+  (`retention::notices_pending`), so one that never answers holds up no
+  other. A predecessor covered through a later predecessor's record (its
+  store is never opened, `config::succession_through`) is not told when that
+  later predecessor's own record shows its notice to it, after a cohort past
+  the covered one's highest + 2 (`config::retention_covered`): the
+  successor records it with that notice's cohort instead.
+  `GET /succession/record` reports each authority's recorded notices
+  (`retention_notices`) for this check; otherwise the successor tells the
+  covered predecessor itself, and `stalled` lists it after the next
+  completion.
 - **Resumable:** each step deletes at most one listing page (R2's
   1,000-key bound), then the two single objects, then one page of rows; the
   transaction that removes a cohort's last row marks it deleted. A failed
@@ -2351,10 +2362,13 @@ bytes than the installed template's appends its version, digest, the probe
 versions it names and `governs_from`, one past every cohort number the
 store holds at the install. A queued or running cohort keeps the plan bytes
 it was queued with, so a template governs only the cohorts the calendar
-queues after its install. Posting the installed bytes again is a replay:
-nothing changes, no entry is added, a paused calendar stays paused (resume
-with `/eval/template/pause` and `{"paused": false}`), and the reply carries
-`replayed: true` with the original entry. A template names only probe
+queues after its install. An install keeps the calendar's pause: a template
+installed into a paused calendar stays paused and queues nothing until the
+operator resumes it (`/eval/template/pause` with `{"paused": false}`), so a
+template can be replaced in a cohort gap (only the first install, into a
+store without a template, starts unpaused); the reply reports `paused`.
+Posting the installed bytes again is a replay: nothing changes, no entry is
+added, and the reply carries `replayed: true` with the original entry. A template names only probe
 versions the store recorded (a closed probe build's record, by version,
 digest, size and key: `template_probe_unrecorded`), and the next cohort's
 references must hold a fingerprint on each version it names
@@ -2564,6 +2578,22 @@ the output contract); none is compiled in. Differences from the v2 engine:
   every probe version's documents join the cohort's documents. Mixed and
   model-only items carry spares; the seal keeps exactly each kind's planned
   count by private rank, so the manifest's mix is exact.
+- **Exposed-pool reuse (testnet).** `reward_v1.reuse.exposed =
+  "testnet_exposed_parents_unlimited_v1"` lifts `max_uses` and `min_gap` for
+  exposed pools: any passage first seen in an earlier cohort may parent
+  again, one child per parent per cohort, and parents come from the
+  cohort's own negatives, then never-parented stock, then earlier passages,
+  least recently parented first. `reward_v1.parent_pools` names further
+  exposed pools whose passages are parents only (never negatives or audit
+  humans): the fresh-parent draw takes the plan's pool and those pools as
+  one domain-proportional stock, and their ledger rows keep their own pool
+  ids. Both need the plan's pool and every parent pool in `EXPOSED_POOLS`
+  (refused at queue time, `parent_pools_not_exposed` at the draw) and a
+  recorded token bound in each pool's manifest; neither may meet a fresh
+  pool or a probe build, and the rule is refused off testnet. The draw
+  summary reports `exposed_reuse`, `parent_pools` and
+  `fresh_parent_rows_by_pool`. The rule ends when the paragraph composer goes
+  live, whose per-paragraph cap replaces the row ledger.
 - **Tasks.** A plan with `reward_v1.task_order = "seeded_rank_v1"` seals
   every document, batch, probe and audit alike, in a second private rank
   keyed by the document (`pool::rank(seed, "task", key)`), independent of

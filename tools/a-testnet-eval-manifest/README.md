@@ -97,6 +97,30 @@ used row and group durably so none is drawn twice. On October 30, 2026 the
 tracked allow-list gave 570 rows in 505 source groups across 7 domains, in 9
 shards.
 
+### A token bound for an existing pool
+
+Under the seeded task order the eval Worker draws only from a pool whose
+manifest records a per-row token bound inside the scorer's 2,048-token
+contract (`selection.max_tokens`). Pool v1 records none. `pool-token-bound`
+writes a manifest for the same pool id and the same shard files with the
+rows of at most `--max-tokens` scorer tokens (default 1,000, the
+public-candidate bound, so a mixed rewrite stays inside the contract):
+
+```sh
+slop_ninja_a_testnet_eval_manifest pool-token-bound \
+  --pool-dir data/task-roots/testnet/m4-eval/pools/testnet-human-pool-v1 \
+  --max-tokens 1000 --out data/.../manifest-tb1000.json
+```
+
+It checks every shard and row by digest, counts each row with the scorer's
+compiled-in count (`slop-ninja-scorer-tokens`, `[CLS]` and `[SEP]`
+excluded), keeps the original shard list, recomputes the counts, and records
+the bound, the count rule, the longest kept row, the rows excluded and the
+digest of the manifest it was derived from. It refuses a manifest that
+already records a bound and never replaces an existing file. The new
+manifest is uploaded beside the original's shards, so a plan can name it
+with no shard upload.
+
 ## Pool v2: the testnet public stock
 
 **Testnet only (`testnet_public_stock_only`).** Pool v2 replaces the Dev-iter

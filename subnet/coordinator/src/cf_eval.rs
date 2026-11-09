@@ -770,12 +770,14 @@ impl DurableObject for EvalCohort {
                     return error("store_unavailable", 503);
                 };
                 let holds = transaction(&storage, |sql| {
-                    Ok::<_, engine::EvalError>(!sql.exec("SELECT 1 FROM cohorts LIMIT 1", &[])?.is_empty())
+                    let holds = !sql.exec("SELECT 1 FROM cohorts LIMIT 1", &[])?.is_empty();
+                    Ok::<_, engine::EvalError>((holds, crate::eval::retention::notices_recorded(sql)?))
                 });
                 match holds {
-                    Ok(holds_cohorts) => json(&crate::config::SuccessionRecord {
+                    Ok((holds_cohorts, retention_notices)) => json(&crate::config::SuccessionRecord {
                         succession_recorded: done.unwrap_or_default(),
                         holds_cohorts,
+                        retention_notices,
                     }),
                     Err(_) => error("store_unavailable", 503),
                 }
@@ -1632,16 +1634,45 @@ impl EvalCohort {
                     };
                     r.map_err(|_| "retention commit")?;
                 }
-                Work::RetentionNotice { predecessor, after_cohort } => {
-                    // Retried after its retry time until the predecessor
-                    // reports nothing left (its alarm re-arms only while kicked).
-                    if !self.retention_notice(&predecessor, after_cohort).await {
+                Work::RetentionNotice { .. } => {
+                    // Every predecessor not yet told, each on its own: one
+                    // that does not answer holds up no other. A
+                    // predecessor covered through a later one's
+                    // record whose own successor already delivered its
+                    // notice (`config::retention_covered`) is recorded with
+                    // that notice's cohort and never opened. The others are
+                    // retried after the retry time until each reports
+                    // nothing left (a retired alarm re-arms only while kicked).
+                    let c2 = cfg.clone();
+                    let pending = transaction(&storage, move |sql| crate::eval::retention::notices_pending(sql, &c2))
+                        .map_err(|_| "notice read")?;
+                    let Some((after_cohort, pending)) = pending else { return Ok(progress) };
+                    let through = succeeded_through(&storage).await;
+                    let mut failed = false;
+                    for predecessor in pending {
+                        let covered = match through.iter().find(|(p, _)| *p == predecessor) {
+                            Some((_, q)) => match self.succession_record(q).await {
+                                Some(record) => crate::config::retention_covered(&cfg.authority, &predecessor, q, &record),
+                                None => None,
+                            },
+                            None => None,
+                        };
+                        let after = match covered {
+                            Some(after) => after,
+                            None if self.retention_notice(&predecessor, after_cohort).await => after_cohort,
+                            None => {
+                                failed = true;
+                                continue;
+                            }
+                        };
+                        let now = now_ms();
+                        transaction(&storage, move |sql| crate::eval::retention::record_notice(sql, &predecessor, after, now))
+                            .map_err(|_| "notice commit")?;
+                    }
+                    if failed {
                         bookkeeping_failed(&storage, engine::BOOKKEEPING_RETENTION, "retention_notice");
                         return Ok(progress);
                     }
-                    let now = now_ms();
-                    transaction(&storage, move |sql| crate::eval::retention::record_notice(sql, &predecessor, after_cohort, now))
-                        .map_err(|_| "notice commit")?;
                 }
                 Work::AdmissionVerify { .. }
                 | Work::AdmissionLanes
@@ -1851,6 +1882,19 @@ impl EvalCohort {
             .map_err(|_| "authorization_object")?
             .ok_or("authorization_object")?;
         hold_of(&kind, &r, &object)
+    }
+
+    /// Authority `authority`'s own succession record (`GET
+    /// /succession/record`), read only; `None` when it does not answer.
+    async fn succession_record(&self, authority: &str) -> Option<crate::config::SuccessionRecord> {
+        let mut r = authority_fetch(&self.env, engine::INSTANCE_MAIN, authority, Method::Get, "/succession/record", None, Some(KICK_TIMEOUT_MS))
+            .await
+            .ok()?;
+        if r.status_code() != 200 {
+            super::cf_io::discard(&mut r);
+            return None;
+        }
+        super::cf_io::response_json::<crate::config::SuccessionRecord>(&mut r, DO_REPLY_BYTES).await.ok()
     }
 
     /// Tells predecessor `predecessor` that `after_cohort` is this authority's
@@ -2310,6 +2354,30 @@ impl EvalCohort {
         v3::artifact_digests(&b, recorded)
     }
 
+    /// The seeded order's input screen over every shard of pool `m` in
+    /// `dir` (`v3::screen_pool`): the ids of the rows the scorer would refuse
+    /// as empty, one shard at a time, each checked by digest.
+    async fn screen_shards(&self, seq: i64, dir: &str, m: &PoolManifest) -> std::result::Result<std::collections::BTreeSet<String>, &'static str> {
+        let mut screened = std::collections::BTreeSet::new();
+        for info in &m.shards {
+            let body = self.read(seq, EVAL_BUCKET, &format!("{dir}/{}", info.file), STEP_OBJECT_BYTES, "pool shard read").await?.ok_or("pool shard missing")?;
+            if sha_hex(&body) != info.sha256 {
+                return Err("pool shard digest");
+            }
+            let rows = std::str::from_utf8(&body)
+                .map_err(|_| "shard utf-8")?
+                .lines()
+                .map(|line| serde_json::from_str::<ShardRow>(line).map_err(|_| "shard row"))
+                .collect::<std::result::Result<Vec<_>, &'static str>>()?;
+            screened.extend(v3::screen_pool(
+                rows.iter()
+                    .filter(|r| r.schema == pool::SHARD_SCHEMA && sha_hex(r.text.as_bytes()) == r.text_sha256)
+                    .map(|r| (r.row_id.as_str(), r.text.as_str())),
+            ));
+        }
+        Ok(screened)
+    }
+
     async fn draw_v3(&self, cfg: &EvalConfig, seq: i64, plan: &CohortPlan) -> std::result::Result<(), &'static str> {
         let env = &self.env;
         let mbytes = self.read(seq, EVAL_BUCKET, &plan.pool.manifest_key, STEP_OBJECT_BYTES, "pool manifest read").await?.ok_or("pool manifest missing")?;
@@ -2331,23 +2399,41 @@ impl EvalCohort {
             if !v3::pool_token_bound_ok(&manifest) {
                 return Err(v3::POOL_TOKEN_BOUND_REFUSED);
             }
-            for info in &manifest.shards {
-                let body = self.read(seq, EVAL_BUCKET, &format!("{dir}/{}", info.file), STEP_OBJECT_BYTES, "pool shard read").await?.ok_or("pool shard missing")?;
-                if sha_hex(&body) != info.sha256 {
-                    return Err("pool shard digest");
-                }
-                let rows = std::str::from_utf8(&body)
-                    .map_err(|_| "shard utf-8")?
-                    .lines()
-                    .map(|line| serde_json::from_str::<ShardRow>(line).map_err(|_| "shard row"))
-                    .collect::<std::result::Result<Vec<_>, &'static str>>()?;
-                screened.extend(v3::screen_pool(
-                    rows.iter()
-                        .filter(|r| r.schema == pool::SHARD_SCHEMA && sha_hex(r.text.as_bytes()) == r.text_sha256)
-                        .map(|r| (r.row_id.as_str(), r.text.as_str())),
-                ));
-            }
+            screened.extend(self.screen_shards(seq, &dir, &manifest).await?);
         }
+        // Further parent pools (`reward_v1.parent_pools`): exposed stock only,
+        // read, checked and screened like the plan's pool, and drawn only as
+        // mixed parents ([`v3::parent_stock`]). With the exposed-pool rule
+        // (`reward_v1.reuse.exposed`) they need the plan's pool exposed too.
+        let v1plan = plan.reward_v1.as_ref().ok_or("reward_v1 block")?;
+        let exposed = cfg.exposed_pools.contains(&plan.pool.pool_id);
+        if (!v1plan.parent_pools.is_empty() || v1plan.reuse.exposed.is_some())
+            && (!exposed || v1plan.parent_pools.iter().any(|p| !cfg.exposed_pools.contains(&p.pool_id)))
+        {
+            let now = now_ms();
+            let _ = transaction(&storage, move |sql| engine::fault(sql, seq, v3::PARENT_POOLS_NOT_EXPOSED, now));
+            return Err(v3::PARENT_POOLS_NOT_EXPOSED);
+        }
+        let mut parent_pools: Vec<(PoolManifest, String)> = Vec::new();
+        for p in &v1plan.parent_pools {
+            let b = self.read(seq, EVAL_BUCKET, &p.manifest_key, STEP_OBJECT_BYTES, "parent pool manifest read").await?.ok_or("parent pool manifest missing")?;
+            if sha_hex(&b) != p.manifest_sha256 {
+                return Err("parent pool manifest digest");
+            }
+            let m = PoolManifest::parse(&b, &p.pool_id).map_err(|e| e.0)?;
+            let pdir = p.manifest_key.rsplit_once('/').map_or("", |x| x.0).to_owned();
+            if seeded {
+                if !v3::pool_token_bound_ok(&m) {
+                    return Err(v3::POOL_TOKEN_BOUND_REFUSED);
+                }
+                screened.extend(self.screen_shards(seq, &pdir, &m).await?);
+            }
+            parent_pools.push((m, pdir));
+        }
+        let (stock, row_pools) = {
+            let refs: Vec<&PoolManifest> = parent_pools.iter().map(|(m, _)| m).collect();
+            v3::parent_stock(&manifest, &refs).map_err(|e| self.step_refused_now(seq, engine::EvalError::State(e)))?
+        };
         let authority = self.state.id().to_string();
         let entries = read_ledger(self, seq, &dir, &plan.pool.pool_id).await?;
         let mut ledger = pool::Used::default();
@@ -2361,7 +2447,6 @@ impl EvalCohort {
         // Fresh stock is drawn only for a cohort whose frozen roster holds an
         // admitted outside entrant (`v3::fresh_allowed`); every other cohort
         // draws only the pools the deployment lists as exposed.
-        let exposed = cfg.exposed_pools.contains(&plan.pool.pool_id);
         let fresh_ok = transaction(&storage, move |sql| {
             let c = engine::cohort(sql, seq)?;
             v3::fresh_allowed(sql, &c)
@@ -2421,7 +2506,7 @@ impl EvalCohort {
         // earlier candidates), so the reuse limit and gap always hold.
         let mut parent_avoid = drawn.0.clone();
         parent_avoid.extend(ledger_all.iter().cloned());
-        let fresh = pool::draw(&manifest, &parent_avoid, &drawn.1, u64::from(n_m), &sub_seed(&seed, "parents"));
+        let fresh = pool::draw(&stock, &parent_avoid, &drawn.1, u64::from(n_m), &sub_seed(&seed, "parents"));
         // Texts of every row the draw may use, checked by digest.
         let mut want: std::collections::BTreeSet<String> = negatives.rows.iter().map(|r| r.row_id.clone()).collect();
         for d in audits.iter().flatten() {
@@ -2429,12 +2514,21 @@ impl EvalCohort {
         }
         want.extend(fresh.rows.iter().map(|r| r.row_id.clone()));
         want.extend(earlier.iter().map(|e| e.row.row_id.clone()));
-        let shard_of: BTreeMap<&str, u32> = manifest.rows.iter().map(|r| (r.row_id.as_str(), r.shard)).collect();
-        let shards: std::collections::BTreeSet<u32> = want.iter().filter_map(|r| shard_of.get(r.as_str()).copied()).collect();
+        // Each row's shard in its own pool (0: the plan's pool, then each
+        // further parent pool in plan order).
+        let pools: Vec<(&PoolManifest, &str)> =
+            std::iter::once((&manifest, dir.as_str())).chain(parent_pools.iter().map(|(m, d)| (m, d.as_str()))).collect();
+        let shard_of: BTreeMap<&str, (usize, u32)> = pools
+            .iter()
+            .enumerate()
+            .flat_map(|(k, (m, _))| m.rows.iter().map(move |r| (r.row_id.as_str(), (k, r.shard))))
+            .collect();
+        let shards: std::collections::BTreeSet<(usize, u32)> = want.iter().filter_map(|r| shard_of.get(r.as_str()).copied()).collect();
         let mut texts = BTreeMap::new();
-        for k in shards {
-            let info = manifest.shards.iter().find(|s| s.index == k).ok_or("shard info")?;
-            let body = self.read(seq, EVAL_BUCKET, &format!("{dir}/{}", info.file), STEP_OBJECT_BYTES, "pool shard read").await?.ok_or("pool shard missing")?;
+        for (p, k) in shards {
+            let (m, pdir) = pools.get(p).ok_or("pool index")?;
+            let info = m.shards.iter().find(|s| s.index == k).ok_or("shard info")?;
+            let body = self.read(seq, EVAL_BUCKET, &format!("{pdir}/{}", info.file), STEP_OBJECT_BYTES, "pool shard read").await?.ok_or("pool shard missing")?;
             if sha_hex(&body) != info.sha256 {
                 return Err("pool shard digest");
             }
@@ -2445,7 +2539,7 @@ impl EvalCohort {
                 }
             }
         }
-        let parents = v3::choose_parents(&seed, &negatives.rows, &earlier, &fresh.rows, &texts, n_m, &ineligible);
+        let parents = v3::choose_parents(&seed, &negatives.rows, &earlier, &fresh.rows, &texts, n_m, &ineligible, v3::exposed_reuse(plan));
         // Every probe version in use, from its private record.
         let mut probe = Vec::new();
         for p in plan.reward_v1.as_ref().map(|v| v.probes.as_slice()).unwrap_or(&[]) {
@@ -2506,7 +2600,7 @@ impl EvalCohort {
             })
             .collect();
         entry.draw_mode = Some(v3::DRAW_EXPOSED.into());
-        entry.screened = manifest
+        entry.screened = stock
             .rows
             .iter()
             .filter(|r| screened.contains(&r.row_id))
@@ -2548,6 +2642,7 @@ impl EvalCohort {
             earlier,
             probe,
             generation,
+            row_pools,
         };
         let c2 = cfg.clone();
         let now = now_ms();

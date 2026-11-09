@@ -286,6 +286,9 @@ struct Sim<'a> {
     cfg: EvalConfig,
     now: u64,
     pool: PoolManifest,
+    /// Further parent pools by id (`reward_v1.parent_pools`); their texts
+    /// sit in `texts` with the plan pool's.
+    parent_pools: Vec<PoolManifest>,
     texts: BTreeMap<String, String>,
     eval: BTreeMap<String, Vec<u8>>,
     rcpt: BTreeMap<String, Vec<u8>>,
@@ -353,6 +356,7 @@ impl<'a> Sim<'a> {
             cfg,
             now,
             pool,
+            parent_pools: Vec::new(),
             texts,
             eval: BTreeMap::new(),
             rcpt: BTreeMap::new(),
@@ -605,6 +609,29 @@ impl<'a> Sim<'a> {
             }
             screened = v3::screen_pool(self.pool.rows.iter().filter_map(|r| self.texts.get(&r.row_id).map(|t| (r.row_id.as_str(), t.as_str()))));
         }
+        // Further parent pools, as the Worker reads them: exposed only, the
+        // named ones in plan order, screened like the plan's pool.
+        let v1plan = plan.reward_v1.as_ref().unwrap();
+        let exposed = c.exposed_pools.contains(&plan.pool.pool_id);
+        if (!v1plan.parent_pools.is_empty() || v1plan.reuse.exposed.is_some())
+            && (!exposed || v1plan.parent_pools.iter().any(|p| !c.exposed_pools.contains(&p.pool_id)))
+        {
+            return Err(v3::PARENT_POOLS_NOT_EXPOSED);
+        }
+        let parent_pools: Vec<PoolManifest> = v1plan
+            .parent_pools
+            .iter()
+            .map(|p| self.parent_pools.iter().find(|m| m.pool_id == p.pool_id).cloned().ok_or("parent pool manifest missing"))
+            .collect::<Result<_, _>>()?;
+        if v1plan.seeded_task_order() {
+            for m in &parent_pools {
+                if !v3::pool_token_bound_ok(m) {
+                    return Err(v3::POOL_TOKEN_BOUND_REFUSED);
+                }
+                screened.extend(v3::screen_pool(m.rows.iter().filter_map(|r| self.texts.get(&r.row_id).map(|t| (r.row_id.as_str(), t.as_str())))));
+            }
+        }
+        let (stock, row_pools) = v3::parent_stock(&self.pool, &parent_pools.iter().collect::<Vec<_>>())?;
         let now = self.now;
         let used = tx(self.db, engine::used_set).unwrap();
         let seed = engine::cohort_seed(&c.private_seed, &plan.label);
@@ -653,9 +680,9 @@ impl<'a> Sim<'a> {
         let earlier: Vec<v3::ReuseCandidate> = earlier.into_iter().filter(|e| !drawn.0.contains(&e.row.row_id)).collect();
         let mut parent_avoid = drawn.0.clone();
         parent_avoid.extend(ledger_all.iter().cloned());
-        let fresh = pool::draw(&self.pool, &parent_avoid, &drawn.1, u64::from(n_m), &role("parents"));
+        let fresh = pool::draw(&stock, &parent_avoid, &drawn.1, u64::from(n_m), &role("parents"));
         let texts = self.texts.clone();
-        let parents = v3::choose_parents(&seed, &negatives.rows, &earlier, &fresh.rows, &texts, n_m, &ineligible);
+        let parents = v3::choose_parents(&seed, &negatives.rows, &earlier, &fresh.rows, &texts, n_m, &ineligible, v3::exposed_reuse(plan));
         let mut probe = Vec::new();
         for p in &plan.reward_v1.as_ref().unwrap().probes {
             let rec: v3::ProbeRecord = serde_json::from_slice(&self.eval[&p.key]).unwrap();
@@ -682,6 +709,7 @@ impl<'a> Sim<'a> {
                 let m = slop_ninja_gen_core::manifest::Manifest::parse_bound(&manifest, &g.manifest).unwrap();
                 super::gen_v2::DrawObjects { manifest, library: self.eval[&m.voice_library.key].clone() }
             }),
+            row_pools,
         };
         tx(self.db, |s| v3::apply_draw(s, &c, seq, &d, &parents, &texts, &pool::Used::default(), now)).unwrap();
         Ok(())
@@ -3006,7 +3034,8 @@ fn v3_block(probes: Vec<super::plan::ProbeRef>) -> super::plan::RewardV1Plan {
         sigma: 40_000_000_000_000_000,
         sigma_basis: "synthetic test value".into(),
         lease_tempos: 8,
-        reuse: super::plan::Reuse { max_uses: 4, min_gap: 7 },
+        reuse: super::plan::Reuse { max_uses: 4, min_gap: 7, exposed: None },
+        parent_pools: Vec::new(),
         probes,
         gates: super::plan::GatePolicy {
             operating_ppb: 500_000_000,
@@ -3543,11 +3572,218 @@ fn v3_rewrite_sources_follow_the_k_and_g_rule() {
     let fresh = vec![row("f1", "g1"), row("f2", "g1"), row("f3", "g2")];
     // A same-cohort negative past the reuse limit parents nothing.
     let skip: BTreeSet<String> = ["n1".to_owned()].into();
-    let ps = v3::choose_parents(&[7; 32], &[row("n1", "gn")], &earlier, &fresh, &texts, 3, &skip);
+    let ps = v3::choose_parents(&[7; 32], &[row("n1", "gn")], &earlier, &fresh, &texts, 3, &skip, false);
     assert_eq!(ps.children, vec![("e1".into(), "earlier"), ("f1".into(), "fresh"), ("f2".into(), "fresh")]);
-    let ps = v3::choose_parents(&[7; 32], &[row("n1", "gn")], &earlier, &fresh, &texts, 3, &BTreeSet::new());
+    let ps = v3::choose_parents(&[7; 32], &[row("n1", "gn")], &earlier, &fresh, &texts, 3, &BTreeSet::new(), false);
     assert_eq!(ps.children, vec![("n1".into(), "same"), ("e1".into(), "earlier"), ("f1".into(), "fresh")]);
     assert_eq!(ps.fresh_used.iter().map(|r| r.row_id.as_str()).collect::<Vec<_>>(), ["f1", "f2"], "the whole group is consumed");
+}
+
+/// The testnet exposed-pool rule (2026-11-09): under it the reuse limit and
+/// gap bind no passage of an exposed pool, a further parent pool's ledger
+/// rows join the candidates, and never-parented stock comes before any
+/// passage parents again. A passage first seen in this cohort still parents
+/// only as one of its own negatives.
+#[test]
+fn v3_the_exposed_pool_rule_lifts_k_and_g_and_parent_pools_join() {
+    use super::plan::{ExposedReuse, PoolRef, Reuse};
+    let db = Sqlite::open();
+    sql::migrate(&db, &EVAL_COHORT_SCHEMA).unwrap();
+    let insert = |row: &str, first: i64, uses: i64, last: Option<i64>, pool: &str| {
+        db.conn
+            .execute(
+                "INSERT INTO reuse_sources (row_id, text_sha256, source_group, domain, shard, first_cohort, uses, last_cohort,
+                    first_ordinal, last_ordinal, pool_id)
+                 VALUES (?1, ?2, ?3, 'wikipedia', 0, ?4, ?5, ?6, ?4, ?6, ?7)",
+                rusqlite::params![row, format!("sha-{row}"), format!("g-{row}"), first, uses, last, pool],
+            )
+            .unwrap();
+    };
+    insert("never", 3, 0, None, "p");
+    insert("recent", 5, 1, Some(9), "p"); // parented in the last cohort
+    insert("old", 2, 1, Some(2), "p");
+    insert("worn", 1, 4, Some(4), "p"); // four uses
+    insert("own", 10, 1, Some(10), "p"); // first seen in ordinal 10 itself
+    insert("q-row", 4, 2, Some(8), "q"); // a further parent pool's passage
+    insert("r-row", 1, 0, None, "r"); // a pool the plan does not name
+    let weak = super::plan::tests::artifact(super::plan::tests::identity(0, 0xb0), 0x22);
+    let base = plan_v3(99, "x", 20, weak);
+    let mut lifted = base.clone();
+    {
+        let v = lifted.reward_v1.as_mut().unwrap();
+        v.reuse = Reuse { max_uses: 4, min_gap: 7, exposed: Some(ExposedReuse::TestnetUnlimitedV1) };
+        v.parent_pools = vec![PoolRef { pool_id: "q".into(), manifest_key: "pools/q/manifest.json".into(), manifest_sha256: hex::encode([7; 32]) }];
+    }
+    assert_eq!(v3::parent_pool_ids(&lifted), ["p", "q"]);
+    assert!(v3::exposed_reuse(&lifted) && !v3::exposed_reuse(&base));
+    let ids = |p: &CohortPlan, ordinal: u64| {
+        tx(&db, |s| v3::reuse_candidates_at(s, p, ordinal)).unwrap().into_iter().map(|c| c.row.row_id).collect::<Vec<_>>()
+    };
+    assert_eq!(ids(&base, 10), ["old", "never"], "K = 4 and G = 7 under the plan's own rule");
+    assert_eq!(ids(&lifted, 10), ["old", "never", "worn", "q-row", "recent"], "every earlier passage, least recently parented first");
+    // The rule's name is versioned in the plan and round-trips.
+    let json = serde_json::to_value(lifted.reward_v1.as_ref().unwrap().reuse).unwrap();
+    assert_eq!(json["exposed"], "testnet_exposed_parents_unlimited_v1");
+    assert!(serde_json::to_value(base.reward_v1.as_ref().unwrap().reuse).unwrap().get("exposed").is_none(), "absent when unused");
+    assert!(serde_json::from_value::<Reuse>(json!({"max_uses": 4, "min_gap": 7, "exposed": "unlimited"})).is_err());
+    // Nothing is ineligible under the rule; the further pool's rows are in
+    // the ledger set, so a fresh-parent draw skips them.
+    let (all, ineligible) = {
+        let mut p = lifted.clone();
+        p.cohort = 1;
+        tx(&db, |s| v3::ledger_rows(s, &p)).unwrap()
+    };
+    assert_eq!(all.len(), 6);
+    assert!(all.contains("q-row") && !all.contains("r-row"));
+    assert!(ineligible.is_empty());
+    // Fresh stock first: n1 (same), then the fresh group, then earlier.
+    let row = |id: &str, g: &str| PoolRow { row_id: id.into(), text_sha256: String::new(), domain: "wikipedia".into(), source_group: g.into(), shard: 0 };
+    let texts: BTreeMap<String, String> =
+        ["n1", "e1", "f1", "f2", "f3"].iter().map(|k| ((*k).to_owned(), human_text(1, 0))).collect();
+    let earlier = vec![v3::ReuseCandidate { row: row("e1", "ge"), uses: 5, generators: Vec::new(), voices: Vec::new(), operations: Vec::new() }];
+    let fresh = vec![row("f1", "g1"), row("f2", "g1"), row("f3", "g2")];
+    let ps = v3::choose_parents(&[7; 32], &[row("n1", "gn")], &earlier, &fresh, &texts, 3, &BTreeSet::new(), true);
+    assert_eq!(ps.children, vec![("n1".into(), "same"), ("f1".into(), "fresh"), ("f2".into(), "fresh")]);
+    let ps = v3::choose_parents(&[7; 32], &[row("n1", "gn")], &earlier, &fresh, &texts, 5, &BTreeSet::new(), true);
+    assert_eq!(ps.children.last().unwrap(), &("e1".to_owned(), "earlier"), "earlier passages once fresh stock is spent");
+    // The parent stock: both pools as one manifest, each further row mapped
+    // to its pool; two pools sharing a row or a text are refused.
+    let (p_pool, _) = pool_of(4);
+    let (mut q_pool, _) = pool_of(2);
+    q_pool.pool_id = "q".into();
+    for r in &mut q_pool.rows {
+        r.row_id = format!("q-{}", r.row_id);
+        r.text_sha256 = format!("q{}", &r.text_sha256[1..]);
+    }
+    let (stock, row_pools) = v3::parent_stock(&p_pool, &[&q_pool]).unwrap();
+    assert_eq!(stock.rows.len(), p_pool.rows.len() + q_pool.rows.len());
+    assert_eq!(stock.pool_id, "p");
+    assert!(q_pool.rows.iter().all(|r| row_pools[&r.row_id] == "q"));
+    assert!(p_pool.rows.iter().all(|r| !row_pools.contains_key(&r.row_id)));
+    let (alone, none) = v3::parent_stock(&p_pool, &[]).unwrap();
+    assert_eq!((alone.rows, none.len()), (p_pool.rows.clone(), 0), "no further pool: the plan's pool unchanged");
+    let mut same_text = q_pool.clone();
+    same_text.rows[0].text_sha256 = p_pool.rows[0].text_sha256.clone();
+    assert_eq!(v3::parent_stock(&p_pool, &[&same_text]).unwrap_err(), v3::PARENT_POOL_OVERLAP);
+    let mut same_id = q_pool.clone();
+    same_id.rows[0].row_id = p_pool.rows[0].row_id.clone();
+    assert_eq!(v3::parent_stock(&p_pool, &[&same_id]).unwrap_err(), v3::PARENT_POOL_OVERLAP);
+    assert_eq!(v3::parent_stock(&p_pool, &[&p_pool]).unwrap_err(), v3::PARENT_POOL_OVERLAP);
+}
+
+/// The exposed-pool rule end to end on a small exposed pool: with the exposed-pool rule and a
+/// further parent pool, back-to-back cohorts keep drawing their parents
+/// (passages parent again inside the old gap, and the further pool's
+/// passages join the ledger under their own pool id), where the plan's own
+/// K = 4, G = 7 rule pauses the next cohort with `draw_shortfall`. A
+/// deployment that does not list the further pool as exposed refuses the
+/// plan, and the rule is refused outside testnet.
+#[test]
+fn v3_the_exposed_pool_rule_keeps_a_small_pool_drawing_where_k_and_g_run_dry() {
+    use super::plan::{ExposedReuse, PoolRef, Reuse};
+    let db = Sqlite::open();
+    sql::migrate(&db, &EVAL_COHORT_SCHEMA).unwrap();
+    let mut c = cfg();
+    c.exposed_pools = vec!["p".into(), "q".into()];
+    let mut sim = Sim::new(&db, c.clone(), 2_000_000);
+    let (pool, mut texts) = pool_of(16);
+    let (mut q, q_texts) = pool_of(6);
+    q.pool_id = "q".into();
+    for r in &mut q.rows {
+        r.row_id = format!("q-{}", r.row_id);
+        r.domain = "plos".into();
+        r.source_group = format!("q-{}", r.source_group);
+    }
+    // Distinct texts for the further pool (a suffix keeps them human prose).
+    for (r, (_, t)) in q.rows.iter_mut().zip(q_texts) {
+        let t = format!("{t} The appendix records the field notes.");
+        r.text_sha256 = hex::encode(Sha256::digest(t.as_bytes()));
+        texts.insert(r.row_id.clone(), t);
+    }
+    sim.pool = pool;
+    sim.texts = texts;
+    sim.parent_pools = vec![q.clone()];
+    let generators: Vec<String> = [
+        "@cf/meta/llama-3.2-3b-instruct",
+        "@cf/meta/llama-3.1-8b-instruct-fp8-fast",
+        "@cf/mistral/mistral-7b-instruct-v0.1",
+        "@cf/ibm-granite/granite-4.0-h-micro",
+    ]
+    .iter()
+    .map(|g| (*g).to_owned())
+    .collect();
+    let weak = v3_artifact(&mut sim, super::plan::tests::identity(0, 0xb0), [1, 2, 3, 4, 5]);
+    let mut probe = plan_v3(1, "testnet-probe-v1", 20, weak.clone());
+    probe.schema = super::plan::PROBE_PLAN_SCHEMA.into();
+    probe.generators = generators.clone();
+    probe.reward_v1.as_mut().unwrap().probe_version = Some(1);
+    probe.reward_v1.as_mut().unwrap().canary.draw_humans = 0;
+    sim.predict = Some(Box::new(|_, kind, task| {
+        let c = model_conf(1, kind, task, (35.0, 65.0, 70.0), 10.0);
+        (c, c * 0.4)
+    }));
+    let pseq = open_cohort(&db, &probe, 10, sim.now);
+    assert_eq!(sim.run(pseq, 3_000), "closed");
+    let probe_ref = super::plan::ProbeRef {
+        version: 1,
+        size: 20,
+        key: "probes/v1/record.json".into(),
+        sha256: lane_logic::sha_hex(&sim.eval["probes/v1/record.json"]),
+    };
+    let q_ref = PoolRef { pool_id: "q".into(), manifest_key: "pools/q/manifest.json".into(), manifest_sha256: hex::encode([7; 32]) };
+    let lifted = |cohort: u64, label: &str| {
+        let mut p = plan_v3(cohort, label, 20, weak.clone());
+        p.generators = generators.clone();
+        let v = p.reward_v1.as_mut().unwrap();
+        v.probes = vec![probe_ref.clone()];
+        v.reuse = Reuse { max_uses: 4, min_gap: 7, exposed: Some(ExposedReuse::TestnetUnlimitedV1) };
+        v.parent_pools = vec![q_ref.clone()];
+        p
+    };
+    // Refused where the further pool is not exposed, and off testnet.
+    let bytes = serde_json::to_vec(&lifted(2, "testnet-u01-x")).unwrap();
+    assert_eq!(tx(&db, |s| engine::queue(s, &cfg(), &bytes, sim.now)).unwrap_err().code(), engine::PARENT_POOL_REFUSED);
+    let mut mainnet = c.clone();
+    mainnet.chain.genesis = slop_ninja_protocol::Digest([9; 32]);
+    assert_eq!(tx(&db, |s| engine::queue(s, &mainnet, &bytes, sim.now)).unwrap_err().code(), engine::EXPOSED_REUSE_TESTNET_ONLY);
+    // Four back-to-back cohorts under the rule.
+    let mut epoch = 20;
+    for (k, cohort) in [2u64, 3, 4, 5].into_iter().enumerate() {
+        let bytes = serde_json::to_vec(&lifted(cohort, &format!("testnet-u01-{k}"))).unwrap();
+        let seq = tx(&db, |s| engine::queue(s, &c, &bytes, sim.now)).unwrap();
+        for e in epoch..epoch + 3 {
+            kick_at(&db, e, sim.now);
+        }
+        epoch = run_to_close(&mut sim, &db, seq, epoch + 2) + 2;
+        assert_eq!(fault_of(&db, seq), None);
+        let draw: Value =
+            serde_json::from_str(&db.conn.query_row("SELECT draw FROM cohorts WHERE seq = ?1", [seq], |r| r.get::<_, String>(0)).unwrap())
+                .unwrap();
+        assert_eq!(draw["exposed_reuse"], "testnet_exposed_parents_unlimited_v1");
+        assert_eq!(draw["parent_pools"], json!(["q"]));
+        assert_eq!(draw["reuse_ordinal"], json!(k as u64 + 1));
+    }
+    let q_rows: i64 = db.conn.query_row("SELECT COUNT(*) FROM reuse_sources WHERE pool_id = 'q'", [], |r| r.get(0)).unwrap();
+    assert!(q_rows > 0, "the further pool's passages joined the ledger under their own pool");
+    let foreign: i64 = db
+        .conn
+        .query_row("SELECT COUNT(*) FROM reuse_sources WHERE pool_id = 'p' AND row_id LIKE 'q-%'", [], |r| r.get(0))
+        .unwrap();
+    assert_eq!(foreign, 0);
+    // Some passage parented in cohorts fewer than G = 7 drawn cohorts apart.
+    let again: i64 = db.conn.query_row("SELECT COUNT(*) FROM reuse_sources WHERE uses >= 2", [], |r| r.get(0)).unwrap();
+    assert!(again > 0, "passages parent again inside the old gap");
+    // The same pool under the plan's own rule: the next cohort runs dry.
+    let mut kg = plan_v3(6, "testnet-u01-kg", 20, weak.clone());
+    kg.generators = generators.clone();
+    kg.reward_v1.as_mut().unwrap().probes = vec![probe_ref.clone()];
+    let bytes = serde_json::to_vec(&kg).unwrap();
+    let seq = tx(&db, |s| engine::queue(s, &c, &bytes, sim.now)).unwrap();
+    for e in epoch..epoch + 3 {
+        kick_at(&db, e, sim.now);
+    }
+    sim.run(seq, 3_000);
+    assert_eq!(fault_of(&db, seq).as_deref(), Some("draw_shortfall"));
 }
 
 #[test]
@@ -3652,7 +3888,7 @@ fn v3_exposed_stock_is_reused_with_fresh_generators_voices_and_operations() {
         {
             let v = p.reward_v1.as_mut().unwrap();
             v.probes = vec![probe_ref.clone()];
-            v.reuse = super::plan::Reuse { max_uses: 4, min_gap: 1 };
+            v.reuse = super::plan::Reuse { max_uses: 4, min_gap: 1, exposed: None };
         }
         let seq = open_cohort(&db, &p, epoch, sim.now);
         epoch = run_to_close(&mut sim, &db, seq, epoch + 2) + 2;
@@ -4896,6 +5132,63 @@ fn a_superseded_predecessor_deletes_on_its_successors_notice() {
     // The original authority, and a retired one, tell nobody.
     assert_eq!(tx(&new, |s| super::retention::notice_due(s, &cfg())).unwrap(), None);
     assert_eq!(tx(&new, |s| super::retention::notice_due(s, &retired)).unwrap(), None);
+}
+
+/// Retention notices on the 2026-11-09 testnet shape: r1 (first cohort 22,
+/// predecessors main and r0) completed cohorts 23 and 24. main's store no
+/// longer opens and main is covered through r0's record. Every predecessor
+/// not yet told is pending at once, so main never holds up r0: the step
+/// records main with r0's own notice cohort (16, `config::retention_covered`)
+/// without asking it, tells r0, and reports only what is still pending as
+/// stalled. r1's own succession record then lists the notices it recorded.
+#[test]
+fn every_pending_predecessor_is_told_independently_and_a_covered_one_is_recorded() {
+    use crate::config::{Authority, SuccessionRecord, retention_covered};
+    let db = Sqlite::open();
+    sql::migrate(&db, &EVAL_COHORT_SCHEMA).unwrap();
+    let r1 = EvalConfig { authority: Authority::named_after("r1", 22, &["r0"]).unwrap(), ..cfg() };
+    closed_cohorts(&db, &[23]);
+    assert_eq!(tx(&db, |s| super::retention::notices_pending(s, &r1)).unwrap(), None, "one completion");
+    closed_cohorts(&db, &[24]);
+    let (after, pending) = tx(&db, |s| super::retention::notices_pending(s, &r1)).unwrap().unwrap();
+    assert_eq!((after, pending.as_slice()), (24, ["main".to_owned(), "r0".to_owned()].as_slice()));
+    // Nothing stalls before a completion follows the notice's cohort.
+    assert!(tx(&db, |s| super::retention::stalled(s, &r1)).unwrap().is_empty());
+    // r0's record as its store reports it: main recorded for cohort 14, a
+    // notice to main after cohort 16. main is recorded with that cohort.
+    let r0 = SuccessionRecord {
+        succession_recorded: vec![("main".into(), 14)],
+        holds_cohorts: true,
+        retention_notices: vec![("main".into(), 16)],
+    };
+    let covered = retention_covered(&r1.authority, "main", "r0", &r0).unwrap();
+    assert_eq!(covered, 16);
+    tx(&db, |s| super::retention::record_notice(s, "main", covered, 1_000)).unwrap();
+    let (after, pending) = tx(&db, |s| super::retention::notices_pending(s, &r1)).unwrap().unwrap();
+    assert_eq!((after, pending.as_slice()), (24, ["r0".to_owned()].as_slice()));
+    let Some(Work::RetentionNotice { predecessor, after_cohort }) = tx(&db, |s| super::retention::notice_due(s, &r1)).unwrap()
+    else {
+        panic!("r0's notice")
+    };
+    assert_eq!((predecessor.as_str(), after_cohort), ("r0", 24));
+    // r0 has not reported nothing left by the next completion: only r0 is
+    // stalled, main never is.
+    closed_cohorts(&db, &[25]);
+    let stalled = tx(&db, |s| super::retention::stalled(s, &r1)).unwrap();
+    let names: Vec<&str> = stalled.iter().filter_map(|v| v["predecessor"].as_str()).collect();
+    assert_eq!(names, vec!["r0"]);
+    // The notice cohort stays the second completion here (24), not a later one.
+    tx(&db, |s| super::retention::record_notice(s, "r0", 24, 2_000)).unwrap();
+    assert_eq!(tx(&db, |s| super::retention::notices_pending(s, &r1)).unwrap(), None);
+    assert!(tx(&db, |s| super::retention::stalled(s, &r1)).unwrap().iter().all(|v| v["kind"] != "predecessor"));
+    assert_eq!(
+        tx(&db, super::retention::notices_recorded).unwrap(),
+        vec![("main".to_owned(), 16), ("r0".to_owned(), 24)]
+    );
+    // Without r0's notice in its record, main is told directly like any
+    // other predecessor: nothing is skipped on the cover alone.
+    let r0_old = SuccessionRecord { retention_notices: Vec::new(), ..r0 };
+    assert_eq!(retention_covered(&r1.authority, "main", "r0", &r0_old), None);
 }
 
 /// In a superseded predecessor, an authorization the pointer still names

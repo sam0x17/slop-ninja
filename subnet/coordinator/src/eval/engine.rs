@@ -396,6 +396,14 @@ pub const FRESH_STOCK_REFUSED: &str =
 /// The draw's fault code for a fresh pool without an admitted outside entrant.
 pub const FRESH_STOCK_REFUSED_CODE: &str = "fresh_stock_refused";
 
+/// A plan names a further parent pool the deployment does not list as
+/// exposed (`reward_v1.parent_pools`: exposed stock only).
+pub const PARENT_POOL_REFUSED: &str =
+    "reward_v1.parent_pools (parent pools are exposed stock only; list them in EXPOSED_POOLS)";
+
+/// A plan names the testnet-only exposed-pool reuse rule on another chain.
+pub const EXPOSED_REUSE_TESTNET_ONLY: &str = "reward_v1.reuse.exposed (testnet only)";
+
 /// Fault codes an operator clear can resume, because the cohort's work can
 /// still finish: outages, refused scorer slots, platform refusals (an arena
 /// or object bound, which a corrected deployment lifts), a root step that
@@ -1773,6 +1781,16 @@ pub fn admit(cfg: &EvalConfig, bytes: &[u8]) -> R<(CohortPlan, Admission)> {
     // has one: only pools the deployment lists as exposed may be drawn.
     if plan.is_v3() && !cfg.exposed_pools.contains(&plan.pool.pool_id) {
         return Err(EvalError::Plan(FRESH_STOCK_REFUSED));
+    }
+    // Further parent pools are exposed stock only, and the exposed-pool
+    // reuse rule is testnet's (`plan::ExposedReuse`).
+    if let Some(v) = &plan.reward_v1 {
+        if v.parent_pools.iter().any(|p| !cfg.exposed_pools.contains(&p.pool_id)) {
+            return Err(EvalError::Plan(PARENT_POOL_REFUSED));
+        }
+        if v.reuse.exposed.is_some() && cfg.chain.genesis != slop_ninja_protocol::TESTNET_GENESIS {
+            return Err(EvalError::Plan(EXPOSED_REUSE_TESTNET_ONLY));
+        }
     }
     let f = plan.fanout().map_err(|e| EvalError::Plan(e.0))?;
     // The generation pause bound is part of what the plan's seal binds, so a
@@ -4144,6 +4162,8 @@ pub fn status(sql: &impl Sql, now_ms: u64) -> R<Value> {
             let e = &q("SELECT admission_closed_epoch, published_epoch, closure_digest FROM cohorts WHERE seq = ?")?[0];
             json!({"probe_build": c.plan.is_probe_build(), "probe_cut": c.plan.is_probe_cut(),
                 "probe_version": c.plan.reward_v1.as_ref().and_then(|v| v.probe_version), "mode": st.mode, "promoted": st.promoted,
+                "exposed_reuse": c.plan.reward_v1.as_ref().and_then(|v| v.reuse.exposed).map(crate::eval::plan::ExposedReuse::name),
+                "parent_pools": c.plan.reward_v1.as_ref().map(|v| v.parent_pools.iter().map(|p| p.pool_id.as_str()).collect::<Vec<_>>()),
                 "unexecuted": st.unexecuted, "batch_tasks": st.batch_tasks, "probe_tasks": st.probe_tasks,
                 "audit_tasks": st.audit_tasks, "reference_index": st.reference_index,
                 "admission_closed_epoch": opt_int(e, 0), "published_epoch": opt_int(e, 1), "closure": opt_text(e, 2)})

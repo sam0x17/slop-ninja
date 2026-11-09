@@ -155,6 +155,10 @@ pub const REUSE_RULE: &str = "rewrite_source_ledger_v2";
 /// for a cohort with an admitted external entrant.
 pub const DRAW_EXPOSED: &str = "exposed";
 pub const DRAW_FRESH: &str = "fresh";
+/// The draw refuses further parent pools (`reward_v1.parent_pools`) or the
+/// exposed-pool reuse rule (`reward_v1.reuse.exposed`) unless the plan's
+/// pool and every parent pool are listed in `EXPOSED_POOLS`.
+pub const PARENT_POOLS_NOT_EXPOSED: &str = "parent_pools_not_exposed";
 /// The testnet canary without anchors: flags only from the plan's drill list.
 pub const CANARY_RULE: &str = "testnet_drill_only_v1";
 pub const DRILL_REASON: &str = "canary.drill";
@@ -374,10 +378,62 @@ fn split_list(s: &str) -> Vec<String> {
     s.split(',').filter(|g| !g.is_empty()).map(str::to_owned).collect()
 }
 
-/// Earlier passages of the plan's pool that cohort `plan` may parent from:
-/// fewer than `max_uses` parent uses, first seen in an earlier drawn cohort,
-/// and the last use at least `min_gap` drawn cohorts back; oldest last use
-/// first (a never-parented passage first by the cohort that drew it).
+/// The pools whose passages may parent mixed children in cohort `plan`: its
+/// own pool, then `reward_v1.parent_pools` in plan order.
+pub fn parent_pool_ids(plan: &CohortPlan) -> Vec<&str> {
+    std::iter::once(plan.pool.pool_id.as_str())
+        .chain(plan.reward_v1.iter().flat_map(|v| v.parent_pools.iter().map(|p| p.pool_id.as_str())))
+        .collect()
+}
+
+/// Whether cohort `plan` runs the exposed-pool reuse rule
+/// (`plan::ExposedReuse`): `max_uses` and `min_gap` then bind no passage of
+/// its pools, which the draw refuses unless every one is exposed.
+pub fn exposed_reuse(plan: &CohortPlan) -> bool {
+    plan.reward_v1.as_ref().is_some_and(|v| v.reuse.exposed.is_some())
+}
+
+/// The stock a cohort's fresh parents come from: the plan's pool's rows,
+/// then every further parent pool's (`reward_v1.parent_pools`, in plan
+/// order), as one manifest whose domains are the strata of one
+/// domain-proportional draw (`pool::draw`), with each further pool's rows
+/// mapped to their pool id. With no further pool the stock is the plan's
+/// pool unchanged. Refused when two pools share a row id or a text digest:
+/// a passage belongs to one pool's ledger row.
+pub fn parent_stock(main: &pool::PoolManifest, parents: &[&pool::PoolManifest]) -> Result<(pool::PoolManifest, BTreeMap<String, String>), &'static str> {
+    let mut ids: BTreeSet<&str> = main.rows.iter().map(|r| r.row_id.as_str()).collect();
+    let mut digests: BTreeSet<&str> = main.rows.iter().map(|r| r.text_sha256.as_str()).collect();
+    let mut stock = main.clone();
+    let mut row_pools = BTreeMap::new();
+    for m in parents {
+        if m.pool_id == main.pool_id {
+            return Err(PARENT_POOL_OVERLAP);
+        }
+        for r in &m.rows {
+            if !ids.insert(r.row_id.as_str()) || !digests.insert(r.text_sha256.as_str()) {
+                return Err(PARENT_POOL_OVERLAP);
+            }
+            row_pools.insert(r.row_id.clone(), m.pool_id.clone());
+            stock.rows.push(r.clone());
+        }
+    }
+    Ok((stock, row_pools))
+}
+
+/// [`parent_stock`]'s refusal: two pools share a row id or a text digest.
+pub const PARENT_POOL_OVERLAP: &str = "parent pools share a row or a text";
+
+/// `?, ?, ...` for `n` bound values.
+fn placeholders(n: usize) -> String {
+    vec!["?"; n].join(", ")
+}
+
+/// Earlier passages of the plan's parent pools ([`parent_pool_ids`]) that
+/// cohort `plan` may parent from: first seen in an earlier drawn cohort and,
+/// unless the plan runs the exposed-pool rule ([`exposed_reuse`]), with
+/// fewer than `max_uses` parent uses and the last use at least `min_gap`
+/// drawn cohorts back; oldest last use first (a never-parented passage first
+/// by the cohort that drew it).
 pub fn reuse_candidates(sql: &impl Sql, plan: &CohortPlan) -> R<Vec<ReuseCandidate>> {
     let ordinal = reuse_ordinal(sql, plan.cohort)?;
     reuse_candidates_at(sql, plan, ordinal)
@@ -386,19 +442,25 @@ pub fn reuse_candidates(sql: &impl Sql, plan: &CohortPlan) -> R<Vec<ReuseCandida
 /// [`reuse_candidates`] for a cohort with reuse ordinal `ordinal`.
 pub fn reuse_candidates_at(sql: &impl Sql, plan: &CohortPlan, ordinal: u64) -> R<Vec<ReuseCandidate>> {
     let v = v1(plan)?;
+    let pools = parent_pool_ids(plan);
+    let mut args = vec![
+        bind_u64(ordinal)?,
+        i(i64::from(exposed_reuse(plan))),
+        bind_u64(u64::from(v.reuse.max_uses))?,
+        bind_u64(v.reuse.min_gap)?,
+        bind_u64(ordinal)?,
+    ];
+    args.extend(pools.iter().map(|p| s(*p)));
     let rows = sql.exec(
-        "SELECT row_id, text_sha256, source_group, domain, shard, uses, generators, voices, operations
-         FROM reuse_sources
-         WHERE uses < ? AND first_ordinal < ? AND (last_ordinal IS NULL OR last_ordinal + ? <= ?)
-           AND pool_id = ?
-         ORDER BY COALESCE(last_ordinal, first_ordinal), row_id",
-        &[
-            bind_u64(u64::from(v.reuse.max_uses))?,
-            bind_u64(ordinal)?,
-            bind_u64(v.reuse.min_gap)?,
-            bind_u64(ordinal)?,
-            s(&plan.pool.pool_id),
-        ],
+        &format!(
+            "SELECT row_id, text_sha256, source_group, domain, shard, uses, generators, voices, operations
+             FROM reuse_sources
+             WHERE first_ordinal < ? AND (? OR (uses < ? AND (last_ordinal IS NULL OR last_ordinal + ? <= ?)))
+               AND pool_id IN ({})
+             ORDER BY COALESCE(last_ordinal, first_ordinal), row_id",
+            placeholders(pools.len())
+        ),
+        &args,
     )?;
     rows.iter()
         .map(|r| {
@@ -419,24 +481,31 @@ pub fn reuse_candidates_at(sql: &impl Sql, plan: &CohortPlan, ordinal: u64) -> R
         .collect()
 }
 
-/// Rows of the plan's pool already in the rewrite-source ledger, and those
-/// among them that may not parent a child in cohort `plan` (the reuse limit
-/// or the gap). An exposed-stock draw may take any of them as a negative or
-/// an audit human, but a fresh-parent draw skips them all (an eligible one is
+/// Rows of the plan's parent pools ([`parent_pool_ids`]) already in the
+/// rewrite-source ledger, and those among them that may not parent a child
+/// in cohort `plan` (the reuse limit or the gap; none under the exposed-pool
+/// rule). An exposed-stock draw may take any of them as a negative or an
+/// audit human, but a fresh-parent draw skips them all (an eligible one is
 /// already an earlier candidate) and a same-cohort negative among the
 /// ineligible ones parents nothing.
 pub fn ledger_rows(sql: &impl Sql, plan: &CohortPlan) -> R<(BTreeSet<String>, BTreeSet<String>)> {
     let v = v1(plan)?;
     let ordinal = reuse_ordinal(sql, plan.cohort)?;
+    let pools = parent_pool_ids(plan);
+    let mut args = vec![
+        i(i64::from(exposed_reuse(plan))),
+        bind_u64(u64::from(v.reuse.max_uses))?,
+        bind_u64(v.reuse.min_gap)?,
+        bind_u64(ordinal)?,
+    ];
+    args.extend(pools.iter().map(|p| s(*p)));
     let rows = sql.exec(
-        "SELECT row_id, uses >= ? OR (last_ordinal IS NOT NULL AND last_ordinal + ? > ?) FROM reuse_sources
-         WHERE pool_id = ?",
-        &[
-            bind_u64(u64::from(v.reuse.max_uses))?,
-            bind_u64(v.reuse.min_gap)?,
-            bind_u64(ordinal)?,
-            s(&plan.pool.pool_id),
-        ],
+        &format!(
+            "SELECT row_id, NOT ? AND (uses >= ? OR (last_ordinal IS NOT NULL AND last_ordinal + ? > ?)) FROM reuse_sources
+             WHERE pool_id IN ({})",
+            placeholders(pools.len())
+        ),
+        &args,
     )?;
     let mut all = BTreeSet::new();
     let mut ineligible = BTreeSet::new();
@@ -513,6 +582,10 @@ pub struct DrawV3 {
     /// as read by the Worker (checked again by the draw). `None` for a v1
     /// plan.
     pub generation: Option<crate::eval::gen_v2::DrawObjects>,
+    /// The pool of each fresh parent row from a further parent pool
+    /// (`reward_v1.parent_pools`), by row id; a row not listed is the plan's
+    /// own pool's. Its ledger row records that pool.
+    pub row_pools: BTreeMap<String, String>,
 }
 
 /// The parents chosen for the mixed children and the rows the draw consumes.
@@ -526,8 +599,12 @@ pub struct Parents {
 
 /// Chooses the parents of `want` mixed children: same-cohort negatives with a
 /// selectable span (except `ineligible` ones, which reached the reuse limit
-/// or are inside the gap), then earlier eligible passages, then fresh stock.
-/// Fresh groups are taken whole, and a fresh group's rows go together.
+/// or are inside the gap), then earlier eligible passages, then fresh stock;
+/// with `fresh_first` (the exposed-pool rule, `plan::ExposedReuse`), fresh
+/// stock before earlier passages, so a never-parented passage parents before
+/// any passage parents again. Fresh groups are taken whole, and a fresh
+/// group's rows go together.
+#[allow(clippy::too_many_arguments)]
 pub fn choose_parents(
     seed: &[u8; 32],
     negatives: &[PoolRow],
@@ -536,6 +613,7 @@ pub fn choose_parents(
     texts: &BTreeMap<String, String>,
     want: u32,
     ineligible: &BTreeSet<String>,
+    fresh_first: bool,
 ) -> Parents {
     let usable = |row: &PoolRow, key: &str| -> bool {
         texts
@@ -553,14 +631,19 @@ pub fn choose_parents(
             left -= 1;
         }
     }
-    for c in earlier {
-        if left == 0 {
-            break;
+    let take_earlier = |out: &mut Parents, left: &mut usize| {
+        for c in earlier {
+            if *left == 0 {
+                break;
+            }
+            if usable(&c.row, &format!("m:{}", c.row.row_id)) {
+                out.children.push((c.row.row_id.clone(), "earlier"));
+                *left -= 1;
+            }
         }
-        if usable(&c.row, &format!("m:{}", c.row.row_id)) {
-            out.children.push((c.row.row_id.clone(), "earlier"));
-            left -= 1;
-        }
+    };
+    if !fresh_first {
+        take_earlier(&mut out, &mut left);
     }
     let mut groups_taken: BTreeSet<&str> = BTreeSet::new();
     for r in fresh {
@@ -572,6 +655,9 @@ pub fn choose_parents(
             left -= 1;
             groups_taken.insert(r.source_group.as_str());
         }
+    }
+    if fresh_first {
+        take_earlier(&mut out, &mut left);
     }
     // Every row of a group that parented a child is consumed, so the group
     // never splits between the stock and the cohort.
@@ -640,6 +726,15 @@ pub fn apply_draw(
     // Fresh stock only for a cohort with an admitted outside entrant.
     if !exposed && !fresh_allowed(sql, &c)? {
         return Err(EvalError::State(engine::FRESH_STOCK_REFUSED_CODE));
+    }
+    // Further parent pools and the exposed-pool rule only over exposed stock.
+    if (!v.parent_pools.is_empty() || v.reuse.exposed.is_some())
+        && (!exposed || v.parent_pools.iter().any(|p| !cfg.exposed_pools.contains(&p.pool_id)))
+    {
+        return Err(EvalError::State(PARENT_POOLS_NOT_EXPOSED));
+    }
+    if d.row_pools.values().any(|p| !v.parent_pools.iter().any(|q| &q.pool_id == p)) {
+        return Err(EvalError::State("drawn row of a pool the plan does not name"));
     }
     let seed = cohort_seed(&cfg.private_seed, &c.label);
     let [n_h, n_m, n_s] = plan.generated_counts();
@@ -986,7 +1081,7 @@ pub fn apply_draw(
                     bind_u64(plan.cohort)?,
                     i(i64::from(variant.is_some())),
                     if variant.is_some() { bind_u64(plan.cohort)? } else { SqlValue::Null },
-                    s(&plan.pool.pool_id),
+                    s(d.row_pools.get(&r.row_id).unwrap_or(&plan.pool.pool_id)),
                     bind_u64(ordinal)?,
                     if variant.is_some() { bind_u64(ordinal)? } else { SqlValue::Null },
                     s(variant.map_or("", |v| v.0.as_str())),
@@ -1019,6 +1114,10 @@ pub fn apply_draw(
         }
     }
     let by_origin = |o: &str| parents.children.iter().filter(|(_, x)| *x == o).count();
+    let mut fresh_by_pool: BTreeMap<&str, usize> = BTreeMap::new();
+    for r in &parents.fresh_used {
+        *fresh_by_pool.entry(d.row_pools.get(&r.row_id).map_or(plan.pool.pool_id.as_str(), String::as_str)).or_default() += 1;
+    }
     let gen_summary = match gdraw {
         Some(gd) => Some(gd.finish(sql, seq)?),
         None => None,
@@ -1029,6 +1128,9 @@ pub fn apply_draw(
         "reuse": {"max_uses": v.reuse.max_uses, "min_gap": v.reuse.min_gap},
         "humans": d.negatives.rows.len(), "audit_a": audit_a.len(), "audit_b": audit_b.len(),
         "mixed_parents": {"same_cohort": by_origin("same"), "earlier": by_origin("earlier"), "fresh": by_origin("fresh")},
+        "exposed_reuse": v.reuse.exposed.map(crate::eval::plan::ExposedReuse::name),
+        "parent_pools": v.parent_pools.iter().map(|p| p.pool_id.as_str()).collect::<Vec<_>>(),
+        "fresh_parent_rows_by_pool": fresh_by_pool,
         "fresh_parent_rows": parents.fresh_used.len(), "model_only": n_s,
         "probe_docs": d.probe.iter().map(|(_, x)| x.len()).sum::<usize>(),
         "available_before": d.negatives.available_rows,

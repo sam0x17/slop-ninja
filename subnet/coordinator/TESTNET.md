@@ -4207,6 +4207,42 @@ Every step is one-way once its records exist:
 The deploy's versions are recorded as the new rollback floors in the
 private inventory.
 
+### Exposed-pool reuse and a further parent pool (2026-11-09)
+
+**Why.** The standing r1 template drew every parent from
+`testnet-human-pool-pc1` (4,593 rows) under `max_uses` 4 and `min_gap` 7,
+with 660 parents a cohort (550 mixed children plus 20% spares). Inside
+seven consecutive drawn cohorts no passage parents twice, so they need
+7 × 660 = 4,620 distinct passages, more than the pool holds. Read from the
+r1 ledger entries of cohorts 23 and 24 (660 parents each, none shared): the
+probe build's rows are not withdrawn (they parented again as fresh stock),
+so reuse ordinal 6 (testnet-r1-28) still finds at most 4,593 − 5 × 660 =
+1,293 eligible passages, and ordinal 7 (testnet-r1-29) at most 4,593 −
+6 × 660 = 633 < 660: its draw would pause with `draw_shortfall`.
+
+**Rule.** `reward_v1.reuse.exposed = "testnet_exposed_parents_unlimited_v1"`
+lifts `max_uses` and `min_gap` for exposed pools; one child per parent per
+cohort still holds, and never-parented stock parents before any passage
+parents again. Scores on exposed pools can rest on lookup: these texts are
+public or consumed, so testnet cohorts drawn from them test the plumbing and
+are not evidence of model quality. The rule is testnet-only and ends when
+the paragraph composer goes live.
+
+**Pool v1 as a parent pool.** `reward_v1.parent_pools` adds
+`testnet-human-pool-v1` (the Dev-iter humans) as parents only. Its export
+records no token bound, which the seeded order's input screen requires, so
+`slop_ninja_a_testnet_eval_manifest pool-token-bound` writes a manifest for
+the same pool id and the same stored shards with the rows of at most 1,000
+scorer tokens (the public-candidate bound) and the bound recorded; the
+template names that manifest. Both pools are already in `EXPOSED_POOLS`.
+
+**Install in a cohort gap.** An install keeps the calendar's pause, so the
+template is paused before the running cohort reaches its transition (the
+calendar queues the next cohort then), the eval build is deployed, the new
+template is installed while paused, and the calendar is resumed; the next
+cohort queues from the new template. A missed gap moves the change to the
+next cohort's close; no cohort is skipped.
+
 ### Cost projection (daily K = 20 cohorts, n = 1,000)
 
 The projection's inputs come from the load rehearsals of 2026-10-31 (3 to 129

@@ -517,8 +517,20 @@ pub struct RewardV1Plan {
     /// The reward-intent lease, at least two cohort lengths.
     pub lease_tempos: u32,
     /// Rewrite-source reuse: a pure-human passage may parent at most
-    /// `max_uses` mixed children, uses at least `min_gap` cohorts apart.
+    /// `max_uses` mixed children, uses at least `min_gap` cohorts apart
+    /// (for exposed pools, see `reuse.exposed`).
     pub reuse: Reuse,
+    /// Further exposed pools whose passages may parent mixed children,
+    /// beside the plan's own `pool` (never drawn as negatives or audit
+    /// humans, never scored as humans). Each must be a pool the deployment
+    /// lists in `EXPOSED_POOLS`, distinct from `pool` and from each other,
+    /// with a token bound recorded in its export under the seeded order
+    /// (as `pool` itself); the plan's own pool must be exposed too, and a
+    /// plan naming a fresh pool names none. Their rows join the
+    /// rewrite-source ledger under their own pool ids. Absent (empty):
+    /// parents come from `pool` alone, as in plans written before it.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub parent_pools: Vec<PoolRef>,
     /// Fingerprint probe versions in use, in version order (empty in a probe build).
     #[serde(default)]
     pub probes: Vec<ProbeRef>,
@@ -791,6 +803,44 @@ impl AdmissionPlan {
 pub struct Reuse {
     pub max_uses: u32,
     pub min_gap: u64,
+    /// The rewrite-source rule for exposed pools ([`ExposedReuse`]). Absent:
+    /// `max_uses` and `min_gap` bind every pool, as in plans written before
+    /// it (the field is never serialized when absent, so stored plans keep
+    /// their digests). An eval build older than this field refuses any plan
+    /// or template naming it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub exposed: Option<ExposedReuse>,
+}
+
+/// A versioned rewrite-source rule for exposed pools (the pools the
+/// deployment lists in `EXPOSED_POOLS`, whose every passage is already
+/// public or consumed).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub enum ExposedReuse {
+    /// `testnet_exposed_parents_unlimited_v1` (testnet only, adopted
+    /// 2026-11-09): an exposed passage may parent a mixed child in
+    /// any cohort, however often and however recently it parented one, so
+    /// `max_uses` and `min_gap` bind only fresh stock. One child per parent
+    /// per cohort still holds, a passage first seen in this cohort parents
+    /// only as one of its own negatives, and parents come from the
+    /// cohort's own negatives, then never-parented stock, then earlier
+    /// passages, least recently parented first, so every exposed passage
+    /// parents as rarely as the supply allows. Refused outside testnet,
+    /// with a fresh pool and for a pool the deployment does not list as
+    /// exposed. It ends when the paragraph composer goes live: the
+    /// composer's per-paragraph reuse cap replaces this row rule, so the
+    /// composer's plan check must refuse a plan that also names it.
+    #[serde(rename = "testnet_exposed_parents_unlimited_v1")]
+    TestnetUnlimitedV1,
+}
+
+impl ExposedReuse {
+    /// The rule's versioned name, as plans and draw summaries write it.
+    pub fn name(self) -> &'static str {
+        match self {
+            ExposedReuse::TestnetUnlimitedV1 => "testnet_exposed_parents_unlimited_v1",
+        }
+    }
 }
 
 /// A probe version in use: its private record in the eval bucket.
@@ -849,6 +899,20 @@ impl RewardV1Plan {
         e(!self.sigma_basis.is_empty() && self.sigma_basis.len() <= 200, "reward_v1.sigma_basis")?;
         e(u64::from(self.lease_tempos) >= 2 * k_tempos, "reward_v1.lease_tempos (at least 2K)")?;
         e(self.reuse.max_uses >= 1 && self.reuse.min_gap >= 1, "reward_v1.reuse")?;
+        for (i, p) in self.parent_pools.iter().enumerate() {
+            e(
+                key_ok(&p.manifest_key) && parse_hex32(&p.manifest_sha256).is_some() && !p.pool_id.is_empty(),
+                "reward_v1.parent_pools",
+            )?;
+            e(
+                self.parent_pools.iter().take(i).all(|q| q.pool_id != p.pool_id && q.manifest_key != p.manifest_key),
+                "reward_v1.parent_pools (each pool once)",
+            )?;
+        }
+        e(
+            !probe_build || (self.parent_pools.is_empty() && self.reuse.exposed.is_none()),
+            "reward_v1.parent_pools and reward_v1.reuse.exposed (none in a probe build)",
+        )?;
         let g = &self.gates;
         e(
             g.operating_ppb > 0
@@ -1345,6 +1409,18 @@ impl CohortPlan {
                 && !self.pool.pool_id.is_empty(),
             "pool",
         )?;
+        if let Some(v) = &self.reward_v1 {
+            e(
+                v.parent_pools.iter().all(|p| p.pool_id != self.pool.pool_id && p.manifest_key != self.pool.manifest_key),
+                "reward_v1.parent_pools (distinct from pool)",
+            )?;
+            // Exposed parents never join a cohort that may draw fresh stock.
+            let fresh = self.admission.as_ref().is_some_and(|a| a.fresh_pool.is_some());
+            e(
+                !fresh || (v.parent_pools.is_empty() && v.reuse.exposed.is_none()),
+                "reward_v1.parent_pools and reward_v1.reuse.exposed (none with admission.fresh_pool)",
+            )?;
+        }
         // v1 prices its generators from `textgen::PRICES`; a v2 plan's are
         // the bound manifest's Workers AI ids and prices, checked at
         // admission (`slop_ninja_gen_core::plan::admit`).

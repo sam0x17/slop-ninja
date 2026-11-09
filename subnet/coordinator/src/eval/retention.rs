@@ -69,7 +69,13 @@
 //! and N+2. The successor repeats the notice until the predecessor reports
 //! nothing left, because a retired authority's alarm re-arms only while it
 //! is kicked. Due deletions never block succession (`engine::blocking_work`):
-//! whatever remains finishes under the successor's notices.
+//! whatever remains finishes under the successor's notices. Each predecessor
+//! is told independently ([`notices_pending`]), so one that never answers
+//! holds up no other. A predecessor covered through a later predecessor's
+//! record (it is never opened) is not told when that later predecessor's
+//! own notice to it already reached past its highest cohort + 2
+//! (`config::retention_covered`): it is recorded with that
+//! notice's cohort instead.
 //!
 //! Deletion is resumable: each step deletes at most one listing page of
 //! objects (R2's list bound) and then, after the listing is empty and the two
@@ -472,8 +478,28 @@ pub fn finish(sql: &impl Sql, seq: i64, page: usize, now_ms: u64) -> R<bool> {
 
 /// A predecessor this authority has not yet told about its completions, with
 /// the cohort after which the predecessor's receipts are due (the second
-/// completed cohort here). The original and retired authorities tell nobody.
+/// completed cohort here): the first of [`notices_pending`]. The original
+/// and retired authorities tell nobody.
 pub fn notice_due(sql: &impl Sql, cfg: &EvalConfig) -> R<Option<Work>> {
+    Ok(notices_pending(sql, cfg)?.and_then(|(after, preds)| {
+        preds.into_iter().next().map(|p| Work::RetentionNotice { predecessor: p, after_cohort: after })
+    }))
+}
+
+/// Every predecessor this authority has not yet told (no `retention_notices`
+/// row), in the deployment's order, with the cohort after which their
+/// receipts are due; `None` before the second completion here, and for the
+/// original and retired authorities.
+///
+/// The notice step (`cf_eval`'s `RetentionNotice` arm) handles each one
+/// independently: a predecessor that does not answer never
+/// holds up the ones after it. A predecessor covered through a later one's
+/// record (`config::succession_through`) whose own successor already
+/// delivered its notice past that predecessor's highest cohort + 2
+/// (`config::retention_covered`) is recorded without being asked, with that
+/// successor's cohort; any other is told directly, and recorded once it
+/// reports nothing left.
+pub fn notices_pending(sql: &impl Sql, cfg: &EvalConfig) -> R<Option<(u64, Vec<String>)>> {
     if cfg.authority.is_retired() {
         return Ok(None);
     }
@@ -482,12 +508,25 @@ pub fn notice_due(sql: &impl Sql, cfg: &EvalConfig) -> R<Option<Work>> {
         return Ok(None);
     }
     let Some(after) = completed(sql)?.get(1).copied() else { return Ok(None) };
+    let mut pending = Vec::new();
     for p in preds {
         if sql.exec("SELECT 1 FROM retention_notices WHERE predecessor = ?", &[s(p)])?.is_empty() {
-            return Ok(Some(Work::RetentionNotice { predecessor: p.to_owned(), after_cohort: after }));
+            pending.push(p.to_owned());
         }
     }
-    Ok(None)
+    Ok((!pending.is_empty()).then_some((after, pending)))
+}
+
+/// The notices this authority recorded, `(predecessor, after cohort)` in
+/// name order, for its succession record (`config::SuccessionRecord`): a
+/// later successor that covers one of these predecessors through this
+/// authority's record skips its own notice by them
+/// (`config::retention_covered`).
+pub fn notices_recorded(sql: &impl Sql) -> R<Vec<(String, u64)>> {
+    sql.exec("SELECT predecessor, after_cohort FROM retention_notices ORDER BY predecessor", &[])?
+        .iter()
+        .map(|r| Ok((text(r, 0)?.to_owned(), ou(r, 1).ok_or(EvalError::State("notice cohort"))?)))
+        .collect()
 }
 
 /// The predecessor reported nothing left to delete after `after`.
@@ -613,15 +652,13 @@ pub fn stalled(sql: &impl Sql, cfg: &EvalConfig) -> R<Vec<Value>> {
             }));
         }
     }
-    if let Some(Work::RetentionNotice { after_cohort, .. }) = notice_due(sql, cfg)? {
+    if let Some((after_cohort, pending)) = notices_pending(sql, cfg)? {
         let n = since(after_cohort);
         if n > 0 {
-            for p in cfg.authority.predecessors() {
-                if sql.exec("SELECT 1 FROM retention_notices WHERE predecessor = ?", &[s(p)])?.is_empty() {
-                    out.push(json!({
-                        "kind": "predecessor", "predecessor": p, "after_cohort": after_cohort, "completions_since": n,
-                    }));
-                }
+            for p in pending {
+                out.push(json!({
+                    "kind": "predecessor", "predecessor": p, "after_cohort": after_cohort, "completions_since": n,
+                }));
             }
         }
     }

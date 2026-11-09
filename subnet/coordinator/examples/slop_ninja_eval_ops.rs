@@ -33,7 +33,15 @@
 //!     --reference ARTIFACT.json [--previous-reference ARTIFACT.json] [--probe-version V] --out DIR
 //! slop_ninja_eval_ops template-reinstall --cut DIR/probe-cut.json --record RECORD.json
 //!     --template TEMPLATE.json --wrangler WRANGLER.toml --tempo-blocks B [standing-template's options]
+//! slop_ninja_eval_ops template-check --template TEMPLATE.json --wrangler WRANGLER.toml
 //! ```
+//!
+//! - `template-check` runs the eval's own install check (`calendar::check`)
+//!   on a finished template under the tracked `wrangler.toml` (the exposed
+//!   pools, chain and authority it declares) and prints its digest, its
+//!   reuse rule and parent pools and its capacity. The store-dependent
+//!   install checks (probe versions recorded and fingerprinted, the chain's
+//!   references) run only at the install itself.
 //!
 //! - `load-plan` writes a `slop_ninja_eval_load_plan_v1` plan: R_0 (the
 //!   reference artifact, without its owner, from ARTIFACT.json) owned by
@@ -828,6 +836,30 @@ fn template_reinstall(flags: &BTreeMap<String, String>) {
     template_out(flags, &cfg, "template-reinstall", cut["reference"].clone(), probe);
 }
 
+/// `template-check`: the eval's install check on a finished template under
+/// the tracked configuration; refuses with the eval's own code.
+fn template_check(flags: &BTreeMap<String, String>) {
+    use slop_ninja_coordinator::eval::calendar;
+    let vars = eval_vars(&flag::<String>(flags, "wrangler"));
+    let cfg = tracked_eval_config(&vars);
+    let path = flag::<String>(flags, "template");
+    let bytes = std::fs::read(&path).unwrap_or_else(|e| fail(&format!("template: {e}")));
+    let t = calendar::check(&cfg, &bytes).unwrap_or_else(|e| fail(&format!("template refused: {}", e.code())));
+    let v = t.plan.reward_v1.as_ref().unwrap_or_else(|| fail("template: no reward_v1 block"));
+    let out = json!({
+        "sha256": sha_hex(&bytes),
+        "label_prefix": t.label_prefix,
+        "pool": t.plan.pool.pool_id,
+        "parent_pools": v.parent_pools.iter().map(|p| json!({"pool_id": p.pool_id, "manifest_key": p.manifest_key,
+            "manifest_sha256": p.manifest_sha256})).collect::<Vec<_>>(),
+        "reuse": {"max_uses": v.reuse.max_uses, "min_gap": v.reuse.min_gap,
+            "exposed": v.reuse.exposed.map(slop_ninja_coordinator::eval::plan::ExposedReuse::name)},
+        "spares_permille": v.spares_permille,
+        "capacity": calendar::capacity(&t),
+    });
+    println!("{}", serde_json::to_string_pretty(&out).expect("json"));
+}
+
 /// `probe-cut`: a same-authority probe cut's plan and record.
 fn probe_cut(flags: &BTreeMap<String, String>) {
     let vars = eval_vars(&flag::<String>(flags, "wrangler"));
@@ -1073,6 +1105,7 @@ fn main() {
         "standing-template" => standing_template(&flags),
         "probe-cut" => probe_cut(&flags),
         "template-reinstall" => template_reinstall(&flags),
+        "template-check" => template_check(&flags),
         other => fail(&format!("unknown subcommand {other}")),
     }
 }

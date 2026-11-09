@@ -115,7 +115,9 @@ fn admission_plan(cohort: u64, cap: u16) -> plan::CohortPlan {
         reuse: plan::Reuse {
             max_uses: 4,
             min_gap: 7,
+            exposed: None,
         },
+        parent_pools: Vec::new(),
         probes: vec![ProbeRef {
             version: 1,
             size: 10,
@@ -1790,6 +1792,92 @@ fn the_calendar_opens_cohorts_from_the_standing_template() {
     );
 }
 
+/// A plan that can draw fresh stock (`admission.fresh_pool`) names
+/// neither further parent pools nor the testnet exposed-pool reuse rule, a
+/// parent pool is never the plan's own pool or named twice, and a probe
+/// build names neither. A standing template with both validates.
+#[test]
+fn parent_pools_and_the_exposed_rule_never_meet_fresh_stock() {
+    use plan::{ExposedReuse, PoolRef, Reuse};
+    let q = PoolRef { pool_id: "q".into(), manifest_key: "pools/q/manifest.json".into(), manifest_sha256: hex::encode([7; 32]) };
+    let mut p = template_plan(0, 40);
+    {
+        let v = p.reward_v1.as_mut().unwrap();
+        v.reuse = Reuse { max_uses: 4, min_gap: 7, exposed: Some(ExposedReuse::TestnetUnlimitedV1) };
+        v.parent_pools = vec![q.clone()];
+    }
+    let c = cfg().ceilings;
+    p.validate(c).unwrap();
+    let refused = |p: &plan::CohortPlan| p.validate(c).unwrap_err().0;
+    let mut fresh = p.clone();
+    fresh.admission.as_mut().unwrap().fresh_pool = admission_plan(0, 40).admission.unwrap().fresh_pool;
+    assert!(fresh.admission.as_ref().unwrap().fresh_pool.is_some());
+    assert!(refused(&fresh).starts_with("reward_v1.parent_pools and reward_v1.reuse.exposed (none with admission.fresh_pool)"));
+    fresh.reward_v1.as_mut().unwrap().parent_pools.clear();
+    assert!(refused(&fresh).starts_with("reward_v1.parent_pools and reward_v1.reuse.exposed"), "the rule alone too");
+    let mut own = p.clone();
+    own.reward_v1.as_mut().unwrap().parent_pools = vec![PoolRef { pool_id: own.pool.pool_id.clone(), ..q.clone() }];
+    assert!(refused(&own).starts_with("reward_v1.parent_pools (distinct from pool)"));
+    let mut twice = p.clone();
+    twice.reward_v1.as_mut().unwrap().parent_pools = vec![q.clone(), q.clone()];
+    assert!(refused(&twice).starts_with("reward_v1.parent_pools (each pool once)"));
+    let mut bad = p.clone();
+    bad.reward_v1.as_mut().unwrap().parent_pools = vec![PoolRef { manifest_sha256: "zz".into(), ..q.clone() }];
+    assert_eq!(refused(&bad), "reward_v1.parent_pools");
+    // The template check admits it under a deployment listing both pools.
+    let t = crate::eval::calendar::Template {
+        schema: crate::eval::calendar::TEMPLATE_SCHEMA.into(),
+        label_prefix: "testnet-cohort".into(),
+        plan: p,
+    };
+    let mut both = cfg();
+    both.exposed_pools = vec!["p".into(), "q".into()];
+    crate::eval::calendar::check(&both, &serde_json::to_vec(&t).unwrap()).unwrap();
+    assert!(crate::eval::calendar::check(&cfg(), &serde_json::to_vec(&t).unwrap()).is_err(), "q is not exposed there");
+}
+
+/// An install keeps the calendar's pause (paused stays paused). A
+/// template replaced while the calendar is paused queues nothing until the
+/// operator resumes it; the first install into an empty store starts
+/// unpaused, and an install into a running calendar leaves it running.
+#[test]
+fn a_template_installed_into_a_paused_calendar_stays_paused() {
+    use crate::eval::calendar;
+    let db = Sqlite::open();
+    tx(&db, |s| crate::sql::migrate(s, &EVAL_COHORT_SCHEMA)).unwrap();
+    let t = calendar::Template {
+        schema: calendar::TEMPLATE_SCHEMA.into(),
+        label_prefix: "testnet-cohort".into(),
+        plan: template_plan(0, 40),
+    };
+    record_probes(&db, &t);
+    let first = tx(&db, |s| calendar::install(s, &cfg(), &serde_json::to_vec(&t).unwrap(), NOW)).unwrap();
+    assert_eq!(first["paused"], false, "the first install starts unpaused");
+    assert!(tx(&db, |s| calendar::due_any(s, 0)).unwrap().is_some());
+    // The operator pauses, then installs a changed template.
+    tx(&db, |s| calendar::set_paused(s, true)).unwrap();
+    let mut changed = t.clone();
+    changed.plan.reward_v1.as_mut().unwrap().spares_permille += 1;
+    let reply = tx(&db, |s| calendar::install(s, &cfg(), &serde_json::to_vec(&changed).unwrap(), NOW + 1)).unwrap();
+    assert_eq!(reply["paused"], true);
+    assert_eq!(reply["template_version"], 2);
+    assert!(tx(&db, |s| calendar::due_any(s, 0)).unwrap().is_none(), "nothing queues while paused");
+    assert!(!tx(&db, |s| calendar::ready(s, &cfg())).unwrap());
+    // A retried install of the same bytes changes nothing, the pause included.
+    let replay = tx(&db, |s| calendar::install(s, &cfg(), &serde_json::to_vec(&changed).unwrap(), NOW + 2)).unwrap();
+    assert_eq!((replay["replayed"].clone(), replay["paused"].clone()), (serde_json::json!(true), serde_json::json!(true)));
+    // Resumed: the next cohort comes from the new template.
+    tx(&db, |s| calendar::set_paused(s, false)).unwrap();
+    let (label, bytes) = tx(&db, |s| calendar::due_any(s, 0)).unwrap().unwrap();
+    assert_eq!(label, "testnet-cohort-1");
+    let p: plan::CohortPlan = serde_json::from_slice(&bytes).unwrap();
+    assert_eq!(p.reward_v1.unwrap().spares_permille, changed.plan.reward_v1.as_ref().unwrap().spares_permille);
+    // An install into a running calendar leaves it running.
+    let reply = tx(&db, |s| calendar::install(s, &cfg(), &serde_json::to_vec(&t).unwrap(), NOW + 3)).unwrap();
+    assert_eq!(reply["paused"], false);
+    assert!(tx(&db, |s| calendar::due_any(s, 0)).unwrap().is_some());
+}
+
 /// Miner UX: the calendar's next cohort opens at the boundary that can close
 /// the cohort before it (the engine opens it only then), never at the next
 /// boundary while that cohort is still admitting, working or in its
@@ -3377,7 +3465,10 @@ fn a_template_installed_before_the_journal_is_its_first_version() {
     let replaced: String =
         db.conn.query_row("SELECT replaced_sha256 FROM template_installs WHERE version = 2", [], |r| r.get(0)).unwrap();
     assert_eq!(replaced, sha);
-    assert_eq!(tx(&db, calendar::view).unwrap()["template"]["paused"], false, "a new template resumes the calendar");
+    assert_eq!(r["paused"], true);
+    assert_eq!(tx(&db, calendar::view).unwrap()["template"]["paused"], true, "a new template keeps the calendar paused");
+    tx(&db, |s| calendar::set_paused(s, false)).unwrap();
+    assert_eq!(tx(&db, calendar::view).unwrap()["template"]["paused"], false, "the operator resumes it");
 }
 
 // --------------------------------------------- admission v2: direct upload

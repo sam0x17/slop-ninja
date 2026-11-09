@@ -216,6 +216,13 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f8fadd59c855ef2080decdef8ff161eb6661b86933c9d82e5ba29dc602a55aba"
 
 [[package]]
+name = "slop-ninja-scorer-tokens"
+version = "0.1.0"
+dependencies = [
+ "unicode-normalization-alignments",
+]
+
+[[package]]
 name = "slop_ninja_a_testnet_eval_manifest"
 version = "0.1.0"
 dependencies = [
@@ -224,8 +231,15 @@ dependencies = [
  "serde",
  "serde_json",
  "sha2",
+ "slop-ninja-scorer-tokens",
  "zstd",
 ]
+
+[[package]]
+name = "smallvec"
+version = "1.16.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "5b3dc8af474f516a851ff4bd12db780f948b9250ad37211e4eec0bccea54e01b"
 
 [[package]]
 name = "syn"
@@ -249,6 +263,15 @@ name = "unicode-ident"
 version = "1.0.27"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "a2c754d6c33795a1c324727428e5a7dedb5b06195f9890bdbcba760d3e246563"
+
+[[package]]
+name = "unicode-normalization-alignments"
+version = "0.1.12"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "43f613e4fa046e69818dd287fdc4bc78175ff20331479dab6e1b0f98d57062de"
+dependencies = [
+ "smallvec",
+]
 
 [[package]]
 name = "version_check"

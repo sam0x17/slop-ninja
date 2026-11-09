@@ -22,3 +22,5 @@ serde = { version = "=1.0.229", features = ["derive"] }
 serde_json = { version = "=1.0.154", features = ["float_roundtrip", "raw_value"] }
 sha2 = "=0.10.9"
 zstd = "=0.13.3"
+# The scorer's compiled-in token count (`pool-token-bound`).
+slop-ninja-scorer-tokens = { path = "../../subnet/crates/scorer-tokens" }

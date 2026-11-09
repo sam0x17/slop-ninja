@@ -42,7 +42,12 @@
 //! 2026-11-01 ruling: one scoring lane per artifact (`lane_docs >= n`, so
 //! W = 1), no scoring pre-start, and the incentive rule with its provisional
 //! gates flag. Installing a template never changes a queued or running
-//! cohort.
+//! cohort, and it keeps the calendar's pause: an install into a paused
+//! calendar stays paused until the operator resumes it
+//! (`POST /eval/template/pause {"paused": false}`), so a template can be
+//! replaced in a cohort gap without opening anything (paused stays
+//! paused). Only the first install, into a store with no template, is
+//! unpaused.
 //!
 //! **Same-authority reinstall.** Installs are journaled (`template_installs`:
 //! version, digest, the first cohort number the template can govern, its
@@ -374,11 +379,14 @@ fn unfingerprinted(sql: &impl Sql, plan: &CohortPlan, next: &NextReferences) -> 
 ///
 /// The install changes no cohort: a queued cohort keeps the plan bytes it
 /// was queued with, so the template governs only cohorts the calendar
-/// queues after it (numbered from `governs_from`). Installing the bytes of
-/// the installed template again (a retried request) is a replay: nothing
-/// changes, the journal gains no entry and the reply names the original
-/// entry; a paused calendar stays paused (`POST /eval/template/pause` with
-/// `{"paused": false}` resumes it).
+/// queues after it (numbered from `governs_from`). A new install keeps the
+/// calendar's pause: into a paused calendar it stays paused
+/// and queues nothing, and the reply says so (`paused`); only the first
+/// install into a store without a template starts unpaused. Installing the
+/// bytes of the installed template again (a retried request) is a replay:
+/// nothing changes, the journal gains no entry and the reply names the
+/// original entry. Either way a paused calendar stays paused until
+/// `POST /eval/template/pause` with `{"paused": false}` resumes it.
 pub fn install(sql: &impl Sql, cfg: &EvalConfig, bytes: &[u8], now_ms: u64) -> R<Value> {
     let t = check(cfg, bytes)?;
     let sha = engine::sha_hex(bytes);
@@ -411,7 +419,7 @@ pub fn install(sql: &impl Sql, cfg: &EvalConfig, bytes: &[u8], now_ms: u64) -> R
     sql.exec(
         "INSERT INTO standing_template (id, template, sha256, installed_ms, paused, first_cohort) VALUES (1, ?, ?, ?, 0, ?)
          ON CONFLICT (id) DO UPDATE SET template = excluded.template, sha256 = excluded.sha256,
-            installed_ms = excluded.installed_ms, paused = 0, last_error = NULL, first_cohort = excluded.first_cohort",
+            installed_ms = excluded.installed_ms, last_error = NULL, first_cohort = excluded.first_cohort",
         &[s(text), s(&sha), bind_u64(now_ms)?, bind_u64(cfg.authority.first_cohort())?],
     )?;
     sql.exec(
@@ -426,7 +434,8 @@ pub fn install(sql: &impl Sql, cfg: &EvalConfig, bytes: &[u8], now_ms: u64) -> R
         ],
     )?;
     let version = latest_install(sql)?.map(|(v, _, _)| v);
-    Ok(json!({"installed": true, "sha256": sha, "template_version": version, "governs_from": governs_from,
+    let paused = stored(sql)?.is_some_and(|(_, p)| p);
+    Ok(json!({"installed": true, "sha256": sha, "template_version": version, "governs_from": governs_from, "paused": paused,
         "probe_versions": versions, "label_prefix": t.label_prefix,
         "roster_cap": t.plan.admission.as_ref().map(|a| a.roster_cap), "capacity": capacity(&t),
         "admission_window": admission_window(sql)?,

@@ -49,6 +49,7 @@ fn main() -> Result<()> {
         Some("stock-v2") => return stock_v2(&args[1..]),
         Some("replay-v1") => return replay_v1(&args[1..]),
         Some("pool-public-candidate") => return pool_pc(&args[1..]),
+        Some("pool-token-bound") => return pool_token_bound(&args[1..]),
         _ => {}
     }
     ensure!(args.first().map(String::as_str) == Some("build"), "usage: see the crate README");
@@ -122,6 +123,29 @@ fn pool_pc(args: &[String]) -> Result<()> {
         m["shards"].as_array().map_or(0, Vec::len), m["counts"]["source_groups"]);
     println!("by domain {}", m["counts"]["by_domain"]);
     println!("excluded {}", m["selection"]["excluded"]);
+    Ok(())
+}
+
+/// `pool-token-bound --pool-dir DIR --max-tokens N --out FILE`: a token-bounded
+/// manifest for an existing human pool (same pool id, same shards).
+fn pool_token_bound(args: &[String]) -> Result<()> {
+    use slop_ninja_a_testnet_eval_manifest::token_bound;
+    let (mut dir, mut max, mut out) = (None, 1000u64, None);
+    let mut it = args.iter();
+    while let Some(a) = it.next() {
+        let v = it.next().with_context(|| format!("{a} needs a value"))?;
+        match a.as_str() {
+            "--pool-dir" => dir = Some(PathBuf::from(v)),
+            "--max-tokens" => max = v.parse()?,
+            "--out" => out = Some(PathBuf::from(v)),
+            _ => bail!("unknown argument {a}"),
+        }
+    }
+    let m = token_bound::bound_manifest(&dir.context("--pool-dir")?, max)?;
+    let sha = token_bound::write_new(&out.context("--out")?, &m)?;
+    println!("pool {}: {} rows ({} over {max} tokens), {} source groups; manifest sha256 {sha}", m["pool_id"],
+        m["counts"]["rows"], m["selection"]["excluded"]["over the token bound"], m["counts"]["source_groups"]);
+    println!("by domain {}", m["counts"]["by_domain"]);
     Ok(())
 }
 

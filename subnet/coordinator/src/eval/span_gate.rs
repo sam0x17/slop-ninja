@@ -28,10 +28,11 @@
 //! - **Operator void** ([`void`]): a journaled, idempotent, withdrawable
 //!   action that waives the measured conditions for one cohort, accepted
 //!   until its packaging starts.
-//! - **Span-equivalent reference decision** ([`check_span_equivalent`],
-//!   [`apply_reference_decision`]): built behind the reference-override
-//!   route, which refuses every request until the offline operator-decision
-//!   key exists ([`DECISION_REFUSAL_NO_KEY`]).
+//! - **Span-equivalent reference decision**: the operator's signed D10(b)
+//!   decision of kind `span_equivalent` (`POST /eval/references/decision`,
+//!   [`crate::eval::decide::reference_decision`]), under the offline
+//!   operator-decision key. Store v30 replaced the interim
+//!   `reference_decisions` table of [`SCHEMA_V29`] with that decision's own.
 //!
 //! Limits of this build (report mode):
 //!
@@ -348,7 +349,9 @@ pub fn cell(text: &str, label: &SpanLabel, reply: Option<&Value>, decoder_min: O
 // --------------------------------------------------------------------- store
 
 /// v29: the span gate. Each prediction's span cell; each job's load facts;
-/// the operator's void journal; span-equivalent reference decisions.
+/// the operator's void journal; an interim table for span-equivalent
+/// reference decisions, which no route ever wrote (store v30 drops it and
+/// creates the operator decision's own, `crate::eval::decide::SCHEMA_V30`).
 pub const SCHEMA_V29: &[&str] = &[
     "ALTER TABLE preds ADD COLUMN span_pop INTEGER",
     "ALTER TABLE preds ADD COLUMN span_f1 INTEGER",
@@ -824,166 +827,6 @@ fn evaluate_inner(sql: &impl Sql, p: &PackageInputs<'_>) -> R<LocalizationBuild>
         "record_bits": record.bits, "result_bits": record.result_bits,
     });
     Ok(LocalizationBuild { record: Some(record), components })
-}
-
-// ------------------------------------------------- span-equivalent decision
-
-/// Why every reference decision is refused in this build: the decision needs
-/// the offline operator-decision key, which does not exist yet.
-pub const DECISION_REFUSAL_NO_KEY: &str =
-    "operator_key_unavailable: a reference decision needs the offline operator-decision key, which this deployment does not hold yet";
-
-/// Why a span-equivalent reference decision is refused.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum DecisionRefusal {
-    /// The chain index is not 0.
-    NotAtFirstReference,
-    PromotionPending,
-    /// The candidate is not a staged reference package.
-    NotStaged,
-    /// The installed (or next journaled) template's spec refuses it.
-    ReferenceNotAdmitted,
-    /// Its content is not published, or it has no stored vector on a probe
-    /// version the template names.
-    CandidateUnpublished,
-    /// Its encoder or document heads are not R_0's recorded fit.
-    StaticIdentityMismatch,
-    /// Its stored probe vectors differ from R_0's beyond the tolerance.
-    NotDocumentEquivalent,
-}
-
-impl DecisionRefusal {
-    pub fn code(self) -> &'static str {
-        match self {
-            Self::NotAtFirstReference => "not_at_first_reference",
-            Self::PromotionPending => "promotion_pending",
-            Self::NotStaged => "reference_not_staged",
-            Self::ReferenceNotAdmitted => "reference_not_admitted",
-            Self::CandidateUnpublished => "candidate_unpublished",
-            Self::StaticIdentityMismatch => "static_identity_mismatch",
-            Self::NotDocumentEquivalent => "not_document_equivalent",
-        }
-    }
-}
-
-/// The recorded fit digests a static identity compares
-/// (`fit_hashes.init_fit` of the candidate; R_0's export manifest and fit).
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct FitDigests {
-    pub fit_sha256: String,
-    pub selected_checkpoint_sha256: String,
-    pub encoder_sha256: String,
-    pub heads_sha256: String,
-}
-
-/// One probe version's vectors: the version, the candidate's stored probe
-/// vector and R_0's, in ppb (`None` is a failure).
-pub type ProbeVectors = (u32, Vec<Option<u32>>, Vec<Option<u32>>);
-
-/// What the decision route has read before it checks.
-pub struct DecisionInputs<'a> {
-    pub chain_index: u64,
-    pub promotion_pending: bool,
-    pub staged: bool,
-    pub spec_admits: bool,
-    pub published: bool,
-    /// The candidate's stored probe vector on every probe version the
-    /// installed template names, with R_0's, in ppb (`None` is a failure).
-    pub vectors: &'a [ProbeVectors],
-    pub probe_versions: &'a [u32],
-    pub candidate_fit: &'a FitDigests,
-    pub r0_fit: &'a FitDigests,
-    /// The operator's offline byte comparison of encoder initializers and
-    /// document-head tensors, carried in the signed decision.
-    pub byte_comparison: bool,
-    /// The element-wise tolerance recorded in the decision (from the measured
-    /// cross-instance noise), ppb.
-    pub tolerance_ppb: u32,
-}
-
-/// Two probe vectors are equivalent: the same length, failures at the same
-/// documents, and every probability within `tol` ppb.
-pub fn vectors_equivalent(a: &[Option<u32>], b: &[Option<u32>], tol: u32) -> bool {
-    a.len() == b.len()
-        && a.iter().zip(b).all(|(x, y)| match (x, y) {
-            (Some(x), Some(y)) => x.abs_diff(*y) <= tol,
-            (None, None) => true,
-            _ => false,
-        })
-}
-
-/// The span-equivalent decision's conditions, in order.
-pub fn check_span_equivalent(d: &DecisionInputs<'_>) -> Result<(), DecisionRefusal> {
-    if d.chain_index != 0 {
-        return Err(DecisionRefusal::NotAtFirstReference);
-    }
-    if d.promotion_pending {
-        return Err(DecisionRefusal::PromotionPending);
-    }
-    if !d.staged {
-        return Err(DecisionRefusal::NotStaged);
-    }
-    if !d.spec_admits {
-        return Err(DecisionRefusal::ReferenceNotAdmitted);
-    }
-    let every_version = d.probe_versions.iter().all(|v| d.vectors.iter().any(|(x, _, _)| x == v));
-    if !d.published || !every_version {
-        return Err(DecisionRefusal::CandidateUnpublished);
-    }
-    if d.candidate_fit != d.r0_fit || !d.byte_comparison {
-        return Err(DecisionRefusal::StaticIdentityMismatch);
-    }
-    if !d.vectors.iter().all(|(_, c, r)| vectors_equivalent(c, r, d.tolerance_ppb)) {
-        return Err(DecisionRefusal::NotDocumentEquivalent);
-    }
-    Ok(())
-}
-
-/// Applies an accepted, verified span-equivalent decision: journaled first,
-/// then `reference_state` names the candidate as the current reference with
-/// no predecessor (`ReferenceSet::replace_r0`), for cohorts queued after it.
-/// The calendar reads the decision's staged package for that content
-/// ([`decided_reference`]). Only the route calls it, after the operator
-/// key's signature verifies; this build's route refuses before it.
-pub fn apply_reference_decision(
-    sql: &impl Sql,
-    decision: &str,
-    content: &str,
-    artifact: &ArtifactJson,
-    reason: &str,
-    body: &[u8],
-    now_ms: u64,
-) -> R<()> {
-    if !sql.exec("SELECT 1 FROM reference_decisions WHERE decision = ?", &[s(decision)])?.is_empty() {
-        return Err(EvalError::Plan("decision_reused"));
-    }
-    let o = engine::observed(sql)?;
-    sql.exec(
-        "INSERT INTO reference_decisions (kind, decision, content, artifact, reason, body_sha256, at_ms, epoch)
-         VALUES ('span_equivalent', ?, ?, ?, ?, ?, ?, ?)",
-        &[
-            s(decision),
-            s(content),
-            s(serde_json::to_string(artifact).map_err(|_| EvalError::State("decision artifact"))?),
-            s(reason),
-            s(engine::sha_hex(body)),
-            bind_u64(now_ms)?,
-            o.epoch.map_or(SqlValue::Null, |e| i(e.index as i64)),
-        ],
-    )?;
-    sql.exec("UPDATE reference_state SET current = ?, predecessor = NULL WHERE id = 1", &[s(content)])?;
-    Ok(())
-}
-
-/// The staged package a span-equivalent decision named for `content`, if the
-/// newest decision for it exists: the calendar loads it in preference to an
-/// entrant record of the same content.
-pub fn decided_reference(sql: &impl Sql, content: &str) -> R<Option<ArtifactJson>> {
-    let r = sql.exec("SELECT artifact FROM reference_decisions WHERE content = ? ORDER BY id DESC LIMIT 1", &[s(content)])?;
-    match r.first() {
-        Some(row) => Ok(Some(serde_json::from_str(text(row, 0)?).map_err(|_| EvalError::State("decision artifact"))?)),
-        None => Ok(None),
-    }
 }
 
 #[cfg(test)]

@@ -936,8 +936,10 @@ printf 'Authorization: Bearer %s\n' "$(cat $S/eval_operator_token)" |
 #   POST /eval/span-gate/void {"label", "decision", "reason"[, "withdraw": true]}
 #   (decision_reused for another body under a used id; span_gate_void_after_packaging once
 #   packaging starts)
-# span-equivalent reference decision: POST /eval/references/decision refuses every request with
-#   operator_key_unavailable until the offline operator-decision key exists; nothing is read or written
+# span-equivalent reference decision: POST /eval/references/decision with kind span_equivalent, the
+#   operator's signed reference decision (README "Operator decisions"); without OPERATOR_DECISION_KEY
+#   it refuses operator_key_unconfigured and nothing is written. Make none before the docs above
+#   describe report mode
 # the load-rehearsal instance: GET /eval/load/status; POST /eval/load/{plan,clear,abandon,hold}
 #   (a load plan is slop_ninja_eval_load_plan_v1; {"hold": true} makes every claim answer Paused)
 # load plans and gates: examples/slop_ninja_eval_ops.rs (load-plan; gate --for deploy|load on both
@@ -1014,7 +1016,7 @@ produced a target. Verify it with `examples/reward_v1_verify.rs`:
 reward_v1_verify cohort <dir> --trust testnet-trust.json \
   --snapshot-owner <owner hotkey> --snapshot <uid>:<hotkey>:<reg> ... --snapshot-at <block>:<hash> \
   --authorization-seed <mode-600 seed file> --issued-epoch <closing epoch>
-reward_v1_verify launch --trust testnet-trust.json --authorization-seed <file> --issued-epoch <e> --out launch.json
+reward_v1_verify launch --trust testnet-trust.json --authorization-seed <file> --issued-epoch <e> --finalized-epoch <f> --out launch.json
 ```
 
 It recomputes the outcome, checks the closure and writes
@@ -2449,7 +2451,7 @@ staged by the tracked pin, one change per deploy):
 
    ```text
    reward_v1_verify launch --trust testnet-trust.json --authorization-seed <seed file> \
-       --issued-epoch E --out launch-<name>-eE.json
+       --issued-epoch E --finalized-epoch <finalized index> --out launch-<name>-eE.json
    ```
 
    On the coordinator, with the operator token: `{"action": "pause"}` on

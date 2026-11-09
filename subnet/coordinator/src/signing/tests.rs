@@ -2174,9 +2174,10 @@ fn a_reward_v1_launch_bundle_is_refused_once_a_cohort_target_has_activated() {
         Ok(_) => panic!("the launch bundle must not verify after an activation"),
     }
     // Installing it again is refused before anything is stored.
+    // P1-R: after the first reward-v1 install a launch bundle installs only
+    // through a restart decision.
     let again = tx(&h.db, |sql| install_target(sql, &h.cfg, &h.trusted, &launch_bundle_json(60), T0)).unwrap().unwrap_err();
-    assert_eq!(again.code, "bundle_unverified");
-    assert!(again.detail.contains("launch authorization after activation"), "{}", again.detail);
+    assert_eq!(again.code, "launch_needs_restart");
     // The held record only moves forward.
     let held = tx(&h.db, |sql| held_target(sql, &h.cfg)).unwrap();
     assert_eq!(held, activated);
@@ -2242,13 +2243,8 @@ fn a_held_target_restart_installs_the_restarted_launch_bundle_and_keeps_every_ob
     })
     .unwrap()
     .unwrap_err();
-    assert!(
-        refused
-            .detail
-            .contains("launch authorization after activation"),
-        "{}",
-        refused.detail
-    );
+    // P1-R: only through a restart decision.
+    assert_eq!(refused.code, "launch_needs_restart", "{}", refused.detail);
     let before = |h: &H| {
         (
             tx(&h.db, |sql| held_target(sql, &h.cfg)).unwrap(),
@@ -2365,7 +2361,7 @@ fn a_held_target_restart_installs_the_restarted_launch_bundle_and_keeps_every_ob
     })
     .unwrap()
     .unwrap_err();
-    assert_eq!(old.code, "bundle_before_restarted_record");
+    assert_eq!(old.code, "launch_needs_restart");
     // A T12 (v1) bundle carries no epoch to hold to the floor: none installs
     // after a restart.
     let v1 = tx(&h.db, |sql| {
@@ -2584,7 +2580,9 @@ fn a_second_restart_never_reuses_an_earlier_restarts_floor() {
         })
         .unwrap()
         .unwrap_err();
-        assert_eq!(r.code, "bundle_before_restarted_record", "{record}");
+        // P1-R: a later launch bundle installs only through a restart, whose
+        // own floor checks refuse an earlier record's.
+        assert_eq!(r.code, "launch_needs_restart", "{record}");
     }
     // A third restart must exceed the second's own launch bundle (issued 12),
     // not only its floor (11).
@@ -2683,7 +2681,9 @@ fn a_reward_v1_launch_bundle_commits_the_burn_row_to_the_owner_uid_each_epoch() 
     assert_ne!(ops[0].op_id, ops[1].op_id, "one identity per tempo");
     // Before its issue the launch authorization yields no operation; from
     // its issue on it has no end, its renew-by hint (epoch 540) included.
-    tx(&h.db, |sql| install_target(sql, &h.cfg, &h.trusted, &launch_bundle_json(500), T0)).unwrap().unwrap();
+    tx(&h.db, |sql| pause(sql, "operator_hold", T0)).unwrap();
+    tx(&h.db, |sql| restart_target(sql, &h.cfg, &h.trusted, &launch_bundle_json(500), 500, T0)).unwrap().unwrap();
+    tx(&h.db, |sql| resume(sql, T0)).unwrap();
     let t = tx(&h.db, |sql| active_target(sql, &h.cfg, &h.trusted)).unwrap().unwrap().unwrap();
     assert_eq!(t.op_id(&h.trusted, h.cfg.hotkey, 9).unwrap_err().code, "authorization_refused");
     for epoch in [500, 540, 541, 1_000_000] {
@@ -2767,10 +2767,13 @@ fn the_coordinator_commits_past_the_renew_by_hint_until_a_signed_revocation() {
     );
     assert!(h.status().log.iter().any(|l| l["event"] == "authorization_revoked"));
 
-    // A launch authorization issued after the revocation resumes commits.
+    // A launch authorization issued after the revocation resumes commits:
+    // after the first install it is a restart (P1-R), signing paused for it.
     let resume_at = h.chain.sched.subnet_epoch_index;
     assert!(resume_at > revoked_at);
-    tx(&h.db, |sql| install_target(sql, &h.cfg, &h.trusted, &launch_bundle_json(resume_at), T0)).unwrap().unwrap();
+    tx(&h.db, |sql| pause(sql, "operator_hold", T0)).unwrap();
+    tx(&h.db, |sql| restart_target(sql, &h.cfg, &h.trusted, &launch_bundle_json(resume_at), resume_at, T0)).unwrap().unwrap();
+    tx(&h.db, |sql| resume(sql, T0)).unwrap();
     assert!(h.status().authorization.unwrap().revoked_by.is_none());
     h.until(800, |h| h.ops().iter().any(|o| o.epoch >= resume_at && o.state == "committed"));
 }
@@ -3258,7 +3261,10 @@ fn the_pointer_names_the_signed_row_of_the_coordinators_commitment() {
     assert_eq!(logged(&h, "row_record_signed").len(), 1);
     // A newer authorization of the same target: the pointer carries no row
     // until the coordinator commits under it, then the new record.
-    tx(&h.db, |sql| install_target(sql, &h.cfg, &h.trusted, &launch_bundle_json(2), T0)).unwrap().unwrap();
+    // P1-R: a re-authorization is a restart (signing paused for it).
+    tx(&h.db, |sql| pause(sql, "operator_hold", T0)).unwrap();
+    tx(&h.db, |sql| restart_target(sql, &h.cfg, &h.trusted, &launch_bundle_json(2), 2, T0)).unwrap().unwrap();
+    tx(&h.db, |sql| resume(sql, T0)).unwrap();
     assert!(pointer(&plan(&h)).row.is_none(), "a row is named only beside its own authorization");
     let before = h.ops().len();
     h.until(400, |h| h.ops().len() > before && committed(h));
@@ -3647,4 +3653,47 @@ fn attempt_resolve_reruns_the_evidence_check_without_deciding_it() {
     let again = decide(&h, body).unwrap();
     assert_eq!(again["attempt"], v["attempt"]);
     assert_eq!(h.db.count("operator_actions"), 1);
+}
+
+/// P1-R: a floor at or below an epoch that holds a signed attempt is
+/// refused (`epoch_signed`) and changes nothing; a planned operation of an
+/// epoch at or after the floor that never signed is dropped and planned
+/// again under the burn row, so no epoch gets two operations.
+#[test]
+fn burn_now_refuses_a_signed_epoch_and_replans_an_unsigned_one() {
+    let mut h = H::new();
+    tx(&h.db, |sql| install_target(sql, &h.cfg, &h.trusted, &launch_bundle_json(1), T0)).unwrap().unwrap();
+    h.resume();
+    h.until(80, committed);
+    let signed_epoch = h.ops()[0].epoch;
+    tx(&h.db, |sql| pause(sql, "operator_hold", T0)).unwrap();
+    let k = slop_ninja_protocol::SigningKey::from_bytes(&[0x62; 32]);
+    let key = slop_ninja_protocol::operator::OperatorKey::from_bytes(k.verifying_key().to_bytes()).unwrap();
+    let c = chain_601();
+    let to = super::decide::address(&c);
+    let held = tx(&h.db, |sql| held_target(sql, &h.cfg)).unwrap().digest().to_string();
+    let body = |decision: &str, floor: u64| {
+        let b = serde_json::json!({"action": "restart", "decision": decision, "reason": "operator_decision", "floor": floor,
+            "bundle": launch_bundle_json(floor), "last": null, "past": [], "unlisted": [], "expect": {"held": held}});
+        crate::operator::tests::signed_body(&k, "coordinator.restart", &to, b)
+    };
+    let decide = |h: &H, b: serde_json::Value, observed: u64| {
+        tx(&h.db, |sql| super::decide::decide(sql, &h.cfg, &h.trusted, b, Some(&key), Some(observed), T0)).unwrap()
+    };
+    let resets = h.counter("held_target_resets");
+    assert_eq!(decide(&h, body("drill-e1", signed_epoch), signed_epoch + 5), Err("epoch_signed"));
+    assert_eq!(h.counter("held_target_resets"), resets);
+    // A planned, unsigned operation at the floor is dropped by the restart.
+    let floor = signed_epoch + 3;
+    h.db.conn
+        .execute(
+            "INSERT INTO commit_ops (op_id, epoch, target, base_op, state, created_at_ms, updated_at_ms)
+             VALUES ('planned-unsigned', ?1, 't', 'b', 'preparing', 1, 1)",
+            [floor as i64],
+        )
+        .unwrap();
+    let v = decide(&h, body("drill-e2", floor), floor).unwrap();
+    assert_eq!(v["replanned_epochs"], serde_json::json!([floor]));
+    assert!(h.ops().iter().all(|o| o.op_id != "planned-unsigned"));
+    assert_eq!(tx(&h.db, restart_floor).unwrap(), Some(floor));
 }

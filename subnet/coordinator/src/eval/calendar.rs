@@ -487,6 +487,12 @@ fn as_reference(mut a: ArtifactJson) -> ArtifactJson {
 /// entrant is published at its cohort's close), else the newest v3 cohort
 /// (every cohort names the chain's current reference and its predecessor).
 fn resolve(sql: &impl Sql, content: &str) -> R<Option<ArtifactJson>> {
+    // D10(b): an operator reference decision names its own records, read
+    // before any cohort's (the cohort records may name another package of
+    // the same content).
+    if let Some(a) = crate::eval::decide::decided_record(sql, content)? {
+        return Ok(Some(as_reference(a)));
+    }
     let mut rows = sql.exec("SELECT seq FROM published_contents WHERE content = ?", &[s(content)])?;
     rows.extend(sql.exec("SELECT seq FROM cohorts WHERE v3 IS NOT NULL ORDER BY seq DESC LIMIT 1", &[])?);
     for r in &rows {
@@ -576,14 +582,10 @@ fn chain_references(sql: &impl Sql) -> R<Option<NextReferences>> {
     let chain = sql.exec("SELECT current, predecessor FROM reference_state WHERE id = 1", &[])?;
     let Some(r) = chain.first() else { return Ok(None) };
     let current_content = text(r, 0)?.to_owned();
-    // A span-equivalent reference decision names the staged package for its
-    // content, never the entry cohort's upload (`span_gate`).
-    let decided = crate::eval::span_gate::decided_reference(sql, &current_content)?;
-    let current = match decided {
-        Some(a) => Some(as_reference(a)),
-        None => resolve(sql, &current_content)?,
-    }
-    .ok_or(EvalError::Plan(
+    // A reference decision (a span-equivalent one included) names its own
+    // record for its content, which `resolve` reads before any cohort's: the
+    // staged package, never the entry cohort's upload.
+    let current = resolve(sql, &current_content)?.ok_or(EvalError::Plan(
         "template_reference_unresolved: the reference chain names an artifact no stored cohort records",
     ))?;
     let previous_content = engine::opt_text(r, 1);
@@ -714,6 +716,18 @@ pub fn due_any(sql: &impl Sql, first_cohort: u64) -> R<Option<(String, Vec<u8>)>
             Ok(None)
         }
     }
+}
+
+/// The probe versions the installed template names (none without one).
+pub fn template_probe_versions(sql: &impl Sql) -> R<Vec<u32>> {
+    Ok(stored(sql)?
+        .and_then(|(t, _)| t.plan.reward_v1.map(|v| v.probes.iter().map(|p| p.version).collect()))
+        .unwrap_or_default())
+}
+
+/// Whether a cohort in its transition holds a promotion its close applies.
+pub fn promotion_pending(sql: &impl Sql) -> R<bool> {
+    Ok(pending_promotion(sql)?.is_some())
 }
 
 /// Whether the installed template is paused (`None`: no template).

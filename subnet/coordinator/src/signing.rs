@@ -1216,6 +1216,32 @@ pub fn install_target(
     now_ms: u64,
 ) -> Result<Result<String, target::Refusal>, StoreError> {
     if target::is_v2(bundle_json.as_bytes()) {
+        // P1-R `launch_needs_restart`: after the first reward-v1 install, a
+        // launch bundle installs only through the restart decision, so every later
+        // launch row is a restart whose floor is its issue epoch (P1-V). A
+        // byte-identical re-post of the active bundle is an idempotent
+        // replay that writes nothing.
+        let is_launch = target::parse_v2(bundle_json.as_bytes()).is_ok_and(|b| b.source.is_none());
+        if is_launch && !sql.exec("SELECT 1 FROM sign_targets WHERE reward_rule = 'reward-v1' LIMIT 1", &[])?.is_empty() {
+            let active = sql.exec("SELECT target, bundle FROM sign_targets WHERE active = 1", &[])?;
+            if let Some(r) = active.first()
+                && text(r, 1)? == bundle_json
+            {
+                let digest = text(r, 0)?.to_owned();
+                // A withdrawn authorization stays refused, replay or not.
+                if !authority::revocation_of(sql, &digest)?.is_empty() {
+                    return Ok(Err(target::Refusal {
+                        code: "authorization_revoked",
+                        detail: "a journaled revocation withdraws this authorization".into(),
+                    }));
+                }
+                return Ok(Ok(digest));
+            }
+            return Ok(Err(target::Refusal {
+                code: "launch_needs_restart",
+                detail: "a launch bundle after the first install is installed only by a restart decision".into(),
+            }));
+        }
         return install_target_v2(sql, cfg, keys, bundle_json, now_ms);
     }
     // After a restart only the restarted record's bundles install
@@ -1374,6 +1400,10 @@ pub fn restart_floor_ok(
         _ => Err("bundle_before_restarted_record"),
     }
 }
+
+/// P1-R: the unsigned `/signing/restart` route refuses; a restart is the
+/// signed operator decision `decide::restart`.
+pub const RESTART_NEEDS_DECISION: bool = true;
 
 /// What an operator restart of the held target did ([`restart_target`]).
 #[derive(Clone, Debug, PartialEq, Eq, Serialize)]

@@ -1025,6 +1025,53 @@ impl DurableObject for EvalCohort {
             }
             // Operator decisions through the shared request mechanism
             // (`eval::decide`), main instance only.
+            // D10(b): an operator reference decision. A span-equivalent one
+            // compares the candidate's stored probe vectors with R_0's, read
+            // here first (the decision applies in its own transaction).
+            (Method::Post, "/references/decision") if main => {
+                let body = match super::cf_io::request_json::<Value>(&mut req, OPERATOR_BODY_BYTES).await {
+                    Ok(v) => v,
+                    Err(super::cf_io::JsonError::Parse) => return error("bad_request", 400),
+                    Err(e) => return error(e.code(), e.status()),
+                };
+                let r = match crate::operator::parse(body) {
+                    Ok(r) => r,
+                    Err(code) => return error(code, 400),
+                };
+                let key = match operator_key(&self.env) {
+                    Ok(k) => k,
+                    Err(code) => return error(code, 503),
+                };
+                let mut vectors = Vec::new();
+                if r.body.get("kind").and_then(Value::as_str) == Some("span_equivalent") {
+                    let r2 = r.clone();
+                    let pairs = match transaction(&storage, move |sql| crate::eval::decide::reference_vectors(sql, &r2)) {
+                        Ok(Ok(p)) => p,
+                        Ok(Err(code)) => return error(code, 409),
+                        Err(_) => return error("store_unavailable", 503),
+                    };
+                    for (version, candidate, r0, size) in pairs {
+                        let bound = (size as usize).saturating_mul(4);
+                        let (Ok(Some(a)), Ok(Some(b))) = (
+                            get_bounded(&self.env, EVAL_BUCKET, &candidate, bound).await,
+                            get_bounded(&self.env, EVAL_BUCKET, &r0, bound).await,
+                        ) else {
+                            return error("vector_unavailable", 503);
+                        };
+                        vectors.push((version, a, b));
+                    }
+                }
+                let c2 = cfg.clone();
+                match transaction(&storage, move |sql| crate::eval::decide::reference_decision(sql, &c2, &r, key.as_ref(), &vectors, now)) {
+                    Ok(Ok(v)) => {
+                        storage.set_alarm(500i64).await?;
+                        json(&v)
+                    }
+                    Ok(Err(code)) => error(code, 409),
+                    Err(TxError::Operation(e)) => error(e.code(), 422),
+                    Err(_) => error("store_unavailable", 503),
+                }
+            }
             (Method::Post, "/cohort/start") if main => {
                 let body = match super::cf_io::request_json::<Value>(&mut req, OPERATOR_BODY_BYTES).await {
                     Ok(v) => v,
@@ -1211,13 +1258,6 @@ impl DurableObject for EvalCohort {
                     Err(e) => return error(e.code(), e.status()),
                 };
                 tx_reply(transaction(&storage, move |sql| crate::eval::span_gate::void(sql, &v, now)))
-            }
-            (Method::Post, "/references/decision") => {
-                // Built behind the reference-override route: a decision
-                // changes reward inputs, so it needs the offline
-                // operator-decision key's signature, which this deployment
-                // cannot verify yet. Nothing is read or written.
-                error(crate::eval::span_gate::DECISION_REFUSAL_NO_KEY.split(':').next().unwrap_or("operator_key_unavailable"), 422)
             }
             (Method::Post, "/hold") => {
                 if instance != engine::INSTANCE_LOAD {

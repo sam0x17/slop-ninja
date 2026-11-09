@@ -684,8 +684,9 @@ fn migrations_are_pinned_by_content() {
         // v29: the span gate in report mode (span cells, job load facts, the
         // void journal, reference decisions; never deployed).
         "d079dfe9c1e54ccb",
-        // v30: operator decisions (self-lock phase 1; never deployed).
-        "539b92bafe91dd80",
+        // v30: operator decisions (self-lock phase 1; drops v29's empty
+        // interim reference_decisions table; never deployed).
+        "6bee5d9d53f3bb89",
     ];
     // v1-v10 are deployed on both testnet Workers; v11 is the stuck-states
     // lane's; v12 the automatic target handoff's; v13 the signed coordinator

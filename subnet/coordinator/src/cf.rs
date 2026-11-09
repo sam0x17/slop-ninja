@@ -811,6 +811,29 @@ impl ChainJournal {
             let _ = transaction(&storage, move |sql| signing::auto::note_failure(sql, "", "bucket_binding", now_ms()));
             return signing::auto::PassReport { error: Some("bucket_binding".into()), ..Default::default() };
         };
+        // P1-R: signed restart records (and addenda) go to the receipts
+        // bucket under `chain-restarts/<floor>/`, signed with the
+        // authorization key; a failure leaves them for the next pass.
+        if let Ok(due) = transaction(&storage, signing::decide::restart_records_due) {
+            for (id, key, kind, bytes) in due {
+                let Ok(k) = signing::auto::AuthorizationKeySource::authorization_key(&EnvKeys(self.env.clone()), &trusted) else { break };
+                use slop_ninja_protocol::Record as _;
+                let signed = match kind.as_str() {
+                    "restart" => slop_ninja_protocol::decisions::ChainRestart::from_bytes(&bytes)
+                        .and_then(|r| slop_ninja_protocol::sign(r, &k))
+                        .and_then(|s| s.to_bytes()),
+                    _ => slop_ninja_protocol::decisions::RestartAddendum::from_bytes(&bytes)
+                        .and_then(|r| slop_ninja_protocol::sign(r, &k))
+                        .and_then(|s| s.to_bytes()),
+                };
+                let Ok(signed) = signed else { break };
+                if !cf_io::r2_put(&bucket, &key, &signed, Some(deadline)).await {
+                    break;
+                }
+                let now = now_ms();
+                let _ = transaction(&storage, move |sql| signing::decide::restart_record_written(sql, id, now));
+            }
+        }
         let mut io = AutoIo { storage, bucket, deadline };
         // The main chain record's eval authorities (`AUTO_TARGET_AUTHORITIES`,
         // tracked in wrangler.toml beside the eval Worker's own).
@@ -891,6 +914,11 @@ fn admin(
         // A chain record restarted under the same trust roots: the
         // restarted record's launch bundle replaces the held target in one
         // transaction (`signing::restart_target`); a refusal changes nothing.
+        // P1-R: a restart is an operator decision under the offline key
+        // (`/signing/decide`, action `restart`); the unsigned route only
+        // says so.
+        "restart_target" if signing::RESTART_NEEDS_DECISION => json!({"refused": {"code": "restart_needs_decision",
+            "detail": "post the restart to /signing/decide with the offline operator-decision signature"}}),
         "restart_target" => match signing::restart_target(
             sql,
             cfg,
@@ -2123,15 +2151,14 @@ async fn eval_route(mut req: Request, env: Env) -> Result<Response> {
         (Method::Get, "/live") if instance == "main" => eval_do::forward(&env, instance, Method::Get, &rest, None).await,
         (Method::Post, "/live/stop") if instance == "main" => eval_do::forward(&env, instance, Method::Post, &rest, raw).await,
         // The span gate: the operator's void of one cohort's measured
-        // conditions (`span_gate::void`), and the span-equivalent reference
-        // decision, which refuses every request until the offline
-        // operator-decision key exists.
-        (Method::Post, "/span-gate/void" | "/references/decision") if instance == "main" => {
-            eval_do::forward(&env, instance, Method::Post, &rest, raw).await
-        }
-        // Operator decisions (`eval::decide`): a declined faulted closure and
-        // the operator's withheld release of a cohort's objects.
-        (Method::Post, "/closure/decline" | "/release-objects" | "/cohort/start") if instance == "main" => {
+        // conditions (`span_gate::void`).
+        (Method::Post, "/span-gate/void") if instance == "main" => eval_do::forward(&env, instance, Method::Post, &rest, raw).await,
+        // Operator decisions (`eval::decide`): a declined faulted closure,
+        // the operator's withheld release of a cohort's objects, one cohort
+        // started from the installed template, and a reference decision
+        // (the general override or the narrow span-equivalent replacement of
+        // R_0), each under the offline operator-decision key where it needs it.
+        (Method::Post, "/closure/decline" | "/release-objects" | "/cohort/start" | "/references/decision") if instance == "main" => {
             eval_do::forward(&env, instance, Method::Post, &rest, raw).await
         }
         // The operator action log (`crate::operator`), paged by sequence.

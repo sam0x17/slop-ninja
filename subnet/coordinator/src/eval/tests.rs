@@ -8261,3 +8261,85 @@ fn a_paused_calendar_stays_paused_and_cohort_start_queues_one_cohort() {
     let inline = op_req(json!({"decision": "drill-s3", "reason": "operator_decision", "template": {}, "expect": {"next_cohort": next}}));
     assert_eq!(tx(&db, |s| super::decide::cohort_start(s, &cfg(), &inline, None, sim.now + 3)).unwrap(), Err("inline_template_unsupported"));
 }
+
+// ------------------------------------------------ reference decisions (D10)
+
+/// D10(b), the narrow span-equivalent route: only under the offline key,
+/// only for a candidate published here with a fingerprint and stored vector
+/// on every probe version the template names, with equal recorded fit
+/// digests and probe vectors within the recorded tolerance; then R_0's
+/// position goes to the candidate (index 0, no predecessor) for later
+/// cohorts, the decision's own record resolves first, and the signed record
+/// is written.
+#[test]
+fn a_span_equivalent_reference_decision_replaces_r0_only_on_its_evidence() {
+    let db = Sqlite::open();
+    let (sim, weak, v1) = probe_built(&db);
+    let base = plan_v3(0, "testnet-t-template", 20, weak.clone());
+    let t1 = standing_of("testnet-t", base, vec![v1.clone()]);
+    template_install(&db, &t1, sim.now).unwrap();
+    assert!(tx(&db, |s| super::calendar::set_paused(s, true)).unwrap());
+    let r0: String = db.conn.query_row("SELECT current FROM reference_state WHERE id = 1", [], |r| r.get(0)).unwrap();
+    let r0_key: String = db.conn.query_row("SELECT vector_key FROM fingerprints WHERE content = ?1 AND version = 1", [&r0], |r| r.get(0)).unwrap();
+    let candidate = "c4".repeat(32);
+    let mut record = weak.clone();
+    record.package_sha256 = "d2".repeat(32);
+    record.manifest_key = "artifacts/packages/d24.json".into();
+    let ident = json!({"fit_sha256": "11".repeat(32), "selected_checkpoint_sha256": "22".repeat(32),
+        "encoder_sha256": "33".repeat(32), "heads_sha256": "44".repeat(32)});
+    let body = |decision: &str, ident_r0: Value, tolerance: u64| {
+        json!({"decision": decision, "reason": "span_equivalent", "kind": "span_equivalent", "k": 0,
+            "current": record, "current_content": candidate, "previous": null, "previous_content": null,
+            "static_identity": {"candidate": ident, "r0": ident_r0}, "tolerance_ppb": tolerance,
+            "expect": {"current_content": r0}})
+    };
+    let (_, key) = op_key();
+    let decide = |req: &crate::operator::Request, vectors: &[(u32, Vec<u8>, Vec<u8>)]| {
+        tx(&db, |s| super::decide::reference_decision(s, &cfg(), req, Some(&key), vectors, sim.now + 10)).unwrap()
+    };
+    let vec_of = |vals: &[u32]| vals.iter().flat_map(|v| v.to_le_bytes()).collect::<Vec<u8>>();
+    let same = vec![(1u32, vec_of(&[100, 200, u32::MAX]), vec_of(&[100, 200, u32::MAX]))];
+    // The token alone is refused.
+    assert_eq!(decide(&op_req(body("drill-r0", ident.clone(), 0)), &same), Err("authorization_required"));
+    // Not published here yet.
+    assert_eq!(decide(&op_signed("eval.reference_decision", body("drill-r1", ident.clone(), 0)), &same), Err("candidate_unpublished"));
+    assert_eq!(tx(&db, |s| super::decide::reference_vectors(s, &op_req(body("x", ident.clone(), 0)))).unwrap(), Err("candidate_unpublished"));
+    db.conn.execute("INSERT INTO published_contents (content, seq) VALUES (?1, 1)", [&candidate]).unwrap();
+    db.conn
+        .execute(
+            "INSERT INTO fingerprints (content, version, fingerprint, vector_key, seq) VALUES (?1, 1, ?2, 'vectors/cand-v1', 1)",
+            rusqlite::params![candidate, "55".repeat(32)],
+        )
+        .unwrap();
+    let pairs = tx(&db, |s| super::decide::reference_vectors(s, &op_req(body("x", ident.clone(), 0)))).unwrap().unwrap();
+    assert_eq!(pairs, vec![(1, "vectors/cand-v1".to_owned(), r0_key, 20)]);
+    // Another model's fit digests: no.
+    let mut other = ident.clone();
+    other["encoder_sha256"] = json!("99".repeat(32));
+    assert_eq!(decide(&op_signed("eval.reference_decision", body("drill-r2", other, 0)), &same), Err("static_identity_mismatch"));
+    // Outputs that differ beyond the tolerance: no.
+    let near = vec![(1u32, vec_of(&[100, 230, u32::MAX]), vec_of(&[100, 200, u32::MAX]))];
+    assert_eq!(decide(&op_signed("eval.reference_decision", body("drill-r3", ident.clone(), 20)), &near), Err("not_document_equivalent"));
+    // Within it: the candidate takes R_0's position for later cohorts.
+    let v = decide(&op_signed("eval.reference_decision", body("drill-r4", ident.clone(), 30)), &near).unwrap();
+    assert_eq!((v["max_vector_diff_ppb"].clone(), v["previous_chain_content"].clone()), (json!(30), json!(r0)));
+    let (k, current, pred): (i64, String, Option<String>) = db
+        .conn
+        .query_row("SELECT k, current, predecessor FROM reference_state WHERE id = 1", [], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)))
+        .unwrap();
+    assert_eq!((k, current.as_str(), pred), (0, candidate.as_str(), None));
+    let (_, _, plan) = tx(&db, |s| super::calendar::start_now(s, &cfg())).unwrap().unwrap();
+    let plan: CohortPlan = serde_json::from_slice(&plan).unwrap();
+    assert_eq!(plan.reference.package_sha256, "d2".repeat(32), "the decision's own record resolves first");
+    assert!(plan.previous_reference.is_none());
+    // A replayed decision answers its effect; the chain is no longer at R0's
+    // content, so an old expectation is refused.
+    let again = decide(&op_signed("eval.reference_decision", body("drill-r4", ident.clone(), 30)), &near).unwrap();
+    assert_eq!(again["current_content"], json!(candidate));
+    assert_eq!(decide(&op_signed("eval.reference_decision", body("drill-r5", ident.clone(), 30)), &near), Err("expect_mismatch"));
+    let mut sim = Sim::new(&db, cfg(), sim.now + 20);
+    for _ in 0..3 {
+        sim.tick();
+    }
+    assert!(sim.rcpt.keys().any(|k| k.starts_with("references/decisions/")), "the signed record is written");
+}

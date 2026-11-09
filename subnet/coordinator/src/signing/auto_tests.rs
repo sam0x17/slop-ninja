@@ -1633,3 +1633,139 @@ fn a_declined_closure_passes_and_a_closure_beside_an_end_record_conflicts() {
     assert_eq!((v.error.as_deref(), v.error_label.as_deref()), (Some("abandon_conflict"), Some(c3.label.as_str())));
     assert!(h.logged("auto_target_abandoned").iter().any(|d| d.as_deref() == Some(&format!("2 {} eval_closure_declined", c2.label)[..])));
 }
+
+// --------------------------------------------------- burn now (P1-R)
+
+fn op_key() -> (SigningKey, slop_ninja_protocol::operator::OperatorKey) {
+    let k = SigningKey::from_bytes(&[0x61; 32]);
+    let p = slop_ninja_protocol::operator::OperatorKey::from_bytes(k.verifying_key().to_bytes()).unwrap();
+    (k, p)
+}
+
+fn restart_body(h: &H, decision: &str, floor: u64, issued: u64, past: &[u64], unlisted: &[u64], last: Option<u64>) -> serde_json::Value {
+    let held = h.held().digest().to_string();
+    serde_json::json!({"action": "restart", "decision": decision, "reason": "operator_decision", "floor": floor,
+        "bundle": launch_bundle_json(issued), "last": last, "past": past, "unlisted": unlisted, "expect": {"held": held}})
+}
+
+fn signed(body: serde_json::Value) -> serde_json::Value {
+    let c = chain();
+    let to = crate::signing::decide::address(&c);
+    crate::operator::tests::signed_body(&op_key().0, "coordinator.restart", &to, body)
+}
+
+fn decide_restart(h: &H, body: serde_json::Value, observed: u64) -> Result<serde_json::Value, &'static str> {
+    let (_, key) = op_key();
+    tx(&h.db, |sql| crate::signing::decide::decide(sql, &h.cfg, &h.trusted, body, Some(&key), Some(observed), T0)).unwrap()
+}
+
+/// P1-R with review-p1-final M1: a regular cohort is open while the number
+/// after it was passed out of order; the restart names the open one in `past`
+/// (bounded by opening epoch, never by number), refuses a body that omits
+/// it, and every refusal (no signature, a floor past finalized + 1, a launch
+/// issued at another epoch, a stale held target) changes nothing. The
+/// accepted restart journals it as `restarted_past`, writes nothing to
+/// `sign_auto_absent`, installs the launch row from the floor, and queues the
+/// signed `ChainRestart` record; a later replay answers the same.
+#[test]
+fn burn_now_names_every_pre_floor_cohort_and_refusals_change_nothing() {
+    let h = H::new();
+    let mut b = Bucket::new(1000);
+    let c11 = no_target(11);
+    b.put(&c11, false);
+    let c12 = no_target(12);
+    b.put(&c12, false);
+    pass(&h, &mut b);
+    assert_eq!(tx(&h.db, |sql| mark_abandoned(sql, &c12.label, T0)).unwrap(), Ok(12));
+    let counts = |h: &H| (h.db.count("sign_held_target_resets"), h.db.count("sign_restart_past"), h.db.count("operator_actions"));
+    let before = counts(&h);
+    // Only the token: refused.
+    assert_eq!(decide_restart(&h, restart_body(&h, "drill-p0", 250, 250, &[11], &[], None), 300), Err("authorization_required"));
+    // A floor past finalized + 1 (D13).
+    assert_eq!(decide_restart(&h, signed(restart_body(&h, "drill-p1", 302, 302, &[11], &[], None)), 300), Err("restart_future"));
+    // The launch authorization issued at another epoch than the floor.
+    assert_eq!(decide_restart(&h, signed(restart_body(&h, "drill-p2", 250, 251, &[11], &[], None)), 300), Err("restart_issue_mismatch"));
+    // The set S: 11 opened before the floor and was never handled.
+    assert_eq!(decide_restart(&h, signed(restart_body(&h, "drill-p3", 250, 250, &[], &[], None)), 300), Err("past_changed"));
+    let mut stale = restart_body(&h, "drill-p4", 250, 250, &[11], &[], None);
+    let other_target = hex::encode([0u8; 32]);
+    stale["expect"]["held"] = serde_json::json!(other_target);
+    assert_eq!(decide_restart(&h, signed(stale), 300), Err("expect_mismatch"));
+    assert_eq!(counts(&h), before, "every refusal changes nothing");
+    // Signing is paused (it starts paused): the restart goes ahead.
+    let v = decide_restart(&h, signed(restart_body(&h, "drill-p5", 250, 250, &[11], &[], Some(12))), 300).unwrap();
+    assert_eq!(v["past"][0]["cohort"], 11);
+    assert_eq!(v["unlisted"], serde_json::json!([]));
+    assert_eq!(tx(&h.db, restart_floor).unwrap(), Some(250));
+    let (reason, state): (String, String) = h
+        .db
+        .conn
+        .query_row("SELECT reason, state FROM sign_restart_past WHERE floor = 250 AND cohort = 11", [], |r| Ok((r.get(0)?, r.get(1)?)))
+        .unwrap();
+    assert_eq!((reason.as_str(), state.as_str()), ("restarted_past", "in_record"));
+    assert_eq!(h.db.count("sign_auto_absent"), 0, "a restart never marks a number absent");
+    assert_eq!(h.db.count("sign_restart_records"), 1);
+    let rec: String = h.db.conn.query_row("SELECT record_hex FROM sign_restart_records", [], |r| r.get(0)).unwrap();
+    let rec = <slop_ninja_protocol::decisions::ChainRestart as Record_>::from_bytes(&hex::decode(rec).unwrap()).unwrap();
+    assert_eq!((rec.floor, rec.last, rec.past.len()), (250, Some(12), 1));
+    // The same decision replays its recorded effect and changes nothing.
+    let again = decide_restart(&h, signed(restart_body(&h, "drill-p5", 250, 250, &[11], &[], Some(12))), 300);
+    assert!(again.is_ok() || again == Err("expect_mismatch"), "{again:?}");
+    let resets = h.db.count("sign_held_target_resets");
+    assert_eq!(resets, 1, "one restart");
+}
+
+/// P1-R `launch_needs_restart`: after the first install, a different launch
+/// bundle on the operator route is refused, and a byte-identical re-post of
+/// the active one is an idempotent replay that writes nothing.
+#[test]
+fn a_later_launch_bundle_installs_only_through_a_restart() {
+    let h = H::new();
+    let first = launch_bundle_json(1);
+    let rows = |h: &H| h.db.count("sign_log");
+    let n = rows(&h);
+    let replay = tx(&h.db, |sql| install_target(sql, &h.cfg, &h.trusted, &first, T0)).unwrap();
+    assert!(replay.is_ok());
+    assert_eq!(rows(&h), n, "the replay writes nothing");
+    let r = tx(&h.db, |sql| install_target(sql, &h.cfg, &h.trusted, &launch_bundle_json(5), T0)).unwrap().unwrap_err();
+    assert_eq!(r.code, "launch_needs_restart");
+}
+
+/// P1-R with S1: a cohort found after the restart that opened before its
+/// floor and that the signed record did not name is journaled
+/// `restarted_past_unlisted` with a signed addendum; one the record named
+/// as unlisted is journaled with no addendum.
+#[test]
+fn a_pre_floor_cohort_found_after_a_restart_is_recorded_with_its_addendum() {
+    let h = H::new();
+    let mut b = Bucket::new(1000);
+    let c11 = no_target(11);
+    b.put(&c11, false);
+    pass(&h, &mut b);
+    // 12 is not listed at the restart; the operator read 12 as the highest
+    // opened number, so the record names it as unlisted.
+    let v = decide_restart(&h, signed(restart_body(&h, "drill-u1", 250, 250, &[11], &[12], Some(12))), 300).unwrap();
+    assert_eq!(v["unlisted"], serde_json::json!([12]));
+    // 12 and 13 appear later, both opened before the floor (240, 260 > 250:
+    // 13 opened after it and is not a pre-floor cohort).
+    let c12 = no_target(12);
+    b.put(&c12, false);
+    let c13 = no_target(13);
+    b.put(&c13, false);
+    h.observe_epoch(301);
+    pass(&h, &mut b);
+    let reason: String = h.db.conn.query_row("SELECT reason FROM sign_restart_past WHERE floor = 250 AND cohort = 12", [], |r| r.get(0)).unwrap();
+    assert_eq!(reason, "restarted_past_unlisted");
+    assert_eq!(h.db.count("sign_restart_records"), 1, "named as unlisted: no addendum");
+    assert!(h.db.conn.query_row("SELECT 1 FROM sign_restart_past WHERE cohort = 13", [], |r| r.get::<_, i64>(0)).is_err());
+    // A second restart; then a pre-floor cohort it never named gets an addendum.
+    tx(&h.db, |sql| sql.exec("DELETE FROM sign_auto_labels WHERE label = ?", &[c13.label.as_str().into()]).map(|_| ())).unwrap();
+    let past: Vec<u64> = vec![];
+    let v = decide_restart(&h, signed(restart_body(&h, "drill-u2", 300, 300, &past, &[], None)), 300);
+    assert!(v.is_ok(), "{v:?}");
+    h.observe_epoch(302);
+    pass(&h, &mut b);
+    let reason: String = h.db.conn.query_row("SELECT reason FROM sign_restart_past WHERE floor = 300 AND cohort = 13", [], |r| r.get(0)).unwrap();
+    assert_eq!(reason, "restarted_past_unlisted");
+    assert_eq!(h.db.conn.query_row("SELECT COUNT(*) FROM sign_restart_records WHERE kind = 'addendum'", [], |r| r.get::<_, i64>(0)).unwrap(), 1);
+}

@@ -25,6 +25,12 @@
 //!   template now, whether the calendar is paused or not; the calendar stays
 //!   as it was. An install keeps the calendar's pause.
 //!
+//! - [`reference_decision`] (D10(b)): the operator sets the chain's
+//!   references for later cohorts under the offline key, with a recorded
+//!   reason: the general `override`, and the narrow `span_equivalent`
+//!   replacement of R_0 by a staged package whose document outputs equal
+//!   R_0's (span gate design section 4.2).
+//!
 //! Records are queued in `decision_records` and written by their own step
 //! ([`engine::Work::DecisionRecord`]); the write never holds other work.
 
@@ -35,8 +41,9 @@ use crate::operator::{self, Address, Begin, Request};
 use crate::sql::{Sql, SqlValue, bind_u64, int, text};
 use slop_ninja_protocol::operator::OperatorKey;
 
-/// v30: the operator action log, the drain of an operator abandon and the
-/// abandonment's decision fields.
+/// v30: the operator action log, the drain of an operator abandon, the
+/// abandonment's decision fields, the operator's reference decisions and the
+/// decision records awaiting their write.
 pub const SCHEMA_V30: &[&str] = &[
     crate::operator::ACTIONS_TABLE,
     "ALTER TABLE cohorts ADD COLUMN draining_ms INTEGER",
@@ -46,6 +53,26 @@ pub const SCHEMA_V30: &[&str] = &[
     "ALTER TABLE cohorts ADD COLUMN abandon_decision TEXT",
     "ALTER TABLE cohorts ADD COLUMN abandon_statement TEXT",
     "ALTER TABLE cohorts ADD COLUMN closure_declined_ms INTEGER",
+    // D10(b): the operator's reference decisions, newest last; the chain's
+    // resolution reads their records before any cohort's. This table
+    // replaces the one of the same name that v29 created for the span gate's
+    // interim decision route (`span_gate`): that route refused every request
+    // before reading or writing anything, so the dropped table is empty in
+    // every store.
+    "DROP TABLE reference_decisions",
+    "CREATE TABLE reference_decisions (
+        seq INTEGER PRIMARY KEY,
+        kind TEXT NOT NULL CHECK (kind IN ('span_equivalent', 'override')),
+        k INTEGER NOT NULL,
+        current_content TEXT NOT NULL,
+        current_record TEXT NOT NULL,
+        previous_content TEXT,
+        previous_record TEXT,
+        reason TEXT NOT NULL,
+        decision_sha256 TEXT,
+        statement_sha256 TEXT NOT NULL,
+        at_ms INTEGER NOT NULL
+    ) STRICT",
     // Signed, content-free decision records awaiting their write to the
     // receipts bucket (`Work::DecisionRecord`): the record's canonical bytes
     // (signed at the write with the package key) and its key.
@@ -411,6 +438,237 @@ pub fn cohort_start(sql: &impl Sql, cfg: &EvalConfig, req: &Request, key: Option
     engine::log_note(sql, seq, "queued by operator decision (cohort/start); the calendar is unchanged", now_ms)?;
     let o = engine::observed(sql)?;
     let n = operator::record(sql, req, "eval.cohort_start", None, &effect, o.epoch.map(|e| e.index), now_ms)?;
+    let mut out = effect;
+    out["operator_seq"] = json!(n);
+    Ok(Ok(out))
+}
+
+/// The stored artifact record an operator reference decision names for
+/// `content` (current or previous), newest decision first.
+pub fn decided_record(sql: &impl Sql, content: &str) -> R<Option<crate::eval::plan::ArtifactJson>> {
+    let rows = sql.exec(
+        "SELECT current_content, current_record, previous_content, previous_record FROM reference_decisions
+         WHERE current_content = ? OR previous_content = ? ORDER BY seq DESC LIMIT 1",
+        &[s(content), s(content)],
+    )?;
+    let Some(r) = rows.first() else { return Ok(None) };
+    let record = if text(r, 0)? == content { text(r, 1)?.to_owned() } else { engine::opt_text(r, 3).unwrap_or_default() };
+    serde_json::from_str(&record).map(Some).map_err(|_| EvalError::State("decided reference record"))
+}
+
+fn hex64(v: Option<&Value>) -> Option<String> {
+    let t = v?.as_str()?;
+    (t.len() == 64 && t.bytes().all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))).then(|| t.to_owned())
+}
+
+/// One probe vector pair a span-equivalent decision compares: the probe
+/// version, the candidate's stored vector key, R_0's, and the probe size.
+pub type VectorPair = (u32, String, String, u32);
+
+/// The stored probe vectors a `span_equivalent` decision compares, one pair
+/// per probe version of the installed template (`candidate_unpublished`
+/// when the candidate has no stored vector on one). Read-only.
+pub fn reference_vectors(sql: &impl Sql, req: &Request) -> R<Result<Vec<VectorPair>, &'static str>> {
+    let Some(candidate) = hex64(req.body.get("current_content")) else { return Ok(Err("current_content_invalid")) };
+    let chain = sql.exec("SELECT current FROM reference_state WHERE id = 1", &[])?;
+    let Some(r0) = chain.first().map(|r| text(r, 0).map(str::to_owned)).transpose()? else {
+        return Ok(Err("chain_missing"));
+    };
+    let mut out = Vec::new();
+    for v in crate::eval::calendar::template_probe_versions(sql)? {
+        let key_of = |content: &str| -> R<Option<String>> {
+            Ok(sql
+                .exec("SELECT vector_key FROM fingerprints WHERE content = ? AND version = ?", &[s(content), i(i64::from(v))])?
+                .first()
+                .map(|r| text(r, 0).map(str::to_owned))
+                .transpose()?)
+        };
+        let size = sql.exec("SELECT size FROM probe_versions WHERE version = ?", &[i(i64::from(v))])?;
+        let size = size.first().map_or(Ok(0), |r| int(r, 0))? as u32;
+        match (key_of(&candidate)?, key_of(&r0)?) {
+            (Some(c), Some(r)) => out.push((v, c, r, size)),
+            (None, _) => return Ok(Err("candidate_unpublished")),
+            (_, None) => return Ok(Err("reference_unfingerprinted")),
+        }
+    }
+    Ok(Ok(out))
+}
+
+const IDENTITY_FIELDS: [&str; 4] = ["fit_sha256", "selected_checkpoint_sha256", "encoder_sha256", "heads_sha256"];
+
+/// D10(b): an operator reference decision (`POST /eval/references/decision`,
+/// under the offline operator-decision key). Body: `kind` (`span_equivalent`
+/// or `override`), `current` (the artifact record the chain names next, a
+/// staged reference package) with `current_content`, optional `previous` and
+/// `previous_content`, `k`, and `expect: {current_content}` (the chain's
+/// current content as the operator read it).
+///
+/// Both kinds need no promotion pending (`promotion_pending`) and a candidate
+/// whose content is published here with a fingerprint and stored vector on
+/// every probe version of the installed template (`candidate_unpublished`).
+/// `span_equivalent` takes R_0's position with no predecessor (`k` 0) and
+/// only while the chain is at index 0 (`chain_not_at_r0`); its `static_identity`
+/// lists the candidate's and R_0's recorded fit digests, which must be equal
+/// (`static_identity_mismatch`); and its stored probe vectors (`vectors`,
+/// read by the caller from [`reference_vectors`]) must equal R_0's on every
+/// probe version within the decision's `tolerance_ppb`
+/// (`not_document_equivalent`). The general `override` (a stronger class)
+/// takes the references as given.
+///
+/// Effect: journaled before it applies; `reference_state` is set for
+/// cohorts queued after it (a queued cohort keeps its sealed references);
+/// the chain's resolution reads the decision's records first; and a signed,
+/// content-free `eval-decision` record states it.
+pub fn reference_decision(
+    sql: &impl Sql,
+    cfg: &EvalConfig,
+    req: &Request,
+    key: Option<&OperatorKey>,
+    vectors: &[(u32, Vec<u8>, Vec<u8>)],
+    now_ms: u64,
+) -> R<Answer> {
+    let authority = cfg.authority.name().to_owned();
+    let statement = match operator::begin(sql, req, "eval.reference_decision", true, key, &address(cfg, &authority))? {
+        Ok(Begin::Answer(v)) => return Ok(Ok(v)),
+        Ok(Begin::Proceed(st)) => st.ok_or(EvalError::State("statement"))?,
+        Err(code) => return Ok(Err(code)),
+    };
+    let kind = req.body.get("kind").and_then(Value::as_str).unwrap_or_default().to_owned();
+    if !matches!(kind.as_str(), "span_equivalent" | "override") {
+        return Ok(Err("kind_unknown"));
+    }
+    let Some(current_content) = hex64(req.body.get("current_content")) else { return Ok(Err("current_content_invalid")) };
+    let previous_content = match req.body.get("previous_content") {
+        None | Some(Value::Null) => None,
+        v => Some(hex64(v).ok_or(EvalError::Plan("previous_content"))?),
+    };
+    let Ok(current) = serde_json::from_value::<crate::eval::plan::ArtifactJson>(req.body.get("current").cloned().unwrap_or_default()) else {
+        return Ok(Err("current_record_invalid"));
+    };
+    let previous = match req.body.get("previous") {
+        None | Some(Value::Null) => None,
+        Some(v) => match serde_json::from_value::<crate::eval::plan::ArtifactJson>(v.clone()) {
+            Ok(a) => Some(a),
+            Err(_) => return Ok(Err("previous_record_invalid")),
+        },
+    };
+    if previous.is_some() != previous_content.is_some() {
+        return Ok(Err("previous_record_invalid"));
+    }
+    let k = req.body.get("k").and_then(Value::as_u64).unwrap_or(0);
+    let chain = sql.exec("SELECT k, current FROM reference_state WHERE id = 1", &[])?;
+    let (chain_k, chain_current) = match chain.first() {
+        Some(r) => (int(r, 0)? as u64, Some(text(r, 1)?.to_owned())),
+        None => (0, None),
+    };
+    if req.expect.get("current_content").and_then(Value::as_str) != chain_current.as_deref() {
+        return Ok(Err("expect_mismatch"));
+    }
+    if crate::eval::calendar::promotion_pending(sql)? {
+        return Ok(Err("promotion_pending"));
+    }
+    let published = !sql.exec("SELECT 1 FROM published_contents WHERE content = ?", &[s(&current_content)])?.is_empty();
+    if !published {
+        return Ok(Err("candidate_unpublished"));
+    }
+    for v in crate::eval::calendar::template_probe_versions(sql)? {
+        let fp = sql.exec("SELECT 1 FROM fingerprints WHERE content = ? AND version = ?", &[s(&current_content), i(i64::from(v))])?;
+        if fp.is_empty() {
+            return Ok(Err("candidate_unpublished"));
+        }
+    }
+    let mut max_diff_ppb: Option<u64> = None;
+    if kind == "span_equivalent" {
+        if chain_k != 0 || k != 0 || previous.is_some() {
+            return Ok(Err("chain_not_at_r0"));
+        }
+        let ident = req.body.get("static_identity");
+        let side = |name: &str| ident.and_then(|v| v.get(name));
+        let same = IDENTITY_FIELDS.iter().all(|f| {
+            let a = side("candidate").and_then(|v| hex64(v.get(*f)));
+            let b = side("r0").and_then(|v| hex64(v.get(*f)));
+            a.is_some() && a == b
+        });
+        if !same {
+            return Ok(Err("static_identity_mismatch"));
+        }
+        let tolerance = req.body.get("tolerance_ppb").and_then(Value::as_u64).unwrap_or(0);
+        let versions = crate::eval::calendar::template_probe_versions(sql)?;
+        if vectors.len() != versions.len() || !versions.iter().all(|v| vectors.iter().any(|(x, _, _)| x == v)) {
+            return Ok(Err("candidate_unpublished"));
+        }
+        let mut worst = 0u64;
+        for (_, a, b) in vectors {
+            let (Ok(a), Ok(b)) = (crate::eval::v3::vector_from_bytes(a), crate::eval::v3::vector_from_bytes(b)) else {
+                return Ok(Err("not_document_equivalent"));
+            };
+            if a.len() != b.len() {
+                return Ok(Err("not_document_equivalent"));
+            }
+            for (x, y) in a.iter().zip(&b) {
+                match (x, y) {
+                    (None, None) => {}
+                    (Some(x), Some(y)) => worst = worst.max(u64::from(x.ppb().abs_diff(y.ppb()))),
+                    _ => return Ok(Err("not_document_equivalent")),
+                }
+            }
+        }
+        if worst > tolerance {
+            return Ok(Err("not_document_equivalent"));
+        }
+        max_diff_ppb = Some(worst);
+    }
+    let effect = json!({"kind": kind, "k": k, "current_content": current_content, "previous_content": previous_content,
+        "previous_chain_content": chain_current, "max_vector_diff_ppb": max_diff_ppb});
+    if req.preview {
+        return Ok(Ok(json!({"preview": true, "effect": effect})));
+    }
+    let o = engine::observed(sql)?;
+    let record_json = |a: &crate::eval::plan::ArtifactJson| serde_json::to_string(a).map_err(|_| EvalError::State("reference record"));
+    sql.exec(
+        "INSERT INTO reference_decisions (kind, k, current_content, current_record, previous_content, previous_record, reason,
+            decision_sha256, statement_sha256, at_ms) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        &[
+            s(kind.as_str()),
+            bind_u64(k)?,
+            s(&current_content),
+            s(record_json(&current)?),
+            previous_content.as_deref().map_or(SqlValue::Null, s),
+            previous.as_ref().map(record_json).transpose()?.map_or(SqlValue::Null, s),
+            s(req.reason.as_str()),
+            req.decision_sha256.map_or(SqlValue::Null, |d| s(d.hex())),
+            s(statement.hex()),
+            bind_u64(now_ms)?,
+        ],
+    )?;
+    sql.exec(
+        "INSERT INTO reference_state (id, k, current, predecessor) VALUES (1, ?, ?, ?)
+         ON CONFLICT(id) DO UPDATE SET k = excluded.k, current = excluded.current, predecessor = excluded.predecessor",
+        &[bind_u64(k)?, s(&current_content), previous_content.as_deref().map_or(SqlValue::Null, s)],
+    )?;
+    let digest_of = |h: &str| engine::parse_digest(h).ok_or(EvalError::State("content digest"));
+    let mut digests = vec![slop_ninja_protocol::decisions::NamedDigest { name: "reference_current".into(), digest: digest_of(&current_content)? }];
+    if let Some(p) = &previous_content {
+        digests.push(slop_ninja_protocol::decisions::NamedDigest { name: "reference_previous".into(), digest: digest_of(p)? });
+    }
+    if let Some(c) = &chain_current {
+        digests.push(slop_ninja_protocol::decisions::NamedDigest { name: "replaced_current".into(), digest: digest_of(c)? });
+    }
+    let record = slop_ninja_protocol::decisions::EvalDecision {
+        chain: cfg.chain.clone(),
+        authority,
+        action: format!("references.{kind}"),
+        reason: req.reason.clone(),
+        cohort: None,
+        cohort_label: None,
+        digests,
+        epoch: o.epoch.map(|e| e.index),
+        decision: req.decision_sha256,
+        statement: Some(statement),
+    };
+    let bytes = slop_ninja_protocol::Record::to_bytes(&record).map_err(|_| EvalError::State("decision record"))?;
+    let n = operator::record(sql, req, "eval.reference_decision", Some(&statement), &effect, o.epoch.map(|e| e.index), now_ms)?;
+    queue_record(sql, &format!("references/decisions/{n}.signed"), "eval-decision", hex::encode(bytes), now_ms)?;
     let mut out = effect;
     out["operator_seq"] = json!(n);
     Ok(Ok(out))

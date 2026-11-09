@@ -6,7 +6,7 @@
 //! reward_v1_verify cohort DIR --trust TRUST.json [--snapshot-owner HOTKEY --snapshot UID:HOTKEY:REG ...
 //!     [--snapshot-at BLOCK:HASH]]
 //!     [--authorization-seed FILE --issued-epoch E --carrier DIR2]
-//! reward_v1_verify launch --trust TRUST.json --authorization-seed FILE --issued-epoch E [--generation G] --out FILE
+//! reward_v1_verify launch --trust TRUST.json --authorization-seed FILE --issued-epoch E --finalized-epoch F [--generation G] --out FILE
 //! reward_v1_verify revoke --trust TRUST.json --authorization-seed FILE --bundle FILE --issued-epoch E
 //!     --finalized-epoch F [--generation G] --out FILE
 //! ```
@@ -211,6 +211,13 @@ fn main() {
 fn launch(a: &Args, keys: &TrustedKeys, root: &[u8; 32]) {
     let k = authorization_key(a.seed.as_deref().unwrap_or_else(|| fail("--authorization-seed")), root);
     let issued = a.issued.unwrap_or_else(|| fail("--issued-epoch"));
+    // D13: a launch authorization is issued at most one epoch past the
+    // finalized index (a restart's floor F = finalized + 1), so a typo can
+    // never push every later restart into the future.
+    let finalized = a.finalized.unwrap_or_else(|| fail("--finalized-epoch"));
+    if issued > finalized.saturating_add(1) {
+        fail(format!("--issued-epoch {issued} is past the finalized epoch index {finalized} plus one"));
+    }
     let auth = LaunchAuthorization::new(&chain(), a.generation, issued).unwrap_or_else(|e| fail(e));
     let signed = sign(auth, &k).and_then(|s| s.to_bytes()).unwrap_or_else(|e| fail(e));
     let b = target::BundleV2 {

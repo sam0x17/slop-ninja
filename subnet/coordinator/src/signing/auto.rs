@@ -832,6 +832,12 @@ pub fn note_manifest(
         ("in_record", Some(_)) if behind => note_failure(sql, label, "cohort_behind_record", now_ms)?,
         _ => clear_failure_of(sql, &[label], now_ms)?,
     }
+    // P1-R: a cohort that opened before the latest restart's floor and that
+    // the restart did not name is journaled (and, if unnamed in its signed
+    // record, given a signed addendum).
+    if let ("in_record", Some(c), Some(o)) = (state, cohort, opened) {
+        super::decide::note_pre_floor(sql, cfg, label, c, o, now_ms)?;
+    }
     Ok(state)
 }
 

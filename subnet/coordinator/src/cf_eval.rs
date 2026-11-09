@@ -750,8 +750,10 @@ impl DurableObject for EvalCohort {
                 Ok(v) => json(&v),
                 Err(_) => error("store_unavailable", 503),
             },
-            // The operator's live stop and resume (`eval::live::set_stop`):
-            // journaled, no expiry, holds nothing else.
+            // The operator's live stop and resume (`eval::live::set_stop`),
+            // and the clear of a cohort's live fault (`clear_fault`, which
+            // also runs a failed setup again): journaled, no expiry, holds
+            // nothing else.
             (Method::Post, "/live/stop") if main => {
                 let b = match super::cf_io::request_json::<crate::eval::live::StopRequest>(&mut req, OPERATOR_BODY_BYTES).await {
                     Ok(b) => b,
@@ -1783,11 +1785,6 @@ impl EvalCohort {
         Ok(progress)
     }
 
-    /// Runs one outage probe ([`engine::Probe`]) within its ticket's
-    /// deadline ([`engine::ProbeTicket`]): whether it succeeded,
-    /// whether the scorer refused the artifact definitively, its wall time,
-    /// its measured spend (nano-dollars) and a short content-free code for a
-    /// failure. Never reads cohort text and never touches a job.
     /// The live values' share of a step (`eval::live`), before any other
     /// work: the setup of each newly sealed cohort, then its due releases,
     /// each in its own transaction and child scope. A failure records a live
@@ -1838,6 +1835,11 @@ impl EvalCohort {
         progress
     }
 
+    /// Runs one outage probe ([`engine::Probe`]) within its ticket's
+    /// deadline ([`engine::ProbeTicket`]): whether it succeeded,
+    /// whether the scorer refused the artifact definitively, its wall time,
+    /// its measured spend (nano-dollars) and a short content-free code for a
+    /// failure. Never reads cohort text and never touches a job.
     async fn run_probe(&self, seq: i64, probe: &engine::Probe, ticket: &engine::ProbeTicket) -> engine::ProbeOutcome {
         let t0 = now_ms();
         match probe {

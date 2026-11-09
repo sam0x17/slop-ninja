@@ -56,8 +56,12 @@ pub const STRUCTURE_STREAM_ID: &str = "slop_ninja_onnx_structure_stream_v1";
 /// on CPUs without flush-to-zero; refusing them removes that lever only
 /// (small normal weights can still produce subnormal intermediate values).
 /// Constant node tensors are fixed by the class's structure stream, so the
-/// rule reads initializers alone. A scorer build carrying it is deployed
-/// only once no admitted artifact is measured to ship one.
+/// rule reads initializers alone. The rule applies at every load, not only
+/// at admission, so a scorer build carrying it would refuse the load of an
+/// already admitted artifact that ships one: such a build is deployed only
+/// when no admitted artifact is still waiting to be scored (a cohort gap),
+/// after every admitted artifact has been measured to pass it. Every later
+/// scorer build carries it.
 pub const INITIALIZER_RULE: &str = "slop_ninja_onnx_no_subnormal_initializers_v1";
 
 /// ONNX `TensorProto.DataType` values.

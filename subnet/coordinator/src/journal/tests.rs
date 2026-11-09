@@ -680,7 +680,7 @@ fn migrations_are_pinned_by_content() {
         "ee9f5614de344dc6",
         // v28: live values while a cohort is scored (live-scores lane; never
         // deployed).
-        "5ef1a267ae59d3d4",
+        "5d0d0d2fa61d296e",
     ];
     // v1-v10 are deployed on both testnet Workers; v11 is the stuck-states
     // lane's; v12 the automatic target handoff's; v13 the signed coordinator

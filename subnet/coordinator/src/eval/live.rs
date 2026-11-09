@@ -30,7 +30,10 @@
 //!   exact value, no segment membership, nothing per task, chunk or document,
 //!   nothing from the probe or audits.
 //! - **Stop** ([`set_stop`]): global or per cohort, journaled with its reason
-//!   (`live_stop`, `live_stop_log`), no expiry; it holds nothing else.
+//!   (`live_stop`, `live_stop_log`), no expiry; it holds nothing else. The
+//!   same journaled request clears a cohort's live fault (`clear_fault`),
+//!   and after a failed setup it runs the setup again at the next tick, so
+//!   no live fault outlasts the operator.
 //! - **Package cross-check** ([`cross_check`]): the package wins; a shown
 //!   value that differs is recorded as a `prefinal_mismatch` defect and
 //!   counted as one more release in the cohort's private terms, never in a
@@ -44,7 +47,7 @@ use crate::sql::{Sql, SqlValue, int, text};
 use serde::Deserialize;
 use serde_json::{Value, json};
 use slop_ninja_protocol::live;
-use slop_ninja_protocol::quant::{self, CohortBinding, CountedTerms, Subject};
+use slop_ninja_protocol::quant::{self, CohortBinding, Subject};
 use slop_ninja_protocol::reward::brier_utility;
 use slop_ninja_protocol::reward_v1::{self, PreviewInputs};
 use slop_ninja_protocol::{Probability, Score};
@@ -75,12 +78,17 @@ const RUNNING: &str = "('scoring','packaging','transition')";
 /// v28: live values while a cohort is scored.
 /// - `live_cohorts`: one row per cohort once the setup ran (`segments` 0
 ///   means no readings), with the derived counts and the private recount
-///   (`terms`, JSON), the quantization width and margin line once `R_k`'s
-///   value is released, the fault, and the prediction count the last full
-///   release check saw (`checked_preds`, so a kick finds due work cheaply).
+///   (`terms`, JSON, written at every package), the quantization width and
+///   margin line once `R_k`'s value is released, the fault, the setup's
+///   state (`done`; `failed` after a failed setup; `retry` once the operator
+///   cleared it, until the next tick runs it again), and the prediction
+///   count the last full release check saw (`checked_preds`, so a kick finds
+///   due work cheaply).
 /// - `live_releases`: every released value, insert-once, keyed with its
 ///   revision; `released_epoch` is private and tempo-level.
-/// - `live_stop`, `live_stop_log`: the operator's stops and resumes.
+/// - `live_stop`, `live_stop_log`: the operator's stops and resumes; the log
+///   also records each fault the request cleared (`cleared`) and whether it
+///   asked for the setup again (`retry`).
 /// - `live_defects`: the package cross-check's defects (values private).
 /// - `docs.live_segment`: a batch task's segment; null on every other row.
 pub const SCHEMA_V28: &[&str] = &[
@@ -90,6 +98,7 @@ pub const SCHEMA_V28: &[&str] = &[
         predecessor INTEGER NOT NULL, n INTEGER NOT NULL, width_units TEXT,
         counted INTEGER NOT NULL, live_bits INTEGER NOT NULL, bound INTEGER NOT NULL,
         terms TEXT NOT NULL DEFAULT '{}', quant_width TEXT, margin_line TEXT, fault TEXT,
+        setup TEXT NOT NULL DEFAULT 'done' CHECK (setup IN ('done','failed','retry')),
         checked_preds INTEGER NOT NULL DEFAULT -1
     ) STRICT",
     "CREATE TABLE live_releases (
@@ -103,7 +112,8 @@ pub const SCHEMA_V28: &[&str] = &[
         scope TEXT PRIMARY KEY, stopped INTEGER NOT NULL, reason TEXT NOT NULL, set_epoch INTEGER
     ) STRICT",
     "CREATE TABLE live_stop_log (
-        id INTEGER PRIMARY KEY, scope TEXT NOT NULL, stopped INTEGER NOT NULL, reason TEXT NOT NULL, set_epoch INTEGER
+        id INTEGER PRIMARY KEY, scope TEXT NOT NULL, stopped INTEGER NOT NULL, reason TEXT NOT NULL, set_epoch INTEGER,
+        cleared TEXT, retry INTEGER NOT NULL DEFAULT 0
     ) STRICT",
     "CREATE TABLE live_defects (
         seq INTEGER NOT NULL, job INTEGER NOT NULL, rule TEXT NOT NULL, shown TEXT, signed TEXT,
@@ -131,13 +141,14 @@ fn count(sql: &impl Sql, q: &str, p: &[SqlValue]) -> R<i64> {
 // ------------------------------------------------------------------ setup
 
 /// Sealed cohorts between the seal and the close whose plan has a live block
-/// and whose setup has not run.
+/// and whose setup has not run, or failed and was cleared by the operator
+/// (`setup = 'retry'`).
 pub fn pending_setup(sql: &impl Sql) -> R<Vec<i64>> {
     let rows = sql.exec(
         &format!(
             "SELECT c.seq FROM cohorts c WHERE c.phase IN {RUNNING}
                AND json_extract(c.plan, '$.reward_v1.live') IS NOT NULL
-               AND NOT EXISTS (SELECT 1 FROM live_cohorts l WHERE l.seq = c.seq)
+               AND NOT EXISTS (SELECT 1 FROM live_cohorts l WHERE l.seq = c.seq AND l.setup != 'retry')
                AND EXISTS (SELECT 1 FROM jobs j WHERE j.seq = c.seq)
              ORDER BY c.seq"
         ),
@@ -148,11 +159,16 @@ pub fn pending_setup(sql: &impl Sql) -> R<Vec<i64>> {
 
 /// The setup right after the seal: `L` from the sealed `X` and reference
 /// shape, the partition, and the cohort's row, in the caller's
-/// transaction. Idempotent: a stored row means done.
+/// transaction. Idempotent: a stored row means done, unless the operator
+/// cleared a failed setup (`setup = 'retry'`): the setup then runs again
+/// over the same sealed values and updates the row in place, keeping every
+/// value released meanwhile and any fault recorded since the clear.
 pub fn prepare(sql: &impl Sql, seq: i64) -> R<()> {
-    if count(sql, "SELECT COUNT(*) FROM live_cohorts WHERE seq = ?", &[i(seq)])? > 0 {
-        return Ok(());
-    }
+    let retry = match sql.exec("SELECT setup FROM live_cohorts WHERE seq = ?", &[i(seq)])?.first() {
+        None => false,
+        Some(r) if text(r, 0)? == "retry" => true,
+        Some(_) => return Ok(()),
+    };
     #[cfg(test)]
     if FAIL_PREPARE.with(std::cell::Cell::get) {
         return Err(state_err("injected setup failure"));
@@ -167,9 +183,10 @@ pub fn prepare(sql: &impl Sql, seq: i64) -> R<()> {
         .map_err(|_| state_err("roster"))?;
     let predecessor = c.plan.previous_reference.is_some();
     let params = lp.params();
-    // Every other rule's counted terms: none today. A rule that publishes
-    // hidden-data bits adds them here, which lowers L without live code.
-    let d = live::derive_segments(n, executed, predecessor, &q, &params, &CountedTerms::NONE)
+    // Every other rule's counted terms, from the plan's one source
+    // (`RewardV1Plan::counted_terms`): a rule that publishes hidden-data
+    // bits adds them there, which lowers L without live code.
+    let d = live::derive_segments(n, executed, predecessor, &q, &params, &v1.counted_terms())
         .map_err(|_| state_err("live derivation"))?;
     let mut width = SqlValue::Null;
     if d.segments >= live::MIN_SEGMENTS {
@@ -195,9 +212,16 @@ pub fn prepare(sql: &impl Sql, seq: i64) -> R<()> {
             )?;
         }
     }
-    sql.exec(
+    let stmt = if retry {
+        "UPDATE live_cohorts SET segments = ?2, segments_max = ?3, eps_live_milli = ?4, prefinal = ?5, executed = ?6,
+            predecessor = ?7, n = ?8, width_units = ?9, counted = ?10, live_bits = ?11, bound = ?12, setup = 'done',
+            checked_preds = -1 WHERE seq = ?1"
+    } else {
         "INSERT INTO live_cohorts (seq, segments, segments_max, eps_live_milli, prefinal, executed, predecessor, n,
-            width_units, counted, live_bits, bound) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            width_units, counted, live_bits, bound) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)"
+    };
+    sql.exec(
+        stmt,
         &[
             i(seq),
             i(i64::from(d.segments)),
@@ -242,15 +266,21 @@ fn entrant_shape(sql: &impl Sql, c: &Cohort) -> R<(u32, u32)> {
 }
 
 /// Records a live fault for `seq` (its own transaction, after the failing
-/// one rolled back). A failed setup stores `segments = 0`: the cohort runs
-/// on without readings, and its pre-finalized values, which need no
-/// partition, still appear. A failed release (or the private recount over
-/// the bound) stops every live value of the cohort. Never touches the
-/// cohort's phase, fault or work.
+/// one rolled back). A failed setup stores `segments = 0` and `setup =
+/// 'failed'`: the cohort runs on without readings, and its pre-finalized
+/// values, which need no partition, still appear. A failed release (or the
+/// private recount over the bound) stops every live value of the cohort,
+/// and takes the place of a setup's fault, which stops readings only. Never
+/// touches the cohort's phase, fault or work. The operator clears any of
+/// them ([`set_stop`] with `clear_fault`).
 pub fn note_fault(sql: &impl Sql, seq: i64, code: &'static str) -> R<()> {
     let exists = count(sql, "SELECT COUNT(*) FROM live_cohorts WHERE seq = ?", &[i(seq)])? > 0;
     if exists {
-        sql.exec("UPDATE live_cohorts SET fault = COALESCE(fault, ?) WHERE seq = ?", &[s(code), i(seq)])?;
+        if code == FAULT_PREPARE {
+            sql.exec("UPDATE live_cohorts SET fault = COALESCE(fault, ?), setup = 'failed' WHERE seq = ?", &[s(code), i(seq)])?;
+        } else {
+            set_stopping_fault(sql, seq, code)?;
+        }
         return Ok(());
     }
     // What the pre-finalized values need, when it can be read; else none.
@@ -263,8 +293,27 @@ pub fn note_fault(sql: &impl Sql, seq: i64, code: &'static str) -> R<()> {
     .unwrap_or([0; 4]);
     sql.exec(
         "INSERT INTO live_cohorts (seq, segments, segments_max, eps_live_milli, prefinal, executed, predecessor, n,
-            counted, live_bits, bound, fault) VALUES (?, 0, 0, 0, ?, ?, ?, ?, 0, 0, 0, ?)",
-        &[i(seq), i(basics[0]), i(basics[1]), i(basics[2]), i(basics[3]), s(code)],
+            counted, live_bits, bound, fault, setup) VALUES (?, 0, 0, 0, ?, ?, ?, ?, 0, 0, 0, ?, ?)",
+        &[
+            i(seq),
+            i(basics[0]),
+            i(basics[1]),
+            i(basics[2]),
+            i(basics[3]),
+            s(code),
+            s(if code == FAULT_PREPARE { "failed" } else { "done" }),
+        ],
+    )?;
+    Ok(())
+}
+
+/// Stores a fault that stops every live value of `seq` (`release`,
+/// `over_bound`): it replaces none or a setup's fault and keeps an earlier
+/// stopping one.
+fn set_stopping_fault(sql: &impl Sql, seq: i64, code: &'static str) -> R<()> {
+    sql.exec(
+        "UPDATE live_cohorts SET fault = CASE WHEN fault IS NULL OR fault = ? THEN ? ELSE fault END WHERE seq = ?",
+        &[s(FAULT_PREPARE), s(code), i(seq)],
     )?;
     Ok(())
 }
@@ -296,16 +345,30 @@ pub struct StopRequest {
     /// The public cohort number; `None` is the global scope.
     pub cohort: Option<u64>,
     pub reason: String,
+    /// Also clear the cohort's live fault (`release`, `over_bound` or
+    /// `prepare`); needs a cohort. A cleared failed setup runs again at the
+    /// next tick. Absent: false.
+    #[serde(default)]
+    pub clear_fault: bool,
 }
 
 /// Stops or resumes live releases, globally or for one cohort, and journals
 /// it with its reason and epoch. No expiry; it holds nothing else: scoring,
 /// packaging, signing and phases go on. A resume releases what came due
-/// during the stop, once each and in order, at the next tick.
+/// during the stop, once each and in order, at the next tick. With
+/// `clear_fault`, the same transaction clears the cohort's live fault and
+/// journals the cleared code: a cleared `release` or `over_bound` fault lets
+/// the cohort's releases go on (subject to the stops), and a cleared failed
+/// setup runs again at the next tick (`setup = 'retry'`). A fault whose
+/// cause remains is recorded again by the next failing step; the
+/// operator's path past it is never closed.
 pub fn set_stop(sql: &impl Sql, req: &StopRequest) -> R<Value> {
     let reason = req.reason.trim();
     if reason.is_empty() || reason.len() > REASON_BYTES || reason.chars().any(char::is_control) {
         return Err(EvalError::Plan("reason (1 to 200 bytes, no control characters)"));
+    }
+    if req.clear_fault && req.cohort.is_none() {
+        return Err(EvalError::Plan("clear_fault (needs a cohort)"));
     }
     let scope = match req.cohort {
         None => GLOBAL.to_owned(),
@@ -314,11 +377,36 @@ pub fn set_stop(sql: &impl Sql, req: &StopRequest) -> R<Value> {
             int(rows.first().ok_or(EvalError::Plan("cohort (unknown)"))?, 0)?.to_string()
         }
     };
-    record_stop(sql, &scope, req.stopped, reason)?;
-    Ok(json!({"scope": if scope == GLOBAL { Value::Null } else { json!(req.cohort) }, "stopped": req.stopped}))
+    let (cleared, retry) = match (req.clear_fault, scope.parse::<i64>()) {
+        (true, Ok(seq)) => clear_fault(sql, seq)?,
+        _ => (None, false),
+    };
+    record_stop(sql, &scope, req.stopped, reason, cleared.as_deref(), retry)?;
+    Ok(json!({
+        "scope": if scope == GLOBAL { Value::Null } else { json!(req.cohort) },
+        "stopped": req.stopped,
+        "cleared": cleared,
+        "setup": if retry { json!("retry") } else { Value::Null },
+    }))
 }
 
-fn record_stop(sql: &impl Sql, scope: &str, stopped: bool, reason: &str) -> R<()> {
+/// Clears cohort `seq`'s live fault: the fault code it cleared (none when
+/// the cohort has no live row or no fault), and whether its failed setup
+/// runs again. Every cohort is rechecked at the next tick.
+fn clear_fault(sql: &impl Sql, seq: i64) -> R<(Option<String>, bool)> {
+    let rows = sql.exec("SELECT fault, setup FROM live_cohorts WHERE seq = ?", &[i(seq)])?;
+    let Some(r) = rows.first() else { return Ok((None, false)) };
+    let fault = opt_text(r, 0);
+    let retry = text(r, 1)? != "done";
+    sql.exec(
+        "UPDATE live_cohorts SET fault = NULL, setup = CASE WHEN setup = 'done' THEN 'done' ELSE 'retry' END,
+            checked_preds = -1 WHERE seq = ?",
+        &[i(seq)],
+    )?;
+    Ok((fault, retry))
+}
+
+fn record_stop(sql: &impl Sql, scope: &str, stopped: bool, reason: &str, cleared: Option<&str>, retry: bool) -> R<()> {
     let e = epoch(sql)?;
     sql.exec(
         "INSERT INTO live_stop (scope, stopped, reason, set_epoch) VALUES (?, ?, ?, ?)
@@ -326,8 +414,8 @@ fn record_stop(sql: &impl Sql, scope: &str, stopped: bool, reason: &str) -> R<()
         &[s(scope), i(i64::from(stopped)), s(reason), e.clone()],
     )?;
     sql.exec(
-        "INSERT INTO live_stop_log (scope, stopped, reason, set_epoch) VALUES (?, ?, ?, ?)",
-        &[s(scope), i(i64::from(stopped)), s(reason), e],
+        "INSERT INTO live_stop_log (scope, stopped, reason, set_epoch, cleared, retry) VALUES (?, ?, ?, ?, ?, ?)",
+        &[s(scope), i(i64::from(stopped)), s(reason), e, cleared.map_or(SqlValue::Null, s), i(i64::from(retry))],
     )?;
     if !stopped {
         // Recheck every cohort at the next tick.
@@ -898,13 +986,16 @@ pub fn cross_check(sql: &impl Sql, seq: i64, package: &[(i64, Option<u64>)]) -> 
 }
 
 #[allow(clippy::too_many_arguments)]
-/// Records the package's defects in the package's own transaction: each a
+/// Records the package's private recount and defects in the package's own
+/// transaction, at every package of a cohort with a live row: the terms
+/// (the recount, the live bits and the extra releases), and each defect a
 /// `prefinal_mismatch` row, counted as one more `quant-v1` symbol in the
 /// cohort's private terms (never in the signed `BudgetRecord`); a private
 /// total over `n h / F` records `over_bound` and sets the global stop until
-/// the operator resumes. Never refuses: the package is signed regardless.
+/// the operator resumes it and clears the cohort's fault ([`set_stop`]).
+/// Never refuses: the package is signed regardless.
 pub fn record_defects(sql: &impl Sql, seq: i64, defects: &[Defect], recount: u32, w: u64, n: u32, h: u16, f: u16) -> R<()> {
-    if defects.is_empty() || count(sql, "SELECT COUNT(*) FROM live_cohorts WHERE seq = ?", &[i(seq)])? == 0 {
+    if count(sql, "SELECT COUNT(*) FROM live_cohorts WHERE seq = ?", &[i(seq)])? == 0 {
         return Ok(());
     }
     for d in defects {
@@ -914,17 +1005,23 @@ pub fn record_defects(sql: &impl Sql, seq: i64, defects: &[Defect], recount: u32
             &[i(seq), i(d.job), s(PREFINAL_MISMATCH), s(&d.shown), s(&d.signed)],
         )?;
     }
-    let extra = u32::try_from(defects.len()).map_err(|_| state_err("defects"))?
-        * quant::ceil_log2(quant::grid_values(w).map_err(|_| state_err("grid"))? + 1);
+    // One more symbol per defect. A grid that cannot be read counts as
+    // unbounded, so the excess stops the releases rather than the package.
+    let per = if defects.is_empty() {
+        0
+    } else {
+        quant::grid_values(w).map_or(u32::MAX, |k| quant::ceil_log2(k.saturating_add(1)))
+    };
+    let extra = u32::try_from(defects.len()).unwrap_or(u32::MAX).saturating_mul(per);
     let live_bits = count(sql, "SELECT live_bits FROM live_cohorts WHERE seq = ?", &[i(seq)])?;
-    let total = u32::try_from(live_bits).map_err(|_| state_err("bits"))?.saturating_add(recount).saturating_add(extra);
+    let total = u32::try_from(live_bits).unwrap_or(u32::MAX).saturating_add(recount).saturating_add(extra);
     let over = !quant::within_bound(total, n, h, f);
     let terms = json!({"recount": recount, "live": live_bits, "extra_releases": defects.len(), "extra_bits": extra,
                        "total": total, "over_bound": over});
     sql.exec("UPDATE live_cohorts SET terms = ? WHERE seq = ?", &[s(terms.to_string()), i(seq)])?;
     if over {
-        sql.exec("UPDATE live_cohorts SET fault = COALESCE(fault, ?) WHERE seq = ?", &[s(FAULT_OVER_BOUND), i(seq)])?;
-        record_stop(sql, GLOBAL, true, FAULT_OVER_BOUND)?;
+        set_stopping_fault(sql, seq, FAULT_OVER_BOUND)?;
+        record_stop(sql, GLOBAL, true, FAULT_OVER_BOUND, None, false)?;
     }
     Ok(())
 }

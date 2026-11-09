@@ -1,7 +1,8 @@
 //! Live values while a cohort is scored (`eval::live`): the cadence of the
 //! releases, the privacy accounting (batch only, release once, nothing
 //! exact in the report, the bit bound), the operator stop, a failed setup
-//! that holds nothing, and the package cross-check.
+//! that holds nothing, the operator's clear of every live fault, and the
+//! package cross-check.
 
 use super::*;
 use crate::eval::live;
@@ -273,11 +274,13 @@ fn live_values_read_the_batch_only() {
 fn the_live_stop_holds_releases_only_and_resumes_in_order() {
     with_live_cohort(Some(live_block()), |db, sim, seq| {
         let stop = |cohort: Option<u64>, stopped: bool| {
-            tx(db, |s| live::set_stop(s, &live::StopRequest { stopped, cohort, reason: "operator drill".into() })).unwrap()
+            tx(db, |s| live::set_stop(s, &live::StopRequest { stopped, cohort, reason: "operator drill".into(), clear_fault: false }))
+                .unwrap()
         };
         // Refused bodies: an unknown cohort, an empty reason.
-        assert!(tx(db, |s| live::set_stop(s, &live::StopRequest { stopped: true, cohort: Some(99), reason: "x".into() })).is_err());
-        assert!(tx(db, |s| live::set_stop(s, &live::StopRequest { stopped: true, cohort: None, reason: " ".into() })).is_err());
+        let req = |stopped, cohort, reason: &str| live::StopRequest { stopped, cohort, reason: reason.into(), clear_fault: false };
+        assert!(tx(db, |s| live::set_stop(s, &req(true, Some(99), "x"))).is_err());
+        assert!(tx(db, |s| live::set_stop(s, &req(true, None, " "))).is_err());
         stop(None, true);
         stop(Some(2), true);
         let seen = run_watching(db, sim, seq, 3_000);
@@ -380,10 +383,188 @@ fn a_prefinal_mismatch_is_recorded_and_counted_never_refused() {
         assert_eq!((r["fault"].as_str(), r["policy"]["stopped"].as_bool()), (Some(live::FAULT_OVER_BOUND), Some(true)));
         assert!(r["prefinal"].is_null());
         assert_eq!(q1(db, "SELECT COUNT(*) FROM live_stop WHERE scope = '*' AND stopped = 1 AND ?1 = ?1", seq), 1);
-        // The operator resumes on the same route.
-        tx(db, |s| live::set_stop(s, &live::StopRequest { stopped: false, cohort: None, reason: "defect fixed".into() })).unwrap();
-        assert_eq!(report(db)["policy"]["stopped"], false);
+        // The operator resumes on the same route. The cohort's own fault
+        // still stops its values until the operator clears it there too.
+        let req = |cohort, clear_fault| live::StopRequest { stopped: false, cohort, reason: "defect fixed".into(), clear_fault };
+        tx(db, |s| live::set_stop(s, &req(None, false))).unwrap();
+        let r = report(db);
+        assert_eq!((r["fault"].as_str(), r["policy"]["stopped"].as_bool()), (Some(live::FAULT_OVER_BOUND), Some(false)));
+        assert!(r["prefinal"].is_null());
+        let out = tx(db, |s| live::set_stop(s, &req(Some(2), true))).unwrap();
+        assert_eq!(out["cleared"], live::FAULT_OVER_BOUND);
+        let r = report(db);
+        assert_eq!(r["fault"], Value::Null);
+        assert!(r["prefinal"]["current"].as_str().is_some(), "{r}");
+        assert_eq!(q1(db, "SELECT COUNT(*) FROM live_stop_log WHERE cleared = 'over_bound' AND scope = CAST(?1 AS TEXT)", seq), 1);
     });
+}
+
+/// The private recount is recorded at every package, defect or not
+/// (design 6.2 item 6).
+#[test]
+fn the_private_recount_is_recorded_at_every_package() {
+    with_live_cohort(Some(live_block()), |db, sim, seq| {
+        run_watching(db, sim, seq, 3_000);
+        let terms: Value = serde_json::from_str(
+            &db.conn.query_row("SELECT terms FROM live_cohorts WHERE seq = ?1", [seq], |r| r.get::<_, String>(0)).unwrap(),
+        )
+        .unwrap();
+        let live_bits = q1(db, "SELECT live_bits FROM live_cohorts WHERE seq = ?1", seq);
+        assert_eq!(terms["extra_releases"].as_u64(), Some(0), "{terms}");
+        assert_eq!(terms["over_bound"].as_bool(), Some(false));
+        assert_eq!(terms["live"].as_i64(), Some(live_bits));
+        assert!(terms["recount"].as_u64().unwrap() > 0);
+        assert_eq!(terms["total"].as_u64(), Some(terms["recount"].as_u64().unwrap() + live_bits as u64));
+    });
+}
+
+/// Ticks until the cohort has sealed (its jobs exist); the live step of
+/// that tick has not run yet.
+fn tick_to_seal(db: &Sqlite, sim: &mut Sim<'_>, seq: i64) {
+    for _ in 0..3_000 {
+        if q1(db, "SELECT COUNT(*) FROM jobs WHERE seq = ?1", seq) > 0 {
+            return;
+        }
+        sim.tick();
+    }
+    panic!("cohort {seq} did not seal");
+}
+
+/// Ticks until the cohort reaches `transition`.
+fn tick_to_transition(db: &Sqlite, sim: &mut Sim<'_>, seq: i64) {
+    for _ in 0..3_000 {
+        if phase(db, seq) == "transition" {
+            return;
+        }
+        sim.tick();
+    }
+    panic!("cohort {seq} did not reach transition: {}", phase(db, seq));
+}
+
+/// (review M1, no self-lock) A release fault stops every live value of its
+/// cohort, and no stop or resume lifts it; the operator's `clear_fault` on
+/// the same journaled route does, after which each due value is released
+/// once, in order. A clear without a cohort is refused, a clear with nothing
+/// to clear is journaled, and a fault whose cause remains comes back at the
+/// next failing step.
+#[test]
+fn the_operator_clears_a_release_fault_on_the_stop_route() {
+    with_live_cohort(Some(live_block()), |db, sim, seq| {
+        tick_to_seal(db, sim, seq);
+        tx(db, |s| live::prepare(s, seq)).unwrap();
+        tx(db, |s| live::note_fault(s, seq, live::FAULT_RELEASE)).unwrap();
+        let req = |stopped, cohort, clear_fault| live::StopRequest { stopped, cohort, reason: "fault drill".into(), clear_fault };
+        assert!(tx(db, |s| live::set_stop(s, &req(false, None, true))).is_err(), "a clear names its cohort");
+        for (stopped, cohort) in [(true, None), (false, None), (true, Some(2)), (false, Some(2))] {
+            tx(db, |s| live::set_stop(s, &req(stopped, cohort, false))).unwrap();
+        }
+        tick_to_transition(db, sim, seq);
+        assert_eq!(releases(db, seq), Vec::new(), "a stop or resume alone leaves the fault in place");
+        let r = report(db);
+        assert_eq!((r["fault"].as_str(), r["policy"]["stopped"].as_bool()), (Some(live::FAULT_RELEASE), Some(false)));
+        // The clear, with the cohort stopped: the fault goes, the stop holds.
+        let out = tx(db, |s| live::set_stop(s, &req(true, Some(2), true))).unwrap();
+        assert_eq!((out["cleared"].as_str(), out["setup"].is_null()), (Some(live::FAULT_RELEASE), true));
+        sim.tick();
+        assert_eq!(releases(db, seq), Vec::new(), "the cohort's stop still holds");
+        assert_eq!(report(db)["fault"], Value::Null);
+        tx(db, |s| live::set_stop(s, &req(false, Some(2), false))).unwrap();
+        sim.tick();
+        let rel = releases(db, seq);
+        for job in [0i64, 1, 2, 3] {
+            let cps: Vec<i64> = rel.iter().filter(|x| x.0 == job && x.1 == "reading").map(|x| x.2).collect();
+            assert_eq!(cps, [1, 2, 3], "job {job}: each checkpoint once, in order");
+        }
+        assert_eq!(rel.iter().filter(|x| x.1 == "prefinal").count(), 4);
+        let r = report(db);
+        assert!(r["fault"].is_null() && !r["prefinal"].is_null(), "{r}");
+        // Journaled: four stops and resumes, the clear, the resume.
+        assert_eq!(q1(db, "SELECT COUNT(*) FROM live_stop_log WHERE ?1 = ?1", seq), 6);
+        assert_eq!(q1(db, "SELECT COUNT(*) FROM live_stop_log WHERE cleared = 'release' AND retry = 0 AND ?1 = ?1", seq), 1);
+        // Nothing left to clear: answered and journaled, nothing changes.
+        let out = tx(db, |s| live::set_stop(s, &req(false, Some(2), true))).unwrap();
+        assert!(out["cleared"].is_null());
+        assert_eq!(q1(db, "SELECT COUNT(*) FROM live_stop_log WHERE ?1 = ?1", seq), 7);
+        assert_eq!(releases(db, seq), rel);
+        // A cause that remains records the fault again at the next failing
+        // step, and the same clear lifts it again.
+        tx(db, |s| live::note_fault(s, seq, live::FAULT_RELEASE)).unwrap();
+        assert_eq!(report(db)["fault"], live::FAULT_RELEASE);
+        let out = tx(db, |s| live::set_stop(s, &req(false, Some(2), true))).unwrap();
+        assert_eq!(out["cleared"], live::FAULT_RELEASE);
+    });
+}
+
+/// (review M1, no self-lock) A failed setup is the operator's to run
+/// again: the clear marks it for a retry, and the next tick sets the cohort
+/// up over the same sealed values and releases the readings in order; the
+/// pre-finalized values released meanwhile stay exactly as they were. A
+/// stopping fault recorded after a failed setup takes its place, and its
+/// clear also runs the setup again. A retry that fails records its fault
+/// and waits for the next clear.
+#[test]
+fn a_cleared_failed_setup_runs_again_at_the_next_tick() {
+    live::FAIL_PREPARE.with(|f| f.set(true));
+    with_live_cohort(Some(live_block()), |db, sim, seq| {
+        for _ in 0..3_000 {
+            if q1(db, "SELECT COUNT(*) FROM live_cohorts WHERE seq = ?1", seq) > 0 {
+                break;
+            }
+            sim.tick();
+        }
+        live::FAIL_PREPARE.with(|f| f.set(false));
+        let setup = || -> (i64, Option<String>, String) {
+            db.conn
+                .query_row("SELECT segments, fault, setup FROM live_cohorts WHERE seq = ?1", [seq], |r| {
+                    Ok((r.get(0)?, r.get(1)?, r.get(2)?))
+                })
+                .unwrap()
+        };
+        assert_eq!(setup(), (0, Some(live::FAULT_PREPARE.into()), "failed".into()));
+        tick_to_transition(db, sim, seq);
+        assert_eq!(q1(db, "SELECT COUNT(*) FROM live_releases WHERE seq = ?1 AND kind = 'reading'", seq), 0);
+        let prefinal: Vec<_> = releases(db, seq).into_iter().filter(|x| x.1 == "prefinal").collect();
+        assert_eq!(prefinal.len(), 4);
+        let shown = report(db)["prefinal"].clone();
+        assert!(!shown.is_null());
+        // A release fault takes the setup fault's place (it stops more);
+        // the setup stays failed.
+        tx(db, |s| live::note_fault(s, seq, live::FAULT_RELEASE)).unwrap();
+        assert_eq!(setup(), (0, Some(live::FAULT_RELEASE.into()), "failed".into()));
+        let req = live::StopRequest { stopped: false, cohort: Some(2), reason: "setup fixed".into(), clear_fault: true };
+        let out = tx(db, |s| live::set_stop(s, &req)).unwrap();
+        assert_eq!((out["cleared"].as_str(), out["setup"].as_str()), (Some(live::FAULT_RELEASE), Some("retry")));
+        assert_eq!(setup(), (0, None, "retry".into()));
+        assert_eq!(tx(db, live::pending_setup).unwrap(), vec![seq]);
+        // The retry fails: its fault is recorded and nothing retries it.
+        live::FAIL_PREPARE.with(|f| f.set(true));
+        sim.tick();
+        live::FAIL_PREPARE.with(|f| f.set(false));
+        assert_eq!(setup(), (0, Some(live::FAULT_PREPARE.into()), "failed".into()));
+        assert!(tx(db, live::pending_setup).unwrap().is_empty());
+        assert_eq!(q1(db, "SELECT COUNT(*) FROM live_releases WHERE seq = ?1 AND kind = 'reading'", seq), 0);
+        // The next clear runs it again, and it succeeds.
+        let out = tx(db, |s| live::set_stop(s, &req)).unwrap();
+        assert_eq!((out["cleared"].as_str(), out["setup"].as_str()), (Some(live::FAULT_PREPARE), Some("retry")));
+        sim.tick();
+        assert_eq!(setup(), (4, None, "done".into()));
+        assert_eq!(q1(db, "SELECT COUNT(*) FROM docs WHERE seq = ?1 AND live_segment IS NOT NULL AND docset = 'batch'", seq), 40);
+        let rel = releases(db, seq);
+        for job in [0i64, 1, 2, 3] {
+            let cps: Vec<i64> = rel.iter().filter(|x| x.0 == job && x.1 == "reading").map(|x| x.2).collect();
+            assert_eq!(cps, [1, 2, 3], "job {job}: each checkpoint once, in order");
+        }
+        let after: Vec<_> = rel.into_iter().filter(|x| x.1 == "prefinal").collect();
+        assert_eq!(after, prefinal, "pre-finalized values are never recomputed");
+        let r = report(db);
+        assert_eq!(r["prefinal"], shown);
+        assert_eq!(r["reference"]["checkpoints"].as_array().unwrap().len(), 3);
+        assert!(r["fault"].is_null());
+        assert_eq!(q1(db, "SELECT COUNT(*) FROM live_stop_log WHERE cleared = 'release' AND retry = 1 AND ?1 = ?1", seq), 1);
+        assert_eq!(q1(db, "SELECT COUNT(*) FROM live_stop_log WHERE cleared = 'prepare' AND retry = 1 AND ?1 = ?1", seq), 1);
+        assert!(tx(db, live::pending_setup).unwrap().is_empty());
+    });
+    live::FAIL_PREPARE.with(|f| f.set(false));
 }
 
 /// A plan's live block validates with the plan: the rule, the segment

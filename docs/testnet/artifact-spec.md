@@ -212,7 +212,10 @@ refuses each of these:
 - a float32 subnormal value in a `FLOAT` initializer (rule
   `slop_ninja_onnx_no_subnormal_initializers_v1`, every spec version, from
   the build that added it; constant node tensors are fixed by the class's
-  structure stream);
+  structure stream). The scorer applies it at every load, so the first
+  scorer build carrying it is deployed only when no admitted artifact is
+  still waiting to be scored, after every admitted artifact has been
+  measured to pass it;
 - a data field before `data_type`, a repeated `data_type`, unpacked
   `float_data`, and malformed varints or lengths.
 

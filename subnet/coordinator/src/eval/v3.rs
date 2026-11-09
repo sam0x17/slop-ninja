@@ -2768,7 +2768,7 @@ pub fn prepare_package(
         package.executed(),
         package.quant.width,
         package.predecessor.is_some(),
-        &slop_ninja_protocol::quant::CountedTerms::NONE,
+        &v.counted_terms(),
     )
     .map_err(|_| EvalError::State(PACKAGE_REFUSED))?
     .total;

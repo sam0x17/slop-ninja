@@ -244,12 +244,12 @@ fn segment_scores_floor_the_mean() {
 #[test]
 fn the_plan_checks() {
     let r1 = LiveParams { eps_live_milli: 1000, segments_max: 4 };
-    r1.validate(N, 32, 40, &Q).unwrap();
+    r1.validate(N, 32, 40, &Q, &CountedTerms::NONE).unwrap();
     // The r1 plan's live row adds well under 100 bytes to a roster row.
     let bytes = live::row_bytes_max(N, 40, 2000, &r1).unwrap();
     assert!(bytes <= live::ROSTER_ROW_BYTES && bytes - live::ROSTER_ROW_BASE_BYTES < 100, "{bytes}");
     // No readings: always valid, nothing derived.
-    LiveParams { eps_live_milli: 0, segments_max: 0 }.validate(N, 32, 40, &Q).unwrap();
+    LiveParams { eps_live_milli: 0, segments_max: 0 }.validate(N, 32, 40, &Q, &CountedTerms::NONE).unwrap();
     assert_eq!(live::derive_segments(N, 8, false, &Q, &LiveParams { eps_live_milli: 0, segments_max: 0 }, &CountedTerms::NONE).unwrap().segments, 0);
     for bad in [
         LiveParams { eps_live_milli: 1000, segments_max: 1 },
@@ -257,7 +257,7 @@ fn the_plan_checks() {
         // A segment shorter than a chunk.
         LiveParams { eps_live_milli: 1000, segments_max: 32 },
     ] {
-        assert!(bad.validate(N, 32, 40, &Q).is_err(), "{bad:?}");
+        assert!(bad.validate(N, 32, 40, &Q, &CountedTerms::NONE).is_err(), "{bad:?}");
     }
 }
 
@@ -269,9 +269,9 @@ fn the_row_bound_refuses_one_checkpoint_more() {
     let fits = |m: u8| live::row_bytes_max(n, 40, 2000, &LiveParams { eps_live_milli: 1000, segments_max: m }).unwrap() <= live::ROSTER_ROW_BYTES;
     let largest = (2..=u8::MAX).take_while(|m| fits(*m)).last().unwrap();
     assert!(largest >= 4);
-    LiveParams { eps_live_milli: 1000, segments_max: largest }.validate(n, 1, 40, &Q).unwrap();
+    LiveParams { eps_live_milli: 1000, segments_max: largest }.validate(n, 1, 40, &Q, &CountedTerms::NONE).unwrap();
     assert_eq!(
-        LiveParams { eps_live_milli: 1000, segments_max: largest + 1 }.validate(n, 1, 40, &Q),
+        LiveParams { eps_live_milli: 1000, segments_max: largest + 1 }.validate(n, 1, 40, &Q, &CountedTerms::NONE),
         Err(Error::OutOfRange("live row bytes"))
     );
 }

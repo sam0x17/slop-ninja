@@ -79,10 +79,11 @@ impl LiveParams {
     /// The plan-time checks, before anything runs: `segments_max` is `0` or
     /// at least two, `eps_live > 0` with readings, every segment at least a
     /// chunk long, every derived value computable for every roster size up
-    /// to `roster_cap`, and the longest `live` roster row within
-    /// [`ROSTER_ROW_BYTES`] ([`row_bytes_max`]). Never refuses for the bit
-    /// budget: `L` adapts ([`derive_segments`]).
-    pub fn validate(&self, n: u32, chunk_docs: u32, roster_cap: u16, quant: &QuantParams) -> Result<()> {
+    /// to `roster_cap` with every other rule's counted `terms` (the same
+    /// terms the setup derives `L` with), and the longest `live` roster row
+    /// within [`ROSTER_ROW_BYTES`] ([`row_bytes_max`]). Never refuses for the
+    /// bit budget: `L` adapts ([`derive_segments`]).
+    pub fn validate(&self, n: u32, chunk_docs: u32, roster_cap: u16, quant: &QuantParams, terms: &CountedTerms) -> Result<()> {
         if self.segments_max == 1 {
             return Err(Error::OutOfRange("live.segments_max"));
         }
@@ -106,7 +107,7 @@ impl LiveParams {
                 noise_sd_milli(n, l, x, self.eps_live_milli)?;
             }
             for predecessor in [false, true] {
-                derive_segments(n, x, predecessor, quant, self, &CountedTerms::NONE)?;
+                derive_segments(n, x, predecessor, quant, self, terms)?;
             }
         }
         if row_bytes_max(n, roster_cap, quant.eps_total_milli, self)? > ROSTER_ROW_BYTES {

@@ -618,14 +618,23 @@ impl LivePlan {
     }
 
     /// The rule is known and its parameters pass
-    /// `live::LiveParams::validate` at this batch, chunk size, roster cap and
-    /// quantization block (never refused for the readings' bit budget).
-    pub fn validate(&self, n: u32, chunk_docs: u32, roster_cap: u16, quant: &QuantPlan) -> Result<(), PlanError> {
+    /// `live::LiveParams::validate` at this batch, chunk size, roster cap,
+    /// quantization block and counted terms
+    /// ([`RewardV1Plan::counted_terms`]); never refused for the readings'
+    /// bit budget.
+    pub fn validate(
+        &self,
+        n: u32,
+        chunk_docs: u32,
+        roster_cap: u16,
+        quant: &QuantPlan,
+        terms: &slop_ninja_protocol::quant::CountedTerms,
+    ) -> Result<(), PlanError> {
         if self.rule != slop_ninja_protocol::live::LIVE_RULE {
             return Err(PlanError("reward_v1.live.rule (live-v1)"));
         }
         self.params()
-            .validate(n, chunk_docs, roster_cap, &quant.params())
+            .validate(n, chunk_docs, roster_cap, &quant.params(), terms)
             .map_err(|_| PlanError("reward_v1.live (segments_max 0 or at least 2, eps_live_milli > 0, a chunk per segment, rows within the roster row bound)"))
     }
 }
@@ -667,6 +676,19 @@ impl QuantPlan {
     /// within `n h / F` (`slop_ninja_protocol::quant::worst_case`). The
     /// manifest checks the same at seal.
     pub fn validate(&self, n: u32, roster_cap: u16) -> Result<(), PlanError> {
+        self.validate_terms(n, roster_cap, &slop_ninja_protocol::quant::CountedTerms::NONE)
+    }
+
+    /// [`validate`](Self::validate) over the complete counted total: the
+    /// worst case adds `terms` (the plan's
+    /// [`RewardV1Plan::counted_terms`]) at every roster size
+    /// (`slop_ninja_protocol::quant::worst_case_terms`).
+    pub fn validate_terms(
+        &self,
+        n: u32,
+        roster_cap: u16,
+        terms: &slop_ninja_protocol::quant::CountedTerms,
+    ) -> Result<(), PlanError> {
         let e = |c: bool, what: &'static str| if c { Ok(()) } else { Err(PlanError(what)) };
         e(self.params().validate().is_ok(), "reward_v1.quant (positive eps, h and F)")?;
         e(n >= 2, "reward_v1.quant (at least two batch documents for SE)")?;
@@ -675,12 +697,13 @@ impl QuantPlan {
             !self.min_success_basis.is_empty() && self.min_success_basis.len() <= 200,
             "reward_v1.quant.min_success_basis",
         )?;
-        let within = slop_ninja_protocol::quant::worst_case(
+        let within = slop_ninja_protocol::quant::worst_case_terms(
             n,
             roster_cap,
             self.eps_total_milli,
             self.identify_bits,
             self.budget_factor,
+            terms,
         )
         .is_ok_and(|(_, within)| within);
         e(within, "reward_v1.quant (the worst-case bit budget exceeds n h / F at this roster cap)")
@@ -1011,6 +1034,19 @@ impl RewardV1Plan {
     /// cannot seal a scored cohort.
     pub fn quant_params(&self) -> Result<slop_ninja_protocol::QuantParams, PlanError> {
         self.quant.as_ref().map(QuantPlan::params).ok_or(PlanError("reward_v1.quant"))
+    }
+
+    /// Every other rule's counted hidden-data terms under this plan
+    /// (`quant::CountedTerms`, beside `Budget::count`). The one source for
+    /// all three callers: plan validation's worst case
+    /// ([`QuantPlan::validate_terms`], [`LivePlan::validate`]), the live
+    /// setup's derivation of `L` (`eval::live::prepare`) and the private
+    /// recount at packaging (`v3::prepare_package`), so every one counts
+    /// the same complete total. No rule of this build adds a term. A rule
+    /// that publishes a deterministic value from hidden data adds its term
+    /// here, never at a caller, and re-pins the protocol's `L(X)` tables.
+    pub fn counted_terms(&self) -> slop_ninja_protocol::quant::CountedTerms {
+        slop_ninja_protocol::quant::CountedTerms::NONE
     }
 
     /// Whether the seal takes task indices from the seeded rank
@@ -1393,9 +1429,11 @@ impl CohortPlan {
                         .map_or(Ok(slop_ninja_protocol::MAX_ROSTER), u16::try_from)
                         .map_err(|_| PlanError("roster cap"))?,
                 };
-                q.validate(self.n, cap)?;
+                // Every rule's counted terms, from the plan's one source.
+                let terms = v1.counted_terms();
+                q.validate_terms(self.n, cap, &terms)?;
                 if let Some(l) = &v1.live {
-                    l.validate(self.n, self.scorer.chunk_docs, cap, q)?;
+                    l.validate(self.n, self.scorer.chunk_docs, cap, q, &terms)?;
                 }
             }
             e(
@@ -1756,6 +1794,12 @@ pub(crate) mod tests {
         let no_basis = QuantPlan { min_success_basis: String::new(), ..testnet.clone() };
         assert!(no_basis.validate(1000, 40).is_err());
         assert_eq!(testnet.params().min_success_max_failed, 2);
+        // The plan's counted terms enter the same worst case: none change
+        // nothing, and a rule's term that does not fit is refused.
+        use slop_ninja_protocol::quant::CountedTerms;
+        testnet.validate_terms(1000, 40, &CountedTerms::NONE).unwrap();
+        let heavy = CountedTerms { per_executed: 100, per_cohort: 0 };
+        assert!(testnet.validate_terms(1000, 40, &heavy).unwrap_err().0.contains("bit budget"));
     }
 
     /// The specs a plan may name for its loads are the specs the scorer

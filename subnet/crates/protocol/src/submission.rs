@@ -354,7 +354,7 @@ canonical_struct! {
 /// The longest `fault` or `reason` code of a [`CohortAbandonment`].
 pub const ABANDONMENT_CODE_MAX: usize = 64;
 
-fn abandonment_code(code: &str, what: &'static str) -> Result<()> {
+pub(crate) fn abandonment_code(code: &str, what: &'static str) -> Result<()> {
     if code.is_empty()
         || code.len() > ABANDONMENT_CODE_MAX
         || !code

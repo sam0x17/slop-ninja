@@ -51,6 +51,7 @@ pub mod eval;
 pub mod heartbeat;
 pub mod journal;
 pub mod liveness;
+pub mod operator;
 pub mod rpc;
 pub mod schedule;
 pub mod signing;

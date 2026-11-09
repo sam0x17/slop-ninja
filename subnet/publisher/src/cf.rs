@@ -522,7 +522,9 @@ async fn status_read<T>(
 /// eval Worker's are separate secrets. A missing token leaves that Worker's
 /// reads unanswered (the status-unreachable alert), never borrowed from the
 /// other.
-async fn observe(env: &Env, budget: &Budget) -> Observed {
+/// At the `live` roster level (`live`), the eval Worker's live values too
+/// (`/eval/live`, the same status token); below it no extra call.
+async fn observe(env: &Env, budget: &Budget, live: bool) -> Observed {
     let w = status::parse_worker_bytes;
     let mut observed = Observed::default();
     if let Some(token) = var_or_secret(env, "COORDINATOR_STATUS_TOKEN") {
@@ -540,6 +542,9 @@ async fn observe(env: &Env, budget: &Budget) -> Observed {
             status::parse_eval_bytes,
         )
         .await;
+        if live {
+            observed.live = status_read(env, EVAL_SERVICE, "/eval/live", &token, budget, status::parse_live_bytes).await;
+        }
     }
     observed
 }
@@ -934,7 +939,7 @@ async fn config_fault(env: &Env, error: config::ConfigError) {
     console_error!("publisher: configuration refused: {error}");
     let started = now_ms();
     let budget = Budget::worker();
-    let observed = observe(env, &budget).await;
+    let observed = observe(env, &budget, false).await;
     let holder = format!("config:{started}");
     let begin = Begin {
         holder: holder.clone(),
@@ -1047,7 +1052,7 @@ async fn scheduled(_event: ScheduledEvent, env: Env, ctx: ScheduleContext) {
     }) = state_call::<_, Begun>(&env, "/begin", &begin).await
     else {
         // Another run holds the lease: keep the snapshot fresh, nothing else.
-        let observed = observe(&env, &budget).await;
+        let observed = observe(&env, &budget, cfg.dashboard_roster == crate::dashboard::RosterLevel::Live).await;
         let last = match public.get(layout::COHORT_INDEX, budget.remaining()).await {
             Ok(Some(bytes)) => serde_json::from_slice::<crate::index::CohortIndex>(&bytes)
                 .ok()
@@ -1069,7 +1074,7 @@ async fn scheduled(_event: ScheduledEvent, env: Env, ctx: ScheduleContext) {
 
     // Phase 1, before any cohort work: the snapshot and the alerts, so a run
     // that dies later still leaves both current.
-    let observed = observe(&env, &budget).await;
+    let observed = observe(&env, &budget, cfg.dashboard_roster == crate::dashboard::RosterLevel::Live).await;
     let snapshot = status::snapshot(&SnapshotInputs {
         chain: &cfg.chain,
         observed: &observed,
@@ -1170,6 +1175,8 @@ async fn scheduled(_event: ScheduledEvent, env: Env, ctx: ScheduleContext) {
                 .retention_checked
                 .then_some(report.retention_mismatch.as_slice()),
         ),
+        // The dashboard pass below sets this run's live-value alerts.
+        live: Vec::new(),
     };
     if let Some(i) = &index {
         durable.last_published = i.last_cohort();
@@ -1219,6 +1226,7 @@ async fn scheduled(_event: ScheduledEvent, env: Env, ctx: ScheduleContext) {
         };
         let pass = crate::dashboard::publish(&out, &public, &inputs, &mut durable.dashboard, save, &within).await;
         durable.publisher.refused.extend(pass.refused);
+        durable.publisher.live = pass.live;
     }
     // Every refusal of this run, the dashboard's included: the count the
     // final save carries to the next run's `publication_refused` alerts.

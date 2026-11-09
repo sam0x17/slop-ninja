@@ -743,6 +743,30 @@ impl DurableObject for EvalCohort {
             return if main { self.template_route(&mut req, &path, cfg).await } else { error("main_instance_only", 404) };
         }
         match (req.method(), path.as_str()) {
+            // The running cohort's live values (`eval::live::report`), read
+            // from the tables only; the Worker serves it on the status route
+            // `/eval/live` (status token).
+            (Method::Get, "/live") => match transaction(&storage, crate::eval::live::report) {
+                Ok(v) => json(&v),
+                Err(_) => error("store_unavailable", 503),
+            },
+            // The operator's live stop and resume (`eval::live::set_stop`):
+            // journaled, no expiry, holds nothing else.
+            (Method::Post, "/live/stop") if main => {
+                let b = match super::cf_io::request_json::<crate::eval::live::StopRequest>(&mut req, OPERATOR_BODY_BYTES).await {
+                    Ok(b) => b,
+                    Err(e) => return error(e.code(), e.status()),
+                };
+                match transaction(&storage, move |sql| crate::eval::live::set_stop(sql, &b)) {
+                    Ok(v) => {
+                        // A resume releases what came due at the next step.
+                        storage.set_alarm(500i64).await?;
+                        json(&v)
+                    }
+                    Err(TxError::Operation(e @ (engine::EvalError::Plan(_) | engine::EvalError::State(_)))) => error(e.code(), 422),
+                    Err(_) => error("store_unavailable", 503),
+                }
+            }
             (Method::Post, "/succession/supersede") if instance == engine::INSTANCE_MAIN => {
                 let r =
                     match super::cf_io::request_json::<crate::config::Supersede>(&mut req, OPERATOR_BODY_BYTES).await {
@@ -1417,7 +1441,7 @@ impl EvalCohort {
         let instance = self.instance().await;
         let cfg = self.config(&instance).await?;
         let storage = self.state.storage();
-        let mut progress = false;
+        let mut progress = self.live_step(&cfg, started, scope);
         while now_ms().saturating_sub(started) < STEP_BUDGET_MS {
             let now = now_ms();
             let c2 = cfg.clone();
@@ -1764,6 +1788,56 @@ impl EvalCohort {
     /// whether the scorer refused the artifact definitively, its wall time,
     /// its measured spend (nano-dollars) and a short content-free code for a
     /// failure. Never reads cohort text and never touches a job.
+    /// The live values' share of a step (`eval::live`), before any other
+    /// work: the setup of each newly sealed cohort, then its due releases,
+    /// each in its own transaction and child scope. A failure records a live
+    /// fault for that cohort alone (`live::note_fault`) and never fails the
+    /// step, the seal, scoring, packaging or a phase; an unavailable store or
+    /// a refused scope waits for the next step.
+    fn live_step(&self, cfg: &EvalConfig, started: u64, scope: &ScopeRef) -> bool {
+        use crate::eval::live;
+        type Tx = std::result::Result<bool, TxError<engine::EvalError>>;
+        let storage = self.state.storage();
+        let st = &storage;
+        let mut progress = false;
+        let run = |seq: i64, f: &dyn Fn(i64) -> Tx| -> Option<Tx> {
+            let docs = transaction(st, move |sql| live::cohort_docs(sql, seq)).ok()?;
+            let child = scope.child(crate::arena_routes::R_COHORT_LIVE, crate::arena_routes::live_step_bytes(docs)).ok()?;
+            let out = child.enter(|| f(seq));
+            let _ = child.close();
+            Some(out)
+        };
+        let fault = |seq: i64, code: &'static str| {
+            let _ = transaction(st, move |sql| live::note_fault(sql, seq, code));
+        };
+        let defect = |r: &Option<Tx>| matches!(r, Some(Err(TxError::Operation(engine::EvalError::State(_) | engine::EvalError::Plan(_)))));
+        for seq in transaction(st, live::pending_setup).unwrap_or_default() {
+            let r = run(seq, &|seq| transaction(st, move |sql| live::prepare(sql, seq)).map(|()| true));
+            if defect(&r) {
+                fault(seq, live::FAULT_PREPARE);
+            }
+            progress |= matches!(r, Some(Ok(_))) || defect(&r);
+        }
+        let release = |seq: i64| -> Tx {
+            let c = cfg.clone();
+            transaction(st, move |sql| live::release_due(sql, &c, seq))
+        };
+        for seq in transaction(st, live::due_cohorts).unwrap_or_default() {
+            while now_ms().saturating_sub(started) < STEP_BUDGET_MS {
+                let r = run(seq, &release);
+                if defect(&r) {
+                    fault(seq, live::FAULT_RELEASE);
+                    break;
+                }
+                if !matches!(r, Some(Ok(true))) {
+                    break;
+                }
+                progress = true;
+            }
+        }
+        progress
+    }
+
     async fn run_probe(&self, seq: i64, probe: &engine::Probe, ticket: &engine::ProbeTicket) -> engine::ProbeOutcome {
         let t0 = now_ms();
         match probe {

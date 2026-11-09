@@ -134,7 +134,7 @@ pub fn status_route(get: bool, path: &str) -> Option<StatusRoute> {
     }
     match path {
         "/status" => Some(StatusRoute::Worker),
-        "/eval/status" => Some(StatusRoute::Eval),
+        "/eval/status" | "/eval/live" => Some(StatusRoute::Eval),
         "/eval/load/status" | "/eval/admission/link" => Some(StatusRoute::Operator),
         _ if matches!(config::authority_route(path), Some((_, "status"))) => Some(StatusRoute::Operator),
         _ => None,
@@ -417,6 +417,7 @@ mod tests {
     fn status_routes_are_exactly_the_documented_reads() {
         assert_eq!(status_route(true, "/status"), Some(StatusRoute::Worker));
         assert_eq!(status_route(true, "/eval/status"), Some(StatusRoute::Eval));
+        assert_eq!(status_route(true, "/eval/live"), Some(StatusRoute::Eval));
         for p in ["/eval/load/status", "/eval/admission/link", "/eval/authority/main/status"] {
             assert_eq!(status_route(true, p), Some(StatusRoute::Operator), "{p}");
         }
@@ -431,6 +432,8 @@ mod tests {
             "/eval/authority/main/abandon",
             "/eval/plan",
             "/eval/abandon",
+            "/eval/live",
+            "/eval/live/stop",
             "/fault/clear",
             "/signing/target",
             "/signing/control",
@@ -457,6 +460,8 @@ mod tests {
             "/eval/authority/main/status/",
             "/eval/authority/../status",
             "/eval/admission/link/",
+            "/eval/live/",
+            "/eval/live/stop",
             "/Status",
             "",
         ] {
@@ -495,7 +500,7 @@ mod tests {
 
     /// The publisher and the alerts relay address their reads to this host,
     /// and read exactly the routes their tokens open: the publisher
-    /// `/status` and `/eval/status`, the relay `/status`.
+    /// `/status`, `/eval/status` and `/eval/live`, the relay `/status`.
     #[test]
     fn the_consumers_address_the_internal_host() {
         let publisher = include_str!("../../publisher/src/cf.rs");
@@ -512,7 +517,7 @@ mod tests {
         paths.retain(|p| p.starts_with('/'));
         paths.sort_unstable();
         paths.dedup();
-        assert_eq!(paths, ["/eval/status", "/status"], "publisher status paths");
+        assert_eq!(paths, ["/eval/live", "/eval/status", "/status"], "publisher status paths");
         for p in &paths {
             let route = status_route(true, p).expect("a status route");
             assert!(Caller::Publisher.may_read(route), "{p}");

@@ -535,6 +535,9 @@ pub struct Observed {
     pub coordinator: Option<WorkerView>,
     pub eval_worker: Option<WorkerView>,
     pub eval: Option<EvalView>,
+    /// The running cohort's live values (`/eval/live`), read only at the
+    /// `live` roster level; `None` otherwise or when not whole.
+    pub live: Option<LiveScoresView>,
 }
 
 // The status documents as typed views: only the fields named here are
@@ -1692,6 +1695,7 @@ pub(crate) mod tests {
             coordinator: Some(parse_worker(&worker_status("primary", false))),
             eval_worker: Some(parse_worker(&worker_status("primary", false))),
             eval: Some(parse_eval(&eval_status(phase))),
+            live: None,
         }
     }
 
@@ -2173,4 +2177,299 @@ pub(crate) mod tests {
             }
         );
     }
+}
+
+// ------------------------------------------------------------ live values
+
+/// The eval Worker's live values report this publisher reads
+/// (`GET /eval/live`), read only at the `live` roster level.
+pub const LIVE_SCORES_RULE: &str = "slop_ninja.eval.live_scores/v1";
+
+/// One running cohort's live values (`live-v1` readings and pre-finalized
+/// scores), whole and checked ([`parse_live_bytes`]), or nothing.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct LiveScoresView {
+    pub cohort: u64,
+    /// The live block's parameters and counted bits (recomputed here).
+    pub n: u32,
+    pub predecessor: bool,
+    pub eps_live_milli: u32,
+    /// `L`: `0` or at least 2.
+    pub segments: u8,
+    /// The live grid (`None` without readings).
+    pub width: Option<u64>,
+    pub noise_sd: Option<String>,
+    pub stopped: bool,
+    pub bits: (u32, u32, u64),
+    pub reference: Option<LiveReferenceView>,
+    pub prefinal: Option<LivePrefinalView>,
+    /// Ascending hotkeys, each once: one per executed entrant.
+    pub rows: Vec<LiveRowView>,
+    /// `prepare`, `release` or `over_bound`.
+    pub fault: Option<String>,
+    /// Hotkeys with a recorded `prefinal_mismatch` (values stay private).
+    pub defects: Vec<[u8; 32]>,
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct LiveReferenceView {
+    /// Batch tasks of `R_k`'s completed segments.
+    pub done: u32,
+    pub total: u32,
+    /// Grid decimals or `none`.
+    pub checkpoints: Vec<String>,
+    pub stopped: bool,
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct LivePrefinalView {
+    /// The `quant-v1` grid.
+    pub width: u64,
+    pub current: String,
+    pub predecessor: Option<String>,
+    pub margin_line: Option<String>,
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct LiveRowView {
+    pub hotkey: [u8; 32],
+    /// Grid decimals or `withheld`.
+    pub checkpoints: Vec<String>,
+    pub stopped: bool,
+    /// A `quant-v1` grid decimal or `withheld`.
+    pub prefinal: Option<String>,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct LiveJson {
+    rule: String,
+    cohort: Option<u64>,
+    sealed: Option<bool>,
+    policy: Option<LivePolicyJson>,
+    reference: Option<LiveReferenceJson>,
+    prefinal: Option<LivePrefinalJson>,
+    rows: Option<Vec<LiveRowJson>>,
+    fault: Option<String>,
+    defects: Vec<LiveDefectJson>,
+    #[serde(default)]
+    refused: Option<String>,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct LivePolicyJson {
+    rule: String,
+    n: u32,
+    predecessor: bool,
+    eps_live_milli: u32,
+    segments: u8,
+    released_max: u8,
+    width: Option<String>,
+    noise_sd: Option<String>,
+    stopped: bool,
+    prefinal: bool,
+    bits: LiveBitsJson,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct LiveBitsJson {
+    counted: u32,
+    live: u32,
+    bound: u64,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct LiveReferenceJson {
+    done: u32,
+    total: u32,
+    checkpoints: Vec<String>,
+    stopped: bool,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct LivePrefinalJson {
+    quantization: LiveQuantJson,
+    current: String,
+    predecessor: Option<String>,
+    margin_line: Option<String>,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct LiveQuantJson {
+    rule: String,
+    width: String,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct LiveRowJson {
+    hotkey: String,
+    checkpoints: Vec<String>,
+    stopped: bool,
+    prefinal: Option<String>,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct LiveDefectJson {
+    rule: String,
+    hotkey: Option<String>,
+}
+
+/// A grid width printed as a decimal: the one-digit ladder's value whose
+/// own decimal it is.
+fn ladder_width(text: &str) -> Option<u64> {
+    let (whole, frac) = text.split_once('.').unwrap_or((text, ""));
+    if whole.len() != 1 || frac.len() > 18 || !text.bytes().all(|b| b.is_ascii_digit() || b == b'.') {
+        return None;
+    }
+    let mut v: u64 = u64::from(whole.as_bytes()[0] - b'0') * slop_ninja_protocol::SCORE_SCALE;
+    let mut f: u64 = 0;
+    for c in frac.bytes() {
+        f = f * 10 + u64::from(c - b'0');
+    }
+    v += f * 10u64.pow(18 - frac.len() as u32);
+    let w = slop_ninja_protocol::quant::on_ladder(v).then_some(v)?;
+    // The decimal is exactly the width's own spelling.
+    let mut buf = [0u8; slop_ninja_protocol::quant::MAX_DECIMAL_LEN];
+    (slop_ninja_protocol::quant::format_grid(w, w, &mut buf).ok()? == text).then_some(w)
+}
+
+/// A value on grid `w` with exactly its decimals, or one of `symbols`.
+fn on_grid(text: &str, w: u64, symbols: &[&str]) -> bool {
+    symbols.contains(&text) || slop_ninja_protocol::quant::parse_grid(text, w).is_ok()
+}
+
+/// `/eval/live` whole and checked, or `None`: the rule; a sealed running
+/// cohort's policy whose `width`, `noise_sd` and live bits this publisher
+/// recomputes from `n`, `predecessor`, `segments`, `eps_live_milli` and
+/// `X` = the rows with the protocol's own functions; counted plus live
+/// bits within the bound; ascending distinct hotkeys within the roster's
+/// entrant bound; at most `released_max` checkpoints, each on the live grid
+/// with exactly its decimals or `withheld` (entrants) / `none` (`R_k`); no
+/// value at all while stopped; pre-finalized values on the `quant-v1` grid,
+/// an entrant's only with `R_k`'s, and a margin line at or above it. Any
+/// failure drops the live view whole; the counts survive.
+pub fn parse_live_bytes(body: &[u8]) -> Option<LiveScoresView> {
+    let j: LiveJson = serde_json::from_slice(body).ok()?;
+    if j.rule != LIVE_SCORES_RULE || j.refused.is_some() || j.sealed != Some(true) {
+        return None;
+    }
+    let cohort = j.cohort?;
+    let p = j.policy?;
+    let rows = j.rows?;
+    use slop_ninja_protocol::live;
+    if p.rule != live::LIVE_RULE || rows.len() > crate::dashboard::contract::roster::ENTRANTS {
+        return None;
+    }
+    let x = u16::try_from(rows.len()).ok()?;
+    let readings = p.segments >= live::MIN_SEGMENTS;
+    if (p.segments == 1) || p.released_max != p.segments.saturating_sub(1) {
+        return None;
+    }
+    let (width, noise_sd) = if readings {
+        let w = live::width_live(p.n, p.segments, x, p.eps_live_milli).ok()?;
+        let sd = live::format_milli(live::noise_sd_milli(p.n, p.segments, x, p.eps_live_milli).ok()?);
+        if p.width.as_deref().and_then(ladder_width) != Some(w) || p.noise_sd.as_deref() != Some(sd.as_str()) {
+            return None;
+        }
+        if live::live_bits(x, p.segments, w).ok()? != p.bits.live {
+            return None;
+        }
+        (Some(w), Some(sd))
+    } else {
+        if p.width.is_some() || p.noise_sd.is_some() || p.bits.live != 0 {
+            return None;
+        }
+        (None, None)
+    };
+    if u64::from(p.bits.counted) + u64::from(p.bits.live) > p.bits.bound && readings {
+        return None;
+    }
+    let silent = p.stopped;
+    let cps_ok = |cps: &[String], symbol: &str| -> bool {
+        cps.len() <= usize::from(p.released_max)
+            && (!silent || cps.is_empty())
+            && match width {
+                Some(w) => cps.iter().all(|c| on_grid(c, w, &[symbol])),
+                None => cps.is_empty(),
+            }
+    };
+    let reference = match j.reference {
+        Some(r) => {
+            if !cps_ok(&r.checkpoints, live::NONE) || r.done > r.total || r.total != p.n {
+                return None;
+            }
+            Some(LiveReferenceView { done: r.done, total: r.total, checkpoints: r.checkpoints, stopped: r.stopped })
+        }
+        None => None,
+    };
+    let prefinal = match j.prefinal {
+        Some(pf) => {
+            let w = ladder_width(&pf.quantization.width)?;
+            if silent || pf.quantization.rule != slop_ninja_protocol::quant::QUANT_RULE {
+                return None;
+            }
+            let cur = slop_ninja_protocol::quant::parse_grid(&pf.current, w).ok()?;
+            if pf.predecessor.as_deref().is_some_and(|v| slop_ninja_protocol::quant::parse_grid(v, w).is_err()) {
+                return None;
+            }
+            if let Some(m) = &pf.margin_line
+                && slop_ninja_protocol::quant::parse_grid(m, w).ok()? < cur
+            {
+                return None;
+            }
+            Some(LivePrefinalView { width: w, current: pf.current, predecessor: pf.predecessor, margin_line: pf.margin_line })
+        }
+        None => None,
+    };
+    if !p.prefinal && prefinal.is_some() {
+        return None;
+    }
+    let mut out_rows: Vec<LiveRowView> = Vec::with_capacity(rows.len());
+    for r in rows {
+        let hotkey = key64(&r.hotkey)?;
+        if out_rows.last().is_some_and(|q| q.hotkey >= hotkey) || !cps_ok(&r.checkpoints, live::WITHHELD) {
+            return None;
+        }
+        if let Some(v) = &r.prefinal {
+            // An entrant's value only with R_k's, on its grid.
+            let pf = prefinal.as_ref()?;
+            if !on_grid(v, pf.width, &[live::WITHHELD]) {
+                return None;
+            }
+        }
+        out_rows.push(LiveRowView { hotkey, checkpoints: r.checkpoints, stopped: r.stopped, prefinal: r.prefinal });
+    }
+    let mut defects = Vec::with_capacity(j.defects.len());
+    for d in j.defects {
+        if d.rule != "prefinal_mismatch" {
+            return None;
+        }
+        defects.push(key64(d.hotkey.as_deref()?)?);
+    }
+    if j.fault.as_deref().is_some_and(|f| !matches!(f, "prepare" | "release" | "over_bound")) {
+        return None;
+    }
+    Some(LiveScoresView {
+        cohort,
+        n: p.n,
+        predecessor: p.predecessor,
+        eps_live_milli: p.eps_live_milli,
+        segments: p.segments,
+        width,
+        noise_sd,
+        stopped: p.stopped,
+        bits: (p.bits.counted, p.bits.live, p.bits.bound),
+        reference,
+        prefinal,
+        rows: out_rows,
+        fault: j.fault,
+        defects,
+    })
 }

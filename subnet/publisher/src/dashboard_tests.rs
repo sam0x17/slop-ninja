@@ -111,6 +111,7 @@ fn observed(eval: Value) -> Observed {
         coordinator: Some(parse_worker(&worker_status("primary", false))),
         eval_worker: Some(parse_worker(&worker_status("primary", false))),
         eval: Some(parse_eval(&eval)),
+        live: None,
     }
 }
 

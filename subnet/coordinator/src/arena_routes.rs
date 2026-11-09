@@ -48,6 +48,7 @@ pub mod id {
     pub const HOME_RUNTIMES: u8 = 31;
     pub const HOME_PLANS: u8 = 32;
     pub const COHORT_WORK: u8 = 33;
+    pub const COHORT_LIVE: u8 = 34;
 }
 
 /// The deadline of an entry with no documented wall limit (Worker and
@@ -107,6 +108,9 @@ pub const R_COHORT_DRAW: Route = Route::new(id::COHORT_DRAW, "cohort/draw");
 pub const R_COHORT_PACKAGE: Route = Route::new(id::COHORT_PACKAGE, "cohort/package");
 pub const R_COHORT_CLOSE: Route = Route::new(id::COHORT_CLOSE, "cohort/close");
 pub const R_COHORT_LOAD_SEAL: Route = Route::new(id::COHORT_LOAD_SEAL, "cohort/load-seal");
+/// The live values' share of a step (`eval::live`): one setup or one
+/// release of one cohort per child scope ([`live_step_bytes`]).
+pub const R_COHORT_LIVE: Route = Route::new(id::COHORT_LIVE, "cohort/live");
 /// The commitment reader's rounds: the stored runtime's parse and one
 /// round's replies (`COMMITMENTS_CONTROL_BYTES`).
 pub const R_COHORT_COMMITMENTS: AsyncRoute = AsyncRoute::new(id::COHORT_COMMITMENTS, "cohort/commitments", UNBOUNDED_FETCH_MS);
@@ -253,6 +257,17 @@ pub const COHORT_CONTROL_BYTES: usize = 2 * MIB;
 /// the alarm's base footprint, in which they ran before they had their own
 /// routes (their measured peaks are on `/status`).
 pub const STEP_BASE_BYTES: usize = ALARM_CONTROL_BYTES;
+/// One live setup or release over a batch of `docs` documents
+/// (`eval::live::prepare`, `release_due`): the alarm's base plus, per batch
+/// document, its rows (the batch read with its outcome, the partition's
+/// keys and the segment update). The witness
+/// `arena_witness_live_steps_fit_their_footprint` measures it at a 1,000
+/// document batch with a full roster's jobs.
+pub const fn live_step_bytes(docs: u64) -> usize {
+    let total = (ALARM_CONTROL_BYTES as u64).saturating_add(LIVE_PER_DOC.saturating_mul(docs));
+    if total > usize::MAX as u64 { usize::MAX } else { total as usize }
+}
+const LIVE_PER_DOC: u64 = 1_024;
 /// The cohort alarm's base footprint; the seal and package steps admit their
 /// shape-derived footprints (`seal_bytes`, `package_bytes`) as child scopes.
 /// Measured: picking the next work item over the widest admitted plan, 2

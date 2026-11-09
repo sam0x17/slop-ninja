@@ -678,6 +678,9 @@ fn migrations_are_pinned_by_content() {
         "780bf0c3609e954e",
         // v27: the commitment snapshot's not-served backoff (snapshot-retry).
         "ee9f5614de344dc6",
+        // v28: live values while a cohort is scored (live-scores lane; never
+        // deployed).
+        "5ef1a267ae59d3d4",
     ];
     // v1-v10 are deployed on both testnet Workers; v11 is the stuck-states
     // lane's; v12 the automatic target handoff's; v13 the signed coordinator

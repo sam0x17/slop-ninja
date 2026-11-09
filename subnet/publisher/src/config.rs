@@ -50,7 +50,7 @@ impl core::fmt::Display for ConfigError {
             Self::Url(v) => write!(f, "{v} must be an https URL without credentials"),
             Self::Format => f.write_str("ALERT_SINK_FORMAT must be json, slack or discord"),
             Self::Copy => f.write_str("ARTIFACT_COPY must be stream or server"),
-            Self::Roster => f.write_str("DASHBOARD_ROSTER must be closed, scoring, frozen or sessions"),
+            Self::Roster => f.write_str("DASHBOARD_ROSTER must be closed, scoring, frozen, sessions or live"),
             Self::Prefix => f.write_str("RECORD_LABEL_PREFIX must use the cohort label alphabet"),
             Self::Guards(v) => write!(f, "ARTIFACTS_FROM_EPOCH is set but {v}"),
             Self::Duration(v, min) => {
@@ -596,6 +596,7 @@ mod tests {
             ("scoring", crate::dashboard::RosterLevel::Scoring),
             ("frozen", crate::dashboard::RosterLevel::Frozen),
             ("sessions", crate::dashboard::RosterLevel::Sessions),
+            ("live", crate::dashboard::RosterLevel::Live),
         ] {
             assert_eq!(with("DASHBOARD_ROSTER", v).unwrap().dashboard_roster, level, "{v:?}");
         }

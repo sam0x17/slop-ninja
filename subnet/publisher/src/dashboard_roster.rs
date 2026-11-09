@@ -35,9 +35,18 @@
 //! `slop_ninja.eval.scoring_progress/v1`, read each run): `pending` until
 //! the entrant's scoring starts, then documents resolved of its total.
 //! Counts only (the 2026-11-06 decision): no score, leader, score
-//! order, per-challenge identity, failure or retry detail. A running roster is not rewritten once its
-//! cohort leaves the running stages; the closed roster replaces it at the
-//! same key when the cohort is listed.
+//! order, per-challenge identity, failure or retry detail. At the `live`
+//! level a running roster also carries the cohort's live values (the eval
+//! Worker's `/eval/live`, rule `slop_ninja.eval.live_scores/v1`): each
+//! executed entrant's `live-v1` segment readings and its pre-finalized
+//! quantized score (`live` on its row), and the rule's parameters, `R_k`'s
+//! counts in segment steps, its readings and the references' pre-finalized
+//! scores with the margin line (the top-level `live` block). A roster's
+//! level is `live` exactly when it carries that block; otherwise a running
+//! roster is written at `sessions`. Still no rank, position, leader, score
+//! order, band, gate, cluster or unit value before close. A running
+//! roster is not rewritten once its cohort leaves the running stages; the
+//! closed roster replaces it at the same key when the cohort is listed.
 
 use std::collections::BTreeSet;
 
@@ -47,7 +56,7 @@ use slop_ninja_protocol::AccountId;
 use super::{Chain, Doc, NowDoc, Settings, chain, minute};
 use crate::artifacts::StartRecord;
 use crate::index::{ArtifactEntry, ArtifactState};
-use crate::status::{AdmissionCohortView, EvalView, HotkeyRow, REFUSAL_CLASSES, RegistryView};
+use crate::status::{AdmissionCohortView, EvalView, HotkeyRow, LiveScoresView, REFUSAL_CLASSES, RegistryView};
 use crate::summary::CohortSummary;
 
 /// How much of a running cohort's per-hotkey status the rosters carry. Each
@@ -70,10 +79,14 @@ pub enum RosterLevel {
     /// (`uploading`, `verifying`, `verified`, `refused` with its class),
     /// and each admitted entrant's challenge counts ([`Challenges`]).
     Sessions,
+    /// Also the running cohort's live values ([`LiveRow`], [`LiveBlock`]):
+    /// `live-v1` segment readings and pre-finalized scores. A document is
+    /// written at this level only when it carries the live block.
+    Live,
 }
 
 impl RosterLevel {
-    pub const ALL: [RosterLevel; 4] = [Self::Closed, Self::Scoring, Self::Frozen, Self::Sessions];
+    pub const ALL: [RosterLevel; 5] = [Self::Closed, Self::Scoring, Self::Frozen, Self::Sessions, Self::Live];
 
     pub fn as_str(self) -> &'static str {
         match self {
@@ -81,6 +94,7 @@ impl RosterLevel {
             Self::Scoring => "scoring",
             Self::Frozen => "frozen",
             Self::Sessions => "sessions",
+            Self::Live => "live",
         }
     }
 
@@ -218,6 +232,87 @@ pub struct RosterRow {
     /// a running roster at the sessions level only; `null` otherwise, and
     /// while the eval Worker reports none for the row.
     pub challenges: Option<Challenges>,
+    /// The entrant's live values: `admitted` and `evaluating` rows of a
+    /// running roster at the `live` level only (absent otherwise).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub live: Option<LiveRow>,
+}
+
+/// One executed entrant's live values while its cohort is scored.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct LiveRow {
+    /// Its `live-v1` segment readings, in order, at most `segments - 1`,
+    /// each a multiple of the block's `width` with exactly its decimals, or
+    /// `withheld`; released once and never changed; none while stopped.
+    pub checkpoints: Vec<String>,
+    /// More attributable failures than the minimum-success limit allows: no
+    /// further reading, and the result will withhold it.
+    pub stopped: bool,
+    /// Its quantized score under `quant-v1` (or `withheld`), marked
+    /// pre-finalized: the value the signed result will carry unless a
+    /// signed correction replaces it. `null` until it and `R_k` finish.
+    pub prefinal: Option<String>,
+}
+
+/// A running cohort's live block: the rule's parameters and counted bits,
+/// `R_k`'s counts and readings, and the references' pre-finalized scores.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct LiveBlock {
+    /// `live-v1`.
+    pub rule: String,
+    /// The live grid; `null` without readings.
+    pub width: Option<String>,
+    /// `L`: `0` (no readings) or at least 2.
+    pub segments: u8,
+    /// `L - 1`.
+    pub released_max: u8,
+    /// One reading's standard deviation, rounded up to thousandths.
+    pub noise_sd: Option<String>,
+    pub eps_live_milli: u32,
+    pub bits: LiveBits,
+    pub reference: Option<LiveReference>,
+    pub prefinal: Option<LivePrefinal>,
+}
+
+/// The cohort's counted bits: every rule's at the seal, the readings', and
+/// `floor(n h / F)`.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct LiveBits {
+    pub counted: u32,
+    pub live: u32,
+    pub bound: u64,
+}
+
+/// `R_k` while the cohort is scored: its batch tasks done in segment steps,
+/// its readings (`none` after a failure) and whether it failed.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct LiveReference {
+    pub done: u32,
+    pub total: u32,
+    pub checkpoints: Vec<String>,
+    pub stopped: bool,
+}
+
+/// The references' pre-finalized scores on the cohort's `quant-v1` grid
+/// and the margin line that follows from `R_k`'s.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct LivePrefinal {
+    pub quantization: LiveQuantization,
+    pub current: String,
+    pub predecessor: Option<String>,
+    pub margin_line: Option<String>,
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct LiveQuantization {
+    pub rule: String,
+    pub width: String,
 }
 
 /// One entrant's scoring progress, counts only. `pending`: its scoring has
@@ -296,6 +391,9 @@ pub struct RosterDoc {
     pub rows: Vec<RosterRow>,
     /// `R_k` and `R_k-1` by digest, closed cohorts only.
     pub references: Option<RosterReferences>,
+    /// The running cohort's live block, exactly at the `live` level.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub live: Option<LiveBlock>,
 }
 
 // ------------------------------------------------------------- allow-list
@@ -349,6 +447,33 @@ pub(super) const ROSTER_PATHS: &[&str] = &[
     "references.predecessor",
     "references.predecessor.content",
     "references.predecessor.artifact",
+    "rows[].live",
+    "rows[].live.checkpoints",
+    "rows[].live.stopped",
+    "rows[].live.prefinal",
+    "live",
+    "live.rule",
+    "live.width",
+    "live.segments",
+    "live.released_max",
+    "live.noise_sd",
+    "live.eps_live_milli",
+    "live.bits",
+    "live.bits.counted",
+    "live.bits.live",
+    "live.bits.bound",
+    "live.reference",
+    "live.reference.done",
+    "live.reference.total",
+    "live.reference.checkpoints",
+    "live.reference.stopped",
+    "live.prefinal",
+    "live.prefinal.quantization",
+    "live.prefinal.quantization.rule",
+    "live.prefinal.quantization.width",
+    "live.prefinal.current",
+    "live.prefinal.predecessor",
+    "live.prefinal.margin_line",
 ];
 
 fn hex64(s: &str) -> bool {
@@ -414,6 +539,13 @@ pub(super) fn check_roster(d: &RosterDoc) -> Result<(), String> {
     if closed != (level == RosterLevel::Closed) || (!closed && d.references.is_some()) {
         return Err("a running roster with a closed cohort's fields".into());
     }
+    // The live level exactly with a live block, never on a closed roster.
+    if (level == RosterLevel::Live) != d.live.is_some() {
+        return Err("the live level without a live block, or a live block below it".into());
+    }
+    if let Some(b) = &d.live {
+        check_live_block(b)?;
+    }
     if d.rows.len() > super::contract::roster::ROWS {
         return Err("more roster rows than the bound".into());
     }
@@ -466,6 +598,13 @@ pub(super) fn check_roster(d: &RosterDoc) -> Result<(), String> {
                 return Err("challenge counts".into());
             }
         }
+        if let Some(lv) = &r.live {
+            let b = d.live.as_ref().ok_or("live values outside a live roster")?;
+            if !matches!(st, "admitted" | "evaluating") {
+                return Err("live values outside a running roster's entrants".into());
+            }
+            check_live_row(b, lv)?;
+        }
         match &r.hotkey_hex {
             Some(h) if !hex64(h) || !same_key(&r.hotkey, h) => return Err("roster hotkey spellings disagree".into()),
             None if crate::ss58::decode(&r.hotkey).is_none() => return Err("roster hotkey not SS58".into()),
@@ -485,6 +624,93 @@ pub(super) fn check_roster(d: &RosterDoc) -> Result<(), String> {
         }
     }
     Ok(())
+}
+
+/// A live block's own checks: the rule; the live grid on the ladder with
+/// its own spelling, exactly when there are segments; `released_max` is
+/// `L - 1`; counted plus live bits within the bound; `R_k`'s checkpoints on
+/// the grid (or `none`), at most `released_max`, its counts in range; the
+/// references' pre-finalized values on their grid with the margin line at
+/// or above `R_k`'s.
+fn check_live_block(b: &LiveBlock) -> Result<(), String> {
+    use slop_ninja_protocol::{live, quant};
+    if b.rule != live::LIVE_RULE || b.segments == 1 || b.released_max != b.segments.saturating_sub(1) {
+        return Err("live rule or segments".into());
+    }
+    let readings = b.segments >= live::MIN_SEGMENTS;
+    let w = b.width.as_deref().map(grid_width).transpose()?;
+    if readings != w.is_some() || readings != b.noise_sd.is_some() {
+        return Err("live grid".into());
+    }
+    if b.noise_sd.as_deref().is_some_and(|s| !milli_decimal(s)) {
+        return Err("live noise sd".into());
+    }
+    if readings && u64::from(b.bits.counted) + u64::from(b.bits.live) > b.bits.bound {
+        return Err("live bits over the bound".into());
+    }
+    if let Some(r) = &b.reference
+        && (r.done > r.total || !values_ok(&r.checkpoints, w, b.released_max, live::NONE))
+    {
+        return Err("live reference".into());
+    }
+    if let Some(p) = &b.prefinal {
+        let qw = grid_width(&p.quantization.width)?;
+        if p.quantization.rule != quant::QUANT_RULE {
+            return Err("live quantization rule".into());
+        }
+        let cur = quant::parse_grid(&p.current, qw).map_err(|_| "live current off the grid")?;
+        if p.predecessor.as_deref().is_some_and(|v| quant::parse_grid(v, qw).is_err()) {
+            return Err("live predecessor off the grid".into());
+        }
+        if let Some(m) = &p.margin_line
+            && quant::parse_grid(m, qw).map_err(|_| "live margin line off the grid")? < cur
+        {
+            return Err("live margin line below the reference".into());
+        }
+    }
+    Ok(())
+}
+
+/// An entrant's live values: checkpoints on the block's grid (or
+/// `withheld`), at most `released_max`; a pre-finalized value only with the
+/// references', on their grid (or `withheld`).
+fn check_live_row(b: &LiveBlock, r: &LiveRow) -> Result<(), String> {
+    use slop_ninja_protocol::{live, quant};
+    let w = b.width.as_deref().map(grid_width).transpose()?;
+    if !values_ok(&r.checkpoints, w, b.released_max, live::WITHHELD) {
+        return Err("live checkpoints".into());
+    }
+    if let Some(v) = &r.prefinal {
+        let p = b.prefinal.as_ref().ok_or("an entrant's prefinal before the reference's")?;
+        let qw = grid_width(&p.quantization.width)?;
+        if v != live::WITHHELD && quant::parse_grid(v, qw).is_err() {
+            return Err("live prefinal off the grid".into());
+        }
+    }
+    Ok(())
+}
+
+/// A grid width printed with its own decimals, on the one-digit ladder.
+fn grid_width(text: &str) -> Result<u64, String> {
+    use slop_ninja_protocol::quant;
+    (1..=18u32)
+        .chain(core::iter::once(0))
+        .find_map(|d| {
+            let w = quant::parse_grid(text, 10u64.pow(18 - d)).ok()?;
+            (quant::on_ladder(w) && quant::decimals(w).ok()? == d).then_some(w)
+        })
+        .ok_or_else(|| "live grid width".to_owned())
+}
+
+/// `d.ddd`.
+fn milli_decimal(s: &str) -> bool {
+    let b = s.as_bytes();
+    b.len() >= 5 && s.split_once('.').is_some_and(|(w, f)| !w.is_empty() && w.bytes().all(|c| c.is_ascii_digit()) && f.len() == 3 && f.bytes().all(|c| c.is_ascii_digit()))
+}
+
+fn values_ok(values: &[String], w: Option<u64>, max: u8, symbol: &str) -> bool {
+    values.len() <= usize::from(max)
+        && values.iter().all(|v| v == symbol || w.is_some_and(|w| slop_ninja_protocol::quant::parse_grid(v, w).is_ok()))
 }
 
 // ------------------------------------------------------------- derivation
@@ -578,6 +804,7 @@ pub fn closed_roster(s: &Settings<'_>, sm: &CohortSummary, artifacts: &[Artifact
                 .find(|a| a.hotkey == e.hotkey)
                 .map(|a| state_str(a.state).into()),
             challenges: None,
+            live: None,
         })
         .collect();
     let digests = |m: &crate::summary::ModelRef| ModelDigests {
@@ -599,6 +826,7 @@ pub fn closed_roster(s: &Settings<'_>, sm: &CohortSummary, artifacts: &[Artifact
             current: digests(&sm.references.current),
             predecessor: sm.references.predecessor.as_ref().map(digests),
         }),
+        live: None,
         ..header(s, &sm.label, now_ms)
     }
 }
@@ -634,6 +862,7 @@ pub fn running_roster(
     level: RosterLevel,
     now: &NowDoc,
     e: Option<&EvalView>,
+    live: Option<&LiveScoresView>,
     start: Option<&StartRecord>,
     now_ms: u64,
 ) -> Option<RosterDoc> {
@@ -653,6 +882,21 @@ pub fn running_roster(
         .flatten();
     // An entrant's counts: sessions level, eval progress for this cohort.
     let progress = adm.filter(|_| level >= RosterLevel::Sessions).and_then(|a| a.progress.as_ref());
+    // The live values: at the live level, for this cohort, with every live
+    // row an executed entrant the progress report names; otherwise none,
+    // and the roster is written at the sessions level.
+    let live = live
+        .filter(|_| level == RosterLevel::Live)
+        .filter(|l| l.cohort == cohort)
+        // A stop, or a fault that stops every value: no live block.
+        .filter(|l| !l.stopped && !matches!(l.fault.as_deref(), Some("release" | "over_bound")))
+        .filter(|l| progress.is_some_and(|p| p.sealed && l.rows.iter().all(|r| p.row(&r.hotkey).is_some())));
+    let live_row = |status: &str, hotkey: &[u8; 32]| -> Option<LiveRow> {
+        let l = live.filter(|_| matches!(status, "admitted" | "evaluating"))?;
+        let i = l.rows.binary_search_by(|r| r.hotkey.cmp(hotkey)).ok()?;
+        let r = l.rows.get(i)?;
+        Some(LiveRow { checkpoints: r.checkpoints.clone(), stopped: r.stopped, prefinal: r.prefinal.clone() })
+    };
     let challenges = |status: &str, hotkey: &[u8; 32]| -> Option<Challenges> {
         let p = progress.filter(|_| matches!(status, "admitted" | "evaluating"))?;
         if !p.sealed {
@@ -674,6 +918,7 @@ pub fn running_roster(
                     let hotkey = ss58(&r.hotkey);
                     RosterRow {
                         challenges: challenges(status, &r.hotkey),
+                        live: live_row(status, &r.hotkey),
                         uid: r.uid,
                         artifact_state: matches!(status, "admitted" | "evaluating")
                             .then(|| artifact(&hotkey))
@@ -696,6 +941,7 @@ pub fn running_roster(
                 .iter()
                 .map(|en| RosterRow {
                     challenges: crate::ss58::decode(&en.hotkey).and_then(|a| challenges("evaluating", &a.0)),
+                    live: crate::ss58::decode(&en.hotkey).and_then(|a| live_row("evaluating", &a.0)),
                     uid: Some(en.uid),
                     hotkey: en.hotkey.clone(),
                     hotkey_hex: crate::ss58::decode(&en.hotkey).map(|a| hex::encode(a.0)),
@@ -709,6 +955,9 @@ pub fn running_roster(
             ("artifacts", None, rows)
         }
     };
+    let block = live.map(live_block);
+    // The live level exactly with its block: else the sessions level.
+    let level = if level == RosterLevel::Live && block.is_none() { RosterLevel::Sessions } else { level };
     Some(RosterDoc {
         cohort: RosterCohort {
             cohort,
@@ -720,6 +969,155 @@ pub fn running_roster(
         as_of,
         rows: ordered(rows),
         references: None,
+        live: block,
         ..header(s, &label, now_ms)
     })
+}
+
+/// The roster's live block from the eval Worker's checked view.
+fn live_block(l: &LiveScoresView) -> LiveBlock {
+    let grid = |w: u64| {
+        let mut buf = [0u8; slop_ninja_protocol::quant::MAX_DECIMAL_LEN];
+        slop_ninja_protocol::quant::format_grid(w, w, &mut buf).map(str::to_owned).unwrap_or_default()
+    };
+    LiveBlock {
+        rule: slop_ninja_protocol::live::LIVE_RULE.into(),
+        width: l.width.map(grid),
+        segments: l.segments,
+        released_max: l.segments.saturating_sub(1),
+        noise_sd: l.noise_sd.clone(),
+        eps_live_milli: l.eps_live_milli,
+        bits: LiveBits { counted: l.bits.0, live: l.bits.1, bound: l.bits.2 },
+        reference: l.reference.as_ref().map(|r| LiveReference {
+            done: r.done,
+            total: r.total,
+            checkpoints: r.checkpoints.clone(),
+            stopped: r.stopped,
+        }),
+        prefinal: l.prefinal.as_ref().map(|p| LivePrefinal {
+            quantization: LiveQuantization { rule: slop_ninja_protocol::quant::QUANT_RULE.into(), width: grid(p.width) },
+            current: p.current.clone(),
+            predecessor: p.predecessor.clone(),
+            margin_line: p.margin_line.clone(),
+        }),
+    }
+}
+
+/// The roster without its live values, at the sessions level: what a
+/// refused live roster is written as, so a live defect never costs the
+/// counts.
+pub fn without_live(mut d: RosterDoc) -> RosterDoc {
+    d.live = None;
+    for r in &mut d.rows {
+        r.live = None;
+    }
+    if d.level == RosterLevel::Live.as_str() {
+        d.level = RosterLevel::Sessions.as_str().into();
+    }
+    d
+}
+
+// ------------------------------------------------------- shown values
+
+/// One live value this publisher has published: never replaced by a later
+/// run, and the pre-finalized ones are compared with the result at close.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct LiveShown {
+    pub cohort: u64,
+    /// An entrant's hotkey (64 hex), `current`, `predecessor` or `margin`.
+    pub subject: String,
+    /// `reading` or `prefinal`.
+    pub kind: String,
+    pub checkpoint: u8,
+    pub value: String,
+}
+
+/// Every live value of a running roster, as records.
+pub fn live_values(d: &RosterDoc) -> Vec<LiveShown> {
+    let mut out = Vec::new();
+    let Some(b) = &d.live else { return out };
+    let cohort = d.cohort.cohort;
+    let mut push = |subject: &str, kind: &str, checkpoint: usize, value: &str| {
+        out.push(LiveShown {
+            cohort,
+            subject: subject.into(),
+            kind: kind.into(),
+            checkpoint: u8::try_from(checkpoint).unwrap_or(u8::MAX),
+            value: value.into(),
+        });
+    };
+    if let Some(r) = &b.reference {
+        for (i, v) in r.checkpoints.iter().enumerate() {
+            push("current", "reading", i + 1, v);
+        }
+    }
+    if let Some(p) = &b.prefinal {
+        push("current", "prefinal", 0, &p.current);
+        if let Some(v) = &p.predecessor {
+            push("predecessor", "prefinal", 0, v);
+        }
+        if let Some(v) = &p.margin_line {
+            push("margin", "prefinal", 0, v);
+        }
+    }
+    for r in &d.rows {
+        let (Some(lv), Some(hk)) = (&r.live, &r.hotkey_hex) else { continue };
+        for (i, v) in lv.checkpoints.iter().enumerate() {
+            push(hk, "reading", i + 1, v);
+        }
+        if let Some(v) = &lv.prefinal {
+            push(hk, "prefinal", 0, v);
+        }
+    }
+    out
+}
+
+/// Whether `d` would replace a value already published (the record is
+/// keyed by cohort, subject, kind and checkpoint), checked against the
+/// durable record, never against the last roster written, so it survives a
+/// dropped block, a stop or a restart.
+pub fn replaces_shown(shown: &[LiveShown], d: &RosterDoc) -> bool {
+    live_values(d).iter().any(|v| {
+        shown.iter().any(|s| {
+            s.cohort == v.cohort && s.subject == v.subject && s.kind == v.kind && s.checkpoint == v.checkpoint && s.value != v.value
+        })
+    })
+}
+
+/// Adds `d`'s values to the record (each once), and drops the records of
+/// cohorts two or more before `d`'s, whose close check can no longer run
+/// on a running roster (an abandoned or declined cohort).
+pub fn record_shown(shown: &mut Vec<LiveShown>, d: &RosterDoc) {
+    let cohort = d.cohort.cohort;
+    shown.retain(|s| s.cohort + 2 > cohort);
+    for v in live_values(d) {
+        if !shown.iter().any(|s| s.cohort == v.cohort && s.subject == v.subject && s.kind == v.kind && s.checkpoint == v.checkpoint) {
+            shown.push(v);
+        }
+    }
+}
+
+/// The close check: every pre-finalized value shown for the summary's
+/// cohort must be the result's (`q`, or `withheld`). Returns the subjects
+/// that differ (the result's value is what the cohort's documents serve)
+/// and drops the cohort's records.
+pub fn close_check(shown: &mut Vec<LiveShown>, sm: &CohortSummary) -> Vec<String> {
+    let mut bad = Vec::new();
+    for s in shown.iter().filter(|s| s.cohort == sm.cohort && s.kind == "prefinal") {
+        let signed = match s.subject.as_str() {
+            "current" => sm.references.current.q.clone(),
+            "predecessor" => sm.references.predecessor.as_ref().and_then(|p| p.q.clone()),
+            "margin" => continue,
+            hk => sm.entrants.iter().find(|e| e.hotkey_hex == hk).map(|e| match e.gate.as_str() {
+                "withheld" => slop_ninja_protocol::live::WITHHELD.to_owned(),
+                _ => e.q.clone().unwrap_or_default(),
+            }),
+        };
+        if signed.as_deref() != Some(s.value.as_str()) {
+            bad.push(s.subject.clone());
+        }
+    }
+    shown.retain(|s| s.cohort != sm.cohort);
+    bad
 }

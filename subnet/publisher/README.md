@@ -665,8 +665,20 @@ scoring start without them, the published artifacts record. At `sessions`
 each admitted entrant's row also carries its challenge counts
 (`challenges{state, done, total}`, from `admission.cohorts[].progress`,
 rule `slop_ninja.eval.scoring_progress/v1`, read each run): counts only,
-under the decision of 2026-11-06. No level publishes a score, rank,
-roster position, gate, band or cluster before close. The fields, levels and inputs are in
+under the decision of 2026-11-06. At `live` (a reviewed change of the
+tracked value, after a website that accepts the level) a running roster
+also carries the cohort's live values from the eval Worker's `/eval/live`
+(rule `slop_ninja.eval.live_scores/v1`, read only at that level and parsed
+whole or not at all, with the grid, noise and bits recomputed here):
+`live-v1` segment readings and pre-finalized quantized scores. A roster
+says `live` only when it carries them; a stop, a refused report or a
+roster that fails the dashboard check is written at `sessions` with its
+counts (`live_dropped`), a value that would replace one already published
+is never written (`live_value_changed`, against a durable record in the
+state object), and every pre-finalized value shown is compared with the
+result at close (`prefinal_mismatch`). No level below `live` publishes a
+score, and no level publishes a rank, roster position, gate, band or
+cluster before close. The fields, levels and inputs are in
 [`docs/testnet/public-layout.md`](../../docs/testnet/public-layout.md#its-dashboard-documents-registryjson-and-rosterslabeljson).
 
 Every stage carries a start (its phase's boundary point: epoch, boundary

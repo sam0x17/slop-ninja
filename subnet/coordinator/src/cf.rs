@@ -2075,6 +2075,11 @@ async fn eval_route(mut req: Request, env: Env) -> Result<Response> {
             }
         }
         (Method::Post, "/plan" | "/clear" | "/abandon" | "/hold") => eval_do::forward(&env, instance, Method::Post, &rest, raw).await,
+        // Live values (`eval::live`): the report on the status route
+        // `/eval/live` (status token, `access::status_route`), and the
+        // operator's stop (operator token alone), on the main instance.
+        (Method::Get, "/live") if instance == "main" => eval_do::forward(&env, instance, Method::Get, &rest, None).await,
+        (Method::Post, "/live/stop") if instance == "main" => eval_do::forward(&env, instance, Method::Post, &rest, raw).await,
         // Generation v2: the operator's clear of a vendor pause (a spend cap
         // or a key failure, `gen_v2::resume_vendor`).
         (Method::Post, crate::eval::lanes::GEN_VENDOR_CLEAR_PATH) if instance == "main" => eval_do::forward(&env, instance, Method::Post, &rest, raw).await,

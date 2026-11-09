@@ -719,6 +719,72 @@ pub fn charged(executed: u16, predecessor: bool) -> u32 {
     u32::from(executed) + 1 + u32::from(predecessor)
 }
 
+/// The counted hidden-data bits other rules add to a cohort's published
+/// values, beside [`Budget::count`]'s terms: each rule that publishes a
+/// deterministic value from hidden data adds its alphabet's bits here, so
+/// every caller of [`cohort_bits`] (plan validation's worst case, the
+/// `live-v1` derivation of the segment count and the private recount at
+/// packaging) counts one complete total. No rule adds a term today.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct CountedTerms {
+    /// Bits per executed entrant.
+    pub per_executed: u32,
+    /// Bits per cohort.
+    pub per_cohort: u32,
+}
+
+impl CountedTerms {
+    /// No other rule's terms.
+    pub const NONE: Self = Self { per_executed: 0, per_cohort: 0 };
+
+    /// The terms' bits at `executed` entrants.
+    pub fn bits(&self, executed: u16) -> Result<u32> {
+        u32::from(executed)
+            .checked_mul(self.per_executed)
+            .and_then(|t| t.checked_add(self.per_cohort))
+            .ok_or(Error::Overflow("counted terms"))
+    }
+}
+
+/// A cohort's complete counted bit total: [`Budget::count`] plus every other
+/// rule's [`CountedTerms`].
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct CohortBits {
+    pub quant: Budget,
+    pub terms: u32,
+    pub total: u32,
+}
+
+impl CohortBits {
+    /// `total * F <= n * h`.
+    pub fn within(&self, n: u32, identify_bits: u16, budget_factor: u16) -> bool {
+        within_bound(self.total, n, identify_bits, budget_factor)
+    }
+}
+
+/// `bits * F <= n * h`.
+pub fn within_bound(bits: u32, n: u32, identify_bits: u16, budget_factor: u16) -> bool {
+    u64::from(bits) * u64::from(budget_factor) <= u64::from(n) * u64::from(identify_bits)
+}
+
+/// The cohort's complete counted bits at grid width `w`: the quantization
+/// budget and every other rule's terms. The signed [`crate::BudgetRecord`]
+/// keeps counting [`Budget::count`] alone.
+pub fn cohort_bits(executed: u16, w: u64, predecessor: bool, terms: &CountedTerms) -> Result<CohortBits> {
+    let quant = Budget::count(executed, w, predecessor)?;
+    let extra = terms.bits(executed)?;
+    let total = quant.total.checked_add(extra).ok_or(Error::Overflow("bit budget"))?;
+    Ok(CohortBits { quant, terms: extra, total })
+}
+
+/// The narrowest grid a cohort of `executed` entrants can have: `SE = 0`, so
+/// `w = ladder(w_floor(X, k))`, which maximizes `K` and so the counted bits.
+pub fn narrowest_width(n: u32, executed: u16, predecessor: bool, eps_total_milli: u32) -> Result<u64> {
+    let m = charged(executed, predecessor);
+    let tau = Tau::new(n, m, eps_total_milli)?;
+    width(0, &tau)
+}
+
 /// The plan-time worst case over every `X` in `0..=roster_cap` and both
 /// reference shapes (with and without a predecessor), each at the narrowest
 /// possible grid (`SE = 0`, so `w = ladder(w_floor(X, k))`, which maximizes
@@ -735,16 +801,29 @@ pub fn worst_case(
     identify_bits: u16,
     budget_factor: u16,
 ) -> Result<(Budget, bool)> {
-    let mut worst = Budget::default();
+    let (worst, ok) = worst_case_terms(n, roster_cap, eps_total_milli, identify_bits, budget_factor, &CountedTerms::NONE)?;
+    Ok((worst.quant, ok))
+}
+
+/// [`worst_case`] over the complete counted total ([`cohort_bits`]) with
+/// `terms`: the largest total and whether every case fits.
+pub fn worst_case_terms(
+    n: u32,
+    roster_cap: u16,
+    eps_total_milli: u32,
+    identify_bits: u16,
+    budget_factor: u16,
+    terms: &CountedTerms,
+) -> Result<(CohortBits, bool)> {
+    let mut worst = CohortBits::default();
     let mut ok = true;
     for x in 0..=roster_cap {
         for predecessor in [false, true] {
-            let tau = Tau::new(n, charged(x, predecessor), eps_total_milli)?;
-            let w = width(0, &tau)?;
-            let budget = Budget::count(x, w, predecessor)?;
-            ok &= budget.within(n, identify_bits, budget_factor);
-            if budget.total > worst.total {
-                worst = budget;
+            let w = narrowest_width(n, x, predecessor, eps_total_milli)?;
+            let bits = cohort_bits(x, w, predecessor, terms)?;
+            ok &= bits.within(n, identify_bits, budget_factor);
+            if bits.total > worst.total {
+                worst = bits;
             }
         }
     }

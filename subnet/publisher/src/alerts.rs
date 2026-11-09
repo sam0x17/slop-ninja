@@ -71,6 +71,11 @@
 //! | `config_warning` | the configuration was accepted with a setting ignored (an `ALERT_SINK_URL` while `ALERT_RELAY` is on) |
 //! | `status_access_warning` | a Worker's status gate (`access`) reports two of its status tokens equal (a consumer holding another's routes, or the operator's), or, for a whole tempo, the shared pre-split status token still installed beside both consumer tokens (the split's last step not done) |
 //! | `run_interrupted` | every run for a whole tempo stopped before it finished (it never released its lease) |
+//! | `live_fault` | at the `live` roster level, the eval Worker reports a live fault for the running cohort (`prepare`: its live setup failed, so it runs without readings; `release`: a release failed, so its live values stopped); scoring, packaging and phases are not held |
+//! | `live_over_bound` | the eval Worker's private recount of a cohort's counted bits, with a superseded pre-finalized value, passed the bound: it set the global live stop until the operator resumes |
+//! | `prefinal_mismatch` | a pre-finalized value shown differs from the package's (the eval Worker's defect, subject the cohort and hotkey), or from the published result at close (the publisher's own close check); values stay private |
+//! | `live_value_changed` | a live value would have replaced one already published: the roster was written at `sessions` without its live block |
+//! | `live_dropped` | a roster with its live block failed the dashboard check: it was written at `sessions` without it, keeping the counts |
 //!
 //! Not covered here (AR-13 gaps, listed in the README): commits by our other
 //! validator (validator2's journal is not visible to the publisher), and a
@@ -87,7 +92,9 @@ pub use slop_ninja_alerts_wire::{
     AlertState, Condition, Entry, Event, EventKind, acknowledge, attempt, due, event_id,
 };
 
-/// v16: `commit_stalled` and `signing_backing_off` (the coordinator's
+/// v17: the live-value rules (`live_fault`, `live_over_bound`,
+/// `prefinal_mismatch`, `live_value_changed`, `live_dropped`), decided by
+/// the publisher's own pass at the `live` roster level; v16: `commit_stalled` and `signing_backing_off` (the coordinator's
 /// signer stalled 14 hours from epoch 137 with health `backing_off`, and
 /// only `commit_gap` told); v15: `row_record_stalled`; v14: `operator_clear_needed` for a paused cohort whose fault the
 /// coordinator says does not clear by itself, and the fault rules' detail
@@ -116,7 +123,7 @@ pub use slop_ninja_alerts_wire::{
 /// decide, and alerts after its hold, `status_unreachable` and
 /// `status_incomplete`; v3: `config_warning`, and resolutions of attempted
 /// firings).
-pub const RULES_ID: &str = "slop_ninja.publisher.alerts/v16";
+pub const RULES_ID: &str = "slop_ninja.publisher.alerts/v17";
 /// The post schema (each event carries its id and the last-notified time
 /// it is derived from, so the alerts relay sends a retried post once).
 pub const ALERT_SCHEMA: &str = slop_ninja_alerts_wire::POST_SCHEMA;
@@ -242,7 +249,14 @@ pub struct PublisherObs {
     /// content-free line each.
     #[serde(default)]
     pub retention_mismatch: Vec<String>,
+    /// The live-value alerts of the last dashboard pass, as (rule,
+    /// subject): rule names and subjects (cohort, hotkey) only.
+    #[serde(default)]
+    pub live: Vec<(String, String)>,
 }
+
+/// The live-value rules, decided by the publisher's own pass.
+pub const LIVE_RULES: &[&str] = &["live_fault", "live_over_bound", "prefinal_mismatch", "live_value_changed", "live_dropped"];
 
 /// The `retention_stalled` subject of the publisher's own cross-check
 /// (decided by its own pass, never by a status read).
@@ -747,6 +761,11 @@ pub fn evaluate(o: &Observed, p: &PublisherObs, r: &Rules) -> Vec<Condition> {
     }
     for (label, reason) in &p.refused {
         out.push(cond("publication_refused", label, reason.clone(), 0));
+    }
+    for (rule, subject) in &p.live {
+        if let Some(rule) = LIVE_RULES.iter().copied().find(|r| r == rule) {
+            out.push(cond(rule, subject, "live values (see the eval Worker's /eval/live)".into(), 0));
+        }
     }
     if !p.retention_mismatch.is_empty() {
         out.push(cond(
@@ -1287,6 +1306,7 @@ mod tests {
             coordinator: Some(parse_worker(&worker_status("primary", false))),
             eval_worker: Some(parse_worker(&worker_status("primary", false))),
             eval: Some(eval),
+            live: None,
         }
     }
 
@@ -1815,6 +1835,7 @@ mod tests {
             interrupted: true,
             warnings: vec![],
             retention_mismatch: vec![],
+            live: vec![],
         };
         let c = evaluate(&o, &p, &r);
         assert_eq!(

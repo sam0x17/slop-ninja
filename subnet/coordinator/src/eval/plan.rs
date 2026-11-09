@@ -583,6 +583,51 @@ pub struct RewardV1Plan {
     /// deserializes but refuses its seal ([`RewardV1Plan::quant_params`]).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub quant: Option<QuantPlan>,
+    /// Live values while the cohort is scored ([`LivePlan`], rule
+    /// `live-v1`): pre-finalized scores and segment readings. Absent: neither,
+    /// as in plans written before it. An eval build older than this field
+    /// refuses any plan naming it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub live: Option<LivePlan>,
+}
+
+/// The `reward_v1.live` block (`slop_ninja_protocol::live`): what a running
+/// cohort may show before it closes. Nothing here enters a cutoff, band,
+/// credit, gate, cluster, promotion or row, and no signed record carries it.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct LivePlan {
+    /// [`slop_ninja_protocol::live::LIVE_RULE`].
+    pub rule: String,
+    /// Show each executed entrant's quantized score (or withheld), and the
+    /// references' with the margin line, as soon as each is fixed, marked
+    /// pre-finalized. It is the result's own value: no epsilon or bit.
+    pub prefinal: bool,
+    /// `eps_live` per cohort, in thousandths, split over the executed
+    /// entrants and `R_k`.
+    pub eps_live_milli: u32,
+    /// The most segments `L`; `0` means no readings. The seal's roster
+    /// derives `L` (`live::derive_segments`).
+    pub segments_max: u8,
+}
+
+impl LivePlan {
+    /// The rule's parameters.
+    pub fn params(&self) -> slop_ninja_protocol::live::LiveParams {
+        slop_ninja_protocol::live::LiveParams { eps_live_milli: self.eps_live_milli, segments_max: self.segments_max }
+    }
+
+    /// The rule is known and its parameters pass
+    /// `live::LiveParams::validate` at this batch, chunk size, roster cap and
+    /// quantization block (never refused for the readings' bit budget).
+    pub fn validate(&self, n: u32, chunk_docs: u32, roster_cap: u16, quant: &QuantPlan) -> Result<(), PlanError> {
+        if self.rule != slop_ninja_protocol::live::LIVE_RULE {
+            return Err(PlanError("reward_v1.live.rule (live-v1)"));
+        }
+        self.params()
+            .validate(n, chunk_docs, roster_cap, &quant.params())
+            .map_err(|_| PlanError("reward_v1.live (segments_max 0 or at least 2, eps_live_milli > 0, a chunk per segment, rows within the roster row bound)"))
+    }
 }
 
 /// The `reward_v1.quant` block: the versioned per-cohort parameters of the
@@ -1349,7 +1394,14 @@ impl CohortPlan {
                         .map_err(|_| PlanError("roster cap"))?,
                 };
                 q.validate(self.n, cap)?;
+                if let Some(l) = &v1.live {
+                    l.validate(self.n, self.scorer.chunk_docs, cap, q)?;
+                }
             }
+            e(
+                v1.live.is_none() || (v1.quant.is_some() && !probe_build),
+                "reward_v1.live (a scored cohort with a quant block only)",
+            )?;
             // The strict false-positive tier is measured on audit draw A; it
             // must rest on at least as many humans as the loose tier (the
             // cohort's own), so its interval is no wider.

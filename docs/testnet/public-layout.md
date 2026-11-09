@@ -750,7 +750,9 @@ registered UID plus every former entrant), cache 60 s:
 | `rows[].roster_position`, `rows[].result` | Closed cohorts only: the 1-based roster order and the summary's `gate` (`pass`, `fail`, `withheld`, `not_executed`), `copy_gate`, `band` and `cluster`. No `q` |
 | `rows[].artifact_state` | `published`, `pending` or `withheld`, from scoring start |
 | `rows[].challenges` | `admitted` and `evaluating` rows of a running roster at the `sessions` level only: `{state, done, total}`, `pending` before the entrant's scoring starts (`done` 0, `total` `null` until the batch is sealed), `running` while `done < total`, `complete` at it; `null` otherwise, and when the eval Worker reports none (an entrant whose content was already published is not scored and has none). Read each run |
+| `rows[].live` | `admitted` and `evaluating` rows of a running roster at the `live` level only (absent otherwise): `{checkpoints, stopped, prefinal}`, the entrant's `live-v1` segment readings (each a multiple of `live.width` with exactly its decimals, or `withheld`; at most `live.released_max`, released once), whether more attributable failures than the minimum-success limit stopped them, and its pre-finalized quantized score (`quant-v1` grid, or `withheld`; `null` until it and `R_k` finish) |
 | `references` | Closed cohorts only: `R_k` and `R_k-1` by content and artifact digest, from the summary |
+| `live` | A running roster at the `live` level only (absent otherwise): `{rule, width, segments, released_max, noise_sd, eps_live_milli, bits{counted, live, bound}, reference{done, total, checkpoints, stopped}, prefinal{quantization{rule, width}, current, predecessor, margin_line}}`. `reference.done` moves in segment steps; `prefinal` is `null` until `R_k` finishes without a failure |
 
 A closed, listed cohort's roster is built from its summary and publication
 record alone and rewritten with its cohort document. It lists the
@@ -760,8 +762,10 @@ after close. `scored` covers the gate bits `pass` and `fail`.
 A running cohort's roster is written each run at the publisher's
 `DASHBOARD_ROSTER` level; each level includes the ones before it. Testnet
 runs at `sessions`: publishing each miner's intake state while a cohort
-runs was approved on 2026-11-06. No level carries a score, rank, roster
-position, gate, band or cluster before the cohort closes.
+runs was approved on 2026-11-06. No level below `live` carries a score; no
+level carries a rank, roster position, gate, band or cluster before the
+cohort closes. A roster is written at `live` only when it carries the live
+block; otherwise at `sessions`.
 
 | Level | A running cohort's roster |
 | --- | --- |
@@ -769,6 +773,7 @@ position, gate, band or cluster before the cohort closes.
 | `scoring` | from scoring start, each entrant `evaluating` with its artifact state, from the published artifacts record |
 | `frozen` | the eval Worker's per-hotkey rows: before the roster freezes only `none` or `committed`, from the logged on-chain commitment alone (a session without one reads `none`); from the freeze (once the page has left the admission window) `admitted`, `evaluating` from `generating` on, `refused` with its class, or `overflow` |
 | `sessions` | before the freeze also `uploading`, `verifying`, `verified` and `refused` with its class; from the freeze each admitted entrant's challenge counts (selected on 2026-11-06) |
+| `live` | also the running cohort's live values from the eval Worker's `/eval/live` (rule `slop_ninja.eval.live_scores/v1`): `live-v1` segment readings and pre-finalized quantized scores (`rows[].live`, `live`); the eval Worker's operator stop removes them at the next run |
 
 `admitted` and `evaluating` come from the frozen roster and the stage the
 page shows, never from per-entrant work; only `challenges` does. A running roster is no longer

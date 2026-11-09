@@ -1454,6 +1454,12 @@ pub struct Memo {
     pub pending_key: Option<String>,
     #[serde(default)]
     pub cursor: Option<String>,
+    /// Every live value published for a running cohort
+    /// ([`roster::LiveShown`]): a later run never replaces one, and the
+    /// close check compares the pre-finalized ones with the result. At most
+    /// the current and the previous cohort's values, `(X + 4) L` each.
+    #[serde(default)]
+    pub live_shown: Vec<LiveShown>,
 }
 
 /// The settings the documents depend on.
@@ -2676,6 +2682,10 @@ pub struct RunInputs<'a> {
 pub struct Pass {
     pub written: Vec<String>,
     pub refused: Vec<(String, String)>,
+    /// Live-value alerts of this pass, as (rule, subject): the eval
+    /// Worker's live fault and defects, and the publisher's own dropped or
+    /// changed live block. Rule names and subjects only, never values.
+    pub live: Vec<(String, String)>,
     /// The cohort documents stopped at the wall budget (continued next run).
     pub incomplete: bool,
 }
@@ -2867,8 +2877,32 @@ pub async fn publish<S: Store>(
                 None
             }
         };
-        if let Some(doc) = running_roster(s, s.roster, &now, e, start.as_ref().map(|(r, _)| r), i.now_ms) {
-            write(out, &Doc::Roster("a", label.to_owned()), &doc, &mut pass).await;
+        let live = i.observed.live.as_ref();
+        if let Some(l) = live.filter(|_| s.roster == RosterLevel::Live) {
+            if let Some(f) = &l.fault {
+                let rule = if f == "over_bound" { "live_over_bound" } else { "live_fault" };
+                pass.live.push((rule.into(), format!("cohort {} ({f})", l.cohort)));
+            }
+            for d in &l.defects {
+                pass.live.push(("prefinal_mismatch".into(), format!("cohort {} {}", l.cohort, hex::encode(d))));
+            }
+        }
+        if let Some(mut doc) = running_roster(s, s.roster, &now, e, live, start.as_ref().map(|(r, _)| r), i.now_ms) {
+            let key = Doc::Roster("a", label.to_owned());
+            if doc.live.is_some() {
+                // Never replace a published value; never lose the counts to a
+                // refused live block: either writes the roster at sessions.
+                if replaces_shown(&memo.live_shown, &doc) {
+                    pass.live.push(("live_value_changed".into(), label.to_owned()));
+                    doc = without_live(doc);
+                } else if serde_json::to_vec(&doc).map_err(|_| String::new()).and_then(|b| check(&key.key(), &b).map(|_| ())).is_err() {
+                    pass.live.push(("live_dropped".into(), label.to_owned()));
+                    doc = without_live(doc);
+                } else {
+                    record_shown(&mut memo.live_shown, &doc);
+                }
+            }
+            write(out, &key, &doc, &mut pass).await;
         }
     }
     let (Some(idx), Some(e)) = (i.index, e) else { return pass };
@@ -2928,6 +2962,10 @@ pub async fn publish<S: Store>(
                 }
                 // A closed cohort's roster, from the same summary.
                 if let Some(sm) = f.summary.as_ref().filter(|sm| l.row.state == "closed" && sm.label == l.row.label) {
+                    // Every pre-finalized value shown must be the result's.
+                    for subject in close_check(&mut memo.live_shown, sm) {
+                        pass.live.push(("prefinal_mismatch".into(), format!("cohort {} {subject} (published)", sm.cohort)));
+                    }
                     let roster = closed_roster(s, sm, &f.artifacts, i.now_ms);
                     if !write(out, &Doc::Roster("a", l.row.label.clone()), &roster, &mut pass).await {
                         failed = true;

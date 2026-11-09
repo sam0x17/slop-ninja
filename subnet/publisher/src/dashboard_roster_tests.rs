@@ -219,7 +219,7 @@ fn roster_at(level: RosterLevel, e: Value, x: u64, start: Option<&StartRecord>) 
     let mut memo = saved_at(x);
     rolled(&o, &mut memo, time_of(x));
     let now = now_of(&o, &memo);
-    let d = running_roster(&s, level, &now, o.eval.as_ref(), start, time_of(x) + 3_600_000)?;
+    let d = running_roster(&s, level, &now, o.eval.as_ref(), o.live.as_ref(), start, time_of(x) + 3_600_000)?;
     let v = checked(&Doc::Roster("a", "testnet-r0-c7".into()), &d);
     assert_eq!(d.cohort.stage, now.cohort.stage, "the stage now.json shows");
     for r in v["rows"].as_array().unwrap() {
@@ -425,6 +425,11 @@ fn the_roster_allow_list_is_exactly_the_contract() {
     v["as_of"] = json!({"epoch": 1, "block": 2});
     v["rows"][0]["reason_class"] = json!("artifact");
     v["rows"][0]["challenges"] = json!({"state": "running", "done": 1, "total": 2});
+    v["rows"][0]["live"] = json!({"checkpoints": ["0.84"], "stopped": false, "prefinal": "0.86"});
+    v["live"] = json!({"rule": "live-v1", "width": "0.04", "segments": 4, "released_max": 3, "noise_sd": "0.054",
+        "eps_live_milli": 1000, "bits": {"counted": 148, "live": 135, "bound": 800},
+        "reference": {"done": 250, "total": 1000, "checkpoints": ["0.84"], "stopped": false},
+        "prefinal": {"quantization": {"rule": "quant-v1", "width": "0.02"}, "current": "0.86", "predecessor": "0.84", "margin_line": "0.88"}});
     let paths = crate::allowlist::paths(&v);
     assert_eq!(paths, allowed_paths(&Doc::Roster("a", "c".into())));
 }
@@ -816,8 +821,229 @@ fn the_longest_roster_row_with_counts_fits_the_row_bound() {
         }),
         artifact_state: Some("published".into()),
         challenges: Some(Challenges { state: "complete".into(), done: u32::MAX, total: Some(u32::MAX) }),
+        live: None,
     };
     let bytes = serde_json::to_vec_pretty(&row).unwrap().len() + 2;
     assert!(bytes < contract::roster::ROW_BYTES, "{bytes}");
     assert_eq!(contract::roster::ENTRANTS, slop_ninja_protocol::MAX_ROSTER as usize);
+    // The protocol's row bounds, which plan validation of a live block reads
+    // (`live::row_bytes_max`), are this contract's: the row bound itself, and
+    // the longest row without its live object below the base.
+    use slop_ninja_protocol::live;
+    assert_eq!(live::ROSTER_ROW_BYTES, contract::roster::ROW_BYTES);
+    assert!(serde_json::to_vec(&row).unwrap().len() < live::ROSTER_ROW_BASE_BYTES, "{bytes}");
+    // The longest live row the r1 plan can produce: its checkpoints at the
+    // longest grid decimal or `withheld`, a pre-finalized value likewise.
+    let p = live::LiveParams { eps_live_milli: 1000, segments_max: 4 };
+    let max = live::row_bytes_max(1000, 40, 2000, &p).unwrap();
+    let longest = |n: usize| "w".repeat(n);
+    let mut with = row.clone();
+    with.live = Some(LiveRow { checkpoints: vec![longest(8); 3], stopped: false, prefinal: Some(longest(8)) });
+    let compact = serde_json::to_vec(&with).unwrap().len();
+    assert!(compact <= max && max <= contract::roster::ROW_BYTES, "{compact} {max}");
+    assert_eq!(compact - serde_json::to_vec(&row).unwrap().len(), live::live_row_len(3, 8, 8));
+}
+
+// ------------------------------------------------------------ live level
+
+/// The eval Worker's `/eval/live` report for cohort 7: one row per entry of
+/// `rows` as `(hotkey byte, checkpoints, prefinal)`, readings on the live
+/// grid of `n` 1,000, 4 segments, eps_live 1 at that many entrants, and
+/// R_k's pre-finalized value on a 0.02 grid.
+fn live_json(rows: &[(u8, &[&str], Option<&str>)], stopped: bool) -> Value {
+    use slop_ninja_protocol::live;
+    let x = rows.len() as u16;
+    let w = live::width_live(1000, 4, x, 1000).unwrap();
+    let mut buf = [0u8; slop_ninja_protocol::quant::MAX_DECIMAL_LEN];
+    let width = slop_ninja_protocol::quant::format_grid(w, w, &mut buf).unwrap().to_owned();
+    let on = |k: u64| {
+        let mut b = [0u8; slop_ninja_protocol::quant::MAX_DECIMAL_LEN];
+        slop_ninja_protocol::quant::format_grid(k * w, w, &mut b).unwrap().to_owned()
+    };
+    let refs = json!([on(20), on(21)]);
+    json!({
+        "rule": crate::status::LIVE_SCORES_RULE, "cohort": 7, "sealed": true,
+        "policy": {"rule": "live-v1", "n": 1000, "predecessor": false, "eps_live_milli": 1000, "segments": 4,
+                   "released_max": 3, "width": width, "noise_sd": live::format_milli(live::noise_sd_milli(1000, 4, x, 1000).unwrap()),
+                   "stopped": stopped, "prefinal": true,
+                   "bits": {"counted": 32, "live": live::live_bits(x, 4, w).unwrap(), "bound": 800}},
+        "reference": {"done": 500, "total": 1000, "checkpoints": if stopped { json!([]) } else { refs }, "stopped": false},
+        "prefinal": if stopped { Value::Null } else { json!({"quantization": {"rule": "quant-v1", "width": "0.02"}, "current": "0.86", "predecessor": null, "margin_line": "0.88"}) },
+        "rows": rows.iter().map(|(k, cps, pf)| json!({"hotkey": hx(*k), "checkpoints": cps, "stopped": false, "prefinal": pf})).collect::<Vec<_>>(),
+        "fault": null, "defects": [],
+    })
+}
+
+/// [`roster_at`] with the live view.
+fn live_roster(level: RosterLevel, live: Option<Value>) -> Option<RosterDoc> {
+    let e = eval_with_progress(118, "scoring", LOG_SCORING, Some(&[(4, true, 142, 312)]));
+    let c = chain();
+    let mut s = settings(&c);
+    s.roster = level;
+    let mut o = observed(e);
+    o.live = live.and_then(|v| crate::status::parse_live_bytes(v.to_string().as_bytes()));
+    let mut memo = saved_at(118);
+    rolled(&o, &mut memo, time_of(118));
+    let now = now_of(&o, &memo);
+    let d = running_roster(&s, level, &now, o.eval.as_ref(), o.live.as_ref(), None, time_of(118) + 3_600_000)?;
+    checked(&Doc::Roster("a", "testnet-r0-c7".into()), &d);
+    Some(d)
+}
+
+const CPS: &[&str] = &["0.840", "0.848"];
+
+#[test]
+fn the_live_level_carries_live_values_on_the_entrants_rows_only() {
+    let d = live_roster(RosterLevel::Live, Some(live_json(&[(4, CPS, None)], false))).unwrap();
+    assert_eq!(d.level, "live");
+    let b = d.live.as_ref().expect("the live block");
+    assert_eq!((b.rule.as_str(), b.segments, b.released_max, b.width.as_deref()), ("live-v1", 4, 3, Some("0.008")));
+    assert_eq!(b.prefinal.as_ref().unwrap().margin_line.as_deref(), Some("0.88"));
+    for r in &d.rows {
+        match r.uid {
+            Some(4) => assert_eq!(r.live, Some(LiveRow { checkpoints: vec!["0.840".into(), "0.848".into()], stopped: false, prefinal: None })),
+            _ => assert_eq!(r.live, None, "{:?}", r.uid),
+        }
+    }
+    // The counts stay as they were.
+    assert_eq!(d.rows.iter().find(|r| r.uid == Some(4)).unwrap().challenges, ch("running", 142, Some(312)));
+    // No rank, band, gate, cluster, eligibility or score key anywhere.
+    let mut seen = BTreeSet::new();
+    keys(&value(&d), &mut seen);
+    for k in ["rank", "band", "gate", "cluster", "eligible", "score", "q", "budget", "position"] {
+        assert!(!seen.contains(k), "{k}");
+    }
+    // A pre-finalized entrant value with the reference's.
+    let d = live_roster(RosterLevel::Live, Some(live_json(&[(4, &["0.840", "0.848", "0.856"], Some("0.88"))], false))).unwrap();
+    assert_eq!(d.rows.iter().find(|r| r.uid == Some(4)).unwrap().live.as_ref().unwrap().prefinal.as_deref(), Some("0.88"));
+}
+
+/// The level says `live` only with live content: without a view, while
+/// stopped, for another cohort, or with a row the progress report does not
+/// name, the roster is written at `sessions` with no live field; below the
+/// live level the view is never read into the roster.
+#[test]
+fn without_live_content_the_roster_is_written_at_sessions() {
+    let sessions = |d: Option<RosterDoc>| {
+        let d = d.unwrap();
+        assert_eq!(d.level, "sessions");
+        assert!(d.live.is_none() && d.rows.iter().all(|r| r.live.is_none()));
+    };
+    sessions(live_roster(RosterLevel::Live, None));
+    sessions(live_roster(RosterLevel::Live, Some(live_json(&[(4, &[], None)], true))));
+    let mut other = live_json(&[(4, CPS, None)], false);
+    other["cohort"] = json!(8);
+    sessions(live_roster(RosterLevel::Live, Some(other)));
+    sessions(live_roster(RosterLevel::Live, Some(live_json(&[(4, CPS, None), (9, CPS, None)], false))));
+    sessions(live_roster(RosterLevel::Sessions, Some(live_json(&[(4, CPS, None)], false))));
+}
+
+/// `/eval/live` is read whole or not at all: every recomputed value and
+/// every grid value must hold.
+#[test]
+fn the_live_report_is_read_whole_or_not_at_all() {
+    let parse = |v: &Value| crate::status::parse_live_bytes(v.to_string().as_bytes());
+    // Two entrants: a 0.02 live grid.
+    let good = live_json(&[(4, &["0.84", "0.86"], Some("withheld")), (6, &["0.84"], None)], false);
+    let view = parse(&good).expect("a whole report");
+    assert_eq!((view.cohort, view.segments, view.rows.len()), (7, 4, 2));
+    type Mutation = (&'static str, Box<dyn Fn(&mut Value)>);
+    let bad: Vec<Mutation> = vec![
+        ("tampered live bits", Box::new(|v| v["policy"]["bits"]["live"] = json!(1))),
+        ("over the bound", Box::new(|v| v["policy"]["bits"]["counted"] = json!(800))),
+        ("a width the parameters do not give", Box::new(|v| v["policy"]["width"] = json!("0.04"))),
+        ("a noise sd they do not give", Box::new(|v| v["policy"]["noise_sd"] = json!("0.001"))),
+        ("released_max", Box::new(|v| v["policy"]["released_max"] = json!(2))),
+        ("off the grid", Box::new(|v| v["rows"][0]["checkpoints"][0] = json!("0.85"))),
+        ("too many decimals", Box::new(|v| v["rows"][0]["checkpoints"][0] = json!("0.840"))),
+        ("more than L - 1", Box::new(|v| v["rows"][0]["checkpoints"] = json!(["0.84", "0.84", "0.84", "0.84"]))),
+        ("a value while stopped", Box::new(|v| v["policy"]["stopped"] = json!(true))),
+        ("unsorted hotkeys", Box::new(|v| v["rows"].as_array_mut().unwrap().reverse())),
+        ("an unknown key", Box::new(|v| v["rows"][0]["rank"] = json!(1))),
+        ("an exact value", Box::new(|v| v["rows"][0]["score"] = json!("0.8412345"))),
+        ("an entrant prefinal before R_k's", Box::new(|v| v["prefinal"] = Value::Null)),
+        ("a margin line below R_k", Box::new(|v| v["prefinal"]["margin_line"] = json!("0.84"))),
+        ("prefinal off its grid", Box::new(|v| v["rows"][0]["prefinal"] = json!("0.87"))),
+        ("a reference symbol on an entrant", Box::new(|v| v["rows"][0]["checkpoints"][0] = json!("none"))),
+        ("another rule", Box::new(|v| v["rule"] = json!("slop_ninja.eval.live_scores/v2"))),
+        ("a refused report", Box::new(|v| v["refused"] = json!("over_bound"))),
+        ("no prefinal by policy", Box::new(|v| v["policy"]["prefinal"] = json!(false))),
+    ];
+    for (why, f) in bad {
+        let mut v = good.clone();
+        f(&mut v);
+        assert_eq!(parse(&v), None, "{why}");
+    }
+}
+
+/// The roster check refuses a live block below the live level, the live
+/// level without a block, a forbidden key and an off-grid value.
+#[test]
+fn the_roster_check_holds_the_live_level_to_its_content() {
+    let d = live_roster(RosterLevel::Live, Some(live_json(&[(4, CPS, None)], false))).unwrap();
+    let key = Doc::Roster("a", "testnet-r0-c7".into()).key();
+    let refuse = |v: &Value| check(&key, v.to_string().as_bytes()).is_err();
+    let v = value(&d);
+    assert!(!refuse(&v));
+    let mut x = v.clone();
+    x["level"] = json!("sessions");
+    assert!(refuse(&x), "a live block below the live level");
+    let mut x = v.clone();
+    x.as_object_mut().unwrap().remove("live");
+    for r in x["rows"].as_array_mut().unwrap() {
+        r.as_object_mut().unwrap().remove("live");
+    }
+    assert!(refuse(&x), "the live level without a block");
+    for path in ["budget", "rank", "band", "gate"] {
+        let mut x = v.clone();
+        x["live"][path] = json!("planted");
+        assert!(refuse(&x), "{path}");
+    }
+    let mut x = v.clone();
+    x["live"]["reference"]["checkpoints"][0] = json!("0.85");
+    assert!(refuse(&x), "off the live grid");
+    // Written without its live values, the same roster is a sessions roster.
+    let plain = without_live(d);
+    assert_eq!(plain.level, "sessions");
+    assert!(!refuse(&value(&plain)));
+}
+
+/// The durable record: a value once published is never replaced, and the
+/// close check compares every pre-finalized value with the result.
+#[test]
+fn published_live_values_are_kept_and_checked_at_close() {
+    let d = live_roster(RosterLevel::Live, Some(live_json(&[(4, CPS, Some("0.88"))], false))).unwrap();
+    let mut shown = Vec::new();
+    assert!(!replaces_shown(&shown, &d));
+    record_shown(&mut shown, &d);
+    let n = shown.len();
+    assert_eq!(n, 2 + 1 + 1 + 2 + 1, "R_k's two readings, its prefinal and margin, the entrant's two and its prefinal");
+    record_shown(&mut shown, &d);
+    assert_eq!(shown.len(), n, "each value once");
+    let changed = live_roster(RosterLevel::Live, Some(live_json(&[(4, &["0.840", "0.856"], Some("0.88"))], false))).unwrap();
+    assert!(replaces_shown(&shown, &changed), "a changed reading");
+    let longer = live_roster(RosterLevel::Live, Some(live_json(&[(4, &["0.840", "0.848", "0.856"], Some("0.88"))], false))).unwrap();
+    assert!(!replaces_shown(&shown, &longer), "a further reading is new, not a change");
+    // At close: the summary's q for the entrant and R_k.
+    let mut sm = mixed_summary();
+    sm.cohort = 7;
+    let hk = hx(4);
+    if let Some(e) = sm.entrants.first_mut() {
+        e.hotkey_hex = hk.clone();
+        e.q = Some("0.88".into());
+        e.gate = "pass".into();
+    }
+    sm.references.current.q = Some("0.86".into());
+    assert_eq!(close_check(&mut shown.clone(), &sm), Vec::<String>::new());
+    sm.references.current.q = Some("0.84".into());
+    let mut s2 = shown.clone();
+    assert_eq!(close_check(&mut s2, &sm), vec!["current".to_owned()]);
+    assert!(s2.is_empty(), "the cohort's record is dropped after its close check");
+    // A record two cohorts back is dropped with the next running roster.
+    let mut old = shown.clone();
+    for s in &mut old {
+        s.cohort = 5;
+    }
+    record_shown(&mut old, &d);
+    assert!(old.iter().all(|s| s.cohort == 7));
 }

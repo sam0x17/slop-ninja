@@ -398,10 +398,37 @@ impl<'a> Sim<'a> {
         }
     }
 
+    /// The live step (`cf_eval::live_step`), first in every alarm step:
+    /// each newly sealed cohort's setup, then its due releases, each in its
+    /// own transaction; a failure records a live fault for that cohort only.
+    fn live_tick(&mut self) -> bool {
+        let c = self.cfg.clone();
+        let mut progress = false;
+        for seq in tx(self.db, super::live::pending_setup).unwrap() {
+            progress = true;
+            if tx(self.db, |s| super::live::prepare(s, seq)).is_err() {
+                tx(self.db, |s| super::live::note_fault(s, seq, super::live::FAULT_PREPARE)).unwrap();
+            }
+        }
+        for seq in tx(self.db, super::live::due_cohorts).unwrap() {
+            loop {
+                match tx(self.db, |s| super::live::release_due(s, &c, seq)) {
+                    Ok(true) => progress = true,
+                    Ok(false) => break,
+                    Err(_) => {
+                        tx(self.db, |s| super::live::note_fault(s, seq, super::live::FAULT_RELEASE)).unwrap();
+                        break;
+                    }
+                }
+            }
+        }
+        progress
+    }
+
     /// One cohort alarm step: root steps until a sweep, then the sweep's kicks.
     fn step(&mut self) -> bool {
         let c = self.cfg.clone();
-        let mut progress = false;
+        let mut progress = self.live_tick();
         for _ in 0..8 {
             let now = self.now;
             let Some(w) = tx(self.db, |s| engine::next_work(s, &c, now)).unwrap() else { break };
@@ -2736,7 +2763,7 @@ fn the_v3_cohort_store_migrates_in_place_to_v7() {
         )
         .unwrap();
     let report = sql::migrate(&db, &EVAL_COHORT_SCHEMA).unwrap();
-    assert_eq!((report.from, report.to), (3, 27));
+    assert_eq!((report.from, report.to), (3, 28));
     let st = status(&db, 5);
     assert_eq!(st["cohorts"][0]["phase"], "closed");
     assert_eq!(st["cohorts"][0]["jobs"][0]["status"], "done", "the jobs table was rebuilt with its rows");
@@ -3052,6 +3079,7 @@ fn v3_block(probes: Vec<super::plan::ProbeRef>) -> super::plan::RewardV1Plan {
         task_order: None,
         probe_cut: false,
         quant: Some(super::plan::tests::quant_block()),
+        live: None,
     }
 }
 
@@ -7412,7 +7440,7 @@ fn store_v23_seeds_the_boundary_journal_from_cohort_history_without_work_times()
         )
         .unwrap();
     let report = sql::migrate(&db, &EVAL_COHORT_SCHEMA).unwrap();
-    assert_eq!((report.from, report.to), (22, 27));
+    assert_eq!((report.from, report.to), (22, 28));
     let got: Vec<(u64, Option<u64>, Option<u64>)> = journal(&db).iter().map(|r| (r.epoch, r.block, r.observed_ms)).collect();
     assert_eq!(
         got,
@@ -7446,3 +7474,6 @@ fn store_v23_seeds_the_boundary_journal_from_cohort_history_without_work_times()
 
 #[path = "gen_v2_tests.rs"]
 mod gen_v2_tests;
+
+#[path = "live_tests.rs"]
+mod live_tests;

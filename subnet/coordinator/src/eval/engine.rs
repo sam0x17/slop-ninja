@@ -4290,7 +4290,8 @@ pub fn has_due_work(sql: &impl Sql, cfg: &EvalConfig, now_ms: u64) -> R<bool> {
     Ok(work(sql, cfg, Some(now_ms))?
         || crate::eval::retention::has_work(sql)?
         || abandon_marker_due(sql, cfg, Some(now_ms))?.is_some()
-        || probe_due(sql, cfg, now_ms)?.is_some())
+        || probe_due(sql, cfg, now_ms)?.is_some()
+        || crate::eval::live::due(sql)?)
 }
 
 /// What a kick arms the step alarm for: [`has_due_work`], or, on a tick (a

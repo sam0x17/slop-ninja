@@ -178,6 +178,22 @@ netuid}`, `generated_at` (unix seconds, floored to the minute) and
   scored and shows no counts, which the published artifacts reveal from
   scoring start anyway. Minute refresh and chunk steps coarsen the timing
   but do not remove it.
+- **Pre-finalized scores and readings (level `live`).** A running cohort's
+  roster at the `live` level carries `live{checkpoints, stopped, prefinal}`
+  on each `admitted` or `evaluating` row, and a top-level `live` block with
+  the rule, grid widths, segment count, noise standard deviation, counted
+  bit terms (`bits`), `R_k`'s counts in segment steps and its readings, and
+  the references' pre-finalized scores with the margin line. A roster's
+  level is `live` only when it carries this block; otherwise a running
+  roster is written at `sessions`. `checkpoints` are the entrant's `live-v1`
+  segment readings, at most `segments - 1`, in order, each a multiple of
+  `width`, released once and never changed, with no value after a stop.
+  `prefinal` is the entrant's quantized score `q` under `quant-v1`, or
+  `withheld`, once it and `R_k` have finished and `R_k` has no failure; it
+  is the value the signed result will carry unless a signed correction
+  replaces it. No rank, position, leader, score order, band, gate, cluster
+  or unit value; rows stay in UID order. **Residual (accepted):** a value's
+  appearance shows that the entrant finished a segment or its work.
 - **Lower bounds only.** Every `expected.*` value and every
   `plan.stages[].earliest_*` value is the earliest possible boundary,
   credit-adjusted. It is never behind the next boundary. An epoch converts
@@ -185,7 +201,7 @@ netuid}`, `generated_at` (unix seconds, floored to the minute) and
   `boundary_block + (epoch - boundary_epoch) * tempo_blocks`.
 - **No score before quantization.** A score is published only as a
   quantized score `q` under a quantization block `{rule, width}` (rule
-  `quant-v1`): every score, cutoff and band edge of a document is a multiple
+  `quant-v1`; readings follow their own grid under `live-v1`): every score, cutoff and band edge of a document is a multiple
   of `width` printed with exactly its decimals (a band's upper edge may be
   the scale's `1`), never finer than the grid. A cohort listed before
   quantization (its summary is `cohort_summary/v2`) keeps every score, band
@@ -194,7 +210,8 @@ netuid}`, `generated_at` (unix seconds, floored to the minute) and
 - **No rank.** Entrants are listed in roster order, which admission fixes
   before any document is scored. No document carries a rank or any
   within-band order.
-- **Never in `dashboard/v1`:** anything per document or per task, receipts,
+- **Never in `dashboard/v1`:** segment membership, segment sums, live draws
+  or noise, wall-clock release times, anything per document or per task, receipts,
   outcome classes, task indices, exact work counts other than the
   per-entrant challenge counts above, exact scores, near-copy
   statistics, fingerprints, strata, fault codes, notes, step errors, spend,

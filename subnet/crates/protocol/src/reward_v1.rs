@@ -1258,6 +1258,73 @@ pub fn utilities(items: &[Graded]) -> impl Iterator<Item = u64> + '_ {
         .map(|i| i.involvement.map_or(0, |a| brier_utility(a, i.label)))
 }
 
+/// One subject's inputs to its quantized score: everything [`preview_q`]
+/// reads, all fixed once the subject and `R_k` have finished the batch.
+#[derive(Clone, Copy, Debug)]
+pub struct PreviewInputs<'a> {
+    pub seed: &'a [u8; 32],
+    pub cohort: quant::CohortBinding,
+    pub subject: quant::Subject,
+    /// `S`, the exact batch score.
+    pub score: Score,
+    /// Attributable batch failures, and the minimum-success limit `k_n`;
+    /// `None` for a reference, which no gate withholds.
+    pub failed: Option<(u32, u32)>,
+    /// The cohort's grid width ([`quant::width`] of `R_k`'s SE) and noise
+    /// scale.
+    pub w: u64,
+    pub tau: &'a quant::Tau,
+}
+
+/// A subject's quantized score as the result will carry it.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum PreviewValue {
+    Q(u64),
+    /// More attributable failures than `k_n`: the result releases no `q`.
+    Withheld,
+}
+
+/// [`preview_q`]'s answer: the draw, the grid value it gives, and whether
+/// the minimum-success gate withholds it.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Preview {
+    pub draw: quant::Draw,
+    pub q: u64,
+    pub withheld: bool,
+}
+
+impl Preview {
+    /// What may be shown: `q`, or withheld.
+    pub fn value(&self) -> PreviewValue {
+        if self.withheld { PreviewValue::Withheld } else { PreviewValue::Q(self.q) }
+    }
+}
+
+/// One subject's `quant-v1` value, computed exactly as the package computes
+/// it ([`quantize_package`] calls this for every subject), so a value shown
+/// before the package (marked pre-finalized) cannot drift from it. A
+/// withheld entrant's draw is still made, so it moves no other value.
+pub fn preview_q(p: &PreviewInputs<'_>) -> Result<Preview> {
+    let draw = quant::draw(p.seed, &p.cohort, &p.subject, p.w, p.tau)?;
+    let q = quant::quantize(p.score.get(), &draw, p.w)?;
+    let withheld = p.failed.is_some_and(|(failed, k_n)| failed > k_n);
+    Ok(Preview { draw, q, withheld })
+}
+
+/// The margin line `T_q = w ceil(T / w)`, `T = q_Rk + delta (1 - q_Rk)`,
+/// from `q_Rk` and the manifest's frozen parameters alone (post-processing
+/// of a released value); `None` when no grid value reaches it.
+pub fn margin_line(params: &RewardV1Params, reference_q: u64, w: u64) -> Result<Option<u64>> {
+    if !quant::on_grid(reference_q, w) {
+        return Err(Error::Invalid("reference q off the grid"));
+    }
+    if reference_q == SCORE_SCALE {
+        return Ok(None);
+    }
+    let t_q = Threshold::margin(Score::new(reference_q)?, params.margin())?.on_grid(w)?;
+    Ok(u64::try_from(t_q).ok().filter(|t| *t <= SCORE_SCALE))
+}
+
 /// The minimum-success gate and the `quant-v1` draws: every executed entrant
 /// with more than `k_n` attributable failures is withheld, then every
 /// executed entrant (withheld ones included, so no draw depends on a gate)
@@ -1291,21 +1358,16 @@ pub fn quantize_package(package: &mut ScorePackageV2, inputs: &QuantInputs) -> R
     }
     let seed = &inputs.seed;
     let cohort = quant::CohortBinding(package.cohort_manifest);
-    let reference = quant::draw(
-        seed,
-        &cohort,
-        &quant::Subject::Current(package.reference.model.content),
-        w,
-        &tau,
-    )?;
-    let reference_q = Score::new(quant::quantize(package.reference.score.get(), &reference, w)?)?;
+    let preview = |subject: quant::Subject, score: Score, failed: Option<(u32, u32)>| {
+        preview_q(&PreviewInputs { seed, cohort, subject, score, failed, w, tau: &tau })
+    };
+    let reference = preview(quant::Subject::Current(package.reference.model.content), package.reference.score, None)?;
+    let reference_q = Score::new(reference.q)?;
+    let reference = reference.draw;
     let (predecessor_q, predecessor_draw) = match &package.predecessor {
         Some(p) => {
-            let d = quant::draw(seed, &cohort, &quant::Subject::Predecessor(p.model.content), w, &tau)?;
-            (
-                Some(Score::new(quant::quantize(p.score.get(), &d, w)?)?),
-                Some(QuantDraw::of(&d)),
-            )
+            let d = preview(quant::Subject::Predecessor(p.model.content), p.score, None)?;
+            (Some(Score::new(d.q)?), Some(QuantDraw::of(&d.draw)))
         }
         None => (None, None),
     };
@@ -1313,9 +1375,9 @@ pub fn quantize_package(package: &mut ScorePackageV2, inputs: &QuantInputs) -> R
         match e.score {
             Some(score) => {
                 // Keyed by content: copies under several hotkeys share a draw.
-                let d = quant::draw(seed, &cohort, &quant::Subject::Entrant(e.content), w, &tau)?;
-                e.q = Some(Score::new(quant::quantize(score.get(), &d, w)?)?);
-                e.draw = Some(QuantDraw::of(&d));
+                let d = preview(quant::Subject::Entrant(e.content), score, Some((e.failed, k_n)))?;
+                e.q = Some(Score::new(d.q)?);
+                e.draw = Some(QuantDraw::of(&d.draw));
             }
             None => {
                 e.q = None;

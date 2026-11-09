@@ -20,6 +20,8 @@
 //! - [`limiter`]: the shared Workers AI token buckets.
 //! - [`ledger`]: the deployment's monthly spend ledger.
 //! - [`v3`]: `reward-v1` cohorts (plan v3) and fingerprint probe builds.
+//! - [`live`]: pre-finalized scores and `live-v1` segment readings while a
+//!   cohort is scored, and the operator's live stop.
 //! - [`scorer_client`]: what the scoring lanes read from and send to a scorer.
 //! - [`admission`]: coordinator admission of a cohort's roster (contract
 //!   `slop_ninja.admission/v2`): sessions recorded from R2's stored
@@ -52,6 +54,7 @@ pub mod lane_logic;
 pub mod lanes;
 pub mod ledger;
 pub mod limiter;
+pub mod live;
 pub mod textgen;
 pub mod package;
 pub mod plan;

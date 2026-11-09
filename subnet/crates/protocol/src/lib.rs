@@ -4,7 +4,8 @@
 //! identity, the published-artifact index and the near-copy relation, the
 //! validators' launch and reward-intent authorizations and their revocation, deterministic
 //! reward arithmetic for `testnet-reward-v0` (testnet only) and `reward-v2`, and the
-//! `quant-v1` score quantization with its public [`QuantizedResult`].
+//! `quant-v1` score quantization with its public [`QuantizedResult`], and the
+//! `live-v1` segment readings released while a cohort is scored ([`live`]).
 //!
 //! The crate is pure computation. It performs no I/O, reads no clock or
 //! randomness, and uses no floating-point arithmetic after input conversion, so
@@ -18,6 +19,7 @@ mod codec;
 pub mod coordinator_row;
 mod error;
 mod hash;
+pub mod live;
 mod operation;
 pub mod quant;
 mod quantized_result;
@@ -93,6 +95,8 @@ pub use sign::sign_raw;
 mod tests;
 #[cfg(test)]
 mod tests_coordinator_row;
+#[cfg(test)]
+mod tests_live;
 #[cfg(test)]
 mod tests_quant;
 #[cfg(test)]

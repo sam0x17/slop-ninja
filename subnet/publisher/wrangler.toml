@@ -109,11 +109,19 @@ RUN_WALL_BUDGET_MS = "60000"
 #             artifacts.json record)
 #   frozen    + the eval Worker's per-hotkey rows: none/committed before the
 #             freeze, admitted/evaluating/refused (class)/overflow from it
-#   sessions  + upload and verification states before the freeze
+#   sessions  + upload and verification states before the freeze, and each
+#             admitted entrant's challenge counts
+#   live      + the running cohort's live values from the eval Worker's
+#             /eval/live: live-v1 segment readings and pre-finalized
+#             quantized scores (a roster says live only when it carries
+#             them; otherwise it is written at sessions)
 # Testnet runs at sessions: showing each miner's intake state while a
-# cohort runs was approved on 2026-11-06. No
-# level shows a score, rank, roster position, gate, band or cluster before
-# the cohort closes (src/dashboard_roster.rs checks every roster written).
+# cohort runs was approved on 2026-11-06. Moving to live is its own reviewed
+# commit, deployed after a website that accepts the level; the fast stop is
+# the eval Worker's POST /eval/live/stop, never this value. No level below
+# live shows a score, and no level shows a rank, roster position, gate, band
+# or cluster before the cohort closes (src/dashboard_roster.rs checks every
+# roster written).
 DASHBOARD_ROSTER = "sessions"
 # The public record (tracked here, never passed with --var, so a deploy from
 # any tree carries the record that tree names; a chain-record restart changes

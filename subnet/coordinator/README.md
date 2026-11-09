@@ -55,6 +55,8 @@ and the `fetch` RPC transport, and compiles only for `wasm32`.
 | `POST /signing/control` | Operator action, body `{"action": "resume" \| "pause" \| "clear_fault" \| "arm_drill" \| "auto_pause" \| "auto_resume" \| "auto_abandoned" \| "auto_unabandoned" \| "auto_gap", "drill": ..., "count": n, "label": ..., "cohort": n}`. |
 | `POST /signing/kick` | Operator action: run one signing round now (the duplicate-wakeup drill). |
 | `GET /eval/status` | `EVAL_ROLE = "eval"` only. Content-free cohort status, with every scorer slot's running state. The operator or monitor token, or the publisher's token through its service binding. |
+| `GET /eval/live` | `EVAL_ROLE = "eval"` only. The running cohort's live values (rule `slop_ninja.eval.live_scores/v1`, `eval::live`): `live-v1` segment readings and pre-finalized quantized scores, from the tables only, with no timestamp, exact value or per-task detail. The same tokens as `/eval/status`. |
+| `POST /eval/live/stop` | Stop or resume live releases, globally or for one cohort (`{"stopped": bool, "cohort": <number> or null, "reason": "<text>"}`): journaled with its reason and epoch, no expiry; scoring, packaging, signing and phases go on. The publisher's next run writes the roster without live values. Operator token. |
 | `GET /eval/admission/link` | `EVAL_ROLE = "eval"` only. Probes the header-check link to the upload Worker (service binding, internal host, shared interface token) without an upload, and reports whether the signer's binding and token are configured: `{"header": "ok", "signer": {...}}` or the failure. Operator or monitor token. |
 | `POST /eval/plan`, `/eval/clear` | Queue a cohort plan; clear a resumable cohort fault (`{"label": ...}`). Operator token. |
 | `POST /eval/abandon` | End a faulted cohort without a target (`{"label": ..., "reason": "<code>"}`); the only exit of a terminal fault. Operator token. |
@@ -83,7 +85,7 @@ signature), so the detailed reads are served only to:
 | --- | --- | --- | --- |
 | operator | `COORDINATOR_OPERATOR_TOKEN` | any host | every status route, including `GET /eval/load/status`, `GET /eval/admission/link` and `GET /eval/authority/<name>/status` |
 | monitor (the operator's unattended read-only jobs) | `STATUS_TOKEN_MONITOR` | any host | every status route, as the operator; no route that changes state |
-| publisher | `STATUS_TOKEN_PUBLISHER` | its service binding only (`https://status.internal/...`) | `GET /status`, `GET /eval/status` |
+| publisher | `STATUS_TOKEN_PUBLISHER` | its service binding only (`https://status.internal/...`) | `GET /status`, `GET /eval/status`, `GET /eval/live` |
 | alerts relay | `STATUS_TOKEN_ALERTS` | its service binding only | `GET /status`, reduced to the liveness fields its rules read |
 | pre-split shared token | `COORDINATOR_STATUS_TOKEN`, while installed | service bindings only | as the publisher |
 

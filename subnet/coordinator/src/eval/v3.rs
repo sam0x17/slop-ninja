@@ -2446,6 +2446,12 @@ pub struct PackageV3 {
     /// Private probe vectors to store: (key, bytes).
     pub vectors: Vec<(String, Vec<u8>)>,
     pub state: V3State,
+    /// Pre-finalized values shown that the package does not carry
+    /// (`live::cross_check`): recorded with the package, never refusing it.
+    pub live_defects: Vec<crate::eval::live::Defect>,
+    /// The private recount of the cohort's counted bits at the measured
+    /// grid (`quant::cohort_bits`), for the live terms.
+    pub live_recount: u32,
 }
 
 /// The active reward-v1 target digest: the last activated cohort target, or
@@ -2744,6 +2750,28 @@ pub fn prepare_package(
     };
     package.validate().map_err(|_| EvalError::State(PACKAGE_REFUSED))?;
     package.check_manifest(&manifest).map_err(|_| EvalError::State(PACKAGE_REFUSED))?;
+    // Live values (`eval::live`): every pre-finalized value shown must be
+    // the package's own. The package wins; a mismatch is recorded with the
+    // package and never refuses it.
+    let mut signed: Vec<(i64, Option<u64>)> = vec![(ref_job, Some(package.quant.reference_q.get()))];
+    if let (Some(pj), Some(pq)) = (pred_job, package.quant.predecessor_q) {
+        signed.push((pj, Some(pq.get())));
+    }
+    for (pos, e) in package.entrants.iter().enumerate() {
+        if e.score.is_some() {
+            let withheld = e.gate_failures.iter().any(|g| g.gate == Gate::MinimumSuccess);
+            signed.push((first_entrant_job + pos as i64, crate::eval::live::signed_value(e.q, withheld)));
+        }
+    }
+    let live_defects = crate::eval::live::cross_check(sql, c.seq, &signed)?;
+    let live_recount = slop_ninja_protocol::quant::cohort_bits(
+        package.executed(),
+        package.quant.width,
+        package.predecessor.is_some(),
+        &slop_ninja_protocol::quant::CountedTerms::NONE,
+    )
+    .map_err(|_| EvalError::State(PACKAGE_REFUSED))?
+    .total;
     // The public record: only q, the bits, membership and the grid.
     let result = QuantizedResult::of_package(&package).map_err(|_| EvalError::State(PACKAGE_REFUSED))?;
     if result.digest().map_err(|_| EvalError::State(PACKAGE_REFUSED))? != package.result {
@@ -2827,7 +2855,7 @@ pub fn prepare_package(
     if let (Some(l), Some(o)) = (published_limits(plan)?, components.as_object_mut()) {
         o.insert("limits".into(), l);
     }
-    Ok(PackageV3 { manifest, package, result, target, components, vectors: vectors_out, state: st })
+    Ok(PackageV3 { manifest, package, result, target, components, vectors: vectors_out, state: st, live_defects, live_recount })
 }
 
 #[cfg(test)]
@@ -2906,6 +2934,17 @@ pub fn commit_package(sql: &impl Sql, seq: i64, b: &PackageV3, puts: u64, now_ms
         ],
     )?;
     save_state(sql, seq, &b.state)?;
+    let qp = &b.package.params.quant;
+    crate::eval::live::record_defects(
+        sql,
+        seq,
+        &b.live_defects,
+        b.live_recount,
+        b.package.quant.width,
+        b.package.cases,
+        qp.identify_bits,
+        qp.budget_factor,
+    )?;
     set_phase(sql, seq, "transition", now_ms, "package, target and receipts durable; publication at the next boundary")?;
     engine::advance(sql, now_ms)?;
     Ok(())

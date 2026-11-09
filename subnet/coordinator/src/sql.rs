@@ -963,5 +963,13 @@ pub const EVAL_COHORT_SCHEMA: Schema = Schema {
             version: 27,
             statements: crate::eval::commitments::SCHEMA_V27,
         },
+        // v28: live values while a cohort is scored (`eval::live`): the
+        // setup after the seal, every released value (insert-once, keyed
+        // with its revision), the operator's live stops, the package's
+        // defects and each batch task's segment. Forward-only.
+        Migration {
+            version: 28,
+            statements: crate::eval::live::SCHEMA_V28,
+        },
     ],
 };

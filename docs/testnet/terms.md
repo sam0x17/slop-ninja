@@ -1,9 +1,8 @@
 # Testnet terms
 
 Version 2, November 9, 2026. It replaces version 1, the unnumbered terms
-published before this date. A commitment made on or after this date accepts
-version 2; an earlier commitment stays under the version in force when it
-was made.
+published before it. A commitment made after version 2 is published accepts
+it; an earlier commitment stays under the version in force when it was made.
 
 These terms apply to taking part in SlopNinja on Bittensor testnet subnet
 601: registering, committing, uploading an artifact, running a validator, and

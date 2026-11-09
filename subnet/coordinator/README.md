@@ -2863,8 +2863,9 @@ milestone M7.
 - **Fresh stock.** Outside entrants have been admitted since
   `testnet-r1-23`, but every draw so far is from `EXPOSED_POOLS` (testnet
   pool v1 and the public-candidate refill), where a row may be drawn again
-  (never-drawn rows first, never twice in one cohort, the rewrite-source
-  reuse limit and gap kept): a standing template names no fresh pool, a plan
+  (never-drawn rows first, never twice in one cohort, and the rewrite-source
+  reuse limit and gap kept unless the plan names the testnet exposed-pool
+  reuse rule, which lifts both): a standing template names no fresh pool, a plan
   naming any other pool is refused at queue time, and the draw faults
   (`fresh_stock_refused`) unless the frozen roster unlocks the plan's fresh
   pool.

@@ -81,12 +81,12 @@ span under 24 words. Every AI word still counts toward document share and
 involvement.
 The release is R0 (seed 17) plus the S0+ token head, with document outputs
 bit-identical to R0 (`docs/a-spans-results.md`). SlopNinja's first span package
-keeps R0's encoder and document heads frozen, so its document outputs are
-bit-identical to R0's, and adds S2c's seed-17 tower and token head with the
-24-word decoder and a span confidence map fitted on the Calibration split under
-the floor (whitepaper Section 3). It is adopted for serving and replaces the
-earlier S2c package, whose decoder allowed shorter spans, once its live probe
-passes. Never name a span package as R_0 in a signed manifest. Testnet scores
+keeps R0's encoder and document heads frozen, so on the same CPU class its
+document outputs are bit-identical to R0's, and adds S2c's seed-17 tower and
+token head with the 24-word decoder and a span confidence map fitted on the
+Calibration split under the floor (whitepaper Section 3). It is adopted for
+serving and has replaced the earlier S2c package, whose decoder allowed
+shorter spans. Never name a span package as R_0 in a signed manifest. Testnet scores
 R0 as R_0 on a fresh chain record. Later reference changes follow cohort
 promotion or a signed operator reference decision with a recorded reason; one
 is planned on testnet, announced in advance: replacing R_0 by the next

@@ -21,24 +21,28 @@ the testnet release `testnet-v0.1.0` as
 `slop-ninja-r0-training-companion-3c0ecc37.tar`
 ([`R_0` archives](miner-guide.md#r_0-archives-optional)): R0's artifact spec
 v3 package in the files layout, the package the `testnet-r1-` cohorts name.
-The S2c span package is not downloadable until then. The [public layout](public-layout.md)
+The span package d24 is not downloadable until then. The [public layout](public-layout.md)
 gives their paths.
 
 ## The two packages
 
-| | `R_0` | S2c span package |
+| | `R_0` | Span package d24 |
 |---|---|---|
-| Role | the testnet reference `R_0`, scored in every cohort | SlopNinja's first span-serving package (role `span_head`); never `R_0` |
-| Model | R0, the released *A* document model | R0's encoder and document heads, unchanged, with the S2c span tower and token head |
+| Role | the testnet reference `R_0`, scored in every cohort | SlopNinja's span-serving package (role `span_head`); never `R_0` |
+| Model | R0, the released *A* document model | R0's encoder and document heads, unchanged, with the S2c span tower and token head, the 24-word span decoder and a span confidence map refitted under that floor |
 | Graph class | `a-plain-f32band-v1` | `a-tower-f32band-v1` |
 | Spec | v1 to v4 | v3 and v4 |
 | `profile_id` | `slop_ninja_a_artifact_spec_v3/a-plain-f32band-v1` (the package the cohorts name); `slop_ninja_a_artifact_spec_v2/a-plain-f32band-v1` (the parts package) | `slop_ninja_a_artifact_spec_v3/a-tower-f32band-v1` |
-| Package digest | `3c0ecc37376a9287f595f8389fe66faade00c663fd19f772eeb51abb7822c9fe` (spec v3, files layout: the package the cohorts name and the release attaches); `143ca2d95954e502a053fdd2c6deb6501e3e55273846dc04e310a3ee84c57f0c` (spec v2, parts layout); both hold the same six files byte for byte | `daff49c2232e176bb7d3ca793b9e3f8d36273845af77495450edcfc8a2486aef` (parts layout) |
-| Inference-content digest | `d7232991612ae9693477a152d73e2b6ca5ac83b2d9cf5cd78e1eac4ecf96a36f` | `1681956c422fc6514cebd24870bb22071f11d55fd9ea4fa93ceb0bafb66a573c` |
+| Package digest | `3c0ecc37376a9287f595f8389fe66faade00c663fd19f772eeb51abb7822c9fe` (spec v3, files layout: the package the cohorts name and the release attaches); `143ca2d95954e502a053fdd2c6deb6501e3e55273846dc04e310a3ee84c57f0c` (spec v2, parts layout); both hold the same six files byte for byte | `4bc3d49ce183d4a9ab150867eb4ec23280565351e07c041d161c9e728e19eac3` (parts layout) |
+| Inference-content digest | `d7232991612ae9693477a152d73e2b6ca5ac83b2d9cf5cd78e1eac4ecf96a36f` | `e2536d12dff593d7b11895b3cbf6b10232601abfbebde248325afd707722b5e8` |
 | Graph SHA-256 | `08848d95…ca4cb7` (601,028,257 bytes) | `cecccf46…5478c3` (681,508,964 bytes) |
 | Parameters | 150,302,832 | 170,592,385 |
 | Parts | 14 in the parts layout; the files layout lists the six files whole | 16 |
 | Synthetic reference cases | 3 | 215 |
+
+The Spec row lists every artifact spec that admits each package. The
+`specs` field of a package's `package.json` and of the public index names
+the specs the package was checked under when it was staged.
 
 **`R_0`** is R0, the released *A* document model, with its provenance
 paths stripped: the package the coordinator names by content digest and
@@ -51,18 +55,32 @@ digests that bind the rewritten files are rebound
 ([provenance rewrite](#provenance-rewrite)). Its export manifest binds three
 synthetic reference cases and their FP64 predictions.
 
-**The S2c span package** is the span localization result chosen by the
-frozen S2 record: arm `S2c-lr3e-5`, seed 17, a four-layer tower (copies of
-encoder layers 18 to 21 and of the final norm) and a token head on its
-states, with the decoder the record chose (`slop_ninja_span_decoder_v1`,
-`tau_hi` 0.85, `delta` 0.2, `min_words` 10, `gap` 2, `snap` 0.8). Its
-calibration keeps R0's document map and adds a sentence map (154 knots) and a
-span map (35 knots). Its encoder and all 12 document-head tensors are R0's,
-bit for bit, so its document outputs are R0's (measured below). Its export
+**Span package d24** keeps the weights of the span localization result
+chosen by the frozen S2 record: arm `S2c-lr3e-5`, seed 17, a four-layer tower
+(copies of encoder layers 18 to 21 and of the final norm) and a token head on
+its states. It decodes spans with the 24-word decoder
+(`slop_ninja_span_decoder_v1`, `tau_hi` 0.75, `delta` 0.2, `min_words` 24,
+`gap` 2, `snap` 0.8), so it emits no span under 24 words. Its calibration
+keeps R0's document map and S2c's sentence map (154 knots) and adds a span
+confidence map (32 knots) refitted on the calibration split with spans under
+24 words left out. Its graph, tokenizer and contract are the S2c package's
+byte for byte; `heads.json` and `calibration.json` differ only in the span
+decoder, the span confidence map and that map's provenance. Its encoder and
+all 12 document-head tensors are R0's, bit for bit, so on the same CPU class
+its document outputs are R0's bit for bit (measured below). Its export
 manifest binds 215 synthetic reference cases: the exporter's 15 built-in
 cases and the 200 cases of
 [`a-public-reference-cases-v1.jsonl`](../../grammar/crates/grammar-eval/python/reference_cases/a-public-reference-cases-v1.jsonl),
 written for publication. Neither package holds evaluation or corpus text.
+The floor-24 span calibration and evaluation code is not in this repository
+yet.
+
+**The earlier S2c span package** (`daff49c2232e176bb7d3ca793b9e3f8d36273845af77495450edcfc8a2486aef`,
+inference-content digest `1681956c422fc6514cebd24870bb22071f11d55fd9ea4fa93ceb0bafb66a573c`)
+has the same weights with the decoder the S2 record chose (`tau_hi` 0.85,
+`min_words` 10), which emits spans shorter than 24 words, and a span map of
+35 knots. Its directory stays in the public layout, and the index no longer
+lists it.
 
 The S2c package was exported by `export_full_a.py` at commit `a4ced4e7` (the
 spans S2 branch, whose `full_a_bundle.py` is the bundle reader the fit binds,
@@ -73,7 +91,9 @@ digest differs from the bound one and it refuses this fit. The published
 package is that export with its provenance paths stripped the same way as
 `R_0`'s (the contract's run directories, the init fit's directory in the
 manifest and three calibration provenance files), its document, sentence and
-span outputs unchanged.
+span outputs unchanged. d24's export manifest is the S2c package's with the
+new `heads.json`, `calibration.json`, span decoder and reference predictions
+bound in their place; its exporter binding and fit binding are unchanged.
 
 ## Layout
 
@@ -86,7 +106,7 @@ v1/reference/packages/<package digest>/
   NOTICE.md                            the licence notice and attribution
   upstream/ModernBERT-base-LICENSE     the base model's Apache-2.0 licence
   reference/reference-requests.jsonl   the synthetic reference cases the export manifest binds,
-  reference/reference-predictions.json and their FP64 predictions (and the FP32 diagnostic for S2c)
+  reference/reference-predictions.json and their FP64 predictions (and the FP32 diagnostic for the span packages)
   training/companion.json              R_0 only: the training companion (below)
   training/parts/<sha256>              and the parts it lists
   provenance-rewrite.json              what the provenance rewrite changed (below); not a package file
@@ -101,21 +121,23 @@ part's and the file's SHA-256. With the six files in one
 directory:
 
 ```sh
+sha256sum artifact-files.json                         # the package digest above
 slop_ninja_artifact_check --spec v3 check-dir DIR     # the graph class, parameters and inference-content digest above
-slop_ninja_a_served_profile pack --spec v3 --model-dir DIR --out PARTS   # S2c's package digest above
-slop_ninja_a_served_profile pack --spec v2 --model-dir DIR --out PARTS   # R_0's spec v2 package digest above
-slop_ninja_a_local_score --model-dir DIR --docs reference/reference-requests.jsonl \
+slop_ninja_a_local_score --spec v3 --model-dir DIR --docs reference/reference-requests.jsonl \
   --reference reference/reference-predictions.json --spans --out results.jsonl --ort-lib LIB
 ```
 
-`check-dir` prints the inference-content digest (`content_sha256`), the graph
-class and the parameter count, not a package digest. `slop_ninja_a_served_profile
-pack` rebuilds a parts manifest under the spec's own `profile_id`: S2c's
-package digest under spec v3, and the spec v2 `R_0` package's under spec v2
-(other specs give other package digests for the same inference-content
-digest). A files manifest also records where the coordinator's copy is
-stored, so the spec v3 `R_0` package's digest is checked by hashing its
-`artifact-files.json`, not rebuilt from the six files.
+A package digest is checked by hashing the published `artifact-files.json`:
+its SHA-256 is the package digest, and the manifest binds every part and file
+by SHA-256. `check-dir` prints the inference-content digest
+(`content_sha256`), the graph class and the parameter count, not a package
+digest. The current `slop_ninja_a_served_profile pack` writes a files
+manifest, not a parts manifest, so it does not rebuild the parts-layout
+digests above. `package.json`'s `object_sha256` and `object_len` are the
+digest and length of the package's
+[artifact object](artifact-spec.md#one-format-the-artifact-object) (the six
+files behind their header record) as the checker build that staged the
+package printed them; the current public checker prints neither.
 
 ## Provenance rewrite
 
@@ -128,8 +150,8 @@ Because the artifact spec requires the export manifest's
 names the rewritten contract, not the contract the fit was bound to. Each
 directory's `provenance-rewrite.json` records every rewritten pointer and
 rebound digest, the files' digests before and after, the contract digest the
-fit was bound to, and, for S2c, that its published `fit_binding` is not the
-bytes `fit_hashes.binding_json_sha256` names and that its calibration-source
+fit was bound to, and, for the span packages, that the published
+`fit_binding` is not the bytes `fit_hashes.binding_json_sha256` names and that its calibration-source
 digest names the original R0 calibration file. It holds pointers and digests
 only, and names the tool that made the rewrite and its rule by their source
 digests: `grammar/crates/grammar-a-baseline/examples/rewrite_package_provenance.rs`,
@@ -143,7 +165,7 @@ byte.
 The weights are SlopNinja's, published under CC BY-SA 4.0. Both models
 derive from ModernBERT-base (Answer.AI and LightOn, revision
 `8949b909ec900327062f0ebf497f51aef5e6f0c8`, Apache-2.0), fine-tuned by
-SlopNinja; the S2c package adds the span tower and token head. Each
+SlopNinja; the span packages add the span tower and token head. Each
 `NOTICE.md` credits the training-source collections and points to the
 dataset snapshots' notices. The SlopNinja name and the logo in
 `assets/brand/` are not covered by this licence or by the code licence.
@@ -196,3 +218,44 @@ pinned wheel:
   records the SHA-256 of every object it read, and publication uploads exactly
   those objects: each one read back from the bucket must match its recorded
   digest.
+
+## Measured on November 8 and 9, 2026 (span package d24)
+
+On the same host as above, with the same ONNX Runtime:
+
+- **Admission.** The package passes spec v3 in the tower class with the
+  digests above, with the current public checker and with the checker build
+  that staged the S2c package; spec v4 also admits it. Spec v3 checks only
+  that `min_words` is at least 1, so it cannot refuse a decoder minimum under
+  24 at admission.
+- **FP64 replay (R1).** The Rust FP64 runtime reproduced the export's FP64
+  references on the 215 synthetic cases (largest token-probability error
+  1.6e-6) and on 200 local development cases (2.1e-6).
+- **Document outputs.** On this host, R0, the S2c package and d24 give
+  identical document outputs on the 215 synthetic cases, 200 local cases and
+  15 parity requests.
+- **Span outputs.** The scorer against the export's FP64 references on the 215
+  synthetic cases: 180 spans with every offset equal, the shortest at 25 words
+  and none under 24; document outputs within 5.3e-5, sentences 5.0e-5, spans
+  2.3e-5; every attribution label equal. The scorer build the live evaluation
+  pins, run on this host with spans, gave the same predictions bit for bit.
+- **Live probe.** On the live scorer the probe emitted the same spans as the
+  local run (one 26-word span on one probe text, none on the other) with
+  exactly the same offsets and labels. Its values were bit-identical to R0's
+  (documents) and to the S2c package's (sentences) on the same Container CPU
+  class, and within 8.3e-7 of the local run, the known difference between
+  Container CPU classes. The tower class's four-session memory bound is within
+  the instance's limit.
+- **CPU classes.** Live scorer hosts fall into two arithmetic classes: one
+  reproduces this host's outputs bit for bit, the other differs in the last
+  bits. Live probe checks are class-aware: a probe must be bit-exact to the
+  outputs already recorded for its class (R0's and the S2c package's on the
+  same texts, or earlier probes of the package), or to the local run on the
+  matching class, with labels and offsets exact on every class. On the same
+  class, d24's document outputs are R0's bit for bit; across classes all
+  three packages differ from this host's run by the same amount, at most
+  8.3e-7 on the 0 to 1 scale.
+- **Corpus scan.** The staged d24 directory went through the same scan as
+  above: no object holds a corpus row identifier, and every staged reference
+  case is one of the synthetic cases. Publication uploads exactly the scanned
+  objects, each read back from the bucket against its recorded digest.

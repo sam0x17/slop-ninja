@@ -4248,6 +4248,45 @@ template is installed while paused, and the calendar is resumed; the next
 cohort queues from the new template. A missed gap moves the change to the
 next cohort's close; no cohort is skipped.
 
+### Span package d24 (2026-11-09)
+
+**What.** SlopNinja's span-serving package is now span package d24
+([reference packages](../../docs/testnet/reference-packages.md)): the S2c
+package's weights with the 24-word span decoder (`min_words` 24, `tau_hi`
+0.75) and a span confidence map refitted on the calibration split under the
+floor. Its graph, tokenizer and contract are the S2c package's byte for byte,
+and its encoder and document heads are R0's. d24 is never a reference: no
+template, cohort, reference or Worker changed.
+
+- **Evaluation staging.** The six files went through the reference staging
+  route (`slop_ninja_reference_staging_v1`, presigned uploads that bind each
+  SHA-256): four new files were stored, and the shared tokenizer and contract
+  were already present and left untouched. The pinned manifest read back
+  equal; R_0's pinned manifest read back byte-equal before and after.
+- **Live probe.** Operator probes naming spec v3 with `"spans": true` scored
+  both probe texts. On the live scorer the probe emitted the same spans as the
+  local run (one 26-word span on one probe text, none on the other) with
+  exactly the same offsets and labels. Its values were bit-identical to R0's
+  (documents) and to the S2c package's (sentences) on the same Container CPU
+  class, and within 8.3e-7 of the local run, the known difference between
+  Container CPU classes. The tower class's four-session memory bound,
+  12.08 GB, is within the instance's 12.81 GB limit. An R_0 control probe
+  after the staging matched the local run bit for bit.
+- **Class-aware probe checks.** Live scorer hosts fall into two arithmetic
+  classes, and the probe reply names no host or class. A probe now passes
+  when it is bit-exact to the outputs already recorded for its class (R0's
+  and the S2c package's on the same texts, or earlier probes of the same
+  package) or, on the class that matches the local host, to the local run,
+  with labels and offsets exact on every class. The class is identified by
+  matching the outputs against those records; a probe that matches neither
+  class fails.
+- **Public directory and index.** `v1/reference/packages/4bc3d49c…/` (24
+  objects, parts layout) was staged from one tree that the package-corpus
+  scan, the byte-level quoted and bare id passes and a home-path check passed
+  on the exact bytes, and every object read back equal to the scan's sums.
+  The index's `span_head` row now names d24; S2c's row is dropped and its
+  directory stays. Public access is still off.
+
 ### Cost projection (daily K = 20 cohorts, n = 1,000)
 
 The projection's inputs come from the load rehearsals of 2026-10-31 (3 to 129

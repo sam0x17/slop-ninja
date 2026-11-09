@@ -51,6 +51,7 @@ pub mod commitments;
 pub mod cost;
 pub mod decide;
 pub mod engine;
+pub mod frozen;
 pub mod gen_measure;
 pub mod gen_v2;
 pub mod lane_logic;

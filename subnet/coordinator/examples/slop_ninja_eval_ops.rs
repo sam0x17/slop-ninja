@@ -584,12 +584,35 @@ fn authority_check(flags: &BTreeMap<String, String>) {
         _ => fail("--first-deploy takes neither --switch nor --freeze"),
     };
     let wrangler: String = flag(flags, "wrangler");
+    // P1-F preflight: succession reads the predecessor's open work under its
+    // current schema, so a switch build must not raise the deployed
+    // authority's schema; ship the migration under the current authority
+    // first, then switch.
+    if matches!(mode, DeployMode::Switch { .. }) {
+        if let Err(why) = switch_schema_check(&status, slop_ninja_coordinator::sql::EVAL_COHORT_SCHEMA.latest()) {
+            println!("refused: {why}");
+            exit(1);
+        }
+    }
     match deploy_check(&tracked, &status, target.as_ref(), mode).and_then(|line| auto_target_check(&wrangler, &tracked).map(|()| line)) {
         Ok(line) => println!("{line}"),
         Err(why) => {
             println!("refused: {why}");
             exit(1);
         }
+    }
+}
+
+/// P1-F `switch_needs_migration`: a switch build's eval schema must equal
+/// the deployed authority's reported `schema_version`; a status that reports
+/// none is refused too (its version is unknown).
+fn switch_schema_check(status: &Value, build: u32) -> Result<(), String> {
+    match status.get("schema_version").and_then(Value::as_u64) {
+        Some(v) if v == u64::from(build) => Ok(()),
+        Some(v) => Err(format!(
+            "switch_needs_migration: the deployed authority's store is at schema {v} and this build migrates to {build}; deploy the migration under the current authority first, then switch"
+        )),
+        None => Err("switch_needs_migration: the status reports no schema_version".into()),
     }
 }
 
@@ -1107,5 +1130,20 @@ fn main() {
         "template-reinstall" => template_reinstall(&flags),
         "template-check" => template_check(&flags),
         other => fail(&format!("unknown subcommand {other}")),
+    }
+}
+
+#[cfg(test)]
+mod p1f_tests {
+    use super::*;
+
+    /// P1-F: a switch build whose schema differs from the deployed store's is
+    /// refused; an equal one passes; an unknown version is refused.
+    #[test]
+    fn a_switch_build_must_not_raise_the_deployed_schema() {
+        assert!(switch_schema_check(&serde_json::json!({"schema_version": 28}), 28).is_ok());
+        let e = switch_schema_check(&serde_json::json!({"schema_version": 27}), 28).unwrap_err();
+        assert!(e.starts_with("switch_needs_migration"), "{e}");
+        assert!(switch_schema_check(&serde_json::json!({}), 28).is_err());
     }
 }

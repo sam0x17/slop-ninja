@@ -677,7 +677,9 @@ impl DurableObject for EvalCohort {
     async fn fetch(&self, mut req: Request) -> Result<Response> {
         let version = match self.schema {
             Ok(v) => v,
-            Err(code) => return error(code, 503),
+            // P1-F: a store whose migration failed is frozen at its stored
+            // version and read-only (`eval::frozen`).
+            Err(code) => return self.frozen_route(&mut req, code).await,
         };
         let storage = self.state.storage();
         let path = req.path();
@@ -1278,6 +1280,56 @@ impl DurableObject for EvalCohort {
 }
 
 use crate::eval::calendar::{max_job_tasks, package_shape};
+
+impl EvalCohort {
+    /// P1-F: what a frozen store serves: its status from v2-stable columns
+    /// (also as `/status`, for the deployed store whose guard refused the
+    /// build), the publisher's report as `{known, frozen: true}` recording
+    /// nothing, and the successor sweep's purge of one ended cohort's
+    /// receipt rows. Everything else is `store_frozen`.
+    async fn frozen_route(&self, req: &mut Request, reason: &'static str) -> Result<Response> {
+        let storage = self.state.storage();
+        let path = req.path();
+        match (req.method(), path.as_str()) {
+            (Method::Get, "/status" | "/frozen/status") => {
+                match transaction(&storage, move |sql| crate::eval::frozen::status(sql, reason)) {
+                    Ok(v) => json(&v),
+                    Err(_) => error("store_unavailable", 503),
+                }
+            }
+            (Method::Post, "/admission/published") => {
+                #[derive(Deserialize)]
+                struct Report {
+                    cohort: u64,
+                    label: String,
+                }
+                let r = match super::cf_io::request_json::<Report>(req, OPERATOR_BODY_BYTES).await {
+                    Ok(r) => r,
+                    Err(e) => return error(e.code(), e.status()),
+                };
+                match transaction(&storage, move |sql| crate::eval::frozen::report(sql, r.cohort, &r.label)) {
+                    Ok(v) => json(&v),
+                    Err(_) => error("store_unavailable", 503),
+                }
+            }
+            (Method::Post, "/frozen/purge") => {
+                #[derive(Deserialize)]
+                struct Purge {
+                    seq: i64,
+                }
+                let p = match super::cf_io::request_json::<Purge>(req, OPERATOR_BODY_BYTES).await {
+                    Ok(p) => p,
+                    Err(e) => return error(e.code(), e.status()),
+                };
+                match transaction(&storage, move |sql| crate::eval::frozen::purge_receipts(sql, p.seq)) {
+                    Ok((receipts, objects)) => json(&j!({"receipts": receipts, "receipt_objects": objects})),
+                    Err(_) => error("store_unavailable", 503),
+                }
+            }
+            _ => error("store_frozen", 409),
+        }
+    }
+}
 
 /// The documents the seal step writes for `plan`: the batch, and under
 /// reward-v1 the probe and audit sets beside it (`v3::seal`).

@@ -16,6 +16,7 @@ members = [
     "crates/r2-presign",
     "crates/protocol-check",
     "crates/protocol-wasm-fixture",
+    "crates/scorer-client",
     "crates/scorer-tokens",
     "crates/span-eval",
     "crates/validator",

@@ -2296,6 +2296,7 @@ dependencies = [
  "slop-ninja-gen-core",
  "slop-ninja-protocol",
  "slop-ninja-r2-presign",
+ "slop-ninja-scorer-client",
  "slop-ninja-scorer-tokens",
  "slop-ninja-span-eval",
  "subtle",
@@ -2329,6 +2330,13 @@ version = "0.1.0"
 dependencies = [
  "hmac",
  "sha2",
+]
+
+[[package]]
+name = "slop-ninja-scorer-client"
+version = "0.1.0"
+dependencies = [
+ "serde_json",
 ]
 
 [[package]]

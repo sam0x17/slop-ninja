@@ -57,6 +57,9 @@ slop-ninja-artifact-check = { path = "../crates/artifact-check", default-feature
 # table (no onig, no call out): generation rejects a final document over the
 # scorer's limit and the seal refuses one (eval::v3::scorer_length_ok).
 slop-ninja-scorer-tokens = { path = "../crates/scorer-tokens" }
+# The scorer client's pure half (load routes, bindings, refusals), shared
+# with the detect Worker's lane; re-exported as `eval::scorer_client`.
+slop-ninja-scorer-client = { path = "../crates/scorer-client" }
 # Admission v2's direct-upload layout: the derived object keys, the upload
 # URL policy and the signer Worker's fixed-size mint messages. Allocation-free
 # and `no_std`.

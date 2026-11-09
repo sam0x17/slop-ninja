@@ -1,0 +1,13 @@
+[package]
+name = "slop-ninja-scorer-client"
+version = "0.1.0"
+edition = "2024"
+license = "MIT OR Apache-2.0"
+publish = false
+description = "What a client of the a-scorer Container reads from its replies and sends: load routes, bindings, refusals"
+
+# Pure and allocation-light: no I/O, no Workers runtime. The coordinator's
+# scoring lanes and the detect Worker's lane both use it, each with its own
+# I/O around it.
+[dependencies]
+serde_json = "1"

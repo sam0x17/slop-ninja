@@ -453,7 +453,7 @@ impl LaneIo for WorkerIo<'_> {
             .prepare(Some((self.inst, self.r)), self.art, PrepLimits::of(self.a), cohort, self.a.spec_sha256.as_deref())
             .await
             .map(|_| ())
-            .map_err(Prep::restart)
+            .map_err(sc::restart)
     }
 
     fn restart_bound_ms(&self) -> u64 {

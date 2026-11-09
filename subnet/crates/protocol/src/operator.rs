@@ -401,7 +401,7 @@ fn base64_encode(data: &[u8]) -> String {
 /// Standard base64 with padding (the OpenSSH key line and armor form).
 fn base64_decode(text: &str) -> Result<Vec<u8>> {
     let bytes = text.as_bytes();
-    if bytes.is_empty() || bytes.len() % 4 != 0 {
+    if bytes.is_empty() || !bytes.len().is_multiple_of(4) {
         return Err(Error::Invalid("base64"));
     }
     let val = |c: u8| -> Result<u32> {

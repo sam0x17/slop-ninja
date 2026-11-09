@@ -5052,3 +5052,34 @@ fn a_progress_report_out_of_bounds_or_unreadable_is_refused_whole() {
     let p = tx(&db, status).unwrap()["cohorts"][0]["progress"].clone();
     assert_eq!((p["rows"].is_null(), p["refused"].as_str()), (true, Some("invalid_owner")));
 }
+
+/// D7(b): the operator's `release-objects` records every undecided admitted
+/// entrant of a cohort as `withheld` (so its objects are released), is
+/// journaled, and queues a signed `eval-decision` record; a wrong `expect`
+/// changes nothing, and a second release has nothing left to decide.
+#[test]
+fn release_objects_withholds_every_undecided_entrant_by_decision() {
+    let (db, _m) = admitted_one(0x95);
+    let (label, phase): (String, String) = db
+        .conn
+        .query_row("SELECT label, phase FROM cohorts ORDER BY seq DESC LIMIT 1", [], |r| Ok((r.get(0)?, r.get(1)?)))
+        .unwrap();
+    let req = |decision: &str, phase: &str| {
+        crate::operator::parse(serde_json::json!({"decision": decision, "reason": "operator_decision", "label": label,
+            "expect": {"phase": phase}}))
+        .unwrap()
+    };
+    let release = |r: &crate::operator::Request| tx(&db, |s| crate::eval::decide::release_objects(s, &cfg(), r, None, NOW)).unwrap();
+    assert_eq!(release(&req("drill-o0", "closed")), Err("expect_mismatch"));
+    let unpublished = |db: &Sqlite| -> i64 {
+        db.conn.query_row("SELECT COUNT(*) FROM adm_sessions WHERE state = 'admitted' AND published = 0", [], |r| r.get(0)).unwrap()
+    };
+    assert_eq!(unpublished(&db), 1);
+    let v = release(&req("drill-o1", &phase)).unwrap();
+    assert_eq!(v["withheld"], serde_json::json!(1));
+    assert_eq!(unpublished(&db), 0);
+    assert_eq!(db.count("operator_actions"), 1);
+    assert_eq!(db.count("decision_records"), 1);
+    let v = release(&req("drill-o2", &phase)).unwrap();
+    assert_eq!(v["withheld"], serde_json::json!(0));
+}

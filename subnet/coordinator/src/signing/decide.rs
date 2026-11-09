@@ -100,6 +100,13 @@ pub fn address(chain: &ChainBinding) -> Address<'_> {
     Address { service: "coordinator", authority: "coordinator", store: "journal", chain, registration: None }
 }
 
+/// Sets `key` in a JSON object (a no-op on any other value).
+fn set(v: &mut Value, key: &str, value: Value) {
+    if let Some(o) = v.as_object_mut() {
+        o.insert(key.to_owned(), value);
+    }
+}
+
 /// An operator request's answer: the effect, or a refusal code.
 pub type Answer = Result<Value, &'static str>;
 
@@ -162,7 +169,7 @@ pub fn attempt_resolve(
     log(sql, now_ms, None, Some(&op_id), Some(n), "attempt_resolve", Some("operator: check the evidence now"))?;
     let seq = operator::record(sql, req, "coordinator.attempt_resolve", None, &effect, None, now_ms)?;
     let mut out = effect;
-    out["operator_seq"] = json!(seq);
+    set(&mut out, "operator_seq", json!(seq));
     Ok(Ok(out))
 }
 
@@ -202,6 +209,10 @@ pub struct PastCohort {
     pub state: String,
 }
 
+/// A restart's set S, the preview's information list and the unlisted
+/// numbers ([`restart_set`]).
+pub type RestartSet = (Vec<PastCohort>, Vec<(u64, String)>, Vec<u64>);
+
 /// What a restart at floor `floor` passes, computed from the journal alone
 /// (review-p1-final M1: bounded by opening epoch, never by number):
 ///
@@ -213,7 +224,7 @@ pub struct PastCohort {
 ///   `not_listed`, `not_opened` or `opened_at_or_after_floor`;
 /// - `unlisted`: the `not_listed` numbers of `info`, which the signed
 ///   record also names (S1).
-pub fn restart_set(sql: &impl Sql, floor: u64, last: Option<u64>) -> Result<(Vec<PastCohort>, Vec<(u64, String)>, Vec<u64>), StoreError> {
+pub fn restart_set(sql: &impl Sql, floor: u64, last: Option<u64>) -> Result<RestartSet, StoreError> {
     let current = restart_floor(sql)?.unwrap_or(0);
     let mut past = Vec::new();
     for r in sql.exec("SELECT cohort, label FROM sign_auto_pending ORDER BY cohort", &[])? {
@@ -442,10 +453,10 @@ pub fn restart(
         _ => None,
     }).collect();
     let mut out = effect;
-    out["restarted"] = serde_json::to_value(&restarted).unwrap_or_default();
-    out["replanned_epochs"] = json!(dropped);
+    set(&mut out, "restarted", serde_json::to_value(&restarted).unwrap_or_default());
+    set(&mut out, "replanned_epochs", json!(dropped));
     let seq = operator::record(sql, req, "coordinator.restart", Some(&statement), &out, Some(finalized), now_ms)?;
-    out["operator_seq"] = json!(seq);
+    set(&mut out, "operator_seq", json!(seq));
     Ok(Ok(out))
 }
 
@@ -469,8 +480,11 @@ pub fn queue_restart_record<R: slop_ninja_protocol::Record>(
     Ok(())
 }
 
-/// The restart records not yet written: (id, key, kind, record bytes).
-pub fn restart_records_due(sql: &impl Sql) -> Result<Vec<(i64, String, String, Vec<u8>)>, StoreError> {
+/// A restart record to write: its id, key, kind and record bytes.
+pub type DueRecord = (i64, String, String, Vec<u8>);
+
+/// The restart records not yet written.
+pub fn restart_records_due(sql: &impl Sql) -> Result<Vec<DueRecord>, StoreError> {
     sql.exec("SELECT id, floor, kind, cohort, record_hex FROM sign_restart_records WHERE written_ms IS NULL ORDER BY id LIMIT 4", &[])?
         .iter()
         .map(|r| {

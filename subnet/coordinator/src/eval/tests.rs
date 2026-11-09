@@ -4598,7 +4598,7 @@ fn a_predecessor_retaining_admitted_objects_records_no_successor() {
     // D7(a): once the cohort has closed, its retained objects hold nothing.
     db.conn.execute("UPDATE cohorts SET phase = 'closed' WHERE seq = ?1", [seq]).unwrap();
     db.conn.execute("UPDATE adm_sessions SET published = 0", []).unwrap();
-    assert!(!tx(&db, |s| crate::eval::admission::objects_retained(s)).unwrap(), "a closed cohort's leftovers");
+    assert!(!tx(&db, crate::eval::admission::objects_retained).unwrap(), "a closed cohort's leftovers");
     db.conn.execute("UPDATE adm_sessions SET published = 1", []).unwrap();
     let due = |db: &Sqlite| tx(db, |s| engine::has_due_work(s, &retired, 1_000_000)).unwrap();
     let retained_due = due(&db);

@@ -730,6 +730,9 @@ pub fn promotion_pending(sql: &impl Sql) -> R<bool> {
     Ok(pending_promotion(sql)?.is_some())
 }
 
+/// The cohort `cohort/start` queues: its number, label and plan bytes.
+pub type StartPlan = (u64, String, Vec<u8>);
+
 /// Whether the installed template is paused (`None`: no template).
 pub fn paused(sql: &impl Sql) -> R<Option<bool>> {
     Ok(stored(sql)?.map(|(_, p)| p))
@@ -743,7 +746,7 @@ pub fn paused(sql: &impl Sql) -> R<Option<bool>> {
 /// the calendar stays paused or running as it was. A refusal is a code the
 /// operator can act on (install a template, wait for the open cohort, cut a
 /// probe version).
-pub fn start_now(sql: &impl Sql, cfg: &EvalConfig) -> R<Result<(u64, String, Vec<u8>), &'static str>> {
+pub fn start_now(sql: &impl Sql, cfg: &EvalConfig) -> R<Result<StartPlan, &'static str>> {
     if cfg.authority.is_retired() {
         return Ok(Err("authority_retired"));
     }

@@ -588,11 +588,11 @@ fn authority_check(flags: &BTreeMap<String, String>) {
     // current schema, so a switch build must not raise the deployed
     // authority's schema; ship the migration under the current authority
     // first, then switch.
-    if matches!(mode, DeployMode::Switch { .. }) {
-        if let Err(why) = switch_schema_check(&status, slop_ninja_coordinator::sql::EVAL_COHORT_SCHEMA.latest()) {
-            println!("refused: {why}");
-            exit(1);
-        }
+    if matches!(mode, DeployMode::Switch { .. })
+        && let Err(why) = switch_schema_check(&status, slop_ninja_coordinator::sql::EVAL_COHORT_SCHEMA.latest())
+    {
+        println!("refused: {why}");
+        exit(1);
     }
     match deploy_check(&tracked, &status, target.as_ref(), mode).and_then(|line| auto_target_check(&wrangler, &tracked).map(|()| line)) {
         Ok(line) => println!("{line}"),

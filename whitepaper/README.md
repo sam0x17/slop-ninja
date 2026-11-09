@@ -69,8 +69,9 @@ from R0 on November 6, admission opened to every registered hotkey on
 November 7, and a `reward-v2` cohort with an outside entrant has since run end
 to end (on-chain commitments, direct uploads, publication at scoring start,
 scoring and close), with a second one scored. No live row has yet paid more than one UID, validators still
-trust the coordinator's published-artifact index, and receipt deletion, the span
-gate and most operator decisions are not yet implemented. Dated research results remain
+trust the coordinator's published-artifact index, receipt deletion runs except
+for the cohorts just before the record restart, and the span gate, the signed
+updater and most operator decisions are not yet implemented. Dated research results remain
 distinct from a qualified model or live service.
 
 The operator's lead validator is the serverless coordinator. It runs hidden
@@ -84,7 +85,7 @@ checks of models
 or the row are advisory. No rule locks the operator out: every precondition has
 a journaled operator path (abandoning a cohort, refusing to pay one, setting
 references, or switching to burn and opening a fresh record, which is also how
-reward rules change), the high-stakes ones signed with a separate offline
+reward rules change), the high-stakes ones to be signed with a separate offline
 operator-decision key, all published with their reasons and kept on mainnet,
 without skipping a cohort by time or signing a commitment twice. Cohort N is paid during cohort N+1. No validator's delivery
 gates cohort progress, and no record or gate depends on a chain runtime version.

@@ -560,6 +560,7 @@ fn summary_for(label: &str, cohort: u64, n: usize, promoted: Option<u8>) -> Coho
             ],
         },
         promoted: promoted.map(hotkey),
+        gates: None,
         entrants: (0..n)
             .map(|i| {
                 let i8 = (i % 250) as u8 + 1;
@@ -589,6 +590,8 @@ fn summary_for(label: &str, cohort: u64, n: usize, promoted: Option<u8>) -> Coho
                     gate: if i % 4 == 2 { "not_executed" } else { "pass" }.into(),
                     copy_gate: Some("pass".into()),
                     cluster: None,
+                    not_executed: None,
+                    gate_classes: None,
                 }
             })
             .collect(),

@@ -95,12 +95,14 @@ pub struct Template {
     pub plan: CohortPlan,
 }
 
-/// `(jobs, documents per job)` of a plan's package step: its jobs and the
-/// documents admission counts for them (as `engine::admit` does), spread
-/// over the jobs.
-pub fn package_shape(plan: &CohortPlan) -> (u64, u64, bool) {
+/// `(jobs, documents per job, span gate, gate feedback)` of a plan's package
+/// step: its jobs and the documents admission counts for them (as
+/// `engine::admit` does), spread over the jobs, and whether the step builds
+/// the span gate's record and the gate feedback record.
+pub fn package_shape(plan: &CohortPlan) -> (u64, u64, bool, bool) {
     let jobs = (plan.jobs() as u64).max(1);
-    (jobs, plan.scored_docs().div_ceil(jobs), plan.span_gate())
+    let feedback = !plan.is_probe_build() && plan.reward_v1.as_ref().is_some_and(|v| v.feedback.is_some());
+    (jobs, plan.scored_docs().div_ceil(jobs), plan.span_gate(), feedback)
 }
 
 /// The most tasks one job of `plan` scores: an entrant's batch, probe and
@@ -124,8 +126,8 @@ pub fn max_job_tasks(plan: &CohortPlan) -> u64 {
 
 /// Whether a plan's package step fits the memory model.
 pub fn fits(plan: &CohortPlan) -> bool {
-    let (jobs, docs, span) = package_shape(plan);
-    crate::arena_routes::package_fits(jobs, docs, max_job_tasks(plan), span)
+    let (jobs, docs, span, feedback) = package_shape(plan);
+    crate::arena_routes::package_fits(jobs, docs, max_job_tasks(plan), span, feedback)
 }
 
 /// The bytes a bundle schema v2 (receipts embedded) needs for the receipts

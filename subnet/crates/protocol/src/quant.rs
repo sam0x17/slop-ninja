@@ -724,7 +724,9 @@ pub fn charged(executed: u16, predecessor: bool) -> u32 {
 /// deterministic value from hidden data adds its alphabet's bits here, so
 /// every caller of [`cohort_bits`] (plan validation's worst case, the
 /// `live-v1` derivation of the segment count and the private recount at
-/// packaging) counts one complete total. No rule adds a term today.
+/// packaging) counts one complete total. Two rules add terms: the span
+/// gate's record ([`crate::localization::TERMS`]) and the gate feedback
+/// record ([`crate::gate_feedback::terms`]).
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct CountedTerms {
     /// Bits per executed entrant.
@@ -736,6 +738,15 @@ pub struct CountedTerms {
 impl CountedTerms {
     /// No other rule's terms.
     pub const NONE: Self = Self { per_executed: 0, per_cohort: 0 };
+
+    /// Both rules' terms together. Saturating: a sum past `u32::MAX` can
+    /// only exceed every bound, so the worst case refuses its plan.
+    pub const fn plus(self, other: Self) -> Self {
+        Self {
+            per_executed: self.per_executed.saturating_add(other.per_executed),
+            per_cohort: self.per_cohort.saturating_add(other.per_cohort),
+        }
+    }
 
     /// The terms' bits at `executed` entrants.
     pub fn bits(&self, executed: u16) -> Result<u32> {

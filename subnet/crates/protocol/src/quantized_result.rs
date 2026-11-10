@@ -49,6 +49,17 @@ tagged_enum! {
     }
 }
 
+impl NotExecuted {
+    /// The public code: `copy` (the content of a published artifact) or
+    /// `qualification`.
+    pub fn code(self) -> &'static str {
+        match self {
+            Self::Content => "copy",
+            Self::Qualification => "qualification",
+        }
+    }
+}
+
 /// What a result publishes about one entrant.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum EntrantOutcome {

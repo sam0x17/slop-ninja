@@ -17,6 +17,14 @@
 //!   openings ([`CohortClosure::check_result`]) and the manifest's frozen
 //!   schedule ([`CohortClosure::check_schedule`]).
 //!
+//! A fourth record is optional: the gate feedback record
+//! (`gate-feedback.signed`, [`GateFeedbackV1`]) that a plan naming it stores
+//! beside the result. When stored, it is opened under the same keys within
+//! its protocol bound and must be the one the result and manifest frame
+//! ([`GateFeedbackV1::check_result`], [`GateFeedbackV1::check_manifest`]).
+//! A stored record that fails is not published and never holds the cohort:
+//! the summary then carries no feedback, and the refusal is reported.
+//!
 //! Receipts, receipt indexes, chunk maps, published-content and fingerprint
 //! indexes, closure fingerprints, targets and components are
 //! coordinator-private, and none is read here. Binary records decode
@@ -26,8 +34,9 @@
 
 use slop_ninja_protocol::submission::CohortClosure;
 use slop_ninja_protocol::{
-    AttemptReceipt, Canonical, ChainBinding, CohortManifestV2, Decoder, Digest, MAX_SEQUENCE_LEN,
-    QuantizedResult, ReceiptIndex, ReceiptIndexEntry, Record, Signed, TrustedKeys,
+    AttemptReceipt, Canonical, ChainBinding, CohortManifestV2, Decoder, Digest, GateFeedbackV1,
+    MAX_SEQUENCE_LEN, QuantizedResult, ReceiptIndex, ReceiptIndexEntry, Record, Signed,
+    TrustedKeys,
 };
 
 use crate::arena::{self, Budget, Hold, Refused};
@@ -42,6 +51,8 @@ pub const PACKAGE: &str = "package.signed";
 /// The public result of a scored cohort.
 pub const RESULT: &str = "result.signed";
 pub const CLOSURE: &str = "closure.signed";
+/// The gate feedback record of a cohort whose plan names it.
+pub const FEEDBACK: &str = "gate-feedback.signed";
 /// The coordinator's private diagnostics: never read by the publisher.
 pub const COMPONENTS: &str = "components.json";
 
@@ -105,6 +116,12 @@ pub struct VerifiedCohort {
     pub manifest: CohortManifestV2,
     pub result: QuantizedResult,
     pub closure: CohortClosure,
+    /// The verified gate feedback record; `None` when none is stored or the
+    /// stored one failed (`feedback_refused`).
+    pub feedback: Option<GateFeedbackV1>,
+    /// Why a stored gate feedback record was not published (content-free:
+    /// the object name and the protocol error).
+    pub feedback_refused: Option<String>,
 }
 
 pub struct Options<'a> {
@@ -279,11 +296,42 @@ pub async fn verify_cohort<S: Store>(
     closure
         .check_schedule(&manifest)
         .map_err(|e| invalid(CLOSURE, e))?;
+    let (feedback, feedback_refused) = read_feedback(&r, &manifest, &result).await?;
     Ok(VerifiedCohort {
         label: label.to_owned(),
         manifest,
         result,
         closure,
+        feedback,
+        feedback_refused,
+    })
+}
+
+/// The cohort's gate feedback record, if stored: opened within its bound
+/// and checked against the verified result and manifest. A missing record
+/// is no feedback; a record that fails is not published (its refusal is
+/// returned instead) and never holds the cohort; a store or budget failure
+/// is retried like any other read.
+async fn read_feedback<S: Store>(
+    r: &Reader<'_, S>,
+    manifest: &CohortManifestV2,
+    result: &QuantizedResult,
+) -> Result<(Option<GateFeedbackV1>, Option<String>), Refusal> {
+    let bound = GateFeedbackV1::max_signed_len().map_err(|e| invalid(FEEDBACK, e))?;
+    let (raw, _hold) = match r.read(FEEDBACK, bound).await {
+        Ok(read) => read,
+        Err(Refusal::Missing(_)) => return Ok((None, None)),
+        Err(Refusal::Invalid(rel, why)) => return Ok((None, Some(format!("{rel}: {why}")))),
+        Err(e) => return Err(e),
+    };
+    let checked = Signed::<GateFeedbackV1>::open(&raw, r.keys).and_then(|f| {
+        f.check_result(result)
+            .and_then(|()| f.check_manifest(manifest))
+            .map(|()| f)
+    });
+    Ok(match checked {
+        Ok(f) => (Some(f), None),
+        Err(e) => (None, Some(format!("{FEEDBACK}: {e}"))),
     })
 }
 

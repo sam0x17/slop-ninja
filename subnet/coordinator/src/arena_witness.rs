@@ -496,6 +496,55 @@ fn arena_witness_the_quantized_result_fits_its_derived_footprint() {
     }
 }
 
+/// The package step's gate feedback record beside its quantization
+/// (`arena_routes::feedback_package_bytes`): the record built from a
+/// finalized package and its public result (every other entrant failing a
+/// gate, so classes are set), checked against the manifest, and its signed
+/// bytes with the record they encode. Measured on the arena and run under
+/// `Strict` in a scope of exactly the derived footprint.
+#[test]
+fn arena_witness_the_gate_feedback_record_fits_its_derived_footprint() {
+    use slop_ninja_protocol::fixtures_reward_v1 as fx;
+    use slop_ninja_protocol::{Gate, GateFeedbackV1, GateThresholds, QuantizedResult};
+    let thresholds = GateThresholds {
+        provisional: true,
+        operating_ppb: 1_000_000_000 / 2,
+        loose_fpr_max_permille: 100,
+        strict_fpr_max_permille: 50,
+        share_mae_max_ppb: 300_000_000,
+        attribution_min_permille: 0,
+        span_gate: false,
+    };
+    for entrants in [16u8, 64, 128] {
+        let specs: Vec<fx::Spec> = (1..=entrants)
+            .map(|t| {
+                let s = fx::Spec::new(t, fx::bp(9000 + u64::from(t) * 7 % 900));
+                if t % 2 == 0 { s.failing(Gate::Share, "share.mae_above_threshold") } else { s }
+            })
+            .collect();
+        let mut m = fx::manifest(fx::chain(), 7, 1000, fx::sigma_permille(40), 0, &specs);
+        m.roster_cap = slop_ninja_protocol::MAX_ROSTER;
+        let index = fx::default_index(&m.references);
+        let mut p = fx::package(&m, fx::bp(9100), None, &specs).expect("package");
+        fx::finalize_fixture(&mut p, &index, &mut fx::spec_measure(&specs, 1000, |_, _| false)).expect("finalize");
+        let result = QuantizedResult::of_package(&p).expect("result");
+        let key = slop_ninja_protocol::fixtures::package_key();
+        let bits = slop_ninja_protocol::gate_feedback::terms(&thresholds).bits(result.budget.executed).expect("bits");
+        let step = || {
+            let record = GateFeedbackV1::of_package(&p, &result, m.gate_policy, thresholds, result.budget.total + bits)
+                .expect("record");
+            record.check_manifest(&m).expect("manifest");
+            let signed = crate::eval::package::signed_bytes(record.clone(), &key).expect("signed");
+            (record, signed.len())
+        };
+        let (_, peak) = measure(|| drop(step()));
+        let footprint = feedback_package_bytes(u64::from(entrants));
+        eprintln!("arena witness: gate feedback of {entrants} entrants peak live {peak} B, footprint {footprint} B");
+        assert!(peak <= footprint, "{entrants} entrants: {peak} B above the derived {footprint} B");
+        witness(R_COHORT_PACKAGE, footprint, || drop(step()));
+    }
+}
+
 /// The journal's `/status` with a full registry
 /// (`signing::registry::ROWS` UIDs, every hotkey at its longest encoding)
 /// fits the journal footprint: the stored row is read and rebuilt once.

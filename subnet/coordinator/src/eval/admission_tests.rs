@@ -147,6 +147,7 @@ fn admission_plan(cohort: u64, cap: u16) -> plan::CohortPlan {
         quant: Some(plan::tests::quant_block()),
         live: None,
         localization: None,
+        feedback: None,
     });
     p.admission = Some(admission_block(cap));
     p

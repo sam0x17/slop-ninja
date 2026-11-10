@@ -1850,8 +1850,8 @@ impl EvalCohort {
                 Work::Package { seq } => {
                     let r = async {
                         let plan = plan_of(seq)?;
-                        let (jobs, docs, span) = package_shape(&plan);
-                        let child = self.step_scope_physical(scope, R_COHORT_PACKAGE, seq, crate::arena_routes::package_step_bytes(jobs, docs, span))?;
+                        let (jobs, docs, span, feedback) = package_shape(&plan);
+                        let child = self.step_scope_physical(scope, R_COHORT_PACKAGE, seq, crate::arena_routes::package_step_bytes(jobs, docs, span, feedback))?;
                         let fut = async { if plan.is_v3() { self.package_v3(&cfg, seq, &plan).await } else { self.package(&cfg, seq, &instance, &plan).await } };
                         child.scoped(fut).map_err(|_| "arena_defect")?.await?;
                         let _ = child.close();
@@ -3311,6 +3311,11 @@ impl EvalCohort {
         // publisher copies its values after close.
         if let Some(l) = &b.localization {
             objects.push(("localization.signed", package::signed_bytes(l.clone(), &package_key).map_err(|e| e.0)?));
+        }
+        // The gate feedback record, likewise: the publisher reads it with the
+        // result after close.
+        if let Some(f) = &b.feedback {
+            objects.push(("gate-feedback.signed", package::signed_bytes(f.clone(), &package_key).map_err(|e| e.0)?));
         }
         objects.push((
             "keys.json",

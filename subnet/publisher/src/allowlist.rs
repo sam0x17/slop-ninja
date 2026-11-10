@@ -61,6 +61,15 @@
 //! (`artifacts/v2/ModernBERT-base-LICENSE`), each the compiled text byte for
 //! byte ([`crate::layout::ARTIFACT_NOTICES`]).
 //!
+//! Version 4 adds the gate feedback (decision U08) to the cohort summary
+//! (v4) only: each never-executed entrant's public reason (`not_executed`),
+//! each scored entrant's coarse failed-gate classes (`gate_classes`, no
+//! statistic or reason code) and the cohort's gate thresholds (`gates`, plan
+//! values the signed manifest binds). The classes are counted in the
+//! cohort's bit budget by the coordinator's gate feedback record. The
+//! leaderboard keeps its v4 fields; a v3 summary listed earlier stays valid
+//! without the new fields.
+//!
 //! Every cohort object other than `summary.json`, `publication.json` and
 //! `artifacts.json`
 //! (the signed manifest, package, target and closure, receipt indexes, chunk
@@ -344,6 +353,23 @@ pub const REFUSED_ENTRANT_FIELDS: &[&str] = &[
     "monitor",
 ];
 
+/// The summary's gate feedback (v4): the cohort's thresholds and each
+/// entrant's not-executed reason and failed-gate classes.
+const SUMMARY_GATES: &[&str] = &[
+    "gates",
+    "gates.provisional",
+    "gates.policy",
+    "gates.operating_ppb",
+    "gates.loose_fpr_max_permille",
+    "gates.strict_fpr_max_permille",
+    "gates.share_mae_max_ppb",
+    "gates.attribution_min_permille",
+    "gates.min_success_max_failed",
+    "gates.localization_enforced",
+];
+
+const SUMMARY_ENTRANT_FEEDBACK: &[&str] = &["not_executed", "gate_classes"];
+
 const SUMMARY: &[&str] = &[
     "schema",
     "network",
@@ -472,6 +498,8 @@ pub fn fields(kind: Kind) -> Option<(&'static str, BTreeSet<String>)> {
             out.extend(prefixed("", QUANTIZATION));
             out.extend(prefixed("", QUALITY));
             out.extend(prefixed("entrants[].", ENTRANT));
+            out.extend(prefixed("", SUMMARY_GATES));
+            out.extend(prefixed("entrants[].", SUMMARY_ENTRANT_FEEDBACK));
             crate::summary::SUMMARY_SCHEMA
         }
         Kind::Publication => {
@@ -513,10 +541,21 @@ pub fn fields(kind: Kind) -> Option<(&'static str, BTreeSet<String>)> {
     Some((schema, out))
 }
 
+/// The fields of a `cohort_summary/v3` document (listed before the gate
+/// feedback): the v4 summary's without the thresholds and the entrants'
+/// feedback fields. Nothing it lists is new.
+fn summary_v3_fields(v4: BTreeSet<String>) -> BTreeSet<String> {
+    let feedback: BTreeSet<String> = prefixed("", SUMMARY_GATES)
+        .chain(prefixed("entrants[].", SUMMARY_ENTRANT_FEEDBACK))
+        .collect();
+    v4.into_iter().filter(|f| !feedback.contains(f)).collect()
+}
+
 /// The fields of a `cohort_summary/v2` document (listed before
 /// quantization): the v3 summary's without the quantization block, the
 /// quality block and every `q`. Nothing it lists is new.
-fn summary_v2_fields(v3: BTreeSet<String>) -> BTreeSet<String> {
+fn summary_v2_fields(v4: BTreeSet<String>) -> BTreeSet<String> {
+    let v3 = summary_v3_fields(v4);
     v3.into_iter()
         .filter(|f| {
             !QUANTIZATION.contains(&f.as_str())
@@ -646,6 +685,10 @@ pub fn check_object(key: &str, bytes: &[u8]) -> Result<(), String> {
                 // (a summary is never rewritten once listed): the v3 fields
                 // without the grid, the quality block and every `q`.
                 allowed = summary_v2_fields(allowed);
+            } else if kind == Kind::Summary && named == Some(crate::summary::SUMMARY_SCHEMA_V3) {
+                // A cohort listed before the gate feedback keeps its v3
+                // summary: the v4 fields without the feedback.
+                allowed = summary_v3_fields(allowed);
             } else if named != Some(schema) {
                 return Err(format!("{key}: not schema {schema}"));
             }

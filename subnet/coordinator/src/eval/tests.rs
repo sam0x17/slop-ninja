@@ -3319,6 +3319,7 @@ fn v3_block(probes: Vec<super::plan::ProbeRef>) -> super::plan::RewardV1Plan {
         quant: Some(super::plan::tests::quant_block()),
         live: None,
         localization: None,
+        feedback: None,
     }
 }
 
@@ -3719,6 +3720,91 @@ fn v3_failing_artifacts_score_zero_and_one_canary_flag_with_a_clean_reaudit_prom
     assert_ne!(audit.canary[0].draw, audit.canary[1].draw);
     assert_eq!(b.package.promoted, Some(AccountId([0xc3; 32])));
     assert_eq!(e[2].units, u16::MAX);
+}
+
+/// U08: a plan naming `reward_v1.feedback` publishes, beside the result,
+/// each scored entrant's coarse failed-gate classes and the plan's
+/// thresholds, bound to the manifest's gate policy, at `max(g - 1, 0)` bits
+/// per executed entrant counted in the complete total; a plan without it
+/// builds no record and keeps its policy document.
+#[test]
+fn v3_gate_feedback_publishes_classes_and_thresholds_beside_the_result() {
+    use slop_ninja_protocol::gate_feedback::{self, FEEDBACK_RULE};
+    use slop_ninja_protocol::{EntrantFeedback, GateClasses, Record};
+    let db = Sqlite::open();
+    let (mut sim, weak, probe_ref) = probe_built(&db);
+    let id = super::plan::tests::identity;
+    let good = v3_artifact(&mut sim, id(41, 0xe1), [1, 2, 3, 41, 5]);
+    let flags = v3_artifact(&mut sim, id(42, 0xe2), [1, 2, 3, 42, 5]);
+    let mut p = plan_v3(2, "testnet-feedback", 20, weak);
+    p.entrants = vec![good, flags];
+    p.allow_list = vec![id(41, 0xe1), id(42, 0xe2)];
+    {
+        let v = p.reward_v1.as_mut().unwrap();
+        v.probes = vec![probe_ref];
+        // Share and the loose tier can fail, attribution cannot: g = 2.
+        v.gates.share_mae_max_ppb = 300_000_000;
+        v.feedback = Some(super::plan::FeedbackPlan { rule: FEEDBACK_RULE.into() });
+    }
+    let v = p.reward_v1.clone().unwrap();
+    assert_eq!(v.counted_terms(), gate_feedback::terms(&v.gate_thresholds(false)));
+    assert_eq!(v.counted_terms().per_executed, 1);
+    // The policy document binds the rule; without the block it is unchanged.
+    let policy = v3::gate_policy_json(&v);
+    assert_eq!(policy["feedback"]["rule"], FEEDBACK_RULE);
+    let mut plain = v.clone();
+    plain.feedback = None;
+    assert!(v3::gate_policy_json(&plain).get("feedback").is_none());
+    assert_eq!(plain.counted_terms(), slop_ninja_protocol::quant::CountedTerms::NONE);
+    // Job 1 separates humans from AI; job 2 calls every document AI, so it
+    // flags every cohort human (the loose tier) and misses every mixed share.
+    sim.predict = Some(Box::new(|job, kind, task| match job {
+        2 => (99.0, 99.0),
+        0 => {
+            let c = model_conf(1, kind, task, (35.0, 65.0, 70.0), 10.0);
+            (c, c * 0.4)
+        }
+        _ => {
+            let c = model_conf(4, kind, task, (3.0, 95.0, 97.0), 7.0);
+            (c, c * 0.4)
+        }
+    }));
+    let seq = open_cohort(&db, &p, 20, sim.now);
+    run_to_close(&mut sim, &db, seq, 22);
+    let b = sim.packages_v3.pop().unwrap();
+    let f = b.feedback.clone().expect("the record is built");
+    f.validate().unwrap();
+    f.check_result(&b.result).unwrap();
+    f.check_manifest(&b.manifest).unwrap();
+    assert_eq!(f.gate_policy, b.manifest.gate_policy);
+    assert_eq!(f.thresholds, v.gate_thresholds(false));
+    assert!(f.thresholds.provisional, "no incentive block: provisional");
+    assert_eq!(f.thresholds.share_mae_max_ppb, 300_000_000);
+    let classes: Vec<_> = f.entrants.iter().map(EntrantFeedback::classes).collect();
+    let e = &b.package.entrants;
+    assert!(e[1].gate_failures.iter().any(|g| g.gate == slop_ninja_protocol::Gate::HumanFalsePositive));
+    assert_eq!(classes[0], Some(GateClasses::of_failures(&e[0].gate_failures)));
+    assert!(classes[1].is_some_and(|c| c.contains(GateClasses::HUMAN_FPR)), "{classes:?}");
+    // One bit per executed entrant, inside the complete total the package
+    // recounted (the record's term included).
+    assert_eq!(f.bits, u32::from(b.result.budget.executed));
+    assert_eq!(f.result_bits, b.live_recount);
+    assert_eq!(b.live_recount, b.result.budget.total + f.bits);
+    assert_eq!(b.components["feedback"]["bits"], f.bits);
+    // The signed record round-trips under the package key.
+    let key = slop_ninja_protocol::fixtures::package_key();
+    let bytes = super::package::signed_bytes(f.clone(), &key).unwrap();
+    assert!(bytes.len() as u64 <= slop_ninja_protocol::GateFeedbackV1::max_signed_len().unwrap());
+    let back = slop_ninja_protocol::Signed::<slop_ninja_protocol::GateFeedbackV1>::from_bytes(&bytes).unwrap();
+    assert_eq!(back.record, f);
+    // A plan without the block builds none.
+    let (none, note) = v3::gate_feedback(&plain, &b.package, &b.result, &b.manifest, b.live_recount);
+    assert!(none.is_none() && note.is_null());
+    // A build that fails (a total short of the record's own bits) drops the
+    // record and says why; it never holds the package.
+    let (dropped, note) = v3::gate_feedback(&v, &b.package, &b.result, &b.manifest, b.result.budget.total);
+    assert!(dropped.is_none());
+    assert!(note["error"].as_str().is_some_and(|x| x.contains("feedback bit parameters")), "{note}");
 }
 
 #[test]

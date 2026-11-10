@@ -124,7 +124,9 @@ pub fn build(i: Inputs<'_>) -> LeaderboardDoc {
             .entrants
             .iter()
             .map(|e| EntrantRow {
-                entrant: e.clone(),
+                // The leaderboard (v4) keeps its fields: the gate feedback
+                // fields stay in the cohort's summary.
+                entrant: summary::Entrant { not_executed: None, gate_classes: None, ..e.clone() },
                 artifact: i.artifacts.iter().find(|a| a.hotkey == e.hotkey).cloned(),
             })
             .collect(),

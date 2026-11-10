@@ -1403,6 +1403,12 @@ impl<S: Store, K: Keepalive> Run<'_, S, K> {
             }
             Err(e) => return Err(store_err(e)),
         }
+        // A stored gate feedback record that failed verification is left out
+        // of the summary and holds nothing: it is reported (an alert), never
+        // a refused cohort.
+        if let Some(why) = &v.feedback_refused {
+            report.refused.push((format!("{label}/{}", verify::FEEDBACK), why.clone()));
+        }
         // Artifacts: what publication at scoring start did, checked against
         // the public result's artifact digests.
         let references = self.withheld_references(memo, idx, Some(v));

@@ -592,6 +592,23 @@ pub struct RewardV1Plan {
     /// so it is never rolled back below it once one is stored.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub localization: Option<crate::eval::span_gate::LocalizationPlan>,
+    /// The gate feedback record ([`FeedbackPlan`]): absent in plans written
+    /// before it (never serialized when absent, so stored plans keep their
+    /// digests). An eval build older than this field refuses any plan naming
+    /// it (`deny_unknown_fields`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub feedback: Option<FeedbackPlan>,
+}
+
+/// The `reward_v1.feedback` block (`slop_ninja_protocol::gate_feedback`):
+/// after the close, publish each entrant's coarse failed-gate classes and the
+/// cohort's gate thresholds in a signed record beside the result. Its bits
+/// are one of the plan's counted terms ([`RewardV1Plan::counted_terms`]).
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct FeedbackPlan {
+    /// [`slop_ninja_protocol::gate_feedback::FEEDBACK_RULE`].
+    pub rule: String,
 }
 
 /// The `reward_v1.live` block (`slop_ninja_protocol::live`): what a running
@@ -1051,9 +1068,32 @@ impl RewardV1Plan {
     /// publishes a deterministic value from hidden data adds its term here,
     /// never at a caller, and re-pins the protocol's `L(X)` tables.
     pub fn counted_terms(&self) -> slop_ninja_protocol::quant::CountedTerms {
-        match &self.localization {
+        let span = match &self.localization {
             Some(_) => slop_ninja_protocol::localization::TERMS,
             None => slop_ninja_protocol::quant::CountedTerms::NONE,
+        };
+        // The gate feedback record (`max(g - 1, 0)` bits per executed
+        // entrant under these gates); the span flag changes no class.
+        match &self.feedback {
+            Some(_) => span.plus(slop_ninja_protocol::gate_feedback::terms(&self.gate_thresholds(false))),
+            None => span,
+        }
+    }
+
+    /// The thresholds the gate feedback record publishes: the plan's gates
+    /// (bound into the manifest by the gate-policy digest), provisional
+    /// unless the plan's incentive block declares them final, and the
+    /// manifest's span-gate flag.
+    pub fn gate_thresholds(&self, span_gate: bool) -> slop_ninja_protocol::GateThresholds {
+        let g = &self.gates;
+        slop_ninja_protocol::GateThresholds {
+            provisional: self.incentive.as_ref().is_none_or(|i| i.provisional_gates),
+            operating_ppb: g.operating_ppb,
+            loose_fpr_max_permille: g.loose_fpr_max_permille,
+            strict_fpr_max_permille: g.strict_fpr_max_permille,
+            share_mae_max_ppb: g.share_mae_max_ppb,
+            attribution_min_permille: g.attribution_min_permille,
+            span_gate,
         }
     }
 
@@ -1456,6 +1496,11 @@ impl CohortPlan {
                 if let Some(l) = &v1.live {
                     l.validate(self.n, self.scorer.chunk_docs, cap, q, &terms)?;
                 }
+            }
+            if let Some(f) = &v1.feedback {
+                e(!probe_build, "reward_v1.feedback (none in a probe build)")?;
+                e(v1.quant.is_some(), "reward_v1.feedback (needs reward_v1.quant)")?;
+                e(f.rule == slop_ninja_protocol::gate_feedback::FEEDBACK_RULE, "reward_v1.feedback.rule")?;
             }
             if let Some(l) = &v1.localization {
                 e(!probe_build, "reward_v1.localization (none in a probe build)")?;

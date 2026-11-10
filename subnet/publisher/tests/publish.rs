@@ -600,6 +600,119 @@ fn nothing_private_is_published() {
     }
 }
 
+/// Decision U08: a cohort whose coordinator stored a gate feedback record
+/// publishes a v4 summary carrying the cohort's thresholds, each scored
+/// entrant's coarse failed-gate classes and each never-executed entrant's
+/// reason; the leaderboard keeps its v4 fields; a stored record that fails
+/// its checks is left out and reported, and the cohort is published anyway.
+#[test]
+fn gate_feedback_reaches_the_summary_and_a_failing_record_holds_nothing() {
+    use slop_ninja_protocol::fixtures::package_key;
+    use slop_ninja_protocol::{EntrantFeedback, GateClasses, GateFeedbackV1, GateThresholds, Record, gate_feedback, sign};
+    let thresholds = |b: &Built| GateThresholds {
+        provisional: true,
+        operating_ppb: 1_000_000_000 / 2,
+        loose_fpr_max_permille: 100,
+        strict_fpr_max_permille: 50,
+        share_mae_max_ppb: 300_000_000,
+        attribution_min_permille: 0,
+        span_gate: b.c.manifest.span_gate,
+    };
+    let record_of = |b: &Built| {
+        let result = b.result();
+        let t = thresholds(b);
+        let bits = gate_feedback::terms(&t).bits(result.budget.executed).unwrap();
+        GateFeedbackV1::of_package(&b.c.package, &result, b.c.manifest.gate_policy, t, result.budget.total + bits).unwrap()
+    };
+    let feedback_key = |b: &Built| format!("cohorts/{}/{}", b.label, verify::FEEDBACK);
+    let summary_of = |x: &Buckets3, b: &Built| -> CohortSummary {
+        public_json(x, &format!("v1/cohorts/{}/summary.json", b.label))
+    };
+
+    let b = build(0);
+    let x = buckets(&b);
+    let record = record_of(&b);
+    record.validate().unwrap();
+    x.receipts.insert(&feedback_key(&b), sign(record.clone(), &package_key()).unwrap().to_bytes().unwrap());
+    let cfg = config(Some(0), false);
+    let (report, _) = run(&cfg, &x, &mut Memo::default());
+    assert_eq!(report.published, vec![b.label.clone()]);
+    assert!(report.refused.is_empty(), "{report:?}");
+    let summary = summary_of(&x, &b);
+    assert_eq!(summary.schema, "slop_ninja.public.cohort_summary/v4");
+    let gates = summary.gates.as_ref().expect("the thresholds");
+    assert_eq!(
+        (gates.provisional, gates.share_mae_max_ppb, gates.loose_fpr_max_permille, gates.attribution_min_permille),
+        (true, 300_000_000, 100, 0)
+    );
+    assert_eq!((gates.operating_ppb, gates.strict_fpr_max_permille), (1_000_000_000 / 2, 50));
+    assert_eq!(gates.policy, b.c.manifest.gate_policy.hex());
+    assert_eq!(gates.min_success_max_failed, b.c.manifest.params.quant.min_success_max_failed);
+    let result = b.result();
+    for ((e, f), r) in summary.entrants.iter().zip(&record.entrants).zip(&result.entrants) {
+        match (f, r.outcome) {
+            (EntrantFeedback::Scored(c), slop_ninja_protocol::EntrantOutcome::Scored { gate_pass, .. }) => {
+                let codes: Vec<String> = c.codes().into_iter().map(String::from).collect();
+                assert_eq!(e.gate_classes.as_ref(), Some(&codes), "uid {}", e.uid);
+                // No class exactly when every gate but the copy gate passed.
+                assert_eq!(codes.is_empty(), gate_pass, "uid {}", e.uid);
+            }
+            _ => assert_eq!(e.gate_classes, None, "uid {}", e.uid),
+        }
+        assert_eq!(e.not_executed.is_some(), e.gate == "not_executed", "uid {}", e.uid);
+    }
+    let by_uid = |uid: u16| summary.entrants.iter().find(|e| e.uid == uid).unwrap();
+    // zeta failed the share gate; eta failed qualification; the exact copy
+    // of R_k was never executed.
+    assert_eq!(by_uid(0x18).gate_classes.as_deref(), Some(&["share".to_owned()][..]));
+    assert_eq!(by_uid(0x19).not_executed.as_deref(), Some("qualification"));
+    assert_eq!(by_uid(0x1d).not_executed.as_deref(), Some("copy"));
+    assert_eq!(by_uid(0x11).gate_classes.as_deref(), Some(&[][..]));
+    // Everything published stays inside the allow-list; the leaderboard
+    // carries none of the summary's feedback fields.
+    assert!(!gates.localization_enforced);
+    for key in x.public.keys() {
+        let bytes = x.public.bytes(&key).unwrap();
+        slop_ninja_publisher::allowlist::check_object(&key, &bytes).unwrap_or_else(|e| panic!("{e}"));
+        if key.ends_with(".json") {
+            slop_ninja_publisher::redact::scan_json(&bytes).unwrap_or_else(|e| panic!("{key}: {e}"));
+        }
+    }
+    if let Some(board) = x.public.bytes(layout::LEADERBOARD) {
+        let board: serde_json::Value = serde_json::from_slice(&board).unwrap();
+        assert!(board["entrants"].as_array().unwrap().iter().all(|e| e.get("gate_classes").is_none() && e.get("not_executed").is_none()));
+    }
+    assert_no_score_values(&b, &x);
+
+    // A signed record the result does not support (a class for a passing
+    // entrant) is left out and reported; the cohort is published.
+    let b = build(0);
+    let x = buckets(&b);
+    let mut bad = record_of(&b);
+    let passing = bad.entrants.iter().position(|f| *f == EntrantFeedback::Scored(GateClasses::NONE)).unwrap();
+    bad.entrants[passing] = EntrantFeedback::Scored(GateClasses::SHARE);
+    x.receipts.insert(&feedback_key(&b), sign(bad, &package_key()).unwrap().to_bytes().unwrap());
+    let (report, _) = run(&cfg, &x, &mut Memo::default());
+    assert_eq!(report.published, vec![b.label.clone()]);
+    assert_eq!(report.refused.len(), 1, "{report:?}");
+    assert_eq!(report.refused[0].0, format!("{}/{}", b.label, verify::FEEDBACK));
+    let summary = summary_of(&x, &b);
+    assert!(summary.gates.is_none());
+    assert!(summary.entrants.iter().all(|e| e.gate_classes.is_none()));
+    assert!(summary.entrants.iter().any(|e| e.not_executed.as_deref() == Some("copy")), "reasons come from the result");
+    // Damaged bytes are reported the same way.
+    let b = build(0);
+    let x = buckets(&b);
+    let mut bytes = sign(record_of(&b), &package_key()).unwrap().to_bytes().unwrap();
+    let mid = bytes.len() / 2;
+    bytes[mid] ^= 0x40;
+    x.receipts.insert(&feedback_key(&b), bytes);
+    let (report, _) = run(&cfg, &x, &mut Memo::default());
+    assert_eq!(report.published, vec![b.label.clone()]);
+    assert_eq!(report.refused.len(), 1, "{report:?}");
+    assert!(summary_of(&x, &b).gates.is_none());
+}
+
 #[test]
 fn a_tampered_record_is_refused_and_nothing_is_indexed() {
     let b = build(0);

@@ -1345,6 +1345,12 @@ pub fn gate_policy_json(v: &RewardV1Plan) -> Value {
     if let (Some(i), Some(o)) = (&v.incentive, j.as_object_mut()) {
         o.insert("incentive".into(), json!({"rule": i.rule, "provisional_gates": i.provisional_gates}));
     }
+    // The gate feedback rule joins the policy for plans that name it, so
+    // the manifest binds the publication of these thresholds (every other
+    // plan's document, and so its digest, is unchanged).
+    if let (Some(f), Some(o)) = (&v.feedback, j.as_object_mut()) {
+        o.insert("feedback".into(), json!({"rule": f.rule}));
+    }
     // The span gate's block (`span_gate::LocalizationPlan`) joins the policy
     // under schema v3 for plans that name it; every other plan's document,
     // and so its digest, is unchanged.
@@ -2469,6 +2475,38 @@ pub struct PackageV3 {
     /// The span gate's public record (`span_gate`), signed beside the result
     /// as `localization.signed`, for a plan that names the gate.
     pub localization: Option<slop_ninja_protocol::LocalizationOutcomeV1>,
+    /// The gate feedback record ([`gate_feedback`]), signed beside the
+    /// result as `gate-feedback.signed`, for a plan that names it.
+    pub feedback: Option<slop_ninja_protocol::GateFeedbackV1>,
+}
+
+/// The gate feedback record of a finalized package (`reward_v1.feedback`):
+/// each scored entrant's coarse failed-gate classes and the plan's
+/// thresholds, with the cohort's complete counted bits (`counted_bits`, the
+/// record's term included). Never an error that holds the package: a build
+/// that fails drops the record and says why in the private components.
+pub fn gate_feedback(
+    v: &RewardV1Plan,
+    package: &ScorePackageV2,
+    result: &QuantizedResult,
+    manifest: &CohortManifestV2,
+    counted_bits: u32,
+) -> (Option<slop_ninja_protocol::GateFeedbackV1>, Value) {
+    let Some(block) = &v.feedback else { return (None, Value::Null) };
+    let thresholds = v.gate_thresholds(manifest.span_gate);
+    match slop_ninja_protocol::GateFeedbackV1::of_package(package, result, manifest.gate_policy, thresholds, counted_bits)
+        .and_then(|r| r.check_manifest(manifest).map(|()| r))
+    {
+        Ok(r) => {
+            let components = json!({"rule": block.rule, "bits": r.bits, "result_bits": r.result_bits});
+            (Some(r), components)
+        }
+        Err(e) => (
+            None,
+            json!({"rule": block.rule, "error": format!("{e:?}"),
+                "note": "the gate feedback record failed to build: no record; the package is unaffected"}),
+        ),
+    }
 }
 
 /// The active reward-v1 target digest: the last activated cohort target, or
@@ -2912,6 +2950,11 @@ pub fn prepare_package(
         }
         localization = built.record;
     }
+    // The gate feedback record: never holds the package.
+    let (feedback, feedback_components) = gate_feedback(v, &package, &result, &manifest, live_recount);
+    if let (Some(_), Some(o)) = (&v.feedback, components.as_object_mut()) {
+        o.insert("feedback".into(), feedback_components);
+    }
     Ok(PackageV3 {
         manifest,
         package,
@@ -2923,6 +2966,7 @@ pub fn prepare_package(
         live_defects,
         live_recount,
         localization,
+        feedback,
     })
 }
 

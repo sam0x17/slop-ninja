@@ -35,17 +35,30 @@
 //! the published values and adds no bits beyond them; it is also the order
 //! rewards are computed in (`reward-v2`), and every credit, band and unit
 //! is a function of the published `q` values, bits and membership alone.
+//!
+//! Version 4 adds the gate feedback a failing entrant may learn (decision
+//! U08): each never-executed entrant's public reason (`not_executed`:
+//! `copy` or `qualification`, from the result itself), and, from the
+//! cohort's verified gate feedback record when one is stored, each scored
+//! entrant's coarse failed-gate classes (`gate_classes`) and the cohort's
+//! gate thresholds (`gates`). No statistic, margin, count, reason code or
+//! per-document value is published; the record's bits are counted in the
+//! cohort's bit budget.
+//!
 //! [`crate::allowlist`] names every field this schema may carry.
 
 use serde::{Deserialize, Serialize};
 use slop_ninja_admission_wire::json::Chain;
 use slop_ninja_protocol::quant::{self, MAX_DECIMAL_LEN};
-use slop_ninja_protocol::{CutoffMode, EntrantOutcome, NotExecuted, QuantizedResult, ResultReference};
+use slop_ninja_protocol::{CutoffMode, EntrantFeedback, EntrantOutcome, GateFeedbackV1, NotExecuted, QuantizedResult, ResultReference};
 
 use crate::ss58;
 use crate::verify::VerifiedCohort;
 
-pub const SUMMARY_SCHEMA: &str = "slop_ninja.public.cohort_summary/v3";
+pub const SUMMARY_SCHEMA: &str = "slop_ninja.public.cohort_summary/v4";
+/// The summary schema of cohorts listed before the gate feedback fields: a
+/// v4 document without them, read as one.
+pub const SUMMARY_SCHEMA_V3: &str = "slop_ninja.public.cohort_summary/v3";
 /// The summary's name in a public cohort directory.
 pub const SUMMARY: &str = "summary.json";
 
@@ -114,6 +127,39 @@ pub struct Entrant {
     pub copy_gate: Option<String>,
     /// Its near-copy cluster, for an entrant at or above the cutoff.
     pub cluster: Option<ClusterRef>,
+    /// Why an entrant was never executed: `copy` (its inference content is
+    /// that of a published artifact) or `qualification`; absent otherwise.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub not_executed: Option<String>,
+    /// A scored entrant's failed gate classes (`share`, `attribution`,
+    /// `human_fpr`, in that order; empty when none failed), from the
+    /// cohort's gate feedback record; absent without one, and for a
+    /// withheld or never-executed entrant.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub gate_classes: Option<Vec<String>>,
+}
+
+/// The cohort's gate thresholds, from its gate feedback record: the plan
+/// values its signed manifest binds by the gate-policy digest, in the
+/// record's units (parts per billion, per mille).
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Gates {
+    /// Testnet's provisional values, re-fixed before live rewards.
+    pub provisional: bool,
+    /// The manifest's gate-policy digest (64 hex).
+    pub policy: String,
+    pub operating_ppb: u32,
+    pub loose_fpr_max_permille: u32,
+    pub strict_fpr_max_permille: u32,
+    pub share_mae_max_ppb: u32,
+    pub attribution_min_permille: u32,
+    /// The minimum-success gate's limit `k_n` (the result's parameter).
+    pub min_success_max_failed: u32,
+    /// Whether the manifest enforces the span gate. Named without `span`,
+    /// which the redaction scan refuses in any public key
+    /// ([`crate::redact::FORBIDDEN_KEY_FRAGMENTS`]).
+    pub localization_enforced: bool,
 }
 
 /// The cutoff on the grid and the rule that set it.
@@ -162,6 +208,10 @@ pub struct CohortSummary {
     pub quality: Quality,
     /// The entrant promoted to `R_k+1` (SS58), if any.
     pub promoted: Option<String>,
+    /// The cohort's gate thresholds, from its gate feedback record; absent
+    /// without one.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub gates: Option<Gates>,
     /// Every entrant, in roster order.
     pub entrants: Vec<Entrant>,
 }
@@ -253,9 +303,53 @@ pub fn entrants(v: &VerifiedCohort) -> Vec<Entrant> {
                 gate: gate_bit(&e.outcome).into(),
                 copy_gate: copy_bit(&e.outcome).map(Into::into),
                 cluster,
+                not_executed: match e.outcome {
+                    EntrantOutcome::NotExecuted(reason) => Some(reason.code().into()),
+                    _ => None,
+                },
+                gate_classes: None,
             }
         })
+        .zip(feedback_classes(v.feedback.as_ref(), r.entrants.len()))
+        .map(|(mut e, classes)| {
+            e.gate_classes = classes;
+            e
+        })
         .collect()
+}
+
+/// Each roster entry's published classes: a scored entrant's from a
+/// verified record (the record covers the result's roster, checked when it
+/// was verified), `None` for every other entry and without a record.
+fn feedback_classes(f: Option<&GateFeedbackV1>, n: usize) -> Vec<Option<Vec<String>>> {
+    match f {
+        Some(f) if f.entrants.len() == n => f
+            .entrants
+            .iter()
+            .map(|e| match e {
+                EntrantFeedback::Scored(c) => Some(c.codes().into_iter().map(Into::into).collect()),
+                _ => None,
+            })
+            .collect(),
+        _ => vec![None; n],
+    }
+}
+
+/// The cohort's thresholds from a verified gate feedback record.
+pub fn gates(v: &VerifiedCohort) -> Option<Gates> {
+    let f = v.feedback.as_ref()?;
+    let t = &f.thresholds;
+    Some(Gates {
+        provisional: t.provisional,
+        policy: f.gate_policy.hex(),
+        operating_ppb: t.operating_ppb,
+        loose_fpr_max_permille: t.loose_fpr_max_permille,
+        strict_fpr_max_permille: t.strict_fpr_max_permille,
+        share_mae_max_ppb: t.share_mae_max_ppb,
+        attribution_min_permille: t.attribution_min_permille,
+        min_success_max_failed: v.result.params.quant.min_success_max_failed,
+        localization_enforced: t.span_gate,
+    })
 }
 
 fn model(m: &ResultReference, w: u64) -> ModelRef {
@@ -310,6 +404,7 @@ pub fn build(v: &VerifiedCohort, chain: Chain) -> CohortSummary {
         },
         quality: quality(r),
         promoted: r.promoted.map(|h| ss58::encode(&h)),
+        gates: gates(v),
         entrants: entrants(v),
     }
 }
@@ -368,14 +463,20 @@ pub mod v2 {
     }
 }
 
-/// A listed summary as readers take it: a v3 document as is, or a v2
-/// document (listed before quantization) as a summary with no quantization
-/// block, no `q`, no cutoff and no band edges, its band numbers and bits
-/// kept. `None` for anything else.
+/// A listed summary as readers take it: a v4 document as is, a v3 document
+/// (listed before the gate feedback fields, which it never carries) as is,
+/// or a v2 document (listed before quantization) as a summary with no
+/// quantization block, no `q`, no cutoff and no band edges, its band
+/// numbers and bits kept. `None` for anything else.
 pub fn read(bytes: &[u8]) -> Option<CohortSummary> {
     let schema = serde_json::from_slice::<serde_json::Value>(bytes).ok()?;
     match schema.get("schema").and_then(|s| s.as_str())? {
         SUMMARY_SCHEMA => serde_json::from_slice(bytes).ok(),
+        SUMMARY_SCHEMA_V3 => {
+            let s: CohortSummary = serde_json::from_slice(bytes).ok()?;
+            let v4_only = s.gates.is_some() || s.entrants.iter().any(|e| e.not_executed.is_some() || e.gate_classes.is_some());
+            (!v4_only).then_some(s)
+        }
         SUMMARY_SCHEMA_V2 => {
             let old: v2::CohortSummary = serde_json::from_slice(bytes).ok()?;
             let model = |m: v2::ModelRef| ModelRef {
@@ -402,6 +503,7 @@ pub fn read(bytes: &[u8]) -> Option<CohortSummary> {
                     bands: Vec::new(),
                 },
                 promoted: old.promoted,
+                gates: None,
                 entrants: old
                     .entrants
                     .into_iter()
@@ -414,6 +516,8 @@ pub fn read(bytes: &[u8]) -> Option<CohortSummary> {
                         gate: e.gate,
                         copy_gate: Some(e.copy_gate),
                         cluster: e.cluster,
+                        not_executed: None,
+                        gate_classes: None,
                     })
                     .collect(),
             })

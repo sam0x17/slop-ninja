@@ -64,6 +64,24 @@ A versioned per-cohort bit budget counts them with every other released value
 and is checked at plan validation, seal and publication; it caps what is
 released but is not a differential-privacy guarantee.
 
+A failing entrant learns the thresholds and a coarse class of what it
+failed, never a per-document value or statistic. Every result says why an
+entrant was not executed (`copy` or `qualification`, decided at admission
+from public data). A plan naming the gate feedback record
+(`reward_v1.feedback`; built, not deployed) also publishes after the close,
+in a signed record beside the result, the gate thresholds the manifest binds
+by its gate-policy digest (plan values, no bits) and, per scored entrant,
+the set of gate classes it failed among share, attribution and the loose
+false-positive tier. The span gate keeps its own record and the public-copy
+gate its bit. The result's gate bit is a function of the set, so the record
+counts `max(g - 1, 0)` more bits per executed entrant, `g` being the classes
+the thresholds let fail. At testnet's thresholds (attribution cannot fail)
+that is one bit: 786 of the 800 bits `n h / F` allows at 40 entrants, against
+746 without it. Naming the span gate's record as well gives 828 at 40, so
+such a plan is refused for rosters above 38 entrants unless `h` or `F`
+change; the
+`live-v1` segment count shrinks at 29 to 35 executed entrants.
+
 Pre-finalized scores and readings (whitepaper Section 5; built, not yet
 deployed) change no released score. After the seal, each executed model's
 quantized score or withheld outcome is shown, marked pre-finalized, as soon as

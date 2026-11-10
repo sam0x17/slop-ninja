@@ -80,6 +80,11 @@ ModernBERT-base.
   if your cohort's manifest enforces the span gate under a spec without
   them, it fails the gate at scoring. Either way the artifact needs a token
   head with the 24-word decoder floor ([Spans](miner-guide.md#rewards)).
+- **Gate feedback.** Each signed cohort manifest binds the gate thresholds.
+  For a plan naming the gate feedback record, the closed-cohort summary
+  publishes those thresholds and each scored entrant's coarse failed-gate
+  classes (built, not deployed). Gate statistics and per-document results
+  stay private ([Rewards](miner-guide.md#rewards)).
 - **Reused human documents.** Testnet cohorts may reuse human documents that
   earlier cohorts used, and those documents may be exposed.
 

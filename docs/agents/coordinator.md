@@ -14,7 +14,12 @@ the reward outcome and derives the native row. It signs a private score package
 root and count), which never leaves its storage, and a public quantized result
 (per entrant its quantized score or withheld, band, gate and public-copy bits,
 cluster membership and units; the references' quantized scores; the bit
-budget's terms), from which anyone can recompute the row. Once a tempo, from its
+budget's terms), from which anyone can recompute the row. For a plan naming
+`reward_v1.feedback` it also signs a gate feedback record beside the result
+(the gate thresholds the manifest binds, and per scored entrant the coarse
+classes of the gates it failed; built, not deployed): it changes neither the
+result nor the row, and its bits are counted in the cohort's bit budget
+([rewards](rewards.md#quantization-noise-and-the-bit-budget)). Once a tempo, from its
 own finalized registration snapshot and independently of its own commitment, it
 derives the active target's row and signs a new coordinator row record when the
 paid entries change (chain binding, reward rule, cohort and manifest digest,

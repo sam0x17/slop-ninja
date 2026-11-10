@@ -1223,9 +1223,15 @@ What becomes public, and what never does
   public-copy gate, and its cluster, with the grid width and both references'
   quantized scores. The coordinator's signed row, with each paid UID's
   integer weight, is published beside its authorization. Before the close
-  nothing shows a rank, band, cutoff, gate bit or cluster.
-- **Never public:** exact scores, which gate failed and why, the hidden
-  documents, their labels and per-document predictions, and the coordinator's
+  nothing shows a rank, band, cutoff, gate bit or cluster. Built, not deployed:
+  the summary also gives the admission reason for an unexecuted entrant
+  (`copy` or `qualification`). For a cohort whose plan names the gate
+  feedback record, it gives the gate thresholds and each scored entrant's
+  failed classes: `share`, `attribution` and `human_fpr` (the loose
+  pure-human false-positive tier).
+- **Never public:** exact scores, gate statistics, margins by which a gate
+  was missed, private reason codes, the hidden documents, their labels and
+  per-document predictions, and the coordinator's
   score package and receipts. Refused, overflow and superseded uploads are
   deleted no later than the close and never published.
 
@@ -1246,9 +1252,11 @@ the cutoff and band edges are given on the same scale.
 the per-entrant pure-human false-positive tier, and the span gate where the
 cohort's manifest enforces it, are gates: they decide eligibility and carry
 no reward weight. Each cohort's signed manifest freezes its gate
-thresholds; the published result carries only the gate bits, and the private
-score package records each failed gate with its reason. A failed gate earns
-nothing.
+thresholds; the published result carries the gate bits, and the private
+score package records each failed gate with its reason. A cohort whose plan
+names the gate feedback record also publishes its thresholds and each
+scored entrant's coarse failed-gate classes after the close (built, not
+deployed). A failed gate earns nothing.
 
 **Spans.** The span gate measures each entrant's AI spans against span
 package d24, the gate's fixed anchor

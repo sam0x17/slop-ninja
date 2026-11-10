@@ -61,11 +61,14 @@ companion are attached to the testnet release as two tar archives
   the coordinator's quantized scores under `quant-v1`: the grid width,
   each entrant's `q`, band, gate bit, public-copy gate bit and cluster
   membership, with the entrants in roster order, and `R_k`'s and
-  `R_k-1`'s `q`. The coordinator's signed row is published beside its
+  `R_k-1`'s `q`; and, for a cohort whose plan names the gate feedback
+  record ([below](#gate-feedback-gate-feedbacksigned)), the cohort's gate
+  thresholds and each scored entrant's coarse failed-gate classes. The
+  coordinator's signed row is published beside its
   authorization. Nothing else computed from the hidden predictions is
   published: no exact score, SE, quantization offset or noise, near-copy
-  or probe statistic, distance monitor, attempt or failure count, receipt
-  or rank field. Rewards are computed from the quantized scores alone
+  or probe statistic, gate statistic or reason code, distance monitor,
+  attempt or failure count, receipt or rank field. Rewards are computed from the quantized scores alone
   (`reward-v2`), so the row and the weights validators reveal on chain
   follow from the published `q` values, bits and membership, and carry no
   order beyond them. Layout v1 as a publisher built before the copy model
@@ -85,7 +88,7 @@ companion are attached to the testnet release as two tar archives
 | `index.html`, `style.css` | The leaderboard page, rendered from `v1/leaderboard.json` (no score column) | with `v1/leaderboard.json` |
 | `v1/status.json` | The status snapshot (unsigned), schema `slop_ninja.public.status/v1` | every run (one a minute) |
 | `v1/cohorts/index.json` | The cohort index, schema `slop_ninja.public.cohort_index/v1` | when a cohort is published or an artifact lands |
-| `v1/cohorts/<label>/summary.json` | One closed cohort's quantized summary, schema `slop_ninja.public.cohort_summary/v3` (below) | never, once listed |
+| `v1/cohorts/<label>/summary.json` | One closed cohort's quantized summary, schema `slop_ninja.public.cohort_summary/v4` (below; a cohort listed earlier keeps its `v3` summary) | never, once listed |
 | `v1/cohorts/<label>/artifacts.json` | Publication at scoring start: each roster entry's artifact state, header digest and published keys, schema `slop_ninja.public.artifacts/v1` | from scoring start until every entry is decided |
 | `v1/cohorts/<label>/publication.json` | The publisher's record of the cohort, schema `slop_ninja.public.publication/v1` | when an artifact lands |
 | `v1/leaderboard.json` | The newest listed cohort's leaderboard, schema `slop_ninja.public.leaderboard/v4`: its summary's rows in roster order with each artifact's state, no rank or exact score ([below](#the-leaderboard-v1leaderboardjson)) | when the newest cohort is listed or one of its pending artifacts is settled; deleted at a record restart |
@@ -109,6 +112,7 @@ names in the private receipts bucket at `cohorts/<label>/`:
 | `manifest.signed` | `CohortManifestV2`, package key | yes: the chain, label and roster |
 | `result.signed` | `QuantizedResult`, package key: the cohort's public record under `quant-v1` (below) | yes |
 | `closure.signed` | `CohortClosure` (version 2), package key: phase epochs, the target, the result's digest and every entrant's commitment opening | yes |
+| `gate-feedback.signed` | `GateFeedbackV1`, package key, for a plan naming `reward_v1.feedback`: the cohort's gate thresholds and each entrant's coarse failed-gate classes ([below](#gate-feedback-gate-feedbacksigned)) | yes, when stored |
 | `package.signed` | `ScorePackageV2`, package key: the exact scores, every hidden measurement, the SE sums and the quantization draws | never |
 | `components.json` | the coordinator's private diagnostics | never |
 | `target.signed`, `receipt-index.signed`, `chunk-map.json`, `receipts/...`, the published-content and fingerprint indexes, `closure-fingerprints.json` | targets, receipts and indexes | never |
@@ -136,6 +140,45 @@ bit budget are recomputed from the published values alone
 `publication.json` names the summary by SHA-256 and states the artifact
 state of every entrant (below).
 
+### Gate feedback: `gate-feedback.signed`
+
+A cohort whose plan names `reward_v1.feedback` (rule
+`slop_ninja_gate_feedback_v1`) stores a second public record beside the
+result, `GateFeedbackV1` (kind `gate-feedback`, version 1, package key;
+[`gate_feedback.rs`](../../subnet/crates/protocol/src/gate_feedback.rs)).
+It changes no other record: the result, package, closure, target and row
+are as above, and a plan without the block stores none. It carries:
+
+- the cohort's chain, number, label, manifest digest and the digest of its
+  `QuantizedResult`;
+- the gate thresholds: the manifest's gate-policy digest and the plan values
+  that policy holds (`operating_ppb`, `loose_fpr_max_permille`,
+  `strict_fpr_max_permille`, `share_mae_max_ppb`,
+  `attribution_min_permille`), whether they are provisional, and whether
+  the manifest enforces the span gate. They are fixed before any document
+  is scored and add no hidden-data bits;
+- per roster entry, in roster order: the result's not-executed reason
+  (`copy` or `qualification`, decided at admission from public data), the
+  withheld outcome (nothing more), or, for a scored entrant, the set of
+  gate classes it failed among `share`, `attribution` and `human_fpr` (the
+  loose pure-human false-positive tier). The set is empty exactly when
+  every gate but the public-copy gate passed, except that under an enforced
+  span gate a span-only failure has an empty set (its value is the span
+  gate's record's). No statistic, margin, count, reason code or
+  per-document value appears;
+- its own bits and the cohort's complete counted total, with `n`, `h` and
+  `F`.
+
+Its counted term is `max(g - 1, 0)` bits per executed entrant, where `g` is
+the number of classes the thresholds let fail (share below the largest
+error, attribution above zero, the loose tier below every human): the
+result's gate bit is a function of the set, so the set adds `g - 1` bits to
+the bit it already counts. Testnet's template lets share and the loose tier
+fail and not attribution, so `g = 2` and the record counts one bit per
+executed entrant: with 40 entrants, testnet's roster limit, 786 of the 800
+bits `n h / F` allows (746 without it). Opening it validates it and
+`GateFeedbackV1::check_result` checks it against the result.
+
 ### What the publisher checks
 
 Every publisher runs these checks on a closed cohort's objects in the
@@ -153,6 +196,12 @@ validator never runs them
    result's mode produced one, and opens every entrant's commitment
    (`CohortClosure::check_result`), and its phase epochs meet the
    manifest's frozen schedule (`CohortClosure::check_schedule`).
+4. A stored gate feedback record opens under the package key within its
+   bound, and is the one the result and manifest frame
+   (`GateFeedbackV1::check_result`, `GateFeedbackV1::check_manifest`: the
+   manifest's digest, gate-policy digest and span-gate flag). A record that
+   fails is left out of the summary and reported as a refusal (an alert);
+   it never holds the cohort.
 
 The coordinator checks the rest privately before it signs: the package
 against the manifest, the target and receipts against the package, the
@@ -162,12 +211,12 @@ the closure.
 
 ### The cohort summary: `summary.json`
 
-Schema `slop_ninja.public.cohort_summary/v3`, built from the verified
-result alone:
+Schema `slop_ninja.public.cohort_summary/v4`, built from the verified
+result and, when one is stored, the verified gate feedback record:
 
 ```json
 {
-  "schema": "slop_ninja.public.cohort_summary/v3",
+  "schema": "slop_ninja.public.cohort_summary/v4",
   "network": "testnet",
   "chain": { "genesis": "8f9c…3105", "netuid": 601, "mechanism": 0 },
   "cohort": 12, "label": "testnet-c12", "opened_epoch": 23100, "closed_epoch": 23120,
@@ -182,9 +231,20 @@ result alone:
     "bands": [ { "band": 1, "lower": "0.90", "upper": "0.96" } ]
   },
   "promoted": "<ss58>",
+  "gates": {
+    "provisional": true, "policy": "<64 hex>",
+    "operating_ppb": 600000000, "loose_fpr_max_permille": 100, "strict_fpr_max_permille": 50,
+    "share_mae_max_ppb": 300000000, "attribution_min_permille": 0,
+    "min_success_max_failed": 2, "localization_enforced": false
+  },
   "entrants": [
     { "uid": 7, "hotkey": "<ss58>", "hotkey_hex": "<64 hex>", "q": "0.90", "band": 1,
-      "gate": "pass", "copy_gate": "pass", "cluster": { "uid": 7, "hotkey": "<ss58>" } }
+      "gate": "pass", "copy_gate": "pass", "cluster": { "uid": 7, "hotkey": "<ss58>" },
+      "gate_classes": [] },
+    { "uid": 9, "hotkey": "<ss58>", "hotkey_hex": "<64 hex>", "q": "0.81", "band": null,
+      "gate": "fail", "copy_gate": "pass", "cluster": null, "gate_classes": ["share", "human_fpr"] },
+    { "uid": 12, "hotkey": "<ss58>", "hotkey_hex": "<64 hex>", "q": null, "band": null,
+      "gate": "not_executed", "copy_gate": "fail", "cluster": null, "not_executed": "copy" }
   ]
 }
 ```
@@ -203,13 +263,30 @@ result alone:
   multiples of `W_q`.
 - No field carries a rank. The q-rank (`q` descending, then roster order)
   follows from the published values.
+- `not_executed` (only on a `not_executed` entrant) is `copy` (its
+  inference content is that of a published artifact) or `qualification`.
+- `gates` and `gate_classes` come from the cohort's gate feedback record
+  (the example's thresholds are illustrative)
+  ([above](#gate-feedback-gate-feedbacksigned)) and are absent without one.
+  `gates` holds the thresholds in the record's units (parts per billion,
+  per mille) with the minimum-success limit `k_n` and whether the manifest
+  enforces the span gate (`localization_enforced`); `gate_classes` lists a
+  scored entrant's failed classes in the order `share`, `attribution`,
+  `human_fpr`, empty when none failed, and is absent for a withheld or
+  never-executed entrant. A `fail` with an empty list failed only the
+  public-copy gate (`copy_gate` says so) or, under an enforced span gate,
+  only the span gate.
+- A `cohort_summary/v3` document (listed before the gate feedback fields)
+  is the same without them.
 
 The cohort index entry of a listed cohort also carries `best_q` (the
 highest `q` at or above the cutoff) and the cohort's `quantization` block.
 `v1/leaderboard.json` (schema `slop_ninja.public.leaderboard/v4`,
 [below](#the-leaderboard-v1leaderboardjson)) carries the newest cohort's
 `quantization` block, its references with their `q`, and its entrants as
-the summary lists them, without the `quality` block.
+the summary lists them, without the `quality` block and without the gate
+feedback fields (`gates`, `not_executed`, `gate_classes`), which only the
+summary carries.
 
 ### Artifacts: `artifacts/v2/<sha256>/header` and `blobs/sha256/<sha256>`
 
@@ -594,7 +671,8 @@ tree reads no receipt.
 
 Schema `slop_ninja.public.leaderboard/v4`: the newest listed cohort's
 [summary](#the-cohort-summary-summaryjson), each entrant with its artifact's
-state, plus the target and reference pointers after the close. It carries
+state, plus the target and reference pointers after the close, without
+the summary's gate feedback fields. It carries
 nothing computed from the hidden evaluation beyond the summary's quantized
 values: no exact score, rank, credit, units, count or distance. The rows
 are in roster order, not in rank order.

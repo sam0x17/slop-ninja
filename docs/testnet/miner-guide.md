@@ -10,6 +10,47 @@ Testnet has no monetary value. Read the [terms](terms.md) before you submit:
 submissions are licensed CC BY-SA 4.0, and an admitted artifact becomes
 public when its cohort's scoring starts.
 
+## Quick path
+
+The whole path, with the section for each step and what tells you it worked:
+
+1. **Get test TAO** on a testnet coldkey, for the registration cost and fees
+   ([What you need](#1-what-you-need)).
+2. **Download and verify the release**, then install the two binaries
+   ([Install](#2-install)): `ssh-keygen` prints `Good "file" signature`,
+   `sha256sum` prints `OK` for each file, and `slop_ninja_miner --version`
+   prints `slop_ninja_miner 0.1.0`.
+3. **Make a hotkey and register it on subnet 601** with rtao, which you build
+   with Rust ([steps 3 and 4](#3-wallet-and-hotkey)):
+   `rtao subnets metagraph 601 --network test` lists your hotkey with a UID.
+4. **Train an artifact** with the [training guide](training-guide.md)
+   ([step 5](#5-train-an-artifact)). Its smoke run gives an admissible but
+   weak model; its steps took about 12 minutes on the tested 24 GB GPU host,
+   not counting installs and downloads.
+   `slop_ninja_artifact_check --spec v3 check-dir` exits 0 on the result.
+5. **Pack and check it** with the release trust file set
+   ([steps 6 and 7](#6-pack-and-check)): `slop_ninja_miner check` exits 0
+   while a cohort admits (3 between windows: every local check passed, with
+   no cohort to compare against).
+6. **Wait for an admitting cohort** ([step 8](#8-wait-for-an-admitting-cohort)):
+   `slop_ninja_miner next-cohort` prints `admitting cohort <N>` with its
+   planned cutoff.
+7. **Commit and upload** in that cohort's window ([steps 9 and 10](#9-commit)),
+   or let `slop_ninja_miner resolve --artifact <object> --watch` do both:
+   `upload` prints `session <id> in cohort <N>: verified` and exits 0.
+8. **Follow the cohort** with `slop_ninja_miner status` and the
+   [status page](https://slop.ninja/testnet/status/) ([step 11](#11-status)).
+   After the cutoff your entry reads `admitted`, or `overflow` if the roster
+   was already full (40 entrants). Results are published when the cohort
+   closes, about a day after it opened
+   ([step 12](#12-at-the-cutoff-and-the-cohort-close)).
+9. **Enter a new model next time.** An admitted artifact is published when its
+   cohort's scoring starts, so entering it again earns nothing
+   ([Rewards](#13-rewards)).
+
+No miner is paid until an entrant passes the gates and its released score
+reaches the margin cutoff above `R_0` ([Rewards](#13-rewards)).
+
 ## What is live
 
 | Piece | State |
@@ -49,17 +90,23 @@ when it goes live. The release key is on the [landing page](README.md#release-ke
 
 - A Linux or macOS machine for the client. Linux x86_64 is tested; macOS and
   Linux arm64 are untested.
-- Rust 1.89 or later to build from source (rtao's minimum). The tested
-  toolchain is Rust 1.99.1.
+- Rust 1.89 or later (rtao's minimum; tested: 1.99.1) and a C compiler,
+  also when you use the release binaries: you build rtao, the wallet and
+  registration tool, from source, and the optional local scorer too. On
+  platforms without release binaries you also build the client.
 - A training machine as the [training guide](training-guide.md#what-you-need)
   describes: tested on Linux x86_64 with a 24 GB NVIDIA GPU and CUDA 12.8
   wheels, and about 16 GB of disk.
-- About 1.3 GB of free disk per artifact: the six model files (about 605 MB)
-  and the packed object (about 610 MB).
+- About 1.3 GB of free disk per artifact: the six model files and the packed
+  object, about 613 MB each for R0.
 - Test TAO on a testnet coldkey, for registration and transaction fees. The
-  registration cost floats: it read about 0.155 τ on October 30, 2026 and
-  0.0005 τ on November 1, 2026. SlopNinja does not hand out test TAO; use the
-  community testnet sources.
+  registration cost floats: on November 10, 2026 it read 0.0005 τ, subnet
+  601's floor (`rtao subnets burn-cost 601 --network test`); each
+  registration raises it, and it falls back toward the floor over the
+  following hours. It read about 0.155 τ on October 30, 2026. Keep a little
+  more for the call's fee ([step 4](#4-register-on-subnet-601)). SlopNinja
+  does not hand out test TAO; get it from the Bittensor community's testnet
+  sources, for example by asking in the Bittensor Discord.
 - An uplink that can send your packed object, up to about 955 MB (the spec's
   largest object), inside a cohort's admission window (16 tempos, about 19
   hours, under the testnet template; `next-cohort` prints each cohort's own; see
@@ -88,9 +135,20 @@ It holds no validator binaries: the validator client is changing, and a
 validator release follows later. The binaries need glibc 2.34 or later; on
 any other platform, build from source.
 
-Download the release's files into one directory (the two archives only if you
-want them), then verify them before you run anything, with the key and
-allowed-signers line from the [landing page](README.md#release-key):
+Download the release's files into a new, empty directory:
+
+```sh
+mkdir slop-ninja-release && cd slop-ninja-release
+REPO=https://github.com/sam0x17/slop-ninja
+TAG=testnet-v0.1.0
+for f in slop_ninja_miner slop_ninja_artifact_check testnet-trust.json SHA256SUMS SHA256SUMS.sig; do
+  curl -fLO "$REPO/releases/download/$TAG/$f"
+done
+```
+
+The two archives are optional ([below](#r_0-archives-optional)). Verify the
+files before you run anything, with the key and allowed-signers line from the
+[landing page](README.md#release-key):
 
 ```sh
 printf '%s\n' 'slop-ninja-testnet-release namespaces="file" ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIGCXMX0I4LTRrHt0MkCsDfg/OUeQ7Sfd0/EytxMUdYPK slop-ninja testnet release' > allowed_signers
@@ -109,8 +167,11 @@ for every file you downloaded (with `--ignore-missing` it skips the archives
 you left out; check that both binaries and `testnet-trust.json` are among
 them);
 stop if either does not. Take the key from the landing page, not from the
-release's own copy. Keep the release's `testnet-trust.json`: the signature
-covers it, and the client reads it to decide where it may upload.
+release's own copy. `slop_ninja_miner --version` then prints
+`slop_ninja_miner 0.1.0`; `~/.local/bin` must be on your `PATH`, or call the
+binaries by path. Keep the release's `testnet-trust.json`: the signature
+covers it, and the client reads it to decide where it may upload
+([step 7](#7-choose-the-endpoints) points `SLOP_NINJA_TRUST` at it).
 
 ### `R_0` archives (optional)
 
@@ -140,7 +201,8 @@ companion archive, `training/companion.json` and `training/parts/<sha256>`,
 R0's encoder and its classifier config as 64 MiB parts. The [reference
 packages](reference-packages.md) page describes the package.
 
-The archive files are covered by `SHA256SUMS`, so verify them with the
+To download them, run the download loop [above](#release-binaries-linux-x86_64)
+again in the same directory, with their two names as its list. The archive files are covered by `SHA256SUMS`, so verify them with the
 commands above. In the directory holding the release files, extract them and
 check the package digest and every file and part:
 
@@ -177,6 +239,10 @@ to the files it writes, so run it once, into the new directory the `mkdir`
 creates. `../r0-artifact` is the directory to give the [local
 scorer](#score-it-locally-optional), and
 `../r0-companion/model/encoder.safetensors` is the encoder for the warm start.
+Its `tokenizer.json` is the pinned tokenizer byte for byte
+([Tokenizer](artifact-spec.md#tokenizer)). Do not enter R0's files as they
+are: R0 is a published reference, so an entry with its inference content is
+admitted but never executed ([Copies earn nothing](#13-rewards)).
 
 ### Build from source
 
@@ -184,7 +250,7 @@ Build from the public repository:
 
 ```sh
 git clone https://github.com/sam0x17/slop-ninja
-cd <checkout>/subnet
+cd slop-ninja/subnet
 cargo build --release --locked -p slop_ninja_miner -p slop-ninja-artifact-check
 mkdir -p ~/.local/bin
 install -m 0755 target/release/slop_ninja_miner target/release/slop_ninja_artifact_check ~/.local/bin/
@@ -335,7 +401,7 @@ often decide admission:
   with equal values, which changes the structure. Export in the pinned
   environment the spec names (Python 3.12, torch 2.9.1, transformers 4.57.6;
   the exporter refuses others), and confirm
-  the class with `slop_ninja_artifact_check --spec v4 graph a-fp32band.onnx`
+  the class with `slop_ninja_artifact_check --spec v3 graph a-fp32band.onnx`
   (`graph_class` names it when the structure matches; otherwise
   `structure_difference` is the stream offset of the first differing byte).
   Spec v2 also serves the span class `a-span-f32band-v1` (the plain graph
@@ -360,7 +426,8 @@ often decide admission:
   `contract.json` and `heads.json` must carry exactly those.
 - **The tokenizer** must be byte-identical to the pinned file: SHA-256
   `6c8aaa9a542084f2457eab775d4eeb51f92a70c0fd9de28d5edb0ddec3c08d30`,
-  3,583,228 bytes. It is not in the repository. The upstream ModernBERT-base
+  3,583,228 bytes. It is not in the repository, but it is in R0's reference
+  package ([`R_0` archives](#r_0-archives-optional)). The upstream ModernBERT-base
   `tokenizer.json` is refused as it is (`tokenizer_mismatch`); the artifact
   spec's [Tokenizer](artifact-spec.md#tokenizer) section shows how to rebuild
   the pinned bytes from it at a pinned revision.
@@ -375,10 +442,12 @@ often decide admission:
   spec's canonical text profile records exactly what the scorer does to a
   document.
 
-Check the directory before you pack it:
+Check the directory before you pack it, under the spec your cohort names
+(spec v3 for the testnet cohorts; without `--spec` the checker checks spec
+v1, which admission never uses):
 
 ```sh
-slop_ninja_artifact_check check-dir ./my-artifact
+slop_ninja_artifact_check --spec v3 check-dir ./my-artifact
 ```
 
 A pass prints the report as JSON (the spec, the inference-content digest
@@ -459,23 +528,26 @@ contract before training.
 
 `slop_ninja_a_local_score` runs your artifact through the hidden scorer's own
 engine: the same admission, load guards, graph contract and heads runtime.
-Build it from the checkout and give it the ONNX Runtime 1.31.1 library: the
+The release does not include it. Build it with Rust from a checkout of the
+repository and give it the ONNX Runtime 1.31.1 library: the
 hidden scorer uses `onnxruntime/capi/libonnxruntime.so.1.31.1` from the
 onnxruntime 1.31.1 cp312 manylinux_2_28_x86_64 wheel (SHA-256
 `fc44112fbe06d7d689c57e11d3862031f64711007e4ee020f8eed5185fd2c1d3`); the
-training guide's environment already has it.
+training guide's environment already has it (the library is then
+`venv/lib/python3.12/site-packages/onnxruntime/capi/libonnxruntime.so.1.31.1`
+under the guide's working directory).
 
 ```sh
 cargo build --release --locked --manifest-path inference/a-container-serve/Cargo.toml \
   --bin slop_ninja_a_local_score
 inference/a-container-serve/target/release/slop_ninja_a_local_score \
   --model-dir ./my-artifact --docs my-docs.jsonl --out my-results.jsonl \
-  --spec v2 --ort-lib "$ORT_LIB"
+  --spec v3 --ort-lib /path/to/libonnxruntime.so.1.31.1
 ```
 
-`--spec` is the spec your cohort names (`v2` or `v3`); without it, the local
-scorer admits by spec v3, which also admits the tower class that a spec v2
-cohort refuses.
+`--spec` is the spec your cohort names (`v3` for the testnet cohorts); without
+it, the local scorer admits by spec v4, which admits exactly what spec v3
+admits.
 
 Each line of `my-docs.jsonl` is `{"id", "text"}`, optionally with
 `"involved"` (true when AI was involved) and `"share"` (the AI-written
@@ -579,8 +651,8 @@ it, which slow work or a coordinator outage moves later.
 
 Cohort times are subnet epoch indices: the chain's `SubnetEpochIndex` for
 subnet 601, which advances by one at each tempo boundary, about every 360
-blocks or 72 minutes. It is a per-subnet counter (about 113 for subnet 601 in
-early November 2026), not the block number divided by 360; the epochs in this
+blocks or 72 minutes. It is a per-subnet counter (239 for subnet 601 on
+November 10, 2026), not the block number divided by 360; the epochs in this
 guide's examples are illustrative. The report's first line gives the
 finalized block and the confirmed epoch. An epoch that lies *N* epochs after
 the confirmed one therefore starts roughly *N* × 72 minutes after the
@@ -664,7 +736,9 @@ directory with mode 0600 before it signs anything. It then signs
 `Commitments.set_commitment(601, [Raw44(payload)])` with the hotkey, where the
 44-byte payload is `"sna1" || u64_le(cohort) || commitment digest`, and reads
 the commitment back at finality. `--dry-run` prints the opening and the call
-and stores, signs and submits nothing. `--network` defaults to `test`; `--rpc`
+and stores, signs and submits nothing. It also reads your registration: for a
+hotkey without a UID it stops with `<address> is not registered on subnet 601
+at finalized block <B>` (exit 2). `--network` defaults to `test`; `--rpc`
 names endpoints.
 
 Rules:
@@ -752,6 +826,16 @@ left (`--quiet` turns them off).
 One hotkey enters at most one artifact per cohort. The session ends as
 `verified` or `refused`.
 
+**How you know it worked.** Once the coordinator has verified the upload,
+`upload` prints `session <id> in cohort <N>: verified; position block <B>
+extrinsic <E>` and exits 0. `verified` means the artifact passed every
+admission check; whether it is admitted is decided at the cutoff, by
+commitment position when the roster freezes
+([step 12](#12-at-the-cutoff-and-the-cohort-close)). If
+the coordinator is still verifying when `--wait-secs` (600 s) runs out,
+`upload` prints `verifying` and also exits 0: read `status` later. A refused
+session prints its code and exits 1.
+
 ## 11. Status
 
 ```sh
@@ -764,7 +848,7 @@ questions a miner has about the admitting or current cohort, each with
 `yes`, `NO`, `not yet` or `unknown` and its source:
 
 ```text
-hotkey 5F… in cohort 22 (testnet-r0-22): uploading
+hotkey 5F… in cohort 26 (testnet-r1-26): uploading
   registered?          yes      uid 12, hotkey 5F…k2Qz (status API)
   commitment seen?     yes      inside the admission window (status API)
   upload verified?     not yet  uploading
@@ -789,7 +873,12 @@ your wallet is named, and your local openings. `status` reads no chain
 state and changes nothing. `--json` prints the answers as one JSON object;
 `--watch` reads again about once a minute and prints them when they change
 (`--max-wait-secs` bounds it). Until the status API publishes each miner's
-intake state, many answers read `unknown`.
+intake state, many answers read `unknown`. `registered?` reads `unknown` until
+it publishes the registry, and the next step printed under the answers can then
+say to commit even for a hotkey with no UID. Check your registration with
+`rtao subnets metagraph 601 --network test`; with your wallet named, the
+coordinator's view at the end of `status` answers `not_registered` (exit 1)
+for such a hotkey.
 
 After the answers, `status` prints the public snapshot (unsigned, and labelled so) or, without
 `--public`, the same calendar from the coordinator's unsigned cohort read
@@ -814,7 +903,7 @@ Session states: `uploading`, `verifying`, `verified`, `refused`, `admitted`,
 
 ### The status API
 
-The [Testnet Status](https://slop.ninja/status/) page's tracker links to a
+The [Testnet Status](https://slop.ninja/testnet/status/) page's tracker links to a
 read-only JSON API that needs no key and allows any origin (CORS):
 
 ```sh
@@ -929,7 +1018,9 @@ The cohort then runs without you:
   artifact (header and files) is published in the public bucket, except an
   operator's or a reference's: the header at
   `artifacts/v2/<header sha256>/header` and each file at
-  `blobs/sha256/<file sha256>`.
+  `blobs/sha256/<file sha256>`. Until the public status host goes live, the
+  public bucket cannot be read from outside; the artifacts already in it
+  become readable when it opens.
 - **Scoring.** Every admitted artifact, the reference and its predecessor, when
   one exists, score the same documents, each document independently. Every
   executed entrant also runs once on a private 1,024-document probe used for
@@ -1057,9 +1148,11 @@ whitepaper's rewards section gives every step.
 reference counts, including your own earlier entries. An entrant whose
 inference content equals any published artifact's is not executed: entering
 the model you entered before gets it admitted but never scored, so every
-cohort needs a new model. One within the near-copy distance of a published
-artifact, or of either reference, fails the public-copy gate unless it scores
-more than half a band above it.
+cohort needs a new model. The inference content covers every file except
+`manifest.json`, so a changed export record alone does not make a new model.
+One within the near-copy distance of a published artifact, or of either
+reference, fails the public-copy gate unless it scores more than half a band
+above it.
 
 ### Reference model
 

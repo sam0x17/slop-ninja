@@ -494,15 +494,19 @@ class digest and every validation output is finite.
 ```sh
 $PY $PYDIR/public_a.py assemble --release release --graph graph/a-fp32band.onnx \
   --record graph/export.json --out artifact
-$B/slop_ninja_artifact_check check-dir artifact
+$B/slop_ninja_artifact_check --spec slop_ninja_a_artifact_spec_v3 check-dir artifact
+```
+
+The checker checks the directory under spec v3 (named here by its full id),
+the spec the testnet cohorts name. It prints its report and exits 0 when the
+directory passes. A refusal prints `refused <code>: <detail>` and exits 2; a
+path it cannot read is reported as `refused object`. It exits 64 on a usage
+error and 0 for `--help`. Then pack the directory and check the object:
+
+```sh
 $B/slop_ninja_miner pack --dir artifact --out artifact.obj
 $B/slop_ninja_miner check artifact.obj
 ```
-
-`slop_ninja_artifact_check check-dir` prints its report and exits 0 when the
-directory passes. A refusal prints `refused <code>: <detail>` and exits 2; a
-path it cannot read is reported as `refused object`. It exits 64 on a usage
-error and 0 for `--help`.
 
 `slop_ninja_miner check` without an endpoint (no `SLOP_NINJA_TRUST`,
 `--coordinator` or `--public`), or while no cohort is admitting and the

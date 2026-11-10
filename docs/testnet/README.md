@@ -34,7 +34,7 @@ Testnet subnet 601 is the rehearsal. It has no monetary value.
 | --- | --- |
 | Network | Bittensor testnet, netuid 601 |
 | What you submit | one *A* artifact per hotkey per cohort: an ONNX graph of the allow-listed ModernBERT-base architecture, heads, calibration, contract and the pinned tokenizer ([artifact spec](artifact-spec.md)) |
-| Cohorts | one a day: 20 tempos of 360 blocks; admission lasts 16 tempos under the testnet template (at least one tempo by the rules; a cohort keeps the window it was queued with, so earlier ones admit for one tempo or 17; `next-cohort` prints each cohort's own) |
+| Cohorts | one a day: 20 tempos of 360 blocks; admission lasts 16 tempos (about 19 hours) under the testnet template (at least one tempo by the rules; a cohort keeps the window it was queued with; `next-cohort` prints a cohort's window once the coordinator has planned it) |
 | Roster cap | 40 entrants per cohort, earliest finalized commitment first |
 | Batch | about 1,000 hidden documents per cohort, human-only, mixed and model-only |
 | Reward | AI-involvement Brier, against the reference `R_k`; share, attribution and false-positive tiers are gates; released scores are quantized on a grid with seeded noise (`quant-v1`), and the cutoff, credit and rank use them alone |
@@ -47,7 +47,8 @@ Testnet subnet 601 is the rehearsal. It has no monetary value.
 ## Start here
 
 - **Miners:** the [miner guide](miner-guide.md) goes from installing the client
-  to a committed, uploaded artifact. The [training guide](training-guide.md)
+  to a committed, uploaded artifact; its [Quick path](miner-guide.md#quick-path)
+  lists the steps and what tells you each one worked. The [training guide](training-guide.md)
   trains an admissible artifact from ModernBERT-base and public data, and
   ends with `pack` and `check`.
 - **Validators:** the [validator guide](validator-guide.md) (experimental).

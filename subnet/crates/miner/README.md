@@ -336,9 +336,10 @@ No small example artifact passes `check`: the graph class fixes the graph at
 that agree with it. Synthetic objects reach only refusals, as these tests use
 them; the artifact-check crate's own tests run R0 through the same checks.
 
-Not qualified here: the live `commit` submission path, R2's behaviour on real
-presigned PUTs (design gates G0 to G13), and an upload to the real
-coordinator, whose admission v2 routes are being built on the same branch.
+These tests do not cover the live `commit` submission path, R2's behaviour on
+real presigned PUTs (design gates G0 to G13) or an upload to the real
+coordinator. The coordinator's admission v2 routes are live on testnet
+([what is live](../../../docs/testnet/miner-guide.md#what-is-live)).
 
 ## Operator tool: `slop_ninja_reference_stage`
 

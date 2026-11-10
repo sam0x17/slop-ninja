@@ -13,7 +13,9 @@ structure streams; [Spec v4](#spec-v4) lists exactly what it changes.
 two refusals: an artifact without a token head, and a span decoder that is
 not `slop_ninja_span_decoder_v1` with a minimum span of at least 24 words, the
 floor the span gate evaluates spans under; [Spec v5](#spec-v5) lists exactly
-what it changes. Spec v1 to v4 refuse neither. A cohort names the spec it checks by id and digest, and the
+what it changes. Spec v1 to v4 refuse neither. The `testnet-v0.1.0` release's
+client and checker define spec v1 to v4; checking spec v5 needs a later
+release. A cohort names the spec it checks by id and digest, and the
 scorer admits each of the cohort's artifacts by that spec: a load names it
 by digest, and a load that names none is admitted by spec v2. The scorer
 admits by spec v2, v3, v4 or v5, never by spec v1, which bounds no JSON file, so an
@@ -37,9 +39,9 @@ prints the whole spec as one JSON record with its digest.
 `slop_ninja_artifact_check` exits 0 on success and 2 on a refusal, which it
 prints as `refused <code>: <detail>`; a path it cannot read is refused as
 `object`. It exits 64 on a usage error, and `--help` prints the usage and
-exits 0. It checks spec v1 unless given `--spec v2`, `--spec v3` (or a full
-spec id) before the command; `--version` prints every spec id it defines with
-its digest.
+exits 0. It checks spec v1 unless given `--spec v2`, `--spec v3`, `--spec v4`,
+`--spec v5` (in a build that defines it) or a full spec id before the
+command; `--version` prints every spec id it defines with its digest.
 `canonical DIR OUT` writes a copy of a model directory with its JSON files
 re-encoded in their canonical layouts and the digests that bound the old bytes
 rebound, then checks the copy; it is for exporters whose writers use other
@@ -112,15 +114,19 @@ The mapping reproduces R0's deployed package byte for byte (`2f88b0d2…678559`)
 when given that package's `profile_id` (`a-baseline-rc-s17-f32band-v1`). Under
 this spec, R0's files map to `profile_id`
 `slop_ninja_a_artifact_spec_v1/a-plain-f32band-v1` and package `3d54a7d2…3aa9a7`.
-R0's inference-content digest is `63a0e608…c2a0a6`. The scorer refuses a
+R0's inference-content digest is `63a0e608…c2a0a6`. These three digests were
+measured on R0's files before the
+[provenance rewrite](reference-packages.md#provenance-rewrite); the published
+`R_0` package's files have inference-content digest `d7232991…a36f` (spec v3
+package `3c0ecc37…22c9fe`). The scorer refuses a
 `profile_id` that no packer writes (`refused profile_id`): it must be
 `<spec id>/<graph class id>` for a version and class the tools define, or the
 served profile's id. A reference packed for a cohort keeps R0's deployed
 package digest only through `slop_ninja_a_served_profile pack`, which writes
-the served profile's id. R0's deployed package is one of SlopNinja's
-[reference packages](reference-packages.md), published under CC BY-SA 4.0
-when public access opens at the announce; with its files, anyone can check
-the R0 digests on this page and run the R0 tests below.
+the served profile's id. R0's published files are SlopNinja's `R_0`
+[reference package](reference-packages.md), published under CC BY-SA 4.0 and
+attached to the testnet release until public access opens; with them, anyone
+can check the published R0 digests and run the R0 tests below.
 
 ## Checks, in order
 

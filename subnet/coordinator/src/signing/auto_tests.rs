@@ -1757,6 +1757,165 @@ fn burn_now_names_every_pre_floor_cohort_and_refusals_change_nothing() {
     assert_eq!(resets, 1, "one restart");
 }
 
+/// A planned operation at `epoch` with one attempt in `state`.
+fn attempt_at(h: &H, epoch: u64, state: &str) {
+    let op = format!("op-{epoch}");
+    h.db.conn
+        .execute(
+            "INSERT INTO commit_ops (op_id, epoch, target, base_op, state, created_at_ms, updated_at_ms)
+             VALUES (?1, ?2, 't', 'b', 'committing', 1, 1)",
+            rusqlite::params![op, epoch as i64],
+        )
+        .unwrap();
+    h.db.conn
+        .execute(
+            "INSERT INTO sign_attempts (op_id, attempt, nonce, era_birth, era_period, expiry, era_hash, floor_block,
+                spec_version, tx_version, reveal_round, ciphertext_sha256, call_sha256, payload_sha256, extrinsic_hash,
+                extrinsic_hex, state, sends, signed_generation, signed_at_ms)
+             VALUES (?1, 1, 0, 0, 64, 64, 'h', 0, 486, 1, 1, 'c', 'c', 'p', ?2, '00', ?3, 0, 1, 1)",
+            rusqlite::params![op, format!("x-{epoch}"), state],
+        )
+        .unwrap();
+}
+
+/// The restart's attempt checks: an unresolved attempt refuses it
+/// (`attempt_unresolved`) and changes nothing until it resolves; and, with
+/// the journal's stored finalized index one epoch behind a signed
+/// operation (operations are planned from the RPC reading), the floor
+/// right after the stored index refuses (`epoch_signed`) and
+/// any later floor is past finalized + 1 (`restart_future`) until the index
+/// catches up. That wait is bounded by the index, never a lock, and the
+/// signed epoch keeps its one operation.
+#[test]
+fn a_restart_waits_for_unresolved_attempts_and_for_a_lagging_index() {
+    let h = H::new();
+    let counts = |h: &H| (h.db.count("sign_held_target_resets"), h.db.count("operator_actions"), h.db.count("commit_ops"));
+    attempt_at(&h, 240, "submitted");
+    let before = counts(&h);
+    assert_eq!(decide_restart(&h, signed(restart_body(&h, "att-1", 250, 250, &[], &[], None)), 300), Err("attempt_unresolved"));
+    assert_eq!(counts(&h), before, "nothing changed");
+    h.db.conn.execute("UPDATE sign_attempts SET state = 'included' WHERE op_id = 'op-240'", []).unwrap();
+    // m4: the stored index reads 299 while the operation of epoch 300 has
+    // signed; no RPC reading is passed.
+    h.observe_epoch(299);
+    attempt_at(&h, 300, "included");
+    let (_, key) = op_key();
+    let stored_only = |h: &H, body: serde_json::Value| {
+        tx(&h.db, |sql| crate::signing::decide::decide(sql, &h.cfg, &h.trusted, body, Some(&key), None, T0)).unwrap().map_err(|r| r.code)
+    };
+    assert_eq!(stored_only(&h, signed(restart_body(&h, "lag-1", 300, 300, &[], &[], None))), Err("epoch_signed"));
+    assert_eq!(stored_only(&h, signed(restart_body(&h, "lag-2", 301, 301, &[], &[], None))), Err("restart_future"));
+    assert_eq!(counts(&h), (before.0, before.1, before.2 + 1), "only the test's own operation was added");
+    // The index catches up: the next floor restarts, and epoch 300 keeps
+    // its one operation.
+    h.observe_epoch(300);
+    let v = stored_only(&h, signed(restart_body(&h, "lag-3", 301, 301, &[], &[], None))).unwrap();
+    assert_eq!(v["floor"], 301);
+    assert_eq!(tx(&h.db, restart_floor).unwrap(), Some(301));
+    let at_300: i64 = h.db.conn.query_row("SELECT COUNT(*) FROM commit_ops WHERE epoch = 300", [], |r| r.get(0)).unwrap();
+    assert_eq!(at_300, 1);
+    assert!(
+        h.db.conn
+            .execute(
+                "INSERT INTO commit_ops (op_id, epoch, target, base_op, state, created_at_ms, updated_at_ms) VALUES ('op-300b', 300, 't', 'b', 'preparing', 1, 1)",
+                [],
+            )
+            .is_err(),
+        "an epoch holds one operation"
+    );
+}
+
+/// After "burn now", a later cohort of the same
+/// authority chains from the eval's newest target, not from burn, so it is
+/// refused at the head of the line (`predecessor_not_held`) and the burn row
+/// stays held; a second restart names it in its set, and the handoff never
+/// tries it again.
+#[test]
+fn a_later_cohort_of_the_same_authority_waits_for_a_second_restart_after_burn_now() {
+    let h = H::new();
+    let (t1, _) = targets();
+    let mut b = Bucket::new(1000);
+    b.put(&t1, true);
+    assert_eq!(outcomes(&pass(&h, &mut b)), vec![(3, Some("installed"))]);
+    // Cohort 5 of the same authority, over T1, opens at epoch 100.
+    let q = successor(5, t1.target.unwrap(), 0);
+    let opened_q = 100;
+    assert!(t1.closed_epoch < opened_q, "{}", t1.closed_epoch);
+    // Burn now at its opening epoch: 5 is not in the set.
+    let v = decide_restart(&h, signed(restart_body(&h, "s3-1", opened_q, opened_q, &[], &[], None)), 300).unwrap();
+    assert_eq!(v["past"], serde_json::json!([]));
+    assert!(h.held().is_launch_burn());
+    // Cohort 5 closes: its target chains from T1, which is no longer held.
+    b.put(&q, true);
+    let r = pass(&h, &mut b);
+    assert_eq!(outcomes(&r), vec![(5, None)]);
+    assert_eq!(r.handled[0].error.as_deref(), Some("predecessor_not_held"));
+    assert!(h.held().is_launch_burn(), "the burn row stays held");
+    // A second restart names it.
+    let floor = q.closed_epoch + 1;
+    let r = decide_restart(&h, signed(restart_body(&h, "s3-2", floor, floor, &[], &[], None)), 300);
+    assert_eq!(r, Err("past_changed"), "a set that omits 5 is refused");
+    let v = decide_restart(&h, signed(restart_body(&h, "s3-3", floor, floor, &[5], &[], None)), 300).unwrap();
+    assert_eq!(v["past"][0]["cohort"], 5);
+    let reason: String = h.db.conn.query_row("SELECT reason FROM sign_restart_past WHERE floor = ?1 AND cohort = 5", [floor as i64], |r| r.get(0)).unwrap();
+    assert_eq!(reason, "restarted_past");
+    let r = pass(&h, &mut b);
+    assert!(r.handled.is_empty() && r.error.is_none(), "{r:?}");
+    assert!(h.held().is_launch_burn());
+}
+
+/// The restart set is bounded by opening epoch, never by number, also
+/// past an `auto_gap`: a number the operator recorded
+/// absent above a closed cohort the handoff has not handled (here refused at
+/// the head of the line) leaves that cohort in the set: a restart that
+/// omits it is refused, and one that names it journals it.
+#[test]
+fn a_recorded_gap_above_an_unhandled_cohort_keeps_it_in_the_restart_set() {
+    let h = H::new();
+    let mut b = Bucket::new(1000);
+    let c11 = successor(11, Digest([0x77; 32]), 0);
+    b.put(&c11, true);
+    let r = pass(&h, &mut b);
+    assert_eq!(r.handled[0].error.as_deref(), Some("predecessor_not_held"));
+    assert_eq!(tx(&h.db, |sql| mark_gap(sql, 12, T0)).unwrap(), Ok(12));
+    // 11 opened at epoch 220, before the floor.
+    assert_eq!(decide_restart(&h, signed(restart_body(&h, "gap-1", 250, 250, &[], &[], None)), 300), Err("past_changed"));
+    let v = decide_restart(&h, signed(restart_body(&h, "gap-2", 250, 250, &[11], &[], None)), 300).unwrap();
+    assert_eq!(v["past"][0]["cohort"], 11);
+    assert_eq!(h.db.count("sign_auto_absent"), 1, "the gap stays recorded, and the restart adds none");
+}
+
+/// P1-R end to end on the store schema, the coordinator's half (the
+/// validator's is `a_restart_over_an_activated_target_follows_the_new_records_first_cohort`):
+/// a restart sets an activated held target aside, its signed record names
+/// that target and its activation (`previous_target`), and the new chain
+/// record's first cohort, which chains from the launch burn row and opened
+/// at or after the floor, is installed by the handoff with no operator step.
+#[test]
+fn a_restart_from_an_activated_target_installs_the_new_records_first_cohort() {
+    let h = H::new();
+    let (t1, _) = targets();
+    let mut b = Bucket::new(1000);
+    b.put(&t1, true);
+    assert_eq!(outcomes(&pass(&h, &mut b)), vec![(3, Some("installed"))]);
+    let floor = 120;
+    let v = decide_restart(&h, signed(restart_body(&h, "e2e-1", floor, floor, &[], &[], None)), 300).unwrap();
+    assert_eq!(v["held_activated_epoch"], t1.closed_epoch);
+    let rec: String = h.db.conn.query_row("SELECT record_hex FROM sign_restart_records", [], |r| r.get(0)).unwrap();
+    let rec = <slop_ninja_protocol::decisions::ChainRestart as Record_>::from_bytes(&hex::decode(rec).unwrap()).unwrap();
+    assert_eq!((rec.previous_target, rec.previous_activated_epoch), (t1.target, Some(t1.closed_epoch)));
+    assert_eq!(h.pointer_kind(), "launch");
+    // The new record's first cohort: number 7 (opened at 140), over burn.
+    let launch = CalculationTargetV2::launch_burn(fx::chain()).digest().unwrap();
+    let first = successor(7, launch, 0);
+    b.put(&first, true);
+    let r = pass(&h, &mut b);
+    assert_eq!(outcomes(&r), vec![(7, Some("installed"))], "{r:?}");
+    assert_eq!((h.held().digest(), h.held().activated_epoch()), (first.target.unwrap(), Some(first.closed_epoch)));
+    assert!(first.closed_epoch >= floor);
+    assert_eq!(h.pointer_kind(), "cohort");
+}
+
 /// P1-R `launch_needs_restart`: after the first install, a different launch
 /// bundle on the operator route is refused, and a byte-identical re-post of
 /// the active one is an idempotent replay that writes nothing.

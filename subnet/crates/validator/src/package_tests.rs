@@ -2391,6 +2391,58 @@ fn reward_v1_targets_switch_through_retained_work_and_refuse_rollbacks() -> Resu
     Ok(())
 }
 
+/// P1-V end to end over the coordinator's records: the validator holds T1
+/// (activated at epoch 80); the coordinator restarts to burn from floor 120
+/// (its launch row issued there); the new chain record's first cohort chains
+/// from the launch burn row and activates after the floor. The validator
+/// accepts the restart (the burn row with floor 120), defers a replayed
+/// pre-restart row that activated before the floor (`row_before_restart`,
+/// nothing changes), then accepts the new record's first row and keeps the
+/// floor, in a v2 held-target record.
+#[test]
+fn a_restart_over_an_activated_target_follows_the_new_records_first_cohort() -> Result<()> {
+    let root = scratch()?;
+    let (first, _, mut specs) = rv1::cohorts();
+    let (fresh, fresh_specs) = rv1::single(0x44);
+    specs.extend(fresh_specs);
+    let mut app = rv1_app(root.path())?;
+    let snap = rv1::snapshot(&specs);
+    app.snapshot = snap.clone();
+    let dry = |app: &mut TestApp| block_on(apply(app, &head(), Mode::DryRun, &Faults::none()));
+    app.bundle = rv1::bundle(&first, &snap);
+    app.epoch = 80;
+    assert!(matches!(dry(&mut app)?, AppOutcome::DryRun { .. }));
+    assert_eq!(app.held.as_ref().map(|h| (h.activated_epoch, h.restart_floor)), Some((Some(80), None)));
+    // The restart: the launch row issued at the floor, after the activation.
+    app.bundle = rv1::launch(120);
+    app.epoch = 120;
+    match dry(&mut app)? {
+        AppOutcome::DryRun { entries, .. } => assert_eq!(entries, vec![(2, 65535)], "the burn row"),
+        other => panic!("expected the burn row, got {other:?}"),
+    }
+    let held = app.held.clone().context("held")?;
+    assert_eq!((held.schema.as_str(), held.activated_epoch, held.restart_floor), (crate::package_v2::HELD_TARGET_SCHEMA, None, Some(120)));
+    // A replayed pre-restart row: T1's, which chains from the launch burn
+    // row but activated before the floor.
+    app.bundle = rv1::bundle(&first, &snap);
+    app.epoch = 121;
+    match dry(&mut app)? {
+        AppOutcome::Deferred { code, .. } => assert_eq!(code, "row_before_restart"),
+        other => panic!("expected a deferral, got {other:?}"),
+    }
+    assert_eq!(app.held, Some(held.clone()), "nothing changed");
+    // The new record's first cohort, activating after the floor.
+    let activated = fresh.closure.closed_epoch;
+    assert!(activated >= 120);
+    app.bundle = rv1::bundle(&fresh, &snap);
+    app.epoch = activated;
+    assert!(matches!(dry(&mut app)?, AppOutcome::DryRun { .. }));
+    let held = app.held.clone().context("held")?;
+    assert_eq!((held.activated_epoch, held.restart_floor), (Some(activated), Some(120)), "the floor stays");
+    assert_eq!(held.target, slop_ninja_protocol::Record::digest(&fresh.target).map_err(|e| anyhow::anyhow!("{e}"))?.to_string());
+    Ok(())
+}
+
 /// A multi-UID reward-v1 row sums to 65,535, but it is committed, and read
 /// back after its reveal, in the max-upscaled form that rtao's preparation
 /// and the chain's reveal both produce; that form is what reaches rtao and

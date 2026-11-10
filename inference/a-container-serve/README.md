@@ -216,7 +216,7 @@ ONNX Runtime library and the binary only; no model.
   `[A-Za-z0-9-]`). `/healthz` reports `"single_use": true` and the binding,
   its spec included.
   The coordinator's lane client (`subnet/coordinator/src/cf_lanes.rs`, with
-  its pure parts in `src/eval/scorer_client.rs`) reads `/healthz` before it
+  its pure parts in `subnet/crates/scorer-client`) reads `/healthz` before it
   uses a running instance and destroys one bound to another package or
   cohort, or whose load of this binding failed, without counting a start
   failure; it names its cohort label on load and score when the scorer
@@ -375,7 +375,7 @@ change spec v2's value budget, so it waits for a later spec version.
 ### Deployment prerequisites
 
 - **Loads that name spec v3 or v4.** The coordinator's loads (the lane client's
-  `load_path` in `subnet/coordinator/src/eval/scorer_client.rs`, which the
+  `load_path` in `subnet/crates/scorer-client/src/lib.rs`, which the
   operator probe also uses) name the digest of the spec the cohort's plan
   names (`fanout.score.artifact_spec`), and the operator probe the one its
   request names (`artifact_spec`); a plan or probe that names none is

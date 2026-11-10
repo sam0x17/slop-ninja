@@ -7,7 +7,8 @@
 //! header, and every reader of the files takes the header's digests: the
 //! spec's hash-free files check, the role binding and load guards, the
 //! upload Worker's header check and its routes, the signer, the scorer
-//! Container's placement and load path, and the publisher's publication at
+//! Container's placement and load path, the scorer client and the detect
+//! Worker's package load, and the publisher's publication at
 //! scoring start (its copies are R2's: a binding stream R2 verifies, or a
 //! server-side `CopyObject`, checked by R2's stored checksum or etag).
 //!
@@ -241,7 +242,33 @@ fn nothing_after_the_commit_hashes_model_bytes() {
     scan("coordinator/eval/v3.rs", without(&v3, &["fn record_digest("]));
     let lanes = production(&r.join("coordinator/src/cf_lanes.rs"));
     scan("coordinator/cf_lanes.rs load", body(&lanes, "    async fn load(").to_owned());
+    // The scorer client's pure half (`slop-ninja-scorer-client`, shared by
+    // the coordinator's lanes and the detect Worker's lane): load routes,
+    // bindings and refusals, with no hash at all and no hash crate. The
+    // coordinator's `eval/scorer_client.rs` re-exports it.
+    let client_src = r.join("crates/scorer-client/src");
+    let mut client_files: Vec<PathBuf> = std::fs::read_dir(&client_src)
+        .unwrap()
+        .map(|e| e.unwrap().path())
+        .filter(|p| p.extension().is_some_and(|x| x == "rs"))
+        .collect();
+    client_files.sort();
+    assert!(client_files.iter().any(|p| p.ends_with("lib.rs")), "the scorer client's sources: {client_files:?}");
+    for path in &client_files {
+        scan(&format!("scorer-client/{}", path.file_name().unwrap().to_string_lossy()), production(path));
+    }
+    let client_manifest = std::fs::read_to_string(r.join("crates/scorer-client/Cargo.toml")).unwrap();
+    assert!(hash_dependencies(&client_manifest).is_empty(), "the scorer client has no hash crate");
     scan("coordinator/eval/scorer_client.rs", production(&r.join("coordinator/src/eval/scorer_client.rs")));
+    // The detect Worker's lane: its load streams the staged package's
+    // chunks to the instance as ranged reads pinned to each file's entity
+    // tag. Its one hash is the files manifest's package digest (a small
+    // record, compared with the pinned load digest), in `load`.
+    let lane = production(&r.join("detect-worker/src/cf_lane.rs"));
+    let manifest_digest = "<sha2::Sha256 as sha2::Digest>::digest(&manifest)";
+    assert_eq!(lane.matches(manifest_digest).count(), 1, "the detect lane hashes only the files manifest");
+    assert_eq!(body(&lane, "    async fn load(").matches(manifest_digest).count(), 1, "the manifest digest is the load's");
+    scan("detect-worker/cf_lane.rs", lane.replacen(manifest_digest, "", 1));
 
     // The upload Worker: its header route decodes the header record and
     // derives the content digest through `check_header_bytes` (scanned

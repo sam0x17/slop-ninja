@@ -1900,7 +1900,7 @@ operator scorer probe names none. A `refused <code>` reply is a definitive
 artifact failure, except a failed load's `refused object`, which can also be
 the instance's own read fault and counts only on a fresh instance; 409
 `instance_bound`, 409 `missing_parts` and 507
-`insufficient_memory` are the platform's (`eval/scorer_client.rs`).
+`insufficient_memory` are the platform's (`subnet/crates/scorer-client`).
 `AScorer`'s idle alarm stops an instance after 120 s without use as a
 backstop; a stop whose `destroy()` is refused, or which still reads as
 running, is re-checked with backoff (30 s doubling to 5 min). At the end of

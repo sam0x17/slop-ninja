@@ -2001,7 +2001,7 @@ protocol and arena trees (`3f9848fd`), which include the lane-client fix.
   refuses it (`refused profile_id`). So main runs no reward-v1 cohort until
   its chain record is restarted. A tower-class artifact is refused in every
   cohort until the coordinator's loads name spec v3 (`spec=` in
-  `eval/scorer_client.rs` `load_path`, and the probe route) and the cohort
+  the scorer client's `load_path`, and the probe route) and the cohort
   template's `artifact_max_mib` admits the tower object. Until then, the S2c
   package's spec v3 admission, its document parity with R_0 and its span
   outputs rest on local runs of the deployed binary.

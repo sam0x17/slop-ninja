@@ -39,6 +39,7 @@ detail it links to.
 - [A span localization implementation](a-spans-implementation.md)
 - [A span training data: spliced rewrites](a-spans-data.md)
 - [A span localization results](a-spans-results.md)
+- [Evidence behind the detection page](detect-evidence.md)
 - [A span commit aliases](a-spans-aliases.md)
 - [SlopNinja on testnet](testnet/README.md): the landing page, with the
   [miner guide](testnet/miner-guide.md),

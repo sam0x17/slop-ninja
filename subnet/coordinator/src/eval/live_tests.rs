@@ -605,8 +605,9 @@ fn live_blocks_validate_with_their_plan() {
 /// Arena witness (`--features arena-witness`): one release and the live
 /// report run within their footprints (`arena_routes::live_step_bytes` at
 /// the cohort's batch, and the cohort control footprint for the report),
-/// with no allocation outside the scope. At this test's shape only: the
-/// widest roster's witness is still to be written.
+/// with no allocation outside the scope, at this test's shape. The widest
+/// roster's witnesses follow
+/// (`arena_witness_live_steps_fit_at_the_widest_roster`).
 #[cfg(feature = "arena-witness")]
 #[test]
 fn arena_witness_live_steps_fit_their_footprint() {
@@ -627,5 +628,125 @@ fn arena_witness_live_steps_fit_their_footprint() {
             tx(db, live::report).unwrap()["rows"].as_array().map_or(0, Vec::len)
         });
         assert_eq!(rows, 3);
+    });
+}
+
+/// The widest live shape: `MAX_ROSTER` executed entrants (distinct
+/// hotkeys and artifacts) and `R_k` over a batch of `n` documents, on a
+/// deployment without a roster ceiling, with readings (`L >= 2`) and
+/// pre-finalized values. One entrant in sixteen crashes on every request,
+/// so the report carries withheld symbols beside values. Calls `f` with the
+/// cohort open.
+#[cfg(feature = "arena-witness")]
+fn with_widest_live_cohort<T>(n: u32, f: impl FnOnce(&Sqlite, &mut Sim<'_>, i64, &EvalConfig) -> T) -> T {
+    let db = Sqlite::open();
+    let (mut sim, weak, probe_ref) = probe_built_doc(&db, Some(crate::eval::plan::TASK_ORDER_SEEDED_RANK));
+    let mut c = cfg();
+    c.ceilings.roster_cap = None;
+    sim.cfg = c.clone();
+    let roster = u16::try_from(usize::from(slop_ninja_protocol::MAX_ROSTER)).unwrap();
+    let ids: Vec<crate::eval::plan::IdentityJson> = (0..roster)
+        .map(|k| {
+            let mut hotkey = [0xe5u8; 32];
+            hotkey[..2].copy_from_slice(&k.to_be_bytes());
+            crate::eval::plan::IdentityJson {
+                uid: 100 + k,
+                hotkey: format!("0x{}", hex::encode(hotkey)),
+                registration_block: 2000 + u64::from(k),
+            }
+        })
+        .collect();
+    // Every entrant's calibration differs (its content digest), and none
+    // equals R_k's files.
+    let entrants: Vec<_> = ids.iter().enumerate().map(|(k, id)| v3_artifact(&mut sim, id.clone(), [1, 7, 3, k as u8, 5])).collect();
+    let mut p = plan_v3(2, "testnet-rv1-live-wide", n, weak);
+    p.entrants = entrants;
+    p.allow_list = ids;
+    {
+        let v = p.reward_v1.as_mut().unwrap();
+        v.probes = vec![probe_ref];
+        v.canary.draw_humans = 8;
+        v.task_order = Some(crate::eval::plan::TASK_ORDER_SEEDED_RANK.into());
+        v.live = Some(live_block());
+    }
+    sim.predict_doc = Some(Box::new(|job, kind, sha| {
+        let c = doc_conf((job % 7) as u8, kind, sha, (30.0, 65.0, 75.0), 12.0);
+        (c, c * 0.4)
+    }));
+    sim.score = Box::new(|q| if q.job % 16 == 5 { Score::Crash } else { Score::Ok });
+    let seq = open_with(&db, &c, &p, 20, sim.now);
+    f(&db, &mut sim, seq, &c)
+}
+
+/// Arena witness (`--features arena-witness`) at the widest roster: the
+/// live setup over the cohort's full batch and every release of
+/// `MAX_ROSTER` entrants and `R_k`, each within
+/// `arena_routes::live_step_bytes` at that batch (each is its own child
+/// scope in the step), and the `/eval/live` report at `MAX_ROSTER` rows
+/// within the cohort control footprint, with no allocation outside the
+/// scope. The cohort runs to transition first, so the setup and the
+/// releases are run again over its finished outcomes: the heaviest
+/// releases (a full batch read for each pre-finalized value, `R_k`'s with
+/// the manifest's parameters rebuilt) all come due at once.
+///
+/// Measured 2026-11-10 at 40 documents and 256 entrants, with the stored
+/// seal state's published index inflated to 2 MiB: the setup peaks at
+/// 278,727 B live (5 pages), each reading at 301,010 B and each entrant's
+/// pre-finalized value at 301,045 B (6 pages), `R_k`'s pre-finalized value
+/// with the stored manifest at 362,852 B (7 pages), all within the
+/// 1,089,536 B footprint (18 pages); the report at 256 rows at 709,355 B
+/// (14 of 34 pages). The cohort's parsed plan (at most
+/// `PLAN_PARSED_BYTES`, in the alarm's base) is most of each step's heap.
+#[cfg(feature = "arena-witness")]
+#[test]
+fn arena_witness_live_steps_fit_at_the_widest_roster() {
+    use crate::arena_routes::{COHORT_CONTROL_BYTES, R_COHORT_FETCH, R_COHORT_LIVE, live_step_bytes};
+    slop_ninja_arena::set_mode(slop_ninja_arena::Mode::Enforce);
+    let roster = usize::from(slop_ninja_protocol::MAX_ROSTER);
+    with_widest_live_cohort(40, |db, sim, seq, c| {
+        for _ in 0..20_000 {
+            if phase(db, seq) == "transition" {
+                break;
+            }
+            sim.tick();
+        }
+        assert_eq!(phase(db, seq), "transition", "fault {:?}", fault_of(db, seq));
+        assert_eq!(q1(db, "SELECT COUNT(*) FROM jobs WHERE seq = ?1 AND role = 'entrant'", seq), roster as i64);
+        let docs = tx(db, |s| live::cohort_docs(s, seq)).unwrap();
+        // The live step reads only the subjects' digests, the batch size and
+        // the manifest record of the stored seal state: its fields that grow
+        // with the chain's history (here the published index at seal,
+        // inflated past every live footprint) are never parsed.
+        let mut st: Value = serde_json::from_str(&db.conn.query_row("SELECT v3 FROM cohorts WHERE seq = ?1", [seq], |r| r.get::<_, String>(0)).unwrap()).unwrap();
+        st["published_at_seal"] = json!(["00".repeat(1 << 20), ""]);
+        db.conn.execute("UPDATE cohorts SET v3 = ?1 WHERE seq = ?2", rusqlite::params![st.to_string(), seq]).unwrap();
+        assert!(q1(db, "SELECT length(v3) FROM cohorts WHERE seq = ?1", seq) > 2 * live_step_bytes(docs) as i64);
+        // The setup again, over the same sealed values.
+        db.conn.execute("DELETE FROM live_releases WHERE seq = ?1", [seq]).unwrap();
+        db.conn.execute("DELETE FROM live_cohorts WHERE seq = ?1", [seq]).unwrap();
+        db.conn.execute("UPDATE docs SET live_segment = NULL WHERE seq = ?1", [seq]).unwrap();
+        crate::arena_witness::witness(R_COHORT_LIVE, live_step_bytes(docs), || tx(db, |s| live::prepare(s, seq)).unwrap());
+        let segments = q1(db, "SELECT segments FROM live_cohorts WHERE seq = ?1", seq);
+        assert!(segments >= i64::from(slop_ninja_protocol::live::MIN_SEGMENTS), "readings at the widest roster: L = {segments}");
+        assert_eq!(q1(db, "SELECT COUNT(*) FROM docs WHERE seq = ?1 AND live_segment IS NOT NULL", seq), docs as i64);
+        // Every release, each in its own scope, as the step runs them.
+        let mut released = 0usize;
+        while crate::arena_witness::witness(R_COHORT_LIVE, live_step_bytes(docs), || tx(db, |s| live::release_due(s, c, seq)).unwrap()) {
+            released += 1;
+        }
+        // L - 1 readings for each entrant and R_k, and one pre-finalized
+        // value for each of them.
+        let readings = (roster + 1) * usize::try_from(segments - 1).unwrap();
+        assert_eq!(released, readings + roster + 1);
+        let withheld = q1(db, "SELECT COUNT(*) FROM live_releases WHERE seq = ?1 AND kind = 'prefinal' AND outcome = 'withheld'", seq);
+        assert!(withheld > 0 && withheld < roster as i64, "{withheld} withheld");
+        // The report at MAX_ROSTER rows.
+        let rows = crate::arena_witness::witness(R_COHORT_FETCH.route(), COHORT_CONTROL_BYTES, || {
+            let r = tx(db, live::report).unwrap();
+            assert!(r.get("refused").is_none(), "{r}");
+            r["rows"].as_array().map_or(0, Vec::len)
+        });
+        assert_eq!(rows, roster);
+        assert_eq!(rows, live::ROWS);
     });
 }

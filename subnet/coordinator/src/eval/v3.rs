@@ -2487,7 +2487,19 @@ pub fn active_target_digest(sql: &impl Sql, chain: &ChainBinding) -> R<Digest> {
 /// The signed manifest as stored at seal, checked against the stored digest.
 pub fn manifest_again(sql: &impl Sql, c: &Cohort) -> R<CohortManifestV2> {
     let st = state(sql, c.seq)?;
-    let bytes = hex::decode(st.manifest_hex.ok_or(EvalError::State("stored manifest"))?)
+    manifest_of_hex(sql, c, st.manifest_hex)
+}
+
+/// [`manifest_again`] reading only the stored manifest record of the seal
+/// state, none of its other fields (the live step's read: its heap is the
+/// manifest's, not the published index's).
+pub fn stored_manifest(sql: &impl Sql, c: &Cohort) -> R<CohortManifestV2> {
+    let rows = sql.exec("SELECT v3 ->> 'manifest_hex' FROM cohorts WHERE seq = ?", &[i(c.seq)])?;
+    manifest_of_hex(sql, c, rows.first().and_then(|r| opt_text(r, 0)))
+}
+
+fn manifest_of_hex(sql: &impl Sql, c: &Cohort, manifest_hex: Option<String>) -> R<CohortManifestV2> {
+    let bytes = hex::decode(manifest_hex.ok_or(EvalError::State("stored manifest"))?)
         .map_err(|_| EvalError::State("stored manifest hex"))?;
     let m = CohortManifestV2::from_bytes(&bytes).map_err(|_| EvalError::State("stored manifest"))?;
     let rows = sql.exec("SELECT manifest_digest FROM cohorts WHERE seq = ?", &[i(c.seq)])?;

@@ -260,13 +260,18 @@ pub const STEP_BASE_BYTES: usize = ALARM_CONTROL_BYTES;
 /// One live setup or release over a batch of `docs` documents
 /// (`eval::live::prepare`, `release_due`): the alarm's base plus, per batch
 /// document, its rows (the batch read with its outcome, the partition's
-/// keys and the segment update). `LIVE_PER_DOC` is an estimate, not a
-/// measurement: the witness `arena_witness_live_steps_fit_their_footprint`
-/// runs one release (not the setup) at its test shape only, a 40-document
-/// batch with three entrants. The witnesses at the widest shape (the setup
-/// over a full batch, a release at `MAX_ROSTER` subjects, and the
-/// `/eval/live` report at `MAX_ROSTER` rows) are still to be written, and
-/// must pass before an eval deploy carrying the live step.
+/// keys and the segment update). The base holds the cohort's parsed plan
+/// (at most `PLAN_PARSED_BYTES`) and the sealed subjects' digests, at most
+/// `MAX_ROSTER` entrants: the step reads only those fields of the stored
+/// seal state, never its manifest record (but for `R_k`'s pre-finalized
+/// value) or its published index, which grow with the chain's history.
+/// `LIVE_PER_DOC` is an estimate, not a measurement. Witnesses: one release
+/// and the report at the test shape
+/// (`arena_witness_live_steps_fit_their_footprint`), and at the widest
+/// roster the setup over the full batch, every release of `MAX_ROSTER`
+/// entrants and `R_k`, and the `/eval/live` report at `MAX_ROSTER` rows
+/// (`arena_witness_live_steps_fit_at_the_widest_roster`: at 40 documents
+/// the heaviest step peaks at 7 of the 18 pages, the report at 14 of 34).
 pub const fn live_step_bytes(docs: u64) -> usize {
     let total = (ALARM_CONTROL_BYTES as u64).saturating_add(LIVE_PER_DOC.saturating_mul(docs));
     if total > usize::MAX as u64 { usize::MAX } else { total as usize }

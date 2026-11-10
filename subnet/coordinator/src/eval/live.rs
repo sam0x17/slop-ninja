@@ -138,6 +138,38 @@ fn count(sql: &impl Sql, q: &str, p: &[SqlValue]) -> R<i64> {
     Ok(int(sql.exec(q, p)?.first().ok_or(state_err("count"))?, 0)?)
 }
 
+/// What the live step reads of a cohort's stored seal state
+/// (`v3::V3State`): the subjects' digests and the batch size. Only these
+/// fields are selected and parsed, never the whole state, whose manifest
+/// record and published index at seal grow with the roster and with the
+/// chain's history; so a live step's heap is bounded by the roster
+/// (`MAX_ROSTER` subjects) and the batch.
+#[derive(Clone, Debug, Default)]
+struct Sealed {
+    reference: Option<v3::ArtifactDigests>,
+    predecessor: Option<v3::ArtifactDigests>,
+    entrants: Vec<v3::ArtifactDigests>,
+    batch_tasks: u32,
+}
+
+fn sealed(sql: &impl Sql, seq: i64) -> R<Sealed> {
+    let rows = sql.exec(
+        "SELECT v3 ->> 'reference', v3 ->> 'predecessor', v3 ->> 'entrants', v3 ->> 'batch_tasks' FROM cohorts WHERE seq = ?",
+        &[i(seq)],
+    )?;
+    let Some(r) = rows.first() else { return Ok(Sealed::default()) };
+    let bad = || state_err("v3 state");
+    let digests = |at: usize| -> R<Option<v3::ArtifactDigests>> {
+        opt_text(r, at).map(|t| serde_json::from_str(&t).map_err(|_| bad())).transpose()
+    };
+    Ok(Sealed {
+        reference: digests(0)?,
+        predecessor: digests(1)?,
+        entrants: opt_text(r, 2).map(|t| serde_json::from_str(&t).map_err(|_| bad())).transpose()?.unwrap_or_default(),
+        batch_tasks: opt_int(r, 3).map(u32::try_from).transpose().map_err(|_| bad())?.unwrap_or(0),
+    })
+}
+
 // ------------------------------------------------------------------ setup
 
 /// Sealed cohorts between the seal and the close whose plan has a live block
@@ -177,8 +209,7 @@ pub fn prepare(sql: &impl Sql, seq: i64) -> R<()> {
     let lp = live_plan(&c).ok_or(state_err("live block"))?.clone();
     let v1 = c.plan.reward_v1.as_ref().ok_or(state_err("reward_v1 block"))?;
     let q = v1.quant_params().map_err(|e| EvalError::Plan(e.0))?;
-    let st = v3::state(sql, seq)?;
-    let n = st.batch_tasks;
+    let n = sealed(sql, seq)?.batch_tasks;
     let executed = u16::try_from(count(sql, "SELECT COUNT(*) FROM jobs WHERE seq = ? AND role = 'entrant'", &[i(seq)])?)
         .map_err(|_| state_err("roster"))?;
     let predecessor = c.plan.previous_reference.is_some();
@@ -288,7 +319,7 @@ pub fn note_fault(sql: &impl Sql, seq: i64, code: &'static str) -> R<()> {
         let c = cohort(sql, seq)?;
         let prefinal = live_plan(&c).is_some_and(|l| l.prefinal);
         let executed = count(sql, "SELECT COUNT(*) FROM jobs WHERE seq = ? AND role = 'entrant'", &[i(seq)])?;
-        Ok([i64::from(prefinal), executed, i64::from(c.plan.previous_reference.is_some()), i64::from(v3::state(sql, seq)?.batch_tasks)])
+        Ok([i64::from(prefinal), executed, i64::from(c.plan.previous_reference.is_some()), i64::from(sealed(sql, seq)?.batch_tasks)])
     })()
     .unwrap_or([0; 4]);
     sql.exec(
@@ -589,7 +620,7 @@ fn insert(sql: &impl Sql, seq: i64, job: i64, kind: &str, cp: i64, value: Option
 }
 
 /// Content digests by job: `R_k`, `R_k-1` and each executed entrant.
-fn subject_of(st: &v3::V3State, c: &Cohort, job: &Job) -> R<Subject> {
+fn subject_of(st: &Sealed, c: &Cohort, job: &Job) -> R<Subject> {
     let first_entrant = 1 + i64::from(c.plan.previous_reference.is_some());
     match job.role.as_str() {
         "reference" => Ok(Subject::Current(st.reference.as_ref().ok_or(state_err("reference digests"))?.content.0)),
@@ -625,7 +656,7 @@ pub fn release_due(sql: &impl Sql, cfg: &EvalConfig, seq: i64) -> R<bool> {
     let preds = preds_count(sql, seq)?;
     let js = jobs(sql, seq)?;
     let reference = js.iter().find(|j| j.role == "reference").ok_or(state_err("reference job"))?.clone();
-    let st = v3::state(sql, seq)?;
+    let st = sealed(sql, seq)?;
     let seed = cohort_seed(&cfg.private_seed, &c.label);
     let k_n = c.plan.reward_v1.as_ref().and_then(|v| v.quant.as_ref()).map(|q| q.min_success_max_failed).ok_or(state_err("quant"))?;
     // Readings: each executed entrant and R_k, checkpoints 1..L-1 in order.
@@ -692,7 +723,7 @@ fn job_done(sql: &impl Sql, seq: i64, job: &Job) -> R<bool> {
 fn release_prefinal(
     sql: &impl Sql,
     c: &Cohort,
-    st: &v3::V3State,
+    st: &Sealed,
     seed: &[u8; 32],
     js: &[Job],
     reference: &Job,
@@ -737,7 +768,7 @@ fn release_prefinal(
             return Err(state_err("reference batch"));
         }
         let p = preview(reference, &ref_u, None)?;
-        let params = crate::eval::v3::manifest_again(sql, c)?.params;
+        let params = crate::eval::v3::stored_manifest(sql, c)?.params;
         let margin = reward_v1::margin_line(&params, p.q, w).map_err(|_| state_err("margin line"))?;
         sql.exec(
             "UPDATE live_cohorts SET quant_width = ?, margin_line = ? WHERE seq = ?",

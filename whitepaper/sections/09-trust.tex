@@ -17,7 +17,8 @@ arithmetic without reproducing hidden scoring or establishing the truth of its
 labels; validators trust the coordinator's row as they trust its measurements.
 A dishonest coordinator
 could fabricate results, omit a qualified entrant, leak a benchmark, or favor an owner.
-Models published when scoring starts, committed populations, retained evidence,
+Models published when scoring starts (removable only by a recorded legal
+removal, Section~\ref{a-artifact-execution}), committed populations, retained evidence,
 and signed corrections help detect some misconduct, but the pilot assumes honest scoring and curation.
 There is no validator-quorum security guarantee for those claims.
 The coordinator's validator hotkey and durable signing state are also within
@@ -45,10 +46,13 @@ the unnoised gate, public-copy, cluster, and promotion outcomes included, in a
 versioned bit budget. Readings shown while scoring runs have their own
 versioned budget, use disjoint segments of the batch fixed at the seal, and
 count in the same bit budget; showing a released score before the close
-changes neither budget. Released values still leak a bounded amount about the
-batch they describe, the budget adds across cohorts that reuse a passage, and
-coordinated probing across many UIDs remains possible. Secrecy and accurate
-curation remain assumptions. \\
+changes neither budget. A planned gate feedback record gives failing entrants
+coarse gate classes, also counted. Released values still leak a bounded amount
+about the batch they describe, the budget adds across cohorts that reuse a
+passage, and coordinated probing across many UIDs remains possible. The public
+challenge counts carry an uncounted timing channel, to be closed before
+mainnet (Section~\ref{quantized-scores}). Secrecy and accurate curation remain
+assumptions. \\
 Memorized examples or hidden triggers & Qualify on held-out production workflows,
 writers, and generators, with targeted-trigger tests. Entrant weights published
 when scoring starts permit inspection but do not prove the absence of a trigger. \\
@@ -95,11 +99,13 @@ the near-copy distance draw independently. Registration cost and UID slots
 are the only brakes on these; different hashes and UIDs do not establish
 independent work or ownership. \\
 False reference advance & Eligibility and promotion use the same margin of
-about two paired standard errors of seed retrains. Ten entrants equal to the
-reference promote one in about 14\% of cohorts when they differ from it as seed
-retrains do, and in most cohorts when they differ from it as much as the other
-measured recipes do, each passing alone about a third of the time
-(Section~\ref{reference-model}). The
+about two paired standard errors of seed retrains. When ten entrants equal to
+the reference differ from it as seed retrains do, one passes the margin test
+in about 14\% of cohorts, and, since its released score must also reach the
+margin cutoff, about 6\% of cohorts promote; when they differ from it as much
+as the other measured recipes do, most cohorts promote, and each such entrant
+passes the margin test alone about a third of the time
+(Sections~\ref{reference-model} and~\ref{reward-v1}). The
 same noise can promote a worse model: alone, a structurally different entrant a
 full margin below the reference clears it about a fifth of the time. Fresh
 re-measurement each cohort, the easier pass against a worse reference, and the
@@ -117,7 +123,9 @@ restart the record, need an offline operator-decision key
 (Section~\ref{operator-decisions}). They never reassign paid rewards or skip a
 cohort by time, but an operator can still use them to withhold pay from a
 finished cohort or to reset the baseline; the records make such choices
-visible, not impossible. \\
+visible, not impossible. A cohort abandoned after its scoring started leaves
+its published entrants outside the published-artifact index, so copies of them
+can earn later until a rule for them is settled before mainnet. \\
 Prompt injection or malicious model data & Admit bounded data-driven models,
 validate formats, and deny executable plugins and generated tool calls.
 Untrusted documents cannot modify scoring rules or authorize disclosure. \\

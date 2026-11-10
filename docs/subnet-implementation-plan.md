@@ -1,7 +1,7 @@
 # Subnet implementation plan
 
 November 10, 2026. This plan implements the [Cloudflare design](cloudflare-subnet-draft.md)
-and [whitepaper draft 0.63](../whitepaper/main.tex). It describes work to build and qualify;
+and [whitepaper draft 0.64](../whitepaper/main.tex). It describes work to build and qualify;
 it does not establish a deployed subnet. Launch includes A alone. B and C have
 separate activation requirements. A reads raw text; the native grammar serves
 later B and C. The shared protocol crate implements the `reward-v2`

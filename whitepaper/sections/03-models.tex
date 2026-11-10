@@ -37,8 +37,9 @@ starts and is published then (Section~\ref{a-artifact-execution}). Miner
 submissions are licensed CC BY-SA 4.0, so anyone may obtain a published artifact
 free of charge and execute it locally, and later \textit{B} development is
 expected to train against published detectors. A published artifact stays
-public and is never recalled. The coordinator deletes its private admission
-copy once the cohort closes and publication is recorded, and keeps the current
+public; the operator removes one only on legal grounds, as a recorded removal
+(Section~\ref{a-artifact-execution}). The coordinator deletes its private
+admission copy once the cohort closes and publication is recorded, and keeps the current
 and previous reference artifacts hosted for evaluation while they are
 references (Section~\ref{cohort-receipt-retention}). Hosted execution through
 the paid APIs is charged separately.
@@ -46,7 +47,10 @@ Miners may keep their training recipes and permitted training corpora private.
 
 Project code and documentation are licensed MIT OR Apache-2.0, except files and
 datasets that carry their own licence or notice. Reference weights are licensed
-CC BY-SA 4.0, like miner submissions, and SlopNinja publishes its own
+CC BY-SA 4.0, like miner submissions. Every allow-listed graph class is built
+on ModernBERT-base, licensed Apache-2.0, and an artifact carries its tokenizer
+and, when trained from its weights, a modified copy of them, so that licence's
+text and notice are to be published beside the artifacts. SlopNinja publishes its own
 references, \(R_0\) and any later reference it trains
 (Section~\ref{reference-model}), on the same terms. A public reference package
 carries no evaluation text: its replay cases are synthetic rather than
@@ -283,8 +287,8 @@ prediction or span emission fails counts as decoding nothing in a mixed
 document and as carrying a span in a human one. Character F1 alone does not
 separate localization from marking whole documents: on spliced documents whose
 rewritten share is large, one span over every involved document reaches a high
-F1 while covering all the human text beside it, so the in-context rate is gated
-with it.
+F1 while covering all the human text beside it, so the gate checks the
+in-context rate with it.
 
 The margins are fixed after measurement on the sealed batches of closed testnet
 cohorts. The design target is that floor-compliant heads as good as
@@ -298,7 +302,7 @@ anchor fails to emit spans or to separate from such trivial heads on a cohort's
 batch, or the cohort's population differs from the one measured, the measured
 conditions decide no entrant in that cohort, and its public record says so;
 the operator may also void the gate for one cohort, with a recorded reason,
-before its package is sealed. Neither waiver holds a package, and no miner can
+before its packaging starts. Neither waiver holds a package, and no miner can
 trigger one. Before any manifest enforces the gate, it runs in report mode,
 measured and published without failing anyone, on at least three live cohorts,
 at least two of which complete after the tools miners need to check their
@@ -510,10 +514,29 @@ frozen and its batch sealed, so no other participant can download, run, or copy
 a model before it is entered; a detected copy entered in a later cohort earns
 nothing (Section~\ref{public-copies}). When scoring starts the coordinator publishes
 every admitted artifact, header and files each named by its SHA-256 and copied
-inside R2 or by a stream that R2 verifies, and a published artifact is never
-recalled. The commitment openings are published when the cohort closes. Other
-validators need none of these objects to commit: they need not download or run
-the models.
+inside R2 or by a stream that R2 verifies. The commitment openings are
+published when the cohort closes. Other validators need none of these objects
+to commit: they need not download or run the models.
+
+A published artifact stays public. The operator removes published material,
+meaning an artifact's header or files or a reference package and never a
+result, opening, or record, only on legal grounds, such as a valid copyright
+notice, a court or authority order, or a personal-data request that applies to
+it, and never silently: each removal is a recorded operator action with a
+content-free public record of the date, the material's digests, what was taken
+down, and the legal basis by type and jurisdiction. A removal deletes only the
+hosted public copies and cannot reach copies already downloaded. It changes no
+commitment, opening, score, quantized result, or signed row, so the target in
+force and every reward paid or still due under it are unchanged. The
+published-artifact index keeps the removed artifact's digest, so an entry with
+the same inference content is still never executed; if such an entry is
+published again, it is removed the same way, with its own record. The
+coordinator keeps its private evaluation copy of a removed reference. If the
+legal basis also bars running a removed artifact that is a current or previous
+reference, or the package the detection service serves, the operator stops
+using it through the paths of Section~\ref{operator-decisions}: a reference
+decision for later cohorts, and an abandonment of a running cohort that cannot
+finish without it; the detection service stops serving that package.
 
 Within a cohort, identical inference content, or predictions within the
 near-copy distance on the cohort batch, forms one cluster that receives one
@@ -525,6 +548,7 @@ between equal quantized scores, and so choose which of the tied cluster heads
 can become the next reference. This order
 assigns no authorship: it cannot establish who originally trained a model.
 Already-published artifacts may enter but earn nothing
-(Section~\ref{public-copies}). Permitted foundation-model components may be used
+(Section~\ref{public-copies}), apart from those of a cohort abandoned after its
+scoring started (Section~\ref{operator-decisions}). Permitted foundation-model components may be used
 in new models, and a weight soup of published models, which fits the allowed
 graph, is a new model.

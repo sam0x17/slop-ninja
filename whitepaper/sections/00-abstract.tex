@@ -11,129 +11,84 @@ for \textit{B}, while authorized \textit{B} revisions provide challenging
 examples for future \textit{A} training after evaluation retirement. This
 competition is intended to improve both mechanisms; gains must hold on fresh
 evaluation data. \textit{A} is also intended to supply author-fit feedback
-against a private writer profile built from a user's own samples, which
-\textit{B} would use alongside independent preservation and editorial checks
-once a learned profile matcher qualifies. A lower detector score neither
-establishes better writing nor changes a document's production history.
+against a private writer profile built from a user's own samples, once a
+learned profile matcher qualifies. A lower detector score neither establishes
+better writing nor changes a document's production history.
 
 The subnet launches with \textit{A} alone as the initial evaluator and detection
 service; \textit{B} activates after its editing, private-serving, and reward
-requirements are qualified. \textit{A} is one text model with a shared encoder
-for origin and attribution. It reports estimated AI-written or rewritten text
-share and confidence in any AI involvement as separate percentages and
-attributes human and model contributors. A span output locates AI-written
-spans of at least 24 words, with per-sentence share and confidence; shorter
-edits still count in both document percentages. AI-involvement Brier score is
-the only reward quantity; share, attribution, and spans are qualification
-gates. Every entry is to emit spans and, once the standing cohort template
-enforces it, pass a span gate that compares its spans with SlopNinja's first
-span package on the same batch, under margins fixed after measurement and
-first run on live cohorts without enforcement. On a sealed,
-pre-registered Test of passages whose human documents are excerpts of 150 to
-450 words, the \textit{A} baseline's document model, the first reference,
-was noninferior to Pangram
-4.1, with balanced Brier 0.0518 against 0.0551 after both detectors' outputs
-pass through maps fitted by the same method on a separate Calibration split, but the
-pre-registered verdict failed because its three-seed recipe missed one domain
-slice. SlopNinja's first span package leaves those document outputs
-unchanged and adds a span head on a four-layer encoder tower, at about a fifth
-more encoder time; since November 9, 2026 it is SlopNinja's span-serving
-package. Retrospectively, on the consumed Test, it reaches character
-F1 0.544 on spans of at least 24 words, finding 36\% of spans of 24--49 words
-and 56\% of spans of 100 or more, and puts a span on 2.5\% of human
-documents.
-\textit{A} reads raw text and uses no context-free-grammar (CFG) features: a
-CFG-only detector failed its first real-data test, and CFG writer vectors scored
-below \textit{A}'s encoder on writer verification and added little on top of the
-encoder plus stylometric features. Private writer profiles therefore use
-\textit{A}'s encoder plus stylometric features; no profile tested so far is a
-reliable author-fit signal.
+requirements are qualified. \textit{A} is one text model with a shared encoder.
+It reports estimated AI-written or rewritten text share and confidence in any
+AI involvement as separate percentages, attributes human and model
+contributors, and locates AI-written spans of at least 24 words, with
+per-sentence share and confidence; shorter edits still count in both document
+percentages. AI-involvement Brier score is the only reward quantity; share,
+attribution, and spans are qualification gates, and once a cohort template
+enforces it, every entry must also pass a span gate that compares its spans
+with SlopNinja's first span package. On a sealed, pre-registered Test of
+passages whose human documents are excerpts of 150 to 450 words, the
+\textit{A} baseline's document model, the first reference, was noninferior to
+Pangram 4.1, with balanced Brier 0.0518 against 0.0551 after both detectors'
+outputs pass through maps fitted by the same method on a separate Calibration
+split, but the pre-registered verdict failed because its three-seed recipe
+missed one domain slice. SlopNinja's first span package leaves those document
+outputs unchanged and adds a span head; retrospectively, on the consumed Test,
+it reaches character F1 0.544 on spans of at least 24 words and puts a span on
+2.5\% of human documents. \textit{A} reads raw text and uses no
+context-free-grammar (CFG) features, which failed their first real-data test.
+Private writer profiles use \textit{A}'s encoder plus stylometric features; no
+profile tested so far is a reliable author-fit signal.
 
 \textit{B}'s proposed private adapters run in miner-owned Cloudflare accounts:
 miners pay their model bills but must not receive customer prompts or responses.
-Cloudflare and SlopNinja remain trusted operators; private weights must be
-inaccessible to the general public. \textit{B}'s editing pipeline is planned
-to use a shared English grammar for typed word, phrase, and clause edits and
-for revision guidance. Mechanism \textit{C} credits accepted reusable
-contributions to that grammar once. It activates by its own decision, which
-may come before \textit{B}'s so the grammar can grow first, and is not required
-for the \textit{A} launch.
+Cloudflare and SlopNinja remain trusted operators. \textit{B}'s editing
+pipeline is planned to use a shared English grammar for typed word, phrase, and
+clause edits and for revision guidance. Mechanism \textit{C} credits accepted
+reusable contributions to that grammar once. It activates by its own decision,
+which may come before \textit{B}'s so the grammar can grow first, and is not
+required for the \textit{A} launch.
 
-One lead validator, operated by SlopNinja, serves as the coordinator.
-The protocol below states requirements, and Section~\ref{implementation-status}
+One lead validator, operated by SlopNinja, serves as the coordinator. The
+protocol below states requirements, and Section~\ref{implementation-status}
 records which parts run today: the coordinator is specified to run entirely
-serverlessly but remains unfinished, and testnet cohorts still run in a
-separate evaluation service. Under the protocol, miners commit artifact digests
-on chain and upload their model files straight to the coordinator's private R2
-storage, which checks each file's declared SHA-256 on arrival. The coordinator publishes
-the entrants' models, licensed CC BY-SA 4.0, when scoring starts, and scores
-every entrant and the current and previous reference models (when a previous
-one exists) on a fresh hidden batch of paired cases each day; SlopNinja publishes its own reference models on the same terms,
-without evaluation text. Each batch is a fifth human-only, and on mainnet its human text comes
-from Common Crawl pages captured before November 30, 2022, a historical-human
-proxy drawn with capped domain shares that limit lookup by memorizing models and
-checked by era gates; testnet uses a smaller public stock and, for cohorts
-without a working outside entrant, reuses only documents already exposed;
-every testnet cohort so far has drawn exposed documents only. The
-protocol takes half of each batch's generated text from frontier models, to
-which the coordinator has access through configured credentials, and half from
-open models on Workers AI; Section~\ref{implementation-status} records
-which of these steps testnet runs today.
-Testnet starts from the first reference; mainnet later opens a fresh record of
-cohorts with the reference testnet then holds. The reference changes when the
-operator sets it by a recorded decision, as planned on testnet for the next
-qualified reference, or when an entrant whose released score reaches the margin
-cutoff also beats it by the margin in exact score and passes the promotion
-checks. Rewards are paid on released scores: until a
-cohort first has an entrant whose released score reaches the margin cutoff, or a
-fallback cutoff once a previous reference exists, miner rewards burn, which under the documented emission rules also withholds the subnet's
-TAO-side emission but not validator or owner alpha. Exact scores never leave the
-coordinator: it releases only quantized scores, drawn with seeded noise under a
-per-cohort privacy budget, shows each as soon as it is final, adds a few coarse
-readings during scoring under a separate budget, and derives the canonical native weight row from them
-with exact rules: subnet 78's geometric split of credit across score
-bands and ranks, extended with a fallback cutoff for cohorts in which no gated
-entrant's released score reaches the margin cutoff, no credit for detected copies of earlier
-published models, a miner's own included, one credit shared among near-duplicate entries
-and placed by the earliest-admitted entry's score, and
-equal credit among equal quantized scores. The coordinator signs that row and publishes it
-off chain; every other validator verifies and commits it, receives no held-out
-data or exact score, and may check models or the row only in an advisory way.
-The coordinator also signs, submits, and
-recovers its own native weight commitments within the serverless service.
-Validators commit the active signed row every tempo through native commit--reveal
-in parallel, without waiting for the coordinator's own chain row, and keep
-committing it through coordinator silence, since the authorization they commit
-under never expires. A cohort lasts at least
-20 tempos, about a day, ends with a transition that issues no new challenges,
-and is paid during the following cohort. Slow work, missed wakeups, and
-coordinator outages preserve the same cohort for recovery, and no record or
-gate depends on a chain runtime version. No rule locks the operator out: it can
-abandon a cohort, refuse to pay one, set the references, or switch to burn and
-open a fresh record, each by a journaled decision with a signed public record,
-the high-stakes ones under a separate offline key; none skips a cohort because
-time passed or signs a commitment twice. A coordinator outage pauses the
-protocol but not the chain or its emissions. Production applications use
-Rust: native participants use \texttt{rtao}, while the coordinator is to run on
-Cloudflare Workers with durable state and separately qualified chain integration,
-woken by finalized-block notifications rather than a resident server.
+serverlessly on Cloudflare Workers but remains unfinished, and testnet cohorts
+still run in a separate evaluation service. Miners commit artifact digests on
+chain and upload their model files straight to the coordinator's private
+storage. Each cohort, at least a day long, scores every entrant and the
+current and previous reference models (when a previous one exists) on a fresh
+hidden batch of paired cases, a fifth of them human-only. On mainnet its human
+text comes from Common Crawl pages captured before ChatGPT's public release;
+testnet uses a smaller public stock, and every testnet cohort so far has drawn
+only documents already exposed. Entrant models are published, licensed
+CC BY-SA 4.0, when scoring starts, and SlopNinja publishes its own reference
+models on the same terms, without evaluation text. Exact scores never leave the
+coordinator. It releases noisy quantized scores under a per-cohort privacy
+budget and derives the native weight row from them by exact rules ported from
+subnet 78's geometric score bands: detected copies of published models earn
+nothing, and near-duplicate entries share one credit. Until an entrant first
+clears the reference by a margin, miner rewards burn. The reference changes
+when such an entrant also passes the promotion checks, or by a recorded
+operator decision. The coordinator signs the row; every other validator
+verifies it, commits it every tempo through native commit--reveal without
+seeing held-out data, and keeps committing it through coordinator silence,
+since the authorization it commits under never expires. Slow work and outages
+preserve the cohort, no record depends on a chain runtime version, and no rule
+locks the operator out: it can abandon a cohort, refuse to pay one, set the
+references, or restart the record, each by a journaled decision with a signed
+public record, the high-stakes ones under a separate offline key.
 
 Testnet runs for several months before the mainnet subnet is registered. On
-November 7, 2026 its admission opened to every registered hotkey, and a
-cohort with an outside entrant has since run end to end there. During this period
-SlopNinja plans to earn revenue from free, advertising-supported public
-detection pages served by \textit{A} and from other products. The revenue
-accrues in a publicly visible pot that, once the mainnet subnet is registered,
-buys and burns its alpha. The pot is to hold native TAO in a published
-two-of-three multisignature account with an independent third signer, list
-every payout, conversion, and burn publicly, and burn in daily tranches bound
-to that registration; if SlopNinja abandons mainnet, the pot's TAO is
-burned. The coordinator opens the paid detection service when measured
-quality supports a bounded workload. Customers may fund quoted paid jobs by
-card, TAO, or subnet alpha; their principal converts to alpha and is burned,
-and does not directly reimburse serving costs. The detection page's paid API
-settles through the pot instead. Burns are intended to support token value, with no guaranteed
-market response. SlopNinja funds public-model execution and operating reserves
-separately. Pricing and any emissions assigned to paid use require calibration
-against measured costs, demand, and abuse incentives. The mainnet split of
-emissions among owner, validators, and miners is not selected.
+November 7, 2026 its admission opened to every registered hotkey, and a cohort
+with an outside entrant has since run end to end there. Mainnet will open a
+fresh record of cohorts with the reference testnet then holds. During testnet,
+SlopNinja plans to earn revenue from a free public detection page served by
+\textit{A}, with no advertising on the page that holds pasted text, and from
+other products. Their payouts go into a publicly visible pot of native TAO in a
+published two-of-three multisignature account with an independent third
+signer, which lists every payout, conversion, and burn. Once the mainnet subnet
+is registered, the pot buys and burns its alpha in daily tranches bound to that
+registration; if SlopNinja abandons mainnet, the pot's TAO is burned. Customers
+may also fund quoted paid detection jobs by card, TAO, or subnet alpha, whose
+principal converts to alpha and is burned. Pricing, any emissions assigned to
+paid use, and the mainnet split of emissions among owner, validators, and
+miners are not selected.

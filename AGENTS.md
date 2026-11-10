@@ -31,7 +31,7 @@ Dev-iter ones) and passes a package-corpus scan. Paid A serves a published,
 qualified artifact (R0 once its public package is published).
 Update the whitepaper's baseline evidence at meaningful evaluated milestones,
 not after every experiment. Keep both A and B's measured limits explicit.
-Whitepaper draft 0.63 and `docs/cloudflare-subnet-draft.md` describe the current plan: launch A
+Whitepaper draft 0.64 and `docs/cloudflare-subnet-draft.md` describe the current plan: launch A
 alone; B transformation and C (shared contributions to the grammar B uses)
 activate separately, each by its own decision, and C may activate before B so
 the grammar can grow first. A reads raw text; the native CFG is a later B input

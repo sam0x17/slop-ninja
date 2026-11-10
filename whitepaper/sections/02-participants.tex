@@ -6,7 +6,8 @@ and execution contract needed to run every output it declares. The miner commits
 digest on chain and uploads the artifact's files straight to the coordinator's
 private R2 storage through presigned URLs, never through a SlopNinja Worker;
 the coordinator publishes the artifact when the cohort's scoring starts. A published artifact, the miner's own
-included, earns nothing when entered again, so a miner earns again only with a
+included, earns nothing when entered again, unless its cohort was abandoned
+after its scoring started (Section~\ref{operator-decisions}), so a miner earns again only with a
 model that differs measurably from every published one or improves on its
 source by half the promotion margin (Section~\ref{public-copies}).
 SlopNinja executes

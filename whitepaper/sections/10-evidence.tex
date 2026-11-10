@@ -190,7 +190,7 @@ The pre-registered competitive criterion, called Tier C, required four
 conditions for both the three-seed recipe and the artifact \(R_0\): an upper
 95\% bound of at most 0.010 on the Brier difference; a one-sided 95\% upper bound
 of at most 2.5\% on human FPR at the CAL 1\% point for every seed; a gap of at most
-0.030 on every gated slice; and a completed result for every primary document.
+0.030 on every slice the criterion named; and a completed result for every primary document.
 \(R_0\) passed all four on its own, with an upper bound of
 \(+0.0005\), at most 43 human flags against a limit of 67, a largest slice gap of
 0.0247, and no failures. The recipe's legal-opinions gap was 0.0324, so it
@@ -362,7 +362,9 @@ model-only documents from three local generators, reweighted to 20/55/25 and
 built under the cohort generation profile, passes both gates: the era-only
 adversary gains 2.9\% [1.5, 5.04] of the reference's headroom and the
 layout-and-typography adversary 1.6\% [0.3, 4.1]. As diagnostics, the
-character-class block gains 6.9\%, the era probe separates parents from dated
+character-class block gains 6.9\%, above the gates' 5\% bar and the 1,000-case
+margin of 5.1\% of headroom given below, which is why Section~\ref{human-stock}
+states it as a limit; the era probe separates parents from dated
 mirrors at AUC 0.714, and mean word length alone gains 16.7\%, a lexical signal
 that the detector itself reads; the length window brings word count's own gain
 to 0.2\%. On this batch the headroom is 0.112, and the seed-pair standard error
@@ -469,16 +471,22 @@ participants update by hand; the successor of
 \texttt{reward-v2}, which places a near-copy cluster by its earliest-admitted
 member, while \texttt{reward-v2}, which the protocol crate implements and
 testnet runs, places it by its highest-ranked member
-(Section~\ref{reward-v1}); and the paid detection API and the pot of
-Section~\ref{testnet-revenue}. The
+(Section~\ref{reward-v1}); the paid detection API and the pot of
+Section~\ref{testnet-revenue}; and the gate feedback record of
+Section~\ref{quantized-scores}. The
 testnet exposed-pool reuse rule of Section~\ref{human-stock} is built and, as
-of November 9, awaits installation. Detailed-receipt deletion runs, with the
-one gap noted in Section~\ref{cohort-receipt-retention}.
+of November 10, awaits installation. Detailed-receipt deletion runs, with the
+one gap noted in Section~\ref{cohort-receipt-retention}. Legal removals
+(Section~\ref{a-artifact-execution}) have no dedicated tool: the operator
+performs each by hand and records it publicly; none has been needed.
 
-Built, but as of November 9 neither deployed nor released, are the parts
+Built, but as of November 10 neither deployed nor released, are the parts
 below. None changes what testnet runs until it is deployed, and the span gate,
 the pre-finalized scores, and the segment readings change nothing until a
-cohort template names them.
+cohort template names them. Two operator paths already run in an earlier,
+deployed form without the operator-decision key: the record restart, as used
+on November 6 (Section~\ref{testnet-r1}), and the abandonment of a cohort
+stopped by a fault, for that fault.
 \begin{itemize}\tightlist
 \item The operator decisions of Section~\ref{operator-decisions} with the
 verification of the operator-decision key, except the rotation of the

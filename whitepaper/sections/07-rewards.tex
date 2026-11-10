@@ -208,10 +208,18 @@ and one window of 150 to 450 words, the human excerpts' own bound, applies to
 the final documents of every class. Two gates are measured on a Common
 Crawl-parented mock batch, each passing on its point estimate with its bootstrap
 upper bound reported: an era-only adversary and a layout-and-typography
-adversary must each gain at most 5\% of the reference's headroom.
-Character-class shares, such as case, digits, non-ASCII characters, and emoji,
-and an era probe's ability to tell parents from mirrors are reported as
-diagnostics, not gated. Both gates pass on the mock batch, but the era-only
+adversary must each gain at most 5\% of the reference's headroom. An adversary
+here is a cross-fitted logistic model that reads only its own features, and its
+gain is its Brier improvement over a constant prediction as a share of the
+reference's headroom: how much of the task that shortcut alone could do. Two
+signals are reported as diagnostics, without a gate: an era probe's ability to
+tell parents from mirrors, and character-class shares, such as case, digits,
+non-ASCII characters, and emoji. Character use is left out of the layout gate
+because it is not settled whether it is a formatting shortcut, which the
+generation profile should remove, or a property of model writing itself, as
+mean word length is. On the mock batch it gains more than the gates' bar
+(Section~\ref{cc-stock-evidence}), a stated limit re-measured with the
+era-only gate. Both gates pass on the mock batch, but the era-only
 gate's upper bound reaches 5.04\% (Section~\ref{cc-stock-evidence}). It is
 accepted on its point estimate for the testnet phase and re-measured before
 mainnet live rewards on normalised, length-matched positives from the next
@@ -263,7 +271,7 @@ negatives and never-parented stock, least recently parented first, and the 570
 development documents join as parents only. The gate policy that the manifest
 binds names the rule, so no manifest binds a limit that its draw lifted, and
 the coordinator refuses the rule off testnet or beside a fresh pool. As of
-November 9 the rule is built and awaits installation between two cohorts. A
+November 10 the rule is built and awaits installation between two cohorts. A
 score on reused documents can rest on recognizing the text, so it shows that
 an artifact runs and is scored, not how it performs on unseen text, and
 testnet scores are not evidence of mainnet quality.
@@ -394,19 +402,24 @@ Both outputs are conditional, so a fallback for an absent role is not itself a
 false attribution; mistaken involvement probabilities are scored through origin
 measurements. Low predicted role probability never removes a documented
 contributor from the attribution denominator. Gate thresholds, including both
-false-positive tiers, are fixed on development evidence before the cohort.
-Because the gates carry no reward weight, they are floors against unusable
-outputs rather than improvement targets. That evidence includes \(R_0\)'s own
-mixed-document share error of 15.5 points and attribution top-1 accuracy of
-0.35 (Section~\ref{current-a-baseline}); the thresholds themselves are not yet
-chosen (Section~\ref{development-and-launch-criteria}).
+false-positive tiers, are fixed on development evidence before the cohort and
+bound into its signed manifest; testnet's manifests bind provisional values.
+After the close, a planned gate feedback record tells a failing entrant the
+thresholds and the coarse classes of the gates it failed
+(Section~\ref{quantized-scores}). Because the gates carry no reward weight,
+they are floors against unusable outputs rather than improvement targets. That
+evidence includes \(R_0\)'s own mixed-document share error of 15.5 points and
+attribution top-1 accuracy of 0.35 (Section~\ref{current-a-baseline}); the
+launch thresholds themselves are not yet chosen
+(Section~\ref{development-and-launch-criteria}).
 
 \subsection{The reference model}\label{reference-model}
 
 The reward baseline is the current reference model \(R_k\). The sequence
 starts at \(R_0\), the document model of the \textit{A} baseline release
 candidate described in Section~\ref{existing-evidence-and-implementation-status},
-published like every reference (Section~\ref{model-interfaces-and-starter-architectures}). Each cohort re-runs
+to be published like every reference once its package has been re-exported
+without evaluation text (Section~\ref{model-interfaces-and-starter-architectures}). Each cohort re-runs
 \(R_k\), and its predecessor \(R_{k-1}\) when one exists, on that cohort's batch.
 Only a cohort scored against the margin cutoff (Section~\ref{reward-v1}) has
 promotion candidates: its retained cluster heads, in rank order. Each is
@@ -527,9 +540,9 @@ results are reported (Section~\ref{development-and-launch-criteria}).
 
 Every admitted entrant artifact is published when its cohort's scoring starts,
 and a detected copy of an earlier artifact, a reference or an entrant of an
-earlier cohort, earns nothing; entrants of one cohort meet each other only in its
+earlier closed cohort, earns nothing; entrants of one cohort meet each other only in its
 clusters (Section~\ref{reward-v1}). An entrant whose inference content equals
-that of any earlier artifact is not executed. An executed entrant within the
+that of any such artifact is not executed. An executed entrant within the
 near-copy distance of an earlier artifact (Section~\ref{reward-v1}) fails the public-copy gate unless its exact score is
 more than \(w_S/2\) above that artifact's, where \(w_S\) is the unrounded band
 width computed from \(R_k\)'s exact score. This applies to
@@ -584,13 +597,42 @@ charged but never released, so the split and the noise scale do not depend on
 which entrants are withheld. The gate, public-copy, withheld, cluster, and
 promotion outcomes and the grid width are deterministic functions of exact
 scores and hidden data, released without noise and outside the
-\(\varepsilon\) accounting. A versioned per-cohort bit budget counts them at
-full face value with every released score, every reading of
-Section~\ref{pre-finalized-scores}, and the span-gate record of
-Section~\ref{aggregation-and-failure-policy}, and is checked when the plan is
-validated, at the seal, and at publication; a cohort over budget is held, never
-published or skipped. The bit budget caps what is released; it is not a
+\(\varepsilon\) accounting. A versioned per-cohort bit budget counts each of
+them at full face value, the base-2 logarithm of the number of values it can
+take, with every released score, every reading of
+Section~\ref{pre-finalized-scores}, the span-gate record of
+Section~\ref{aggregation-and-failure-policy}, and the gate feedback record
+below, and is checked when the plan is validated, at the seal, and at
+publication; a cohort over budget is held, never published or skipped. The
+total may not exceed \(nh/F\) bits, where \(h\) approximates the bits needed
+to single out one human document within its domain's pool and \(F\) is a
+safety factor, so the released values stay \(F\) times short of naming every
+batch document. Testnet sets \(h=8\), below the median of 8.6 bits that its
+public stock's documents take, and \(F=10\): at 1,000 cases, at most 800
+bits, of which a full roster of 40 executed entrants takes at most 746 before
+readings and records. The bit budget caps what is released; it is not a
 differential-privacy guarantee.
+
+So that a failing entrant can see what to fix, a planned gate feedback record,
+signed and published after the close beside the result, gives the gate
+thresholds that the cohort's manifest binds and, for each scored entrant, the
+set of gate classes it failed among share, attribution, and the loose
+false-positive tier. A withheld entrant gets none, and no statistic, margin,
+or per-document value is published. The result's gate bit follows from that
+set, so the record adds \(\max(\gamma-1,0)\) bits per executed entrant, where
+\(\gamma\) is the number of classes the thresholds can fail: one bit at testnet's
+current thresholds. The span-gate record adds one bit per executed entrant and
+two per cohort, so a testnet cohort that publishes both records stays within
+800 bits only up to 38 executed entrants; a template naming both needs that
+smaller roster or a recorded change of \(h\) or \(F\).
+
+One channel is not counted. The public challenge counts show each model's
+progress while it is scored, so an artifact that made its own arithmetic slow
+on documents it selects, through subnormal intermediate values, could signal a
+bit or two about each chunk of documents it processes through its timing.
+Admission refuses subnormal weights, which removes only the simplest lever, and
+the channel is closed before mainnet
+(Section~\ref{protocol-checks-before-launch}).
 
 The noise has a cost. Its standard deviation is \(\sqrt2/(n\varepsilon_v)\). On
 testnet, at 1,000 cases and the full roster of 40 entrants, it is about 0.030
@@ -601,7 +643,8 @@ about 0.005, and the grid then follows \(R_k\)'s measured standard error: it
 was 0.02 in testnet's first eight-entrant cohorts. At
 mainnet's planned 4,000 cases and 256 entrants it would be about 0.046 (a noise
 scale of about 0.032), rewards would be mostly noise, and
-the current bit budget would refuse the plan, so the budget, \(n\), or the split
+the plan, which could release up to 4,917 bits where 3,200 are allowed, would
+be refused by the current bit budget, so that budget, \(n\), or the split
 must be revisited before mainnet. These are stated limits.
 
 \subsection{Pre-finalized scores}\label{pre-finalized-scores}
@@ -1004,7 +1047,9 @@ Exact copies are found by inference-content digest against the
 published-artifact index, which holds every entrant artifact of every closed
 cohort and every record's first reference: an entrant fails the content check
 exactly when its digest is in that index, and such an entrant is never
-executed. The digests
+executed. A cohort's entrants join the index when the cohort closes, so the
+entrants of a cohort abandoned after its scoring started, which never closes,
+stay outside it (Section~\ref{operator-decisions}). The digests
 are public, so anyone can repeat this check. Re-running every
 earlier artifact on each batch would grow without bound, so near copies are also
 measured on a fixed private probe of 1,024 documents, drawn and generated like a
@@ -1019,7 +1064,7 @@ gates. No score in an entrant's own cohort bounds what a copy of it can earn:
 \(R_{k-1}\) can outscore \(R_k\) on a batch, and a copy meets new documents in a
 later cohort. The entrant's probe predictions are compared with the recorded
 probe predictions of every earlier published artifact, \(R_k\) and \(R_{k-1}\)
-included, and become its own fingerprint once its artifact is published. The
+included, and become its own fingerprint when its cohort closes. The
 private score package records every entrant's exact comparisons with both
 references' fingerprints, and the coordinator checks that a near one fails the
 gate before it signs, so a copy of a reference must escape both the batch and
@@ -1085,7 +1130,8 @@ the coordinator's storage. The public quantized result names the chain, cohort,
 and manifest, the rules and their public parameters, the batch size, the grid
 and band widths, the cutoff mode and cutoff, each reference's identity and
 quantized score, the promoted model if any, the occupied bands, and, per roster
-entry in roster order, its identity and outcome: not executed, withheld, or its
+entry in roster order, its identity and outcome: not executed (as a copy of a
+published artifact or for failing qualification), withheld, or its
 quantized score, gate and public-copy bits, and cluster, with its band rank and
 units. It also records each term of the cohort's bit budget, and it carries no
 exact score, standard error, offset, noise draw, statistic, probe value, attempt
@@ -1099,7 +1145,9 @@ close. A separate signed record gives, for each scored entrant that is not
 withheld, whether it passed the span gate, and for the cohort whether the gate
 applied, was waived, or was voided (Section~\ref{span-outputs}); it states
 these bits beside the result's own budget, and the plan-time bit budget counts
-them. Per-entrant span metrics stay private. An entrant that fails
+them. Per-entrant span metrics stay private. The planned gate feedback record
+of Section~\ref{quantized-scores} is to be signed and published the same way,
+beside the result, for a cohort whose plan names it. An entrant that fails
 artifact qualification is never executed and carries no score. Compact
 numerical inputs and calculated rows survive the detailed receipts' retention
 window.

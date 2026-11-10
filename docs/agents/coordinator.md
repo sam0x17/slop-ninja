@@ -128,7 +128,9 @@ Section 6 specifies these journaled decision paths:
   finalized one, installs the burn row from the floor under a launch
   authorization issued at that epoch, and names in the signed restart record
   every cohort that opened before the floor without being handled. The operator
-  then opens a fresh record whose first reference is R_0, with no predecessor.
+  then opens a fresh record whose first manifest names its first reference,
+  with no predecessor: R_0, or, once the span-equivalent decision has passed
+  R_0's position to span package d24, that package.
   Winners of the earlier record are never paid again. Validators accept the
   restart through that launch authorization and refuse rows from before its
   floor; none needs a manual reset.

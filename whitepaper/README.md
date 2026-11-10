@@ -1,6 +1,6 @@
 # Whitepaper
 
-[Draft 0.63](slop_ninja.pdf), November 9, 2026, describes a subnet whose main
+[Draft 0.64](slop_ninja.pdf), November 10, 2026, describes a subnet whose main
 objective is B: transforming authorized writing toward the author's intended
 voice while preserving meaning, readability, and tone. A supplies supporting
 detection and attribution signals for that editing process and launches first.
@@ -27,7 +27,10 @@ model-only, with half of the generated text planned to come from frontier
 models, to which the coordinator has access through configured credentials, in parallel
 fan-out lanes, and then publishes quantized scores; exact scores stay private.
 Each quantized score is shown as soon as it is final, and a few coarse segment
-readings appear during scoring under their own privacy budget. Mainnet human text
+readings appear during scoring under their own privacy budget. Published models
+stay public apart from recorded legal removals, and a planned gate feedback
+record is to tell a failing entrant the gate thresholds and the coarse classes
+of the gates it failed. Mainnet human text
 comes from pre-cutoff Common Crawl, a historical-human proxy drawn with secret
 keys, capped domain shares, a cohort generation profile that matches generated
 text to its human parent's form, and era gates; testnet uses a smaller public
@@ -83,7 +86,7 @@ cluster placement by the earliest-admitted member are not yet implemented.
 Most operator decisions with the operator-decision key's verification, the
 span gate in report mode with artifact spec v5, pre-finalized scores and
 segment readings, and the service behind the detection page are built but, as
-of November 9, not yet deployed, so no cohort has yet evaluated spans;
+of November 10, not yet deployed, so no cohort has yet evaluated spans;
 enforcing the gate is not yet implemented. The record restart and the
 abandonment of a faulted cohort already run in their earlier, deployed form,
 without the key. Dated research results remain
@@ -144,12 +147,14 @@ TeX Gyre Pagella/Heros and Latin Modern Mono fonts. It renders the SVG diagram
 and compiles the native LaTeX source, including the PGFPlots graphs. Build output
 stays in ignored `build/`. The PDF and PDF diagram are checked in.
 
-Draft 0.63 was built on the authorized compute host with `build.sh` inside a local Docker image
+Draft 0.64 was built on the authorized compute host with `build.sh` inside a local Docker image
 derived from `texlive/texlive:TL2025-historic`, pinned by digest
 `sha256:7056390eac37715fd3e01875037ceb4016cb17d44c611f7bbbfa7a012007979f`,
 with Debian's `librsvg2-bin` 2.63.3 added and the XeLaTeX format prebuilt. The
 worktree was mounted, the container ran without network access as the invoking
-user, and no other host or GitHub Actions compute was used:
+user, `SOURCE_DATE_EPOCH` was set to midnight UTC of the draft's date so that
+the same sources rebuild the same PDF, and no other host or GitHub Actions
+compute was used:
 
 ```sh
 cat > Dockerfile <<'EOF'
@@ -159,5 +164,6 @@ RUN fmtutil-sys --byfmt xelatex
 EOF
 docker build -t slop-ninja-whitepaper-tex:TL2025-historic-rsvg .
 docker run --rm --network none -u "$(id -u):$(id -g)" -e HOME=/tmp \
+  -e SOURCE_DATE_EPOCH=1794268800 \
   -v "$PWD/whitepaper:/w" -w /w slop-ninja-whitepaper-tex:TL2025-historic-rsvg bash build.sh
 ```

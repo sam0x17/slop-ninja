@@ -1,7 +1,7 @@
 # Draft Cloudflare subnet design
 
 Draft 0.40, November 10, 2026. Implementation design notes accompanying
-[whitepaper draft 0.63](../whitepaper/main.tex). Both describe a proposal;
+[whitepaper draft 0.64](../whitepaper/main.tex). Both describe a proposal;
 neither establishes a deployed or qualified subnet.
 
 The [implementation plan](subnet-implementation-plan.md) defines the build
@@ -944,8 +944,10 @@ scores, no near-equal drop, and the absence of runtime versions:
   other than `R_0` gets the same anchor measurements as `R_0`, a Common
   Crawl-parented batch score and a canary audit, all reported.
 - **Promotion statistics.** With ten
-  entrants equal to `R_k` that differ from it as seed retrains do, the margin
-  promotes one about 14% of the time (independent differences would give 21%).
+  entrants equal to `R_k` that differ from it as seed retrains do, one passes
+  the margin test alone about 14% of the time (independent differences would
+  give 21%); since its released score must also reach the margin cutoff, about
+  6% of such cohorts promote (the Cutoff bullet below).
   A structurally different model has a much larger paired SE against `R_k`:
   those of the other two measured recipes and of V6 against `R_0` are about
   13–19% of headroom at 1,000 cases, 3.7 to 5.4 times `sigma`. Those models are
@@ -1435,7 +1437,9 @@ closed (its number is never reused); refuse to pay a finished cohort by
 declining its closure, abandoning it late, or naming it in a switch to burn;
 start over by switching the coordinator to burn, which sets a restart floor,
 names every cohort that opened before it without being handled, and is followed
-by a fresh record whose first reference is `R_0`; change the reward rule only
+by a fresh record whose first manifest names its first reference, `R_0` or,
+once the span-equivalent decision has passed `R_0`'s position to span package
+d24, that package; change the reward rule only
 through such a fresh record; set the current and previous references by a
 reference decision with a recorded reason; and rotate the authorization key
 when the subnet is registered again. Each decision is journaled before it takes
@@ -3589,7 +3593,7 @@ cohorts without a working outside entrant reuse exposed documents instead of
 drawing fresh stock, with the testnet-only lift of their reuse limits,
 pre-finalized scores and testnet `live-v1` readings, cluster placement by the
 earliest-admitted member for `reward-v2`'s successor, the operator decisions,
-and the detection page with the public pot's custody and burn rule. Whitepaper draft 0.63 incorporates the proposal with the following choices marked open; each must be
+and the detection page with the public pot's custody and burn rule. Whitepaper draft 0.64 incorporates the proposal with the following choices marked open; each must be
 settled before the corresponding feature goes live:
 
 1. *A*'s supported numerical architectures, identity policy, profile pooling,

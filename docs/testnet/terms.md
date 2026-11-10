@@ -1,6 +1,6 @@
 # Testnet terms
 
-Version 3, November 2026. It replaces version 2 of November 9, 2026 (which
+Version 3, November 10, 2026. It replaces version 2 of November 9, 2026 (which
 replaced version 1, the unnumbered terms published before it) and adds legal
 notices and recorded legal removals of published material. A commitment made
 after version 3 is published accepts it; an earlier commitment stays under the
@@ -30,9 +30,9 @@ token or mainnet allocation. SlopNinja does not provide test TAO.
   way, including what it derives from: base models, training data and code.
 - **Publication.** If your artifact is admitted to a cohort, the coordinator
   publishes it (its header and files) when that cohort's scoring starts, and
-  publishes your opening when the cohort closes. SlopNinja does not withdraw a
-  published artifact at anyone's request, yours included; it removes one only
-  by a recorded legal removal ([below](#legal-notices-and-removals)). Anyone
+  publishes your opening when the cohort closes. A request alone, yours
+  included, does not make SlopNinja withdraw a published artifact; it removes
+  one only by a recorded legal removal ([below](#legal-notices-and-removals)). Anyone
   may download, run, copy and adapt a published artifact under the licence.
   SlopNinja may run, host, evaluate and redistribute published artifacts under
   the same licence, and does not promise to host any artifact indefinitely.
@@ -149,7 +149,10 @@ unchanged, and the digests stay in the public record. A removed artifact still
 counts as published under [Copies](#your-submission): an entry with the same
 inference content is still a copy. If the same material is published again, it
 is removed the same way, with its own entry. A removal deletes only the copies
-SlopNinja hosts and cannot reach copies already downloaded.
+SlopNinja hosts and cannot reach copies already downloaded. These rules concern
+particular material. SlopNinja still does not promise to host any artifact
+indefinitely ([Publication](#your-submission)), and stopping the testnet or its
+public host altogether is not a removal.
 
 Removing a reference's public copies does not by itself change the reference,
 and SlopNinja keeps its private evaluation copy. If the legal basis also bars

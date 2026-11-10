@@ -19,7 +19,7 @@ Each entry gives:
 | --- | --- |
 | Date | the UTC date the material was taken down |
 | Material | an entrant artifact's header SHA-256, its inference-content digest and its cohort; or a reference package's name and digest |
-| Removed | the header, the files (each by SHA-256), or both; a file that other published material still lists, such as the allow-listed tokenizer, stays |
+| Removed | the header, the files (each by SHA-256), or both; for a reference package, its directory and any release asset that carries it. A file the removal does not cover stays, such as the allow-listed tokenizer; a covered file that other published artifacts also list is removed for each of them, each with its own entry |
 | Legal basis | its type and jurisdiction, for example a copyright notice under US law (17 U.S.C. § 512) or a court order |
 
 ## Entries

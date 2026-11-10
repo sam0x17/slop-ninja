@@ -1675,8 +1675,9 @@ coordinator silence do not advance the retention window, and a target kept live
 through cohorts that produce no new target keeps its receipts. Published entrant
 artifacts stay public, except for a recorded legal removal: an operator action
 on legal grounds with a content-free public record of the removal and its
-legal basis, which changes no score, row or payment and keeps the artifact's
-digests in the published-artifact index. Their admission-bucket copies are
+legal basis, which changes no score, row or payment; the published-artifact
+index keeps the artifact's content digest, and the public records keep its
+header digest. Their admission-bucket copies are
 deleted once the cohort closes and publication is recorded, and the artifacts
 of `R_k` and `R_{k-1}` stay hosted for evaluation while they are references.
 Probe fingerprints are private

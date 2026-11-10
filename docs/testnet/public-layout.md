@@ -26,7 +26,8 @@ the host's base URL.
 
 - Every object is static. The host serves the bucket's objects directly, and
   no Worker code runs per request.
-- Paths never change once published. Artifacts, authorization objects and
+- Paths never change once published; a [legal removal](#legal-removals)
+  deletes a path and never moves one. Artifacts, authorization objects and
   the signed cohort objects a publisher built before the copy model copies
   are immutable (`cache-control: public, max-age=31536000, immutable`).
   Index documents, pointers and the status snapshot are rewritten in place,
@@ -308,14 +309,32 @@ A published object is taken down only by a recorded legal removal
 ([terms](terms.md#legal-notices-and-removals)), an operator action outside
 the publisher, which never withdraws an object itself. The operator deletes
 the covered objects from the public bucket (an artifact's header, the blobs
-only it lists, or a reference package's directory), keeps every blob that
-other published material still lists, purges the deleted paths from the
-host's edge cache, and adds an entry to the [removal record](removals.md).
+the removal covers, or a reference package's directory), keeps every blob
+the removal does not cover (the pinned tokenizer, for example), purges the
+deleted paths from the host's edge cache, and adds an entry to the
+[removal record](removals.md). A blob is stored once however many artifacts
+list it, so a covered blob that other published artifacts also list is
+removed for each of them, each with its own entry. A reference package that a
+release also carries as an asset (`R_0`'s archives on `testnet-v0.1.0`) is
+removed from that release too. Caches outside the host may keep a removed
+object for as long as its `cache-control` allows, up to a year for an
+immutable object ([Rules](#rules)); a removal cannot reach them.
+
 Everything else stays as it was: `artifacts.json`, `publication.json` and
-the leaderboard keep the entry and its digests, with the state `published`
-recording publication at scoring start; the index keeps its counts; the
-cohort summary and the signed objects are unchanged; and a removed path
-answers not found. A removal changes no score, result, row or payment.
+the leaderboard rows keep the entry and its digests, with the state
+`published` recording publication at scoring start; the index keeps its
+counts; the cohort summary and the signed objects are unchanged; and a
+removed path answers not found. A removal changes no score, result, row or
+payment.
+
+The reference pointers are the exception when the removed material is a
+reference's public copy. Until the next cohort closes,
+`v1/reference/current.json` (or `previous.json`) and the leaderboard keep
+linking the removed package or download, which answers not found. When the
+publisher lists that cohort, it finds neither the reference's header nor its
+package, and writes the pointer with no `path` or `package` and the
+`withheld` reason `reference package not yet staged`; for a removed
+reference the removal record, not that reason, says why.
 
 ## Authorizations
 

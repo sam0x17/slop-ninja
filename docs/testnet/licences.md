@@ -1,7 +1,9 @@
 # Licences and notices (testnet)
 
 What SlopNinja publishes for testnet, under which licence, and where each
-licence text and notice is.
+licence text and notice is. Send a copyright notice or other legal notice
+about published material to the address in the
+[terms](terms.md#legal-notices-and-removals).
 
 | What | Licence | Licence texts and notices |
 | --- | --- | --- |

@@ -166,11 +166,12 @@ probe cut after a reference change, the successor's sweep of a frozen store
 frozen upload sweep, the publisher's frozen-store and build-keyed artifact
 rules and its copy of restart records, the `decide new-chain` runbook tool,
 the restart tool's check against the first cohort's opening, the
-validators' deferral of a restart row above their finalized epoch, the
-span-equivalent decision's reading of recorded digests, its staged-package
-and spec-admission checks and the signed byte comparison (today its static
-identity compares the digests the signed body lists), and the key rotation
-at re-registration.
+validators' deferral of a restart row above their finalized epoch, and the
+key rotation at re-registration. The span-equivalent decision reads its
+evidence itself: the candidate's staged files manifest (refused unless the
+installed template's spec admits it), both export manifests (the
+candidate's init fit must be R_0's by recorded digests) and the signed byte
+comparison against each side's recorded file digests.
 
 ## Block webhooks and the fallback watchdog
 

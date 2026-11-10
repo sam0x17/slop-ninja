@@ -29,8 +29,8 @@
 //! - [`reference_decision`] (D10(b)): the operator sets the chain's
 //!   references for later cohorts under the offline key, with a recorded
 //!   reason: the general `override`, and the narrow `span_equivalent`
-//!   replacement of R_0 by a staged package whose document outputs equal
-//!   R_0's (span gate design section 4.2).
+//!   replacement of R_0 by a staged package of R_0's own model with a span
+//!   head, whose document outputs equal R_0's.
 //!
 //! Records are queued in `decision_records` and written by their own step
 //! ([`engine::Work::DecisionRecord`]); the write never holds other work.
@@ -499,7 +499,141 @@ pub fn reference_vectors(sql: &impl Sql, req: &Request) -> R<Result<Vec<VectorPa
     Ok(Ok(out))
 }
 
-const IDENTITY_FIELDS: [&str; 4] = ["fit_sha256", "selected_checkpoint_sha256", "encoder_sha256", "heads_sha256"];
+/// What the Worker reads for a `span_equivalent` decision before its
+/// transaction ([`SpanEvidence`]): the probe vector pairs
+/// ([`reference_vectors`]) and R_0's stored artifact record, the one the
+/// chain resolves for R_0's content (`reference_unresolved` when none).
+pub fn span_reads(sql: &impl Sql, req: &Request) -> R<Result<(Vec<VectorPair>, crate::eval::plan::ArtifactJson), &'static str>> {
+    let pairs = match reference_vectors(sql, req)? {
+        Ok(p) => p,
+        Err(code) => return Ok(Err(code)),
+    };
+    let chain = sql.exec("SELECT current FROM reference_state WHERE id = 1", &[])?;
+    let Some(r0) = chain.first().map(|r| text(r, 0).map(str::to_owned)).transpose()? else {
+        return Ok(Err("chain_missing"));
+    };
+    Ok(match crate::eval::calendar::resolve_record(sql, &r0)? {
+        Some(a) => Ok((pairs, a)),
+        None => Err("reference_unresolved"),
+    })
+}
+
+/// What a `span_equivalent` decision read from the buckets (the Worker reads
+/// each object by its key, at most its bound; nothing here hashes a file:
+/// R2 verified every file at ingest, and each export manifest is read at the
+/// location and entity tag its files manifest records). `None`: absent.
+#[derive(Clone, Debug, Default)]
+pub struct SpanEvidence {
+    /// The candidate's pinned files manifest, read at its staged key
+    /// (`artifacts/packages/<package>.json` in the eval bucket).
+    pub candidate_manifest: Option<Vec<u8>>,
+    /// The candidate's export manifest (that package's `manifest.json`).
+    pub candidate_export: Option<Vec<u8>>,
+    /// R_0's pinned files manifest (its record's `manifest_key`).
+    pub r0_manifest: Option<Vec<u8>>,
+    /// R_0's export manifest.
+    pub r0_export: Option<Vec<u8>>,
+    /// The stored probe vectors, one `(version, candidate, R_0)` triple per
+    /// probe version of the installed template ([`reference_vectors`]).
+    pub vectors: Vec<(u32, Vec<u8>, Vec<u8>)>,
+}
+
+/// The recorded fit digests the candidate's export manifest names for the
+/// fit its tower was trained from (`fit_hashes.init_fit`).
+const INIT_FIT_FIELDS: [&str; 4] = ["encoder_sha256", "selected_checkpoint_sha256", "fit_sha256", "heads_sha256"];
+
+/// A `span_equivalent` decision's checks on what it read, after the chain
+/// and publication checks; the compared digests on success.
+///
+/// 1. **Staged** (`candidate_not_staged`): `current` names its staged key,
+///    and the files manifest there hashes to its package and keeps every
+///    file at its reference location with a pinned entity tag (the staging
+///    rule, `eval::reference`).
+/// 2. **Admitted** (`reference_not_admitted`): the installed template's spec
+///    (spec v2 when it names none) admits that manifest's shape and file
+///    table, so the next cohort's reference load is not refused.
+/// 3. **Static identity, from recorded digests** (`static_identity_mismatch`):
+///    the candidate's export manifest declares its encoder and document heads
+///    equal to its init fit's, and that fit is R_0's: its encoder and selected
+///    checkpoint digests equal those R_0's export manifest records, and its fit
+///    and heads digests equal R_0's fit directory as the signed decision lists
+///    it (`r0_fit`; R_0's package does not carry it).
+/// 4. **Byte comparison** (`byte_comparison_mismatch`): the signed decision
+///    carries the operator's offline comparison of the encoder initializers
+///    (the graph files) and of the document-head tensors (`heads.json`), each
+///    side named by the digest its files manifest records, and both equal.
+fn span_checks(
+    sql: &impl Sql,
+    req: &Request,
+    current: &crate::eval::plan::ArtifactJson,
+    ev: &SpanEvidence,
+) -> R<Result<Value, &'static str>> {
+    use slop_ninja_artifact_check::files_manifest::{
+        FilesManifest, REFERENCE_BUCKET, REFERENCE_PROFILE_ID_BYTES, reference_file_key, reference_label_ok,
+    };
+    // 1. Staged.
+    let staged_key = crate::eval::admission::manifest_key(&current.package_sha256);
+    let Some(bytes) = ev.candidate_manifest.as_deref().filter(|_| current.manifest_key == staged_key) else {
+        return Ok(Err("candidate_not_staged"));
+    };
+    let Ok(m) = serde_json::from_slice::<FilesManifest>(bytes) else { return Ok(Err("candidate_not_staged")) };
+    let at_reference = m.files.iter().all(|f| {
+        f.bucket == REFERENCE_BUCKET && f.key == reference_file_key(&f.sha256) && f.etag.is_some()
+    });
+    if !at_reference
+        || !reference_label_ok(&m.profile_id, REFERENCE_PROFILE_ID_BYTES)
+        || FilesManifest::package_of(bytes) != current.package_sha256
+    {
+        return Ok(Err("candidate_not_staged"));
+    }
+    // 2. Admitted by the installed template's spec.
+    let spec = crate::eval::calendar::template(sql)?.and_then(|p| p.fanout).and_then(|f| f.score.artifact_spec);
+    let version = match spec {
+        Some(id) => slop_ninja_artifact_check::Version::from_id(&id).ok_or(EvalError::State("template spec"))?,
+        None => slop_ninja_artifact_check::Version::V2,
+    };
+    if FilesManifest::parse(bytes, &current.package_sha256, version).is_err() {
+        return Ok(Err("reference_not_admitted"));
+    }
+    // 3. Static identity from recorded digests.
+    let json = |b: &Option<Vec<u8>>| b.as_deref().and_then(|b| serde_json::from_slice::<Value>(b).ok());
+    let (Some(ce), Some(re)) = (json(&ev.candidate_export), json(&ev.r0_export)) else {
+        return Ok(Err("static_identity_mismatch"));
+    };
+    let declared = ["encoder_equal_to_init_fit", "document_heads_equal_to_init_fit"]
+        .iter()
+        .all(|f| ce["fit_hashes"][*f] == Value::Bool(true));
+    let init = |f: &str| hex64(ce.pointer(&format!("/fit_hashes/init_fit/{f}")));
+    let r0_fit = req.body.get("r0_fit");
+    let want = [
+        hex64(re.pointer("/encoder/sha256")),
+        hex64(re.pointer("/selected_checkpoint_sha256")),
+        r0_fit.and_then(|v| hex64(v.get("fit_sha256"))),
+        r0_fit.and_then(|v| hex64(v.get("heads_sha256"))),
+    ];
+    let got: Vec<Option<String>> = INIT_FIT_FIELDS.iter().map(|f| init(f)).collect();
+    if !declared || got.iter().zip(&want).any(|(g, w)| g.is_none() || g != w) {
+        return Ok(Err("static_identity_mismatch"));
+    }
+    // 4. The signed byte comparison, each side by its recorded digest.
+    let Some(r0m) = ev.r0_manifest.as_deref().and_then(|b| serde_json::from_slice::<FilesManifest>(b).ok()) else {
+        return Ok(Err("byte_comparison_mismatch"));
+    };
+    let file = |fm: &FilesManifest, name: &str| fm.files.iter().find(|f| f.name == name).map(|f| f.sha256.clone());
+    let bc = req.body.get("byte_comparison");
+    let mut compared = serde_json::Map::new();
+    for (field, name) in [("encoder_initializers", slop_ninja_artifact_check::spec::GRAPH_FILE), ("document_heads", "heads.json")] {
+        let side = bc.and_then(|v| v.get(field));
+        let (c, r) = (side.and_then(|v| hex64(v.get("candidate"))), side.and_then(|v| hex64(v.get("r0"))));
+        let equal = side.and_then(|v| v.get("equal")) == Some(&Value::Bool(true));
+        if !equal || c.is_none() || c != file(&m, name) || r.is_none() || r != file(&r0m, name) {
+            return Ok(Err("byte_comparison_mismatch"));
+        }
+        compared.insert(field.to_owned(), json!({"candidate": c, "r0": r}));
+    }
+    let fit: serde_json::Map<String, Value> = INIT_FIT_FIELDS.iter().zip(got).map(|(f, g)| ((*f).to_owned(), json!(g))).collect();
+    Ok(Ok(json!({"spec": version.id(), "init_fit": fit, "byte_comparison": compared})))
+}
 
 /// D10(b): an operator reference decision (`POST /eval/references/decision`,
 /// under the offline operator-decision key). Body: `kind` (`span_equivalent`
@@ -512,13 +646,16 @@ const IDENTITY_FIELDS: [&str; 4] = ["fit_sha256", "selected_checkpoint_sha256", 
 /// whose content is published here with a fingerprint and stored vector on
 /// every probe version of the installed template (`candidate_unpublished`).
 /// `span_equivalent` takes R_0's position with no predecessor (`k` 0) and
-/// only while the chain is at index 0 (`chain_not_at_r0`); its `static_identity`
-/// lists the candidate's and R_0's recorded fit digests, which must be equal
-/// (`static_identity_mismatch`); and its stored probe vectors (`vectors`,
-/// read by the caller from [`reference_vectors`]) must equal R_0's on every
-/// probe version within the decision's `tolerance_ppb`
-/// (`not_document_equivalent`). The general `override` (a stronger class)
-/// takes the references as given.
+/// only while the chain is at index 0 (`chain_not_at_r0`); `current` must be
+/// a staged reference package that the installed template's spec admits, of
+/// R_0's own model by recorded digests and the signed byte comparison
+/// (`r0_fit`, `byte_comparison`; [`span_checks`]: `candidate_not_staged`,
+/// `reference_not_admitted`, `static_identity_mismatch`,
+/// `byte_comparison_mismatch`); and its stored probe vectors (read by the
+/// caller with the files manifests and export manifests, [`SpanEvidence`],
+/// from [`span_reads`]) must equal R_0's on every probe version within the
+/// decision's `tolerance_ppb` (`not_document_equivalent`). The general
+/// `override` (a stronger class) takes the references as given.
 ///
 /// Effect: journaled before it applies; `reference_state` is set for
 /// cohorts queued after it (a queued cohort keeps its sealed references);
@@ -529,9 +666,10 @@ pub fn reference_decision(
     cfg: &EvalConfig,
     req: &Request,
     key: Option<&OperatorKey>,
-    vectors: &[(u32, Vec<u8>, Vec<u8>)],
+    evidence: &SpanEvidence,
     now_ms: u64,
 ) -> R<Answer> {
+    let vectors = &evidence.vectors;
     let authority = cfg.authority.name().to_owned();
     let statement = match operator::begin(sql, req, "eval.reference_decision", true, key, &address(cfg, &authority))? {
         Ok(Begin::Answer(v)) => return Ok(Ok(v)),
@@ -583,27 +721,22 @@ pub fn reference_decision(
         }
     }
     let mut max_diff_ppb: Option<u64> = None;
+    let mut identity = Value::Null;
     if kind == "span_equivalent" {
         if chain_k != 0 || k != 0 || previous.is_some() {
             return Ok(Err("chain_not_at_r0"));
         }
-        let ident = req.body.get("static_identity");
-        let side = |name: &str| ident.and_then(|v| v.get(name));
-        let same = IDENTITY_FIELDS.iter().all(|f| {
-            let a = side("candidate").and_then(|v| hex64(v.get(*f)));
-            let b = side("r0").and_then(|v| hex64(v.get(*f)));
-            a.is_some() && a == b
-        });
-        if !same {
-            return Ok(Err("static_identity_mismatch"));
-        }
+        identity = match span_checks(sql, req, &current, evidence)? {
+            Ok(v) => v,
+            Err(code) => return Ok(Err(code)),
+        };
         let tolerance = req.body.get("tolerance_ppb").and_then(Value::as_u64).unwrap_or(0);
         let versions = crate::eval::calendar::template_probe_versions(sql)?;
         if vectors.len() != versions.len() || !versions.iter().all(|v| vectors.iter().any(|(x, _, _)| x == v)) {
             return Ok(Err("candidate_unpublished"));
         }
         let mut worst = 0u64;
-        for (_, a, b) in vectors {
+        for (_, a, b) in vectors.iter() {
             let (Ok(a), Ok(b)) = (crate::eval::v3::vector_from_bytes(a), crate::eval::v3::vector_from_bytes(b)) else {
                 return Ok(Err("not_document_equivalent"));
             };
@@ -624,7 +757,7 @@ pub fn reference_decision(
         max_diff_ppb = Some(worst);
     }
     let effect = json!({"kind": kind, "k": k, "current_content": current_content, "previous_content": previous_content,
-        "previous_chain_content": chain_current, "max_vector_diff_ppb": max_diff_ppb});
+        "previous_chain_content": chain_current, "max_vector_diff_ppb": max_diff_ppb, "static_identity": identity});
     if req.preview {
         return Ok(Ok(json!({"preview": true, "effect": effect})));
     }

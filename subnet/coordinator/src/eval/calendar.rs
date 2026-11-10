@@ -486,6 +486,13 @@ fn as_reference(mut a: ArtifactJson) -> ArtifactJson {
 /// the number of cohorts: the cohort that published the content (a promoted
 /// entrant is published at its cohort's close), else the newest v3 cohort
 /// (every cohort names the chain's current reference and its predecessor).
+/// The stored artifact record the chain resolves for `content` (a reference
+/// decision's own record first, then a v3 cohort's reference, predecessor or
+/// entrant), as a reference.
+pub fn resolve_record(sql: &impl Sql, content: &str) -> R<Option<ArtifactJson>> {
+    resolve(sql, content)
+}
+
 fn resolve(sql: &impl Sql, content: &str) -> R<Option<ArtifactJson>> {
     // D10(b): an operator reference decision names its own records, read
     // before any cohort's (the cohort records may name another package of

@@ -206,6 +206,59 @@ pub async fn get_bounded(env: &Env, bucket: &str, key: &str, bound: usize) -> st
     super::cf_io::r2_bytes(&b, key, bound, None).await
 }
 
+/// A `span_equivalent` decision's reads of one package
+/// (`decide::SpanEvidence`): its pinned files manifest at `key` in the eval
+/// bucket (at most the scorer's manifest bound), and its export manifest
+/// (`manifest.json`) from the bucket and key that manifest names, pinned to
+/// the entity tag it records and at most the operator body bound (an export
+/// manifest is a small record; nothing is hashed). An absent object is
+/// `None`, which the decision refuses by name; a read that fails, or an
+/// object over its bound, is an error.
+async fn span_manifests(env: &Env, key: &str) -> std::result::Result<(Option<Vec<u8>>, Option<Vec<u8>>), &'static str> {
+    use slop_ninja_artifact_check::files_manifest::{FilesManifest, MAX_MANIFEST_BYTES};
+    let manifest = match get_bounded(env, EVAL_BUCKET, key, MAX_MANIFEST_BYTES).await {
+        Ok(m) => m,
+        Err(_) => return Err("manifest_unavailable"),
+    };
+    let Some(entry) = manifest
+        .as_deref()
+        .and_then(|b| serde_json::from_slice::<FilesManifest>(b).ok())
+        .and_then(|m| m.files.into_iter().find(|f| f.name == "manifest.json"))
+    else {
+        return Ok((manifest, None));
+    };
+    if entry.bytes > OPERATOR_BODY_BYTES as u64 {
+        return Err("export_manifest_too_large");
+    }
+    let binding = match entry.bucket.as_str() {
+        "admission" => super::admission_do::ADMISSION_BUCKET,
+        "eval" => EVAL_BUCKET,
+        _ => return Ok((manifest, None)),
+    };
+    let bucket = env.bucket(binding).map_err(|_| "export_manifest_unavailable")?;
+    let mut get = bucket.get(entry.key.clone());
+    if let Some(etag) = &entry.etag {
+        get = get.only_if(worker::Conditional {
+            etag_matches: Some(etag.clone()),
+            etag_does_not_match: None,
+            uploaded_before: None,
+            uploaded_after: None,
+        });
+    }
+    let obj = match get.execute().await {
+        Err(_) => return Err("export_manifest_unavailable"),
+        Ok(None) => return Ok((manifest, None)),
+        Ok(Some(o)) => o,
+    };
+    if obj.size() != entry.bytes {
+        return Err("export_manifest_changed");
+    }
+    // No body: the pinned read refused (the entity tag changed).
+    let Some(body) = obj.body() else { return Err("export_manifest_changed") };
+    let bytes = body.bytes().await.map_err(|_| "export_manifest_unavailable")?;
+    Ok((manifest, Some(bytes)))
+}
+
 /// An object read by the fan-out lane objects (`cf_lanes.rs`): streamed like
 /// every R2 read, bounded by the largest route the memory model holds (the
 /// lane objects run unscoped until they are wrapped; their objects' kinds
@@ -1033,9 +1086,10 @@ impl DurableObject for EvalCohort {
             }
             // Operator decisions through the shared request mechanism
             // (`eval::decide`), main instance only.
-            // D10(b): an operator reference decision. A span-equivalent one
-            // compares the candidate's stored probe vectors with R_0's, read
-            // here first (the decision applies in its own transaction).
+            // D10(b): an operator reference decision. For a span-equivalent
+            // one the stored probe vectors, both packages' files manifests and
+            // export manifests are read here first (`decide::SpanEvidence`);
+            // the decision applies in its own transaction.
             (Method::Post, "/references/decision") if main => {
                 let body = match super::cf_io::request_json::<Value>(&mut req, OPERATOR_BODY_BYTES).await {
                     Ok(v) => v,
@@ -1050,10 +1104,10 @@ impl DurableObject for EvalCohort {
                     Ok(k) => k,
                     Err(code) => return error(code, 503),
                 };
-                let mut vectors = Vec::new();
+                let mut evidence = crate::eval::decide::SpanEvidence::default();
                 if r.body.get("kind").and_then(Value::as_str) == Some("span_equivalent") {
                     let r2 = r.clone();
-                    let pairs = match transaction(&storage, move |sql| crate::eval::decide::reference_vectors(sql, &r2)) {
+                    let (pairs, r0_record) = match transaction(&storage, move |sql| crate::eval::decide::span_reads(sql, &r2)) {
                         Ok(Ok(p)) => p,
                         Ok(Err(code)) => return error(code, 409),
                         Err(_) => return error("store_unavailable", 503),
@@ -1066,11 +1120,28 @@ impl DurableObject for EvalCohort {
                         ) else {
                             return error("vector_unavailable", 503);
                         };
-                        vectors.push((version, a, b));
+                        evidence.vectors.push((version, a, b));
+                    }
+                    // The candidate's files manifest at its staged key (the
+                    // decision refuses another key), R_0's at its record's,
+                    // and each one's export manifest.
+                    let package = r.body.pointer("/current/package_sha256").and_then(Value::as_str).unwrap_or_default();
+                    let staged_key = crate::eval::admission::manifest_key(package);
+                    for (key, manifest, export) in [
+                        (staged_key.as_str(), &mut evidence.candidate_manifest, &mut evidence.candidate_export),
+                        (r0_record.manifest_key.as_str(), &mut evidence.r0_manifest, &mut evidence.r0_export),
+                    ] {
+                        match span_manifests(&self.env, key).await {
+                            Ok((m, e)) => {
+                                *manifest = m;
+                                *export = e;
+                            }
+                            Err(code) => return error(code, 503),
+                        }
                     }
                 }
                 let c2 = cfg.clone();
-                match transaction(&storage, move |sql| crate::eval::decide::reference_decision(sql, &c2, &r, key.as_ref(), &vectors, now)) {
+                match transaction(&storage, move |sql| crate::eval::decide::reference_decision(sql, &c2, &r, key.as_ref(), &evidence, now)) {
                     Ok(Ok(v)) => {
                         storage.set_alarm(500i64).await?;
                         json(&v)

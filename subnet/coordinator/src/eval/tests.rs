@@ -8297,15 +8297,50 @@ fn a_paused_calendar_stays_paused_and_cohort_start_queues_one_cohort() {
 
 // ------------------------------------------------ reference decisions (D10)
 
+/// A staged reference package's pinned files manifest for a spec-v2-valid
+/// header (`tag` varies its digests): every file at its reference location
+/// with a pinned entity tag, as the staging rule writes it. Returns its
+/// bytes and package digest.
+fn staged_reference_manifest(tag: u8) -> (Vec<u8>, String) {
+    use slop_ninja_artifact_check::files_manifest::{FilesManifest, reference_file_key};
+    use slop_ninja_artifact_check::{Version, spec};
+    use slop_ninja_protocol::{ArtifactFile, ArtifactHeader, Digest, FileRole};
+    let class = Version::V2.classes().iter().find(|c| Version::V2.serves(c)).unwrap();
+    let d = |n: u8| Digest([tag ^ n; 32]);
+    let tok = Digest(super::plan::parse_hex32(spec::TOKENIZER_SHA256).unwrap());
+    let f = |name: &str, role, sha256, len| ArtifactFile { name: name.into(), role, sha256, len };
+    let header = ArtifactHeader {
+        contract: spec::CONTRACT_ID.into(),
+        files: vec![
+            f(spec::GRAPH_FILE, FileRole::Graph, d(1), class.bytes),
+            f("calibration.json", FileRole::Calibration, d(2), 100),
+            f("contract.json", FileRole::OutputSchema, d(3), 100),
+            f("heads.json", FileRole::Weights, d(4), 100),
+            f("manifest.json", FileRole::OwnerMetadata, d(5), 100),
+            f("tokenizer.json", FileRole::Tokenizer, tok, spec::TOKENIZER_BYTES),
+        ],
+    };
+    let m = FilesManifest::for_header(&header, Version::V2, "reference-span-test", |name, sha| {
+        ("admission".into(), reference_file_key(sha), Some(format!("etag-{}", name.len())))
+    })
+    .unwrap();
+    let bytes = m.to_bytes();
+    let package = FilesManifest::package_of(&bytes);
+    (bytes, package)
+}
+
 /// D10(b), the narrow span-equivalent route: only under the offline key,
 /// only for a candidate published here with a fingerprint and stored vector
-/// on every probe version the template names, with equal recorded fit
-/// digests and probe vectors within the recorded tolerance; then R_0's
-/// position goes to the candidate (index 0, no predecessor) for later
-/// cohorts, the decision's own record resolves first, and the signed record
-/// is written.
+/// on every probe version the template names, staged as a reference package
+/// the template's spec admits, of R_0's own model by recorded digests (its
+/// export manifest's init fit against R_0's export manifest and the fit
+/// directory digests the decision lists) and the signed byte comparison,
+/// with probe vectors within the recorded tolerance; then R_0's position
+/// goes to the candidate (index 0, no predecessor) for later cohorts, the
+/// decision's own record resolves first, and the signed record is written.
 #[test]
 fn a_span_equivalent_reference_decision_replaces_r0_only_on_its_evidence() {
+    use super::decide::SpanEvidence;
     let db = Sqlite::open();
     let (sim, weak, v1) = probe_built(&db);
     let base = plan_v3(0, "testnet-t-template", 20, weak.clone());
@@ -8315,28 +8350,53 @@ fn a_span_equivalent_reference_decision_replaces_r0_only_on_its_evidence() {
     let r0: String = db.conn.query_row("SELECT current FROM reference_state WHERE id = 1", [], |r| r.get(0)).unwrap();
     let r0_key: String = db.conn.query_row("SELECT vector_key FROM fingerprints WHERE content = ?1 AND version = 1", [&r0], |r| r.get(0)).unwrap();
     let candidate = "c4".repeat(32);
+    let (staged, package) = staged_reference_manifest(0x40);
     let mut record = weak.clone();
-    record.package_sha256 = "d2".repeat(32);
-    record.manifest_key = "artifacts/packages/d24.json".into();
-    let ident = json!({"fit_sha256": "11".repeat(32), "selected_checkpoint_sha256": "22".repeat(32),
-        "encoder_sha256": "33".repeat(32), "heads_sha256": "44".repeat(32)});
-    let body = |decision: &str, ident_r0: Value, tolerance: u64| {
+    record.package_sha256 = package.clone();
+    record.manifest_key = super::admission::manifest_key(&package);
+    // R_0's model: its export manifest's encoder and selected checkpoint,
+    // and its fit directory's fit and heads digests (listed in the
+    // decision); the candidate's init fit names the same four.
+    let (enc, ckpt, fit, heads) = ("33".repeat(32), "22".repeat(32), "11".repeat(32), "44".repeat(32));
+    let candidate_export = |declared: bool, enc: &str| {
+        serde_json::to_vec(&json!({"fit_hashes": {"encoder_equal_to_init_fit": declared, "document_heads_equal_to_init_fit": true,
+            "init_fit": {"encoder_sha256": enc, "selected_checkpoint_sha256": ckpt, "fit_sha256": fit, "heads_sha256": heads}}}))
+        .unwrap()
+    };
+    let r0_export = serde_json::to_vec(&json!({"encoder": {"file": "encoder.safetensors", "sha256": enc}, "selected_checkpoint_sha256": ckpt})).unwrap();
+    // The recorded digests of each side's graph and heads files.
+    let (graph_c, heads_c) = (hex::encode([0x41; 32]), hex::encode([0x44; 32]));
+    let (graph_r, heads_r) = (hex::encode([1; 32]), hex::encode([2; 32]));
+    let comparison = |graph_c: &str| {
+        json!({"encoder_initializers": {"candidate": graph_c, "r0": graph_r, "equal": true},
+               "document_heads": {"candidate": heads_c, "r0": heads_r, "equal": true}})
+    };
+    let body = |decision: &str, r0_fit_sha: &str, bc: Value, tolerance: u64| {
         json!({"decision": decision, "reason": "span_equivalent", "kind": "span_equivalent", "k": 0,
             "current": record, "current_content": candidate, "previous": null, "previous_content": null,
-            "static_identity": {"candidate": ident, "r0": ident_r0}, "tolerance_ppb": tolerance,
-            "expect": {"current_content": r0}})
+            "r0_fit": {"fit_sha256": r0_fit_sha, "heads_sha256": heads}, "byte_comparison": bc,
+            "tolerance_ppb": tolerance, "expect": {"current_content": r0}})
     };
     let (_, key) = op_key();
-    let decide = |req: &crate::operator::Request, vectors: &[(u32, Vec<u8>, Vec<u8>)]| {
-        tx(&db, |s| super::decide::reference_decision(s, &cfg(), req, Some(&key), vectors, sim.now + 10)).unwrap()
+    let decide = |req: &crate::operator::Request, ev: &SpanEvidence| {
+        tx(&db, |s| super::decide::reference_decision(s, &cfg(), req, Some(&key), ev, sim.now + 10)).unwrap()
     };
     let vec_of = |vals: &[u32]| vals.iter().flat_map(|v| v.to_le_bytes()).collect::<Vec<u8>>();
     let same = vec![(1u32, vec_of(&[100, 200, u32::MAX]), vec_of(&[100, 200, u32::MAX]))];
+    let full = SpanEvidence {
+        candidate_manifest: Some(staged.clone()),
+        candidate_export: Some(candidate_export(true, &enc)),
+        r0_manifest: Some(sim.eval[&weak.manifest_key].clone()),
+        r0_export: Some(r0_export.clone()),
+        vectors: same.clone(),
+    };
+    let signed = |name: &str, b: Value| op_signed("eval.reference_decision", { let mut b = b; b["decision"] = json!(name); b });
+    let good = || body("drill-r", &fit, comparison(&graph_c), 0);
     // The token alone is refused.
-    assert_eq!(decide(&op_req(body("drill-r0", ident.clone(), 0)), &same), Err("authorization_required"));
+    assert_eq!(decide(&op_req(body("drill-r0", &fit, comparison(&graph_c), 0)), &full), Err("authorization_required"));
     // Not published here yet.
-    assert_eq!(decide(&op_signed("eval.reference_decision", body("drill-r1", ident.clone(), 0)), &same), Err("candidate_unpublished"));
-    assert_eq!(tx(&db, |s| super::decide::reference_vectors(s, &op_req(body("x", ident.clone(), 0)))).unwrap(), Err("candidate_unpublished"));
+    assert_eq!(decide(&signed("drill-r1", good()), &full), Err("candidate_unpublished"));
+    assert_eq!(tx(&db, |s| super::decide::reference_vectors(s, &op_req(good()))).unwrap(), Err("candidate_unpublished"));
     db.conn.execute("INSERT INTO published_contents (content, seq) VALUES (?1, 1)", [&candidate]).unwrap();
     db.conn
         .execute(
@@ -8344,18 +8404,52 @@ fn a_span_equivalent_reference_decision_replaces_r0_only_on_its_evidence() {
             rusqlite::params![candidate, "55".repeat(32)],
         )
         .unwrap();
-    let pairs = tx(&db, |s| super::decide::reference_vectors(s, &op_req(body("x", ident.clone(), 0)))).unwrap().unwrap();
+    let (pairs, r0_record) = tx(&db, |s| super::decide::span_reads(s, &op_req(good()))).unwrap().unwrap();
     assert_eq!(pairs, vec![(1, "vectors/cand-v1".to_owned(), r0_key, 20)]);
-    // Another model's fit digests: no.
-    let mut other = ident.clone();
-    other["encoder_sha256"] = json!("99".repeat(32));
-    assert_eq!(decide(&op_signed("eval.reference_decision", body("drill-r2", other, 0)), &same), Err("static_identity_mismatch"));
+    assert_eq!(r0_record.manifest_key, weak.manifest_key, "the Worker reads R_0's files manifest at its record's key");
+    // Staged: the files manifest at the staged key, every file at its
+    // reference location.
+    assert_eq!(decide(&signed("drill-r2", good()), &SpanEvidence { candidate_manifest: None, ..full.clone() }), Err("candidate_not_staged"));
+    let unstaged = String::from_utf8(staged.clone()).unwrap().replacen("\"admission\"", "\"eval\"", 1).into_bytes();
+    assert_eq!(decide(&signed("drill-r3", good()), &SpanEvidence { candidate_manifest: Some(unstaged), ..full.clone() }), Err("candidate_not_staged"));
+    // Admitted by the template's spec (v2 here): a graph of no served size is not.
+    let mut odd: Value = serde_json::from_slice(&staged).unwrap();
+    odd["files"][0]["bytes"] = json!(101);
+    let mut odd_bytes = serde_json::to_vec_pretty(&odd).unwrap();
+    odd_bytes.push(b'\n');
+    let odd_package = slop_ninja_artifact_check::files_manifest::FilesManifest::package_of(&odd_bytes);
+    let mut odd_record = record.clone();
+    odd_record.package_sha256 = odd_package.clone();
+    odd_record.manifest_key = super::admission::manifest_key(&odd_package);
+    let mut odd_body = good();
+    odd_body["current"] = serde_json::to_value(&odd_record).unwrap();
+    assert_eq!(decide(&signed("drill-r4", odd_body), &SpanEvidence { candidate_manifest: Some(odd_bytes), ..full.clone() }), Err("reference_not_admitted"));
+    // Static identity from recorded digests: another model's fit, a fit
+    // directory other than R_0's, an undeclared frozen encoder, or no export
+    // manifest: no.
+    let other = SpanEvidence { candidate_export: Some(candidate_export(true, &"99".repeat(32))), ..full.clone() };
+    assert_eq!(decide(&signed("drill-r5", good()), &other), Err("static_identity_mismatch"));
+    assert_eq!(decide(&signed("drill-r6", body("x", &"98".repeat(32), comparison(&graph_c), 0)), &full), Err("static_identity_mismatch"));
+    let undeclared = SpanEvidence { candidate_export: Some(candidate_export(false, &enc)), ..full.clone() };
+    assert_eq!(decide(&signed("drill-r7", good()), &undeclared), Err("static_identity_mismatch"));
+    assert_eq!(decide(&signed("drill-r8", good()), &SpanEvidence { r0_export: None, ..full.clone() }), Err("static_identity_mismatch"));
+    // The signed byte comparison names each side's recorded digests and
+    // finds both equal.
+    assert_eq!(decide(&signed("drill-r9", body("x", &fit, comparison(&"97".repeat(32)), 0)), &full), Err("byte_comparison_mismatch"));
+    let mut unequal = comparison(&graph_c);
+    unequal["document_heads"]["equal"] = json!(false);
+    assert_eq!(decide(&signed("drill-r10", body("x", &fit, unequal, 0)), &full), Err("byte_comparison_mismatch"));
+    assert_eq!(decide(&signed("drill-r11", body("x", &fit, Value::Null, 0)), &full), Err("byte_comparison_mismatch"));
     // Outputs that differ beyond the tolerance: no.
     let near = vec![(1u32, vec_of(&[100, 230, u32::MAX]), vec_of(&[100, 200, u32::MAX]))];
-    assert_eq!(decide(&op_signed("eval.reference_decision", body("drill-r3", ident.clone(), 20)), &near), Err("not_document_equivalent"));
+    let near_ev = SpanEvidence { vectors: near, ..full.clone() };
+    assert_eq!(decide(&signed("drill-r12", body("x", &fit, comparison(&graph_c), 20)), &near_ev), Err("not_document_equivalent"));
     // Within it: the candidate takes R_0's position for later cohorts.
-    let v = decide(&op_signed("eval.reference_decision", body("drill-r4", ident.clone(), 30)), &near).unwrap();
+    let accepted = body("x", &fit, comparison(&graph_c), 30);
+    let v = decide(&signed("drill-r13", accepted.clone()), &near_ev).unwrap();
     assert_eq!((v["max_vector_diff_ppb"].clone(), v["previous_chain_content"].clone()), (json!(30), json!(r0)));
+    assert_eq!(v["static_identity"]["init_fit"]["fit_sha256"], json!(fit));
+    assert_eq!(v["static_identity"]["byte_comparison"]["document_heads"]["r0"], json!(heads_r));
     let (k, current, pred): (i64, String, Option<String>) = db
         .conn
         .query_row("SELECT k, current, predecessor FROM reference_state WHERE id = 1", [], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)))
@@ -8363,13 +8457,13 @@ fn a_span_equivalent_reference_decision_replaces_r0_only_on_its_evidence() {
     assert_eq!((k, current.as_str(), pred), (0, candidate.as_str(), None));
     let (_, _, plan) = tx(&db, |s| super::calendar::start_now(s, &cfg())).unwrap().unwrap();
     let plan: CohortPlan = serde_json::from_slice(&plan).unwrap();
-    assert_eq!(plan.reference.package_sha256, "d2".repeat(32), "the decision's own record resolves first");
+    assert_eq!(plan.reference.package_sha256, package, "the decision's own record resolves first");
     assert!(plan.previous_reference.is_none());
     // A replayed decision answers its effect; the chain is no longer at R0's
     // content, so an old expectation is refused.
-    let again = decide(&op_signed("eval.reference_decision", body("drill-r4", ident.clone(), 30)), &near).unwrap();
+    let again = decide(&signed("drill-r13", accepted.clone()), &near_ev).unwrap();
     assert_eq!(again["current_content"], json!(candidate));
-    assert_eq!(decide(&op_signed("eval.reference_decision", body("drill-r5", ident.clone(), 30)), &near), Err("expect_mismatch"));
+    assert_eq!(decide(&signed("drill-r14", accepted), &near_ev), Err("expect_mismatch"));
     let mut sim = Sim::new(&db, cfg(), sim.now + 20);
     for _ in 0..3 {
         sim.tick();

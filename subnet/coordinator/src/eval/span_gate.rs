@@ -31,7 +31,9 @@
 //! - **Span-equivalent reference decision**: the operator's signed D10(b)
 //!   decision of kind `span_equivalent` (`POST /eval/references/decision`,
 //!   [`crate::eval::decide::reference_decision`]), under the offline
-//!   operator-decision key. Store v30 replaced the interim
+//!   operator-decision key, on its own evidence: the staged package, its
+//!   admission under the template's spec, the recorded fit digests and the
+//!   signed byte comparison. Store v30 replaced the interim
 //!   `reference_decisions` table of [`SCHEMA_V29`] with that decision's own.
 //!
 //! Limits of this build (report mode):

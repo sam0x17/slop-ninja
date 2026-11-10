@@ -198,7 +198,7 @@ fn with_spans(
     job: i64,
     docs: &[(u32, String, String)],
     mut results: Vec<Value>,
-    h: &dyn Fn(i64, &str, &str, Option<(u32, u32)>) -> Option<(Value, Value)>,
+    h: &SpanReply<'_>,
 ) -> Vec<Value> {
     for (r, (task, text, _)) in results.iter_mut().zip(docs) {
         if *task == lane_logic::CONTROL_TASK || r["status"] != "ok" {
@@ -385,7 +385,9 @@ type FactsHook<'a> = Box<dyn Fn(i64) -> Option<super::span_gate::SpanFacts> + 'a
 /// A scorer's span fields for one document: `(job, kind, text, gold byte
 /// run)` to the reply's `span_status` and `prediction.spans` (`None`: no
 /// emission ran, as for an artifact without a token head).
-type SpanHook<'a> = Box<dyn Fn(i64, &str, &str, Option<(u32, u32)>) -> Option<(Value, Value)> + 'a>;
+type SpanHook<'a> = Box<SpanReply<'a>>;
+/// The function behind a [`SpanHook`].
+type SpanReply<'a> = dyn Fn(i64, &str, &str, Option<(u32, u32)>) -> Option<(Value, Value)> + 'a;
 
 impl<'a> Sim<'a> {
     fn new(db: &'a Sqlite, cfg: EvalConfig, now: u64) -> Self {

@@ -2,7 +2,8 @@
 
 SlopNinja removes published material only by a recorded legal removal
 ([terms](terms.md#legal-notices-and-removals)). This page is that record.
-Each removal adds one entry when the material is taken down. Entries are
+Each removal adds an entry for each artifact or package it affects when the
+material is taken down. Entries are
 never edited or deleted: a correction, or material restored after a
 counter-notice, is a new entry, and the repository's history keeps every
 version of this page.

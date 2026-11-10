@@ -26,8 +26,10 @@ serverless evaluation and scheduling can continue while a weight submission
 remains unresolved.
 
 \begin{longtable}{p{0.17\linewidth}p{0.12\linewidth}p{0.33\linewidth}p{0.28\linewidth}}
-\caption{Phases of a cohort with \(K=20\). Tempo positions are nominal
-targets counted from the cohort's opening boundary.}\label{tab:cohort-phases}\\
+\caption{Phases of a cohort with \(K=20\) on the mainnet calendar; the first
+standing testnet cohort gave 16 of its 20 tempos to admission
+(Section~\ref{testnet-r1}). Tempo positions are nominal targets counted from
+the cohort's opening boundary.}\label{tab:cohort-phases}\\
 \toprule
 Phase & Tempos & Permitted work & Advancement \\
 \midrule
@@ -363,12 +365,16 @@ never reused. An abandonment once scoring has started, when pre-finalized
 scores may already be public and the outcome may already be known, declines
 that outcome and needs the operator-decision key; a cohort stopped by a fault
 can still be abandoned for that fault without it. An abandoned cohort never
-closes. If its scoring had started, its artifacts stay published and its
-admission copies are deleted, but its entrants do not join the
-published-artifact index, gain no probe fingerprint, and have no commitment
-opening published (Section~\ref{public-copies}), so a later entry of the same
-inference content, by its author or anyone else, is executed and scored like
-a new model. What such entrants should keep is settled before mainnet
+closes. If its scoring had started, the coordinator queues every admission
+copy of its entrants for deletion as soon as it is abandoned, without waiting
+for publication, which runs entrant by entrant after scoring starts: an
+artifact already published stays published, and one not yet copied is never
+published. Its entrants do not join the published-artifact index, gain no
+probe fingerprint, and have no commitment opening published
+(Section~\ref{public-copies}), so a later entry of the same inference content,
+by its author or anyone else, is executed and scored like a new model. What
+such entrants should keep, and whether an abandonment should first let their
+publication finish, is settled before mainnet
 (Section~\ref{protocol-checks-before-launch}).
 \item \emph{Refusal to pay.} The operator may refuse to pay a finished cohort by
 declining its closure, by abandoning it late, or by naming it in a switch to
@@ -385,9 +391,9 @@ record. Its first manifest names its first reference, with no predecessor:
 \(R_0\) itself, or, once the span-equivalent decision of
 Section~\ref{reference-model} has passed \(R_0\)'s position to SlopNinja's
 first span package, that package. This holds on mainnet too, where a restart
-therefore returns to \(R_0\) rather than to the reference that mainnet's first
-record opened with; a reference decision with a recorded reason can then set
-another. Winners of the earlier record are never paid again. Validators accept the restart through that
+therefore returns to \(R_0\)'s position, whether \(R_0\) or that span package
+occupies it, rather than to the reference that mainnet's first record opened with;
+a reference decision with a recorded reason can then set another. Winners of the earlier record are never paid again. Validators accept the restart through that
 launch authorization, which was issued after the target they hold, and refuse
 rows from before its floor; none needs a manual reset.
 \item \emph{Reward-rule change.} A new reward rule takes effect only through a

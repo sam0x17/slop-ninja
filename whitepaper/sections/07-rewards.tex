@@ -76,7 +76,7 @@ models score the same documents, so every comparison is paired. The batch has
 about 1,000 cases on testnet and 4,000 on mainnet, with 2,000 as the mainnet
 floor. Its mix is 20\% human-only, 55\% mixed, and 25\% model-only documents.
 Fresh AI-side text, both partial rewrites and model-only mirrors, is generated
-for each cohort by hosted models under a per-cohort budget, by parallel
+for each cohort by hosted models, under a per-cohort budget on testnet, by parallel
 generation lanes that share the providers' published rate
 limits~\cite{cfailimits} (Section~\ref{fan-out}). Half of the generated text
 comes from frontier models, to which the coordinator has access through
@@ -224,8 +224,9 @@ gate's upper bound reaches 5.04\% (Section~\ref{cc-stock-evidence}). It is
 accepted on its point estimate for the testnet phase and re-measured before
 mainnet live rewards on normalised, length-matched positives from the next
 training round, with a cohort large enough to bring the upper bound below 5\%;
-until then the bound is a stated limit. \(\sigma\), \(\delta\), \(w\), and the
-headroom are re-derived on Common Crawl-parented batches. Common Crawl text is
+until then the bound is a stated limit. \(\sigma\), \(\delta\), \(w\)
+(Section~\ref{reward-v1}), and the headroom are re-derived on Common
+Crawl-parented batches. Common Crawl text is
 evaluated privately and never redistributed. As project policy it may be sent to
 hosted model APIs to generate mixed rewrites.
 
@@ -485,8 +486,8 @@ One, structurally different & one margin below & about a fifth \\
 One, structurally different & two margins below & about a tenth \\
 \bottomrule
 \end{tabularx}
-\caption{Chance per cohort that the shared margin promotes an entrant no better
-than \(R_k\).}
+\caption{Chance per cohort that an entrant no better than \(R_k\) clears the
+shared margin test.}
 \label{tab:promotion-rates}
 \end{table}
 
@@ -1015,7 +1016,8 @@ Adding more noise escapes just as surely and lowers a copy's score by any chosen
 and because pay is not monotone across bands, a lower score can pay more. A
 fallback cohort admits scores down to \(C_N\), 85\% of the way from the top
 score to \(S_{R_{k-1}}\). When \(R_k\) genuinely improved on \(R_{k-1}\) by the
-margin, about a band in score units, that range reaches most of a band below the
+margin, about an unrounded band in score units, that range reaches most of an
+unrounded band below the
 entrants near \(S_{R_k}\). A copy of \(R_k\) degraded into it, with noise well
 beyond \(d\), can land alone in a band below theirs and take 45.9\% of the pool
 if they occupy one band, or 28.1\% if they occupy two. In a promotion cohort, an

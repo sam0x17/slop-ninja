@@ -64,6 +64,21 @@ A versioned per-cohort bit budget counts them with every other released value
 and is checked at plan validation, seal and publication; it caps what is
 released but is not a differential-privacy guarantee.
 
+Pre-finalized scores and readings (whitepaper Section 5; built, not yet
+deployed) change no released score. After the seal, each executed model's
+quantized score or withheld outcome is shown, marked pre-finalized, as soon as
+it is fixed, computed by the same code and draw as the result. During scoring a
+cohort may release `live-v1` segment readings: the seal splits the batch into L
+segments by the private task order, and for each s below L, the reading of an
+executed entrant or R_k for segment s is released once, with its own noise,
+when that model has resolved every document of segments 1 to s. Readings have
+their own privacy parameter, epsilon_live = 1 per cohort, split equally over
+those models.
+Every reading counts in the bit budget, which sets L (up to the plan's maximum;
+none above about 33 to 35 executed entrants). The operator can stop and resume
+readings. No rank, band, cutoff mode, gate, public-copy, cluster or unit value
+is released before the close.
+
 ## Copies
 
 Copies earn nothing: an entrant with the content digest of any artifact

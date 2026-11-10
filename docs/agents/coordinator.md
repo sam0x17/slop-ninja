@@ -45,10 +45,16 @@ and never hash model bytes again. TLS and the private bucket are the privacy
 boundary; there is no encryption layer, since R2 can verify only the bytes it
 receives. Every admitted artifact is published when its cohort's scoring starts,
 copied inside R2 or by a stream R2 verifies, and a published artifact is never
-recalled. The quantized result's allow-listed values and the openings are
-published when the cohort closes. No rank field is published: any order of
-entrants follows from the published quantized scores and roster order alone.
-Validators need none of them.
+recalled. After the seal, each executed model's quantized score (or withheld
+outcome) is shown, marked pre-finalized, as soon as it is fixed, and testnet
+cohorts may release a few `live-v1` segment readings during scoring under their
+own privacy parameter; both are built, not yet deployed (whitepaper Section 5,
+"Pre-finalized scores"). No
+rank, band, cutoff mode, gate, public-copy, cluster or unit value appears before
+the close, when the quantized result's remaining allow-listed values and the
+openings are published. No rank field is published: any order of entrants
+follows from the published quantized scores and roster order alone. Validators
+need none of them.
 
 ## Receipts and retention
 
@@ -107,9 +113,10 @@ Section 6 specifies these journaled decision paths:
 
 - Abandon: the operator may end any cohort that has not closed, including a
   queued cohort or one with no fault. The cohort produces no target and its
-  number is never reused. An abandonment in packaging or the transition, when
-  the outcome may already be known, declines that outcome and needs the
-  operator-decision key.
+  number is never reused. An abandonment once scoring has started, when
+  pre-finalized scores may already be public and the outcome may already be
+  known, declines that outcome and needs the operator-decision key; a cohort
+  stopped by a fault can still be abandoned for that fault without it.
 - Refusal to pay: the operator may refuse to pay a finished cohort by declining
   its closure, by abandoning it late, or by naming it in a switch to burn, each
   under the operator-decision key. A declined result is never installed;
@@ -144,7 +151,7 @@ old key, so losing it locks nothing. The paths remain available on mainnet with
 the same signatures and public records. No outage triggers one, a decision
 changes only future work and payment, commitments already submitted reveal
 under their original rules, and rewards already paid are never reassigned.
-Built (subnet/coordinator README, "Operator decisions"): the shared request
+Built, not yet deployed (subnet/coordinator README, "Operator decisions"): the shared request
 (decision id, reason, `expect`, preview, the offline signature), the
 `operator_actions` log, the operator-decision key's verification (an OpenSSH
 Ed25519 key signing with `ssh-keygen -Y sign`), abandonment of any unclosed

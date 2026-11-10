@@ -51,7 +51,7 @@ an entrant beats it by the required margin, no miner earns and the pool burns.
 *B* and *C* activate separately. *B* is trained adversarially against *A* and
 uses the native English grammar (CFG) to define its edit units.
 
-The [whitepaper](whitepaper/slop_ninja.pdf) (draft 0.62) describes the full
+The [whitepaper](whitepaper/slop_ninja.pdf) (draft 0.63) describes the full
 design, its trust model and its evidence boundaries.
 
 ## Testnet status

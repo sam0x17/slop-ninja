@@ -1045,7 +1045,7 @@ share one cluster. Clusters are placed
 in bands at least one grid step wide (one 0.03 step at the full roster);
 credit falls geometrically by 0.85 per band and per rank within a band;
 clusters with equal quantized scores share the credit of their positions
-equally; each member of a cluster gets an equal share of its credit; and the
+equally (with bands one grid step wide, every cluster in a band ties); each member of a cluster gets an equal share of its credit; and the
 shares are rounded into 65,535 integer units by largest remainder. A lone
 cluster takes the whole pool; two with different quantized scores take 54.1%
 and 45.9%, and two with equal ones 50% each. Rank order is quantized score,

@@ -1,7 +1,7 @@
 # Documentation
 
 This directory contains design notes, research contracts, and the evidence cited
-by [whitepaper draft 0.62](../whitepaper/slop_ninja.pdf), the canonical protocol
+by [whitepaper draft 0.63](../whitepaper/slop_ninja.pdf), the canonical protocol
 proposal. The paper adopts the [Cloudflare design](cloudflare-subnet-draft.md).
 Launch includes *A* alone; *B* and *C* require separate activation decisions.
 *A* reads raw text; the grammar (CFG) notes are grouped under later *B* work

@@ -370,9 +370,10 @@ registration.
    no predecessor; it may replace `R_0` once, announced in advance on the status
    page, by the next reference SlopNinja trains (retrained and recalibrated on
    normalised, length-matched positives), only if that model passes every
-   required gate. Never name a span package (the release package or the first
-   span-serving package) as `R_0` in a signed manifest, so the replacement
-   stays available. Re-export `R_0` with synthetic replay cases, run the
+   required gate. The first span-serving package takes `R_0`'s position only
+   through the signed span-equivalent reference decision before the first
+   cohort that enforces the span gate; that decision is not the replacement,
+   so the replacement stays available. Re-export `R_0` with synthetic replay cases, run the
    package-corpus scan, and publish it under CC BY-SA 4.0. Admit text
    artifacts (ONNX graph, fixed tokenizer, heads, calibration) with supported
    operators, never arbitrary miner plugins. A

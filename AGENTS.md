@@ -31,7 +31,7 @@ Dev-iter ones) and passes a package-corpus scan. Paid A serves a published,
 qualified artifact (R0 once its public package is published).
 Update the whitepaper's baseline evidence at meaningful evaluated milestones,
 not after every experiment. Keep both A and B's measured limits explicit.
-Whitepaper draft 0.62 and `docs/cloudflare-subnet-draft.md` describe the current plan: launch A
+Whitepaper draft 0.63 and `docs/cloudflare-subnet-draft.md` describe the current plan: launch A
 alone; B transformation and C (shared contributions to the grammar B uses)
 activate separately, each by its own decision, and C may activate before B so
 the grammar can grow first. A reads raw text; the native CFG is a later B input
@@ -39,15 +39,20 @@ for edit units and revision guidance, with grammar-level writer-style features
 a candidate B input qualified on B's own evidence. Present CFG in public pages
 and docs as later B work, not as part of A.
 Testnet (subnet 601) runs for several months before the mainnet subnet is
-registered, with admission open to every registered hotkey. Testnet pages live
-under `/testnet/<page>`; unprefixed paths are reserved for mainnet. Revenue
-starts on testnet: free, advertising-supported public AI-detection pages, which
-run a published, qualified A artifact in SlopNinja's own runtime, and other
-products. It accrues in a publicly visible pot that buys and burns the subnet's
-alpha once mainnet is registered; neither the pot nor its burn changes miner or
-validator rewards. The pot's custody, chain, asset and public accounting remain
-to be specified (whitepaper Section 8). Describe the pot operationally, never
-in terms of price, value to holders or returns.
+registered, with admission open to every registered hotkey. Testnet subnet
+pages live under `/testnet/<page>`, their unprefixed paths reserved for
+mainnet; the detection product, not a subnet page, lives at `/detect/`.
+Revenue starts on testnet: a free AI-detection page running SlopNinja's span
+package in its own runtime (no stored text, no ad or analytics script; ads
+only on approved content pages), a paid detection API once the package is
+published, and other products. Their payouts go into a public pot
+(whitepaper Section 8): native TAO in a published two-of-three multisig with
+an independent third signer, every payout, conversion and burn listed; after
+mainnet registration it buys and burns that subnet's alpha in daily tranches
+bound to the registration, and its TAO is burned if mainnet is abandoned. The
+pot changes no miner or validator reward. Describe it operationally, never in
+terms of price, value to holders or returns. The page's Worker is built, not
+deployed.
 B is the main product objective: authorized writing transformation toward the
 author's intended voice with meaning, readability, and tone preserved. A is a
 supporting detection and attribution mechanism and the initial standalone
@@ -68,13 +73,17 @@ decoded into AI spans with exact character offsets and per-span confidence, and
 per-sentence AI share and confidence derive from the same probabilities,
 consistent with the document outputs. Document confidence Brier is the only
 reward; share, attribution and spans are qualification gates only. Spans are
-required: from the next standing cohort template, every entry must emit spans
-in the output contract's span format, the scorer evaluates them under the
-24-word floor, and an entry below the span gate's thresholds fails that gate
-and earns no credit. The thresholds are fixed after measurement, before the
-first manifest that enforces them, at levels SlopNinja's first span package
-passes. Cohort scoring does not evaluate spans yet; until the gate is enforced,
-an entry with document heads only, like R0, is admissible. Never train or
+required: from the first manifest enforcing the span gate, every entry carries
+a token-level head whose decoder never emits a span under 24 words (artifact
+spec v5, with a miner client release); failing the gate earns no credit. The
+gate compares each entrant with a fixed anchor, SlopNinja's first span
+package, on the same batch under the 24-word floor, with margins fixed after
+measurement on closed testnet cohorts so heads as good as the anchor pass; the
+operator may void it for one cohort with a recorded reason. It first runs in
+report mode, failing no one, on at least three live cohorts. Report mode and
+spec v5 are built, not deployed: only a cohort whose template names the gate
+evaluates spans (none has yet), and a document-heads-only entry like R0 is
+admissible until a manifest enforces the gate. Never train or
 evaluate spans under 24 words: mask shorter AI spans out of the span loss rather
 than labelling them human, leave them out of span scoring, and never decode a
 span under 24 words. Every AI word still counts toward document share and
@@ -84,11 +93,14 @@ bit-identical to R0 (`docs/a-spans-results.md`). SlopNinja's first span package
 keeps R0's encoder and document heads frozen, so on the same CPU class its
 document outputs are bit-identical to R0's, and adds S2c's seed-17 tower and
 token head with the 24-word decoder and a span confidence map fitted on the
-Calibration split under the floor (whitepaper Section 3). It is adopted for
-serving and has replaced the earlier S2c package, whose decoder allowed
-shorter spans. Never name a span package as R_0 in a signed manifest. Testnet scores
-R0 as R_0 on a fresh chain record. Later reference changes follow cohort
-promotion or a signed operator reference decision with a recorded reason; one
+Calibration split under the floor (whitepaper Section 3). Since November 9 it
+is the span-serving package (span package d24), replacing the earlier S2c
+package, whose decoder allowed shorter spans. Testnet scores R0 as R_0 on a
+fresh chain record. Before the first cohort that enforces the span gate, one
+signed span-equivalent reference decision passes R_0's position to d24, after
+d24 runs once as an ordinary entry (published, fingerprinted); it changes no
+reward input and is not the planned replacement. Later reference changes follow
+cohort promotion or a signed operator reference decision with a recorded reason; one
 is planned on testnet, announced in advance: replacing R_0 by the next
 reference SlopNinja trains, only if it passes every gate. Mainnet opens a fresh
 chain record whose first reference is the one testnet then holds, with no
@@ -101,10 +113,10 @@ The manifest's allow-list names three graph classes: R0's ModernBERT-base
 architecture; the same architecture exposing its final-norm token states to a
 token-level span head; and a tower class adding trained copies of encoder
 layers 18-21 and the final norm for that head. Each class has a parameter bound
-derived from its structure: 160M for the first two (graph file about 601 MB)
-and 173.5M for the tower class (about 681.5 MB); R0's package has 150.3M and
-the first span package 170.6M. The tokenizer byte-matches the allow-listed one
-and other files validate against fixed role schemas, with no separate byte cap.
+derived from its structure: 160M for the first two and 173.5M for the tower
+class; R0's package has 150.3M and the first span package 170.6M. The tokenizer
+byte-matches the allow-listed one and other files validate against fixed role
+schemas, with no separate byte cap.
 The allow-list widens only by a versioned manifest. Avoid arbitrary caps that
 can strand the subnet: derive any needed limit from structure and version it in
 the manifest, never hard-wired.
@@ -210,9 +222,13 @@ starts: a miner commits only a digest on chain and uploads each file straight
 to the coordinator's private R2 admission bucket with presigned PUTs that R2
 verifies on arrival; no upload passes through a SlopNinja Worker, and nothing
 hashes model bytes again. Every admitted artifact is published when its
-cohort's scoring starts and is never recalled. The quantized result's
-allow-listed values and the openings are published when the cohort closes, with
-no rank field. Validators need none of them.
+cohort's scoring starts and is never recalled. After the seal, each executed
+model's quantized score (or withheld outcome) is shown as pre-finalized once
+final, and testnet cohorts may release a few `live-v1` segment readings under
+their own privacy budget, with an operator stop; no rank, band, cutoff mode,
+gate, public-copy, cluster or unit value appears before the close, when the
+remaining allow-listed values and the openings are published (both built, not
+deployed). Validators need none of them.
 The coordinator's finalized row and observation certificate are later consistency
 audits, never prerequisites for other validators. A missing or incorrect
 coordinator chain row does not invalidate a valid signed row record. A shared
@@ -265,8 +281,8 @@ decline a result, change reward inputs or restart the record also need a
 separate offline operator-decision key, verified only by the coordinator and the
 evaluation service, never by validators. They stay available on mainnet, no
 outage triggers one, and none reassigns paid rewards. Most paths and the
-operator-decision key's verification are built; `docs/agents/coordinator.md`
-lists each path in full and what is not built yet.
+operator-decision key's verification are built, not deployed;
+`docs/agents/coordinator.md` lists each path in full and what is not built yet.
 The sole dependence on other validators is timely on-chain submission and reveal of the
 coordinator's signed weight rows. Their acknowledgments, versions,
 availability, and adopting stake never gate evaluation, transitions, service,
@@ -299,8 +315,10 @@ shielding. Before rolling back to an earlier pin, stop the validator and run its
 `rollback-check`. [`docs/agents/chain-adapter.md`](docs/agents/chain-adapter.md)
 has the pin's details, rollback limits and live evidence; see also
 `subnet/README.md`.
-Coinbase Onramp is selected for card-to-native-TAO funding, then subnet alpha
-burning, subject to qualifying our integration, payment methods, and settlement.
+For paid jobs, Coinbase Onramp is selected for card-to-native-TAO funding, then
+subnet alpha burning, subject to qualifying our integration, payment methods,
+and settlement; the detection API uses a merchant-of-record card processor or
+direct TAO and settles through the pot.
 Solana is preferred for any additional crypto entry route; Ethereum mainnet is
 not selected. Paid-use emissions are a separate choice.
 Keep the whitepaper and design notes aligned when these decisions change.

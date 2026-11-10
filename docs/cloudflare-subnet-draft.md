@@ -379,11 +379,10 @@ never found (character F1 0.021). The head adds 0.14 s at 2,048 tokens to a
 CPU request of about 27 s. The joint fine-tune S1+ found more spans (0.560)
 but scored humans clearly worse before calibration (human-only Brier 0.061 to
 0.093) and flagged 6 Test humans at its 0.1% point against none, so it was not
-adopted. The f32 Container scorer does not serve span heads yet.
+adopted.
 
-S2c ([span results](a-spans-results.md#follow-up-arm-s2)) is SlopNinja's
-adopted span head for the first package that serves spans (adopted November 1,
-2026); until span serving lands, the release package keeps the S0+ head. S2c
+S2c ([span results](a-spans-results.md#follow-up-arm-s2)) is the span head of
+SlopNinja's first span package (adopted November 1, 2026). S2c
 keeps the encoder and document heads frozen and feeds the token head through a
 trained copy of encoder layers 18–21 and the final norm (about 20M
 parameters). Its document outputs are byte-identical to `R_0`'s at every seed,
@@ -398,21 +397,42 @@ shipped head on that basis (0.245 with its calibration maps); on the consumed
 Test, mixed character F1 is 0.535 against 0.478, but 210 of 6,132 humans
 (3.4%) carry a span against 156 (2.5%) for the calibrated heads. R1 passes (token probability
 within 4.4e-6, offsets equal). The tower adds 18–20% of encoder CPU time (5.3 s
-at 2,048 tokens on one thread), no calibrated S2c package has been built or
-replayed, and its graph is neither allow-listed class and exceeds the 160M
-parameter limit, so admitting such a graph needs a versioned manifest that widens both.
+at 2,048 tokens on one thread); artifact spec v3 admits its graph as the tower
+class, with its own 173.5M parameter bound.
 Its Dev-iter human gates are optimistic (those humans were seen by the
-baseline's early stopping and the earlier decoder limit). `R_0` stays testnet's
-first reference, and no span package is named `R_0`.
+baseline's early stopping and the earlier decoder limit). Since November 9,
+SlopNinja's span-serving package is span package d24
+([reference packages](testnet/reference-packages.md)): S2c's seed-17 weights
+with the 24-word decoder and a span confidence map refitted on the Calibration
+split under the floor. On the same CPU class its document outputs are `R_0`'s
+bit for bit, and the f32 Container scorer serves its spans.
 
-The allow-list names the graph with the token span head from launch, but
-admission refuses that class (`graph_class_not_served`) until the scorer serves
-span heads ([artifact spec](testnet/artifact-spec.md)). Until a cohort manifest
-enforces the span gate, the token-level head is optional: a document-heads-only
-entrant like `R_0` is admissible and any span outputs are reported without
-affecting eligibility; from that manifest on, every entrant must provide it.
-Enforcing the gate does not itself change the reference; reference changes
-follow the rules under "Reward rules" below.
+Spec v1 refuses the span graph classes (`graph_class_not_served`); spec v2 and
+later admit the span class, and spec v3 and later the tower class
+([artifact spec](testnet/artifact-spec.md)). The span gate
+compares each entrant with a fixed anchor, SlopNinja's first span package, on
+the same cohort batch under the 24-word floor: over mixed documents whose
+model-produced span has at least 24 words, the entrant's mean character F1 may
+be at most a fixed margin below the anchor's and its in-context false-positive
+rate at most a fixed margin above it, and over human-only documents the number
+on which it decodes a span may exceed the anchor's by at most a fixed margin.
+The margins are fixed after measurement on the sealed batches of closed testnet
+cohorts, and the manifest binds them with the anchor's identity. If the anchor
+fails to emit spans or to separate from trivial heads on a cohort's batch, or
+the cohort's population differs from the one measured, the measured
+conditions decide no entrant in that cohort; the operator may also void them
+for one cohort, with a recorded reason, before its package is sealed. Before
+any manifest enforces the gate, it runs in report mode on at least three live
+cohorts: a cohort whose template names the gate requests spans for every
+document, adds an anchor job when the anchor is not the reference, and signs a
+separate per-entrant record of the outcome, failing no one. Report mode and
+artifact spec v5, which refuses an artifact without a token-level head or with
+a decoder minimum under 24 words, are built but not yet deployed, so no cohort
+has yet evaluated spans. Until a manifest enforces the gate, the token-level
+head is optional and a document-heads-only entrant like `R_0` is admissible;
+from that manifest on, every entrant must provide it. Enforcing the gate does
+not itself change the reference; reference changes follow the rules under
+"Reward rules" below.
 
 A further extension could highlight words and constructions that materially
 influence a score. Map explanations to source spans; test controlled changes and
@@ -867,11 +887,14 @@ scores, no near-equal drop, and the absence of runtime versions:
   replacement takes `R_0`'s position with no predecessor, appears in the next
   signed manifest, and moves no earned credit, because credit is bound to its
   own cohort's package and target; it sets the margin for later cohorts and,
-  while the launch burn lasts, the bar that ends it. A span package (the
-  release package or the first one that serves S2c's spans) has different
-  inference content from `R_0`, so naming it as the reference would itself use
-  the one replacement, although its document outputs are identical; no span
-  package is named `R_0`, and the replacement stays available.
+  while the launch burn lasts, the bar that ends it. Before the first cohort
+  that enforces the span gate, one signed span-equivalent reference decision
+  passes `R_0`'s position to span package d24, whose document outputs are
+  `R_0`'s and whose probe predictions match `R_0`'s within the measured
+  difference between scorer hosts, so no reward input changes; d24 first runs
+  once as an ordinary entry, so its artifact is published, indexed and
+  fingerprinted. That decision is not the one replacement, which stays
+  available.
 - **Mainnet reference.** Mainnet opens its own fresh chain record whose first
   reference is the one testnet holds at that time, with no predecessor and no
   separate one-time replacement. A testnet promotion can rest partly on lookup
@@ -895,9 +918,8 @@ scores, no near-equal drop, and the absence of runtime versions:
   the range) under the pooled `sigma`, and ten such entrants promote one in
   about 80% of cohorts if their differences share `R_k`'s noise as seed
   retrains' do, or about 98% if they share none. Which kind of roster arrives is not
-  yet measured; once independently trained equal models compete, promotion
-  rather than fallback is the expected case and the reference changes hands
-  among equally good models. The same noise can promote a worse model: at the
+  yet measured; once independently trained equal models compete, promotion is
+  the expected case and the reference changes hands among equally good models. The same noise can promote a worse model: at the
   same paired SE, a structurally different entrant half a margin below `R_k`
   clears the margin alone in about a quarter of cohorts, a full margin below in
   about a fifth, two margins below in about a tenth; the strict tier and the
@@ -1039,18 +1061,22 @@ scores, no near-equal drop, and the absence of runtime versions:
 All arithmetic uses exact integers and rationals over the fixed-point quantized
 scores in the public result, so anyone can recompute the coordinator's row from
 it byte for byte. With
-`r = 0.85`, a lone cluster takes the whole pool; two clusters take 54.1% and
-45.9% (35,424 and 30,111 of the 65,535 row units); two in the top band and one below take 29.2%, 24.8%, and 45.9%. A roster
+`r = 0.85`, a lone cluster takes the whole pool; two clusters with different
+quantized scores take 54.1% and 45.9% (35,424 and 30,111 of the 65,535 row
+units). The grid is at least twice `R_k`'s own SE, wider than the unrounded band
+at every batch size and roster given here, so a band is one grid step and the
+clusters in a band tie: two in the top band and one below take 27.0%, 27.0% and
+45.9%. A ranked split within a band would need a band wider than one step. A roster
 holds at most 256 entrants, and at most 250 retained clusters fit in one band.
 
 **Non-monotone across bands (stated limit).** A band's share depends on its
 rank among occupied bands, not its occupancy, so a cluster alone in the lower
 of two occupied bands takes 45.9% however many clusters share the band above
-(2.2 times the best of three there, 3.1 times the best of five); alone in the
-third of three it takes 28.1%. SN78's 2.5-point bands seldom divide a roster,
-so its experience does not cover this case; a band of two paired SEs often
-does, because two equally good entrants' paired difference has an SE of half a
-band and the grid is fixed in absolute score. A difference below the noise can
+(2.55 times each of three there, 4.25 times each of five); alone in the third
+of three it takes 28.1%. SN78's 2.5-point bands seldom divide a roster, so its
+experience does not cover this case; one-step bands often do, because each
+released score carries its own secret offset, uniform over a grid step, and its
+own noise, and the grid is fixed in absolute score. A difference below the noise can
 reverse the order of pay. The split is kept from the ported mechanism, and
 what it buys is the same property: a band's share does not shrink as other
 bands fill, so a crowd of entries in one band (for example variants just beyond
@@ -1069,16 +1095,23 @@ in about 89–99% of 1,000-case cohorts for about 3.5e-4 to 4.8e-4 of expected
 score: 0.6–0.8% of headroom, 0.07–0.10 of a band at that measurement's
 `sigma = 0.040`, about a tenth of a band. At 4,000 cases the probe
 comparison with `R_k`'s fingerprint binds; clearing both in about 99% of
-cohorts costs about 4.7e-4, about a fifth of a band. That cheapest copy stays
-in the reference's band and takes a within-band slot in a fallback cohort, and
-must be rebuilt each cohort because its own artifact is published. Once `R_{k-1}`
-exists, fallback is the expected case while entrants resemble seed retrains of
-the reference: ten such entrants equal to `R_k` promote none about 86% of the
-time, although structurally different equal entrants usually promote one.
+cohorts costs about 4.7e-4, about a fifth of a band. That cheapest copy earns
+like an entrant equal to the reference: in a margin cohort when its draws lift
+it to the cutoff (about a third of the time at the full roster), or in a
+fallback cohort when it reaches the fallback cutoff; it must be rebuilt each
+cohort because its own artifact is published. By a simulation of `quant-v1` as
+specified (`R_k` at a uniform grid position, 0.062 headroom), ten entrants equal
+to `R_k` that differ from it as seed retrains leave about a third of cohorts
+with no entrant at the margin cutoff, give about 61% margin cohorts without a
+promotion and promote in about 6%; forty give about 7%, 78% and 15%; ten to
+forty structurally different equal entrants promote in about three quarters to
+nine tenths. A lone entrant equal to `R_0` on a 0.02 grid reaches the cutoff,
+which ends the launch burn, about a sixth of the time.
 Pricing an
 escape at a full band would need a tolerance near 0.07, the distance between
 independent retrains, so no prediction tolerance can price it. An honest
-cluster sharing a band with one such copy receives 54.1% of the band's share.
+cluster sharing a band with one such copy ties with it and receives half of the
+band's share.
 
 **Degraded entries (stated limit).** More noise escapes just as surely and
 lowers a copy's score by any chosen amount, and a lower score can pay more. A

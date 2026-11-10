@@ -595,6 +595,81 @@ fn sum(credits: &[Fraction]) -> Fraction {
     total.reduced()
 }
 
+/// `a + b` by cross-multiplication alone, for an independent check of sums.
+fn cross_sum(a: &Fraction, b: &Fraction) -> Fraction {
+    Fraction::new(a.num.mul(&b.den).add(&b.num.mul(&a.den)), a.den.mul(&b.den)).unwrap()
+}
+
+/// Entrants split between the top grid value 1 and 0.96 on a 0.04 grid with
+/// `R_k` at 0.92: the band formula's clamp puts 1 into 0.96's band, so that
+/// one band holds two tie groups, every third entrant at 1.
+fn clamped_top_band(k: usize) -> (RewardV1Params, u64, Vec<QEntrant>) {
+    let w = SCORE_SCALE / 25;
+    let entrants = (0..k)
+        .map(|i| QEntrant { q: Some(if i % 3 == 0 { 25 * w } else { 24 * w }), gated: true, cluster: Some(i as u16) })
+        .collect();
+    (params(), w, entrants)
+}
+
+#[test]
+fn fractions_over_one_denominator_add_numerators() {
+    let f = |n: u64, d: u64| Fraction::new(crate::bigint::BigUint::from_u128(n.into()), crate::bigint::BigUint::from_u128(d.into())).unwrap();
+    let same = f(3, 20).add(&f(7, 20));
+    assert_eq!(same.den, f(1, 20).den);
+    assert_eq!(same, f(1, 2));
+    // Unequal denominators still cross-multiply, to the same value.
+    assert_eq!(f(1, 6).add(&f(1, 4)), cross_sum(&f(1, 6), &f(1, 4)));
+    assert_eq!(f(1, 6).add(&f(1, 4)), f(5, 12));
+}
+
+#[test]
+fn clamped_top_band_tie_groups_share_exact_means() -> Result<()> {
+    let k = 24;
+    let (p, w, entrants) = clamped_top_band(k);
+    let o = q_outcome(&QInput { params: &p, width: w, reference_q: 23 * w, predecessor_q: None, entrants: &entrants })?;
+    assert_eq!(o.mode, CutoffMode::Margin);
+    assert_eq!(o.bands.len(), 1);
+    let top = k.div_ceil(3);
+    let base = reward_v1::band_credits(&[k], DECAY_BPS)?;
+    let mean = |a: usize, b: usize| {
+        let mut total = base[0][a].clone();
+        for c in &base[0][a + 1..=b] {
+            total = cross_sum(&total, c);
+        }
+        Fraction::new(total.num, total.den.mul_u64((b - a + 1) as u64)).unwrap().reduced()
+    };
+    assert_eq!(o.clusters[0].positions, (0, top - 1));
+    assert_eq!(o.clusters[top].positions, (top, k - 1));
+    assert_eq!(o.clusters[0].credit, mean(0, top - 1));
+    assert_eq!(o.clusters[top].credit, mean(top, k - 1));
+    let credits: Vec<Fraction> = o.clusters.iter().map(|c| c.credit.clone()).collect();
+    assert_eq!(sum(&credits), Fraction::new(crate::bigint::BigUint::one(), crate::bigint::BigUint::one()).unwrap());
+    Ok(())
+}
+
+/// A full roster in the clamped top band: before tie sums kept their common
+/// denominator, 128 such entrants took seconds and 256 did not finish in
+/// minutes, because each sum multiplied denominators and its reduction ran
+/// Euclid on numbers of tens of thousands of bits.
+#[test]
+fn full_roster_in_the_clamped_top_band_is_cheap() -> Result<()> {
+    let k = usize::from(MAX_ROSTER);
+    let (p, w, entrants) = clamped_top_band(k);
+    let started = std::time::Instant::now();
+    let o = q_outcome(&QInput { params: &p, width: w, reference_q: 23 * w, predecessor_q: None, entrants: &entrants })?;
+    assert!(started.elapsed().as_secs() < 30, "q_outcome took {:?}", started.elapsed());
+    assert_eq!(o.bands.len(), 1);
+    assert_eq!(o.units.iter().map(|&u| u32::from(u)).sum::<u32>(), 65535);
+    // The group at 1 holds the band's first positions; each group shares
+    // equally, up to the one leftover unit of largest-remainder rounding.
+    assert!(o.units[0] > o.units[1]);
+    for group in [0, 1] {
+        let units: Vec<u16> = (0..k).filter(|i| (i % 3 != 0) as usize == group).map(|i| o.units[i]).collect();
+        assert!(units.iter().max().unwrap() - units.iter().min().unwrap() <= 1);
+    }
+    Ok(())
+}
+
 #[test]
 fn tied_clusters_share_their_summed_credit_equally() -> Result<()> {
     let p = params();

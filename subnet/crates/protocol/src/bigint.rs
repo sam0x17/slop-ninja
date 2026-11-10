@@ -324,7 +324,17 @@ impl Fraction {
         }
     }
 
+    /// The exact sum. Fractions over one denominator add their numerators and
+    /// keep it, so a long sum over a common denominator (every credit of one
+    /// band) stays as small as its terms and reduces cheaply; others
+    /// cross-multiply.
     pub fn add(&self, other: &Self) -> Self {
+        if self.den == other.den {
+            return Self {
+                num: self.num.add(&other.num),
+                den: self.den.clone(),
+            };
+        }
         Self {
             num: self.num.mul(&other.den).add(&other.num.mul(&self.den)),
             den: self.den.mul(&other.den),

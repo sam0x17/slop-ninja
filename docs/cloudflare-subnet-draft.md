@@ -407,8 +407,9 @@ with the 24-word decoder and a span confidence map refitted on the Calibration
 split under the floor. On the same CPU class its document outputs are `R_0`'s
 bit for bit, and the f32 Container scorer serves its spans.
 
-Spec v1 refuses the span graph classes (`graph_class_not_served`); spec v2 and
-later admit the span class, and spec v3 and later the tower class
+Spec v1 refuses the span class (`graph_class_not_served`), and specs v1 and v2
+refuse a tower graph by its length (`graph_size`); spec v2 and later admit the
+span class, and spec v3 and later the tower class
 ([artifact spec](testnet/artifact-spec.md)). The span gate
 compares each entrant with a fixed anchor, SlopNinja's first span package, on
 the same cohort batch under the 24-word floor: over mixed documents whose
@@ -421,7 +422,7 @@ cohorts, and the manifest binds them with the anchor's identity. If the anchor
 fails to emit spans or to separate from trivial heads on a cohort's batch, or
 the cohort's population differs from the one measured, the measured
 conditions decide no entrant in that cohort; the operator may also void them
-for one cohort, with a recorded reason, before its package is sealed. Before
+for one cohort, with a recorded reason, before its packaging starts. Before
 any manifest enforces the gate, it runs in report mode on at least three live
 cohorts: a cohort whose template names the gate requests spans for every
 document, adds an anchor job when the anchor is not the reference, and signs a
@@ -994,22 +995,34 @@ scores, no near-equal drop, and the absence of runtime versions:
   has passed `R_k` by the margin: a cutoff at `S(R_k)` would admit or exclude
   entrants equal to it by batch noise, while the predecessor lets independent
   models as good as `R_k`, including new models from `R_k`'s author, earn in a
-  fallback cohort; copies of `R_k` fail the public-copy gate. An entrant short
-  of the margin earns only in a fallback cohort, so how often an equally good
-  entrant earns depends on the roster: with ten entrants equal to `R_k` that
-  resemble its seed retrains, 79–86% of cohorts fall back and an entrant earns
-  in those whenever it reaches `C_N`; among ten structurally different equal
-  entrants, each earns only when it clears the margin itself (about a third of
-  the time) or in the 2–20% of cohorts that fall back, so in a third to at most
-  a half of cohorts, chosen by batch noise. A copy of a published artifact earns
-  nothing, so each artifact takes that draw once. In every other case (no
-  predecessor while `R_0` is the reference, nobody above `S(R_{k-1})`, or
-  `S_Rk = 1`, where the band width is zero) the previous target stays live, and
-  if none exists the row sends 65,535 to the owner hotkey's UID (burn). At
-  launch, therefore, the whole miner pool burns until an entrant first beats
-  `R_0` by the margin, and the subnet receives no TAO-side emission meanwhile,
-  though validators and the owner still receive participant-side alpha
-  (below).
+  fallback cohort; copies of `R_k` fail the public-copy gate. An entrant earns
+  in a margin cohort when its released score reaches the margin cutoff, and in
+  a fallback cohort when it reaches `C_N`. At every roster given here the
+  margin cutoff is one grid step above `R_k`'s quantized score, and every
+  released score carries its own secret offset and noise, so an entrant equal
+  to `R_k` reaches it by the draws alone: about a sixth of the time when it
+  enters alone on a 0.02 grid, which while the launch burn lasts is enough to
+  end it, about a quarter with ten entrants on that grid, and about 35% at
+  testnet's full roster. A simulation of `quant-v1` as specified (`R_k`'s exact
+  score at a uniform position on the grid, 0.062 headroom) gives the cohort
+  outcomes for rosters of entrants equal to `R_k`. With ten that differ from it
+  as its seed retrains do, about a third of cohorts have no entrant at the
+  margin cutoff and fall back where a predecessor allows, about 61% are margin
+  cohorts without a promotion, and about 6% promote; with forty, about 7%, 78%
+  and 15%. With ten to forty structurally different equal entrants, three
+  quarters to nine tenths of cohorts promote. The usual outcome for a roster of
+  seed retrains is therefore a margin cohort that pays the entrants whose draws
+  lifted them to the cutoff and keeps `R_k`, and an equally good entrant earns
+  in a quarter to a third of cohorts, chosen by its draw. These rates leave out
+  the strict tier and the canary, which can only lower promotion. A copy of a
+  published artifact earns nothing, so each artifact takes that draw once. In
+  every other case (no predecessor while `R_0` is the reference, nobody above
+  `S(R_{k-1})`, or `S_Rk = 1`, where the band width is zero) the previous
+  target stays live, and if none exists the row sends 65,535 to the owner
+  hotkey's UID (burn). At launch, therefore, the whole miner pool burns until
+  an entrant first beats `R_0` by the margin, and the subnet receives no
+  TAO-side emission meanwhile, though validators and the owner still receive
+  participant-side alpha (below).
 - **Clusters.** Walk the gated entrants at or above the cutoff in rank order
   (quantized score, then roster order, which is finalized commitment block and
   extrinsic index). The first unassigned entrant heads a cluster with every later
@@ -1099,19 +1112,10 @@ cohorts costs about 4.7e-4, about a fifth of a band. That cheapest copy earns
 like an entrant equal to the reference: in a margin cohort when its draws lift
 it to the cutoff (about a third of the time at the full roster), or in a
 fallback cohort when it reaches the fallback cutoff; it must be rebuilt each
-cohort because its own artifact is published. By a simulation of `quant-v1` as
-specified (`R_k` at a uniform grid position, 0.062 headroom), ten entrants equal
-to `R_k` that differ from it as seed retrains leave about a third of cohorts
-with no entrant at the margin cutoff, give about 61% margin cohorts without a
-promotion and promote in about 6%; forty give about 7%, 78% and 15%; ten to
-forty structurally different equal entrants promote in about three quarters to
-nine tenths. A lone entrant equal to `R_0` on a 0.02 grid reaches the cutoff,
-which ends the launch burn, about a sixth of the time.
-Pricing an
-escape at a full band would need a tolerance near 0.07, the distance between
-independent retrains, so no prediction tolerance can price it. An honest
-cluster sharing a band with one such copy ties with it and receives half of the
-band's share.
+cohort because its own artifact is published. Pricing an escape at a full band
+would need a tolerance near 0.07, the distance between independent retrains,
+so no prediction tolerance can price it. An honest cluster sharing a band with
+one such copy ties with it and receives half of the band's share.
 
 **Degraded entries (stated limit).** More noise escapes just as surely and
 lowers a copy's score by any chosen amount, and a lower score can pay more. A
@@ -1122,8 +1126,9 @@ near `S(R_k)`. A copy of `R_k` degraded into it can land alone in a lower band
 and take 45.9% of the pool (28.1% if the entrants above occupy two bands). In a
 promotion cohort, an entrant clearing the margin by more than a band can add a
 weaker variant under a second hotkey, and any entrant can submit less than its
-best. Such an entry aims blind (batch, grid position and cutoff are unknown at
-commitment; a miss earns nothing or a low slot in a crowded band). Its expected
+best. Such an entry aims blind (batch, grid position, secret offset, noise and
+cutoff are unknown at commitment; a miss earns nothing below the cutoff or an
+equal part of a crowded band's share). Its expected
 credit against realistic rosters is not yet measured; the launch checks
 simulate it under the frozen rule.
 

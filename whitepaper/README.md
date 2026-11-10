@@ -84,7 +84,9 @@ Most operator decisions with the operator-decision key's verification, the
 span gate in report mode with artifact spec v5, pre-finalized scores and
 segment readings, and the service behind the detection page are built but, as
 of November 9, not yet deployed, so no cohort has yet evaluated spans;
-enforcing the gate is not yet implemented. Dated research results remain
+enforcing the gate is not yet implemented. The record restart and the
+abandonment of a faulted cohort already run in their earlier, deployed form,
+without the key. Dated research results remain
 distinct from a qualified model or live service.
 
 The operator's lead validator is the serverless coordinator. It runs hidden

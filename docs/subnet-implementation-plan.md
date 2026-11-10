@@ -441,19 +441,24 @@ registration.
    confidence, and per-sentence share and confidence) are measured as a
    qualification gate with thresholds fixed after measurement. The release
    ships `R_0` plus the S0+ token head (export v3, document outputs
-   bit-identical to `R_0`). Serve span heads in the scorer and mark the span
-   graph class served before admission accepts it; until then admission
-   refuses it with `graph_class_not_served`. S2c, the follow-up arm S2's
+   bit-identical to `R_0`). The scorer serves span heads: artifact spec v2 and
+   later admit the span graph class, and spec v3 and later the tower class,
+   with its own 173.5M-parameter bound
+   ([artifact spec](testnet/artifact-spec.md)). S2c, the follow-up arm S2's
    token head fed by a trained four-layer encoder tower, is adopted as the span
    head of the first package that serves spans
    ([results](a-spans-results.md#follow-up-arm-s2)): document outputs
    byte-identical to `R_0`, spans on 21 of 570 Dev-iter humans at seed 17,
    `span_report` character F1 0.519 against the shipped head's 0.410, 210
    against 156 of 6,132 consumed-Test humans with a span, and 18–20% more
-   encoder CPU time. Build and replay a calibrated S2c package before span
-   serving; its graph is neither allow-listed class and exceeds the
-   160M-parameter limit, so admitting such a graph needs a versioned manifest.
-   The shipped head stays S0+ until span serving lands.
+   encoder CPU time. Since November 9 the span-serving package is span package
+   d24 ([reference packages](testnet/reference-packages.md)): S2c's seed-17
+   weights with the 24-word decoder and a span confidence map refitted under
+   that floor, replayed under R1. Fix the span gate's margins after
+   measurement on the sealed batches of closed testnet cohorts, with that
+   package as the anchor, and run the gate in report mode on at least three
+   live cohorts before any manifest enforces it; report mode and artifact spec
+   v5 are built but not yet deployed.
 
    Done when one private artifact completes a hidden cohort within funded
    serverless limits, with reproducible scoring, a published package, and no

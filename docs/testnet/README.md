@@ -78,7 +78,7 @@ Testnet subnet 601 is the rehearsal. It has no monetary value.
 | Validator package fetcher | built and tested offline; waits for the public status host |
 | Validators committing the launch burn row | live since November 3, 2026: both SlopNinja validators commit and reveal it on subnet 601 each tempo, under a launch authorization that does not expire |
 | `R_0` reference package and training companion (CC BY-SA 4.0) | built and checked; attached to the testnet release as two tar archives until public access opens |
-| S2c span package (CC BY-SA 4.0) | built and checked; downloadable when public access opens |
+| Span package d24 (CC BY-SA 4.0), SlopNinja's span-serving package | built and checked; downloadable when public access opens |
 
 Links:
 

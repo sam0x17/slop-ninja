@@ -31,7 +31,7 @@ gives their paths.
 | Role | the testnet reference `R_0`, scored in every cohort | SlopNinja's span-serving package (role `span_head`); not `R_0` until a signed span-equivalent reference decision passes it `R_0`'s position, before the first cohort that enforces the span gate |
 | Model | R0, the released *A* document model | R0's encoder and document heads, unchanged, with the S2c span tower and token head, the 24-word span decoder and a span confidence map refitted under that floor |
 | Graph class | `a-plain-f32band-v1` | `a-tower-f32band-v1` |
-| Spec | v1 to v4 | v3 and v4 |
+| Spec | v1 to v4 | v3 to v5 |
 | `profile_id` | `slop_ninja_a_artifact_spec_v3/a-plain-f32band-v1` (the package the cohorts name); `slop_ninja_a_artifact_spec_v2/a-plain-f32band-v1` (the parts package) | `slop_ninja_a_artifact_spec_v3/a-tower-f32band-v1` |
 | Package digest | `3c0ecc37376a9287f595f8389fe66faade00c663fd19f772eeb51abb7822c9fe` (spec v3, files layout: the package the cohorts name and the release attaches); `143ca2d95954e502a053fdd2c6deb6501e3e55273846dc04e310a3ee84c57f0c` (spec v2, parts layout); both hold the same six files byte for byte | `4bc3d49ce183d4a9ab150867eb4ec23280565351e07c041d161c9e728e19eac3` (parts layout) |
 | Inference-content digest | `d7232991612ae9693477a152d73e2b6ca5ac83b2d9cf5cd78e1eac4ecf96a36f` | `e2536d12dff593d7b11895b3cbf6b10232601abfbebde248325afd707722b5e8` |

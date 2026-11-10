@@ -78,7 +78,7 @@ a token-level head whose decoder never emits a span under 24 words (artifact
 spec v5, with a miner client release); failing the gate earns no credit. The
 gate compares each entrant with a fixed anchor, SlopNinja's first span
 package, on the same batch under the 24-word floor, with margins fixed after
-measurement on closed testnet cohorts so heads as good as the anchor pass; the
+measurement on closed testnet cohorts to let heads as good as the anchor pass; the
 operator may void it for one cohort with a recorded reason. It first runs in
 report mode, failing no one, on at least three live cohorts. Report mode and
 spec v5 are built, not deployed: only a cohort whose template names the gate
@@ -225,10 +225,10 @@ hashes model bytes again. Every admitted artifact is published when its
 cohort's scoring starts and is never recalled. After the seal, each executed
 model's quantized score (or withheld outcome) is shown as pre-finalized once
 final, and testnet cohorts may release a few `live-v1` segment readings under
-their own privacy budget, with an operator stop; no rank, band, cutoff mode,
-gate, public-copy, cluster or unit value appears before the close, when the
-remaining allow-listed values and the openings are published (both built, not
-deployed). Validators need none of them.
+their own privacy budget, with an operator stop (both built, not deployed); no
+rank, band, cutoff mode, gate, public-copy, cluster or unit value appears before
+the close, when the remaining allow-listed values and the openings are
+published. Validators need none of them.
 The coordinator's finalized row and observation certificate are later consistency
 audits, never prerequisites for other validators. A missing or incorrect
 coordinator chain row does not invalidate a valid signed row record. A shared

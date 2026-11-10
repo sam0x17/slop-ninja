@@ -29,7 +29,7 @@ public when its cohort's scoring starts.
 | The coordinator's admission origin pinned in the release trust file | pinned: `https://testnet-admission.slop.ninja` |
 | Validators committing the launch burn row ([Rewards](#13-rewards)) | live since November 3, 2026: both SlopNinja validators commit and reveal it on subnet 601 each tempo |
 | `R_0` reference package and training companion | built and checked; attached to the testnet release until public access opens ([`R_0` archives](#r_0-archives-optional)) |
-| S2c span package | built and checked; downloadable when public access opens ([Reference model](#reference-model)) |
+| Span package d24, SlopNinja's span-serving package | built and checked; downloadable when public access opens ([Reference model](#reference-model)) |
 | Status API (`https://slop.ninja/api/`), read-only JSON for each cohort ([The status API](#the-status-api)) | live; each miner's intake state while a cohort runs is not filled in yet and follows with pending evaluation and publisher updates |
 | `status` intake answers and `resolve` ([Status](#11-status), [Resolve](#resolve-intake-automatically)) | built and tested against simulated answers on Linux x86_64; their per-miner answers fill in as the status API publishes each miner's intake state and challenge counts |
 
@@ -1070,9 +1070,9 @@ published result, and it is the bar that ends the launch burn. Its
 loads them, the spec v3 package `3c0ecc37…22c9fe` that the cohorts name) is
 published under CC BY-SA 4.0, attached to the testnet release until public
 access opens ([`R_0` archives](#r_0-archives-optional)), so you can score it
-locally with the same engine as your own artifact. SlopNinja's S2c span package is
-published when public access opens; it is a span-serving package, not a
-reference.
+locally with the same engine as your own artifact. SlopNinja's span-serving
+package, span package d24 ([reference packages](reference-packages.md)), is
+published when public access opens; it is not the reference.
 
 Besides promotion, the reference changes only by an operator reference
 decision with a recorded reason ([terms](terms.md#operator-decisions)). One

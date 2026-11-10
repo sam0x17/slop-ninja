@@ -67,6 +67,14 @@ A miner submits one **artifact object**: the protocol encoding from
   after it hashes a model byte (the graph class check is a byte comparison,
   [Structure stream](#structure-stream)). Anyone can rebuild the object by
   concatenating `u32_le(len(H))`, `H` and the files in header order.
+- An admitted object's header and files are published under CC BY-SA 4.0
+  when its cohort's scoring starts ([public layout](public-layout.md)) and
+  stay published; SlopNinja removes published material only by a recorded
+  legal removal, which leaves the digests and the cohort's result unchanged
+  ([terms](terms.md#legal-notices-and-removals)). Put nothing in the header
+  or the JSON files, free-text provenance included, that you would not
+  publish that way, such as personal data or text you have no right to
+  license.
 
 The header contract must be `slop_ninja_full_a_contract_v2`. The object holds
 exactly these six files:

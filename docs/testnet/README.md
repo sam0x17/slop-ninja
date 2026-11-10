@@ -90,7 +90,8 @@ Links:
 - public repository: <https://github.com/sam0x17/slop-ninja>, with its **Issues** tab as the issue tracker;
 - status page: <https://slop.ninja/testnet/status/>; public API: <https://slop.ninja/api/>; the public status host is not yet live;
 - release public key: [below](#release-key);
-- private security contact: [security@slop.ninja](mailto:security@slop.ninja) ([security policy](../../SECURITY.md)).
+- private security contact: [security@slop.ninja](mailto:security@slop.ninja) ([security policy](../../SECURITY.md));
+- legal notices, such as copyright notices about published material: the address in the [terms](terms.md#legal-notices-and-removals) ([removal record](removals.md)).
 
 ## Release key
 
@@ -187,4 +188,5 @@ describe. Those platforms are untested.
 
 Report problems in the public repository's **Issues** tab.
 Report security problems privately to [security@slop.ninja](mailto:security@slop.ninja), never in a
-public issue.
+public issue. Send legal notices privately to the address in the
+[terms](terms.md#legal-notices-and-removals).

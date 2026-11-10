@@ -43,7 +43,8 @@ its own quality, funding, and payment checks.
   allow-listed tokenizer byte for byte, and schema-validated calibration and
   contract files (no separate byte cap). A miner commits only the digest on chain
   and uploads the artifact privately; the coordinator publishes it when its
-  cohort's scoring starts, licensed CC BY-SA 4.0, and never recalls it. SlopNinja pays
+  cohort's scoring starts, licensed CC BY-SA 4.0, and withdraws it only by a
+  recorded legal removal, which changes no score, row or payment. SlopNinja pays
   hosted evaluation and serving costs. Training remains the miner's expense.
   Miners receive no customer text or hidden evaluation data. Project code and
   documentation are MIT OR Apache-2.0, except files and datasets with their

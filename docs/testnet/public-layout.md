@@ -248,8 +248,9 @@ that:
   packages instead, never as entrant artifacts.
 
 Scores do not exist at scoring start, so no score-dependent rule (the
-public-copy gate, near-copy clusters) decides publication. A published object
-is never recalled.
+public-copy gate, near-copy clusters) decides publication. The publisher
+never withdraws a published object; only a recorded legal removal takes one
+down ([Legal removals](#legal-removals)).
 
 `v1/cohorts/<label>/artifacts.json` (`slop_ninja.public.artifacts/v1`)
 records publication at scoring start, one entry per roster entry in roster
@@ -300,6 +301,21 @@ of its parts manifest:
 Objects carry `cache-control: public, max-age=31536000, immutable`.
 [Reference packages](reference-packages.md) lists each package's digests and
 role.
+
+### Legal removals
+
+A published object is taken down only by a recorded legal removal
+([terms](terms.md#legal-notices-and-removals)), an operator action outside
+the publisher, which never withdraws an object itself. The operator deletes
+the covered objects from the public bucket (an artifact's header, the blobs
+only it lists, or a reference package's directory), keeps every blob that
+other published material still lists, purges the deleted paths from the
+host's edge cache, and adds an entry to the [removal record](removals.md).
+Everything else stays as it was: `artifacts.json`, `publication.json` and
+the leaderboard keep the entry and its digests, with the state `published`
+recording publication at scoring start; the index keeps its counts; the
+cohort summary and the signed objects are unchanged; and a removed path
+answers not found. A removal changes no score, result, row or payment.
 
 ## Authorizations
 
@@ -543,7 +559,8 @@ index entry and `receipts_deleted_after` (the marker's due-after cohort) in
 the publication record. The manifest, package (with the receipt root and count), target,
 closure, published indexes and artifacts stay (the artifacts of `R_k` and
 `R_k-1` included). Caches keep a deleted bundle for one tempo at most (see
-[Rules](#rules)). Nothing else is ever deleted. A validator built from this
+[Rules](#rules)). Nothing else is deleted, apart from a recorded legal
+removal ([Legal removals](#legal-removals)). A validator built from this
 tree reads no receipt.
 
 ## The leaderboard: `v1/leaderboard.json`

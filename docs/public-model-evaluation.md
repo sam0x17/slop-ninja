@@ -13,7 +13,10 @@ production runner still requires implementation and qualification.
 An admitted *A* model publishes its weights and everything needed to execute
 its declared calculation when its cohort's scoring starts. Its terms let anyone obtain it for
 free, run it locally, and reuse it to train a private *B* model. A published
-artifact stays public and is never recalled. The coordinator deletes its
+artifact stays public. SlopNinja removes one only on legal grounds, by a
+recorded operator action with a content-free public record of the removal and
+its legal basis, and the removal changes no score, row or payment
+([testnet terms](testnet/terms.md#legal-notices-and-removals)). The coordinator deletes its
 private admission copy once the cohort closes and publication is recorded, and
 keeps the current and previous reference artifacts hosted for evaluation while
 they are references. Training data and recipes need not be

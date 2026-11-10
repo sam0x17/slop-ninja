@@ -1047,7 +1047,10 @@ testnet stock is public and can be recognized, an accepted testnet limit.
 What becomes public, and what never does:
 
 - **Public when scoring starts:** your artifact (header and files), if
-  admitted.
+  admitted. It stays published: SlopNinja removes published material only by
+  a recorded legal removal, listed in the public [removal record](removals.md),
+  which changes no score, result, row or payment
+  ([terms](terms.md#legal-notices-and-removals)).
 - **Public after the close:** your opening, and the cohort's quantized
   result: for each executed entrant in roster order, its hotkey and UID, its
   quantized score (the result's `q` field) unless it is withheld
@@ -1266,7 +1269,9 @@ Never post your mnemonic, keyfiles or password. Never post your artifact
 before your cohort's scoring starts, or your opening before the cohort
 closes: they let others enter your model. Report a
 security problem privately to [security@slop.ninja](mailto:security@slop.ninja), not in a public issue
-([security policy](../../SECURITY.md)).
+([security policy](../../SECURITY.md)). Send legal notices, such as a
+copyright notice about a published artifact, privately to the address in the
+[terms](terms.md#legal-notices-and-removals), not in a public issue.
 
 ## Reference
 

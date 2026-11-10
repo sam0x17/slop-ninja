@@ -222,7 +222,9 @@ starts: a miner commits only a digest on chain and uploads each file straight
 to the coordinator's private R2 admission bucket with presigned PUTs that R2
 verifies on arrival; no upload passes through a SlopNinja Worker, and nothing
 hashes model bytes again. Every admitted artifact is published when its
-cohort's scoring starts and is never recalled. After the seal, each executed
+cohort's scoring starts and is withdrawn only by a recorded legal removal
+(a content-free public record of the removal and its legal basis), which
+changes no score, row or payment. After the seal, each executed
 model's quantized score (or withheld outcome) is shown as pre-finalized once
 final, and testnet cohorts may release a few `live-v1` segment readings under
 their own privacy budget, with an operator stop (both built, not deployed); no

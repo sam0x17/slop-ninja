@@ -44,7 +44,8 @@ detail it links to.
 - [SlopNinja on testnet](testnet/README.md): the landing page, with the
   [miner guide](testnet/miner-guide.md),
   [training guide](testnet/training-guide.md),
-  [validator guide](testnet/validator-guide.md) and [terms](testnet/terms.md)
+  [validator guide](testnet/validator-guide.md), [terms](testnet/terms.md)
+  and [removal record](testnet/removals.md)
 - [A artifact spec (testnet)](testnet/artifact-spec.md)
 - [Admission API (testnet)](testnet/admission-api.md)
 - [Reference packages (testnet)](testnet/reference-packages.md)

@@ -260,7 +260,9 @@ store.
   `publication.json` takes each entrant's state from that record: a published
   header counts only when it is the result's artifact digest (alerted
   otherwise, `publication_refused`), the static checks still withhold what
-  was not published, and a published object is never recalled. `R_k` is
+  was not published, and the publisher never withdraws a published object
+  (a recorded legal removal is an operator action outside it,
+  [public layout](../../docs/testnet/public-layout.md#legal-removals)). `R_k` is
   downloadable when it is a promoted miner artifact published here.
   `ARTIFACT_SOURCE_KEY` and `ADMISSION_RECORD_KEY` (closure-time copies from
   the eval bucket) are retired: a deployment that still sets one gets a

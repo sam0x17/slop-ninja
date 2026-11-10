@@ -1673,7 +1673,10 @@ completed and `T_N` has been superseded. Count the coordinator's durable
 completion records, independently of any validator's adoption. Missed tempos and
 coordinator silence do not advance the retention window, and a target kept live
 through cohorts that produce no new target keeps its receipts. Published entrant
-artifacts stay public and are never recalled; their admission-bucket copies are
+artifacts stay public, except for a recorded legal removal: an operator action
+on legal grounds with a content-free public record of the removal and its
+legal basis, which changes no score, row or payment and keeps the artifact's
+digests in the published-artifact index. Their admission-bucket copies are
 deleted once the cohort closes and publication is recorded, and the artifacts
 of `R_k` and `R_{k-1}` stay hosted for evaluation while they are references.
 Probe fingerprints are private
@@ -2197,7 +2200,8 @@ An *A* artifact is a text model: an ONNX graph, a fixed tokenizer, heads,
 calibration, and the execution data needed to run them. It stays private
 until its cohort's scoring starts and is then published, licensed CC BY-SA 4.0.
 Its weights, tokenizer, calibration, and execution data are then free to obtain
-and execute independently; a published artifact is never recalled. SlopNinja
+and execute independently; a published artifact is withdrawn only by a
+recorded legal removal. SlopNinja
 operates pilot scoring and production hosting. Other validators commit the
 coordinator's signed row in parallel; the coordinator's finalized certificate is
 later consistency evidence. An API subscription does not replace artifact publication.

@@ -182,6 +182,15 @@ Report security problems privately by email, never in a public issue. The
 [security policy](SECURITY.md) gives the address and says what to report and
 what to include.
 
+## Legal notices
+
+Send legal notices about published material, such as a copyright notice about
+a published artifact, privately to the address in the
+[testnet terms](docs/testnet/terms.md#legal-notices-and-removals), never in a
+public issue. The terms say how SlopNinja handles them: a removal is a recorded
+operator action, listed in the [removal record](docs/testnet/removals.md), and
+changes no score, row or payment.
+
 ## Licence
 
 Project code and documentation are licensed under either of the following, at

@@ -1,8 +1,12 @@
 # Testnet terms
 
-Version 2, November 9, 2026. It replaces version 1, the unnumbered terms
-published before it. A commitment made after version 2 is published accepts
-it; an earlier commitment stays under the version in force when it was made.
+Version 3, November 2026. It replaces version 2 of November 9, 2026 (which
+replaced version 1, the unnumbered terms published before it) and adds legal
+notices and recorded legal removals of published material. A commitment made
+after version 3 is published accepts it; an earlier commitment stays under the
+version in force when it was made, except that a legal removal
+([Legal notices and removals](#legal-notices-and-removals)) can apply to
+material published under any version.
 
 These terms apply to taking part in SlopNinja on Bittensor testnet subnet
 601: registering, committing, uploading an artifact, running a validator, and
@@ -26,7 +30,9 @@ token or mainnet allocation. SlopNinja does not provide test TAO.
   way, including what it derives from: base models, training data and code.
 - **Publication.** If your artifact is admitted to a cohort, the coordinator
   publishes it (its header and files) when that cohort's scoring starts, and
-  never recalls it; it publishes your opening when the cohort closes. Anyone
+  publishes your opening when the cohort closes. SlopNinja does not withdraw a
+  published artifact at anyone's request, yours included; it removes one only
+  by a recorded legal removal ([below](#legal-notices-and-removals)). Anyone
   may download, run, copy and adapt a published artifact under the licence.
   SlopNinja may run, host, evaluate and redistribute published artifacts under
   the same licence, and does not promise to host any artifact indefinitely.
@@ -114,6 +120,48 @@ reveal under their original rules, and rewards already paid are never
 reassigned. No outage triggers a decision. The testnet record was restarted
 once, on November 6, 2026.
 
+## Legal notices and removals
+
+Send legal notices about material SlopNinja publishes to
+[legal@slop.ninja](mailto:legal@slop.ninja), in English: for example a
+copyright notice about a published artifact, including a notice under the US
+Digital Millennium Copyright Act (17 U.S.C. § 512(c)(3)), a counter-notice, a
+court or authority order, or a request about personal data. For the EU Digital
+Services Act, the same address is SlopNinja's point of contact for Member State
+authorities, the Commission and the Board (Article 11) and for recipients of
+the service (Article 12). Security reports go to the security contact
+([Conduct](#conduct)), not to this address.
+
+SlopNinja removes published material (an artifact's header or files, or a
+reference package; never a result, opening or record) only on legal grounds: a
+copyright notice it finds valid, a court or authority order, or a personal-data
+request that applies to the material. A removal is a recorded operator action
+and is never silent. When SlopNinja takes material down, it adds an entry to
+the public [removal record](removals.md) giving the date, the material (by its
+digests, and its cohort for an entrant artifact), what was taken down, and the
+legal basis by type and jurisdiction. An entry holds no content of the material
+or of the notice, and no personal data.
+
+A removal changes nothing already decided. Commitments, openings, scores,
+quantized results, bands, gate bits, clusters and signed rows stay as they are,
+so the target in force and every reward paid or still due under it are
+unchanged, and the digests stay in the public record. A removed artifact still
+counts as published under [Copies](#your-submission): an entry with the same
+inference content is still a copy. If the same material is published again, it
+is removed the same way, with its own entry. A removal deletes only the copies
+SlopNinja hosts and cannot reach copies already downloaded.
+
+Removing a reference's public copies does not by itself change the reference,
+and SlopNinja keeps its private evaluation copy. If the legal basis also bars
+SlopNinja from running a removed reference, or the package its detection
+service serves, SlopNinja stops using it through the [operator
+decisions](#operator-decisions): a reference decision for later cohorts and, if
+a running cohort cannot finish without it, abandoning that cohort; the
+detection service stops serving that package.
+
+If your artifact was removed and you think that was a mistake, write to the
+same address.
+
 ## No guarantee of service
 
 The testnet service and software are provided as is, without warranty, as
@@ -128,5 +176,6 @@ found to be wrong may be held for a signed correction.
 Do not attack the coordinator, the status host, other participants or the
 chain, and do not try to obtain hidden evaluation data. Report a security
 problem privately to [security@slop.ninja](mailto:security@slop.ninja), not in a public issue
-([security policy](../../SECURITY.md)). Report other problems through the
+([security policy](../../SECURITY.md)). Send legal notices to the address
+[above](#legal-notices-and-removals). Report other problems through the
 public repository's issue tracker.

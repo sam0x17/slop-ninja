@@ -44,8 +44,10 @@ mismatch; admission, publication and scoring trust R2's stored checksum and size
 and never hash model bytes again. TLS and the private bucket are the privacy
 boundary; there is no encryption layer, since R2 can verify only the bytes it
 receives. Every admitted artifact is published when its cohort's scoring starts,
-copied inside R2 or by a stream R2 verifies, and a published artifact is never
-recalled. After the seal, each executed model's quantized score (or withheld
+copied inside R2 or by a stream R2 verifies, and a published artifact is
+withdrawn only by a recorded legal removal, which changes no score, row or
+payment ([testnet terms](../testnet/terms.md#legal-notices-and-removals)).
+After the seal, each executed model's quantized score (or withheld
 outcome) is shown, marked pre-finalized, as soon as it is fixed, and testnet
 cohorts may release a few `live-v1` segment readings during scoring under their
 own privacy parameter; both are built, not yet deployed (whitepaper Section 5,

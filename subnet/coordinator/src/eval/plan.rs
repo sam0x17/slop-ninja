@@ -1336,6 +1336,12 @@ impl CohortPlan {
         1 + usize::from(self.previous_reference.is_some()) + self.entrants.len() + usize::from(self.anchor_job())
     }
 
+    /// Whether the span gate evaluates the cohort at packaging: its plan names
+    /// the `reward_v1.localization` block, outside a probe build.
+    pub fn span_gate(&self) -> bool {
+        !self.is_probe_build() && self.reward_v1.as_ref().is_some_and(|v| v.localization.is_some())
+    }
+
     /// Whether the cohort schedules the span gate's anchor job (after every
     /// entrant): its plan names the gate and the anchor is not the
     /// reference's package.

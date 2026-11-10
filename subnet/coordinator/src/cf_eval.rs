@@ -1540,8 +1540,8 @@ impl EvalCohort {
                 Work::Package { seq } => {
                     let r = async {
                         let plan = plan_of(seq)?;
-                        let (jobs, docs) = package_shape(&plan);
-                        let child = self.step_scope_physical(scope, R_COHORT_PACKAGE, seq, crate::arena_routes::package_step_bytes(jobs, docs))?;
+                        let (jobs, docs, span) = package_shape(&plan);
+                        let child = self.step_scope_physical(scope, R_COHORT_PACKAGE, seq, crate::arena_routes::package_step_bytes(jobs, docs, span))?;
                         let fut = async { if plan.is_v3() { self.package_v3(&cfg, seq, &plan).await } else { self.package(&cfg, seq, &instance, &plan).await } };
                         child.scoped(fut).map_err(|_| "arena_defect")?.await?;
                         let _ = child.close();

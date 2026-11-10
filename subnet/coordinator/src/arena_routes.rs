@@ -457,11 +457,42 @@ pub const fn quant_package_bytes(entrants: u64) -> usize {
     if total > usize::MAX as u64 { usize::MAX } else { total as usize }
 }
 
-/// The package step's child scope: its fitted heap (`package_bytes`) and
-/// its quantization (`quant_package_bytes`, for every job but `R_k`'s). The
-/// summaries it reads are separate exact blocks (`package_reads_bytes`).
-pub const fn package_step_bytes(jobs: u64, docs: u64) -> usize {
-    package_bytes(jobs, docs).saturating_add(quant_package_bytes(jobs.saturating_sub(1)))
+/// A batch text's allowance in the span gate's trivial-policy pass: 16 KiB,
+/// about eight bytes a token at the scorer's 2,048-token input bound
+/// (testnet batch texts are about 1.3 KB, the seal fit's). An estimate, not
+/// a bound the store enforces.
+pub const SPAN_TEXT_BYTES: u64 = 16 * 1024;
+
+/// The span gate's evaluation at packaging (`eval::span_gate::evaluate`),
+/// for a plan naming `reward_v1.localization`, beside the package step's
+/// fitted heap. Per job: its aggregate row (13 columns), its excess and
+/// load-fact rows (the facts' rule name at most
+/// `span_gate::DECODER_RULE_CHARS`), its statistics and its private
+/// components entry, about 4 KiB, doubled. Once: the trivial policies'
+/// grid and aggregates (273 of each), the anchor's components and the
+/// record, in 64 KiB; and one page of `span_gate::TRIVIAL_PAGE` batch texts
+/// at `SPAN_TEXT_BYTES` (each with its row) beside one document's sentences
+/// and geometry (64 bytes a sentence, at most one sentence per two bytes).
+/// Derived from the types at native 64-bit sizes, which bound wasm32's; not
+/// measured beyond the witness `arena_witness_the_span_gate_fits_its_footprint`
+/// at its test shape.
+pub const fn span_gate_bytes(jobs: u64) -> usize {
+    const BASE: u64 = 64 * 1024;
+    const PER_JOB: u64 = 8 * 1024;
+    const ROW: u64 = 512;
+    let page = (crate::eval::span_gate::TRIVIAL_PAGE as u64).saturating_mul(SPAN_TEXT_BYTES.saturating_add(ROW));
+    let one_doc = SPAN_TEXT_BYTES.saturating_mul(32);
+    let total = BASE.saturating_add(PER_JOB.saturating_mul(jobs)).saturating_add(page).saturating_add(one_doc);
+    if total > usize::MAX as u64 { usize::MAX } else { total as usize }
+}
+
+/// The package step's child scope: its fitted heap (`package_bytes`), its
+/// quantization (`quant_package_bytes`, for every job but `R_k`'s) and, for
+/// a span cohort (`span`), the span gate's evaluation (`span_gate_bytes`).
+/// The summaries it reads are separate exact blocks (`package_reads_bytes`).
+pub const fn package_step_bytes(jobs: u64, docs: u64, span: bool) -> usize {
+    let step = package_bytes(jobs, docs).saturating_add(quant_package_bytes(jobs.saturating_sub(1)));
+    if span { step.saturating_add(span_gate_bytes(jobs)) } else { step }
 }
 
 /// The block runs the package step's own reads hold at once: at most
@@ -474,8 +505,10 @@ pub const fn package_reads_bytes(tasks: u64) -> usize {
 
 /// What a package step's invocation holds: the alarm's scope, the step's
 /// child scope and its in-flight summary blocks.
-pub const fn package_invocation_bytes(jobs: u64, docs: u64, tasks: u64) -> usize {
-    scope_bytes(ALARM_CONTROL_BYTES).saturating_add(scope_bytes(package_step_bytes(jobs, docs))).saturating_add(package_reads_bytes(tasks))
+pub const fn package_invocation_bytes(jobs: u64, docs: u64, tasks: u64, span: bool) -> usize {
+    scope_bytes(ALARM_CONTROL_BYTES)
+        .saturating_add(scope_bytes(package_step_bytes(jobs, docs, span)))
+        .saturating_add(package_reads_bytes(tasks))
 }
 
 /// The largest package the model holds: `largest_route_bytes` of
@@ -483,8 +516,8 @@ pub const fn package_invocation_bytes(jobs: u64, docs: u64, tasks: u64) -> usize
 /// largest rehearsed shape (R_0 + 128 jobs, n = 1,000, 1,000 tasks a job),
 /// so a plan whose package would need more is refused at `/plan`
 /// (`arena_capacity`), never admitted to fail at packaging.
-pub const fn package_fits(jobs: u64, docs: u64, tasks: u64) -> bool {
-    package_invocation_bytes(jobs, docs, tasks) <= slop_ninja_arena::model::LARGEST_ROUTE_BYTES
+pub const fn package_fits(jobs: u64, docs: u64, tasks: u64, span: bool) -> bool {
+    package_invocation_bytes(jobs, docs, tasks, span) <= slop_ninja_arena::model::LARGEST_ROUTE_BYTES
 }
 
 /// The home scopes' footprints. Durable Object state: every co-resident
@@ -701,9 +734,9 @@ const _: () = {
     assert!(model::MIN_ROUTE_BYTES == MIN_CONTROL_BYTES);
     // `largest_route_bytes` is the package invocation at R_0 + 128,
     // n = 1,000: that shape fits, J = 257 at n = 1,000 is refused at `/plan`.
-    assert!(model::LARGEST_ROUTE_BYTES == package_invocation_bytes(129, 1_000, 1_000));
-    assert!(package_fits(129, 1_000, 1_000));
-    assert!(!package_fits(257, 1_000, 1_000));
+    assert!(model::LARGEST_ROUTE_BYTES == package_invocation_bytes(129, 1_000, 1_000, false));
+    assert!(package_fits(129, 1_000, 1_000, false));
+    assert!(!package_fits(257, 1_000, 1_000, false));
     // The eval Worker during that package: static data and the stack (at
     // most `STATIC_UPPER_BYTES`, checked on the built module), the glue
     // partition, its state and plans homes, and room for a concurrent cohort

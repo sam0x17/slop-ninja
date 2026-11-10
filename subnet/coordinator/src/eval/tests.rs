@@ -7578,6 +7578,17 @@ fn span_cohort<'a>(
     spans: impl Fn(i64, &str, &str, Option<(u32, u32)>) -> Option<(Value, Value)> + 'a,
     prep: impl FnOnce(&mut Sim<'a>),
 ) -> (Sim<'a>, i64, v3::PackageV3) {
+    span_cohort_until(db, spans, prep, true)
+}
+
+/// [`span_cohort`], stopped at its transition (the batch texts still held)
+/// unless `close`.
+fn span_cohort_until<'a>(
+    db: &'a Sqlite,
+    spans: impl Fn(i64, &str, &str, Option<(u32, u32)>) -> Option<(Value, Value)> + 'a,
+    prep: impl FnOnce(&mut Sim<'a>),
+    close: bool,
+) -> (Sim<'a>, i64, v3::PackageV3) {
     let (mut sim, weak, probe_ref) = probe_built(db);
     let id = super::plan::tests::identity;
     let anchor = v3_artifact(&mut sim, id(30, 0xd0), [1, 2, 3, 30, 5]);
@@ -7612,7 +7623,11 @@ fn span_cohort<'a>(
     sim.spans = Some(Box::new(spans));
     prep(&mut sim);
     let seq = open_cohort(db, &p, 20, sim.now);
-    run_to_close(&mut sim, db, seq, 22);
+    if close {
+        run_to_close(&mut sim, db, seq, 22);
+    } else {
+        assert_eq!(sim.run(seq, 3_000), "transition", "fault {:?}", fault_of(db, seq));
+    }
     let b = sim.packages_v3.pop().unwrap();
     (sim, seq, b)
 }
@@ -7730,6 +7745,68 @@ fn a_malformed_span_reply_commits_its_document_outcome_and_waives_the_cohort() {
     assert_eq!(l.entrants[3], Some(slop_ninja_protocol::LocalizationValue::Passed));
 }
 
+/// A malformed span in a reference's reply (job 0, R_k) is a format fault
+/// like any other: the reference's document outcomes are committed, so no
+/// reference failure pauses the cohort, and the gate is waived.
+#[test]
+fn a_malformed_span_in_a_reference_reply_commits_its_outcomes_and_never_pauses() {
+    use slop_ninja_protocol::LocalizationState;
+    let db = Sqlite::open();
+    let (_sim, seq, b) = span_cohort(&db, |job, kind, text, gold| {
+        if job == 0 && kind == "mixed" {
+            return Some((json!("ok"), json!([{"start_byte": 0, "end_byte": text.len() as u32 + 7, "words": 99}])));
+        }
+        localizing(job, kind, text, gold)
+    }, |_| {});
+    let q = |sql: &str| -> i64 { db.conn.query_row(sql, rusqlite::params![seq], |r| r.get(0)).unwrap() };
+    assert_eq!(q("SELECT COUNT(*) FROM preds WHERE seq = ?1 AND job = 0 AND outcome = 1"), 20);
+    assert!(q("SELECT COUNT(*) FROM preds p JOIN docs d ON d.seq = p.seq AND d.task = p.task WHERE p.seq = ?1 AND p.job = 0 AND (p.span_flags & 4) != 0") > 0);
+    assert_eq!(phase(&db, seq), "closed");
+    let l = b.localization.as_ref().unwrap();
+    assert_eq!(l.state, LocalizationState::Waived);
+    assert_eq!(b.components["localization"]["waiver"], "waived.format_fault");
+    assert_eq!(l.entrants[1], Some(slop_ninja_protocol::LocalizationValue::NoTokenHead));
+}
+
+/// Arena witness (`--features arena-witness`): the span gate's evaluation at
+/// packaging runs within `arena_routes::span_gate_bytes` at this test's
+/// shape (six jobs, a 20-document batch, the trivial policies run), with no
+/// allocation outside its scope, and gives the package's own record. It
+/// runs at the transition, while the batch texts are still held.
+#[cfg(feature = "arena-witness")]
+#[test]
+fn arena_witness_the_span_gate_fits_its_footprint() {
+    use super::span_gate::{PackageInputs, evaluate};
+    use crate::arena_routes::{R_COHORT_PACKAGE, span_gate_bytes};
+    let db = Sqlite::open();
+    let (_sim, seq, b) = span_cohort_until(&db, localizing, |_| {}, false);
+    let c = tx(&db, |s| engine::cohort(s, seq)).unwrap();
+    let block = c.plan.reward_v1.as_ref().and_then(|v| v.localization.clone()).unwrap();
+    let fresh = tx(&db, |s| v3::fresh_allowed(s, &c)).unwrap();
+    let jobs = c.plan.jobs() as u64;
+    let expected = b.localization.clone().expect("the package's record");
+    let same = crate::arena_witness::witness(R_COHORT_PACKAGE, span_gate_bytes(jobs), || {
+        let built = tx(&db, |s| {
+            Ok::<_, engine::EvalError>(evaluate(
+                s,
+                &PackageInputs {
+                    cohort: &c,
+                    block: &block,
+                    result: &b.result,
+                    gate_policy: b.manifest.gate_policy,
+                    n: c.plan.n,
+                    first_entrant_job: 1,
+                    fresh,
+                    counted_bits: b.live_recount,
+                },
+            ))
+        })
+        .unwrap();
+        (built.record.is_some(), built.record.as_ref() == Some(&expected), built.components.get("error").is_none())
+    });
+    assert_eq!(same, (true, true, true));
+}
+
 #[test]
 fn the_operator_void_is_journaled_idempotent_and_closes_at_packaging() {
     use super::span_gate::{VoidRequest, void, voided};
@@ -7746,15 +7823,25 @@ fn the_operator_void_is_journaled_idempotent_and_closes_at_packaging() {
         withdraw,
     };
     let now = sim.now;
+    let gate = |db: &Sqlite| {
+        let st = status(db, now);
+        let c = st["cohorts"].as_array().unwrap().iter().find(|c| c["label"] == "testnet-span-void").unwrap().clone();
+        c["span_gate"].clone()
+    };
+    assert_eq!(gate(&db), json!({"mode": "report", "voided": false, "actions": []}));
     let r = tx(&db, |s| void(s, &req("d-1", "anchor misconfigured", false), now)).unwrap();
     assert_eq!(r["voided"], true);
     assert!(tx(&db, |s| voided(s, seq)).unwrap());
+    // The operator's status shows the void and its journal.
+    let g = gate(&db);
+    assert_eq!((g["voided"].clone(), g["actions"][0]["action"].clone(), g["actions"][0]["decision"].clone()), (json!(true), json!("void"), json!("d-1")));
     // The same decision replays; another body under its id is refused.
     assert_eq!(tx(&db, |s| void(s, &req("d-1", "anchor misconfigured", false), now)).unwrap()["replayed"], true);
     assert_eq!(tx(&db, |s| void(s, &req("d-1", "other", false), now)).unwrap_err().code(), "decision_reused");
     assert!(tx(&db, |s| void(s, &req("d-2", "again", false), now)).unwrap_err().code().starts_with("span_gate_already_voided"));
     tx(&db, |s| void(s, &req("d-3", "fixed", true), now)).unwrap();
     assert!(!tx(&db, |s| voided(s, seq)).unwrap());
+    assert_eq!((gate(&db)["voided"].clone(), gate(&db)["actions"].as_array().map(Vec::len)), (json!(false), Some(2)));
     assert!(tx(&db, |s| void(s, &req("d-4", "no void", true), now)).unwrap_err().code().starts_with("span_gate_not_voided"));
     // Once packaging starts the void is refused.
     db.conn.execute("UPDATE cohorts SET phase = 'packaging' WHERE seq = ?1", rusqlite::params![seq]).unwrap();

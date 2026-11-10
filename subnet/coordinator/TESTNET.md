@@ -927,7 +927,11 @@ printf 'Authorization: Bearer %s\n' "$(cat $S/eval_operator_token)" |
 #   Deploy order: the scorer image with the decoder load fact (`/healthz` load.release.decoder and
 #   build.score_fields) first, then this eval Worker, and only then a template naming the block. A
 #   job on an older image records no load facts for a token head, so its entrant gets no value
-#   (facts_missing in the private components), never decoder_under_floor.
+#   (facts_missing in the private components), never decoder_under_floor. A template naming the
+#   block, and enabling the decision route, also wait until AGENTS.md, the whitepaper and the
+#   design notes describe report mode: they still say cohort scoring evaluates no spans.
+#   A span cohort's package step admits the span gate's term (arena_routes::span_gate_bytes), and
+#   /eval/status shows each span cohort's span_gate {mode, voided, actions}.
 # void one cohort's measured span conditions before its packaging starts (journaled, idempotent):
 #   POST /eval/span-gate/void {"label", "decision", "reason"[, "withdraw": true]}
 #   (decision_reused for another body under a used id; span_gate_void_after_packaging once

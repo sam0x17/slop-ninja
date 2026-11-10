@@ -4193,6 +4193,8 @@ pub fn status(sql: &impl Sql, now_ms: u64) -> R<Value> {
             // for the operator and the private spend tracker.
             "gen_cost_by_vendor": crate::eval::gen_v2::cost_by_vendor(sql, &c)?,
             "generation_v2": crate::eval::gen_v2::status(sql, &c)?,
+            // The span gate's void state and journal (`null` without the block).
+            "span_gate": crate::eval::span_gate::status(sql, &c)?,
             "budget_microusd": c.plan.generation_budget_microusd,
             "jobs": jobs, "job_count": job_rows.len(), "job_status": job_status, "lanes": lanes, "load": c.plan.is_load(),
             "receipts_recorded": receipts, "receipt_retention": retention,

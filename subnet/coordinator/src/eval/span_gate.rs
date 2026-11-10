@@ -32,6 +32,22 @@
 //!   [`apply_reference_decision`]): built behind the reference-override
 //!   route, which refuses every request until the offline operator-decision
 //!   key exists ([`DECISION_REFUSAL_NO_KEY`]).
+//!
+//! Limits of this build (report mode):
+//!
+//! - The span cells live in `preds` columns only: no job summary carries
+//!   them and no digest of a job's span rows (or of each reply's
+//!   `span_output_sha256`) is stored, so the cells are not bound into the
+//!   receipts or the package beyond the private components.
+//! - The population signature ([`population_signature`]) is computed at
+//!   packaging from this build's generation constants, not recorded when the
+//!   batch was generated: a build whose constants changed between the two
+//!   would not see the change (the check fails open). The trivial policies
+//!   are also computed at packaging, from the stored batch texts.
+//! - The operator void is `POST /eval/span-gate/void`; its state and journal
+//!   show in the cohort's `span_gate` field of `/eval/status`.
+//! - The package step's memory bound counts the span gate's evaluation
+//!   (`arena_routes::span_gate_bytes`).
 
 use crate::eval::engine::{self, Cohort, EvalError, R, i, opt_int, opt_text, s};
 use crate::eval::plan::{ArtifactJson, CohortPlan, PlanError, PoolRef, parse_hex32};
@@ -244,6 +260,9 @@ impl SpanCell {
     }
 }
 
+/// The longest decoder rule name a job's facts keep (in characters).
+pub const DECODER_RULE_CHARS: usize = 64;
+
 /// What the loaded artifact declares (the scorer's load facts): a token head
 /// and its decoder. The structural conditions read them.
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -272,7 +291,9 @@ impl SpanFacts {
         let d = d.unwrap_or(&Value::Null);
         Some(SpanFacts {
             token_head,
-            decoder_rule: d["rule"].as_str().map(str::to_owned),
+            // The artifact names its rule: kept to `DECODER_RULE_CHARS`, so a
+            // job's facts stay small (no long name equals the known rule).
+            decoder_rule: d["rule"].as_str().map(|r| r.chars().take(DECODER_RULE_CHARS).collect()),
             decoder_min: d["min_words"].as_u64().and_then(|m| u32::try_from(m).ok()),
         })
     }
@@ -442,6 +463,17 @@ pub fn voided(sql: &impl Sql, seq: i64) -> R<bool> {
     Ok(r.first().map(|r| text(r, 0)).transpose()?.is_some_and(|a| a == "void"))
 }
 
+/// The cohort's span-gate state on the operator's status route: `null`
+/// without the block; else the mode, whether the measured conditions are
+/// voided, and the void journal. No span value or statistic: those exist
+/// only from packaging, in the private components.
+pub fn status(sql: &impl Sql, c: &Cohort) -> R<Value> {
+    let Some(block) = c.plan.reward_v1.as_ref().and_then(|v| v.localization.as_ref()) else {
+        return Ok(Value::Null);
+    };
+    Ok(json!({"mode": block.mode, "voided": voided(sql, c.seq)?, "actions": void_journal(sql, c.seq)?}))
+}
+
 /// The cohort's void journal, for its status.
 pub fn void_journal(sql: &impl Sql, seq: i64) -> R<Value> {
     let rows = sql.exec("SELECT id, action, decision, reason, at_ms, epoch FROM span_gate_actions WHERE seq = ? ORDER BY id", &[i(seq)])?;
@@ -477,7 +509,6 @@ struct JobStats {
     /// Batch documents whose prediction failed (a resolved model error,
     /// parse failure or invalid output).
     failed: u32,
-    emission_failed: Vec<u32>,
     facts: Option<SpanFacts>,
 }
 
@@ -519,16 +550,6 @@ fn job_stats(sql: &impl Sql, seq: i64) -> R<BTreeMap<i64, JobStats>> {
         let failed = u(r, 12)? as u32;
         out.insert(int(r, 0)?, JobStats { agg, missing, rows: rows_n, failed, ..JobStats::default() });
     }
-    for r in &sql.exec(
-        "SELECT p.job, p.task FROM preds p JOIN docs d ON d.seq = p.seq AND d.task = p.task
-         WHERE p.seq = ? AND d.docset = 'batch' AND p.span_pop IS NOT NULL AND (p.span_flags & 2) != 0
-         ORDER BY p.job, p.task",
-        &[i(seq)],
-    )? {
-        if let Some(j) = out.get_mut(&int(r, 0)?) {
-            j.emission_failed.push(u32::try_from(int(r, 1)?).map_err(|_| EvalError::State("task"))?);
-        }
-    }
     for r in &sql.exec("SELECT job, span_facts FROM jobs WHERE seq = ?", &[i(seq)])? {
         if let (Some(j), Some(f)) = (out.get_mut(&int(r, 0)?), opt_text(r, 1)) {
             j.facts = serde_json::from_str(&f).ok();
@@ -537,9 +558,29 @@ fn job_stats(sql: &impl Sql, seq: i64) -> R<BTreeMap<i64, JobStats>> {
     Ok(out)
 }
 
+/// Each job's emission failures on batch documents where `anchor`'s job
+/// emitted: its prediction succeeded and its emission did not fail. A
+/// document where the anchor's prediction or emission failed is no excess
+/// (`|E \ A|`, `slop_ninja_span_eval::emission_excess`, counted in the store
+/// so no task list is held). Jobs without one are absent.
+fn emission_excess(sql: &impl Sql, seq: i64, anchor: i64) -> R<BTreeMap<i64, u32>> {
+    sql.exec(
+        "SELECT p.job, COUNT(*) FROM preds p JOIN docs d ON d.seq = p.seq AND d.task = p.task
+         WHERE p.seq = ? AND d.docset = 'batch' AND p.span_pop IS NOT NULL AND (p.span_flags & 2) != 0
+            AND NOT EXISTS (SELECT 1 FROM preds a WHERE a.seq = p.seq AND a.job = ? AND a.task = p.task
+                AND (a.outcome != 1 OR (a.span_pop IS NOT NULL AND (a.span_flags & 2) != 0)))
+         GROUP BY p.job",
+        &[i(seq), i(anchor)],
+    )?
+    .iter()
+    .map(|r| Ok((int(r, 0)?, u32::try_from(int(r, 1)?).map_err(|_| EvalError::State("excess"))?)))
+    .collect()
+}
+
 /// Batch documents read per page by [`trivial_set`]: each page's texts are
-/// held at once, one document's geometry at a time.
-const TRIVIAL_PAGE: i64 = 16;
+/// held at once, one document's geometry at a time
+/// (`arena_routes::span_gate_bytes` counts one page).
+pub const TRIVIAL_PAGE: i64 = 16;
 
 /// The trivial policies over the batch, from the anchor job's predicted
 /// shares and the batch texts (held until close).
@@ -683,8 +724,16 @@ fn evaluate_inner(sql: &impl Sql, p: &PackageInputs<'_>) -> R<LocalizationBuild>
     });
     let state = waiver.map_or(CohortState::Applied, Waiver::state);
     let applies = waiver.is_none();
-    let empty: Vec<u32> = Vec::new();
-    let anchor_failed = anchor_complete.map_or(&empty, |a| &a.emission_failed);
+    // Emission failures where the anchor emitted (its prediction and its
+    // emission succeeded); without a complete anchor, every one.
+    let excess_by_job = match (anchor_job, anchor_complete) {
+        (Some(j), Some(_)) => Some(emission_excess(sql, c.seq, j)?),
+        _ => None,
+    };
+    let excess_of = |j: i64, js: &JobStats| match &excess_by_job {
+        Some(m) => m.get(&j).copied().unwrap_or(0),
+        None => js.agg.emission_failed,
+    };
     let mut values = Vec::with_capacity(p.result.entrants.len());
     let mut private = Vec::with_capacity(p.result.entrants.len());
     for (pos, e) in p.result.entrants.iter().enumerate() {
@@ -694,7 +743,7 @@ fn evaluate_inner(sql: &impl Sql, p: &PackageInputs<'_>) -> R<LocalizationBuild>
         let (value, reason, advisory) = match js {
             Some(js) if scored => {
                 let facts = js.facts.clone();
-                let excess = se::emission_excess(&js.emission_failed, anchor_failed);
+                let excess = excess_of(job, js);
                 match &facts {
                     None => (None, Some("facts_missing".to_owned()), None),
                     Some(f) => {
@@ -730,7 +779,7 @@ fn evaluate_inner(sql: &impl Sql, p: &PackageInputs<'_>) -> R<LocalizationBuild>
             "value": value.map(LocalizationValue::code), "reason": reason, "advisory": advisory,
             "facts": js.and_then(|j| j.facts.clone()), "stats": js.map(|j| agg_json(&j.agg)),
             "missing": js.map(|j| j.missing),
-            "emission_excess": js.map(|j| se::emission_excess(&j.emission_failed, anchor_failed))}));
+            "emission_excess": js.map(|j| excess_of(job, j))}));
     }
     let record = LocalizationOutcomeV1 {
         chain: p.result.chain.clone(),

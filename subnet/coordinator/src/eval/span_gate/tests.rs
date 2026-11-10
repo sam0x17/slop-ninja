@@ -133,6 +133,54 @@ fn load_facts_need_the_decoder_field_for_a_token_head() {
     assert!(!plain.token_head);
 }
 
+/// An entrant's emission failure is excess only where the anchor emitted:
+/// a document where the anchor's prediction or its emission failed is not.
+#[test]
+fn emission_excess_counts_only_documents_where_the_anchor_emitted() {
+    use crate::testing::Sqlite;
+    let db = Sqlite::open();
+    crate::sql::migrate(&db, &crate::sql::EVAL_COHORT_SCHEMA).unwrap();
+    for task in 0..5i64 {
+        let set = if task == 4 { "probe" } else { "batch" };
+        db.conn
+            .execute(
+                "INSERT INTO docs (seq, idx, key, kind, domain, source_group, status, task, docset) VALUES (1, ?1, ?2, 'human_only', 'd', 'g', 'ready', ?1, ?3)",
+                rusqlite::params![task, format!("k{task}"), set],
+            )
+            .unwrap();
+    }
+    // Flags: 2 is a failed emission after a successful prediction.
+    let pred = |job: i64, task: i64, outcome: i64, flags: i64| {
+        db.conn
+            .execute(
+                "INSERT INTO preds (seq, job, task, attempt, outcome, span_pop, span_f1, span_fp, span_human, span_flags, span_spans)
+                 VALUES (1, ?1, ?2, 1, ?3, 2, 0, 0, 0, ?4, 0)",
+                rusqlite::params![job, task, outcome, flags],
+            )
+            .unwrap();
+    };
+    // The anchor (job 9): task 1's prediction failed, task 2's emission failed.
+    for (task, outcome, flags) in [(0, 1, 0), (1, 3, 1), (2, 1, 3), (3, 1, 0)] {
+        pred(9, task, outcome, flags);
+    }
+    // The entrant (job 1): its emission failed on tasks 1, 2 and 3, and on
+    // a probe task, which is not a batch document.
+    for (task, flags) in [(0, 0), (1, 3), (2, 3), (3, 3), (4, 3)] {
+        pred(1, task, 1, flags);
+    }
+    // Job 2 emitted everywhere.
+    for task in 0..4 {
+        pred(2, task, 1, 0);
+    }
+    let stats = job_stats(&db, 1).unwrap();
+    assert_eq!((stats[&1].agg.emission_failed, stats[&9].agg.emission_failed, stats[&9].failed), (3, 1, 1));
+    // Only task 3, where the anchor emitted, is excess (`|E \ A|` with A = {1, 2}).
+    let excess = emission_excess(&db, 1, 9).unwrap();
+    assert_eq!(excess.get(&1), Some(&1));
+    assert_eq!(se::emission_excess(&[1, 2, 3], &[1, 2]), 1);
+    assert!(!excess.contains_key(&2) && !excess.contains_key(&9));
+}
+
 #[test]
 fn shard_labels_read_batch_documents_only() {
     let lines = [

@@ -48,6 +48,7 @@ detail it links to.
 - [A artifact spec (testnet)](testnet/artifact-spec.md)
 - [Admission API (testnet)](testnet/admission-api.md)
 - [Reference packages (testnet)](testnet/reference-packages.md)
+- [Licences and notices (testnet)](testnet/licences.md)
 - [Public object layout (testnet)](testnet/public-layout.md) and the
   [dashboard data contract](testnet/dashboard-contract.md)
 - [Scorer threat model (testnet)](testnet/scorer-threat-model.md)

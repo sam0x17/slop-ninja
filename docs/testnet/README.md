@@ -51,7 +51,8 @@ Testnet subnet 601 is the rehearsal. It has no monetary value.
   trains an admissible artifact from ModernBERT-base and public data, and
   ends with `pack` and `check`.
 - **Validators:** the [validator guide](validator-guide.md) (experimental).
-- **Everyone:** the [terms](terms.md).
+- **Everyone:** the [terms](terms.md), and where each licence and notice is
+  ([licences and notices](licences.md)).
 - **Specifications:** the [artifact spec](artifact-spec.md), the
   [admission API](admission-api.md), the
   [scorer threat model](scorer-threat-model.md) and the

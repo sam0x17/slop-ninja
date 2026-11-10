@@ -3722,7 +3722,7 @@ fn v3_failing_artifacts_score_zero_and_one_canary_flag_with_a_clean_reaudit_prom
     assert_eq!(e[2].units, u16::MAX);
 }
 
-/// U08: a plan naming `reward_v1.feedback` publishes, beside the result,
+/// A plan naming `reward_v1.feedback` publishes, beside the result,
 /// each scored entrant's coarse failed-gate classes and the plan's
 /// thresholds, bound to the manifest's gate policy, at `max(g - 1, 0)` bits
 /// per executed entrant counted in the complete total; a plan without it
@@ -3732,23 +3732,7 @@ fn v3_gate_feedback_publishes_classes_and_thresholds_beside_the_result() {
     use slop_ninja_protocol::gate_feedback::{self, FEEDBACK_RULE};
     use slop_ninja_protocol::{EntrantFeedback, GateClasses, Record};
     let db = Sqlite::open();
-    let (mut sim, weak, probe_ref) = probe_built(&db);
-    let id = super::plan::tests::identity;
-    let good = v3_artifact(&mut sim, id(41, 0xe1), [1, 2, 3, 41, 5]);
-    let flags = v3_artifact(&mut sim, id(42, 0xe2), [1, 2, 3, 42, 5]);
-    let mut p = plan_v3(2, "testnet-feedback", 20, weak);
-    p.entrants = vec![good, flags];
-    p.allow_list = vec![id(41, 0xe1), id(42, 0xe2)];
-    {
-        let v = p.reward_v1.as_mut().unwrap();
-        v.probes = vec![probe_ref];
-        // Share and the loose tier can fail, attribution cannot: g = 2.
-        v.gates.share_mae_max_ppb = 300_000_000;
-        v.feedback = Some(super::plan::FeedbackPlan { rule: FEEDBACK_RULE.into() });
-    }
-    let v = p.reward_v1.clone().unwrap();
-    assert_eq!(v.counted_terms(), gate_feedback::terms(&v.gate_thresholds(false)));
-    assert_eq!(v.counted_terms().per_executed, 1);
+    let (v, b) = v3_feedback_cohort(&db);
     // The policy document binds the rule; without the block it is unchanged.
     let policy = v3::gate_policy_json(&v);
     assert_eq!(policy["feedback"]["rule"], FEEDBACK_RULE);
@@ -3756,22 +3740,8 @@ fn v3_gate_feedback_publishes_classes_and_thresholds_beside_the_result() {
     plain.feedback = None;
     assert!(v3::gate_policy_json(&plain).get("feedback").is_none());
     assert_eq!(plain.counted_terms(), slop_ninja_protocol::quant::CountedTerms::NONE);
-    // Job 1 separates humans from AI; job 2 calls every document AI, so it
-    // flags every cohort human (the loose tier) and misses every mixed share.
-    sim.predict = Some(Box::new(|job, kind, task| match job {
-        2 => (99.0, 99.0),
-        0 => {
-            let c = model_conf(1, kind, task, (35.0, 65.0, 70.0), 10.0);
-            (c, c * 0.4)
-        }
-        _ => {
-            let c = model_conf(4, kind, task, (3.0, 95.0, 97.0), 7.0);
-            (c, c * 0.4)
-        }
-    }));
-    let seq = open_cohort(&db, &p, 20, sim.now);
-    run_to_close(&mut sim, &db, seq, 22);
-    let b = sim.packages_v3.pop().unwrap();
+    assert_eq!(v.counted_terms(), gate_feedback::terms(&v.gate_thresholds(false)));
+    assert_eq!(v.counted_terms().per_executed, 1);
     let f = b.feedback.clone().expect("the record is built");
     f.validate().unwrap();
     f.check_result(&b.result).unwrap();
@@ -3797,14 +3767,96 @@ fn v3_gate_feedback_publishes_classes_and_thresholds_beside_the_result() {
     assert!(bytes.len() as u64 <= slop_ninja_protocol::GateFeedbackV1::max_signed_len().unwrap());
     let back = slop_ninja_protocol::Signed::<slop_ninja_protocol::GateFeedbackV1>::from_bytes(&bytes).unwrap();
     assert_eq!(back.record, f);
+    // The policy document the components hold is the plan's, and it hashes
+    // to the manifest's gate-policy digest written as it is (no copy).
+    assert_eq!(b.components["policy"], policy);
+    assert_eq!(v3::policy_document_digest(&policy).unwrap(), b.manifest.gate_policy);
     // A plan without the block builds none.
-    let (none, note) = v3::gate_feedback(&plain, &b.package, &b.result, &b.manifest, b.live_recount);
+    let (none, note) = v3::gate_feedback(&plain, &policy, &b.package, &b.result, &b.manifest, b.live_recount);
     assert!(none.is_none() && note.is_null());
     // A build that fails (a total short of the record's own bits) drops the
     // record and says why; it never holds the package.
-    let (dropped, note) = v3::gate_feedback(&v, &b.package, &b.result, &b.manifest, b.result.budget.total);
+    let (dropped, note) = v3::gate_feedback(&v, &policy, &b.package, &b.result, &b.manifest, b.result.budget.total);
     assert!(dropped.is_none());
     assert!(note["error"].as_str().is_some_and(|x| x.contains("feedback bit parameters")), "{note}");
+    // Thresholds other than the ones the manifest's policy digest binds are
+    // never signed.
+    let mut moved = v.clone();
+    moved.gates.share_mae_max_ppb = 250_000_000;
+    let moved_policy = v3::gate_policy_json(&moved);
+    let (dropped, note) = v3::gate_feedback(&moved, &moved_policy, &b.package, &b.result, &b.manifest, b.live_recount);
+    assert!(dropped.is_none());
+    assert!(note["error"].as_str().is_some_and(|x| x.starts_with("gate policy")), "{note}");
+    // An enforced span gate without its own record leaves the span value
+    // uncounted: no record.
+    let mut enforced = b.manifest.clone();
+    enforced.span_gate = true;
+    let (dropped, note) = v3::gate_feedback(&v, &policy, &b.package, &b.result, &enforced, b.live_recount);
+    assert!(dropped.is_none());
+    assert!(note["error"].as_str().is_some_and(|x| x.starts_with("span gate")), "{note}");
+}
+
+/// A closed two-entrant cohort whose plan names `reward_v1.feedback` at
+/// testnet's share and loose-tier gates (attribution cannot fail, g = 2),
+/// with its plan block and package.
+fn v3_feedback_cohort(db: &Sqlite) -> (super::plan::RewardV1Plan, v3::PackageV3) {
+    let (mut sim, weak, probe_ref) = probe_built(db);
+    let id = super::plan::tests::identity;
+    let good = v3_artifact(&mut sim, id(41, 0xe1), [1, 2, 3, 41, 5]);
+    let flags = v3_artifact(&mut sim, id(42, 0xe2), [1, 2, 3, 42, 5]);
+    let mut p = plan_v3(2, "testnet-feedback", 20, weak);
+    p.entrants = vec![good, flags];
+    p.allow_list = vec![id(41, 0xe1), id(42, 0xe2)];
+    {
+        let v = p.reward_v1.as_mut().unwrap();
+        v.probes = vec![probe_ref];
+        // Share and the loose tier can fail, attribution cannot: g = 2.
+        v.gates.share_mae_max_ppb = 300_000_000;
+        v.feedback =
+            Some(super::plan::FeedbackPlan { rule: slop_ninja_protocol::gate_feedback::FEEDBACK_RULE.into() });
+    }
+    let v = p.reward_v1.clone().unwrap();
+    // Job 1 separates humans from AI; job 2 calls every document AI, so it
+    // flags every cohort human (the loose tier) and misses every mixed share.
+    sim.predict = Some(Box::new(|job, kind, task| match job {
+        2 => (99.0, 99.0),
+        0 => {
+            let c = model_conf(1, kind, task, (35.0, 65.0, 70.0), 10.0);
+            (c, c * 0.4)
+        }
+        _ => {
+            let c = model_conf(4, kind, task, (3.0, 95.0, 97.0), 7.0);
+            (c, c * 0.4)
+        }
+    }));
+    let seq = open_cohort(db, &p, 20, sim.now);
+    run_to_close(&mut sim, db, seq, 22);
+    (v, sim.packages_v3.pop().unwrap())
+}
+
+/// The coordinator's gate feedback build (the policy check on the document
+/// the components hold, then the record) inside the package step's derived
+/// footprint for it (`arena_routes::feedback_package_bytes`), measured on
+/// the arena and run under `Strict` in a scope of exactly that size
+/// (`--features arena-witness`, one test thread).
+#[cfg(feature = "arena-witness")]
+#[test]
+fn arena_witness_v3_gate_feedback_fits_its_derived_footprint() {
+    use crate::arena_routes::{R_COHORT_PACKAGE, feedback_package_bytes};
+    use crate::arena_witness::{measure, witness};
+    let db = Sqlite::open();
+    let (v, b) = v3_feedback_cohort(&db);
+    let policy = b.components["policy"].clone();
+    let step = || {
+        let (record, note) = v3::gate_feedback(&v, &policy, &b.package, &b.result, &b.manifest, b.live_recount);
+        assert!(record.is_some(), "{note}");
+        (record, note)
+    };
+    let (_, peak) = measure(|| drop(step()));
+    let footprint = feedback_package_bytes(b.package.entrants.len() as u64);
+    eprintln!("arena witness: v3 gate feedback of {} entrants peak live {peak} B, footprint {footprint} B", b.package.entrants.len());
+    assert!(peak <= footprint, "{peak} B above the derived {footprint} B");
+    witness(R_COHORT_PACKAGE, footprint, || drop(step()));
 }
 
 #[test]

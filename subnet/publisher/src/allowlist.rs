@@ -61,7 +61,7 @@
 //! (`artifacts/v2/ModernBERT-base-LICENSE`), each the compiled text byte for
 //! byte ([`crate::layout::ARTIFACT_NOTICES`]).
 //!
-//! Version 4 adds the gate feedback (decision U08) to the cohort summary
+//! Version 4 adds the gate feedback to the cohort summary
 //! (v4) only: each never-executed entrant's public reason (`not_executed`),
 //! each scored entrant's coarse failed-gate classes (`gate_classes`, no
 //! statistic or reason code) and the cohort's gate thresholds (`gates`, plan

@@ -41,16 +41,28 @@ fn roster() -> Vec<Spec> {
 }
 
 fn cohort(quant: QuantParams) -> Result<(CohortManifestV2, ScorePackageV2, QuantizedResult)> {
-    let specs = roster();
-    let mut m = fx::manifest(chain(), 7, 1000, sigma_permille(40), 1, &specs);
-    m.params.quant = quant;
-    let index = fx::default_index(&m.references);
-    let mut p = fx::package(&m, bp(9100), Some(bp(8800)), &specs)?;
-    p.entrants[2].gate_failures = vec![
+    let failures = vec![
         failure(Gate::Share, "share.mae_above_threshold"),
         failure(Gate::HumanFalsePositive, HUMAN_FPR_LOOSE_REASON),
     ];
-    finalize_fixture(&mut p, &index, &mut fx::spec_measure(&specs, 1000, |_, _| false))?;
+    cohort_of(&roster(), quant, &[(2, failures)])
+}
+
+/// The finalized cohort of `specs`, each `(index, failures)` replacing that
+/// entrant's private gate failures before finalization.
+fn cohort_of(
+    specs: &[Spec],
+    quant: QuantParams,
+    failures: &[(usize, Vec<GateFailure>)],
+) -> Result<(CohortManifestV2, ScorePackageV2, QuantizedResult)> {
+    let mut m = fx::manifest(chain(), 7, 1000, sigma_permille(40), 1, specs);
+    m.params.quant = quant;
+    let index = fx::default_index(&m.references);
+    let mut p = fx::package(&m, bp(9100), Some(bp(8800)), specs)?;
+    for (i, f) in failures {
+        p.entrants[*i].gate_failures = f.clone();
+    }
+    finalize_fixture(&mut p, &index, &mut fx::spec_measure(specs, 1000, |_, _| false))?;
     let r = result_of(&p)?;
     Ok((m, p, r))
 }
@@ -100,6 +112,89 @@ fn the_record_publishes_classes_and_reasons_and_counts_its_bits() -> Result<()> 
     let mut renamed = p.clone();
     renamed.entrants[1].gate_failures[0].reason = "share.other_code".into();
     assert_eq!(GateFeedbackV1::of_package(&renamed, &r, m.gate_policy, TESTNET_GATES, rec.result_bits)?, rec);
+    Ok(())
+}
+
+/// Thresholds under which every class can fail: testnet's gates with an
+/// attribution floor of half the successful predictions.
+const ALL_GATES: GateThresholds = GateThresholds { attribution_min_permille: 500, ..TESTNET_GATES };
+
+/// With attribution able to fail (`g = 3`), each class reaches the record
+/// alone and together, in the code order share, attribution, human_fpr, at
+/// two bits per executed entrant.
+#[test]
+fn every_class_reaches_the_record_at_two_bits_per_executed_entrant() -> Result<()> {
+    let mut withheld = Spec::new(0x35, bp(9300));
+    withheld.failed = 3;
+    let specs = vec![
+        Spec::new(0x31, bp(9600)),
+        Spec::new(0x32, bp(9500)).failing(Gate::Attribution, "attribution.coverage_below_threshold"),
+        Spec::new(0x33, bp(9450)).failing(Gate::HumanFalsePositive, HUMAN_FPR_LOOSE_REASON),
+        Spec::new(0x34, bp(9400)),
+        withheld,
+        Spec::published_copy(0x36, 0xe1),
+    ];
+    let every = vec![
+        failure(Gate::Share, "share.mae_above_threshold"),
+        failure(Gate::Attribution, "attribution.coverage_below_threshold"),
+        failure(Gate::HumanFalsePositive, HUMAN_FPR_LOOSE_REASON),
+    ];
+    let (m, p, r) = cohort_of(&specs, fixture_quant(), &[(3, every)])?;
+    assert_eq!(r.entrants[4].outcome, EntrantOutcome::Withheld);
+    assert_eq!(r.entrants[5].outcome, EntrantOutcome::NotExecuted(NotExecuted::Content));
+    assert_eq!(ALL_GATES.can_fail(), GateClasses::from_bits(7).unwrap());
+    assert_eq!(gate_feedback::terms(&ALL_GATES), quant::CountedTerms { per_executed: 2, per_cohort: 0 });
+    let rec = record(&p, &r, &m, ALL_GATES)?;
+    let all = GateClasses::SHARE.union(GateClasses::ATTRIBUTION).union(GateClasses::HUMAN_FPR);
+    assert_eq!(
+        rec.entrants,
+        vec![
+            EntrantFeedback::Scored(GateClasses::NONE),
+            EntrantFeedback::Scored(GateClasses::ATTRIBUTION),
+            EntrantFeedback::Scored(GateClasses::HUMAN_FPR),
+            EntrantFeedback::Scored(all),
+            EntrantFeedback::Withheld,
+            EntrantFeedback::NotExecuted(NotExecuted::Content),
+        ]
+    );
+    let codes: Vec<_> = rec.entrants.iter().map(|e| e.classes().map(GateClasses::codes)).collect();
+    assert_eq!(
+        codes,
+        vec![
+            Some(vec![]),
+            Some(vec!["attribution"]),
+            Some(vec!["human_fpr"]),
+            Some(vec!["share", "attribution", "human_fpr"]),
+            None,
+            None,
+        ]
+    );
+    assert_eq!(all.bits(), 7);
+    // Five executed entrants (the withheld one included) at two bits each.
+    assert_eq!((rec.executed(), rec.bits), (5, 10));
+    assert_eq!(rec.bits, 2 * u32::from(rec.executed()));
+    assert_eq!(rec.result_bits, r.budget.total + 10);
+    rec.validate()?;
+    rec.check_result(&r)?;
+    rec.check_manifest(&m)?;
+    let signed = sign(rec.clone(), &fixtures::package_key())?;
+    let bytes = signed.to_bytes()?;
+    assert!(bytes.len() as u64 <= GateFeedbackV1::max_signed_len()?);
+    assert_eq!(Signed::<GateFeedbackV1>::from_bytes(&bytes)?.record, rec);
+    // One bit per executed entrant (testnet's term) under-counts these
+    // thresholds: refused as the record's bits and as the complete total.
+    let mut short = rec.clone();
+    short.bits = 5;
+    assert_eq!(short.validate().unwrap_err(), Error::Mismatch("feedback bits"));
+    let mut short = rec.clone();
+    short.result_bits = r.budget.total + 5;
+    assert_eq!(short.check_result(&r).unwrap_err(), Error::Mismatch("feedback bit parameters"));
+    // At testnet's thresholds attribution cannot fail, so the same package
+    // builds no record.
+    assert_eq!(
+        GateFeedbackV1::of_package(&p, &r, m.gate_policy, TESTNET_GATES, rec.result_bits).unwrap_err(),
+        Error::Invalid("feedback class the thresholds cannot fail")
+    );
     Ok(())
 }
 

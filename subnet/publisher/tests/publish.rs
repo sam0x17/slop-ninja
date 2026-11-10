@@ -600,11 +600,12 @@ fn nothing_private_is_published() {
     }
 }
 
-/// Decision U08: a cohort whose coordinator stored a gate feedback record
-/// publishes a v4 summary carrying the cohort's thresholds, each scored
-/// entrant's coarse failed-gate classes and each never-executed entrant's
-/// reason; the leaderboard keeps its v4 fields; a stored record that fails
-/// its checks is left out and reported, and the cohort is published anyway.
+/// A cohort whose coordinator stored a gate feedback record publishes a v4
+/// summary carrying the cohort's thresholds, each scored entrant's coarse
+/// failed-gate classes (every class, alone and together, in code order) and
+/// each never-executed entrant's reason; the leaderboard keeps its v4
+/// fields; a stored record that fails its checks is left out and reported,
+/// and the cohort is published anyway.
 #[test]
 fn gate_feedback_reaches_the_summary_and_a_failing_record_holds_nothing() {
     use slop_ninja_protocol::fixtures::package_key;
@@ -683,6 +684,48 @@ fn gate_feedback_reaches_the_summary_and_a_failing_record_holds_nothing() {
         assert!(board["entrants"].as_array().unwrap().iter().all(|e| e.get("gate_classes").is_none() && e.get("not_executed").is_none()));
     }
     assert_no_score_values(&b, &x);
+
+    // Every class reaches the summary in code order: zeta failing the
+    // attribution gate alone, the loose false-positive tier alone, and all
+    // three, under thresholds where attribution can fail (two bits per
+    // executed entrant).
+    use slop_ninja_protocol::{Gate, GateFailure, HUMAN_FPR_LOOSE_REASON};
+    let share = (Gate::Share, "share.mae_above_threshold");
+    let attribution = (Gate::Attribution, "attribution.coverage_below_threshold");
+    let human_fpr = (Gate::HumanFalsePositive, HUMAN_FPR_LOOSE_REASON);
+    for (failures, codes) in [
+        (vec![attribution], vec!["attribution"]),
+        (vec![human_fpr], vec!["human_fpr"]),
+        (vec![share, attribution, human_fpr], vec!["share", "attribution", "human_fpr"]),
+    ] {
+        let b = build_with(|c| {
+            let zeta = c.package.entrants.iter_mut().find(|e| e.identity.uid == 0x18).unwrap();
+            zeta.gate_failures =
+                failures.iter().map(|&(gate, reason)| GateFailure { gate, reason: reason.into() }).collect();
+        });
+        let x = buckets(&b);
+        let result = b.result();
+        let t = GateThresholds { attribution_min_permille: 500, ..thresholds(&b) };
+        let bits = gate_feedback::terms(&t).bits(result.budget.executed).unwrap();
+        assert_eq!(bits, 2 * u32::from(result.budget.executed));
+        let record =
+            GateFeedbackV1::of_package(&b.c.package, &result, b.c.manifest.gate_policy, t, result.budget.total + bits)
+                .unwrap();
+        x.receipts.insert(&feedback_key(&b), sign(record, &package_key()).unwrap().to_bytes().unwrap());
+        let (report, _) = run(&cfg, &x, &mut Memo::default());
+        assert_eq!(report.published, vec![b.label.clone()]);
+        assert!(report.refused.is_empty(), "{codes:?}: {report:?}");
+        let summary = summary_of(&x, &b);
+        assert_eq!(summary.gates.as_ref().map(|g| g.attribution_min_permille), Some(500));
+        let classes = |uid: u16| summary.entrants.iter().find(|e| e.uid == uid).unwrap().gate_classes.clone();
+        let codes: Vec<String> = codes.into_iter().map(String::from).collect();
+        assert_eq!(classes(0x18), Some(codes));
+        assert_eq!(classes(0x11), Some(vec![]));
+        let key = format!("v1/cohorts/{}/summary.json", b.label);
+        let bytes = x.public.bytes(&key).unwrap();
+        slop_ninja_publisher::allowlist::check_object(&key, &bytes).unwrap_or_else(|e| panic!("{e}"));
+        slop_ninja_publisher::redact::scan_json(&bytes).unwrap_or_else(|e| panic!("{key}: {e}"));
+    }
 
     // A signed record the result does not support (a class for a passing
     // entrant) is left out and reported; the cohort is published.

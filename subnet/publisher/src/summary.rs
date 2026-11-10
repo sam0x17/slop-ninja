@@ -36,9 +36,9 @@
 //! rewards are computed in (`reward-v2`), and every credit, band and unit
 //! is a function of the published `q` values, bits and membership alone.
 //!
-//! Version 4 adds the gate feedback a failing entrant may learn (decision
-//! U08): each never-executed entrant's public reason (`not_executed`:
-//! `copy` or `qualification`, from the result itself), and, from the
+//! Version 4 adds the gate feedback a failing entrant may learn: each
+//! never-executed entrant's public reason (`not_executed`: `copy` or
+//! `qualification`, from the result itself), and, from the
 //! cohort's verified gate feedback record when one is stored, each scored
 //! entrant's coarse failed-gate classes (`gate_classes`) and the cohort's
 //! gate thresholds (`gates`). No statistic, margin, count, reason code or

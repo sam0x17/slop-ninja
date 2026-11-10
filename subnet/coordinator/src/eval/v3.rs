@@ -1331,7 +1331,31 @@ fn reference_set(sql: &impl Sql, inputs: &SealInputs) -> R<(ReferenceSet, u64)> 
 /// in the signed manifest, not only in the private plan.
 fn gate_policy_digest(v: &RewardV1Plan) -> R<Digest> {
     let j = gate_policy_json(v);
-    Ok(domain_hash("slop_ninja.eval/gate-policy/v2", j.to_string().as_bytes()))
+    Ok(domain_hash(GATE_POLICY_DOMAIN, j.to_string().as_bytes()))
+}
+
+const GATE_POLICY_DOMAIN: &str = "slop_ninja.eval/gate-policy/v2";
+
+/// [`gate_policy_digest`] of a policy document already built: the same
+/// `domain_hash` framing over its compact text, hashed as it is written so
+/// no copy of the text is made.
+pub fn policy_document_digest(policy: &Value) -> R<Digest> {
+    use sha2::Digest as _;
+    struct Hashing(sha2::Sha256);
+    impl std::io::Write for Hashing {
+        fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
+            self.0.update(bytes);
+            Ok(bytes.len())
+        }
+        fn flush(&mut self) -> std::io::Result<()> {
+            Ok(())
+        }
+    }
+    let mut h = Hashing(sha2::Sha256::new());
+    h.0.update((GATE_POLICY_DOMAIN.len() as u32).to_le_bytes());
+    h.0.update(GATE_POLICY_DOMAIN.as_bytes());
+    serde_json::to_writer(&mut h, policy).map_err(|_| EvalError::State("gate policy document"))?;
+    Ok(Digest(h.0.finalize().into()))
 }
 
 pub fn gate_policy_json(v: &RewardV1Plan) -> Value {
@@ -2485,14 +2509,36 @@ pub struct PackageV3 {
 /// thresholds, with the cohort's complete counted bits (`counted_bits`, the
 /// record's term included). Never an error that holds the package: a build
 /// that fails drops the record and says why in the private components.
+///
+/// `policy` is the plan's policy document (`gate_policy_json(v)`, which the
+/// components already hold). The thresholds are signed only when it hashes
+/// to the manifest's gate-policy digest, so they are the ones that sealed
+/// the cohort, and only when an enforced span gate has its own record,
+/// which counts the span value the gate bit then also depends on.
 pub fn gate_feedback(
     v: &RewardV1Plan,
+    policy: &Value,
     package: &ScorePackageV2,
     result: &QuantizedResult,
     manifest: &CohortManifestV2,
     counted_bits: u32,
 ) -> (Option<slop_ninja_protocol::GateFeedbackV1>, Value) {
     let Some(block) = &v.feedback else { return (None, Value::Null) };
+    let dropped = |error: String| {
+        (
+            None,
+            json!({"rule": block.rule, "error": error,
+                "note": "the gate feedback record failed to build: no record; the package is unaffected"}),
+        )
+    };
+    match policy_document_digest(policy) {
+        Ok(d) if d == manifest.gate_policy => {}
+        Ok(_) => return dropped("gate policy: the plan's policy document is not the one the manifest binds".into()),
+        Err(e) => return dropped(format!("gate policy: {e:?}")),
+    }
+    if manifest.span_gate && v.localization.is_none() {
+        return dropped("span gate: the manifest enforces it and the plan names no span gate record".into());
+    }
     let thresholds = v.gate_thresholds(manifest.span_gate);
     match slop_ninja_protocol::GateFeedbackV1::of_package(package, result, manifest.gate_policy, thresholds, counted_bits)
         .and_then(|r| r.check_manifest(manifest).map(|()| r))
@@ -2501,11 +2547,7 @@ pub fn gate_feedback(
             let components = json!({"rule": block.rule, "bits": r.bits, "result_bits": r.result_bits});
             (Some(r), components)
         }
-        Err(e) => (
-            None,
-            json!({"rule": block.rule, "error": format!("{e:?}"),
-                "note": "the gate feedback record failed to build: no record; the package is unaffected"}),
-        ),
+        Err(e) => dropped(format!("{e:?}")),
     }
 }
 
@@ -2951,7 +2993,10 @@ pub fn prepare_package(
         localization = built.record;
     }
     // The gate feedback record: never holds the package.
-    let (feedback, feedback_components) = gate_feedback(v, &package, &result, &manifest, live_recount);
+    // The policy document the components hold (a missing one hashes to no
+    // manifest's digest, so it drops the record).
+    let policy = components.get("policy").unwrap_or(&Value::Null);
+    let (feedback, feedback_components) = gate_feedback(v, policy, &package, &result, &manifest, live_recount);
     if let (Some(_), Some(o)) = (&v.feedback, components.as_object_mut()) {
         o.insert("feedback".into(), feedback_components);
     }

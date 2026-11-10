@@ -952,15 +952,17 @@ printf 'Authorization: Bearer %s\n' "$(cat $S/eval_operator_token)" |
 #   notes to describe report mode, which they do.
 #   A span cohort's package step admits the span gate's term (arena_routes::span_gate_bytes), and
 #   /eval/status shows each span cohort's span_gate {mode, voided, actions}.
-# gate feedback (decision U08; built, not deployed): a plan's optional reward_v1.feedback block
+# gate feedback (built, not deployed): a plan's optional reward_v1.feedback block
 #   {"rule": "slop_ninja_gate_feedback_v1"} signs cohorts/<label>/gate-feedback.signed beside
 #   result.signed at packaging: the plan's gate thresholds (bound into the manifest's gate-policy
 #   digest, which gains a "feedback" entry for such plans only) and per scored entrant its failed
 #   gate classes among share, attribution and human_fpr; never a gate failure of the package (a
-#   build error drops the record: components.feedback.error). Its bits, max(g - 1, 0) per executed
-#   entrant (g the classes the gates can fail; 1 at the r1 template's gates), join the plan's
-#   counted terms, so plan validation refuses a template whose worst case no longer fits (with the
-#   span gate's block too, for rosters above 38 entrants at n 1,000, h 8, F 10) and live-v1's L(X) shrinks.
+#   build error, a plan policy document that no longer hashes to the manifest's gate-policy digest,
+#   or an enforced span gate without its own record drops the record: components.feedback.error).
+#   Its bits, max(g - 1, 0) per executed entrant (g the classes the gates can fail; 1 at the r1
+#   template's gates), join the plan's counted terms, so plan validation refuses a template whose
+#   worst case no longer fits (with the span gate's block too, for rosters above 38 entrants at
+#   n 1,000, h 8, F 10) and live-v1's L(X) shrinks.
 #   The package step admits its term (arena_routes::feedback_package_bytes). Older eval builds refuse
 #   a plan naming the block. Deploy order: the publisher that reads the record (summary v4,
 #   allow-list v4) before or with the eval Worker, then a template naming the block.

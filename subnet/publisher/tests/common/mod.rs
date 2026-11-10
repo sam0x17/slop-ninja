@@ -103,6 +103,15 @@ pub fn build(receipts: u64) -> Built {
     build_cohort(fx::computed().expect("computed fixture"), receipts)
 }
 
+/// [`build`] over the computed fixture after `change` edited it (an
+/// entrant's private gate failures, say): its receipts, target and closure
+/// are rebuilt over the changed package.
+pub fn build_with(change: impl FnOnce(&mut fx::Computed)) -> Built {
+    let mut c = fx::computed().expect("computed fixture");
+    change(&mut c);
+    build_cohort(c, 0)
+}
+
 /// [`build`] for cohort number `cohort` (the fixture's is 3): its label and
 /// opening epoch follow the number, so several closed cohorts can be stored
 /// side by side in order.

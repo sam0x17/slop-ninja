@@ -556,9 +556,14 @@ async fn apply_v2<P: AppPorts>(
                 }
             } else if !restart && a.verified.is_launch() && held.is_launch_burn() {
                 // Holding the launch row with no floor yet: a launch row's
-                // issue epoch becomes the floor (every launch row after the
-                // coordinator's first install is a restart, so its issue
-                // epoch is the coordinator's own floor).
+                // issue epoch becomes the floor. Every launch row after the
+                // coordinator's first install is a restart, whose issue
+                // epoch is the coordinator's own floor; and the coordinator
+                // installs no cohort target that activated before the
+                // launch row its record follows (`activated_before_launch`),
+                // which also covers its first install and a restart made
+                // before P1-R. So no row the coordinator commits is
+                // deferred here, and no pre-restart row verifies again.
                 next_floor = Some(a.verified.terms().issued_epoch);
             }
             std::sync::Arc::new(a)

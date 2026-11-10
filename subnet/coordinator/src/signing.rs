@@ -1365,6 +1365,30 @@ fn restart_floor(sql: &impl Sql) -> Result<Option<u64>, StoreError> {
     Ok(rows.first().and_then(|r| opt_u(r, 0)))
 }
 
+/// The issue epoch of the launch bundle installed last (the first install's
+/// or the latest restart's; one `sign_targets` row holds it, since every
+/// launch bundle names the same launch burn target), verified again under
+/// `keys`; `None` before any launch install or when it no longer verifies.
+/// A P1-V validator that holds the launch burn row under this bundle takes
+/// this epoch as its floor ([`install_target_v2_from`],
+/// `activated_before_launch`).
+fn last_launch_issued(
+    sql: &impl Sql,
+    cfg: &SignConfig,
+    keys: &slop_ninja_protocol::TrustedKeys,
+) -> Result<Option<u64>, StoreError> {
+    let rows = sql.exec("SELECT bundle FROM sign_targets WHERE cohort = 0 AND cohort_label = 'launch-burn'", &[])?;
+    let Some(r) = rows.first() else { return Ok(None) };
+    let chain = slop_ninja_protocol::ChainBinding { genesis: slop_ninja_protocol::Digest(cfg.genesis.0), netuid: cfg.netuid, mechanism: 0 };
+    let launch = slop_ninja_protocol::ActiveTarget::launch(&chain).map_err(|_| StoreError("launch target"))?;
+    Ok(target::parse_v2(text(r, 0)?.as_bytes())
+        .and_then(|b| target::verify_v2(&b, keys, &cfg.genesis.0, cfg.netuid, &launch))
+        .ok()
+        .filter(|v| v.source.is_none())
+        .and_then(|v| v.checked_terms(keys).ok())
+        .map(|terms| terms.issued_epoch))
+}
+
 /// The highest epoch any reward-v1 bundle installed here was issued (a
 /// launch bundle's authorization) or opened (a cohort bundle's cohort) at,
 /// whatever record it came from; `None` before the first such install under
@@ -1676,6 +1700,27 @@ pub(crate) fn install_target_v2_from(
         return Ok(Err(target::Refusal {
             code,
             detail: format!("the restarted record starts at epoch {floor}"),
+        }));
+    }
+    // No new cohort target that activated before the launch row its record
+    // follows: a P1-V validator that held that launch row keeps its issue
+    // epoch as its restart floor and defers every row that activated
+    // before it (`row_before_restart`), so committing one here would split
+    // the coordinator's row from theirs. Under P1-R a restart's launch is
+    // issued at its floor and every cohort it installs opens at or after
+    // it, so this bounds only a first install whose launch was issued after
+    // a cohort closed, and a restart made before P1-R whose floor sat below
+    // its launch's issue epoch. The way past it is a P1-R restart naming the
+    // cohort in its restart set.
+    if verified.source.is_some()
+        && verified.active.digest() != held.digest()
+        && let Some(activated) = verified.active.activated_epoch()
+        && let Some(issued) = last_launch_issued(sql, cfg, keys)?
+        && activated < issued
+    {
+        return Ok(Err(target::Refusal {
+            code: "activated_before_launch",
+            detail: format!("the target activated at epoch {activated}, before epoch {issued}, when the launch row it follows was issued"),
         }));
     }
     // A bundle whose authorization a journaled revocation withdraws would

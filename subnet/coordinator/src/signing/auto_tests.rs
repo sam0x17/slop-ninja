@@ -547,6 +547,39 @@ fn a_cohort_with_a_target_is_installed_and_authorized_once_with_no_manual_step()
     assert!(stored.len() - 2 * t1.source_bytes() <= BUNDLE_FRAMING_BYTES, "framing {} B", stored.len() - 2 * t1.source_bytes());
 }
 
+/// The coordinator never installs a cohort target that activated before
+/// the launch row its record follows (`activated_before_launch`): a P1-V
+/// validator holding that launch row keeps its issue epoch as its floor
+/// and defers such a row (`row_before_restart`), so the two would split.
+/// The refusal changes nothing and is retried; a target activating at the
+/// launch's issue epoch installs.
+#[test]
+fn a_cohort_target_activated_before_the_launch_row_is_never_installed() {
+    let (t1, _) = targets();
+    for (issued, installs) in [(t1.closed_epoch + 3, false), (t1.closed_epoch, true)] {
+        let db = Sqlite::open();
+        tx(&db, |sql| migrate(sql, &CHAIN_JOURNAL_SCHEMA)).unwrap();
+        let h = H { db, cfg: SignConfig::testnet(Id(TESTNET_GENESIS.0), NETUID, [7; 32]), trusted: keys_fx::trusted_keys() };
+        tx(&h.db, |sql| install_target(sql, &h.cfg, &h.trusted, &launch_bundle_json(issued), T0)).unwrap().unwrap();
+        let mut b = Bucket::new(1000);
+        b.put(&t1, true);
+        let done = pass(&h, &mut b);
+        if installs {
+            assert_eq!(outcomes(&done), vec![(3, Some("installed"))]);
+            assert_eq!(h.held().activated_epoch(), Some(t1.closed_epoch));
+            continue;
+        }
+        assert_eq!(outcomes(&done), vec![(3, None)]);
+        assert_eq!(done.handled[0].error.as_deref(), Some("activated_before_launch"), "{done:?}");
+        assert!(h.held().is_launch_burn(), "nothing changed");
+        assert_eq!(h.pointer_kind(), "launch");
+        assert_eq!(h.logged("target_installed").len(), 1, "the launch bundle only");
+        // Retried at the next pass with the same answer, never skipped.
+        let again = pass(&h, &mut b);
+        assert_eq!(again.handled[0].error.as_deref(), Some("activated_before_launch"));
+    }
+}
+
 /// Duplicate and reordered wakeups: a later cohort handed in before an
 /// earlier closed one is refused (its predecessor is not held) and the
 /// earlier one is not skipped; each cohort is then installed exactly once,

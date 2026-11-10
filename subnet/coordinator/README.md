@@ -2856,9 +2856,16 @@ runbook reads the set, signs one body, previews it and posts it.
 
 The old `POST /signing/restart` refuses (`restart_needs_decision`), and after
 the first reward-v1 install a launch bundle installs only through the restart
-(`launch_needs_restart`; a byte-identical re-post is a replay). The handoff
-passes eval-signed ends (an abandonment, a declined closure, a probe cut's
-record) by number.
+(`launch_needs_restart`; a byte-identical re-post is a replay). No cohort
+target that activated before the issue epoch of the launch row its record
+follows is installed (`activated_before_launch`): a P1-V validator that held
+that launch row keeps its issue epoch as its floor and defers such a row, so
+the coordinator never commits one either. Under P1-R this never triggers (the
+launch is issued at the floor and every installed cohort opened at or after
+it); it bounds a first install whose launch was issued after a cohort closed
+and a restart made before P1-R, and the way past it is a restart that names
+the cohort. The handoff passes eval-signed ends (an abandonment, a declined
+closure, a probe cut's record) by number.
 
 A store whose migration is refused is read-only. Only a failed migration
 (`migration_failed`) of a store that is not the deployed authority freezes

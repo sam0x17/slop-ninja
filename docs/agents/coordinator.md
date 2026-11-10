@@ -171,7 +171,9 @@ key rotation at re-registration. The span-equivalent decision reads its
 evidence itself: the candidate's staged files manifest (refused unless the
 installed template's spec admits it), both export manifests (the
 candidate's init fit must be R_0's by recorded digests) and the signed byte
-comparison against each side's recorded file digests.
+comparison against each side's recorded file digests. Each object is read
+within a bound the cohort object's control holds beside the request,
+witnessed natively.
 
 ## Block webhooks and the fallback watchdog
 

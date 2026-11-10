@@ -8470,3 +8470,127 @@ fn a_span_equivalent_reference_decision_replaces_r0_only_on_its_evidence() {
     }
     assert!(sim.rcpt.keys().any(|k| k.starts_with("references/decisions/")), "the signed record is written");
 }
+
+/// `json` (an object) padded at its front to exactly `len` bytes with a
+/// dense array field, the shape whose untyped parse is the largest.
+#[cfg(feature = "arena-witness")]
+fn padded_json(json: &Value, len: usize) -> Vec<u8> {
+    let body = serde_json::to_string(json).unwrap();
+    let (head, tail) = ("{\"padding\":[", format!("0],{}", &body[1..]));
+    let room = len - head.len() - tail.len();
+    let mut out = String::with_capacity(len);
+    out.push_str(head);
+    out.push_str(&"0,".repeat(room / 2));
+    out.push_str(&" ".repeat(room % 2));
+    out.push_str(&tail);
+    assert_eq!(out.len(), len);
+    out.into_bytes()
+}
+
+/// Arena witness (`--features arena-witness`): a `span_equivalent`
+/// decision at the cohort object (`/eval/references/decision`) within the
+/// cohort control footprint, with every object it reads at its bound: the
+/// request body at the route's bound (`decide::DECISION_BODY_BYTES`, padded
+/// with one string field), the candidate's staged files manifest, R_0's
+/// files manifest at the longest shaped layout
+/// (`decide::SPAN_FILES_MANIFEST_BYTES`: every key and entity tag at its
+/// format bound, a label profile id of `MAX_LABEL_LEN`), and both export
+/// manifests at `decide::SPAN_EXPORT_MANIFEST_BYTES`, padded with a dense
+/// array (the shape whose untyped parse is the largest). Inside the scope,
+/// as the route does: the body read and parsed, the operator request
+/// parsed and copied for the reads' transaction, each object read (each
+/// files manifest parsed for its export manifest's entry), then the
+/// decision's transaction, which accepts.
+///
+/// Measured 2026-11-10 (native): 367,193 B live at the peak, 8 of the 34
+/// pages; the witness's body without its padding is 2,189 B.
+#[cfg(feature = "arena-witness")]
+#[test]
+fn arena_witness_a_span_equivalent_decision_fits_the_cohort_footprint() {
+    use super::decide::{DECISION_BODY_BYTES, SPAN_EXPORT_MANIFEST_BYTES, SPAN_FILES_MANIFEST_BYTES, SpanEvidence};
+    use crate::arena_routes::{COHORT_CONTROL_BYTES, R_COHORT_FETCH};
+    use slop_ninja_artifact_check::files_manifest::{FilesManifest, MAX_ETAG_BYTES, MAX_KEY_BYTES};
+    slop_ninja_arena::set_mode(slop_ninja_arena::Mode::Enforce);
+    let db = Sqlite::open();
+    let (sim, weak, v1) = probe_built(&db);
+    let base = plan_v3(0, "testnet-t-template", 20, weak.clone());
+    template_install(&db, &standing_of("testnet-t", base, vec![v1]), sim.now).unwrap();
+    assert!(tx(&db, |s| super::calendar::set_paused(s, true)).unwrap());
+    let r0: String = db.conn.query_row("SELECT current FROM reference_state WHERE id = 1", [], |r| r.get(0)).unwrap();
+    let candidate = "c4".repeat(32);
+    db.conn.execute("INSERT INTO published_contents (content, seq) VALUES (?1, 1)", [&candidate]).unwrap();
+    db.conn
+        .execute(
+            "INSERT INTO fingerprints (content, version, fingerprint, vector_key, seq) VALUES (?1, 1, ?2, 'vectors/cand-v1', 1)",
+            rusqlite::params![candidate, "55".repeat(32)],
+        )
+        .unwrap();
+    let (staged, package) = staged_reference_manifest(0x40);
+    assert!(staged.len() <= SPAN_FILES_MANIFEST_BYTES);
+    let mut record = weak.clone();
+    record.package_sha256 = package.clone();
+    record.manifest_key = super::admission::manifest_key(&package);
+    // R_0's files manifest at the longest shaped layout (its file digests
+    // unchanged: graph [1; 32], heads [2; 32]).
+    let mut wide: Value = serde_json::from_slice(&sim.eval[&weak.manifest_key]).unwrap();
+    wide["profile_id"] = json!("p".repeat(slop_ninja_protocol::MAX_LABEL_LEN));
+    for f in wide["files"].as_array_mut().unwrap() {
+        f["bucket"] = json!("admission");
+        f["key"] = json!("k".repeat(MAX_KEY_BYTES));
+        f["etag"] = json!("e".repeat(MAX_ETAG_BYTES));
+        f["bytes"] = json!(u64::MAX);
+    }
+    let mut r0_manifest = serde_json::to_vec_pretty(&wide).unwrap();
+    r0_manifest.push(b'\n');
+    assert!(r0_manifest.len() <= SPAN_FILES_MANIFEST_BYTES && r0_manifest.len() * 100 >= SPAN_FILES_MANIFEST_BYTES * 95, "{} of {SPAN_FILES_MANIFEST_BYTES}", r0_manifest.len());
+    let (enc, ckpt, fit, heads) = ("33".repeat(32), "22".repeat(32), "11".repeat(32), "44".repeat(32));
+    let candidate_export = padded_json(
+        &json!({"fit_hashes": {"encoder_equal_to_init_fit": true, "document_heads_equal_to_init_fit": true,
+            "init_fit": {"encoder_sha256": enc, "selected_checkpoint_sha256": ckpt, "fit_sha256": fit, "heads_sha256": heads}}}),
+        SPAN_EXPORT_MANIFEST_BYTES,
+    );
+    let r0_export = padded_json(&json!({"encoder": {"sha256": enc}, "selected_checkpoint_sha256": ckpt}), SPAN_EXPORT_MANIFEST_BYTES);
+    let vec_of = |vals: &[u32]| vals.iter().flat_map(|v| v.to_le_bytes()).collect::<Vec<u8>>();
+    let vector = vec_of(&[100; 20]);
+    let comparison = json!({"encoder_initializers": {"candidate": hex::encode([0x41; 32]), "r0": hex::encode([1; 32]), "equal": true},
+        "document_heads": {"candidate": hex::encode([0x44; 32]), "r0": hex::encode([2; 32]), "equal": true}});
+    let (k, key) = op_key();
+    let c = cfg();
+    let to = super::decide::address(&c, "main");
+    let request = |pad: usize| {
+        let body = json!({"decision": "drill-wide", "reason": "span_equivalent", "kind": "span_equivalent", "k": 0,
+            "current": record, "current_content": candidate, "previous": null, "previous_content": null,
+            "r0_fit": {"fit_sha256": fit, "heads_sha256": heads}, "byte_comparison": comparison,
+            "tolerance_ppb": 0, "expect": {"current_content": r0}, "padding": "x".repeat(pad)});
+        serde_json::to_vec(&crate::operator::tests::signed_body(&k, "eval.reference_decision", &to, body)).unwrap()
+    };
+    let unpadded = request(0).len();
+    let raw = request(DECISION_BODY_BYTES - unpadded);
+    assert_eq!(raw.len(), DECISION_BODY_BYTES);
+    let (answer, peak) = crate::arena_witness::witness_peak(R_COHORT_FETCH.route(), COHORT_CONTROL_BYTES, || {
+        let body: Value = serde_json::from_slice(&raw.clone()).unwrap();
+        let r = crate::operator::parse(body).unwrap();
+        let reads = r.clone();
+        let (pairs, r0_record) = tx(&db, |s| super::decide::span_reads(s, &reads)).unwrap().unwrap();
+        drop(reads);
+        assert_eq!(r0_record.manifest_key, weak.manifest_key);
+        let mut ev = SpanEvidence::default();
+        for (version, ..) in &pairs {
+            ev.vectors.push((*version, vector.clone(), vector.clone()));
+        }
+        for (manifest, export, read_m, read_e) in [
+            (&staged, &candidate_export, &mut ev.candidate_manifest, &mut ev.candidate_export),
+            (&r0_manifest, &r0_export, &mut ev.r0_manifest, &mut ev.r0_export),
+        ] {
+            let m = manifest.clone();
+            let entry = serde_json::from_slice::<FilesManifest>(&m).unwrap().files.into_iter().find(|f| f.name == "manifest.json");
+            assert!(entry.is_some());
+            *read_m = Some(m);
+            *read_e = Some(export.clone());
+        }
+        let answer = tx(&db, |s| super::decide::reference_decision(s, &c, &r, Some(&key), &ev, sim.now + 10)).unwrap();
+        answer.map(|v| v["current_content"] == json!(candidate))
+    });
+    assert_eq!(answer, Ok(true), "the decision accepts");
+    eprintln!("span-equivalent decision: peak live {peak} B of {COHORT_CONTROL_BYTES} B (body {unpadded} B unpadded)");
+}

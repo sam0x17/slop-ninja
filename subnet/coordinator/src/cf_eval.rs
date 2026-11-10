@@ -208,16 +208,23 @@ pub async fn get_bounded(env: &Env, bucket: &str, key: &str, bound: usize) -> st
 
 /// A `span_equivalent` decision's reads of one package
 /// (`decide::SpanEvidence`): its pinned files manifest at `key` in the eval
-/// bucket (at most the scorer's manifest bound), and its export manifest
-/// (`manifest.json`) from the bucket and key that manifest names, pinned to
-/// the entity tag it records and at most the operator body bound (an export
-/// manifest is a small record; nothing is hashed). An absent object is
-/// `None`, which the decision refuses by name; a read that fails, or an
-/// object over its bound, is an error.
+/// bucket, and its export manifest (`manifest.json`) from the bucket and key
+/// that manifest names, pinned to the entity tag it records and read at
+/// exactly the length it records. Each is read through the bounded R2
+/// reader into the request's scope, at most its bound
+/// (`decide::SPAN_FILES_MANIFEST_BYTES`, `decide::SPAN_EXPORT_MANIFEST_BYTES`,
+/// which the cohort object's control holds beside the request body); a
+/// longer one is refused unread. Nothing is hashed. An absent object is
+/// `None`, which the decision refuses by name; a read that fails is an error.
+/// The reads have no deadline of their own, like the probe vectors' beside
+/// them: the cohort object's fetch has no documented wall limit.
 async fn span_manifests(env: &Env, key: &str) -> std::result::Result<(Option<Vec<u8>>, Option<Vec<u8>>), &'static str> {
-    use slop_ninja_artifact_check::files_manifest::{FilesManifest, MAX_MANIFEST_BYTES};
-    let manifest = match get_bounded(env, EVAL_BUCKET, key, MAX_MANIFEST_BYTES).await {
+    use crate::eval::decide::{SPAN_EXPORT_MANIFEST_BYTES, SPAN_FILES_MANIFEST_BYTES};
+    use slop_ninja_artifact_check::files_manifest::FilesManifest;
+    use super::cf_io::R2Read;
+    let manifest = match get_bounded(env, EVAL_BUCKET, key, SPAN_FILES_MANIFEST_BYTES).await {
         Ok(m) => m,
+        Err(BodyError::TooLarge) => return Err("files_manifest_too_large"),
         Err(_) => return Err("manifest_unavailable"),
     };
     let Some(entry) = manifest
@@ -227,7 +234,7 @@ async fn span_manifests(env: &Env, key: &str) -> std::result::Result<(Option<Vec
     else {
         return Ok((manifest, None));
     };
-    if entry.bytes > OPERATOR_BODY_BYTES as u64 {
+    if entry.bytes > SPAN_EXPORT_MANIFEST_BYTES as u64 {
         return Err("export_manifest_too_large");
     }
     let binding = match entry.bucket.as_str() {
@@ -236,27 +243,14 @@ async fn span_manifests(env: &Env, key: &str) -> std::result::Result<(Option<Vec
         _ => return Ok((manifest, None)),
     };
     let bucket = env.bucket(binding).map_err(|_| "export_manifest_unavailable")?;
-    let mut get = bucket.get(entry.key.clone());
-    if let Some(etag) = &entry.etag {
-        get = get.only_if(worker::Conditional {
-            etag_matches: Some(etag.clone()),
-            etag_does_not_match: None,
-            uploaded_before: None,
-            uploaded_after: None,
-        });
+    match super::cf_io::r2_bytes_pinned(&bucket, &entry.key, entry.etag.as_deref(), entry.bytes as usize, None).await {
+        Ok(R2Read::Missing) => Ok((manifest, None)),
+        Ok(R2Read::Bytes(bytes)) if bytes.len() as u64 == entry.bytes => Ok((manifest, Some(bytes))),
+        // The entity tag or the length changed since the files manifest
+        // recorded them.
+        Ok(R2Read::Changed | R2Read::Bytes(_)) | Err(BodyError::TooLarge) => Err("export_manifest_changed"),
+        Err(_) => Err("export_manifest_unavailable"),
     }
-    let obj = match get.execute().await {
-        Err(_) => return Err("export_manifest_unavailable"),
-        Ok(None) => return Ok((manifest, None)),
-        Ok(Some(o)) => o,
-    };
-    if obj.size() != entry.bytes {
-        return Err("export_manifest_changed");
-    }
-    // No body: the pinned read refused (the entity tag changed).
-    let Some(body) = obj.body() else { return Err("export_manifest_changed") };
-    let bytes = body.bytes().await.map_err(|_| "export_manifest_unavailable")?;
-    Ok((manifest, Some(bytes)))
 }
 
 /// An object read by the fan-out lane objects (`cf_lanes.rs`): streamed like
@@ -1091,7 +1085,7 @@ impl DurableObject for EvalCohort {
             // export manifests are read here first (`decide::SpanEvidence`);
             // the decision applies in its own transaction.
             (Method::Post, "/references/decision") if main => {
-                let body = match super::cf_io::request_json::<Value>(&mut req, OPERATOR_BODY_BYTES).await {
+                let body = match super::cf_io::request_json::<Value>(&mut req, crate::eval::decide::DECISION_BODY_BYTES).await {
                     Ok(v) => v,
                     Err(super::cf_io::JsonError::Parse) => return error("bad_request", 400),
                     Err(e) => return error(e.code(), e.status()),

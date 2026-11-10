@@ -462,7 +462,11 @@ pub fn decided_record(sql: &impl Sql, content: &str) -> R<Option<crate::eval::pl
 }
 
 fn hex64(v: Option<&Value>) -> Option<String> {
-    let t = v?.as_str()?;
+    hex64_str(v?.as_str())
+}
+
+fn hex64_str(t: Option<&str>) -> Option<String> {
+    let t = t?;
     (t.len() == 64 && t.bytes().all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))).then(|| t.to_owned())
 }
 
@@ -538,9 +542,108 @@ pub struct SpanEvidence {
     pub vectors: Vec<(u32, Vec<u8>, Vec<u8>)>,
 }
 
+/// The longest files manifest a `span_equivalent` decision reads (each of
+/// the two packages', at its key): a shaped manifest (`FilesManifest`: the
+/// spec's file table, keys and entity tags within their format bounds) whose
+/// strings need no JSON escape, counted from its exact pretty-JSON layout:
+/// the frame with the fixed schema, contract and graph strings and a label
+/// profile id (`MAX_LABEL_LEN`), and per file of the spec's table its name
+/// and scorer role, at most 20 digits of length, the digest, the longest
+/// bucket name, a key of `MAX_KEY_BYTES` and an entity tag of
+/// `MAX_ETAG_BYTES`. A staged reference manifest is shorter
+/// (`REFERENCE_MANIFEST_MAX_BYTES`). The Worker refuses a longer object
+/// unread (`files_manifest_too_large`).
+pub const SPAN_FILES_MANIFEST_BYTES: usize = shaped_manifest_max();
+
+const fn shaped_manifest_max() -> usize {
+    use slop_ninja_artifact_check::files_manifest::{BUCKETS, FILES_SCHEMA_V2, MAX_ETAG_BYTES, MAX_KEY_BYTES};
+    use slop_ninja_artifact_check::spec;
+    let frame = "{\n  \"schema\": \"\",\n  \"profile_id\": \"\",\n  \"contract\": \"\",\n  \"graph\": \"\",\n  \"files\": [\n  ]\n}\n";
+    let entry = "    {\n      \"name\": \"\",\n      \"role\": \"\",\n      \"bytes\": ,\n      \"sha256\": \"\",\n      \"bucket\": \"\",\n      \"key\": \"\",\n      \"etag\": \"\"\n    },\n";
+    let bucket = if BUCKETS[0].len() > BUCKETS[1].len() { BUCKETS[0].len() } else { BUCKETS[1].len() };
+    let mut n = frame.len() + FILES_SCHEMA_V2.len() + slop_ninja_protocol::MAX_LABEL_LEN + spec::CONTRACT_ID.len() + spec::GRAPH_FILE.len();
+    let per_file = entry.len() + 20 + 64 + bucket + MAX_KEY_BYTES + MAX_ETAG_BYTES;
+    let mut i = 0;
+    while i < spec::ROLES.len() {
+        n += per_file + spec::ROLES[i].name.len() + spec::ROLES[i].scorer_role.len();
+        i += 1;
+    }
+    n
+}
+const _: () = assert!(slop_ninja_artifact_check::files_manifest::REFERENCE_MANIFEST_MAX_BYTES <= SPAN_FILES_MANIFEST_BYTES);
+
+/// The longest export manifest (`manifest.json`) a `span_equivalent`
+/// decision reads, each of the two packages': a sixteenth of the cohort
+/// object's control, so both hold an eighth of it. The span packages'
+/// export manifests measured 22-25 KB (2026-11-10). Each is parsed for the
+/// fields the decision compares only ([`CandidateExport`], [`R0Export`]),
+/// so its parse holds those strings and nothing else. The Worker refuses a
+/// longer one unread (`export_manifest_too_large`); the general `override`
+/// decision remains for such a package.
+pub const SPAN_EXPORT_MANIFEST_BYTES: usize = crate::arena_routes::COHORT_CONTROL_BYTES / 16;
+
+/// The request body bound of `POST /eval/references/decision`: a reference
+/// decision's body holds two artifact records, a few digests and codes, the
+/// byte comparison and the authorization (the witness's own body, without
+/// its padding, is 2,189 B). The operator body bound of the other routes
+/// (`MAX_PLAN_BODY_BYTES`) would not leave the evidence room beside the
+/// body's parse and its digest.
+pub const DECISION_BODY_BYTES: usize = 64 * 1024;
+
+/// The request body at its bound and every object a `span_equivalent`
+/// decision reads at its bound take at most half of the cohort object's
+/// control; the parses and the transaction fit in the other half
+/// (`arena_witness_a_span_equivalent_decision_fits_the_cohort_footprint`).
+/// The probe vectors are not counted: each is a few bytes per probe
+/// document.
+const _: () = assert!(
+    DECISION_BODY_BYTES + 2 * SPAN_FILES_MANIFEST_BYTES + 2 * SPAN_EXPORT_MANIFEST_BYTES
+        <= crate::arena_routes::COHORT_CONTROL_BYTES / 2
+);
+
 /// The recorded fit digests the candidate's export manifest names for the
 /// fit its tower was trained from (`fit_hashes.init_fit`).
 const INIT_FIT_FIELDS: [&str; 4] = ["encoder_sha256", "selected_checkpoint_sha256", "fit_sha256", "heads_sha256"];
+
+/// What a `span_equivalent` decision reads of the candidate's export
+/// manifest. Every other field is skipped unread; a field of another type
+/// fails the parse, which the decision refuses like a missing one.
+#[derive(serde::Deserialize)]
+struct CandidateExport {
+    #[serde(default)]
+    fit_hashes: CandidateFitHashes,
+}
+
+#[derive(Default, serde::Deserialize)]
+struct CandidateFitHashes {
+    encoder_equal_to_init_fit: Option<bool>,
+    document_heads_equal_to_init_fit: Option<bool>,
+    #[serde(default)]
+    init_fit: InitFit,
+}
+
+/// `fit_hashes.init_fit`, in [`INIT_FIT_FIELDS`] order.
+#[derive(Default, serde::Deserialize)]
+struct InitFit {
+    encoder_sha256: Option<String>,
+    selected_checkpoint_sha256: Option<String>,
+    fit_sha256: Option<String>,
+    heads_sha256: Option<String>,
+}
+
+/// What a `span_equivalent` decision reads of R_0's export manifest, read
+/// like [`CandidateExport`].
+#[derive(serde::Deserialize)]
+struct R0Export {
+    #[serde(default)]
+    encoder: R0Encoder,
+    selected_checkpoint_sha256: Option<String>,
+}
+
+#[derive(Default, serde::Deserialize)]
+struct R0Encoder {
+    sha256: Option<String>,
+}
 
 /// A `span_equivalent` decision's checks on what it read, after the chain
 /// and publication checks; the compared digests on success.
@@ -596,22 +699,25 @@ fn span_checks(
         return Ok(Err("reference_not_admitted"));
     }
     // 3. Static identity from recorded digests.
-    let json = |b: &Option<Vec<u8>>| b.as_deref().and_then(|b| serde_json::from_slice::<Value>(b).ok());
-    let (Some(ce), Some(re)) = (json(&ev.candidate_export), json(&ev.r0_export)) else {
+    let ce = ev.candidate_export.as_deref().and_then(|b| serde_json::from_slice::<CandidateExport>(b).ok());
+    let re = ev.r0_export.as_deref().and_then(|b| serde_json::from_slice::<R0Export>(b).ok());
+    let (Some(ce), Some(re)) = (ce, re) else {
         return Ok(Err("static_identity_mismatch"));
     };
-    let declared = ["encoder_equal_to_init_fit", "document_heads_equal_to_init_fit"]
-        .iter()
-        .all(|f| ce["fit_hashes"][*f] == Value::Bool(true));
-    let init = |f: &str| hex64(ce.pointer(&format!("/fit_hashes/init_fit/{f}")));
+    let declared = ce.fit_hashes.encoder_equal_to_init_fit == Some(true)
+        && ce.fit_hashes.document_heads_equal_to_init_fit == Some(true);
     let r0_fit = req.body.get("r0_fit");
     let want = [
-        hex64(re.pointer("/encoder/sha256")),
-        hex64(re.pointer("/selected_checkpoint_sha256")),
+        hex64_str(re.encoder.sha256.as_deref()),
+        hex64_str(re.selected_checkpoint_sha256.as_deref()),
         r0_fit.and_then(|v| hex64(v.get("fit_sha256"))),
         r0_fit.and_then(|v| hex64(v.get("heads_sha256"))),
     ];
-    let got: Vec<Option<String>> = INIT_FIT_FIELDS.iter().map(|f| init(f)).collect();
+    let init = &ce.fit_hashes.init_fit;
+    let got: Vec<Option<String>> = [&init.encoder_sha256, &init.selected_checkpoint_sha256, &init.fit_sha256, &init.heads_sha256]
+        .iter()
+        .map(|f| hex64_str(f.as_deref()))
+        .collect();
     if !declared || got.iter().zip(&want).any(|(g, w)| g.is_none() || g != w) {
         return Ok(Err("static_identity_mismatch"));
     }

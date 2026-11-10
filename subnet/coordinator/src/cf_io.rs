@@ -448,26 +448,72 @@ pub async fn response_json<T: serde::de::DeserializeOwned>(resp: &mut Response, 
 /// `deadline_ms` (absolute, `now_ms` clock; `None`: none) bounds the get and
 /// every read in JS (`settle`). `Ok(None)`: no object.
 pub async fn r2_bytes(bucket: &worker::Bucket, key: &str, bound: usize, deadline_ms: Option<u64>) -> Result<Option<Vec<u8>>, BodyError> {
+    match r2_read(bucket, key, None, bound, deadline_ms).await? {
+        R2Read::Missing => Ok(None),
+        R2Read::Bytes(b) => Ok(Some(b)),
+        // Only a pinned get answers without a body.
+        R2Read::Changed => Err(BodyError::Transport),
+    }
+}
+
+/// What a pinned R2 read found ([`r2_bytes_pinned`]).
+pub enum R2Read {
+    /// No object at the key.
+    Missing,
+    /// The object no longer has the pinned entity tag: R2 answered its
+    /// metadata without a body, and nothing was read.
+    Changed,
+    /// The object's bytes.
+    Bytes(Vec<u8>),
+}
+
+/// [`r2_bytes`] pinned to an entity tag (`etag`, when the caller recorded
+/// one): the get carries `onlyIf: {etagMatches}`, so an object whose tag
+/// changed is [`R2Read::Changed`], never read.
+pub async fn r2_bytes_pinned(
+    bucket: &worker::Bucket,
+    key: &str,
+    etag: Option<&str>,
+    bound: usize,
+    deadline_ms: Option<u64>,
+) -> Result<R2Read, BodyError> {
+    r2_read(bucket, key, etag, bound, deadline_ms).await
+}
+
+async fn r2_read(bucket: &worker::Bucket, key: &str, etag: Option<&str>, bound: usize, deadline_ms: Option<u64>) -> Result<R2Read, BodyError> {
     let b: &JsValue = bucket.as_ref();
     let get: Function = Reflect::get(b, &JsValue::from_str("get"))
         .ok()
         .and_then(|f| f.dyn_into().ok())
         .ok_or(BodyError::Transport)?;
-    let promise: js_sys::Promise =
-        get.call1(b, &JsValue::from_str(key)).ok().and_then(|p| p.dyn_into().ok()).ok_or(BodyError::Transport)?;
+    let called = match etag {
+        None => get.call1(b, &JsValue::from_str(key)),
+        Some(tag) => {
+            let only_if = js_sys::Object::new();
+            let options = js_sys::Object::new();
+            Reflect::set(&only_if, &JsValue::from_str("etagMatches"), &JsValue::from_str(tag)).map_err(|_| BodyError::Transport)?;
+            Reflect::set(&options, &JsValue::from_str("onlyIf"), &only_if).map_err(|_| BodyError::Transport)?;
+            get.call2(b, &JsValue::from_str(key), &options)
+        }
+    };
+    let promise: js_sys::Promise = called.ok().and_then(|p| p.dyn_into().ok()).ok_or(BodyError::Transport)?;
     let obj = match settle(promise, deadline_ms).await {
         Settled::Value(v) => v,
         Settled::Error(_) => return Err(BodyError::Transport),
         Settled::Timeout => return Err(BodyError::Timeout),
     };
     if obj.is_null() || obj.is_undefined() {
-        return Ok(None);
+        return Ok(R2Read::Missing);
     }
     let size = Reflect::get(&obj, &JsValue::from_str("size")).ok().and_then(|v| v.as_f64()).ok_or(BodyError::Transport)?;
     if !(size >= 0.0 && size.fract() == 0.0) {
         return Err(BodyError::Transport);
     }
     let body = Reflect::get(&obj, &JsValue::from_str("body")).ok().filter(|v| !v.is_null() && !v.is_undefined());
+    if etag.is_some() && body.is_none() {
+        // A failed precondition: R2 returns the object's metadata only.
+        return Ok(R2Read::Changed);
+    }
     if size > bound as f64 {
         // Refused unread: the body stream is cancelled, never buffered.
         if let Some(body) = &body {
@@ -475,7 +521,7 @@ pub async fn r2_bytes(bucket: &worker::Bucket, key: &str, bound: usize, deadline
         }
         return Err(BodyError::TooLarge);
     }
-    read(body, Length::Exact(size as usize), bound, deadline_ms).await.map(Some)
+    read(body, Length::Exact(size as usize), bound, deadline_ms).await.map(R2Read::Bytes)
 }
 
 /// An R2 object's size from a `head` (no body is read), raced against

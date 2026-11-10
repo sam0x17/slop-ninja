@@ -685,6 +685,13 @@ never decoded there. This pin can also raise the journal to schema 4, which
 compacts; such a journal is listed (`journal.schema_version`) and is
 roll-forward only.
 
+The held-target record (`<journal>.held-target.json`) also blocks once it
+is `validator_held_target/v2`, the schema that carries the restart floor
+(P1-V). A build before P1-V reads only v1 and refuses a v2 record, so
+`rollback-check` lists it (`held_target.schema`), retires nothing and exits
+3: roll forward only. A v1 record blocks nothing; this build rewrites it as
+v2 at its next record.
+
 One kind of finished work also blocks: a finalized failed weight call. Every
 build before `review-failure` (earlier releases at `0c128160`, such as the
 2026-11-03 AR-3 install) counts each finalized failure the journal retains,

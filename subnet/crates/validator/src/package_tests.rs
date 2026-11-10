@@ -1397,6 +1397,49 @@ fn the_rollback_check_passes_queued_submit_work_and_holds_a_changed_period() -> 
     Ok(())
 }
 
+/// A rollback over P1-V: no held-target record, or a v1 one, blocks
+/// nothing; a v2 record (the restart floor's schema, which a build before
+/// P1-V refuses) is listed (`held_target.schema`), never retired, and the
+/// check says roll forward only. Its value is never printed.
+#[test]
+fn the_rollback_check_holds_a_v2_held_target_record() -> Result<()> {
+    let root = scratch()?;
+    let config = config(root.path())?;
+    init_journal(&config, identity())?;
+    let path = crate::live::held_target_path(&config.journal_path);
+    let (report, safe) = crate::live::rollback_check(&config, false)?;
+    assert!(safe, "{report}");
+    let activated = slop_ninja_protocol::ActiveTarget::restore(&chain(), slop_ninja_protocol::Digest([0x5a; 32]), Some(40))
+        .map_err(|e| anyhow::anyhow!("{e}"))?;
+    let mut v1 = crate::package_v2::HeldTargetFile::of(&activated);
+    v1.schema = crate::package_v2::HELD_TARGET_SCHEMA_V1.into();
+    std::fs::write(&path, serde_json::to_vec_pretty(&v1)?)?;
+    let (report, safe) = crate::live::rollback_check(&config, true)?;
+    assert!(safe, "{report}");
+    assert_eq!(report["blockers"], serde_json::json!([]));
+    // The same record as this build writes it, with and without a floor.
+    for floor in [None, Some(50)] {
+        let v2 = crate::package_v2::HeldTargetFile::of(&activated).with_floor(floor);
+        assert_eq!(v2.schema, crate::package_v2::HELD_TARGET_SCHEMA);
+        std::fs::write(&path, serde_json::to_vec_pretty(&v2)?)?;
+        let (report, safe) = crate::live::rollback_check(&config, true)?;
+        assert!(!safe, "{report}");
+        assert_eq!(
+            report["blockers"],
+            serde_json::json!([{"operation_id": null, "field": crate::live::HELD_TARGET_BLOCKER_FIELD, "retirable": false}])
+        );
+        assert_eq!(report["retired"], serde_json::json!([]));
+        assert!(report["next"].as_str().is_some_and(|next| next.contains("roll forward only")), "{report}");
+        assert!(!report.to_string().contains(&hex::encode([0x5a; 32])), "no record value in the report");
+    }
+    // An unreadable schema is no v1 record either.
+    std::fs::write(&path, b"{}")?;
+    assert!(!crate::live::rollback_check(&config, false)?.1);
+    std::fs::remove_file(&path)?;
+    assert!(crate::live::rollback_check(&config, false)?.1);
+    Ok(())
+}
+
 #[test]
 fn a_reward_v1_launch_bundle_never_expires_and_a_revocation_stops_it() -> Result<()> {
     let root = scratch()?;

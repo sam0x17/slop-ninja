@@ -79,8 +79,9 @@ enum Command {
     /// something still does: work with a signed attempt awaiting recovery or
     /// a landed commit not yet handed back, or a pending reveal whose reveal
     /// period changed (run this build until it settles); a retained finalized
-    /// failure or a compacted journal (no rollback past this pin). Reads no
-    /// chain and loads no key.
+    /// failure, a compacted journal, or a v2 held-target record, which a
+    /// build before P1-V refuses (no rollback past this pin). Reads no chain
+    /// and loads no key.
     RollbackCheck {
         /// Retire the retirable blocking work before checking.
         #[arg(long)]

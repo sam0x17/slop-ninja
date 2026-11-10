@@ -3305,22 +3305,51 @@ pub fn reset_target(config: &ValidatorConfig) -> Result<serde_json::Value> {
     }))
 }
 
+/// Rollback blocker field of a held-target record that a build before
+/// P1-V refuses: any record but a `validator_held_target/v1` one (this
+/// build rewrites a v1 record as v2, with its restart floor, at its next
+/// record). Nothing clears it, so the validator rolls forward only.
+pub const HELD_TARGET_BLOCKER_FIELD: &str = "held_target.schema";
+
+/// The held-target record's blocker, if any ([`HELD_TARGET_BLOCKER_FIELD`]):
+/// none when there is no record or it is still v1.
+fn held_target_blocker(journal: &std::path::Path) -> Result<Option<slop_ninja_subnet::RollbackBlocker>> {
+    let bytes = match std::fs::read(held_target_path(journal)) {
+        Ok(bytes) => bytes,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+        Err(error) => return Err(error).context("held target record is unreadable"),
+    };
+    let schema = serde_json::from_slice::<serde_json::Value>(&bytes)
+        .ok()
+        .and_then(|v| v.get("schema").and_then(|s| s.as_str()).map(str::to_owned));
+    Ok((schema.as_deref() != Some(crate::package_v2::HELD_TARGET_SCHEMA_V1)).then(|| slop_ninja_subnet::RollbackBlocker {
+        operation_id: None,
+        field: HELD_TARGET_BLOCKER_FIELD.into(),
+        retirable: false,
+    }))
+}
+
 /// The `rollback-check` command: with the unit stopped (the journal's
 /// lifetime lock refuses a held journal), optionally retires the work a
 /// build at the previous rtao pin would refuse and that never signed, then
 /// reports what still blocks that build from opening the journal
-/// ([`slop_ninja_subnet::JournalControls::rollback_blockers`]). Returns the
-/// redacted report and whether nothing blocks the rollback.
+/// ([`slop_ninja_subnet::JournalControls::rollback_blockers`]) or the
+/// held-target record (a v2 record, which a build before P1-V refuses:
+/// [`HELD_TARGET_BLOCKER_FIELD`]). Returns the redacted report and whether
+/// nothing blocks the rollback.
 pub fn rollback_check(config: &ValidatorConfig, retire: bool) -> Result<(serde_json::Value, bool)> {
     let controls = slop_ninja_subnet::JournalControls::open_existing(&config.journal_path)
         .context("the journal is held by a running validator, or missing; stop the unit first")?;
     let retired = if retire { controls.retire_for_rollback()? } else { Vec::new() };
-    let blockers = controls.rollback_blockers()?;
+    let mut blockers = controls.rollback_blockers()?;
+    blockers.extend(held_target_blocker(&config.journal_path)?);
     let safe = blockers.is_empty();
     let next = if safe {
         "a build at the previous pin can open this journal; install it before starting the unit again"
     } else if blockers.iter().any(|b| b.field == slop_ninja_subnet::SCHEMA_BLOCKER_FIELD) {
         "the journal schema is newer than the previous pin opens (a compaction): roll forward only"
+    } else if blockers.iter().any(|b| b.field == HELD_TARGET_BLOCKER_FIELD) {
+        "the held-target record is v2 (it carries the restart floor), which a build before P1-V refuses: roll forward only"
     } else if blockers.iter().any(slop_ninja_subnet::RollbackBlocker::finalized_failure) {
         "the journal retains a finalized failed weight call; every build before review-failure halts on it and cannot clear it: roll forward only"
     } else if blockers.iter().any(|b| b.operation_id.is_none()) {

@@ -43,6 +43,11 @@ pub(crate) fn measure(f: impl FnOnce()) -> (u32, usize) {
 /// the test on any violation; prints the scope's peak pages (state page
 /// included), the measured input of the route's footprint.
 pub(crate) fn witness<R>(route: Route, control: usize, f: impl FnOnce() -> R) -> R {
+    witness_peak(route, control, f).0
+}
+
+/// [`witness`], also returning the scope's peak live bytes.
+pub(crate) fn witness_peak<R>(route: Route, control: usize, f: impl FnOnce() -> R) -> (R, usize) {
     let prev = set_mode(Mode::Strict);
     let _ = strict::take();
     let armed = strict::arm();
@@ -60,7 +65,7 @@ pub(crate) fn witness<R>(route: Route, control: usize, f: impl FnOnce() -> R) ->
     assert!(violations.is_clean(), "route {} broke its footprint of {control} B: {violations:?}", route.name);
     assert!(matches!(closed, Closed::Released { .. }), "route {} left values live: {closed:?}", route.name);
     assert!(st.peak_pages <= st.reserved_pages, "route {} used {} pages of {}", route.name, st.peak_pages, st.reserved_pages);
-    out
+    (out, st.peak_live)
 }
 
 /// The main instance without a roster cap (mainnet's configuration), so the

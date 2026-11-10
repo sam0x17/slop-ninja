@@ -631,20 +631,18 @@ fn arena_witness_live_steps_fit_their_footprint() {
     });
 }
 
-/// The widest live shape: `MAX_ROSTER` executed entrants (distinct
-/// hotkeys and artifacts) and `R_k` over a batch of `n` documents, on a
-/// deployment without a roster ceiling, with readings (`L >= 2`) and
-/// pre-finalized values. One entrant in sixteen crashes on every request,
-/// so the report carries withheld symbols beside values. Calls `f` with the
-/// cohort open.
+/// A wide live shape: `roster` executed entrants (distinct hotkeys and
+/// artifacts) and `R_k` over a batch of `n` documents, on a deployment
+/// without a roster ceiling, with readings (`L >= 2`) and pre-finalized
+/// values. One entrant in sixteen crashes on every request, so the report
+/// carries withheld symbols beside values. Calls `f` with the cohort open.
 #[cfg(feature = "arena-witness")]
-fn with_widest_live_cohort<T>(n: u32, f: impl FnOnce(&Sqlite, &mut Sim<'_>, i64, &EvalConfig) -> T) -> T {
+fn with_wide_live_cohort<T>(n: u32, roster: u16, f: impl FnOnce(&Sqlite, &mut Sim<'_>, i64, &EvalConfig) -> T) -> T {
     let db = Sqlite::open();
     let (mut sim, weak, probe_ref) = probe_built_doc(&db, Some(crate::eval::plan::TASK_ORDER_SEEDED_RANK));
     let mut c = cfg();
     c.ceilings.roster_cap = None;
     sim.cfg = c.clone();
-    let roster = u16::try_from(usize::from(slop_ninja_protocol::MAX_ROSTER)).unwrap();
     let ids: Vec<crate::eval::plan::IdentityJson> = (0..roster)
         .map(|k| {
             let mut hotkey = [0xe5u8; 32];
@@ -678,32 +676,150 @@ fn with_widest_live_cohort<T>(n: u32, f: impl FnOnce(&Sqlite, &mut Sim<'_>, i64,
     f(&db, &mut sim, seq, &c)
 }
 
-/// Arena witness (`--features arena-witness`) at the widest roster: the
-/// live setup over the cohort's full batch and every release of
-/// `MAX_ROSTER` entrants and `R_k`, each within
-/// `arena_routes::live_step_bytes` at that batch (each is its own child
-/// scope in the step), and the `/eval/live` report at `MAX_ROSTER` rows
-/// within the cohort control footprint, with no allocation outside the
-/// scope. The cohort runs to transition first, so the setup and the
-/// releases are run again over its finished outcomes: the heaviest
-/// releases (a full batch read for each pre-finalized value, `R_k`'s with
-/// the manifest's parameters rebuilt) all come due at once.
-///
-/// Measured 2026-11-10 at 40 documents and 256 entrants, with the stored
-/// seal state's published index inflated to 2 MiB: the setup peaks at
-/// 278,727 B live (5 pages), each reading at 301,010 B and each entrant's
-/// pre-finalized value at 301,045 B (6 pages), `R_k`'s pre-finalized value
-/// with the stored manifest at 362,852 B (7 pages), all within the
-/// 1,089,536 B footprint (18 pages); the report at 256 rows at 709,355 B
-/// (14 of 34 pages). The cohort's parsed plan (at most
-/// `PLAN_PARSED_BYTES`, in the alarm's base) is most of each step's heap.
+/// The columns of `table`, quoted.
 #[cfg(feature = "arena-witness")]
-#[test]
-fn arena_witness_live_steps_fit_at_the_widest_roster() {
+fn columns(db: &Sqlite, table: &str) -> Vec<String> {
+    db.conn
+        .prepare(&format!("SELECT name FROM pragma_table_info('{table}')"))
+        .unwrap()
+        .query_map([], |r| r.get::<_, String>(0))
+        .unwrap()
+        .map(|c| format!("\"{}\"", c.unwrap()))
+        .collect()
+}
+
+/// Grows the sealed batch of cohort `seq` (run to transition) to `n`
+/// documents with rows of the shape the seal and scoring write: each added
+/// batch task copies a sealed batch document and every job's prediction of
+/// it, at a new task position after every sealed one, and the counts follow
+/// (the plan's and the seal state's batch size, the task count, each job's
+/// tasks and chunks). The live step reads only these rows and counts, so its
+/// heap at `n` is measured without driving the sim's generation and scoring
+/// through `n` documents (its stock and pace stop well short of the
+/// deployed batch).
+#[cfg(feature = "arena-witness")]
+fn grow_batch(db: &Sqlite, seq: i64, n: u32) {
+    let sealed: Vec<(i64, i64)> = db
+        .conn
+        .prepare("SELECT idx, task FROM docs WHERE seq = ?1 AND docset = 'batch' AND task IS NOT NULL ORDER BY task")
+        .unwrap()
+        .query_map([seq], |r| Ok((r.get(0)?, r.get(1)?)))
+        .unwrap()
+        .map(Result::unwrap)
+        .collect();
+    assert!(!sealed.is_empty() && sealed.len() <= n as usize);
+    let tasks = q1(db, "SELECT task_count FROM cohorts WHERE seq = ?1", seq);
+    assert_eq!(q1(db, "SELECT MAX(task) + 1 FROM docs WHERE seq = ?1", seq), tasks, "tasks are numbered 0..task_count");
+    let top = q1(db, "SELECT MAX(idx) FROM docs WHERE seq = ?1", seq);
+    let doc_cols = columns(db, "docs");
+    let doc_from: Vec<String> = doc_cols
+        .iter()
+        .map(|c| match c.as_str() {
+            "\"idx\"" => "?2".to_owned(),
+            "\"task\"" => "?3".to_owned(),
+            "\"key\"" => "\"key\" || ?4".to_owned(),
+            "\"live_segment\"" => "NULL".to_owned(),
+            other => other.to_owned(),
+        })
+        .collect();
+    let copy_doc = format!("INSERT INTO docs ({}) SELECT {} FROM docs WHERE seq = ?1 AND idx = ?5", doc_cols.join(", "), doc_from.join(", "));
+    let pred_cols = columns(db, "preds");
+    let pred_from: Vec<String> =
+        pred_cols.iter().map(|c| if c == "\"task\"" { "?2".to_owned() } else { c.clone() }).collect();
+    let copy_preds = format!("INSERT INTO preds ({}) SELECT {} FROM preds WHERE seq = ?1 AND task = ?3", pred_cols.join(", "), pred_from.join(", "));
+    let have = q1(db, "SELECT COUNT(*) FROM docs WHERE seq = ?1 AND docset = 'batch' AND task IS NOT NULL", seq) as usize;
+    let added = n as usize - have;
+    for k in 0..added {
+        let (idx, task) = sealed[k % sealed.len()];
+        let (new_idx, new_task) = (top + 1 + k as i64, tasks + k as i64);
+        db.conn.execute(&copy_doc, rusqlite::params![seq, new_idx, new_task, format!("#grown-{k}"), idx]).unwrap();
+        db.conn.execute(&copy_preds, rusqlite::params![seq, new_task, task]).unwrap();
+    }
+    let total = tasks + added as i64;
+    let stored = |column: &str| -> Value {
+        let text: String = db.conn.query_row(&format!("SELECT {column} FROM cohorts WHERE seq = ?1"), [seq], |r| r.get(0)).unwrap();
+        serde_json::from_str(&text).unwrap()
+    };
+    let (mut plan, mut st) = (stored("plan"), stored("v3"));
+    let per = plan["scorer"]["chunk_docs"].as_i64().unwrap();
+    plan["n"] = json!(n);
+    st["batch_tasks"] = json!(n);
+    db.conn
+        .execute(
+            "UPDATE cohorts SET task_count = ?2, plan = ?3, v3 = ?4 WHERE seq = ?1",
+            rusqlite::params![seq, total, plan.to_string(), st.to_string()],
+        )
+        .unwrap();
+    db.conn
+        .execute(
+            "UPDATE jobs SET tasks = (SELECT COUNT(*) FROM preds p WHERE p.seq = jobs.seq AND p.job = jobs.job), chunks = ?2 WHERE seq = ?1",
+            rusqlite::params![seq, (total + per - 1) / per],
+        )
+        .unwrap();
+    assert_eq!(q1(db, "SELECT COUNT(*) FROM docs WHERE seq = ?1 AND docset = 'batch' AND task IS NOT NULL", seq), i64::from(n));
+}
+
+/// The peak live bytes of one pass of the live step over cohort `seq` (run
+/// to transition, with `roster` executed entrants), each part in its own
+/// arena witness: the setup over the full batch, every release (each in its
+/// own scope, as the step runs them, within `arena_routes::live_step_bytes`
+/// at the batch) and the `/eval/live` report (within the cohort control
+/// footprint). Returns `[setup, heaviest release, report]`. The setup and
+/// the releases run again over the cohort's finished outcomes, so the
+/// heaviest releases (a full batch read for each pre-finalized value,
+/// `R_k`'s with the manifest's parameters rebuilt) all come due at once.
+#[cfg(feature = "arena-witness")]
+fn live_pass(db: &Sqlite, seq: i64, c: &EvalConfig, roster: usize) -> [usize; 3] {
     use crate::arena_routes::{COHORT_CONTROL_BYTES, R_COHORT_FETCH, R_COHORT_LIVE, live_step_bytes};
+    use crate::arena_witness::witness_peak;
+    let docs = tx(db, |s| live::cohort_docs(s, seq)).unwrap();
+    db.conn.execute("DELETE FROM live_releases WHERE seq = ?1", [seq]).unwrap();
+    db.conn.execute("DELETE FROM live_cohorts WHERE seq = ?1", [seq]).unwrap();
+    db.conn.execute("UPDATE docs SET live_segment = NULL WHERE seq = ?1", [seq]).unwrap();
+    let ((), setup) = witness_peak(R_COHORT_LIVE, live_step_bytes(docs), || tx(db, |s| live::prepare(s, seq)).unwrap());
+    let segments = q1(db, "SELECT segments FROM live_cohorts WHERE seq = ?1", seq);
+    assert!(segments >= i64::from(slop_ninja_protocol::live::MIN_SEGMENTS), "readings at {roster} entrants, {docs} documents: L = {segments}");
+    assert_eq!(q1(db, "SELECT COUNT(*) FROM docs WHERE seq = ?1 AND live_segment IS NOT NULL", seq), docs as i64);
+    let mut released = 0usize;
+    let mut heaviest = 0usize;
+    loop {
+        let (more, peak) = witness_peak(R_COHORT_LIVE, live_step_bytes(docs), || tx(db, |s| live::release_due(s, c, seq)).unwrap());
+        if !more {
+            break;
+        }
+        released += 1;
+        heaviest = heaviest.max(peak);
+    }
+    // L - 1 readings for each entrant and R_k, and one pre-finalized value
+    // for each of them.
+    let readings = (roster + 1) * usize::try_from(segments - 1).unwrap();
+    assert_eq!(released, readings + roster + 1);
+    let withheld = q1(db, "SELECT COUNT(*) FROM live_releases WHERE seq = ?1 AND kind = 'prefinal' AND outcome = 'withheld'", seq);
+    assert!(withheld > 0 && withheld < roster as i64, "{withheld} withheld");
+    let (rows, report) = witness_peak(R_COHORT_FETCH.route(), COHORT_CONTROL_BYTES, || {
+        let r = tx(db, live::report).unwrap();
+        assert!(r.get("refused").is_none(), "{r}");
+        r["rows"].as_array().map_or(0, Vec::len)
+    });
+    assert_eq!(rows, roster);
+    [setup, heaviest, report]
+}
+
+/// The live step at `roster` entrants over a sealed batch of 40 documents
+/// and the same cohort grown to `n` ([`grow_batch`]): each pass within its
+/// footprints ([`live_pass`]), and the per-document growth of the setup's
+/// and the heaviest release's peaks between the two batches within
+/// `arena_routes::LIVE_PER_DOC`. The stored seal state's published index is
+/// inflated past every live footprint first: the live step reads only the
+/// subjects' digests, the batch size and (for `R_k`'s pre-finalized value)
+/// the stored manifest of it, never the fields that grow with the chain's
+/// history.
+#[cfg(feature = "arena-witness")]
+fn live_witness_at(roster: u16, n: u32) {
+    use crate::arena_routes::{LIVE_PER_DOC, live_step_bytes};
     slop_ninja_arena::set_mode(slop_ninja_arena::Mode::Enforce);
-    let roster = usize::from(slop_ninja_protocol::MAX_ROSTER);
-    with_widest_live_cohort(40, |db, sim, seq, c| {
+    let entrants = usize::from(roster);
+    with_wide_live_cohort(40, roster, |db, sim, seq, c| {
         for _ in 0..20_000 {
             if phase(db, seq) == "transition" {
                 break;
@@ -711,42 +827,52 @@ fn arena_witness_live_steps_fit_at_the_widest_roster() {
             sim.tick();
         }
         assert_eq!(phase(db, seq), "transition", "fault {:?}", fault_of(db, seq));
-        assert_eq!(q1(db, "SELECT COUNT(*) FROM jobs WHERE seq = ?1 AND role = 'entrant'", seq), roster as i64);
-        let docs = tx(db, |s| live::cohort_docs(s, seq)).unwrap();
-        // The live step reads only the subjects' digests, the batch size and
-        // the manifest record of the stored seal state: its fields that grow
-        // with the chain's history (here the published index at seal,
-        // inflated past every live footprint) are never parsed.
+        assert_eq!(q1(db, "SELECT COUNT(*) FROM jobs WHERE seq = ?1 AND role = 'entrant'", seq), entrants as i64);
         let mut st: Value = serde_json::from_str(&db.conn.query_row("SELECT v3 FROM cohorts WHERE seq = ?1", [seq], |r| r.get::<_, String>(0)).unwrap()).unwrap();
-        st["published_at_seal"] = json!(["00".repeat(1 << 20), ""]);
+        st["published_at_seal"] = json!(["00".repeat(live_step_bytes(u64::from(n))), ""]);
         db.conn.execute("UPDATE cohorts SET v3 = ?1 WHERE seq = ?2", rusqlite::params![st.to_string(), seq]).unwrap();
-        assert!(q1(db, "SELECT length(v3) FROM cohorts WHERE seq = ?1", seq) > 2 * live_step_bytes(docs) as i64);
-        // The setup again, over the same sealed values.
-        db.conn.execute("DELETE FROM live_releases WHERE seq = ?1", [seq]).unwrap();
-        db.conn.execute("DELETE FROM live_cohorts WHERE seq = ?1", [seq]).unwrap();
-        db.conn.execute("UPDATE docs SET live_segment = NULL WHERE seq = ?1", [seq]).unwrap();
-        crate::arena_witness::witness(R_COHORT_LIVE, live_step_bytes(docs), || tx(db, |s| live::prepare(s, seq)).unwrap());
-        let segments = q1(db, "SELECT segments FROM live_cohorts WHERE seq = ?1", seq);
-        assert!(segments >= i64::from(slop_ninja_protocol::live::MIN_SEGMENTS), "readings at the widest roster: L = {segments}");
-        assert_eq!(q1(db, "SELECT COUNT(*) FROM docs WHERE seq = ?1 AND live_segment IS NOT NULL", seq), docs as i64);
-        // Every release, each in its own scope, as the step runs them.
-        let mut released = 0usize;
-        while crate::arena_witness::witness(R_COHORT_LIVE, live_step_bytes(docs), || tx(db, |s| live::release_due(s, c, seq)).unwrap()) {
-            released += 1;
-        }
-        // L - 1 readings for each entrant and R_k, and one pre-finalized
-        // value for each of them.
-        let readings = (roster + 1) * usize::try_from(segments - 1).unwrap();
-        assert_eq!(released, readings + roster + 1);
-        let withheld = q1(db, "SELECT COUNT(*) FROM live_releases WHERE seq = ?1 AND kind = 'prefinal' AND outcome = 'withheld'", seq);
-        assert!(withheld > 0 && withheld < roster as i64, "{withheld} withheld");
-        // The report at MAX_ROSTER rows.
-        let rows = crate::arena_witness::witness(R_COHORT_FETCH.route(), COHORT_CONTROL_BYTES, || {
-            let r = tx(db, live::report).unwrap();
-            assert!(r.get("refused").is_none(), "{r}");
-            r["rows"].as_array().map_or(0, Vec::len)
-        });
-        assert_eq!(rows, roster);
-        assert_eq!(rows, live::ROWS);
+        assert!(q1(db, "SELECT length(v3) FROM cohorts WHERE seq = ?1", seq) > 2 * live_step_bytes(u64::from(n)) as i64);
+        let small = live_pass(db, seq, c, entrants);
+        grow_batch(db, seq, n);
+        let large = live_pass(db, seq, c, entrants);
+        let added = u64::from(n - 40);
+        let slope = |k: usize| (large[k].saturating_sub(small[k]) as u64).div_ceil(added);
+        eprintln!(
+            "live witness at {entrants} entrants: 40 documents {small:?} B, {n} documents {large:?} B (setup, heaviest release, report); per document: setup {} B, release {} B (LIVE_PER_DOC {LIVE_PER_DOC} B)",
+            slope(0),
+            slope(1)
+        );
+        assert!(slope(0) <= LIVE_PER_DOC && slope(1) <= LIVE_PER_DOC, "the live step grows past LIVE_PER_DOC a document");
     });
+}
+
+/// Arena witness (`--features arena-witness`) at the widest roster,
+/// `MAX_ROSTER` entrants and `R_k`, and the deployed batch size (1,024
+/// documents, testnet's 1,000-1,024): [`live_witness_at`].
+///
+/// Measured 2026-11-10 (native; 40 documents, then 1,024): the setup
+/// peaks at 278,727 B and 324,889 B live, the heaviest release (`R_k`'s
+/// pre-finalized value with the stored manifest) at 362,852 B and
+/// 370,724 B (8 of the 34 pages at 1,024 documents), the report at 256
+/// rows at 709,355 B and 711,289 B (14 of 34 pages). The cohort's parsed
+/// plan (at most `PLAN_PARSED_BYTES`, in the alarm's base) and the roster
+/// are most of each step's heap.
+#[cfg(feature = "arena-witness")]
+#[test]
+fn arena_witness_live_steps_fit_at_the_widest_roster() {
+    live_witness_at(slop_ninja_protocol::MAX_ROSTER, 1_024);
+}
+
+/// Arena witness (`--features arena-witness`) with 40 entrants and `R_k`,
+/// the most testnet's roster admits, and the deployed batch size (1,024
+/// documents): [`live_witness_at`].
+///
+/// Measured 2026-11-10 (native; 40 documents, then 1,024): the setup
+/// peaks at 46,335 B and 172,608 B live, the heaviest release at 62,340 B
+/// and 182,956 B, the report at 115,747 B and 173,390 B: the setup grows by
+/// 129 B a document and the heaviest release by 123 B.
+#[cfg(feature = "arena-witness")]
+#[test]
+fn arena_witness_live_steps_fit_at_the_deployed_batch() {
+    live_witness_at(40, 1_024);
 }

@@ -265,18 +265,28 @@ pub const STEP_BASE_BYTES: usize = ALARM_CONTROL_BYTES;
 /// `MAX_ROSTER` entrants: the step reads only those fields of the stored
 /// seal state, never its manifest record (but for `R_k`'s pre-finalized
 /// value) or its published index, which grow with the chain's history.
-/// `LIVE_PER_DOC` is an estimate, not a measurement. Witnesses: one release
-/// and the report at the test shape
-/// (`arena_witness_live_steps_fit_their_footprint`), and at the widest
-/// roster the setup over the full batch, every release of `MAX_ROSTER`
-/// entrants and `R_k`, and the `/eval/live` report at `MAX_ROSTER` rows
-/// (`arena_witness_live_steps_fit_at_the_widest_roster`: at 40 documents
-/// the heaviest step peaks at 7 of the 18 pages, the report at 14 of 34).
+/// Witnesses: one release and the report at the test shape
+/// (`arena_witness_live_steps_fit_their_footprint`), and the setup over the
+/// full batch, every release of every entrant and `R_k`, and the
+/// `/eval/live` report over 40 documents and the same cohort grown to the
+/// deployed batch of 1,024, with 40 entrants, the most testnet's roster
+/// admits (`arena_witness_live_steps_fit_at_the_deployed_batch`), and at
+/// `MAX_ROSTER` (`arena_witness_live_steps_fit_at_the_widest_roster`: at
+/// 1,024 documents the heaviest step peaks at 8 of the 34 pages, the report
+/// at 14 of 34). Each also checks the per-document growth against
+/// [`LIVE_PER_DOC`].
 pub const fn live_step_bytes(docs: u64) -> usize {
     let total = (ALARM_CONTROL_BYTES as u64).saturating_add(LIVE_PER_DOC.saturating_mul(docs));
     if total > usize::MAX as u64 { usize::MAX } else { total as usize }
 }
-const LIVE_PER_DOC: u64 = 1_024;
+/// The live step's footprint per batch document. Measured natively
+/// (2026-11-10, the witnesses above): from 40 to 1,024 batch documents at
+/// 40 entrants the setup's peak grows by 129 B a document and the heaviest
+/// release's by 123 B (at 256 entrants by 47 B and 8 B, where the
+/// roster-bound part of the step sets the peak). This is about eight times
+/// the larger; the deployed instance (its SQL rows cross from JS) is not
+/// measured.
+pub const LIVE_PER_DOC: u64 = 1_024;
 /// The cohort alarm's base footprint; the seal and package steps admit their
 /// shape-derived footprints (`seal_bytes`, `package_bytes`) as child scopes.
 /// Measured: picking the next work item over the widest admitted plan, 2

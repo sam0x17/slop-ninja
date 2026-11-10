@@ -1,6 +1,6 @@
 # Receipts and external-detector evidence
 
-Whitepaper draft 0.62 uses coordinator-led *A* evaluation and operator-signed
+Whitepaper draft 0.63 uses coordinator-led *A* evaluation and operator-signed
 service receipts. The [Cloudflare design](cloudflare-subnet-draft.md) and
 [service-evidence guide](service-evidence.md) describe their authority and
 recovery boundaries. This page records the existing receipt/report utilities

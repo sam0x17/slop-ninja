@@ -1,6 +1,6 @@
 # Style utility and semantic review
 
-[Whitepaper draft 0.62](../whitepaper/slop_ninja.pdf) proposes these candidate formulas for the
+[Whitepaper draft 0.63](../whitepaper/slop_ninja.pdf) proposes these candidate formulas for the
 [later B mechanism](../whitepaper/sections/07a-adjudication.tex). They are a
 research contract; *B* is deferred, and its scoring authority, review process,
 and activation remain open. Launch *A* scoring follows the separate

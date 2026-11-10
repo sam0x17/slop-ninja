@@ -1,13 +1,45 @@
 # Paid inference
 
-Whitepaper draft 0.62 proposes hosted *A* first, with paid access opened at the
+Whitepaper draft 0.63 proposes hosted *A* first, with paid access opened at the
 coordinator's discretion after quality and service qualification. SlopNinja
 serves the public model. Later private *B* serving requires separate activation.
+Before mainnet, a free detection page and later a paid detection API earn
+revenue for a public pot ([below](#revenue-before-mainnet)); paid jobs, the
+quoted and reserved workloads this guide describes, keep the per-job burn
+route below once the subnet's alpha exists.
 The [whitepaper's paid-service section](../whitepaper/sections/06-paid-inference.tex)
 and [Cloudflare design](cloudflare-subnet-draft.md) define the proposal; no
 production payment or delivery service is implemented by this guide.
 
-## Pricing and funding
+## Revenue before mainnet
+
+Testnet runs for several months before the mainnet subnet is registered. The
+first product is a free detection page at `/detect/`: a visitor pastes text
+without an account, the page sets no cookie and stores no text, and SlopNinja's
+span package d24 scores it in SlopNinja's own runtime, so the text reaches no
+miner. The page reports one of four evidence bands with their measured rates,
+scores no text under 150 words, and highlights spans of at least 24 words only
+in the two strongest bands. No advertising or analytics script runs on the
+page that holds pasted text; ads run only on approved content pages. A paid
+detection API follows once the package is published, paid through a
+merchant-of-record card processor or directly in TAO, and settles through the
+pot rather than one job at a time.
+
+Everything the detection product's advertising networks, sponsors and payment
+processors pay out goes into the pot, net of the fees they deduct at source;
+SlopNinja pays its own costs separately and never from the pot. The pot is
+native TAO in a published two-of-three multisignature account with an
+independent third signer, never staked, with a public page listing every
+payout, conversion, balance and burn and a signed monthly statement. Once the
+mainnet subnet is registered and its emissions have started, the pot buys and
+burns that subnet's alpha in daily tranches bound to the registration; if
+mainnet is abandoned, its TAO is burned. It changes no miner or validator
+reward. The [design notes](cloudflare-subnet-draft.md#revenue-before-mainnet-the-detection-page-and-the-public-pot)
+give the full rules. The page's service, the
+[detect Worker](../subnet/detect-worker/README.md), is built but not yet
+deployed; the paid detection API and the pot are not yet implemented.
+
+## Pricing and funding for paid jobs
 
 The operator quotes a fixed price for a bounded workload. Its reference model
 cost includes every model invocation needed for successful delivery, including
@@ -16,7 +48,7 @@ subject to measured cost and competitive pricing. It sets the amount destined
 for burning, not a cash margin. The paper's dated detection and revision cost
 scenarios remain estimates; each actual offer needs measured limits and costs.
 
-Customer inference principal follows these routes:
+The principal of a paid job follows these routes:
 
 ```text
 USD card payment -> native TAO -> subnet alpha -> burn
@@ -24,7 +56,8 @@ TAO payment -> subnet alpha -> burn
 alpha payment -> burn
 ```
 
-Coinbase Onramp is the selected candidate for card-to-native-TAO funding.
+For paid jobs, Coinbase Onramp is the selected candidate for card-to-native-TAO
+funding; the detection API uses the processor or direct TAO payments above.
 Supported payment methods, jurisdictions, settlement, and refunds still need
 qualification. Solana is preferred for additional crypto entry routes if a
 suitable native-TAO route qualifies. Card authorization or an expected swap

@@ -1,6 +1,6 @@
 # Public-model evaluation
 
-[Whitepaper draft 0.62](../whitepaper/slop_ninja.pdf) and the
+[Whitepaper draft 0.63](../whitepaper/slop_ninja.pdf) and the
 [Cloudflare design](cloudflare-subnet-draft.md) define the current proposal.
 Launch admits public *A* artifacts and uses coordinator-led hidden evaluation.
 The coordinator signs the weight row its private scores imply, and every
@@ -12,12 +12,11 @@ production runner still requires implementation and qualification.
 
 An admitted *A* model publishes its weights and everything needed to execute
 its declared calculation when its cohort's scoring starts. Its terms let anyone obtain it for
-free, run it locally, and reuse it to train a private *B* model. The coordinator
-hosts a published entrant artifact until its cohort's receipts become deletable,
-at least about 48 hours with daily cohorts, and keeps the current and previous
-reference artifacts hosted while they are references. After that, a
-non-reference artifact is available only from copies others kept; the retained
-signed package still binds its digest. Training data and recipes need not be
+free, run it locally, and reuse it to train a private *B* model. A published
+artifact stays public and is never recalled. The coordinator deletes its
+private admission copy once the cohort closes and publication is recorded, and
+keeps the current and previous reference artifacts hosted for evaluation while
+they are references. Training data and recipes need not be
 published where the applicable rights permit them to remain private. Optional
 hosted service has separate costs and terms; publishing a model does not
 require the miner to operate an inference endpoint.
@@ -45,11 +44,17 @@ of collusion or memorized examples.
 
 ## The artifact contract
 
-One shared learned encoder supports origin, AI-share, and attribution outputs.
-The [model contract](../whitepaper/sections/03-models.tex) fixes their meanings
-and qualification. A weight file alone is insufficient. An *A* artifact is a
-raw-text model: an ONNX graph, a fixed tokenizer that must match the
-allow-listed one byte for byte, the output heads, and their calibration. Its
+One shared learned encoder supports origin, AI-share, AI-span and attribution
+outputs. The [model contract](../whitepaper/sections/03-models.tex) fixes their
+meanings and qualification. A weight file alone is insufficient. An *A*
+artifact is a raw-text model: an ONNX graph within one of the manifest's three
+allow-listed graph classes and its parameter bound, a fixed tokenizer that must
+match the allow-listed one byte for byte, the output heads, and their
+calibration. Its token-level head, optional until a manifest enforces the span
+gate, gives per-token AI probabilities, decoded into AI spans with exact
+character offsets and per-span confidence. Under the 24-word floor no span
+under 24 words is trained, evaluated or decoded, and artifact spec v5 refuses an
+artifact without a token-level head or with a decoder minimum under 24 words. Its
 execution manifest binds the canonical text profile, feature meanings, reference
 pooling, calibration, numerical precision and tolerances, dependencies, allowed
 operators, resource limits, and reference outputs. *A* uses no CFG-derived
@@ -91,17 +96,25 @@ benchmark cues. Qualify numerical behavior and resource bounds on the actual
 execution runtime; another backend requires its own equivalence evidence.
 
 Inference-semantic changes create a new artifact version. Registration binds
-inference content separately from signatures and owner metadata. Identical
-content receives one credited entry under the finalized commitment-priority
-rule; changing a wrapper does not establish a new model. Near-copy policy and
-original-training claims require separate treatment.
+inference content separately from signatures and owner metadata; changing a
+wrapper does not establish a new model. Within a cohort, identical inference
+content, or predictions within the near-copy distance on the batch, forms one
+cluster that shares one credit equally, and the finalized commitment order
+breaks ties between equal quantized scores. Detected copies of earlier
+published artifacts earn nothing. Admission order does not establish who
+originally trained a model.
 
 ## Scoring and external comparisons
 
 Every entrant receives the frozen comparison population. Missing predictions
-remain in coverage and failure accounting. The primary reward comparison uses
-AI-involvement Brier utility; share and attribution have their own qualification
-and measurements. See the [scoring rules](../whitepaper/sections/07-rewards.tex).
+remain in coverage and failure accounting. AI-involvement Brier utility is the
+only reward quantity; share, attribution and spans are qualification gates with
+their own measurements. The span gate compares each entrant with SlopNinja's
+first span package on the same batch under the 24-word floor, with margins
+fixed after measurement on closed testnet cohorts, and runs in report mode on
+live cohorts before any manifest enforces it; report mode and artifact spec v5
+are built but not yet deployed, so no cohort has yet evaluated spans. See the
+[scoring rules](../whitepaper/sections/07-rewards.tex).
 
 Compare the incumbent anchor, eligible *A* models, and Pangram on the same
 independently labelled hidden set under declared operating points and

@@ -72,9 +72,16 @@ Testnet's reference is `R_0`. SlopNinja publishes its reference packages,
 public access opens ([reference packages](reference-packages.md)). The
 SlopNinja name and logo are not covered by that licence. The reference
 changes by the published promotion rule or by an operator reference decision
-(below). One such decision is planned: replacing `R_0` by the next reference
-SlopNinja trains, only if it passes every required gate, announced in advance
-on the status page. Replacing the reference moves no reward already earned.
+(below). Two such decisions are planned. Before the first cohort that enforces
+the span gate (a check of each entrant's AI spans against d24's on the same
+batch; no cohort enforces it yet), one signed span-equivalent reference
+decision passes `R_0`'s position to span package d24, SlopNinja's
+span-serving package, after d24 runs once as an ordinary entry, so that it is
+published and fingerprinted; this changes no reward input and is not the
+planned replacement. That replacement is the other: replacing `R_0` by the
+next reference SlopNinja trains, only if it passes every required gate,
+announced in advance on the status page. Replacing the reference moves no
+reward already earned.
 On testnet only, promotions run without the lookup canary, and the
 leaderboard labels this; an operator drill of the blocking path, named in the
 cohort's plan, can still block a candidate. The canary is required before

@@ -1,7 +1,7 @@
 # Private receipt delivery
 
 This page documents an executable prototype with a version-1 receipt schema.
-The [whitepaper, draft 0.62](../whitepaper/main.tex), and
+The [whitepaper, draft 0.63](../whitepaper/main.tex), and
 [Cloudflare design](cloudflare-subnet-draft.md) define production delivery and
 receipt requirements. The prototype's validator-recipient and beacon fields
 are implementation details used by its examples and fixtures. Production

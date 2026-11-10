@@ -1075,12 +1075,18 @@ package, span package d24 ([reference packages](reference-packages.md)), is
 published when public access opens; it is not the reference.
 
 Besides promotion, the reference changes only by an operator reference
-decision with a recorded reason ([terms](terms.md#operator-decisions)). One
-is planned: replacing `R_0` by the next reference SlopNinja trains, only if it
-passes every required gate, announced in advance on the status page. The
-replacement takes `R_0`'s place with no predecessor and moves no reward
-already earned. An entrant that becomes the reference was already published
-when its cohort's scoring started.
+decision with a recorded reason ([terms](terms.md#operator-decisions)). Two
+are planned. Before the first cohort that enforces the span gate (a check of
+each entrant's AI spans against d24's on the same batch; no cohort enforces
+it yet), one signed span-equivalent reference decision passes `R_0`'s
+position to span package d24, after d24 runs once as an ordinary entry, so
+that its artifact is published and fingerprinted. d24's document outputs are
+`R_0`'s, the decision changes no reward input, and it is not the planned
+replacement. That replacement is the other: replacing `R_0` by the next
+reference SlopNinja trains, only if it passes every required gate, announced
+in advance on the status page. The replacement takes `R_0`'s place with no
+predecessor and moves no reward already earned. An entrant that becomes the
+reference was already published when its cohort's scoring started.
 
 ## 14. Refusals and what they mean
 

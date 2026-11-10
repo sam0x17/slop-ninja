@@ -1,7 +1,7 @@
 # Draft Cloudflare subnet design
 
-Draft 0.39, November 6, 2026. Implementation design notes accompanying
-[whitepaper draft 0.61](../whitepaper/main.tex). Both describe a proposal;
+Draft 0.40, November 10, 2026. Implementation design notes accompanying
+[whitepaper draft 0.63](../whitepaper/main.tex). Both describe a proposal;
 neither establishes a deployed or qualified subnet.
 
 The [implementation plan](subnet-implementation-plan.md) defines the build
@@ -27,8 +27,14 @@ uses private LoRA adapters in miner-owned Cloudflare accounts, with miners
 paying those inference bills and our runtime controlling the document workflow.
 Paid inference opens when the coordinator judges measured quality sufficient.
 Customers pay for bounded jobs using a card, subnet alpha, or TAO, with
-Coinbase Onramp selected for card-to-native-TAO funding, subject to integration
-qualification. Their inference payments buy and burn alpha. Pricing multipliers and any inference
+Coinbase Onramp selected for card-to-native-TAO funding of those jobs, subject to integration
+qualification. A paid job's principal buys and burns alpha. Before mainnet,
+the detection product's revenue (advertising on the site's content pages, never
+on the detection page itself, and a paid detection API once the served package
+is published, paid through a merchant-of-record card processor or directly in
+TAO) goes into a public pot instead of being burned job by job
+([Revenue before mainnet](#revenue-before-mainnet-the-detection-page-and-the-public-pot)).
+Pricing multipliers and any inference
 share of emissions remain separately calibrated hyperparameters.
 
 Miner and validator software is entirely Rust, built on
@@ -535,9 +541,13 @@ cross-runtime numerical boundary cases. The paper's exposed-Train leading-space
 probe found a formatting shortcut in V6; it establishes no held-out robustness.
 Canonicalizing one benchmark representation does not replace those controls.
 The scorer has no network access, online learning, cross-job prompt cache, or
-undeclared mutable state. Admission allows the two allow-listed graphs (the
-reference's ModernBERT-base architecture, with and without the token span head,
-with matching operators and shapes) and at most 160M parameters. The tokenizer
+undeclared mutable state. Admission allows the three allow-listed graph
+classes, each with matching operators and shapes: the reference's
+ModernBERT-base architecture, the same architecture exposing its final-norm
+token states to a token-level span head, and the tower class that adds trained
+copies of encoder layers 18–21 and the final norm for that head. Each class has
+a parameter bound derived from its structure: 160M for the first two and
+173.5M for the tower class. The tokenizer
 must match the allow-listed tokenizer byte for byte; calibration, contract and
 other declared files must validate against fixed schemas for their roles (for
 example a monotone piecewise-linear calibration map whose knot count the schema
@@ -547,7 +557,8 @@ needed it derives from structure (allow-lists, schemas, measured bounds) and is
 versioned in the manifest, never hard-wired, because a fixed limit that later
 models outgrow can strand a subnet. The allow-list widens only by a versioned
 manifest. The cap bounds learned capacity (an estimated 40–72 MB: 160M
-parameters at the measured 2–3.6 bits per parameter) available for memorizing
+parameters at the measured 2–3.6 bits per parameter, and up to about 78 MB in
+the tower class) available for memorizing
 human text, and an embedded text index or lookup table fails
 admission. Upstream preprocessing, and for later *B* parsing and resolution,
 still sees the text and needs its own fixed policy and contamination checks.
@@ -585,12 +596,15 @@ remain to be fixed before live rewards.
    SHA-256 and length, followed by the files in path order. Graph, weights,
    tokenizer, calibration and output schema form the inference content;
    reference test vectors, owner metadata and publisher signatures do not, so
-   renaming or re-signing creates no new content. The cap allows the two
-   allow-listed graphs (the reference's ModernBERT-base architecture with and
-   without the token span head, with matching operators and shapes) and at most
-   160M parameters, with the allow-listed tokenizer byte for byte and every
-   other file valid under its role's fixed schema; `R_0` has 149.6M parameters
-   and a 610.6 MB artifact object, whose graph file is 601 MB. The allow-list widens only through a versioned manifest. The
+   renaming or re-signing creates no new content. The cap allows the three
+   allow-listed graph classes (the reference's ModernBERT-base architecture,
+   the same architecture with the token span head, and the tower class, each
+   with matching operators and shapes) within their parameter bounds, 160M for
+   the first two and 173.5M for the tower class, with the allow-listed
+   tokenizer byte for byte and every other file valid under its role's fixed
+   schema; `R_0`'s package has 150.3M parameters and a 610.6 MB artifact
+   object, whose graph file is 601 MB, and the first span package has 170.6M.
+   The allow-list widens only through a versioned manifest. The
    [artifact spec](testnet/artifact-spec.md) fixes the roster at `R_0`'s 33
    AI profiles and an empty human roster, and its contract pins the AI roster
    rule text, which describes how `R_0`'s roster was derived; an artifact that
@@ -638,7 +652,18 @@ remain to be fixed before live rewards.
    scores, and the cohort's bit budget). Publish the result's values and the
    commitment openings when the cohort ends (the artifacts were published when
    scoring started). The coordinator derives the canonical row from the result
-   and signs it; other validators commit that row.
+   and signs it; other validators commit that row. Before the close, after the
+   seal, each executed entrant's quantized score or withheld outcome is shown,
+   marked pre-finalized, as soon as it is fixed, computed by the same code and
+   draw as the result; the references' quantized scores, and the margin cutoff
+   that follows from `R_k`'s, appear the same way. A testnet cohort may also
+   release a few `live-v1` segment readings during scoring, under their own
+   privacy parameter and counted in the bit budget, and the operator can stop
+   and resume them. Neither enters a cutoff, band, credit, gate, cluster,
+   promotion or row, and no rank, band, cutoff mode, gate, public-copy, cluster
+   or unit value is released before the close. Both are built but not yet
+   deployed, and they change nothing until a cohort template names them
+   ([rewards rules](agents/rewards.md)).
 6. **Pay with a lag.** `T_N` activates at the first eligible tempo boundary
    after its package and receipts are durable, and validators commit the
    coordinator's signed row for it each tempo (below).
@@ -761,12 +786,23 @@ humans), the public-candidate refill (4,593 humans whose every earlier role was
 consumed Test, held or diagnostic) and any document an earlier testnet cohort
 drew. These may be scored again as pure-human negatives without limit
 (never-drawn rows first, never twice in one cohort), while rewrite-source uses
-keep the use limit and gap. Fresh stock (the reserved public stock above) is drawn only
+keep the use limit and gap unless the cohort's plan runs the exposed-pool reuse
+rule. Under the four-use limit and seven-cohort gap the standing template's
+draws would stop within seven consecutive cohorts, so that versioned
+testnet-only rule lifts the use limit and the gap for exposed pools: a passage
+first seen in an earlier cohort may parent again, at most once in a cohort,
+after the cohort's own negatives and never-parented stock, least recently
+parented first, and the 570 Dev-iter humans join as parents only. The gate
+policy that the manifest binds names the rule, and the coordinator refuses it
+off testnet or beside a fresh pool. As of November 10 the rule is built but
+not yet deployed.
+Fresh stock (the reserved public stock above) is drawn only
 for a cohort with such an entrant. The coordinator enforces this: it draws only
 from pools in its `EXPOSED_POOLS` list, refuses at queue time any plan naming
-another pool and faults the draw (`fresh_stock_refused`). On-chain admission is
-not yet wired into cohorts, so every testnet cohort so far has drawn exposed
-documents only. A score on reused documents shows that an artifact runs and is
+another pool and faults the draw (`fresh_stock_refused`). Every testnet cohort
+so far has drawn exposed documents only, including the first cohorts with an
+outside entrant, because testnet's standing cohort template names only an
+exposed pool. A score on reused documents shows that an artifact runs and is
 scored, not its quality on unseen text.
 
 **Lookup exposure.** The human side is existing text, and mixed documents keep
@@ -1028,7 +1064,17 @@ scores, no near-equal drop, and the absence of runtime versions:
   extrinsic index). The first unassigned entrant heads a cluster with every later
   unassigned entrant whose inference content is identical or which is within
   the near-copy distance of the head on the batch; no chaining. A sybil
-  variant therefore costs as much to separate as a public copy.
+  variant therefore costs as much to separate as a public copy. Under
+  `reward-v2`, which testnet's current record runs, a cluster is thus placed
+  by its highest-ranked member, so a party entering several near copies with
+  different content takes the best of their independent noise draws toward the
+  cutoff. Its successor rule walks every gated entrant in roster order instead:
+  the earliest-admitted unassigned entrant heads each cluster, judged by
+  distance alone, and its quantized score places the whole cluster, so extra
+  near copies add no draw. Copies farther apart than the near-copy distance
+  still draw independently. As a reward-rule change it takes effect only
+  through a fresh record (operator decisions, below), and mainnet's first
+  record opens under it; it is not yet implemented.
 - **Ties.** Clusters whose heads have equal quantized scores lie in one band
   and split the credit of the positions they occupy equally, so the roster
   order that lays out positions within a tie changes no tied cluster's credit.
@@ -1378,6 +1424,35 @@ weight transaction. Coordinator recovery does not await those validators or
 their acknowledgments. If the outage occurred after final scoring,
 resume the transition without rescoring. The pause may last indefinitely;
 elapsed time alone never abandons or skips the cohort.
+
+**Operator decisions.** Only an explicit operator decision ends, declines or
+restarts, and no precondition in the evaluation service, the coordinator, the
+publisher or a validator may lock the operator out: each has a journaled
+operator path past it, so the operator can always start a new cohort, change
+the references, install or pause a cohort template, or restart the record
+without first changing code. The operator may abandon any cohort that has not
+closed (its number is never reused); refuse to pay a finished cohort by
+declining its closure, abandoning it late, or naming it in a switch to burn;
+start over by switching the coordinator to burn, which sets a restart floor,
+names every cohort that opened before it without being handled, and is followed
+by a fresh record whose first reference is `R_0`; change the reward rule only
+through such a fresh record; set the current and previous references by a
+reference decision with a recorded reason; and rotate the authorization key
+when the subnet is registered again. Each decision is journaled before it takes
+effect and leaves a signed, content-free public record of its reason. Decisions
+that decline a result, change reward inputs or restart the record are also
+signed with a separate operator-decision key, kept offline and verified only by
+the coordinator and the evaluation service; validators keep verifying rows,
+authorizations and revocations under the pinned authorization key alone. An
+abandonment from scoring on needs that key, since pre-finalized scores may
+already be public, while a cohort stopped by a fault can still be abandoned for
+that fault without it. The paths stay available on mainnet, no outage triggers
+one, a decision changes only future work and payment, and rewards already paid
+are never reassigned. Most of them, with the key's verification, are built but
+not yet deployed; the record restart and the abandonment of a faulted cohort
+already run in their earlier, deployed form without the key. The
+[coordinator rules](agents/coordinator.md) list each path and what is not built
+yet.
 
 The transition minimum is two tempos; one would also work under lagged payout.
 It does not wait for any validator to finish. Keep immutable cohort results,
@@ -2146,8 +2221,9 @@ URLs, each verified by R2 against its committed SHA-256 on arrival, so model
 bytes are hashed once, by the miner. The coordinator checks commitment positions
 and R2's stored digests; other validators check neither. A
 missing or invalid upload reserves nothing; an accepted upload still needs
-qualification within the artifact cap (an allow-listed ModernBERT-base graph,
-with or without the token span head, and at most 160M parameters). Every
+qualification within the artifact cap (one of the three allow-listed graph
+classes within its parameter bound: 160M for the ModernBERT-base graph with or
+without the token span head, 173.5M for the tower class). Every
 admitted artifact is published when the cohort's scoring starts; after the
 cohort closes, every opening is published from the signed closure. Copies of
 published artifacts earn nothing. Within a cohort, identical content and
@@ -2383,7 +2459,9 @@ Cloudflare bills the account addressed by each direct Workers AI call. Later
 *B* miners pay their model-serving bills, including paid traffic and mandatory
 evaluation. SlopNinja pays to serve public *A* models on Containers, for any
 later resolver calls, parsing, and ranking, and for storage and coordination.
-Customer inference payments buy and burn alpha. Miners receive quality emissions and, if activated,
+The principal of a paid job, a quoted and reserved workload, buys and burns
+alpha; the detection product's revenue goes into the public pot below instead.
+Miners receive quality emissions and, if activated,
 usage-based emissions; they receive no direct share of each customer payment.
 Burning the full inference principal is a deliberate policy that ties paid
 service demand to an alpha supply sink. Operating costs and reserves need
@@ -2399,6 +2477,57 @@ multiplier sizes principal destined for burning relative to reference model
 cost. Its calibration must consider competitive prices and customer demand;
 it creates no operator cash margin. The paper's [tokenomics section](../whitepaper/sections/06a-tokenomics.tex) develops
 these stock, flow, cost-recovery, and abuse constraints with scenario graphs.
+
+### Revenue before mainnet: the detection page and the public pot
+
+Testnet runs for several months before the mainnet subnet is registered, and
+the paper's [paid-service section](../whitepaper/sections/06-paid-inference.tex)
+plans revenue during that period. The first product is a free detection page at
+`/detect/`, which is not a subnet page: a visitor pastes text without an
+account, the page sets no cookie and stores no text, and the text is scored by
+SlopNinja's span package d24 on one scorer Container in SlopNinja's own
+runtime, so it reaches no miner and is not reused for training without
+consent. The headline is one of four evidence bands, set at the package's
+calibrated 1% and 0.1% human false-positive points and 50%, each shown with the
+rates of human and AI-involved Test documents that fell in it, followed by the
+two document percentages. Human false positives were measured only on texts of
+150 to 450 words, so the page scores no text under 150 words and marks longer
+texts as outside the measured range; spans of at least 24 words are
+highlighted only in the two strongest bands, and the page gives no human
+verdict. No advertising or analytics script runs on the page that holds pasted
+text. Ads run only on the site's content pages, once an advertising network has
+approved them, with text-humanizing, essay-writing and detection-bypass
+advertisers blocked and no ads on the pages for writers who were flagged, on
+the pot's page or on policy pages; no page or post suggests that visiting, using, sharing or
+clicking anything increases burns, and the detection page does not promote the
+pot. A paid detection API follows once the package is published; it and any
+later detection product are paid through a merchant-of-record card processor
+or directly in TAO and settle through the pot, not job by job.
+
+Everything the detection product's advertising networks, sponsors and payment
+processors pay out to SlopNinja goes into the pot, net of the fees they deduct
+at source and before any of SlopNinja's own costs, which SlopNinja pays
+separately and never from the pot. The pot is native TAO in a published
+two-of-three multisignature account on the main Bittensor chain, whose signers
+are distinct from every subnet and operator key, one of them held by an
+independent person. Payouts are converted to TAO each month; the pot is never
+staked and never pays SlopNinja. A public page lists gross payouts,
+conversions, the balance and burns, each with its transaction, and a signed
+monthly statement whose hash is recorded on chain. Once the mainnet subnet is
+registered and its emissions have started, the pot buys and burns that
+subnet's alpha in daily limit-priced tranches sized to the subnet's pool, each
+bound to the registration by its network number, registration block and owner
+account; if any of them no longer matches, burns stop until SlopNinja publishes
+what happens next. No pot money buys or burns testnet tokens, and if SlopNinja
+publicly abandons mainnet, the pot's TAO is burned. The pot changes no miner or
+validator reward. Legal and tax advisers review the charter, these rules and
+the page wording before the first deposit, and the pot's custody, monthly
+statement and tranche mechanics are rehearsed on testnet with test funds first.
+
+The service behind the page, the [detect Worker](../subnet/detect-worker/README.md),
+is built but not yet deployed, and the page opens only after its serving
+parity, abuse controls and wording are checked. The paid detection API and the
+pot are not yet implemented.
 
 ### Configurable pricing and measured costs
 
@@ -2551,8 +2680,8 @@ the revision scenario the miner's proposer bill is about $0.0027; SlopNinja's
 model and delivery costs are about $0.0079-$0.0085. Burned customer payments
 remain unavailable for those invoices.
 
-The revision runtime assumption has limited historical support. The
-[parser benchmark](../grammar/CAMPAIGN_PERFORMANCE.md#parser-result) reparsed
+The revision runtime assumption has limited historical support. An earlier,
+unpublished benchmark of the native-grammar parser reparsed
 1,563 sentence candidates in 237 seconds with one cache-builder worker. Assuming
 40-50 candidates per 1,000 words gives roughly 6-8 seconds of warm parsing.
 That was an older grammar on Apple hardware, excluding startup and model
@@ -2590,7 +2719,7 @@ and the realizable value of the available emissions.
 
 ### Payment conversion and burn
 
-The inference charge follows the selected payment route:
+A paid job's charge follows the selected payment route:
 
 ```text
 USD card purchase -> TAO purchase -> alpha purchase -> alpha burn
@@ -2598,8 +2727,10 @@ TAO purchase -> alpha purchase -> alpha burn
 alpha purchase -> alpha burn
 ```
 
-Coinbase Onramp is selected for card-to-native-TAO funding, subject to qualifying
-SlopNinja's integration. This path needs neither Ethereum nor a separate
+For paid jobs, Coinbase Onramp is selected for card-to-native-TAO funding,
+subject to qualifying SlopNinja's integration; the detection API and the
+products sold beside it use a merchant-of-record card processor or direct TAO
+payments, and their proceeds join the pot rather than this route. This path needs neither Ethereum nor a separate
 cross-chain swap. The intended route is card payment through Coinbase, native
 TAO delivery, then subnet alpha purchase and burn after valid service delivery.
 Existing TAO and alpha holders skip the onramp.
@@ -3417,22 +3548,22 @@ Deferred requirements apply before their respective features activate.
 
 | Current paper section | Coverage |
 | --- | --- |
-| [Purpose](../whitepaper/sections/01-purpose.tex) | A-only launch, coordinator-controlled sales, document-level AI share/confidence, AI spans, and attribution; B, C, and explanations activate later; the grammar's role in later B editing and why A uses no CFG features. |
+| [Purpose](../whitepaper/sections/01-purpose.tex) | A-only launch, coordinator-controlled sales, document-level AI share/confidence, AI spans with the span gate against SlopNinja's first span package, and attribution; the 150–450-word range of the evidence so far; B, C, and explanations activate later; the grammar's role in later B editing and why A uses no CFG features; testnet revenue from the detection page into the public pot. |
 | [Related work](../whitepaper/sections/related-work.tex) | Research and service comparisons with limits on novelty and performance claims. |
 | [Participants](../whitepaper/sections/02-participants.tex) | Rust miners and other validators using rtao; the lead validator is the serverless Workers coordinator. Free rtao-rpc access and its live block webhooks support its chain work. Other validators commit the coordinator's signed row; the coordinator's finalized certificate is later consistency evidence. |
-| [Models](../whitepaper/sections/03-models.tex) | Shared-encoder text A artifact, licences and reference-package publication, the shipped span head and its limits, the adopted S2c head, conditional attribution, encoder-plus-stylometry writer profiles awaiting a learned matcher, the raw-text input contract with the dated CFG evidence, execution contracts, the artifact cap and object format, galleries, private submission, and clustering. |
+| [Models](../whitepaper/sections/03-models.tex) | Shared-encoder text A artifact, licences and reference-package publication, AI spans under the 24-word floor and the span gate (margins against the first span package, report mode, artifact spec v5), the first span package with the S2c head as the span-serving package and its span-equivalent reference decision, conditional attribution, encoder-plus-stylometry writer profiles awaiting a learned matcher, the raw-text input contract with the dated CFG evidence, execution contracts, the three allow-listed graph classes and their parameter bounds, the object format, galleries, private submission, and clustering. |
 | [Training data](../whitepaper/sections/04-training-data.tex) | Production and authorship records, controlled-rewrite share labels, permissions, source-family splits, retired-only reuse, and funded canary anchors. |
-| [Rewards](../whitepaper/sections/07-rewards.tex) | The cohort batch, reuse rule and rewrite ledger, the Common Crawl stock (domain rules, share caps, cohort generation profile, era gates), the testnet stock and its no-fresh-stock rule, lookup exposure and the canary, involvement Brier utility, the reference model, the testnet's one advance-announced replacement and the mainnet opening reference, `reward-v2` bands on quantized scores (`quant-v1`, the bit budget) and the max-upscaled committed row, the public-copy gate and fingerprint probe, clusters, retained-head promotion and fallback cutoff, failure rules, burns, the open mainnet emission split, and optional C/paid-use allocations. |
-| [Cohorts](../whitepaper/sections/07b-cohorts.tex) | Daily 20-tempo cohorts, lagged payout with per-tempo re-commits, native abstention from all-burn rows, the launch and reward-intent authorizations, which never expire, durable active-target records, fan-out evaluation lanes, durable recovery, receipt retention, the runtime-version rule, automatic updates/migrations, and parallel validator commit/reveal with no coordinator finality or adoption barrier. |
+| [Rewards](../whitepaper/sections/07-rewards.tex) | The cohort batch, reuse rule and rewrite ledger, the Common Crawl stock (domain rules, share caps, cohort generation profile, era gates), the testnet stock, its no-fresh-stock rule and the testnet-only rule that lifts the reuse limits for exposed pools, lookup exposure and the canary, involvement Brier utility, the reference model, reference decisions, the span-equivalent decision, the testnet's one advance-announced replacement and the mainnet opening reference, `reward-v2` bands on quantized scores (`quant-v1`, the bit budget) and the max-upscaled committed row, pre-finalized scores and `live-v1` segment readings, the public-copy gate and fingerprint probe, clusters and their placement by the earliest-admitted member under `reward-v2`'s successor, retained-head promotion and fallback cutoff, failure rules, burns, the open mainnet emission split, and optional C/paid-use allocations. |
+| [Cohorts](../whitepaper/sections/07b-cohorts.tex) | Daily 20-tempo cohorts, lagged payout with per-tempo re-commits, native abstention from all-burn rows, the launch and reward-intent authorizations, which never expire, durable active-target records, fan-out evaluation lanes, durable recovery, the operator decisions and the offline operator-decision key, receipt retention, the runtime-version rule, automatic updates/migrations, and parallel validator commit/reveal with no coordinator finality or adoption barrier. |
 | [Confidentiality](../whitepaper/sections/05-confidentiality.tex) | Central A execution and proposed miner-owned Cloudflare B accounts; provider/operator trust, content isolation, private weights, and remaining logging tests. |
-| [Paid inference](../whitepaper/sections/06-paid-inference.tex) | Operator quotes, bounded asynchronous jobs, card/TAO/alpha burns, private delivery, operator receipts, payer assignments, and refunds. |
+| [Paid inference](../whitepaper/sections/06-paid-inference.tex) | Revenue before mainnet (the free detection page with its evidence bands and advertising rules, the paid detection API, and the public pot's custody, ledger and burns), operator quotes, bounded asynchronous jobs, card/TAO/alpha burns for paid jobs, private delivery, operator receipts, payer assignments, and refunds. |
 | [Tokenomics](../whitepaper/sections/06a-tokenomics.tex) | Cost and price scenarios, burn hypothesis, emission allocation, liquidity, self-purchase incentives, and sensitivity graphs. |
 | [Later transformation](../whitepaper/sections/07a-adjudication.tex) | The CFG as B's edit representation, author fit, preservation/readability/tone, nonregression, exact-byte evidence, and service obligations; B authority and settlement remain undecided. |
 | [Grammar contributions](../whitepaper/sections/07c-grammar.tex) | Later one-time credit for accepted reusable contributions to the grammar used by later B, with correctness and overlap rules to qualify. |
 | [External comparisons](../whitepaper/sections/08-pangram-audits.tex) | Independent labels, continuing Pangram comparison, anchor replacement, exact report identity, funded observations, and scoped disclosure. |
 | [Trust](../whitepaper/sections/09-trust.tex) | Coordinator honesty, hidden-label curation, model isolation, provider trust, native-consensus limits, and validator refusal. |
-| [Existing evidence](../whitepaper/sections/10-evidence.tex) | The baseline release candidate and its span head, the adopted S2c head, its sealed Test against Pangram, Container serving, cohort sizing, the cohort mix and context bleed, copy-policy measurements, the public stock, the Common Crawl pilot and stock qualification, the writer-profile comparison, testnet weight commitments, the `reward-v1` testnet rehearsal, and implementation status at the rtao `b5553a76` pin, with their populations and limitations kept separate from launch qualification. |
-| [Launch criteria](../whitepaper/sections/11-launch.tex) | A quality, recovery and chain rehearsals, funded commercial activation, and separate later B/C qualification. |
+| [Existing evidence](../whitepaper/sections/10-evidence.tex) | The baseline release candidate and its span head, the adopted S2c head, the first span package under the 24-word floor, the sealed Test against Pangram, Container serving, cohort sizing, the cohort mix and context bleed, copy-policy measurements, the public stock, the Common Crawl pilot and stock qualification, the writer-profile comparison, testnet weight commitments, the `reward-v1` testnet rehearsal, the testnet record restart and open cohorts, and implementation status at the rtao `fa83052d` pin, including what is built but not yet deployed, with their populations and limitations kept separate from launch qualification. |
+| [Launch criteria](../whitepaper/sections/11-launch.tex) | A quality, including the span gate's margins measured on closed testnet cohorts and artifact spec v5's client release; recovery and chain rehearsals; mainnet's `live-v1` budget and the timing channel to close before mainnet; funded commercial activation, including the detection API's processor and a testnet rehearsal of the pot; and separate later B/C qualification. |
 | [Appendix: earlier checkpoints](../whitepaper/sections/12-earlier-checkpoints.tex) | Dated research checkpoints that precede `R_0` and gate nothing at launch: the origin detector baseline, grammar and CFG-vector results, V6 and its adaptation, and earlier author experiments. |
 
 The launch sequence, commercial activation authority, the raw-text *A* input
@@ -3440,25 +3571,32 @@ contract, `reward-v2` with `quant-v1`, the copy policy, validators committing
 the coordinator's signed row, private submission, the artifact cap, daily
 cohorts, the batch design and reuse rule, the human stocks, the lookup canary's
 consequence, fan-out dispatch, and authorization without expiry are
-settled, as are the shipped span head and S2c as the span head of the first
-package that serves spans, the Common Crawl stock rules (domain rules v3, share
+settled, as are the shipped span head, S2c as the span head of SlopNinja's
+first span package, span package d24 as the span-serving package and the span
+gate's anchor, the span gate's form (margins against that anchor on the same
+batch, report mode on live cohorts before any manifest enforces it, artifact
+spec v5), the Common Crawl stock rules (domain rules v3, share
 table v5, cohort profile v1 and gate definitions v2), the writer-profile basis,
-the licences and reference-package publication, the testnet reference with its
-one advance-announced replacement, the mainnet opening reference, and the testnet rule that
+the licences and reference-package publication, the testnet reference with the
+span-equivalent decision and its one advance-announced replacement, the
+mainnet opening reference, the testnet rule that
 cohorts without a working outside entrant reuse exposed documents instead of
-drawing fresh stock. Whitepaper draft 0.61 incorporates the proposal with the following choices marked open; each must be
+drawing fresh stock, with the testnet-only lift of their reuse limits,
+pre-finalized scores and testnet `live-v1` readings, cluster placement by the
+earliest-admitted member for `reward-v2`'s successor, the operator decisions,
+and the detection page with the public pot's custody and burn rule. Whitepaper draft 0.63 incorporates the proposal with the following choices marked open; each must be
 settled before the corresponding feature goes live:
 
 1. *A*'s supported numerical architectures, identity policy, profile pooling,
    and the detailed enrollment policy for permitted public/licensed references.
-   Gate thresholds for share, attribution, spans
+   Gate thresholds for share, attribution
    and both pure-human false-positive tiers, fixed after measurement as floors
    against unusable outputs rather than improvement targets, with `R_0`'s
    measured share error (15.5 points) and attribution top-1 (0.35) among that
    evidence; the criteria of the signed review that clears a blocked
-   candidate; span serving in the scorer, which admission of the span graph
-   awaits, a calibrated S2c package, and whether a versioned manifest admits
-   its wider graph; and the learned writer-profile matcher, qualified on fresh authors
+   candidate; the span gate's margins, fixed after measurement on the sealed
+   batches of closed testnet cohorts, and the first manifest that enforces the
+   gate, which needs artifact spec v5's miner client release; and the learned writer-profile matcher, qualified on fresh authors
    with thresholds measured on withheld writers and real style-transfer data,
    before any profile backs `provided_writer` or *B*'s author-fit feedback. The
    mainnet era-gate re-measurement precedes mainnet live rewards. Explanations
@@ -3479,7 +3617,10 @@ settled before the corresponding feature goes live:
    primary heartbeat, RPC gap backfill, and the one-minute cron watchdog's
    public-RPC fallback. No resident chain subscriber is required. Evaluation
    semantics remain frozen across operational upgrades, and no runtime version
-   gates anything. Calibrate numbers on development evidence rather than
+   gates anything. Qualify the `live-v1` budget at mainnet's batch size and
+   roster together with the quantization budget, and before mainnet close the
+   timing channel that slow arithmetic on chosen inputs could open in the
+   published challenge counts. Calibrate numbers on development evidence rather than
    final-test results.
 3. *C*'s later activation with *B*'s grammar use, and its contribution and
    correctness contract, overlap attribution, award size, settlement/weight-expiry
@@ -3493,13 +3634,19 @@ settled before the corresponding feature goes live:
    baseline share. Testnet subnet 601 uses an operator configuration with the
    validator share just above that baseline (owner 19.08%, validators 39.80%, miners 41.12%
    on October 30, 2026); it is not a mainnet commitment.
-4. Qualifying the selected Coinbase Onramp integration for native TAO, supported
+4. For paid jobs, qualifying the selected Coinbase Onramp integration for native TAO, supported
    card methods, any additional Solana route, wallet/custody and chain-record implementation,
    signing/rotation rules, delivery acceptance and any acknowledgment requirement,
    refund/burn deadlines, burn authority under the ownership/lease agreement,
-   and funded operating/reserve arrangements. Customer
-   principal's burn route is fixed. Fast automated checkout is the target;
+   and funded operating/reserve arrangements. A paid job's
+   principal burn route is fixed. Fast automated checkout is the target;
    exact settlement latency and original-payment refunds need qualification.
+   For the detection product: the detection page's serving parity, abuse
+   controls and wording before it opens; the merchant-of-record processor for
+   the detection API; the advisers' review of the pot's charter, rules and
+   wording and a testnet rehearsal of its custody, monthly statement and
+   tranche mechanics before the first deposit; and, after registration, each
+   purchase and burn checked against finalized chain state.
 5. Before later *B*: model/base qualification, content-privacy controls, panel
    ranking, report selection, benchmark/service/incident authority, native
    mechanism remapping, measured workload/review capacity, and the qualified

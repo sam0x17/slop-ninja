@@ -54,9 +54,16 @@ repository is <https://github.com/sam0x17/slop-ninja>. The commands fetch everyt
   whitepaper's promotion rule says. Its artifact was published when its
   cohort's scoring started, like every admitted artifact.
 - **Reference decisions.** Separately, the operator may set the reference by
-  a recorded decision ([terms](terms.md#operator-decisions)). One is planned:
-  replacing R0 by the next reference SlopNinja trains, only if that model
-  passes every required gate, announced in advance on the status page.
+  a recorded decision ([terms](terms.md#operator-decisions)). Before the
+  first cohort that enforces the span gate (a check of each entrant's AI
+  spans against d24's on the same batch; no cohort enforces it yet), one signed
+  span-equivalent reference decision passes R0's position to span package
+  d24 ([reference packages](reference-packages.md)), after d24 runs once as
+  an ordinary entry, so that it is published and fingerprinted; it changes no
+  reward input and is not the planned replacement. That replacement is
+  planned separately: replacing R0 by the next reference SlopNinja trains,
+  only if that model passes every required gate, announced in advance on the
+  status page.
 - **The burn rule.** Testnet follows the whitepaper's rule: no miner earns,
   and the pool burns, until an entrant beats the reference by δ. The
   [miner guide's Rewards section](miner-guide.md#13-rewards) gives the score,

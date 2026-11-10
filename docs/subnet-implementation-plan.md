@@ -1,7 +1,7 @@
 # Subnet implementation plan
 
-November 9, 2026. This plan implements the [Cloudflare design](cloudflare-subnet-draft.md)
-and [whitepaper draft 0.62](../whitepaper/main.tex). It describes work to build and qualify;
+November 10, 2026. This plan implements the [Cloudflare design](cloudflare-subnet-draft.md)
+and [whitepaper draft 0.63](../whitepaper/main.tex). It describes work to build and qualify;
 it does not establish a deployed subnet. Launch includes A alone. B and C have
 separate activation requirements. A reads raw text; the native grammar serves
 later B and C. The shared protocol crate implements the `reward-v2`
@@ -35,12 +35,15 @@ its own quality, funding, and payment checks.
   never gate application progress. Their timely chain participation still affects
   native consensus and payouts. No coordinator can pause the chain's emissions.
 - A miners submit text model artifacts (ONNX graph, fixed tokenizer, heads,
-  calibration) within the artifact cap: an allow-listed ModernBERT-base graph,
-  with or without the token span head, at most 160M parameters, the
+  calibration) within the artifact cap: one of three allow-listed graph
+  classes (the ModernBERT-base graph, the same graph with the token span head,
+  and the tower class that adds trained copies of encoder layers 18–21 and the
+  final norm for that head) within its parameter bound, 160M for the first two
+  and 173.5M for the tower class, the
   allow-listed tokenizer byte for byte, and schema-validated calibration and
   contract files (no separate byte cap). A miner commits only the digest on chain
-  and uploads the artifact privately; the coordinator publishes it after the
-  cohort ends, licensed CC BY-SA 4.0. SlopNinja pays
+  and uploads the artifact privately; the coordinator publishes it when its
+  cohort's scoring starts, licensed CC BY-SA 4.0, and never recalls it. SlopNinja pays
   hosted evaluation and serving costs. Training remains the miner's expense.
   Miners receive no customer text or hidden evaluation data. Project code and
   documentation are MIT OR Apache-2.0, except files and datasets with their
@@ -49,10 +52,14 @@ its own quality, funding, and payment checks.
   public reference package uses synthetic replay cases, carries no evaluation
   text, and passes a package-corpus scan. Paid A serves a published, qualified
   artifact (`R_0` once its public package is published).
-- Rewards follow `reward-v1`: a reference model that changes only on
-  improvement (on testnet, `R_0` on a fresh chain record, replaceable once,
-  announced in advance, by the next qualified reference; mainnet opens a fresh
-  chain record with the reference testnet then holds), SN78's geometric
+- Rewards follow `reward-v2`, the `reward-v1` band rule on `quant-v1`
+  quantized scores: a reference model that changes by cohort promotion or by a
+  signed operator reference decision with a recorded reason (on testnet, `R_0`
+  on a fresh chain record, whose position passes to the first span package by
+  the span-equivalent decision before the first cohort that enforces the span
+  gate, and one replacement, announced in advance, by the next qualified
+  reference; mainnet opens a fresh chain record with the reference testnet
+  then holds), SN78's geometric
   band mechanism with frozen signed parameters, no credit for exact or near
   copies of published artifacts, equal splits
   within near-duplicate clusters, a 15% fallback cutoff against
@@ -269,7 +276,9 @@ registration.
    paused states with durable generation checks and per-phase boundary counts.
    Detect boundaries as finalized increments of the epoch index. Transition
    issues no new challenges and lasts at least two tempos; the score package is
-   published before it and the artifacts and openings at its closing boundary.
+   sealed before it, the artifacts are published when scoring starts, and the
+   quantized result's values and the openings are published at its closing
+   boundary.
    A cohort lasts at least `K = 20` tempos (`K = 4` in rehearsal manifests).
    Advance only after required application work and phase minima are complete at an eligible tempo
    boundary. Record one weight intent per epoch for the active target. Lease expiry stops new authorized work; recovery does not debit the
@@ -287,6 +296,19 @@ registration.
    stored tasks after queue retention expires. Reclaiming a
    task does not itself spend a compute retry. Persist outcomes before acknowledging
    delivery, and select retry results by the frozen attempt-order rule.
+
+   Give every precondition in the evaluation service, coordinator, publisher and
+   validator a journaled operator path past it: the operator decisions abandon
+   an unclosed cohort, refuse to pay a finished one, switch to burn and open a
+   fresh record from `R_0` (the only way to change the reward rule), set
+   references by a signed decision with a recorded reason, and rotate the
+   authorization key at re-registration. Each publishes a signed, content-free
+   record of its reason; those that decline a result, change reward inputs or
+   restart the record also need the separate offline operator-decision key,
+   verified only by the coordinator and the evaluation service. No outage
+   triggers one, and none reassigns paid rewards. Most of these paths and the
+   key's verification are built but not yet deployed
+   ([coordinator rules](agents/coordinator.md) list what is not built yet).
 
    Done when missed/duplicate/reordered webhooks, a delivery stall that enters and
    leaves fallback mode, queue loss, delayed work, expired claims, and deployment
@@ -384,11 +406,14 @@ registration.
    bound and involvement upper bound on expected share.
 
    Implement private submission: an on-chain digest commitment through the
-   chain's commitment call, a private upload of the artifact and opening into
-   the coordinator's private evaluation bucket (encrypted to the coordinator key
-   where qualified), digest checks, and publication of every artifact and opening
-   in the package after the cohort closes. Enforce the manifest's graph allow-list,
-   parameter limit, tokenizer match, file schemas and compute limits. Enforce isolation from network access, online
+   chain's commitment call, the opening in a signed admission session, a
+   private upload of the artifact's header and files straight to the
+   coordinator's private R2 admission bucket by presigned PUTs that R2 verifies
+   against their committed SHA-256 on arrival (TLS and the private bucket are
+   the privacy boundary; there is no encryption layer), publication of every
+   admitted artifact when its cohort's scoring starts, and publication of the
+   commitment openings when the cohort closes. Enforce the manifest's graph allow-list,
+   per-class parameter bounds, tokenizer match, file schemas and compute limits. Enforce isolation from network access, online
    learning, undeclared mutable state, and cross-job model state. A miner needs
    no Cloudflare account or delegated inference credential.
 
@@ -416,7 +441,10 @@ registration.
    public stock only, and a testnet cohort whose roster has no admitted outside
    entrant with a working artifact draws only already-exposed documents (pool
    v1, the public-candidate refill and earlier testnet draws), redrawing them as
-   negatives without limit while parent uses keep the use limit and gap; fresh
+   negatives without limit while parent uses keep the use limit and gap unless
+   the plan names the versioned testnet-only exposed-pool reuse rule, which
+   lifts both for exposed pools (built, not yet deployed; refused off testnet
+   or beside a fresh pool); fresh
    stock is drawn only for a cohort with such an entrant, and the coordinator
    refuses any other pool (`EXPOSED_POOLS`, `fresh_stock_refused`). When a domain or the stock runs short, reweight or
    retire domains under a new manifest,
@@ -426,7 +454,9 @@ registration.
    every executed entrant once on the private fingerprint probe; Containers own
    no cohort authority. A crash counts against an artifact only when it
    reproduces on a fresh instance in single-document isolation under the
-   frozen limits. Apply `reward-v1` and preserve assigned failures in
+   frozen limits. Apply `reward-v2` (whose successor rule, not yet
+   implemented, places a near-copy cluster by its earliest-admitted member and
+   takes effect only through a fresh record) and preserve assigned failures in
    denominators. Audit every promotion candidate with the lookup canary; a
    first flag triggers a same-cohort re-audit on a fresh Common Crawl draw,
    and two flags block the candidate, so the next retained cluster head in rank
@@ -495,22 +525,33 @@ registration.
    existing journaled adapter. Startup reconciles history before loading the
    signing path for new operations.
 
-   Publish aggregate per-miner score components and enough public inputs to
-   recompute eligibility arithmetic, allocation, and the canonical row. Publish
-   a content-free receipt for every inference attempt, including failures and
-   uncertain outcomes. Bind the full R2 index, count, object digests, and root to
-   the signed package. Exclude private texts, labels, per-example predictions,
-   parsed features, credentials, and commitment openings.
+   Publish the signed public quantized result, from which anyone can recompute
+   allocation and the canonical row, and the coordinator's signed row record.
+   Write a content-free R2 receipt for every inference attempt on cohort text,
+   including failures and uncertain outcomes, and bind the R2 index, count and
+   root into the coordinator's signed private score package; receipts are
+   coordinator-private audit evidence, never published or sent to validators.
+   Publish no private texts, labels, per-example predictions, exact scores,
+   parsed features or credentials; the commitment openings are published when
+   the cohort closes.
 
-   Validators verify current authority, package signatures, artifact/registration
-   bindings, each commitment's position against their own finalized view, the
-   copy-check consistency, and every retained receipt object before a new
-   commitment. Make large
-   package verification bounded and resumable. Derive the row independently and
-   compare any proposed row with that result. A local verification failure pauses
-   that validator's new commitments without blocking the coordinator. These
-   checks verify arithmetic and receipt integrity; hidden evaluation results
-   remain coordinator assertions.
+   Before the close, show each executed entrant's quantized score or withheld
+   outcome, marked pre-finalized, as soon as it is fixed, computed by the same
+   code and draw as the result, and let testnet cohorts release a few `live-v1`
+   segment readings during scoring under their own privacy parameter, counted
+   in the bit budget, with an operator stop. Release no rank, band, cutoff
+   mode, gate, public-copy, cluster or unit value before the close. Both are
+   built but not yet deployed; they change nothing until a cohort template
+   names them ([rewards rules](agents/rewards.md)).
+
+   Validators verify the coordinator's row record under their pinned keys,
+   check that it names the authorization and a held or later target, journal
+   the revocations, and commit its entries; they need no package, receipt or
+   hidden data to commit. A validator may recompute the row from the public
+   result, check models in its own way and publish its own scores; those checks
+   are advisory and never change its row. A local verification failure pauses
+   that validator's new commitments without blocking the coordinator. Hidden
+   evaluation results remain coordinator assertions.
 
    All validators re-commit the active target at every tempo using separate
    keys, nonces, and journals. No one waits for the coordinator's chain row or a
@@ -626,6 +667,22 @@ registration.
    attribution, self-purchase controls, caps, and unused-pool handling. Sales may
    open with quality-only rewards. Price markup and alpha burning do not guarantee
    miner solvency or a particular market price.
+
+   Before mainnet, the detection product earns revenue on its own route. The
+   [detect Worker](../subnet/detect-worker/README.md) behind the free page at
+   `/detect/` is built but not yet deployed. The page scores pasted text with
+   span package d24 in SlopNinja's own runtime, stores none, and opens only
+   after its serving parity, abuse controls and wording are checked. A paid
+   detection API follows once the package is published, paid through a
+   merchant-of-record card processor or directly in TAO. Its revenue and every
+   advertising, sponsor and processor payout go into the public pot (native TAO
+   in a published two-of-three multisignature account with an independent third
+   signer and a public ledger), not through the per-job burn route. Qualify the
+   processor, and rehearse the pot's custody, monthly statement and tranche
+   mechanics on testnet with test funds before its first deposit; after mainnet
+   registration the pot buys and burns that subnet's alpha in daily tranches
+   bound to the registration, and its TAO is burned if mainnet is abandoned.
+   The paid detection API and the pot are not yet implemented.
 
    Done when sandbox-funded jobs survive timeouts and duplicate callbacks, return
    the quoted refunds, and burn the correct principal once after valid delivery.

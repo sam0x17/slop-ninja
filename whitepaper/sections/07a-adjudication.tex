@@ -180,8 +180,9 @@ evaluated prose are data. Blinded reader studies must have enough power for
 the claims made about voice and quality.
 
 Pangram's reported AI-plus-assisted fraction \(F_r(t)\) differs from a
-document-level probability of AI involvement~\cite{pangramapi}. Retaining the
-three-observation proposal for each source and candidate gives
+document-level probability of AI involvement~\cite{pangramapi}. The proposal
+takes three Pangram observations, \(r=1,2,3\), of each source and of each
+candidate, which gives
 \begin{equation}\label{eq:evasion-improvement}
  \Delta_P(x,z)=\min_r F_r(x)-\max_r F_r(z).
 \end{equation}
@@ -241,8 +242,14 @@ how unchecked candidates are scored and how provider drift is detected.
 \subsection{Service and outcome accounting}\label{service-evidence}
 \label{adversarial-feedback-loop}
 
-Later mandatory training service has separate \textit{A}-requester and
-\textit{B}-provider classes. No such duties apply to the \textit{A}-only launch.
+Once \textit{B} is active, the adversarial loop of Section~\ref{purpose-and-scope}
+is to run as a mandatory training service. An \textit{A} miner, the requester,
+submits authorized training text through the coordinator, and an assigned
+\textit{B} miner, the provider, must return revisions of it, which the requester
+receives as training examples for its detector; each side's emission
+eligibility then depends on its service record below. The two roles form
+separate \textit{A}-requester and \textit{B}-provider service classes. No such
+duties apply to the \textit{A}-only launch.
 Before issue, reserve shared evaluation resources, candidate-report funding,
 and the provider's accepted inference budget. The requester pays no extra
 service price; the provider absorbs its participation costs for potential

@@ -78,9 +78,13 @@ November 7, and a `reward-v2` cohort with an outside entrant has since run end
 to end (on-chain commitments, direct uploads, publication at scoring start,
 scoring and close), with a second one scored. No live row has yet paid more than one UID, validators still
 trust the coordinator's published-artifact index, receipt deletion runs except
-for the cohorts just before the record restart, and the span gate, the signed
-updater, pre-finalized scores, cluster placement by the earliest-admitted member
-and most operator decisions are not yet implemented. Dated research results remain
+for the cohorts just before the record restart, and the signed updater and
+cluster placement by the earliest-admitted member are not yet implemented.
+Most operator decisions with the operator-decision key's verification, the
+span gate in report mode with artifact spec v5, pre-finalized scores and
+segment readings, and the service behind the detection page are built but, as
+of November 9, not yet deployed, so no cohort has yet evaluated spans;
+enforcing the gate is not yet implemented. Dated research results remain
 distinct from a qualified model or live service.
 
 The operator's lead validator is the serverless coordinator. It runs hidden

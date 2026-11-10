@@ -330,11 +330,12 @@ predecessor and changes no score, margin, or cutoff; it is not the planned
 replacement by a retrained reference. Before that decision it runs once as an
 ordinary cohort entry, so that, as for any reference, its artifact is
 published, its content digest enters the published-artifact index, and its
-probe fingerprint is recorded. The current artifact spec checks only that
-a decoder's minimum span length is at least one word; artifact spec v5 refuses
-an artifact without a token-level head or with a decoder whose minimum span is
-under 24 words. Until a manifest enforces the gate, cohort scoring does not
-evaluate spans (Section~\ref{implementation-status}).
+probe fingerprint is recorded. The artifact spec that testnet cohorts name
+today checks only that a decoder's minimum span length is at least one word;
+artifact spec v5 refuses an artifact without a token-level head or with a
+decoder whose minimum span is under 24 words. Spec v5 and the gate's report
+mode are built but not yet deployed, so no cohort has yet evaluated spans
+(Section~\ref{implementation-status}).
 
 A further extension could identify words and constructions that materially
 influence a score, starting from the token-level outputs. Test explanations by

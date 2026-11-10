@@ -152,10 +152,11 @@ that differ by 1\% of headroom, the measured training-seed noise floor, would
 need about 126,000 documents under the sealed Test's design, where the same
 standard error is about 4.0\% of headroom at 1,000 cases, for a two-sided 5\%
 test at 80\% power. \texttt{reward-v2} therefore sets its eligibility margin and
-band width at about two standard errors before quantization adds its own noise;
-within a band, rank order still sets the geometric split, so differences below
-the noise still change pay, and across a band boundary they can reverse its
-order (Section~\ref{reward-v1}). Container scoring costs about \$0.03--\$0.34 per
+band width at about two standard errors before quantization, whose grid is
+coarser still: at the batch sizes and rosters given here a band is one grid
+step, so the clusters in a band tie and share its credit equally, while
+differences below the noise still move clusters across band boundaries, where
+they can reverse the order of pay (Section~\ref{reward-v1}). Container scoring costs about \$0.03--\$0.34 per
 1,000 documents, depending on length and instance size
 (Section~\ref{existing-evidence-and-implementation-status}).
 
@@ -449,8 +450,8 @@ figures for structurally different entrants, taken at its midpoint of about
 \(4.6\sigma\) under a normal approximation, are illustrative. Which kind of
 roster the subnet will see is not yet measured. Once structurally different
 models of equal quality compete, rather than seed retrains of \(R_k\),
-promotion rather than fallback is the expected
-case, and the reference changes hands among equally good models. The same noise
+promotion is the expected case, and the reference changes hands among equally
+good models (Section~\ref{reward-v1}). The same noise
 can promote a worse model; the strict false-positive tier and the canary bound
 human false positives and lookup, not quality.
 
@@ -698,8 +699,10 @@ about 40--48\% of the reference's headroom here, depending on the estimand, and
 put almost every entrant in one band. \texttt{reward-v2} therefore keeps the
 mechanism and the ratios between its parameters, sets the band width from the
 measured standard error, and rounds it up to whole grid steps, which can only
-widen it. At testnet's full roster the grid, not the standard error, sets the
-band: one 0.03 step.
+widen it. The grid is at least twice \(R_k\)'s own standard error, which
+exceeds the paired standard error between entrants, so at every batch size and
+roster given here the grid, not the standard error, sets the band: one step,
+0.03 at testnet's full roster and 0.02 with eight entrants.
 
 \begin{table}[H]
 \centering
@@ -811,9 +814,9 @@ models as good as \(R_k\), including new models from \(R_k\)'s author, earn in a
 fallback cohort, while detected copies of \(R_k\) fail the public-copy gate
 (Section~\ref{reference-model}). For example, on a 0.01 grid, if \(R_{k-1}\)
 scores 0.94 on the batch and the top entrant 0.96, \(C_N\) is 0.943 and the
-cutoff 0.95. An entrant just
-short of the margin therefore earns in a fallback cohort but not when another
-entrant passes it. At testnet's full roster the 0.03 grid is wider than the
+cutoff 0.95. An entrant whose released score is just short of the margin
+cutoff therefore earns in a fallback cohort but not when another entrant
+reaches the cutoff. At every roster given here the grid is wider than the
 unrounded margin, so the margin cutoff is one grid step above
 \(\hat S_{R_k}\). When \(\hat S_{R_k}=1\), or when neither the margin nor the
 fallback cutoff applies, the cohort produces no new target: the previous target
@@ -852,27 +855,40 @@ rounded half to even; the canonical row and its digest remain the audited
 record.
 \end{enumerate}
 
-Because an entrant short of the margin earns only in a fallback cohort, how
-often an equally good entrant earns depends on the roster. With ten entrants
-equal to \(R_k\) that resemble its seed retrains, 79--86\% of cohorts fall back,
-and in those an entrant earns whenever it reaches \(C_N\). Among ten
-structurally different equal entrants, each earns only when it clears the margin
-itself, about a third of the time, or in the 2--20\% of cohorts that fall back:
-in a third to at most a half of cohorts, chosen by batch noise.
-A detected copy of an earlier artifact earns nothing, so each artifact takes
-that draw once, apart from a perturbed copy that escapes detection (described
-below), and equally good entrants earn equally only in expectation over many
-artifacts. These rates are computed on exact scores; the rounded cutoff and the
-release noise change them, and they are measured again under
-\texttt{reward-v2} on simulated rosters before launch
-(Section~\ref{protocol-checks-before-launch}).
+An entrant earns in a margin cohort when its released score reaches the margin
+cutoff, and in a fallback cohort when it reaches \(\hat C_N\). Because the
+cutoff is one grid step above \(\hat S_{R_k}\) and every released score carries
+its own secret offset and noise, an entrant equal to \(R_k\) reaches it by the
+draws alone: about a sixth of the time when it enters alone on a 0.02 grid,
+which while the launch burn lasts is enough to end it
+(Section~\ref{lagged-payout}), about a quarter with ten entrants on that grid,
+and about 35\% at testnet's full roster. A simulation of \texttt{quant-v1} as
+stated in Section~\ref{quantized-scores}, with \(R_k\)'s exact score at a
+uniform position on the grid and 0.062 headroom, gives the cohort outcomes for
+rosters of entrants equal to \(R_k\). With ten that differ from it as its seed
+retrains do, about a third of cohorts have no entrant at the margin cutoff and
+fall back where a predecessor allows, about 61\% are margin cohorts without a
+promotion, and about 6\% promote; with forty, these are about 7\%, 78\%, and
+15\%. With ten to forty structurally different equal entrants, three quarters
+to nine tenths of cohorts promote. The usual outcome for a roster of seed
+retrains is therefore a margin cohort that pays the entrants whose draws lifted
+them to the cutoff and keeps \(R_k\), and an equally good entrant earns in a
+quarter to a third of cohorts, chosen by its draw. A detected copy of an
+earlier artifact earns nothing, so each artifact takes that draw once, apart
+from a perturbed copy that escapes detection (described below), and equally
+good entrants earn equally only in expectation over many artifacts. These rates
+leave out the strict false-positive tier and the canary, which can only lower
+promotion, and they are measured again under \texttt{reward-v2} on simulated
+rosters before launch (Section~\ref{protocol-checks-before-launch}).
 
 With \(r=0.85\), a lone cluster receives the whole pool, and two clusters with
-different quantized scores receive 54.1\% and 45.9\% whether they share a band
-or not, which the row encodes as 35,424 and 30,111 of its 65,535 units; two
-with equal quantized scores receive 50\% each. A crowded band divides its
-share: with two clusters in the top band and one below, they receive 29.2\%,
-24.8\%, and 45.9\%. With \(r=17/20\), each credit is already a fraction in
+different quantized scores, which with one-step bands lie in different bands,
+receive 54.1\% and 45.9\%, which the row encodes as 35,424 and 30,111 of its
+65,535 units; two with equal quantized scores receive 50\% each. A crowded band
+divides its share equally among its tied clusters: with two clusters in the top
+band and one below, they receive 27.0\%, 27.0\%, and 45.9\%. The rank split
+within a band applies only to a band wider than one grid step, which no
+parameter set given here produces. With \(r=17/20\), each credit is already a fraction in
 lowest terms; the private score package records every cluster's exact credit,
 and the public result releases band ranks and units. All arithmetic uses exact
 integers and rationals over the fixed-point quantized scores, so anyone can
@@ -882,13 +898,13 @@ holds at most 256 entrants, the subnet's UID limit.
 A band's share depends on its rank among occupied bands, not on how many
 clusters it holds, so credit is not monotone in score across a band boundary. A
 cluster alone in the lower of two occupied bands receives 45.9\% however many
-clusters share the band above, 2.2 times the best of three there and 3.2 times
-the best of five; alone in the third of three bands, it receives 28.1\%. Subnet
+clusters share the band above, 2.55 times each of three there and 4.25 times
+each of five; alone in the third of three bands, it receives 28.1\%. Subnet
 78's 2.5-point bands seldom divide a roster, so its experience does not cover
-this case. Bands here often do: the paired difference between two equally good
-entrants has a standard error of about half an unrounded band, the release
-noise adds more, and the band grid is fixed in absolute score, so where a roster
-divides depends on the batch and the noise draw. A score
+this case. Bands here often do: a band is one grid step, each released score
+carries its own secret offset, uniform over a grid step, and its own noise, and
+the band grid is fixed in absolute score, so where a roster divides depends on
+the batch and the draws. A score
 difference below the noise can therefore reverse the order of pay. The split is
 kept from the ported mechanism, and what it buys is the same property: a band's
 share does not shrink as other bands fill, so a crowd of entries in one band,
@@ -941,17 +957,15 @@ cases the batch comparison alone is cleared nearer the floor, but the
 1,024-document probe comparison with \(R_k\)'s fingerprint
 (Section~\ref{public-copies}) then binds: clearing both in about 99\% of cohorts
 costs about \(4.7\times10^{-4}\), about a fifth of a band. That cheapest copy
-stays in the reference's band, takes a within-band slot in a fallback cohort, and
-must be rebuilt each cohort because its own artifact is published. Once a
-predecessor exists, fallback is the expected case while entrants
-resemble seed retrains of the reference: ten such entrants equal to \(R_k\)
-promote none about 86\% of the time, although structurally different equal
-entrants usually promote one (Section~\ref{reference-model}). A tolerance
+earns like an entrant equal to the reference: in a margin cohort when its draws
+lift it to the cutoff, about a third of the time at testnet's full roster, or
+in a fallback cohort when it reaches \(\hat C_N\); and it must be rebuilt each
+cohort because its own artifact is published. A tolerance
 large enough to price an escape at a full band would be
 about 0.07, near the distance between independent retrains of the launch
-recipe, so no prediction tolerance can price it. With \(r=0.85\), an honest
-cluster that shares a band with one such copy receives 54.1\% of the band's
-share. Clustering uses the same distance, so a sybil variant of an entrant
+recipe, so no prediction tolerance can price it. An honest cluster that shares
+a band with one such copy has the same quantized score and receives half of the
+band's share. Clustering uses the same distance, so a sybil variant of an entrant
 costs the same to separate from its cluster.
 
 Adding more noise escapes just as surely and lowers a copy's score by any chosen amount,
@@ -966,8 +980,7 @@ entrant whose model clears the margin by more than a band can do the same with a
 weaker variant under a second hotkey, and any entrant can submit less than its
 best model. Such an entry aims blind: the batch, the grid's position, the secret
 offset, the noise, and the cutoff are unknown at commitment, and a miss earns
-nothing below the cutoff or a
-low slot in a crowded band. Its expected credit against realistic rosters has
+nothing below the cutoff or an equal part of a crowded band's share. Its expected credit against realistic rosters has
 not been measured, and that measurement precedes launch
 (Section~\ref{protocol-checks-before-launch}). Where it lands alone, it can earn
 more than each honest cluster above it; this is a stated limit of the ported
@@ -1016,7 +1029,7 @@ earliest-committed entrant's become the fingerprint. Each artifact therefore
 runs on the probe only in its own cohort. An artifact that was never executed
 carries no fingerprint and is protected by its content digest alone.
 
-The probe carries no reward weight. Its labels serve only the \(w/2\) exception
+The probe carries no reward weight. Its labels serve only the \(w_S/2\) exception
 against fingerprinted artifacts. Its human texts are withdrawn from the hidden
 stock and never scored. The probe and the fingerprints stay private, and each
 manifest binds at least one probe version, of at most 65,536 documents, by

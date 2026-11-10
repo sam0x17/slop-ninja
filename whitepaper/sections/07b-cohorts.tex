@@ -359,8 +359,10 @@ old key, so losing it locks nothing. The paths are these:
 \item \emph{Abandon.} The operator may end any cohort that has not closed,
 including a queued cohort or one with no fault. The abandonment record names the
 cohort's phase and digests, the cohort produces no target, and its number is
-never reused. An abandonment in packaging or the transition, when the outcome
-may already be known, declines that outcome and needs the operator-decision key.
+never reused. An abandonment once scoring has started, when pre-finalized
+scores may already be public and the outcome may already be known, declines
+that outcome and needs the operator-decision key; a cohort stopped by a fault
+can still be abandoned for that fault without it.
 \item \emph{Refusal to pay.} The operator may refuse to pay a finished cohort by
 declining its closure, by abandoning it late, or by naming it in a switch to
 burn, each under the operator-decision key. A declined result is never

@@ -1440,6 +1440,56 @@ fn the_rollback_check_holds_a_v2_held_target_record() -> Result<()> {
     Ok(())
 }
 
+/// `rollback-check --retire` over a v2 held-target record retires nothing:
+/// the record makes the rollback roll-forward only, so the journal's
+/// retirement step never runs and queued work keeps its label (retiring it
+/// would shift labels one epoch for a rollback that cannot happen). Without
+/// the record, or with a v1 one, `--retire` runs that step. At this pin no
+/// work-level field blocks, so the step's call is what is observed.
+#[test]
+fn the_rollback_check_retires_nothing_over_a_v2_held_target_record() -> Result<()> {
+    let root = scratch()?;
+    let config = config(root.path())?;
+    init_journal(&config, identity())?;
+    let id = {
+        let mut app = TestApp::open(&config, &bundle())?;
+        app.bundle = launch_bundle(10);
+        app.epoch = 12;
+        enqueued(&block_on(apply(&mut app, &head(), Mode::Dispatch, &Faults::none()))?).0
+    };
+    let path = crate::live::held_target_path(&config.journal_path);
+    let activated = slop_ninja_protocol::ActiveTarget::restore(&chain(), slop_ninja_protocol::Digest([0x5a; 32]), Some(40))
+        .map_err(|e| anyhow::anyhow!("{e}"))?;
+    let check = |retire: bool| -> Result<(serde_json::Value, bool, bool)> {
+        let mut ran = false;
+        let (report, safe) = crate::live::rollback_check_with(&config, retire, |controls| {
+            ran = true;
+            controls.retire_for_rollback()
+        })?;
+        Ok((report, safe, ran))
+    };
+    // No record, then a v1 one: --retire runs the retirement step.
+    for v1 in [false, true] {
+        if v1 {
+            let mut record = crate::package_v2::HeldTargetFile::of(&activated);
+            record.schema = crate::package_v2::HELD_TARGET_SCHEMA_V1.into();
+            std::fs::write(&path, serde_json::to_vec_pretty(&record)?)?;
+        }
+        let (report, safe, ran) = check(true)?;
+        assert!(safe && ran, "{report}");
+        assert!(!check(false)?.2, "without --retire nothing is retired");
+    }
+    // A v2 record: roll forward only, and the step never runs.
+    let v2 = crate::package_v2::HeldTargetFile::of(&activated).with_floor(Some(50));
+    std::fs::write(&path, serde_json::to_vec_pretty(&v2)?)?;
+    let (report, safe, ran) = check(true)?;
+    assert!(!safe && !ran, "{report}");
+    assert_eq!(report["retired"], serde_json::json!([]));
+    assert!(report["next"].as_str().is_some_and(|next| next.contains("roll forward only")), "{report}");
+    assert_eq!(slop_ninja_subnet::JournalControls::open_existing(&config.journal_path)?.retired(&id)?, None);
+    Ok(())
+}
+
 #[test]
 fn a_reward_v1_launch_bundle_never_expires_and_a_revocation_stops_it() -> Result<()> {
     let root = scratch()?;

@@ -3337,12 +3337,28 @@ fn held_target_blocker(journal: &std::path::Path) -> Result<Option<slop_ninja_su
 /// held-target record (a v2 record, which a build before P1-V refuses:
 /// [`HELD_TARGET_BLOCKER_FIELD`]). Returns the redacted report and whether
 /// nothing blocks the rollback.
+///
+/// The held-target record is read first: a v2 record makes the rollback
+/// roll-forward only, so nothing is retired then, as for the journal's own
+/// roll-forward-only blockers (retiring would only shift labels one epoch
+/// for a rollback that cannot happen).
 pub fn rollback_check(config: &ValidatorConfig, retire: bool) -> Result<(serde_json::Value, bool)> {
+    rollback_check_with(config, retire, slop_ninja_subnet::JournalControls::retire_for_rollback)
+}
+
+/// [`rollback_check`] with the journal's retirement step as `retire_work`
+/// (a test observes whether it runs).
+pub(crate) fn rollback_check_with(
+    config: &ValidatorConfig,
+    retire: bool,
+    retire_work: impl FnOnce(&slop_ninja_subnet::JournalControls) -> Result<Vec<String>>,
+) -> Result<(serde_json::Value, bool)> {
     let controls = slop_ninja_subnet::JournalControls::open_existing(&config.journal_path)
         .context("the journal is held by a running validator, or missing; stop the unit first")?;
-    let retired = if retire { controls.retire_for_rollback()? } else { Vec::new() };
+    let held = held_target_blocker(&config.journal_path)?;
+    let retired = if retire && held.is_none() { retire_work(&controls)? } else { Vec::new() };
     let mut blockers = controls.rollback_blockers()?;
-    blockers.extend(held_target_blocker(&config.journal_path)?);
+    blockers.extend(held);
     let safe = blockers.is_empty();
     let next = if safe {
         "a build at the previous pin can open this journal; install it before starting the unit again"

@@ -714,7 +714,8 @@ slop_ninja_validator --config <config> rollback-check --retire
 journal), reads no chain and loads no key. With `--retire` it first retires
 any blocking work that never signed (`rollback_prepared`), through the same
 journaled retirement as superseded work; at this pin no work-level field
-blocks, so it retires nothing. It prints the remaining blockers and the next
+blocks, so it retires nothing. It never retires while the journal or the
+held-target record is roll-forward only (a v2 record is read first). It prints the remaining blockers and the next
 step and exits 0 when none remain, else 3. Work with a signed attempt
 awaiting recovery, or a landed commit not yet handed back, settles only by
 running this build: start it again and check later. A validator restarted

@@ -1795,8 +1795,8 @@ fn a_restart_waits_for_unresolved_attempts_and_for_a_lagging_index() {
     assert_eq!(decide_restart(&h, signed(restart_body(&h, "att-1", 250, 250, &[], &[], None)), 300), Err("attempt_unresolved"));
     assert_eq!(counts(&h), before, "nothing changed");
     h.db.conn.execute("UPDATE sign_attempts SET state = 'included' WHERE op_id = 'op-240'", []).unwrap();
-    // m4: the stored index reads 299 while the operation of epoch 300 has
-    // signed; no RPC reading is passed.
+    // The stored index lags a signed operation: it reads 299 while the
+    // operation of epoch 300 has signed; no RPC reading is passed.
     h.observe_epoch(299);
     attempt_at(&h, 300, "included");
     let (_, key) = op_key();

@@ -28,9 +28,10 @@ this repository.
 Third-party notices
 ===================
 
-Dataset snapshots under datasets/ carry their own NOTICE.md files, licence
-copies and per-row source attribution. This file lists notices that apply to
-material outside those per-snapshot notices, or across several of them.
+Each dataset snapshot under datasets/ states its terms in its README.md and,
+where present, its NOTICE.md, LICENSE.fix-slop or LICENSES.md, licenses/
+copies and per-row rights records. This file lists notices that apply to
+material outside those per-snapshot files, or across several of them.
 
 Dataset records
 ---------------

@@ -6,7 +6,7 @@ licence text and notice is.
 | What | Licence | Licence texts and notices |
 | --- | --- | --- |
 | Code and documentation in this repository | MIT OR Apache-2.0, at your option | `LICENSE-MIT`, `LICENSE-APACHE` and `NOTICE` at the repository root; files and datasets with their own licence keep it, as the README's Licence section lists |
-| Dataset snapshots in `datasets/` | each snapshot's own | each snapshot's `NOTICE.md`, licence copies and per-row source attribution |
+| Dataset snapshots in `datasets/` | each snapshot's own; corpus text keeps its source licences | each snapshot's `README.md` and, where present, `NOTICE.md`, `LICENSE.fix-slop` or `LICENSES.md`, `licenses/` copies and per-row rights records ([datasets](../../datasets/README.md)) |
 | Release binaries | SlopNinja's code: MIT OR Apache-2.0; the third-party Rust packages built into them: their own | [Release binaries](#release-binaries) |
 | Reference packages (`R_0` and span package d24) | CC BY-SA 4.0 | each package directory's `NOTICE.md` and `upstream/ModernBERT-base-LICENSE` ([reference packages](reference-packages.md#licence)) |
 | Entrant artifacts | CC BY-SA 4.0, granted by the miner that entered each one ([terms](terms.md#your-submission)) | [Entrant artifacts](#entrant-artifacts) |

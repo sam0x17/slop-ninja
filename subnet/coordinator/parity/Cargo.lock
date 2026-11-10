@@ -2370,7 +2370,9 @@ dependencies = [
  "slop-ninja-gen-core",
  "slop-ninja-protocol",
  "slop-ninja-r2-presign",
+ "slop-ninja-scorer-client",
  "slop-ninja-scorer-tokens",
+ "slop-ninja-span-eval",
  "subtle",
  "wasm-bindgen",
  "wasm-bindgen-futures",
@@ -2418,10 +2420,24 @@ dependencies = [
 ]
 
 [[package]]
+name = "slop-ninja-scorer-client"
+version = "0.1.0"
+dependencies = [
+ "serde_json",
+]
+
+[[package]]
 name = "slop-ninja-scorer-tokens"
 version = "0.1.0"
 dependencies = [
  "unicode-normalization-alignments",
+]
+
+[[package]]
+name = "slop-ninja-span-eval"
+version = "0.1.0"
+dependencies = [
+ "serde_json",
 ]
 
 [[package]]

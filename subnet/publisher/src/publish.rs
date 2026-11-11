@@ -1074,7 +1074,7 @@ impl<S: Store, K: Keepalive> Run<'_, S, K> {
                     let other_kind = matches!(check, ManifestCheck::OtherKind);
                     let (reason, build) = if other_kind {
                         // Only this build's decoding: a later build reads it again.
-                        ("not a reward-v2 cohort manifest", Some(build_id()))
+                        ("not a cohort manifest of a band rule", Some(build_id()))
                     } else {
                         ("another chain or subnet", None)
                     };

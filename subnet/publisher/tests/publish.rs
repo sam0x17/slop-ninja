@@ -947,7 +947,7 @@ fn a_record_of_another_kind_is_outside_the_record() {
     assert_eq!(report.outside, 1);
     assert_eq!(
         memo.outside_record[&b.label].reason,
-        "not a reward-v2 cohort manifest"
+        "not a cohort manifest of a band rule"
     );
     // Review 2026-11-05 (ops 3): only this build's decoding placed it
     // outside, so the placement is this build's. The same build keeps it...
@@ -1000,7 +1000,7 @@ fn an_earlier_builds_refusal_of_an_older_format_cohort_stays_explained() {
     }
     assert_eq!(
         memo.outside_record[&b.label].reason,
-        "not a reward-v2 cohort manifest"
+        "not a cohort manifest of a band rule"
     );
 }
 

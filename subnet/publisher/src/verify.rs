@@ -272,7 +272,7 @@ pub async fn verify_cohort<S: Store>(
         ManifestCheck::Unverifiable(why) => return Err(invalid(MANIFEST, why)),
         ManifestCheck::OtherChain => return Err(invalid(MANIFEST, "another chain or subnet")),
         ManifestCheck::OtherKind => {
-            return Err(invalid(MANIFEST, "not a reward-v2 cohort manifest"));
+            return Err(invalid(MANIFEST, "not a cohort manifest of a band rule"));
         }
         ManifestCheck::OtherLabel => {
             return Err(invalid(MANIFEST, "label differs from its directory"));

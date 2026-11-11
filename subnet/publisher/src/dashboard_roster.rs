@@ -655,7 +655,7 @@ fn check_live_block(b: &LiveBlock) -> Result<(), String> {
     }
     if let Some(p) = &b.prefinal {
         let qw = grid_width(&p.quantization.width)?;
-        if p.quantization.rule != quant::QUANT_RULE {
+        if !crate::status::known_quant_rule(&p.quantization.rule) {
             return Err("live quantization rule".into());
         }
         let cur = quant::parse_grid(&p.current, qw).map_err(|_| "live current off the grid")?;
@@ -995,7 +995,7 @@ fn live_block(l: &LiveScoresView) -> LiveBlock {
             stopped: r.stopped,
         }),
         prefinal: l.prefinal.as_ref().map(|p| LivePrefinal {
-            quantization: LiveQuantization { rule: slop_ninja_protocol::quant::QUANT_RULE.into(), width: grid(p.width) },
+            quantization: LiveQuantization { rule: p.rule.clone(), width: grid(p.width) },
             current: p.current.clone(),
             predecessor: p.predecessor.clone(),
             margin_line: p.margin_line.clone(),

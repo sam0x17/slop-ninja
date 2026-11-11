@@ -184,7 +184,7 @@ pub fn grid_check(doc: &Doc, v: &Value) -> Result<(), String> {
         if q.is_null() {
             return Ok(None);
         }
-        if q["rule"].as_str() != Some(slop_ninja_protocol::quant::QUANT_RULE) {
+        if !q["rule"].as_str().is_some_and(crate::status::known_quant_rule) {
             return Err("quantization rule".into());
         }
         q["width"].as_str().and_then(width_units).map(Some).ok_or_else(|| "quantization width".into())

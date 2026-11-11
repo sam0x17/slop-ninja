@@ -2334,7 +2334,9 @@ pub struct LiveReferenceView {
 
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct LivePrefinalView {
-    /// The `quant-v1` grid.
+    /// The cohort's quantization rule (`quant-v1` or `quant-v2`).
+    pub rule: String,
+    /// The cohort's grid.
     pub width: u64,
     pub current: String,
     pub predecessor: Option<String>,
@@ -2414,6 +2416,19 @@ struct LivePrefinalJson {
 struct LiveQuantJson {
     rule: String,
     width: String,
+    /// `quant-v2`: the sealed noise scale and spent rho (read, not yet
+    /// published).
+    #[serde(default)]
+    #[allow(dead_code)]
+    sigma_ppb: Option<u64>,
+    #[serde(default)]
+    #[allow(dead_code)]
+    rho_micro: Option<u64>,
+}
+
+/// Whether `rule` names a quantization rule this build verifies.
+pub fn known_quant_rule(rule: &str) -> bool {
+    rule == slop_ninja_protocol::quant::QUANT_RULE || rule == slop_ninja_protocol::quant2::QUANT_RULE
 }
 
 #[derive(Deserialize)]
@@ -2523,7 +2538,7 @@ pub fn parse_live_bytes(body: &[u8]) -> Option<LiveScoresView> {
     let prefinal = match j.prefinal {
         Some(pf) => {
             let w = ladder_width(&pf.quantization.width)?;
-            if silent || pf.quantization.rule != slop_ninja_protocol::quant::QUANT_RULE {
+            if silent || !known_quant_rule(&pf.quantization.rule) {
                 return None;
             }
             let cur = slop_ninja_protocol::quant::parse_grid(&pf.current, w).ok()?;
@@ -2535,7 +2550,7 @@ pub fn parse_live_bytes(body: &[u8]) -> Option<LiveScoresView> {
             {
                 return None;
             }
-            Some(LivePrefinalView { width: w, current: pf.current, predecessor: pf.predecessor, margin_line: pf.margin_line })
+            Some(LivePrefinalView { rule: pf.quantization.rule, width: w, current: pf.current, predecessor: pf.predecessor, margin_line: pf.margin_line })
         }
         None => None,
     };
@@ -2583,4 +2598,24 @@ pub fn parse_live_bytes(body: &[u8]) -> Option<LiveScoresView> {
         fault: j.fault,
         defects,
     })
+}
+
+#[cfg(test)]
+mod quant_rule_tests {
+    use super::*;
+
+    /// The live report's quantization block names either rule; a quant-v2
+    /// block may carry its sealed scale and rho, which this build reads and
+    /// does not publish.
+    #[test]
+    fn live_quantization_names_either_rule() {
+        assert!(known_quant_rule("quant-v1") && known_quant_rule("quant-v2"));
+        assert!(!known_quant_rule("quant-v3") && !known_quant_rule(""));
+        let v2: LiveQuantJson =
+            serde_json::from_str(r#"{"rule":"quant-v2","width":"0.01","sigma_ppb":9901385,"rho_micro":214204}"#).unwrap();
+        assert_eq!((v2.rule.as_str(), v2.width.as_str()), ("quant-v2", "0.01"));
+        let v1: LiveQuantJson = serde_json::from_str(r#"{"rule":"quant-v1","width":"0.03"}"#).unwrap();
+        assert_eq!(v1.rule, "quant-v1");
+        assert!(serde_json::from_str::<LiveQuantJson>(r#"{"rule":"quant-v1","width":"0.03","extra":1}"#).is_err());
+    }
 }

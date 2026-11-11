@@ -1,6 +1,6 @@
 # Whitepaper
 
-[Draft 0.64](slop_ninja.pdf), November 10, 2026, describes a subnet whose main
+[Draft 0.64](slop_ninja.pdf), November 11, 2026, describes a subnet whose main
 objective is B: transforming authorized writing toward the author's intended
 voice while preserving meaning, readability, and tone. A supplies supporting
 detection and attribution signals for that editing process and launches first.
@@ -86,10 +86,12 @@ cluster placement by the earliest-admitted member are not yet implemented.
 Most operator decisions with the operator-decision key's verification, the
 span gate in report mode with artifact spec v5, pre-finalized scores and
 segment readings, and the service behind the detection page are built but, as
-of November 10, not yet deployed, so no cohort has yet evaluated spans;
+of November 11, not yet deployed, so no cohort has yet evaluated spans;
 enforcing the gate is not yet implemented. The record restart and the
 abandonment of a faulted cohort already run in their earlier, deployed form,
-without the key. Dated research results remain
+without the key. Validators can follow a restart without a manual reset from
+`testnet-v0.2.0`, the first signed release with validator binaries, published
+on November 11. Dated research results remain
 distinct from a qualified model or live service.
 
 The operator's lead validator is the serverless coordinator. It runs hidden
@@ -164,6 +166,6 @@ RUN fmtutil-sys --byfmt xelatex
 EOF
 docker build -t slop-ninja-whitepaper-tex:TL2025-historic-rsvg .
 docker run --rm --network none -u "$(id -u):$(id -g)" -e HOME=/tmp \
-  -e SOURCE_DATE_EPOCH=1794268800 \
+  -e SOURCE_DATE_EPOCH=1794355200 \
   -v "$PWD/whitepaper:/w" -w /w slop-ninja-whitepaper-tex:TL2025-historic-rsvg bash build.sh
 ```

@@ -1,6 +1,6 @@
 # Testnet terms
 
-Version 3, November 10, 2026. It replaces version 2 of November 9, 2026 (which
+Version 3, November 11, 2026. It replaces version 2 of November 9, 2026 (which
 replaced version 1, the unnumbered terms published before it) and adds legal
 notices and recorded legal removals of published material. A commitment made
 after version 3 is published accepts it; an earlier commitment stays under the

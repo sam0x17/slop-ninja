@@ -2563,9 +2563,14 @@ in three steps:
    earned by their winning models. A model counts as winning only once it has
    beaten the reference and taken its place, so revenue earned while one of
    SlopNinja's own models is the reference is credited to no miner; if no miner's model
-   was credited with any revenue, this half is burned as well. The attribution
-   rule that credits each payout to the models that earned it, and the claim
-   contract's rules, are published before they are used.
+   was credited with any revenue, this half is burned as well. If only part of
+   the testnet-era revenue was credited to miners' models, the attribution
+   rule, published before the pot's first deposit, fixes how this half is
+   divided: either the credited miners share all of it in proportion to their
+   credited revenue, or each receives the fraction of it that its credited
+   revenue forms of all testnet-era revenue, with the uncredited rest burned.
+   The attribution rule that credits each payout to the models that earned it,
+   and the claim contract's rules, are published before they are used.
 3. **After the launch.** All revenue from *A* and later *B* products buys and
    burns the subnet's alpha, with nothing distributed.
 

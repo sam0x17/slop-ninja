@@ -124,7 +124,12 @@ winning models. A model counts as winning only once it has beaten the
 reference and taken its place (Section~\ref{reference-model}), so revenue
 earned while one of SlopNinja's own models is the reference is credited to no
 miner. If no miner's model was credited with any revenue, this half is burned
-as well. Winning inherits the limits of a testnet promotion: it can rest partly
+as well. If only part of the testnet-era revenue was credited to miners'
+models, the attribution rule, published before the pot's first deposit, fixes
+how this half is divided: either the credited miners share all of it in
+proportion to their credited revenue, or each receives the fraction of it that
+its credited revenue forms of all testnet-era revenue, with the uncredited rest
+burned. Winning inherits the limits of a testnet promotion: it can rest partly
 on recognizing testnet documents or on release noise
 (Sections~\ref{lookup-exposure} and~\ref{reference-model}), so credit can
 reach a model no better than the one it displaced. The serving checks and the

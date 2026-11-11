@@ -52,8 +52,12 @@ money is used in three steps:
    contract, in proportion to the testnet-era revenue earned by their winning
    models: models that beat the reference and took its place. Revenue earned
    while one of SlopNinja's own models is the reference is credited to no miner; if no
-   miner's model was credited, that half is burned too. The attribution rule
-   and the claim contract's rules are published before they are used.
+   miner's model was credited, that half is burned too. If only part of the
+   testnet-era revenue was credited to miners, the attribution rule fixes
+   whether the credited miners share all of that half or each receives the
+   fraction of it that its credited revenue forms of all testnet-era revenue,
+   with the uncredited rest burned. The attribution rule and the claim
+   contract's rules are published before they are used.
 3. **After the launch.** All revenue from *A* and later *B* products buys and
    burns alpha, with nothing distributed.
 

@@ -66,7 +66,12 @@ coordinator. It releases noisy quantized scores under a per-cohort privacy
 budget and derives the native weight row from them by exact rules ported from
 subnet 78's geometric score bands: detected copies of published models earn
 nothing, and near-duplicate entries share one credit. Until an entrant first
-clears the reference by a margin, miner rewards burn. The reference changes
+clears the reference by a margin, miner rewards burn. Released scores are noisy
+enough that an entrant merely equal to the reference clears that margin by
+chance about a sixth to a third of the time on testnet
+(Section~\ref{reward-v1}); at mainnet's planned size the current privacy
+budget would make rewards mostly noise, so it, the batch size, or the budget
+split must change before mainnet. The reference changes
 when such an entrant also passes the promotion checks, or by a recorded
 operator decision. The coordinator signs the row; every other validator
 verifies it, commits it every tempo through native commit--reveal without
@@ -91,7 +96,8 @@ registers the mainnet subnet with it. After the subnet launches, the rest
 buys its alpha in daily tranches bound to that registration: half is burned,
 and half is distributed through a claim contract to testnet miners in
 proportion to the testnet-era revenue earned by their winning models, which
-must first have beaten the reference. From the launch on, all revenue buys
+must first have beaten the reference; any part of that half left undistributed
+is burned. From the launch on, all revenue buys
 and burns alpha; if SlopNinja abandons mainnet, the pot's TAO is burned. Customers
 may also fund quoted paid detection jobs by card, TAO, or subnet alpha, whose
 principal converts to alpha and is burned. Pricing, any emissions assigned to

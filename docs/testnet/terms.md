@@ -35,8 +35,9 @@ subnet's owner account goes back to the pot and is listed on its public page.
 Once that subnet launches, the money left from revenue earned before the
 launch buys the mainnet subnet's alpha: half of it is burned, and half is
 distributed to testnet miners on mainnet through a claim contract, in
-proportion to the testnet-era revenue earned by their winning models. After
-the launch, all revenue buys and burns alpha.
+proportion to the testnet-era revenue earned by their winning models; any
+part of that half left undistributed is burned. After the launch, all revenue
+buys and burns alpha.
 
 What the distribution is:
 

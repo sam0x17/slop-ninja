@@ -217,7 +217,7 @@ pub fn prepare(sql: &impl Sql, seq: i64) -> R<()> {
     // Every other rule's counted terms, from the plan's one source
     // (`RewardV1Plan::counted_terms`): a rule that publishes hidden-data
     // bits adds them there, which lowers L without live code.
-    let d = live::derive_segments(n, executed, predecessor, &q, &params, &v1.counted_terms())
+    let d = live::derive_segments(n, executed, predecessor, &slop_ninja_protocol::QuantBlock::V1(q), &params, &v1.counted_terms())
         .map_err(|_| state_err("live derivation"))?;
     let mut width = SqlValue::Null;
     if d.segments >= live::MIN_SEGMENTS {
@@ -758,8 +758,7 @@ fn release_prefinal(
             subject: subject_of(st, c, job)?,
             score: score_of(u)?,
             failed,
-            w,
-            tau: &tau,
+            noise: reward_v1::NoiseScale::Laplace { w, tau },
         })
         .map_err(|_| state_err("preview"))
     };

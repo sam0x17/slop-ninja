@@ -68,6 +68,10 @@ impl<'a> Decoder<'a> {
     pub fn remaining(&self) -> usize {
         self.input.len()
     }
+    /// The next `n` bytes without consuming them, or `None` when fewer remain.
+    pub fn peek(&self, n: usize) -> Option<&'a [u8]> {
+        self.input.get(..n)
+    }
     pub fn finish(self) -> Result<()> {
         if self.input.is_empty() {
             Ok(())

@@ -3,7 +3,7 @@
 
 use crate::live::{self, LiveParams};
 use crate::quant::{self, CohortBinding, CountedTerms, Subject};
-use crate::{Digest, Error, QuantParams, SCORE_SCALE};
+use crate::{Digest, Error, QuantBlock, QuantParams, SCORE_SCALE};
 
 const N: u32 = 1000;
 /// The bound factor `F` of the r1 template's `quant-v1` block.
@@ -17,6 +17,8 @@ const Q: QuantParams = QuantParams {
     // `F` above.
     budget_factor: F,
 };
+/// [`Q`] as a manifest carries it.
+const QB: QuantBlock = QuantBlock::V1(Q);
 const LIVE: LiveParams = LiveParams { eps_live_milli: 1000, segments_max: 4 };
 /// The span gate's counted term: one bit per executed entrant and two per
 /// cohort (`localization::TERMS`).
@@ -93,9 +95,9 @@ fn the_accounting_at_eight_entrants() {
     let w = live::width_live(N, 4, 8, 1000).unwrap();
     assert_eq!(w, 4 * HUNDREDTH);
     assert_eq!(live::live_bits(8, 4, w).unwrap(), 135);
-    let d = live::derive_segments(N, 8, false, &Q, &LIVE, &CountedTerms::NONE).unwrap();
+    let d = live::derive_segments(N, 8, false, &QB, &LIVE, &CountedTerms::NONE).unwrap();
     assert_eq!(d, live::Derivation { segments: 4, counted: 148, live: 135, bound: 800 });
-    let d = live::derive_segments(N, 8, false, &Q, &LIVE, &SPAN).unwrap();
+    let d = live::derive_segments(N, 8, false, &QB, &LIVE, &SPAN).unwrap();
     assert_eq!((d.segments, d.counted, d.live), (4, 158, 135));
     // One reading per subject per checkpoint: X + 1 subjects, R_k-1 has none.
     assert_eq!(live::live_bits(8, 2, w).unwrap(), 45);
@@ -107,7 +109,7 @@ fn the_accounting_at_eight_entrants() {
 #[test]
 fn the_segment_count_table() {
     let table = |pred: bool, terms: &CountedTerms| -> Vec<u8> {
-        (0..=40).map(|x| live::derive_segments(N, x, pred, &Q, &LIVE, terms).unwrap().segments).collect()
+        (0..=40).map(|x| live::derive_segments(N, x, pred, &QB, &LIVE, terms).unwrap().segments).collect()
     };
     let run = |fours: usize, rest: &[u8]| -> Vec<u8> {
         let mut v = vec![4u8; fours];
@@ -123,13 +125,13 @@ fn the_segment_count_table() {
     for pred in [false, true] {
         for terms in [CountedTerms::NONE, SPAN] {
             for x in 0..=40 {
-                let d = live::derive_segments(N, x, pred, &Q, &LIVE, &terms).unwrap();
+                let d = live::derive_segments(N, x, pred, &QB, &LIVE, &terms).unwrap();
                 assert!(u64::from(d.counted + d.live) <= d.bound, "X {x}");
             }
         }
     }
     assert_eq!(
-        live::segments_table(N, 2, &Q, &LIVE, &CountedTerms::NONE).unwrap(),
+        live::segments_table(N, 2, &QB, &LIVE, &CountedTerms::NONE).unwrap(),
         [(4, 4), (4, 4), (4, 4)]
     );
 }
@@ -142,8 +144,8 @@ fn counting_the_quant_budget_alone_breaks_the_bound() {
     let mut broke = 0;
     for x in 0..=40u16 {
         for pred in [false, true] {
-            let alone = live::derive_segments(N, x, pred, &Q, &LIVE, &CountedTerms::NONE).unwrap();
-            let complete = live::derive_segments(N, x, pred, &Q, &LIVE, &SPAN).unwrap();
+            let alone = live::derive_segments(N, x, pred, &QB, &LIVE, &CountedTerms::NONE).unwrap();
+            let complete = live::derive_segments(N, x, pred, &QB, &LIVE, &SPAN).unwrap();
             let span_bits = SPAN.bits(x).unwrap();
             if alone.segments > complete.segments {
                 assert!(u64::from(alone.counted + span_bits + alone.live) > alone.bound, "X {x}");
@@ -245,20 +247,20 @@ fn segment_scores_floor_the_mean() {
 #[test]
 fn the_plan_checks() {
     let r1 = LiveParams { eps_live_milli: 1000, segments_max: 4 };
-    r1.validate(N, 32, 40, &Q, &CountedTerms::NONE).unwrap();
+    r1.validate(N, 32, 40, &QB, &CountedTerms::NONE).unwrap();
     // The r1 plan's live row adds well under 100 bytes to a roster row.
-    let bytes = live::row_bytes_max(N, 40, 2000, &r1).unwrap();
+    let bytes = live::row_bytes_max(N, 40, &QB, &r1).unwrap();
     assert!(bytes <= live::ROSTER_ROW_BYTES && bytes - live::ROSTER_ROW_BASE_BYTES < 100, "{bytes}");
     // No readings: always valid, nothing derived.
-    LiveParams { eps_live_milli: 0, segments_max: 0 }.validate(N, 32, 40, &Q, &CountedTerms::NONE).unwrap();
-    assert_eq!(live::derive_segments(N, 8, false, &Q, &LiveParams { eps_live_milli: 0, segments_max: 0 }, &CountedTerms::NONE).unwrap().segments, 0);
+    LiveParams { eps_live_milli: 0, segments_max: 0 }.validate(N, 32, 40, &QB, &CountedTerms::NONE).unwrap();
+    assert_eq!(live::derive_segments(N, 8, false, &QB, &LiveParams { eps_live_milli: 0, segments_max: 0 }, &CountedTerms::NONE).unwrap().segments, 0);
     for bad in [
         LiveParams { eps_live_milli: 1000, segments_max: 1 },
         LiveParams { eps_live_milli: 0, segments_max: 4 },
         // A segment shorter than a chunk.
         LiveParams { eps_live_milli: 1000, segments_max: 32 },
     ] {
-        assert!(bad.validate(N, 32, 40, &Q, &CountedTerms::NONE).is_err(), "{bad:?}");
+        assert!(bad.validate(N, 32, 40, &QB, &CountedTerms::NONE).is_err(), "{bad:?}");
     }
 }
 
@@ -267,12 +269,12 @@ fn the_plan_checks() {
 #[test]
 fn the_row_bound_refuses_one_checkpoint_more() {
     let n = 1_000_000;
-    let fits = |m: u8| live::row_bytes_max(n, 40, 2000, &LiveParams { eps_live_milli: 1000, segments_max: m }).unwrap() <= live::ROSTER_ROW_BYTES;
+    let fits = |m: u8| live::row_bytes_max(n, 40, &QB, &LiveParams { eps_live_milli: 1000, segments_max: m }).unwrap() <= live::ROSTER_ROW_BYTES;
     let largest = (2..=u8::MAX).take_while(|m| fits(*m)).last().unwrap();
     assert!(largest >= 4);
-    LiveParams { eps_live_milli: 1000, segments_max: largest }.validate(n, 1, 40, &Q, &CountedTerms::NONE).unwrap();
+    LiveParams { eps_live_milli: 1000, segments_max: largest }.validate(n, 1, 40, &QB, &CountedTerms::NONE).unwrap();
     assert_eq!(
-        LiveParams { eps_live_milli: 1000, segments_max: largest + 1 }.validate(n, 1, 40, &Q, &CountedTerms::NONE),
+        LiveParams { eps_live_milli: 1000, segments_max: largest + 1 }.validate(n, 1, 40, &QB, &CountedTerms::NONE),
         Err(Error::OutOfRange("live row bytes"))
     );
 }

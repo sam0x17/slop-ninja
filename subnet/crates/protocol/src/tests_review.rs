@@ -380,7 +380,7 @@ fn a_carrier_package_is_recomputed_and_must_produce_no_target() -> Result<()> {
     forged.promoted = None;
     forged.promotion_audits.clear();
     forged.credits.clear();
-    forged.quant.cutoff = None;
+    forged.quant.v1_mut().unwrap().cutoff = None;
     for e in &mut forged.entrants {
         e.cluster_head = None;
         e.cluster_stats = None;

@@ -219,6 +219,97 @@ impl Record for ChainRestart {
 }
 
 canonical_struct! {
+    /// Version 2 of [`ChainRestart`]: the same switch to burn, naming the
+    /// reward and quantization rules of the fresh record it opens. A
+    /// reward-rule change takes effect only through such a restart, and the
+    /// offline-signed statement (whose SHA-256 is `statement`) covers the
+    /// request body that names both rules. Signed with the authorization key.
+    pub struct ChainRestartV2 {
+        pub chain: ChainBinding,
+        pub floor: u64,
+        pub launch_authorization: Digest,
+        pub previous_target: Option<Digest>,
+        pub previous_activated_epoch: Option<u64>,
+        pub last: Option<u64>,
+        pub past: Vec<RestartPassed>,
+        pub unlisted: Vec<u64>,
+        pub decision: Option<Digest>,
+        pub statement: Option<Digest>,
+        /// The fresh record's reward rule: a band rule.
+        pub reward_rule: crate::RewardRule,
+        /// The fresh record's quantization rule.
+        pub quant_rule: crate::QuantRule,
+    }
+}
+
+impl Record for ChainRestartV2 {
+    const KIND: &'static str = "chain-restart";
+    const VERSION: u16 = 2;
+    const SIGNER: Option<KeyRole> = Some(KeyRole::Authorization);
+    fn validate(&self) -> Result<()> {
+        if self.reward_rule.placement().is_none() {
+            return Err(Error::Invalid("restart reward rule"));
+        }
+        for p in &self.past {
+            name(&p.state, "restart cohort state")?;
+        }
+        bounded(&self.past, "restart past")?;
+        bounded(&self.unlisted, "restart unlisted")
+    }
+}
+
+/// A restart record of either version. A version-1 restart opened the
+/// record in force before restarts named their rules: `reward-v2` and
+/// `quant-v1`.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct RestartView {
+    pub chain: ChainBinding,
+    pub floor: u64,
+    pub launch_authorization: Digest,
+    pub previous_target: Option<Digest>,
+    pub decision: Option<Digest>,
+    pub statement: Option<Digest>,
+    pub reward_rule: crate::RewardRule,
+    pub quant_rule: crate::QuantRule,
+    /// The record's version (1 or 2).
+    pub version: u16,
+}
+
+/// Opens a restart record of version 2 or version 1 under `keys`.
+pub fn open_restart(bytes: &[u8], keys: &crate::TrustedKeys) -> Result<RestartView> {
+    match crate::Signed::<ChainRestartV2>::open(bytes, keys) {
+        Ok(r) => Ok(RestartView {
+            chain: r.chain,
+            floor: r.floor,
+            launch_authorization: r.launch_authorization,
+            previous_target: r.previous_target,
+            decision: r.decision,
+            statement: r.statement,
+            reward_rule: r.reward_rule,
+            quant_rule: r.quant_rule,
+            version: ChainRestartV2::VERSION,
+        }),
+        // The signature covers the version's own domain: try version 1.
+        Err(e2) => {
+            let Ok(r) = crate::Signed::<ChainRestart>::open(bytes, keys) else {
+                return Err(e2);
+            };
+            Ok(RestartView {
+                chain: r.chain,
+                floor: r.floor,
+                launch_authorization: r.launch_authorization,
+                previous_target: r.previous_target,
+                decision: r.decision,
+                statement: r.statement,
+                reward_rule: crate::RewardRule::RewardV2,
+                quant_rule: crate::QuantRule::QuantV1,
+                version: ChainRestart::VERSION,
+            })
+        }
+    }
+}
+
+canonical_struct! {
     /// A cohort found after a restart that opened before its floor and that
     /// the restart's signed record did not name (`restarted_past_unlisted`):
     /// an addendum to that [`ChainRestart`], signed with the authorization

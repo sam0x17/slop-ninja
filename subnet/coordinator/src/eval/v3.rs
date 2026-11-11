@@ -72,7 +72,7 @@ use slop_ninja_protocol::{
     CutoffMode, Digest, EntrantFingerprint, EntrantScore, Fingerprint, Gate, GateFailure,
     HUMAN_FPR_LOOSE_REASON, InferenceContent, MAX_ROSTER, NearStats, NeuronIdentity, Nonce, Origin, OriginMix,
     Probability, ProbeBinding, ProbeMatch, PromotionAudit, PublishedIndex, Record, ReferenceModel, ReferenceScore,
-    QuantRecord, QuantizedResult, ReferenceSet, RewardRule, RewardV1Params, RosterEntry, ScorePackageV2, Stratum,
+    QuantizedResult, ReferenceSet, RewardRule, RewardV1Params, RosterEntry, ScorePackageV2, Stratum,
     domain_hash,
 };
 use std::collections::{BTreeMap, BTreeSet};
@@ -2828,15 +2828,20 @@ pub fn prepare_package(
         distance_monitor: Default::default(),
         receipt_root,
         receipt_count,
-        quant: QuantRecord::unset(),
+        quant: slop_ninja_protocol::QuantRecordBlock::unset(),
         result: Digest([0; 32]),
     };
-    // quant-v1: SE of R_k's batch utilities, in task order, and the cohort
-    // seed; both stay in the private package.
-    let quant_inputs = reward_v1::QuantInputs {
-        seed: cohort_seed(&cfg.private_seed, &c.label),
-        se: slop_ninja_protocol::quant::SeMeasure::measure(reward_v1::utilities(&graded(&ref_batch, batch_labels)))
-            .map_err(|_| EvalError::State(PACKAGE_REFUSED))?,
+    // The cohort seed and, under quant-v1, the SE of R_k's batch utilities
+    // in task order; both stay in the private package. quant-v2 measures no
+    // SE.
+    let seed = cohort_seed(&cfg.private_seed, &c.label);
+    let quant_inputs = match manifest.params.quant {
+        slop_ninja_protocol::QuantBlock::V1(_) => reward_v1::QuantInputs::V1 {
+            seed,
+            se: slop_ninja_protocol::quant::SeMeasure::measure(reward_v1::utilities(&graded(&ref_batch, batch_labels)))
+                .map_err(|_| EvalError::State(PACKAGE_REFUSED))?,
+        },
+        slop_ninja_protocol::QuantBlock::V2(_) => reward_v1::QuantInputs::V2 { seed },
     };
     let evaluation = {
         let mut m = Measure {
@@ -2862,8 +2867,8 @@ pub fn prepare_package(
     // Live values (`eval::live`): every pre-finalized value shown must be
     // the package's own. The package wins; a mismatch is recorded with the
     // package and never refuses it.
-    let mut signed: Vec<(i64, Option<u64>)> = vec![(ref_job, Some(package.quant.reference_q.get()))];
-    if let (Some(pj), Some(pq)) = (pred_job, package.quant.predecessor_q) {
+    let mut signed: Vec<(i64, Option<u64>)> = vec![(ref_job, Some(package.quant.reference_q().get()))];
+    if let (Some(pj), Some(pq)) = (pred_job, package.quant.predecessor_q()) {
         signed.push((pj, Some(pq.get())));
     }
     for (pos, e) in package.entrants.iter().enumerate() {
@@ -2873,14 +2878,24 @@ pub fn prepare_package(
         }
     }
     let live_defects = crate::eval::live::cross_check(sql, c.seq, &signed)?;
-    let live_recount = slop_ninja_protocol::quant::cohort_bits(
-        package.executed(),
-        package.quant.width,
-        package.predecessor.is_some(),
-        &v.counted_terms(),
-    )
-    .map_err(|_| EvalError::State(PACKAGE_REFUSED))?
-    .total;
+    let live_recount = match &package.quant {
+        slop_ninja_protocol::QuantRecordBlock::V1(q) => slop_ninja_protocol::quant::cohort_bits(
+            package.executed(),
+            q.width,
+            package.predecessor.is_some(),
+            &v.counted_terms(),
+        )
+        .map(|b| b.total),
+        slop_ninja_protocol::QuantRecordBlock::V2(q) => slop_ninja_protocol::quant2::cohort_bits(
+            package.executed(),
+            package.predecessor.is_some(),
+            package.cases,
+            &q.scale(),
+            &v.counted_terms(),
+        )
+        .map(|b| b.total),
+    }
+    .map_err(|_| EvalError::State(PACKAGE_REFUSED))?;
     // The public record: only q, the bits, membership and the grid.
     let result = QuantizedResult::of_package(&package).map_err(|_| EvalError::State(PACKAGE_REFUSED))?;
     if result.digest().map_err(|_| EvalError::State(PACKAGE_REFUSED))? != package.result {
@@ -3097,10 +3112,10 @@ pub fn commit_package(sql: &impl Sql, seq: i64, b: &PackageV3, puts: u64, now_ms
         seq,
         &b.live_defects,
         b.live_recount,
-        b.package.quant.width,
+        b.package.quant.width(),
         b.package.cases,
-        qp.identify_bits,
-        qp.budget_factor,
+        qp.identify_bits(),
+        qp.budget_factor(),
     )?;
     set_phase(sql, seq, "transition", now_ms, "package, target and receipts durable; publication at the next boundary")?;
     engine::advance(sql, now_ms)?;

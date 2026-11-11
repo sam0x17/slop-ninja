@@ -654,7 +654,7 @@ impl LivePlan {
             return Err(PlanError("reward_v1.live.rule (live-v1)"));
         }
         self.params()
-            .validate(n, chunk_docs, roster_cap, &quant.params(), terms)
+            .validate(n, chunk_docs, roster_cap, &slop_ninja_protocol::QuantBlock::V1(quant.params()), terms)
             .map_err(|_| PlanError("reward_v1.live (segments_max 0 or at least 2, eps_live_milli > 0, a chunk per segment, rows within the roster row bound)"))
     }
 }

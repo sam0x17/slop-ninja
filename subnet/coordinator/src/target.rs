@@ -223,7 +223,7 @@ pub fn derive_row(
         }
         // Version-1 packages carry only `testnet-reward-v0`; `reward-v1` rows
         // come from the version-2 records of a reward-v1 bundle ([`verify_v2`]).
-        RewardRule::RewardV2 => Err(Refusal::new(
+        RewardRule::RewardV2 | RewardRule::RewardV3 => Err(Refusal::new(
             "row_refused",
             "reward-v1 rows come from a reward-v1 bundle",
         )),

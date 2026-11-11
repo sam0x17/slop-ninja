@@ -30,7 +30,7 @@ use crate::{
     RewardIntentRevocation, RewardRule,
     RewardV1Params, RosterEntry, SCORE_SCALE, Score, ScorePackageV2, Signed, Stratum,
     TESTNET_GENESIS, VerifiedArtifact, WeightRowV2, domain_hash, object_sha256, sign,
-    signing_payload, QuantParams, QuantRecord, QuantizedResult,
+    signing_payload, QuantParams, QuantizedResult,
 };
 
 /// Fixture `quant-v1` parameters: a privacy budget so large that the noise
@@ -48,15 +48,19 @@ pub const FIXTURE_QUANT: QuantParams = QuantParams {
 /// The fixtures' private cohort seed.
 pub const FIXTURE_SEED: [u8; 32] = [0x5e; 32];
 
-/// Fixture quantization inputs: the fixed seed, and `R_k`'s SE as if every
-/// batch document scored its mean (`SE = 0`), so `w` is the noise floor.
+/// Fixture quantization inputs under the package's rule: the fixed seed,
+/// and under `quant-v1` `R_k`'s SE as if every batch document scored its
+/// mean (`SE = 0`), so `w` is the noise floor.
 pub fn quant_inputs(p: &ScorePackageV2) -> Result<QuantInputs> {
+    if let crate::QuantBlock::V2(_) = p.params.quant {
+        return Ok(QuantInputs::V2 { seed: FIXTURE_SEED });
+    }
     let n = u128::from(p.cases);
     let s = u128::from(p.reference.score.get());
     let s2 = crate::quant::U256::mul_u128(s, s)
         .checked_mul_u128(n)
         .ok_or(Error::Overflow("fixture se"))?;
-    Ok(QuantInputs {
+    Ok(QuantInputs::V1 {
         seed: FIXTURE_SEED,
         se: SeMeasure::from_sums(p.cases, n * s, s2)?,
     })
@@ -556,7 +560,7 @@ pub fn package(
         cohort_label: manifest.cohort_label.clone(),
         cohort_manifest: manifest.digest()?,
         revision: 1,
-        reward_rule: RewardRule::RewardV2,
+        reward_rule: manifest.reward_rule,
         params: manifest.params,
         span_gate: manifest.span_gate,
         cases,
@@ -578,7 +582,7 @@ pub fn package(
         distance_monitor: DistanceMonitor::default(),
         receipt_root: Digest([0x44; 32]),
         receipt_count: assigned + u64::from(cases) * 2,
-        quant: QuantRecord::unset(),
+        quant: crate::QuantRecordBlock::unset(),
         result: Digest([0; 32]),
     })
 }
@@ -1235,6 +1239,38 @@ pub fn closure(
 
 pub fn computed() -> Result<Computed> {
     computed_at(3)
+}
+
+/// The computed cohort's manifest and package finalized under `rule` and the
+/// quantization block `quant` (cohort 3, `R_k` at index 1).
+pub fn computed_package(rule: RewardRule, quant: crate::QuantBlock) -> Result<(CohortManifestV2, ScorePackageV2)> {
+    let models = models();
+    let specs: Vec<Spec> = models.iter().map(|m| m.spec.clone()).collect();
+    let index = computed_index()?;
+    let mut manifest = manifest_with(chain(), 3, CASES, sigma_permille(40), references(1), &index, probe(CASES), &specs);
+    manifest.batch.source_groups = 8;
+    manifest.reward_rule = rule;
+    manifest.params = RewardV1Params::new(manifest.params.sigma, quant);
+    let (current, previous) = reference_predictions();
+    let reference = reward_v1::reference_score(&graded(&current))?;
+    let predecessor = reward_v1::reference_score(&graded(&previous))?;
+    let mut package = package(&manifest, reference, Some(predecessor), &specs)?;
+    finalize_fixture(&mut package, &index, &mut ComputedMeasure::new(&models))?;
+    Ok((manifest, package))
+}
+
+/// [`example`] under `rule`: a testnet example at 1,000 cases with
+/// `sigma = 0.04`, finalized with the spec-family near-copy relation.
+pub fn example_under(
+    rule: RewardRule,
+    reference: Score,
+    predecessor: Option<Score>,
+    specs: &[Spec],
+) -> Result<ScorePackageV2> {
+    let index = u64::from(predecessor.is_some());
+    let mut m = manifest(chain(), 7, 1000, sigma_permille(40), index, specs);
+    m.reward_rule = rule;
+    Ok(finalized(&m, reference, predecessor, specs)?.0)
 }
 
 /// [`computed`] for cohort number `cohort` (its label and opening epoch
@@ -2870,7 +2906,7 @@ fn worked_examples(r: &mut Report) -> Result<()> {
     r.outcome("example.fallback", &p);
     r.line(
         "example.fallback.cutoff",
-        p.quant.cutoff.map_or("none".into(), |t| t.get().to_string()),
+        p.quant.cutoff().map_or("none".into(), |t| t.get().to_string()),
     );
     // Just short of the margin: earns in a fallback cohort, not beside a passer.
     let short = s(0x41, 9159);

@@ -6163,11 +6163,14 @@ fn same_but_manifest_and_draws(s_pkg: &v3::PackageV3, a_pkg: &v3::PackageV3) {
         e.q = x.q;
         e.draw = x.draw;
     }
-    s.quant.reference_q = a.quant.reference_q;
-    s.quant.reference_draw = a.quant.reference_draw;
-    s.quant.predecessor_q = a.quant.predecessor_q;
-    s.quant.predecessor_draw = a.quant.predecessor_draw;
-    s.quant.cutoff = a.quant.cutoff;
+    {
+        let (sq, aq) = (s.quant.v1_mut().unwrap(), a.quant.v1().unwrap());
+        sq.reference_q = aq.reference_q;
+        sq.reference_draw = aq.reference_draw;
+        sq.predecessor_q = aq.predecessor_q;
+        sq.predecessor_draw = aq.predecessor_draw;
+        sq.cutoff = aq.cutoff;
+    }
     assert_eq!(&s, a);
     let (r, ar) = (&s_pkg.result, &a_pkg.result);
     assert_eq!((r.mode, r.promoted, r.entrants.len()), (ar.mode, ar.promoted, ar.entrants.len()));
@@ -8021,8 +8024,8 @@ fn span_gate_report_mode_records_cells_and_publishes_one_value_per_scored_entran
     assert_eq!(l.bits, 4 + slop_ninja_protocol::localization::STATE_BITS);
     // Its total is the complete counted total (the package's private
     // recount): the result's budget plus the record's term.
-    let term = slop_ninja_protocol::localization::TERMS.bits(b.result.budget.executed).unwrap();
-    assert_eq!((l.result_bits, b.live_recount), (b.result.budget.total + term, l.result_bits));
+    let term = slop_ninja_protocol::localization::TERMS.bits(b.result.budget.executed()).unwrap();
+    assert_eq!((l.result_bits, b.live_recount), (b.result.budget.total() + term, l.result_bits));
     let comp = &b.components["localization"];
     eprintln!("span gate components: {comp}");
     assert_eq!(b.components["schema"], "slop_ninja_eval_score_components_v3");
@@ -8276,6 +8279,7 @@ fn span_plans_count_the_anchor_job_and_the_record_bits() {
     // The live readings' L counts it too, and still fits the bound.
     let (q, lp) = (v1.quant_params().unwrap(), LiveParams { eps_live_milli: 1000, segments_max: 4 });
     for pred in [false, true] {
+        let q = slop_ninja_protocol::QuantBlock::V1(q);
         let with = live::derive_segments(1000, 40, pred, &q, &lp, &v1.counted_terms()).unwrap();
         let without = live::derive_segments(1000, 40, pred, &q, &lp, &CountedTerms::NONE).unwrap();
         assert_eq!(with.counted, without.counted + 42);

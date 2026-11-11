@@ -835,7 +835,8 @@ fn the_longest_roster_row_with_counts_fits_the_row_bound() {
     // The longest live row the r1 plan can produce: its checkpoints at the
     // longest grid decimal or `withheld`, a pre-finalized value likewise.
     let p = live::LiveParams { eps_live_milli: 1000, segments_max: 4 };
-    let max = live::row_bytes_max(1000, 40, 2000, &p).unwrap();
+    let quant = slop_ninja_protocol::QuantBlock::V1(slop_ninja_protocol::fixtures_quant::TESTNET_QUANT);
+    let max = live::row_bytes_max(1000, 40, &quant, &p).unwrap();
     let longest = |n: usize| "w".repeat(n);
     let mut with = row.clone();
     with.live = Some(LiveRow { checkpoints: vec![longest(8); 3], stopped: false, prefinal: Some(longest(8)) });

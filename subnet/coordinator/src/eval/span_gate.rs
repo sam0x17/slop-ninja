@@ -800,8 +800,8 @@ fn evaluate_inner(sql: &impl Sql, p: &PackageInputs<'_>) -> R<LocalizationBuild>
         entrants: values,
         result_bits: p.counted_bits,
         cases: p.result.cases,
-        identify_bits: p.result.params.quant.identify_bits,
-        budget_factor: p.result.params.quant.budget_factor,
+        identify_bits: p.result.params.quant.identify_bits(),
+        budget_factor: p.result.params.quant.budget_factor(),
     };
     record.validate().map_err(|_| EvalError::State("localization record"))?;
     record.check_result(p.result).map_err(|_| EvalError::State("localization record against the result"))?;

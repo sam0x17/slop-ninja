@@ -323,6 +323,62 @@ The score package (version 5) holds the exact values, the SE sums and the
 draws, and names its result's digest; the closure (version 2), the target
 (version 3) and `CoordinatorRow` (version 2) name it too.
 
+## `quant-v2`
+
+`src/quant2.rs` is the second quantization rule, selected per manifest by a
+rule-tagged quantization block (`QuantBlock`). It releases the same
+`q = w floor((S + eta + o) / w)`, clamped as under `quant-v1`, with:
+
+- **A lattice.** Noise, offsets and scales are drawn on one ppb of a score
+  (`UNIT` = 10^9 score units). With `w`, `o` and `eta` multiples of `UNIT`,
+  `q` depends on `S` only through `S_ppb = floor(S / UNIT)`, whose
+  sensitivity to one replaced document is
+  `Delta_ppb = ceil(ceil(10^18 / n) / UNIT)` (`sensitivity_ppb`).
+- **Discrete Gaussian noise.** `eta = UNIT * Y` with `Y` drawn exactly from
+  `N_Z(0, sigma_v^2)` by Canonne, Kamath and Steinke's sampler (discrete
+  Laplace proposals with an exact Bernoulli acceptance, `gaussian`,
+  `bern_exp_rational`), integer-only, for `1 <= sigma_v <= 10^9` ppb. Its
+  variance is below `sigma_v^2`.
+- **A scale sized to the reference's headroom under a privacy cap.**
+  `sigma_v = max(sigma_T, sigma_rho, 1)` (`Scale::derive`). `sigma_T` is the
+  largest scale with `sigma^2 + w^2 / 6 <= (t_H H)^2`, where `H` is the
+  public headroom `1 - q` of `R_k` signed into the manifest and `w^2 / 6` is
+  the dithered floor's error averaged over a cell (`sigma_target`; `H = 0`
+  gives 0). `sigma_rho` is the smallest scale at which the `m` released
+  values spend at most `rho_max` (`sigma_floor`). The release is `rho`-zCDP
+  per document per cohort with `rho = m Delta_ppb^2 / (2 sigma_v^2)`, which
+  the package records in millionths rounded up; grid, dither, cutoffs, bands
+  and units are post-processing.
+- **A public grid.** `w = ladder(sigma_v UNIT)`, from public values only; no
+  measured SE.
+- **New key domains** (`slop_ninja.quant/offset/v3`, `.../noise/v3`), so no
+  draw repeats a `quant-v1` draw; the stream blocks are shared.
+
+The counted bits are information-based (`Budget2`): 3 per executed entrant
+(withheld, or scored with its gate and copy bits), `ceil(log2 Bell(X))` for
+the cluster partition (`BELL_BITS`, rebuilt from the Bell triangle in
+tests), `ceil(log2(X + 1))` for the promotion, and for the `m` noisy values
+an upper bound on the information each carries about the batch,
+`1/2 log2(1 + V / sigma_v^2)` with `V` the batch-mean variance bound widened
+for the lattice and the integer-entropy term, computed in fixed point with
+every rounding up (`log2_upper_q20`, `noisy_bits`). The grid width is public
+and adds no term. Plan validation and the manifest count the worst case at
+the floor-only scale (`H = 0`), which no signed `H` exceeds, so a passing
+plan is never refused at the seal; a plan whose floor at the cap exceeds one
+score unit is refused.
+
+The rule-tagged records keep every `quant-v1` byte: `QuantBlock`,
+`QuantRecordBlock` (package) and `BudgetBlock` (result) encode their
+`quant-v1` variants exactly as the bare structs, and their `quant-v2`
+variants after a marker no valid `quant-v1` value holds (`eps_total_milli`
+0, `S1 = u128::MAX`, `executed = u16::MAX`) and the rule tag 2. A decoder
+from before `quant-v2` fails closed: the result's `quant_rule` tag 2 is
+unknown to it, and the manifest's and package's markers decode to values its
+own checks refuse. Packages and results refuse mixed variants
+(`Mismatch("quant rule")`). Under `quant-v2` an entrant's pre-finalized `q`
+needs only its own finished batch (`reward_v1::preview_q` with
+`NoiseScale::Gaussian`).
+
 ## `reward-v2`
 
 The rule ports subnet 78's band mechanism with the paper's unit translation,
@@ -422,6 +478,42 @@ with equal remainders in roster order (tied entrants have equal remainders).
    needs no owner UID.
 
 The roster is bounded at 256 entrants (`MAX_ROSTER`).
+
+## `reward-v3`
+
+`reward-v3` (`RewardRule` tag 4, permitted on every chain) is `reward-v2`
+with each near-copy cluster placed by its first member in roster order
+(`Placement::RosterFirst`):
+
+1. **Walk.** Every gated entrant is walked in roster order: the first
+   unassigned one heads a cluster with every later unassigned gated entrant
+   of identical inference content or within `d` of the head on the batch,
+   with no chaining (`assign_clusters` over that order). The package
+   publishes a head for every gated entrant (`cluster_roster` checks the
+   structure as `cluster_heads` does, over the roster order).
+2. **Cluster score.** A cluster's score is its head's `q`; members' own `q`
+   never move it. Rank order is the head's `q` descending, then the head's
+   roster index.
+3. **Cutoff over clusters.** `T_q` and `C_q` as under `reward-v2`, with
+   `max_N` the top cluster score (`cutoff_over`). Retained clusters are those
+   whose score reaches the cutoff; the others earn nothing.
+4. **Bands, credit and split** as under `reward-v2`, over the retained
+   clusters by their scores; each of a retained cluster's `m` members
+   receives `c / m` whatever its own `q`, so a member may sit above its
+   cluster's band or below the cutoff.
+5. **Promotion** walks the retained clusters' heads in rank order; a member
+   that is not a head is never a candidate.
+
+The public result labels every gated entrant with its head
+(`cluster_first_member`), and its validation adds a content check the walk
+always meets: no labelled entrant names a head after the first head of its
+own inference content. The launch burn target keeps `reward-v2`'s tag, so
+every validator build decodes the burn row of a restart that opens a
+`reward-v3` record. A restart names the fresh record's rules in
+`ChainRestartV2` (`chain-restart` version 2; `decisions::open_restart` reads
+both versions, a version-1 restart naming `reward-v2` and `quant-v1`). On
+rosters without near copies or shared content the two rules give equal
+outcomes.
 
 ## Copy policy: published artifacts and the near-copy relation
 
@@ -712,9 +804,9 @@ roster-order leftovers. `reward-v2`'s report covers:
   before the authorization's issue, and a revocation dated before it).
 
 The signing seeds are public test vectors, and the netuid is a placeholder.
-`cargo test -p slop-ninja-protocol` compares both native reports with their
-files and asserts each worked example's numbers.
-`slop-ninja-protocol-wasm-fixture` builds both reports inside a Wasm module
+`cargo test -p slop-ninja-protocol` compares every native report with its
+file and asserts each worked example's numbers.
+`slop-ninja-protocol-wasm-fixture` builds every report inside a Wasm module
 that has no imports. `slop_ninja_protocol_check` runs that module in the
 pure-Rust `wasmi` interpreter and requires each report to match the native
 report and its golden file byte for byte:
@@ -730,7 +822,9 @@ cargo run --manifest-path subnet/Cargo.toml --locked -p slop-ninja-protocol-chec
 To regenerate a golden file after an intended, versioned change, run
 `slop_ninja_protocol_check native > subnet/crates/protocol/fixtures/golden-v1.txt`
 `slop_ninja_protocol_check native reward-v1 > subnet/crates/protocol/fixtures/golden-reward-v1.txt`
-or `slop_ninja_protocol_check native quant-v1 > subnet/crates/protocol/fixtures/golden-quant-v1.txt`.
+`slop_ninja_protocol_check native quant-v1 > subnet/crates/protocol/fixtures/golden-quant-v1.txt`,
+`slop_ninja_protocol_check native quant-v2 > subnet/crates/protocol/fixtures/golden-quant-v2.txt`
+or `slop_ninja_protocol_check native reward-v3 > subnet/crates/protocol/fixtures/golden-reward-v3.txt`.
 
 `tests/allocation.rs` bounds the largest allocation made while decoding an
 oversized item-count claim, and checks that `Signed::open` rejects a forged

@@ -16,8 +16,11 @@
 
 use crate::codec::{Canonical, Decoder, Encoder, canonical_struct};
 use crate::quant::{self, Budget};
+use crate::quant2::{self, Budget2};
 use crate::records::validate_label;
-use crate::records_v2::{CutoffMode, PublicCopy, RewardV1Params, ScorePackageV2, tagged_enum};
+use crate::records_v2::{
+    CutoffMode, PublicCopy, QuantBlock, RewardV1Params, ScorePackageV2, decode_marked, tagged_enum,
+};
 use crate::reward_v1::{QEntrant, q_outcome};
 use crate::sign::KeyRole;
 use crate::{AccountId, ChainBinding, Digest, Error, MAX_ROSTER, Record, Result, RewardRule, Score};
@@ -27,6 +30,8 @@ tagged_enum! {
     pub enum QuantRule ("quant_rule") {
         /// [`crate::quant`].
         QuantV1 = 1,
+        /// [`crate::quant2`].
+        QuantV2 = 2,
     }
 }
 
@@ -34,6 +39,7 @@ impl QuantRule {
     pub fn name(self) -> &'static str {
         match self {
             Self::QuantV1 => quant::QUANT_RULE,
+            Self::QuantV2 => quant2::QUANT_RULE,
         }
     }
 }
@@ -72,8 +78,9 @@ pub enum EntrantOutcome {
         gate_pass: bool,
         /// The public-copy gate passed.
         copy_pass: bool,
-        /// For an entrant at or above the cutoff, the roster index of its
-        /// cluster's first member in roster order.
+        /// The roster index of its cluster's first member in roster order:
+        /// under `reward-v2` for an entrant at or above the cutoff; under
+        /// `reward-v3` for every gated entrant (the cluster's head).
         cluster_first_member: Option<u16>,
     },
 }
@@ -189,6 +196,135 @@ canonical_struct! {
     }
 }
 
+canonical_struct! {
+    /// The `quant-v2` counted bit budget ([`Budget2`]) and its check
+    /// `total * budget_factor <= cases * identify_bits`, with the noise scale
+    /// and the spent `rho` it was counted at.
+    #[derive(Copy)]
+    pub struct BudgetRecordV2 {
+        pub executed: u16,
+        pub sigma_ppb: u64,
+        pub rho_micro: u64,
+        pub deterministic: u32,
+        pub clusters: u32,
+        pub promotion: u32,
+        pub noisy_q20: u64,
+        pub noisy: u32,
+        pub total: u32,
+        pub within: bool,
+    }
+}
+
+impl BudgetRecordV2 {
+    pub fn of(budget: &Budget2, within: bool) -> Self {
+        Self {
+            executed: budget.executed,
+            sigma_ppb: budget.sigma_ppb,
+            rho_micro: budget.rho_micro,
+            deterministic: budget.deterministic,
+            clusters: budget.clusters,
+            promotion: budget.promotion,
+            noisy_q20: budget.noisy_q20,
+            noisy: budget.noisy,
+            total: budget.total,
+            within,
+        }
+    }
+}
+
+/// The marker a `quant-v2` budget starts with where a `quant-v1` budget holds
+/// `executed <= MAX_ROSTER`.
+const QUANT_V2_RESULT_MARKER: [u8; 2] = [0xff; 2];
+
+/// A result's budget, tagged by rule: the `quant-v1` variant encodes exactly
+/// as the bare [`BudgetRecord`]; the `quant-v2` variant starts with a marker
+/// (`u16::MAX` where `quant-v1` holds `executed`), then its rule tag.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum BudgetBlock {
+    V1(BudgetRecord),
+    V2(BudgetRecordV2),
+}
+
+impl Canonical for BudgetBlock {
+    fn encode_to(&self, e: &mut Encoder) {
+        match self {
+            Self::V1(b) => b.encode_to(e),
+            Self::V2(b) => {
+                e.raw(&QUANT_V2_RESULT_MARKER);
+                e.u8(crate::records_v2::QUANT_V2_TAG);
+                b.encode_to(e);
+            }
+        }
+    }
+    fn decode_from(d: &mut Decoder<'_>) -> Result<Self> {
+        decode_marked(d, &QUANT_V2_RESULT_MARKER, "budget_block", Self::V1, Self::V2)
+    }
+}
+
+impl BudgetBlock {
+    /// The `quant-v1` budget, mutably, or `Mismatch` under another rule.
+    pub fn v1_mut(&mut self) -> Result<&mut BudgetRecord> {
+        match self {
+            Self::V1(b) => Ok(b),
+            Self::V2(_) => Err(Error::Mismatch("quant rule")),
+        }
+    }
+
+    /// The `quant-v2` budget, mutably, or `Mismatch` under another rule.
+    pub fn v2_mut(&mut self) -> Result<&mut BudgetRecordV2> {
+        match self {
+            Self::V2(b) => Ok(b),
+            Self::V1(_) => Err(Error::Mismatch("quant rule")),
+        }
+    }
+
+    pub fn rule(&self) -> QuantRule {
+        match self {
+            Self::V1(_) => QuantRule::QuantV1,
+            Self::V2(_) => QuantRule::QuantV2,
+        }
+    }
+
+    pub fn total(&self) -> u32 {
+        match self {
+            Self::V1(b) => b.total,
+            Self::V2(b) => b.total,
+        }
+    }
+
+    pub fn within(&self) -> bool {
+        match self {
+            Self::V1(b) => b.within,
+            Self::V2(b) => b.within,
+        }
+    }
+
+    pub fn executed(&self) -> u16 {
+        match self {
+            Self::V1(b) => b.executed,
+            Self::V2(b) => b.executed,
+        }
+    }
+
+    /// The budget `params` count for a result of `executed` entrants at
+    /// grid width `w` with `cases` documents.
+    pub fn count(params: &QuantBlock, cases: u32, charged: u32, executed: u16, predecessor: bool, w: u64) -> Result<Self> {
+        match params {
+            QuantBlock::V1(p) => {
+                let budget = Budget::count(executed, w, predecessor)?;
+                let within = budget.within(cases, p.identify_bits, p.budget_factor);
+                Ok(Self::V1(BudgetRecord::of(&budget, within)?))
+            }
+            QuantBlock::V2(p) => {
+                let scale = quant2::Scale::derive(cases, charged, p)?;
+                let budget = Budget2::count(executed, predecessor, cases, &scale)?;
+                let within = budget.within(cases, p.identify_bits, p.budget_factor);
+                Ok(Self::V2(BudgetRecordV2::of(&budget, within)))
+            }
+        }
+    }
+}
+
 impl BudgetRecord {
     pub fn of(budget: &Budget, within: bool) -> Result<Self> {
         Ok(Self {
@@ -240,7 +376,7 @@ canonical_struct! {
         pub bands: Vec<ResultBand>,
         /// Roster order.
         pub entrants: Vec<ResultEntrant>,
-        pub budget: BudgetRecord,
+        pub budget: BudgetBlock,
     }
 }
 
@@ -255,7 +391,7 @@ impl Record for QuantizedResult {
     /// recounted and must be within its bound.
     fn validate(&self) -> Result<()> {
         validate_label(&self.cohort_label)?;
-        self.reward_rule.check_reward_v2(&self.chain)?;
+        self.reward_rule.check_band_rule(&self.chain)?;
         self.params.validate()?;
         if self.entrants.len() > usize::from(MAX_ROSTER) {
             return Err(Error::LengthLimit {
@@ -263,7 +399,10 @@ impl Record for QuantizedResult {
                 len: self.entrants.len() as u64,
             });
         }
-        if u64::from(self.params.quant.min_success_max_failed) >= u64::from(self.cases) {
+        if self.quant_rule != self.params.quant.rule() || self.quant_rule != self.budget.rule() {
+            return Err(Error::Mismatch("quant rule"));
+        }
+        if u64::from(self.params.quant.min_success_max_failed()) >= u64::from(self.cases) {
             return Err(Error::OutOfRange("quant.min_success_max_failed"));
         }
         if (self.reference_index == 0) != self.predecessor.is_none() {
@@ -274,9 +413,18 @@ impl Record for QuantizedResult {
         if self.charged != quant::charged(executed, predecessor) {
             return Err(Error::Mismatch("charged values"));
         }
-        let tau = quant::Tau::new(self.cases, self.charged, self.params.quant.eps_total_milli)?;
-        if !quant::on_ladder(self.width) || self.width < quant::width(0, &tau)? {
-            return Err(Error::Invalid("grid width"));
+        match &self.params.quant {
+            QuantBlock::V1(p) => {
+                let tau = quant::Tau::new(self.cases, self.charged, p.eps_total_milli)?;
+                if !quant::on_ladder(self.width) || self.width < quant::width(0, &tau)? {
+                    return Err(Error::Invalid("grid width"));
+                }
+            }
+            QuantBlock::V2(p) => {
+                if self.width != quant2::Scale::derive(self.cases, self.charged, p)?.width {
+                    return Err(Error::Mismatch("grid width"));
+                }
+            }
         }
         for e in &self.entrants {
             if let EntrantOutcome::Scored { q, .. } = e.outcome
@@ -289,6 +437,9 @@ impl Record for QuantizedResult {
             {
                 return Err(Error::Invalid("unscored entrant placed"));
             }
+        }
+        if self.reward_rule.placement() == Some(crate::reward_v1::Placement::RosterFirst) {
+            self.check_content_labels()?;
         }
         let outcome = crate::reward_v1::derive_units(self)?;
         let cutoff = outcome.cutoff.map(Score::new).transpose()?;
@@ -313,16 +464,11 @@ impl Record for QuantizedResult {
             }
             (Some(_), _) => return Err(Error::Mismatch("promotion and cutoff mode")),
         }
-        let budget = Budget::count(executed, self.width, predecessor)?;
-        let within = budget.within(
-            self.cases,
-            self.params.quant.identify_bits,
-            self.params.quant.budget_factor,
-        );
-        if self.budget != BudgetRecord::of(&budget, within)? {
+        let budget = BudgetBlock::count(&self.params.quant, self.cases, self.charged, executed, predecessor, self.width)?;
+        if self.budget != budget {
             return Err(Error::Mismatch("bit budget"));
         }
-        if !within {
+        if !budget.within() {
             return Err(Error::Invalid("bit budget"));
         }
         Ok(())
@@ -386,6 +532,29 @@ impl QuantizedResult {
             })
         {
             return Err(Error::Mismatch("result roster"));
+        }
+        Ok(())
+    }
+
+    /// `reward-v3`'s public content check, which the roster-order walk always
+    /// meets: for every labelled entrant `j` and every head `h` of the same
+    /// inference content, `label(j) <= h`. It refuses two heads sharing
+    /// content and a twin labelled after its content's first head.
+    fn check_content_labels(&self) -> Result<()> {
+        let mut first_head = std::collections::BTreeMap::<Digest, u16>::new();
+        for (i, e) in self.entrants.iter().enumerate() {
+            if let EntrantOutcome::Scored { cluster_first_member: Some(label), .. } = e.outcome
+                && usize::from(label) == i
+            {
+                first_head.entry(e.content).or_insert(label);
+            }
+        }
+        for e in &self.entrants {
+            if let EntrantOutcome::Scored { cluster_first_member: Some(label), .. } = e.outcome
+                && first_head.get(&e.content).is_some_and(|&h| label > h)
+            {
+                return Err(Error::Mismatch("identical content outside its first cluster"));
+            }
         }
         Ok(())
     }
@@ -481,17 +650,17 @@ impl QuantizedResult {
             opened_epoch: package.opened_epoch,
             revision: package.revision,
             reward_rule: package.reward_rule,
-            quant_rule: QuantRule::QuantV1,
+            quant_rule: package.params.quant.rule(),
             cases: package.cases,
-            charged: q.charged,
-            width: q.width,
-            band_width: q.band_width,
+            charged: q.charged(),
+            width: q.width(),
+            band_width: q.band_width(),
             params: package.params,
             mode: package.mode,
-            cutoff: q.cutoff,
+            cutoff: q.cutoff(),
             reference_index: package.reference_index,
-            current: reference(&package.reference.model, q.reference_q),
-            predecessor: match (&package.predecessor, q.predecessor_q) {
+            current: reference(&package.reference.model, q.reference_q()),
+            predecessor: match (&package.predecessor, q.predecessor_q()) {
                 (Some(p), Some(pq)) => Some(reference(&p.model, pq)),
                 (None, None) => None,
                 _ => return Err(Error::Mismatch("predecessor q")),
@@ -499,7 +668,7 @@ impl QuantizedResult {
             promoted: package.promoted,
             bands: Vec::new(),
             entrants,
-            budget: BudgetRecord::of(&Budget::default(), false)?,
+            budget: BudgetBlock::V1(BudgetRecord::of(&Budget::default(), false)?),
         };
         let entrants_q = result.q_entrants();
         let outcome = q_outcome(&crate::reward_v1::QInput {
@@ -508,26 +677,32 @@ impl QuantizedResult {
             reference_q: result.current.q.get(),
             predecessor_q: result.predecessor.as_ref().map(|p| p.q.get()),
             entrants: &entrants_q,
+            placement: result.reward_rule.placement().ok_or(Error::Mismatch("reward rule"))?,
         })?;
         result.bands = bands_of(&outcome)?;
         for (e, rank) in result.entrants.iter_mut().zip(&outcome.band_rank) {
             e.band_rank = rank.map(|r| r as u16);
         }
-        let budget = Budget::count(result.executed(), result.width, result.predecessor.is_some())?;
-        let within = budget.within(
+        result.budget = BudgetBlock::count(
+            &result.params.quant,
             result.cases,
-            result.params.quant.identify_bits,
-            result.params.quant.budget_factor,
-        );
-        result.budget = BudgetRecord::of(&budget, within)?;
+            result.charged,
+            result.executed(),
+            result.predecessor.is_some(),
+            result.width,
+        )?;
         Ok(result)
     }
 
     /// The longest signed record: [`MAX_ROSTER`] scored entrants in
     /// [`MAX_ROSTER`] bands, a predecessor, a promotion, a cutoff and the
-    /// longest label. Readers refuse a larger declared length before
-    /// allocating.
+    /// longest label, under the longer of the `quant-v1` and `quant-v2`
+    /// encodings. Readers refuse a larger declared length before allocating.
     pub fn max_signed_len() -> Result<u64> {
+        Ok(Self::max_signed_len_of(QuantRule::QuantV1)?.max(Self::max_signed_len_of(QuantRule::QuantV2)?))
+    }
+
+    fn max_signed_len_of(rule: QuantRule) -> Result<u64> {
         let zero = Digest([0; 32]);
         let entrant = ResultEntrant {
             uid: 0,
@@ -567,18 +742,28 @@ impl QuantizedResult {
             opened_epoch: 0,
             revision: 0,
             reward_rule: RewardRule::RewardV2,
-            quant_rule: QuantRule::QuantV1,
+            quant_rule: rule,
             cases: 0,
             charged: 0,
             width: 0,
             band_width: Some(0),
             params: RewardV1Params::new(
                 0,
-                crate::QuantParams {
-                    eps_total_milli: 0,
-                    identify_bits: 0,
-                    budget_factor: 0,
-                    min_success_max_failed: 0,
+                match rule {
+                    QuantRule::QuantV1 => QuantBlock::V1(crate::QuantParams {
+                        eps_total_milli: 0,
+                        identify_bits: 0,
+                        budget_factor: 0,
+                        min_success_max_failed: 0,
+                    }),
+                    QuantRule::QuantV2 => QuantBlock::V2(crate::QuantParamsV2 {
+                        noise_target_h_milli: 0,
+                        rho_max_milli: 0,
+                        headroom_pub_ppb: 0,
+                        identify_bits: 0,
+                        budget_factor: u16::MIN,
+                        min_success_max_failed: 0,
+                    }),
                 },
             ),
             mode: CutoffMode::Margin,
@@ -589,7 +774,10 @@ impl QuantizedResult {
             promoted: Some(AccountId([0; 32])),
             bands: vec![band; usize::from(MAX_ROSTER)],
             entrants: vec![entrant; usize::from(MAX_ROSTER)],
-            budget: BudgetRecord::of(&Budget::default(), true)?,
+            budget: match rule {
+                QuantRule::QuantV1 => BudgetBlock::V1(BudgetRecord::of(&Budget::default(), true)?),
+                QuantRule::QuantV2 => BudgetBlock::V2(BudgetRecordV2::of(&Budget2::default(), true)),
+            },
         };
         let mut e = Encoder::new();
         e.str(Self::KIND);

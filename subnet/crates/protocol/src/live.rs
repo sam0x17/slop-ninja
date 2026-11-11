@@ -37,7 +37,7 @@
 //! Integer arithmetic only, checked, so native and `wasm32` agree exactly.
 
 use crate::quant::{self, CohortBinding, CountedTerms, Draw, Stream, Subject, Tau};
-use crate::records_v2::QuantParams;
+use crate::records_v2::QuantBlock;
 use crate::{Digest, Error, Result, SCORE_SCALE, domain_hash};
 
 /// The rule's identifier, as published.
@@ -83,13 +83,15 @@ impl LiveParams {
     /// terms the setup derives `L` with), and the longest `live` roster row
     /// within [`ROSTER_ROW_BYTES`] ([`row_bytes_max`]). Never refuses for the
     /// bit budget: `L` adapts ([`derive_segments`]).
-    pub fn validate(&self, n: u32, chunk_docs: u32, roster_cap: u16, quant: &QuantParams, terms: &CountedTerms) -> Result<()> {
+    pub fn validate(&self, n: u32, chunk_docs: u32, roster_cap: u16, quant: &QuantBlock, terms: &CountedTerms) -> Result<()> {
         if self.segments_max == 1 {
             return Err(Error::OutOfRange("live.segments_max"));
         }
         if !self.readings() {
             return Ok(());
         }
+        // Plan time: the worst case, before any signed headroom.
+        let quant = &quant.worst_case();
         if self.eps_live_milli == 0 {
             return Err(Error::OutOfRange("live.eps_live_milli"));
         }
@@ -110,7 +112,7 @@ impl LiveParams {
                 derive_segments(n, x, predecessor, quant, self, terms)?;
             }
         }
-        if row_bytes_max(n, roster_cap, quant.eps_total_milli, self)? > ROSTER_ROW_BYTES {
+        if row_bytes_max(n, roster_cap, quant, self)? > ROSTER_ROW_BYTES {
             return Err(Error::OutOfRange("live row bytes"));
         }
         Ok(())
@@ -236,8 +238,9 @@ pub fn live_bits(executed: u16, l: u8, w: u64) -> Result<u32> {
 pub struct Derivation {
     /// `L`: `0` (no readings) or `2..=segments_max`.
     pub segments: u8,
-    /// The cohort's complete counted bits at the seal ([`quant::cohort_bits`]
-    /// at the narrowest grid, `SE = 0`).
+    /// The cohort's complete counted bits at the seal
+    /// ([`QuantBlock::counted_bits`]: `quant-v1` at the narrowest grid,
+    /// `SE = 0`; `quant-v2` at the scale of the signed `H`).
     pub counted: u32,
     /// [`live_bits`] at `L` (`0` without readings).
     pub live: u32,
@@ -253,13 +256,12 @@ pub fn derive_segments(
     n: u32,
     executed: u16,
     predecessor: bool,
-    quant: &QuantParams,
+    quant: &QuantBlock,
     live: &LiveParams,
     terms: &CountedTerms,
 ) -> Result<Derivation> {
-    let w = quant::narrowest_width(n, executed, predecessor, quant.eps_total_milli)?;
-    let counted = quant::cohort_bits(executed, w, predecessor, terms)?.total;
-    let bound = u64::from(n) * u64::from(quant.identify_bits) / u64::from(quant.budget_factor.max(1));
+    let counted = quant.counted_bits(n, executed, predecessor, terms)?;
+    let bound = u64::from(n) * u64::from(quant.identify_bits()) / u64::from(quant.budget_factor().max(1));
     let mut out = Derivation { segments: 0, counted, live: 0, bound };
     if !live.readings() || live.eps_live_milli == 0 {
         return Ok(out);
@@ -270,7 +272,7 @@ pub fn derive_segments(
         }
         let bits = live_bits(executed, l, width_live(n, l, executed, live.eps_live_milli)?)?;
         let total = counted.checked_add(bits).ok_or(Error::Overflow("live bits"))?;
-        if quant::within_bound(total, n, quant.identify_bits, quant.budget_factor) {
+        if quant::within_bound(total, n, quant.identify_bits(), quant.budget_factor()) {
             out.segments = l;
             out.live = bits;
             return Ok(out);
@@ -280,14 +282,17 @@ pub fn derive_segments(
 }
 
 /// The L(X) table a plan echoes: `L` for every `X` from none to the roster
-/// cap, as `(without a predecessor, with one)`.
+/// cap, as `(without a predecessor, with one)`, at the plan-time worst case
+/// ([`QuantBlock::worst_case`]); a sealed `quant-v2` cohort may read more.
 pub fn segments_table(
     n: u32,
     roster_cap: u16,
-    quant: &QuantParams,
+    quant: &QuantBlock,
     live: &LiveParams,
     terms: &CountedTerms,
 ) -> Result<Vec<(u8, u8)>> {
+    // Plan time: the worst case, before any signed headroom.
+    let quant = &quant.worst_case();
     let top = roster_cap;
     (0..=top)
         .map(|x| {
@@ -419,9 +424,10 @@ fn longest_decimal(widths: impl IntoIterator<Item = u64>) -> Result<usize> {
 /// `segments_max - 1` checkpoints at the longest decimal any live grid of the
 /// plan prints (every `X` up to `roster_cap`, every `L` up to
 /// `segments_max`) or `"withheld"`, whichever is longer, and the longest
-/// pre-finalized value (the narrowest `quant-v1` grid, `X = 0` without a
-/// predecessor, or `"withheld"`). A bound from the schema, not a tuned cap.
-pub fn row_bytes_max(n: u32, roster_cap: u16, eps_total_milli: u32, live: &LiveParams) -> Result<usize> {
+/// pre-finalized value (the narrowest grid the quantization block allows,
+/// `X = 0` without a predecessor, or `"withheld"`). A bound from the schema,
+/// not a tuned cap.
+pub fn row_bytes_max(n: u32, roster_cap: u16, quant: &QuantBlock, live: &LiveParams) -> Result<usize> {
     let mut widths = Vec::new();
     if live.readings() {
         let top = roster_cap;
@@ -432,7 +438,7 @@ pub fn row_bytes_max(n: u32, roster_cap: u16, eps_total_milli: u32, live: &LiveP
         }
     }
     let cp = longest_decimal(widths)?.max(WITHHELD.len());
-    let pf = longest_decimal([quant::narrowest_width(n, 0, false, eps_total_milli)?])?.max(WITHHELD.len());
+    let pf = longest_decimal([quant.narrowest_width(n, 0, false)?])?.max(WITHHELD.len());
     let checkpoints = usize::from(live.segments_max.saturating_sub(1));
     Ok(ROSTER_ROW_BASE_BYTES + live_row_len(checkpoints, cp, pf))
 }

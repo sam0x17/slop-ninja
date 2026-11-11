@@ -1,0 +1,87 @@
+schema=slop_ninja.protocol.golden/quant-v2
+unit=1000000000
+bern_exp_rational.1/3=10000010101001101010111111001110 words=106
+bern_exp_rational.5/5=00100001000000001001100111100000 words=192
+bern_exp_rational.7/2=00000000000000000000000000000000 words=258
+bern_exp_rational.40000001/1000000=00000000000000000000000000000000 words=276
+bern_exp_rational.6/3=00000000101000001000001000001000 words=252
+dlap.4=-13,0,1,2,-14,-14,-5,0,0,1,3,-2 words=208
+gaussian.1=0,1,1,3,-1,1 words=201
+gaussian.2=3,-5,-1,3,-3,-3 words=335
+gaussian.3=-1,-8,-1,1,-5,0 words=240
+gaussian.10=-10,8,-4,9,-3,-3 words=188
+gaussian.1000=-338,-106,2500,-1211,605,217 words=115
+gaussian.4015595=-3382030,-1700704,3356686,-211712,974698,-371831 words=110
+gaussian.9901385=-2342545,-2110880,-18666338,17423947,11722805,40850 words=222
+gaussian.1000000000=-1853229545,439911069,64995355,1158155008,39417102,1138838318 words=115
+sigma_target.35.0=0
+sigma_target.35.1=0
+sigma_target.35.62000000=2000000
+sigma_target.35.153000000=4950692
+sigma_target.35.1000000000=30956959
+sigma_target.70.0=0
+sigma_target.70.1=0
+sigma_target.70.62000000=4000000
+sigma_target.70.153000000=9901385
+sigma_target.70.1000000000=63900965
+sigma_floor.1000.42.500=6480741 delta_ppb=1000000
+sigma_floor.4000.258.500=4015595 delta_ppb=250000
+sigma_floor.8000.258.500=2007798 delta_ppb=125000
+scale.256.4000.62000000=target=4000000 floor=4015595 sigma=4015595 rho_micro=500000 width=5000000000000000 noisy_q20=309177138 noisy=295
+scale.40.4000.62000000=target=4000000 floor=1620186 sigma=4000000 rho_micro=82032 width=4000000000000000 noisy_q20=50527848 noisy=49
+scale.40.1000.153000000=target=9901385 floor=6480741 sigma=9901385 rho_micro=214204 width=10000000000000000 noisy_q20=40249230 noisy=39
+scale.8.1000.153000000=target=9901385 floor=3162278 sigma=9901385 rho_micro=51001 width=10000000000000000 noisy_q20=9583150 noisy=10
+scale.256.8000.62000000=target=4000000 floor=2007798 sigma=4000000 rho_micro=125977 width=4000000000000000 noisy_q20=211319286 noisy=202
+ladder.4000000=4000000000000000
+ladder.4000001=5000000000000000
+ladder.4015595=5000000000000000
+ladder.9999999=10000000000000000
+ladder.10000000=10000000000000000
+ladder.10000001=20000000000000000
+log2_upper_q20.1/1=1
+log2_upper_q20.2/1=1048577
+log2_upper_q20.3/1=1661954
+log2_upper_q20.4611686018427387903/1=65011712
+log2_upper_q20.78625000000000/16125000000000=2396719
+log2_upper_q20.348000000000000/98000000000000=1917042
+value_variance_bound.1000=250000053732101
+value_variance_bound.4000=62500029244417
+bell_bits=0:0,1:0,2:1,3:3,4:4,5:6,6:8,7:10,8:13,9:15,10:17,40:117,128:526,255:1236,256:1242
+budget.testnet.seal=Budget2 { executed: 40, sigma_ppb: 9901385, rho_micro: 214204, deterministic: 120, clusters: 117, promotion: 6, noisy_q20: 40249230, noisy: 39, total: 282 } terms=82 total=364
+budget.testnet.worst=Budget2 { executed: 40, sigma_ppb: 6480741, rho_micro: 500000, deterministic: 120, clusters: 117, promotion: 6, noisy_q20: 61601442, noisy: 59, total: 302 } terms=82 total=384 within=true bound=800
+budget.mainnet.seal=Budget2 { executed: 256, sigma_ppb: 4015595, rho_micro: 500000, deterministic: 768, clusters: 1242, promotion: 9, noisy_q20: 309177138, noisy: 295, total: 2314 } terms=514 total=2828
+budget.mainnet.worst=Budget2 { executed: 256, sigma_ppb: 4007805, rho_micro: 500000, deterministic: 768, clusters: 1242, promotion: 9, noisy_q20: 308579129, noisy: 295, total: 2314 } terms=514 total=2828 within=true bound=3200
+budget.infeasible=Err(OutOfRange("noise scale above one score unit"))
+quantize.entrant=offset=957244000000000 noise=4595958000000000 q=900000000000000000
+quantize.current=offset=2200717000000000 noise=10004478000000000 q=850000000000000000
+quantize.predecessor=offset=684585000000000 noise=-6941002000000000 q=830000000000000000
+quantize.clamp_low=offset=2034722000000000 noise=-8880096000000000 q=0
+quantize.clamp_high=offset=8241385000000000 noise=5313660000000000 q=1000000000000000000
+reward_v2.w5000000000000000.cutoff=Margin 860000000000000000 band_width=15000000000000000
+reward_v2.w5000000000000000.cluster.2=members=[2, 0] band=59 kappa=0 mu=0..=0 credit=20/37
+reward_v2.w5000000000000000.cluster.1=members=[1] band=58 kappa=1 mu=0..=0 credit=17/37
+reward_v2.w5000000000000000.units=[17712, 30111, 17712, 0]
+reward_v3.w5000000000000000.cutoff=Margin 860000000000000000 band_width=15000000000000000
+reward_v3.w5000000000000000.cluster.1=members=[1] band=58 kappa=0 mu=0..=0 credit=20/37
+reward_v3.w5000000000000000.cluster.0=members=[0, 2] band=57 kappa=1 mu=0..=0 credit=17/37
+reward_v3.w5000000000000000.units=[15056, 35424, 15055, 0]
+reward_v2.w10000000000000000.cutoff=Margin 860000000000000000 band_width=20000000000000000
+reward_v2.w10000000000000000.cluster.2=members=[2, 0] band=46 kappa=0 mu=0..=0 credit=20/37
+reward_v2.w10000000000000000.cluster.1=members=[1] band=45 kappa=1 mu=0..=0 credit=17/37
+reward_v2.w10000000000000000.units=[17712, 30111, 17712, 0]
+reward_v3.w10000000000000000.cutoff=Margin 860000000000000000 band_width=20000000000000000
+reward_v3.w10000000000000000.cluster.1=members=[1] band=45 kappa=0 mu=0..=0 credit=20/37
+reward_v3.w10000000000000000.cluster.0=members=[0, 2] band=44 kappa=1 mu=0..=0 credit=17/37
+reward_v3.w10000000000000000.units=[15056, 35424, 15055, 0]
+synthetic.record=sigma=9901385 target=9901385 floor=2645752 rho_micro=35701 m=7 width=10000000000000000 band_width=Some(20000000000000000) cutoff=Some(850000000000000000) reference_q=830000000000000000 predecessor_q=Some(850000000000000000)
+synthetic.entrant.0=Scored { q: Score(950000000000000000), gate_pass: true, copy_pass: true, cluster_first_member: Some(0) } band_rank=Some(0) units=6885
+synthetic.entrant.1=Scored { q: Score(940000000000000000), gate_pass: true, copy_pass: true, cluster_first_member: Some(1) } band_rank=Some(0) units=11705
+synthetic.entrant.2=Scored { q: Score(930000000000000000), gate_pass: true, copy_pass: true, cluster_first_member: Some(2) } band_rank=Some(1) units=21654
+synthetic.entrant.3=Scored { q: Score(900000000000000000), gate_pass: true, copy_pass: true, cluster_first_member: Some(3) } band_rank=Some(2) units=18406
+synthetic.entrant.4=Scored { q: Score(960000000000000000), gate_pass: true, copy_pass: true, cluster_first_member: Some(0) } band_rank=Some(0) units=6885
+synthetic.budget=V2(BudgetRecordV2 { executed: 5, sigma_ppb: 9901385, rho_micro: 35701, deterministic: 15, clusters: 6, promotion: 3, noisy_q20: 6708205, noisy: 7, total: 31, within: true })
+synthetic.result.len=1310
+synthetic.result.digest=bf5f86c7cc5bfc300ca9caa86966c06c29fc43f8d2e5cdb4d7744d5aed1849f4
+synthetic.package.digest=ba0263d8b2daa13f4f9141b272d638f7845a1de0801cbcae6959976665a98008
+max_signed_len=45619
+manifest_quant_block=QuantV2

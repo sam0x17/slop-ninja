@@ -138,6 +138,38 @@ impl U256 {
             quotient.lo.checked_add(1)
         }
     }
+
+    /// `(floor(self / d), self mod d)` for `d > 0`, with the quotient as a
+    /// full 256-bit value.
+    pub fn div_rem_u128(self, d: u128) -> Option<(Self, u128)> {
+        if d == 0 {
+            return None;
+        }
+        let mut quotient = Self::ZERO;
+        let mut rem: u128 = 0;
+        for i in (0..256).rev() {
+            let bit = if i >= 128 {
+                (self.hi >> (i - 128)) & 1
+            } else {
+                (self.lo >> i) & 1
+            };
+            let carry = rem >> 127;
+            rem = (rem << 1) | bit;
+            if carry == 1 || rem >= d {
+                rem = rem.wrapping_sub(d);
+                if i >= 128 {
+                    quotient.hi |= 1 << (i - 128);
+                } else {
+                    quotient.lo |= 1 << i;
+                }
+            }
+        }
+        Some((quotient, rem))
+    }
+
+    pub fn is_zero(&self) -> bool {
+        self.hi == 0 && self.lo == 0
+    }
 }
 
 impl crate::codec::Canonical for U256 {

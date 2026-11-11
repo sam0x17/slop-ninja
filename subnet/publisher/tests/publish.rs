@@ -155,8 +155,8 @@ fn assert_no_score_values(b: &Built, x: &Buckets3) {
     // Each exact score with its published q. The fixture's grid is fine and
     // its scores are round, so a q can equal its exact score's leading
     // digits: those digits are the q's, published by rule, and are skipped.
-    let mut scores: Vec<(u64, Option<u64>)> = vec![(p.reference.score.get(), Some(p.quant.reference_q.get()))];
-    scores.extend(p.predecessor.as_ref().map(|r| (r.score.get(), p.quant.predecessor_q.map(|q| q.get()))));
+    let mut scores: Vec<(u64, Option<u64>)> = vec![(p.reference.score.get(), Some(p.quant.reference_q().get()))];
+    scores.extend(p.predecessor.as_ref().map(|r| (r.score.get(), p.quant.predecessor_q().map(|q| q.get()))));
     scores.extend(p.entrants.iter().filter_map(|e| e.score.map(|s| (s.get(), e.q.map(|q| q.get())))));
     let micro = slop_ninja_protocol::SCORE_SCALE / 1_000_000;
     let published: std::collections::BTreeSet<u64> = scores.iter().filter_map(|(_, q)| q.map(|q| q / micro)).collect();

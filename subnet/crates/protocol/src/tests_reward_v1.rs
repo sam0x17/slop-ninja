@@ -286,9 +286,9 @@ fn an_entrant_short_of_the_margin_earns_only_in_a_fallback_cohort() -> Result<()
     assert_eq!(t.display(), "917200000000000000");
     let at = example(bp(9100), None, &[s(0x43, 9172)])?;
     // T_q is computed from q_Rk, not the exact reference score.
-    let t_q = Threshold::margin(at.quant.reference_q, RewardV1Params::new(sigma_permille(40), FIXTURE_QUANT).margin())?
-        .on_grid(at.quant.width)?;
-    assert_eq!(at.quant.cutoff.map(|c| u128::from(c.get())), (at.mode == CutoffMode::Margin).then_some(t_q));
+    let t_q = Threshold::margin(at.quant.reference_q(), RewardV1Params::new(sigma_permille(40), FIXTURE_QUANT).margin())?
+        .on_grid(at.quant.width())?;
+    assert_eq!(at.quant.cutoff().map(|c| u128::from(c.get())), (at.mode == CutoffMode::Margin).then_some(t_q));
     if at.mode == CutoffMode::Margin {
         assert_eq!(at.promoted, Some(hotkey(0x43)));
     }
@@ -297,8 +297,8 @@ fn an_entrant_short_of_the_margin_earns_only_in_a_fallback_cohort() -> Result<()
         None,
         &[Spec::new(0x44, Score::new(bp(9172).get() - 1)?)],
     )?;
-    let below_t_q = Threshold::margin(below.quant.reference_q, RewardV1Params::new(sigma_permille(40), FIXTURE_QUANT).margin())?
-        .on_grid(below.quant.width)?;
+    let below_t_q = Threshold::margin(below.quant.reference_q(), RewardV1Params::new(sigma_permille(40), FIXTURE_QUANT).margin())?
+        .on_grid(below.quant.width())?;
     let passes_q = u128::from(below.entrants[0].q.unwrap().get()) >= below_t_q;
     assert_eq!(below.mode == CutoffMode::Margin, passes_q);
     assert_eq!(below.promoted, None);
@@ -609,6 +609,7 @@ fn no_target_cases_keep_the_previous_target_or_burn() -> Result<()> {
         reference_q: SCORE_SCALE,
         predecessor_q: Some(900_000_000_000_000_000),
         entrants: &top,
+        placement: crate::reward_v1::Placement::QRankHead,
     })?;
     assert_eq!((perfect.mode, perfect.band_width), (CutoffMode::NoTarget, None));
     assert!(perfect.units.iter().all(|&u| u == 0));
@@ -912,8 +913,8 @@ fn extreme_parameters_do_not_overflow() -> Result<()> {
         &fx::default_index(&m.references),
         &mut fx::spec_measure(&specs, 1000, |_, _| false),
     )?;
-    let width = p.quant.band_width.expect("band width");
-    assert_eq!(width, p.quant.width);
+    let width = p.quant.band_width().expect("band width");
+    assert_eq!(width, p.quant.width());
     if p.entrants[0].q == Some(Score::ONE) {
         assert_eq!(ev.outcome.clusters[0].band, SCORE_SCALE.div_ceil(width) - 1);
     }

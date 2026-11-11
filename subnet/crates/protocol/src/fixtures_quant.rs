@@ -233,6 +233,7 @@ pub fn golden_report() -> Result<String> {
             reference_q: 28 * w,
             predecessor_q: Some(27 * w),
             entrants: &entrants,
+            placement: crate::reward_v1::Placement::QRankHead,
         },
     )?;
     let three = [g(31, Some(0)), g(31, Some(1)), g(31, Some(2))];
@@ -245,6 +246,7 @@ pub fn golden_report() -> Result<String> {
             reference_q: 28 * w,
             predecessor_q: None,
             entrants: &three,
+            placement: crate::reward_v1::Placement::QRankHead,
         },
     )?;
     let fallback = [g(28, Some(0)), g(27, Some(1)), g(25, None)];
@@ -257,6 +259,7 @@ pub fn golden_report() -> Result<String> {
             reference_q: 28 * w,
             predecessor_q: Some(26 * w),
             entrants: &fallback,
+            placement: crate::reward_v1::Placement::QRankHead,
         },
     )?;
     Ok(r.0)

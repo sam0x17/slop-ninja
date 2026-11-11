@@ -338,8 +338,8 @@ fn cohort(a: &Args, keys: &TrustedKeys, root: &[u8; 32]) {
         "published_at_seal": {"contents": at_seal.contents.contents.len(), "fingerprints": at_seal.fingerprints.entries.len()},
         "params": {"sigma": manifest.params.sigma.to_string(), "delta": manifest.params.margin().to_string()},
         "cutoff_q": evaluation.outcome.cutoff.map(|t| t.to_string()),
-        "quant": {"width": package.quant.width.to_string(), "band_width": package.quant.band_width.map(|w| w.to_string()),
-            "reference_q": package.quant.reference_q.get().to_string(), "charged": package.quant.charged,
+        "quant": {"width": package.quant.width().to_string(), "band_width": package.quant.band_width().map(|w| w.to_string()),
+            "reference_q": package.quant.reference_q().get().to_string(), "charged": package.quant.charged(),
             "result": package.result.to_string()},
         "entrants": package.entrants.iter().map(|e| json!({
             "uid": e.identity.uid, "hotkey": hex::encode(e.identity.hotkey.0), "registration_block": e.identity.registration_block,

@@ -327,6 +327,242 @@ impl QuantParams {
 }
 
 canonical_struct! {
+    /// The per-cohort `quant-v2` parameters ([`crate::quant2`]), versioned in
+    /// the plan's `reward_v1.quant` block and signed in the manifest.
+    #[derive(Copy)]
+    pub struct QuantParamsV2 {
+        /// `t_H`: the total release SD's target, in thousandths of `H`.
+        pub noise_target_h_milli: u16,
+        /// The per-cohort zCDP cap `rho_max` of the released scores, in
+        /// thousandths.
+        pub rho_max_milli: u32,
+        /// `H`: the public headroom `1 - q` of `R_k`, in ppb, resolved at
+        /// the seal and signed here.
+        pub headroom_pub_ppb: u32,
+        /// `h`: bits needed to identify one human document in the pool.
+        pub identify_bits: u16,
+        /// `F`: the published bits must stay `F` times below `n h`.
+        pub budget_factor: u16,
+        /// `k_n`: the minimum-success gate withholds an entrant with more
+        /// than this many attributable failures.
+        pub min_success_max_failed: u32,
+    }
+}
+
+impl QuantParamsV2 {
+    /// `0 < t_H <= 1000`, `rho_max > 0`, `H <= 1` and `h, F > 0`; `k_n < n`
+    /// is checked against the batch.
+    pub fn validate(&self) -> Result<()> {
+        if self.noise_target_h_milli == 0 || self.noise_target_h_milli > 1000 {
+            return Err(Error::OutOfRange("quant.noise_target_h_milli"));
+        }
+        if self.rho_max_milli == 0 {
+            return Err(Error::OutOfRange("quant.rho_max_milli"));
+        }
+        if self.headroom_pub_ppb > crate::quant2::MAX_HEADROOM_PPB {
+            return Err(Error::OutOfRange("quant.headroom_pub_ppb"));
+        }
+        if self.identify_bits == 0 || self.budget_factor == 0 {
+            return Err(Error::OutOfRange("quant budget"));
+        }
+        Ok(())
+    }
+}
+
+/// The marker a `quant-v2` block starts with where a `quant-v1` block holds
+/// its `eps_total_milli`, which is never 0.
+const QUANT_V2_PARAMS_MARKER: [u8; 4] = [0; 4];
+/// The marker a `quant-v2` package record starts with where a `quant-v1`
+/// record holds `S1 <= n 10^18`, which is never `u128::MAX`.
+const QUANT_V2_RECORD_MARKER: [u8; 16] = [0xff; 16];
+/// The rule tag after each marker.
+pub(crate) const QUANT_V2_TAG: u8 = 2;
+
+/// Decodes a marked `quant-v2` value or the unmarked `quant-v1` one.
+pub(crate) fn decode_marked<V1, V2, T>(
+    d: &mut crate::codec::Decoder<'_>,
+    marker: &[u8],
+    field: &'static str,
+    v1: impl FnOnce(V1) -> T,
+    v2: impl FnOnce(V2) -> T,
+) -> Result<T>
+where
+    V1: Canonical,
+    V2: Canonical,
+{
+    if d.peek(marker.len()) == Some(marker) {
+        d.take(marker.len())?;
+        match d.u8()? {
+            QUANT_V2_TAG => Ok(v2(V2::decode_from(d)?)),
+            tag => Err(Error::InvalidTag { field, tag }),
+        }
+    } else {
+        Ok(v1(V1::decode_from(d)?))
+    }
+}
+
+/// A manifest's quantization parameters, tagged by rule. The `quant-v1`
+/// variant encodes exactly as the bare [`QuantParams`]; the `quant-v2`
+/// variant starts with a marker no valid `quant-v1` block holds, then its
+/// rule tag. Every decoder from before `quant-v2` fails closed on it: it
+/// reads `eps_total_milli = 0`, which [`QuantParams::validate`] refuses.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum QuantBlock {
+    V1(QuantParams),
+    V2(QuantParamsV2),
+}
+
+impl Canonical for QuantBlock {
+    fn encode_to(&self, e: &mut crate::codec::Encoder) {
+        match self {
+            Self::V1(p) => p.encode_to(e),
+            Self::V2(p) => {
+                e.raw(&QUANT_V2_PARAMS_MARKER);
+                e.u8(QUANT_V2_TAG);
+                p.encode_to(e);
+            }
+        }
+    }
+    fn decode_from(d: &mut crate::codec::Decoder<'_>) -> Result<Self> {
+        decode_marked(d, &QUANT_V2_PARAMS_MARKER, "quant_block", Self::V1, Self::V2)
+    }
+}
+
+impl From<QuantParams> for QuantBlock {
+    fn from(p: QuantParams) -> Self {
+        Self::V1(p)
+    }
+}
+
+impl From<QuantParamsV2> for QuantBlock {
+    fn from(p: QuantParamsV2) -> Self {
+        Self::V2(p)
+    }
+}
+
+impl QuantBlock {
+    /// The rule this block parameterizes.
+    pub fn rule(&self) -> crate::QuantRule {
+        match self {
+            Self::V1(_) => crate::QuantRule::QuantV1,
+            Self::V2(_) => crate::QuantRule::QuantV2,
+        }
+    }
+
+    pub fn validate(&self) -> Result<()> {
+        match self {
+            Self::V1(p) => p.validate(),
+            Self::V2(p) => p.validate(),
+        }
+    }
+
+    /// `h`.
+    pub fn identify_bits(&self) -> u16 {
+        match self {
+            Self::V1(p) => p.identify_bits,
+            Self::V2(p) => p.identify_bits,
+        }
+    }
+
+    /// `F`.
+    pub fn budget_factor(&self) -> u16 {
+        match self {
+            Self::V1(p) => p.budget_factor,
+            Self::V2(p) => p.budget_factor,
+        }
+    }
+
+    /// `k_n`.
+    pub fn min_success_max_failed(&self) -> u32 {
+        match self {
+            Self::V1(p) => p.min_success_max_failed,
+            Self::V2(p) => p.min_success_max_failed,
+        }
+    }
+
+    /// The `quant-v1` parameters, or `Mismatch` under another rule.
+    pub fn v1(&self) -> Result<&QuantParams> {
+        match self {
+            Self::V1(p) => Ok(p),
+            Self::V2(_) => Err(Error::Mismatch("quant rule")),
+        }
+    }
+
+    /// The `quant-v2` parameters, or `Mismatch` under another rule.
+    pub fn v2(&self) -> Result<&QuantParamsV2> {
+        match self {
+            Self::V2(p) => Ok(p),
+            Self::V1(_) => Err(Error::Mismatch("quant rule")),
+        }
+    }
+
+    /// The narrowest grid `executed` entrants can have under this block.
+    pub fn narrowest_width(&self, n: u32, executed: u16, predecessor: bool) -> Result<u64> {
+        match self {
+            Self::V1(p) => crate::quant::narrowest_width(n, executed, predecessor, p.eps_total_milli),
+            Self::V2(p) => crate::quant2::narrowest_width(n, executed, predecessor, p),
+        }
+    }
+
+    /// The plan-time worst case of the complete counted total over every
+    /// roster size up to `roster_cap` with `terms`: the largest total and
+    /// whether every case fits.
+    pub fn worst_case_terms(
+        &self,
+        n: u32,
+        roster_cap: u16,
+        terms: &crate::quant::CountedTerms,
+    ) -> Result<(u32, bool)> {
+        match self {
+            Self::V1(p) => crate::quant::worst_case_terms(
+                n,
+                roster_cap,
+                p.eps_total_milli,
+                p.identify_bits,
+                p.budget_factor,
+                terms,
+            )
+            .map(|(bits, ok)| (bits.total, ok)),
+            Self::V2(p) => crate::quant2::worst_case_terms(n, roster_cap, p, terms).map(|(bits, ok)| (bits.total, ok)),
+        }
+    }
+
+    /// The complete counted bits ([`crate::quant::cohort_bits`] or
+    /// [`crate::quant2::cohort_bits`] with `terms`) of a cohort of
+    /// `executed` entrants at the narrowest grid this block allows:
+    /// `quant-v1` at `SE = 0`; `quant-v2` at the scale of the block's signed
+    /// `H` (a block with `H = 0` gives the floor-only worst case, which no
+    /// signed `H` exceeds).
+    pub fn counted_bits(
+        &self,
+        n: u32,
+        executed: u16,
+        predecessor: bool,
+        terms: &crate::quant::CountedTerms,
+    ) -> Result<u32> {
+        match self {
+            Self::V1(p) => {
+                let w = crate::quant::narrowest_width(n, executed, predecessor, p.eps_total_milli)?;
+                crate::quant::cohort_bits(executed, w, predecessor, terms).map(|b| b.total)
+            }
+            Self::V2(p) => {
+                let scale = crate::quant2::Scale::derive(n, crate::quant::charged(executed, predecessor), p)?;
+                crate::quant2::cohort_bits(executed, predecessor, n, &scale, terms).map(|b| b.total)
+            }
+        }
+    }
+
+    /// This block with its signed headroom cleared (`quant-v2`'s `H = 0`):
+    /// the plan-time worst case. A `quant-v1` block is unchanged.
+    pub fn worst_case(&self) -> Self {
+        match self {
+            Self::V1(p) => Self::V1(*p),
+            Self::V2(p) => Self::V2(QuantParamsV2 { headroom_pub_ppb: 0, ..*p }),
+        }
+    }
+}
+
+canonical_struct! {
     /// Every `reward-v2` parameter, frozen and signed in the manifest. `sigma`
     /// and the `quant` block are set per manifest; the others are the rule's
     /// frozen constants and must equal them, so the parameter rule cannot
@@ -346,13 +582,14 @@ canonical_struct! {
         /// The score clause's `w / improvement_divisor`.
         pub improvement_divisor: u8,
         pub row_total: u16,
-        pub quant: QuantParams,
+        pub quant: QuantBlock,
     }
 }
 
 impl RewardV1Params {
     /// The frozen rule with a measured `sigma` and a cohort's `quant` block.
-    pub fn new(sigma: u64, quant: QuantParams) -> Self {
+    pub fn new(sigma: u64, quant: impl Into<QuantBlock>) -> Self {
+        let quant = quant.into();
         Self {
             sigma,
             margin_floor: MARGIN_FLOOR,
@@ -903,7 +1140,7 @@ record!(
     Some(KeyRole::Package),
     |m| {
         validate_label(&m.cohort_label)?;
-        m.reward_rule.check_reward_v2(&m.chain)?;
+        m.reward_rule.check_band_rule(&m.chain)?;
         m.schedule.validate()?;
         m.batch.validate(&m.chain)?;
         m.params.validate()?;
@@ -922,22 +1159,18 @@ record!(
                 len: m.roster.len() as u64,
             });
         }
-        // quant-v1: two documents for SE, `k_n < n`, and the bit budget of
-        // the worst case over every roster size up to the cap.
+        // Two documents (for quant-v1's SE), `k_n < n`, and the bit budget
+        // of the worst case over every roster size up to the cap, under the
+        // block's own rule.
         if m.batch.cases < 2 {
             return Err(Error::Invalid("cases"));
         }
         let quant_params = &m.params.quant;
-        if u64::from(quant_params.min_success_max_failed) >= u64::from(m.batch.cases) {
+        if u64::from(quant_params.min_success_max_failed()) >= u64::from(m.batch.cases) {
             return Err(Error::OutOfRange("quant.min_success_max_failed"));
         }
-        let (_, within) = crate::quant::worst_case(
-            m.batch.cases,
-            m.roster_cap,
-            quant_params.eps_total_milli,
-            quant_params.identify_bits,
-            quant_params.budget_factor,
-        )?;
+        let (_, within) =
+            quant_params.worst_case_terms(m.batch.cases, m.roster_cap, &crate::quant::CountedTerms::NONE)?;
         if !within {
             return Err(Error::Invalid("bit budget"));
         }
@@ -1261,6 +1494,187 @@ impl QuantRecord {
 }
 
 canonical_struct! {
+    /// The private `quant-v2` record of a cohort ([`crate::quant2`]): the
+    /// noise scale and its parts, the spent `rho`, the grid and the
+    /// references' quantized scores and draws (in score units, multiples of
+    /// [`crate::quant2::UNIT`]). None of it is published but `w`, `W_q`, the
+    /// cutoff, the `q` values and the scale and `rho` the public result
+    /// recomputes from public data.
+    pub struct QuantRecordV2 {
+        /// `sigma_T`, in ppb.
+        pub sigma_target_ppb: u64,
+        /// `sigma_rho`, in ppb.
+        pub sigma_floor_ppb: u64,
+        /// `sigma_v`, in ppb.
+        pub sigma_ppb: u64,
+        /// The spent `rho`, in millionths, rounded up.
+        pub rho_micro: u64,
+        /// `m`: the charged values.
+        pub charged: u32,
+        /// `w = ladder(sigma_v UNIT)`.
+        pub width: u64,
+        /// `W_q`, the band width on the grid; `None` when `q_Rk = 1`.
+        pub band_width: Option<u64>,
+        /// The published cutoff on the grid (`T_q` or `C_q`).
+        pub cutoff: Option<Score>,
+        pub reference_q: Score,
+        pub reference_draw: QuantDraw,
+        /// Present exactly when `k > 0`.
+        pub predecessor_q: Option<Score>,
+        pub predecessor_draw: Option<QuantDraw>,
+    }
+}
+
+impl QuantRecordV2 {
+    /// The scale this record states.
+    pub fn scale(&self) -> crate::quant2::Scale {
+        crate::quant2::Scale {
+            target: self.sigma_target_ppb,
+            floor: self.sigma_floor_ppb,
+            sigma: self.sigma_ppb,
+            rho_micro: self.rho_micro,
+            width: self.width,
+        }
+    }
+}
+
+/// A package's quantization record, tagged by rule. The `quant-v1` variant
+/// encodes exactly as the bare [`QuantRecord`]; the `quant-v2` variant starts
+/// with a marker (`u128::MAX` where `quant-v1` holds `S1`), then its rule tag.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum QuantRecordBlock {
+    V1(QuantRecord),
+    V2(QuantRecordV2),
+}
+
+impl Canonical for QuantRecordBlock {
+    fn encode_to(&self, e: &mut Encoder) {
+        match self {
+            Self::V1(r) => r.encode_to(e),
+            Self::V2(r) => {
+                e.raw(&QUANT_V2_RECORD_MARKER);
+                e.u8(QUANT_V2_TAG);
+                r.encode_to(e);
+            }
+        }
+    }
+    fn decode_from(d: &mut Decoder<'_>) -> Result<Self> {
+        decode_marked(d, &QUANT_V2_RECORD_MARKER, "quant_record", Self::V1, Self::V2)
+    }
+}
+
+impl QuantRecordBlock {
+    /// The record before [`crate::reward_v1::quantize_package`] fills it.
+    pub fn unset() -> Self {
+        Self::V1(QuantRecord::unset())
+    }
+
+    /// The rule of this record.
+    pub fn rule(&self) -> crate::QuantRule {
+        match self {
+            Self::V1(_) => crate::QuantRule::QuantV1,
+            Self::V2(_) => crate::QuantRule::QuantV2,
+        }
+    }
+
+    pub fn charged(&self) -> u32 {
+        match self {
+            Self::V1(r) => r.charged,
+            Self::V2(r) => r.charged,
+        }
+    }
+
+    /// `w`.
+    pub fn width(&self) -> u64 {
+        match self {
+            Self::V1(r) => r.width,
+            Self::V2(r) => r.width,
+        }
+    }
+
+    /// `W_q`.
+    pub fn band_width(&self) -> Option<u64> {
+        match self {
+            Self::V1(r) => r.band_width,
+            Self::V2(r) => r.band_width,
+        }
+    }
+
+    pub fn cutoff(&self) -> Option<Score> {
+        match self {
+            Self::V1(r) => r.cutoff,
+            Self::V2(r) => r.cutoff,
+        }
+    }
+
+    pub fn set_cutoff(&mut self, cutoff: Option<Score>) {
+        match self {
+            Self::V1(r) => r.cutoff = cutoff,
+            Self::V2(r) => r.cutoff = cutoff,
+        }
+    }
+
+    pub fn reference_q(&self) -> Score {
+        match self {
+            Self::V1(r) => r.reference_q,
+            Self::V2(r) => r.reference_q,
+        }
+    }
+
+    pub fn reference_draw(&self) -> &QuantDraw {
+        match self {
+            Self::V1(r) => &r.reference_draw,
+            Self::V2(r) => &r.reference_draw,
+        }
+    }
+
+    pub fn predecessor_q(&self) -> Option<Score> {
+        match self {
+            Self::V1(r) => r.predecessor_q,
+            Self::V2(r) => r.predecessor_q,
+        }
+    }
+
+    pub fn predecessor_draw(&self) -> Option<&QuantDraw> {
+        match self {
+            Self::V1(r) => r.predecessor_draw.as_ref(),
+            Self::V2(r) => r.predecessor_draw.as_ref(),
+        }
+    }
+
+    /// The `quant-v1` record, or `Mismatch` under another rule.
+    pub fn v1(&self) -> Result<&QuantRecord> {
+        match self {
+            Self::V1(r) => Ok(r),
+            Self::V2(_) => Err(Error::Mismatch("quant rule")),
+        }
+    }
+
+    /// The `quant-v2` record, or `Mismatch` under another rule.
+    pub fn v2(&self) -> Result<&QuantRecordV2> {
+        match self {
+            Self::V2(r) => Ok(r),
+            Self::V1(_) => Err(Error::Mismatch("quant rule")),
+        }
+    }
+    /// The `quant-v1` record, mutably, or `Mismatch` under another rule.
+    pub fn v1_mut(&mut self) -> Result<&mut QuantRecord> {
+        match self {
+            Self::V1(r) => Ok(r),
+            Self::V2(_) => Err(Error::Mismatch("quant rule")),
+        }
+    }
+
+    /// The `quant-v2` record, mutably, or `Mismatch` under another rule.
+    pub fn v2_mut(&mut self) -> Result<&mut QuantRecordV2> {
+        match self {
+            Self::V2(r) => Ok(r),
+            Self::V1(_) => Err(Error::Mismatch("quant rule")),
+        }
+    }
+}
+
+canonical_struct! {
     /// Score components of one roster entry, private to the coordinator.
     pub struct EntrantScore {
         pub identity: NeuronIdentity,
@@ -1286,7 +1700,9 @@ canonical_struct! {
         /// gate-failed ones included.
         pub public: Option<PublicCheck>,
         /// Head of the entrant's near-copy cluster, a coordinator measurement.
-        /// Set exactly for gated entrants at or above the cutoff.
+        /// Set exactly for gated entrants at or above the cutoff under
+        /// `reward-v2`, and for every gated entrant under `reward-v3` (where
+        /// the head is the cluster's first member in roster order).
         pub cluster_head: Option<AccountId>,
         /// The member's statistics against its head, for every member joined
         /// by distance rather than by identical content.
@@ -1595,8 +2011,8 @@ canonical_struct! {
         pub distance_monitor: DistanceMonitor,
         pub receipt_root: Digest,
         pub receipt_count: u64,
-        /// The `quant-v1` record.
-        pub quant: QuantRecord,
+        /// The quantization record of the manifest's rule.
+        pub quant: QuantRecordBlock,
         /// Digest of the package's public [`crate::QuantizedResult`].
         pub result: Digest,
     }
@@ -1643,7 +2059,7 @@ impl ScorePackageV2 {
     ///   same for every entrant.
     pub fn validate_inputs(&self) -> Result<()> {
         validate_label(&self.cohort_label)?;
-        self.reward_rule.check_reward_v2(&self.chain)?;
+        self.reward_rule.check_band_rule(&self.chain)?;
         self.params.validate()?;
         validate_probes(&self.probes)?;
         if self.cases == 0 {
@@ -1755,39 +2171,74 @@ impl ScorePackageV2 {
         self.entrants.iter().filter(|e| e.score.is_some()).count() as u16
     }
 
-    /// The `quant-v1` inputs: the charged count, `SE` from its sums, `w` from
-    /// `SE` and the noise scale, every `q` from its score and draw, the
+    /// The quantization inputs under the manifest's rule: the record's rule
+    /// matches the parameters', the charged count, the grid (`quant-v1`: `SE`
+    /// from its sums and `w` from `SE` and the noise scale; `quant-v2`: the
+    /// scale, `rho` and `w` recomputed from the signed parameters, every draw
+    /// on the noise lattice), every `q` from its score and draw, the
     /// minimum-success gate against `k_n`, and the seal's bit budget. The
     /// draws' derivation from the private seed is the coordinator's replay
     /// check ([`crate::reward_v1::quantize_package`]).
     pub fn check_quant(&self) -> Result<()> {
         use crate::quant;
-        let q = &self.quant;
         let quant_params = &self.params.quant;
-        if u64::from(quant_params.min_success_max_failed) >= u64::from(self.cases) {
+        if quant_params.rule() != self.quant.rule() {
+            return Err(Error::Mismatch("quant rule"));
+        }
+        let k_n = quant_params.min_success_max_failed();
+        if u64::from(k_n) >= u64::from(self.cases) {
             return Err(Error::OutOfRange("quant.min_success_max_failed"));
         }
         let executed = self.executed();
         let predecessor = self.predecessor.is_some();
-        if q.charged != quant::charged(executed, predecessor) {
+        let charged = quant::charged(executed, predecessor);
+        if self.quant.charged() != charged {
             return Err(Error::Mismatch("quant charged values"));
         }
-        if quant::SeMeasure::from_sums(self.cases, q.s1, q.s2)?.se != q.se {
-            return Err(Error::Mismatch("quant se"));
-        }
-        let tau = quant::Tau::new(self.cases, q.charged, quant_params.eps_total_milli)?;
-        if quant::width(q.se, &tau)? != q.width {
-            return Err(Error::Mismatch("quant width"));
-        }
-        if quant::quantize(self.reference.score.get(), &q.reference_draw.draw()?, q.width)?
-            != q.reference_q.get()
+        let width = self.quant.width();
+        let scale = match (&self.quant, quant_params) {
+            (QuantRecordBlock::V1(q), QuantBlock::V1(p)) => {
+                if quant::SeMeasure::from_sums(self.cases, q.s1, q.s2)?.se != q.se {
+                    return Err(Error::Mismatch("quant se"));
+                }
+                let tau = quant::Tau::new(self.cases, charged, p.eps_total_milli)?;
+                if quant::width(q.se, &tau)? != width {
+                    return Err(Error::Mismatch("quant width"));
+                }
+                let budget = quant::Budget::count(executed, width, predecessor)?;
+                if !budget.within(self.cases, p.identify_bits, p.budget_factor) {
+                    return Err(Error::Invalid("bit budget"));
+                }
+                None
+            }
+            (QuantRecordBlock::V2(q), QuantBlock::V2(p)) => {
+                q.scale().check(self.cases, charged, p)?;
+                let budget = crate::quant2::Budget2::count(executed, predecessor, self.cases, &q.scale())?;
+                if !budget.within(self.cases, p.identify_bits, p.budget_factor) {
+                    return Err(Error::Invalid("bit budget"));
+                }
+                Some(q.scale())
+            }
+            _ => return Err(Error::Mismatch("quant rule")),
+        };
+        let checked = |d: &QuantDraw| -> Result<quant::Draw> {
+            let draw = d.draw()?;
+            if let Some(scale) = &scale
+                && !crate::quant2::draw_on_lattice(&draw, scale)
+            {
+                return Err(Error::Invalid("draw off the noise lattice"));
+            }
+            Ok(draw)
+        };
+        if quant::quantize(self.reference.score.get(), &checked(self.quant.reference_draw())?, width)?
+            != self.quant.reference_q().get()
         {
             return Err(Error::Mismatch("reference q"));
         }
-        match (&self.predecessor, q.predecessor_q, &q.predecessor_draw) {
+        match (&self.predecessor, self.quant.predecessor_q(), self.quant.predecessor_draw()) {
             (None, None, None) => {}
             (Some(p), Some(pq), Some(draw)) => {
-                if quant::quantize(p.score.get(), &draw.draw()?, q.width)? != pq.get() {
+                if quant::quantize(p.score.get(), &checked(draw)?, width)? != pq.get() {
                     return Err(Error::Mismatch("predecessor q"));
                 }
             }
@@ -1795,24 +2246,22 @@ impl ScorePackageV2 {
         }
         for e in &self.entrants {
             if let (Some(score), Some(eq), Some(draw)) = (e.score, e.q, &e.draw)
-                && quant::quantize(score.get(), &draw.draw()?, q.width)? != eq.get()
+                && quant::quantize(score.get(), &checked(draw)?, width)? != eq.get()
             {
                 return Err(Error::Mismatch("entrant q"));
             }
-            let over = e.score.is_some() && e.failed > quant_params.min_success_max_failed;
+            let over = e.score.is_some() && e.failed > k_n;
             if over != e.withheld() {
                 return Err(Error::Mismatch("minimum-success gate"));
             }
         }
-        let budget = quant::Budget::count(executed, q.width, predecessor)?;
-        if !budget.within(self.cases, quant_params.identify_bits, quant_params.budget_factor) {
-            return Err(Error::Invalid("bit budget"));
-        }
-        if q.band_width != crate::reward_v1::grid_band_width(&self.params, q.reference_q, q.width)? {
+        if self.quant.band_width()
+            != crate::reward_v1::grid_band_width(&self.params, self.quant.reference_q(), width)?
+        {
             return Err(Error::Mismatch("quant band width"));
         }
-        if let Some(cutoff) = q.cutoff
-            && !quant::on_grid(cutoff.get(), q.width)
+        if let Some(cutoff) = self.quant.cutoff()
+            && !quant::on_grid(cutoff.get(), width)
         {
             return Err(Error::Invalid("cutoff off the grid"));
         }
@@ -1882,13 +2331,17 @@ record!(
     |p| {
         p.validate_inputs()?;
         let total: u32 = p.entrants.iter().map(|e| u32::from(e.units)).sum();
-        if (p.mode == CutoffMode::NoTarget) != p.quant.cutoff.is_none() {
+        if (p.mode == CutoffMode::NoTarget) != p.quant.cutoff().is_none() {
             return Err(Error::Invalid("cutoff and mode"));
         }
         match p.mode {
             CutoffMode::NoTarget => {
+                // reward-v3 publishes membership in every mode; reward-v2
+                // only at or above a cutoff.
+                let labels_outside_cutoff =
+                    p.reward_rule.placement() == Some(crate::reward_v1::Placement::QRankHead);
                 if total != 0
-                    || p.entrants.iter().any(|e| e.cluster_head.is_some())
+                    || (labels_outside_cutoff && p.entrants.iter().any(|e| e.cluster_head.is_some()))
                     || !p.credits.is_empty()
                 {
                     return Err(Error::Invalid("no-target package allocates"));
@@ -2105,7 +2558,7 @@ record!(
     3,
     Some(KeyRole::Package),
     |t| {
-        t.reward_rule.check_reward_v2(&t.chain)?;
+        t.reward_rule.check_band_rule(&t.chain)?;
         if let TargetSource::Cohort { cohort_label, .. } = &t.source {
             validate_label(cohort_label)?;
         }
@@ -2263,7 +2716,7 @@ fn max_upscale(w: u64, max: u64) -> u16 {
 }
 
 record!(WeightRowV2, "weight-row", 2, None, |r| {
-    r.reward_rule.check_reward_v2(&r.chain)?;
+    r.reward_rule.check_band_rule(&r.chain)?;
     let uids: Vec<_> = r.entries.iter().map(|e| e.uid).collect();
     strictly_increasing(&uids, "row uid")?;
     if r.entries.iter().any(|e| e.weight == 0) {

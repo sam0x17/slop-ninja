@@ -348,7 +348,7 @@ fn specs() -> Vec<Spec> {
 
 fn finalized_with(specs: &[Spec], quant_params: QuantParams) -> Result<(ScorePackageV2, PublishedIndex)> {
     let mut m = fx::manifest(chain(), 7, 1000, sigma_permille(40), 0, specs);
-    m.params.quant = quant_params;
+    m.params.quant = quant_params.into();
     let index = fx::default_index(&m.references);
     let mut p = fx::package(&m, bp(9100), None, specs)?;
     finalize_fixture(&mut p, &index, &mut fx::spec_measure(specs, 1000, |_, _| false))?;
@@ -369,10 +369,10 @@ fn identical_inputs_give_identical_records_in_any_order() -> Result<()> {
     // Each recorded draw is a function of the seed, the cohort and the
     // subject's content alone: no other entrant and no processing order
     // enters it.
-    let tau = quant::Tau::new(a.cases, a.quant.charged, a.params.quant.eps_total_milli)?;
+    let tau = quant::Tau::new(a.cases, a.quant.charged(), a.params.quant.v1().unwrap().eps_total_milli)?;
     let cohort = quant::CohortBinding(a.cohort_manifest);
     for e in &a.entrants {
-        let d = quant::draw(&fx::FIXTURE_SEED, &cohort, &Subject::Entrant(e.content), a.quant.width, &tau)?;
+        let d = quant::draw(&fx::FIXTURE_SEED, &cohort, &Subject::Entrant(e.content), a.quant.width(), &tau)?;
         assert_eq!(e.draw, Some(QuantDraw::of(&d)));
     }
     // Another roster order is another cohort (another manifest digest), so
@@ -405,16 +405,16 @@ fn the_result_is_unchanged_by_exact_values_with_the_same_q() -> Result<()> {
         e.cluster_stats = None;
     }
     changed.reference.score = Score::new(p.reference.score.get() + 3)?;
-    changed.quant.s1 += 11;
-    changed.quant.se += 5;
-    changed.quant.reference_draw.offset ^= 1;
+    changed.quant.v1_mut().unwrap().s1 += 11;
+    changed.quant.v1_mut().unwrap().se += 5;
+    changed.quant.v1_mut().unwrap().reference_draw.offset ^= 1;
     changed.distance_monitor = DistanceMonitor::default();
     assert_eq!(result_of(&changed)?.to_bytes()?, result_of(&p)?.to_bytes()?);
     // Negative control: a quantizer without noise and offset (q = S) would
     // publish the exact scores, and the result would change with them.
     let mut exact = p.clone();
-    exact.quant.width = 1;
-    exact.quant.reference_q = exact.reference.score;
+    exact.quant.v1_mut().unwrap().width = 1;
+    exact.quant.v1_mut().unwrap().reference_q = exact.reference.score;
     for e in &mut exact.entrants {
         e.q = e.score;
     }
@@ -455,7 +455,7 @@ fn planted_exact_values_appear_in_no_public_byte() -> Result<()> {
     let target = CalculationTargetV2::for_package(&p, None)?;
     let row = reward_v1::derive_row(&target, Some(&result), &fx::snapshot(chain(), 9, &specs))?;
     let public = [signed, row.to_bytes()?, target.to_bytes()?];
-    let mut planted: Vec<u128> = vec![p.quant.s1, u128::from(p.quant.se)];
+    let mut planted: Vec<u128> = vec![p.quant.v1().unwrap().s1, u128::from(p.quant.v1().unwrap().se)];
     for e in &p.entrants {
         planted.push(u128::from(e.score.unwrap().get()));
         let d = e.draw.unwrap();
@@ -542,7 +542,7 @@ fn the_worst_case_covers_every_roster_size_and_both_reference_shapes() -> Result
 fn manifests_and_seals_refuse_an_over_budget_cohort() -> Result<()> {
     // The manifest check is the plan-time worst case.
     let mut m = fx::manifest(chain(), 7, 1000, sigma_permille(40), 0, &specs());
-    m.params.quant = TESTNET_QUANT;
+    m.params.quant = TESTNET_QUANT.into();
     m.roster_cap = 42;
     m.to_bytes()?;
     m.roster_cap = 43;
@@ -559,12 +559,12 @@ fn the_result_recounts_its_budget() -> Result<()> {
     let (p, _) = finalized_with(&specs(), TESTNET_QUANT)?;
     let result = result_of(&p)?;
     result.validate()?;
-    assert!(result.budget.within);
+    assert!(result.budget.within());
     let mut tampered = result.clone();
-    tampered.budget.per_entrant -= 1;
+    tampered.budget.v1_mut().unwrap().per_entrant -= 1;
     assert_eq!(tampered.validate().unwrap_err(), Error::Mismatch("bit budget"));
     let mut tampered = result.clone();
-    tampered.budget.within = false;
+    tampered.budget.v1_mut().unwrap().within = false;
     assert_eq!(tampered.validate().unwrap_err(), Error::Mismatch("bit budget"));
     Ok(())
 }
@@ -584,7 +584,7 @@ fn gated(cells: u64, cluster: u16) -> QEntrant {
 }
 
 fn input<'a>(p: &'a RewardV1Params, entrants: &'a [QEntrant], predecessor: Option<u64>) -> QInput<'a> {
-    QInput { params: p, width: W, reference_q: 28 * W, predecessor_q: predecessor.map(|c| c * W), entrants }
+    QInput { params: p, width: W, reference_q: 28 * W, predecessor_q: predecessor.map(|c| c * W), entrants, placement: crate::reward_v1::Placement::QRankHead }
 }
 
 fn sum(credits: &[Fraction]) -> Fraction {
@@ -626,7 +626,7 @@ fn fractions_over_one_denominator_add_numerators() {
 fn clamped_top_band_tie_groups_share_exact_means() -> Result<()> {
     let k = 24;
     let (p, w, entrants) = clamped_top_band(k);
-    let o = q_outcome(&QInput { params: &p, width: w, reference_q: 23 * w, predecessor_q: None, entrants: &entrants })?;
+    let o = q_outcome(&QInput { params: &p, width: w, reference_q: 23 * w, predecessor_q: None, entrants: &entrants, placement: crate::reward_v1::Placement::QRankHead })?;
     assert_eq!(o.mode, CutoffMode::Margin);
     assert_eq!(o.bands.len(), 1);
     let top = k.div_ceil(3);
@@ -656,7 +656,7 @@ fn full_roster_in_the_clamped_top_band_is_cheap() -> Result<()> {
     let k = usize::from(MAX_ROSTER);
     let (p, w, entrants) = clamped_top_band(k);
     let started = std::time::Instant::now();
-    let o = q_outcome(&QInput { params: &p, width: w, reference_q: 23 * w, predecessor_q: None, entrants: &entrants })?;
+    let o = q_outcome(&QInput { params: &p, width: w, reference_q: 23 * w, predecessor_q: None, entrants: &entrants, placement: crate::reward_v1::Placement::QRankHead })?;
     assert!(started.elapsed().as_secs() < 30, "q_outcome took {:?}", started.elapsed());
     assert_eq!(o.bands.len(), 1);
     assert_eq!(o.units.iter().map(|&u| u32::from(u)).sum::<u32>(), 65535);
@@ -742,7 +742,7 @@ fn cutoffs_lie_on_the_grid_and_bound_every_eligible_q() -> Result<()> {
     let top = [gated(33, 0)];
     let o = q_outcome(&QInput { reference_q: SCORE_SCALE - SCORE_SCALE % W, ..input(&p, &top, None) });
     assert!(o.is_err() || o.unwrap().mode != CutoffMode::Fallback);
-    let one = QInput { params: &p, width: SCORE_SCALE, reference_q: SCORE_SCALE, predecessor_q: None, entrants: &[] };
+    let one = QInput { params: &p, width: SCORE_SCALE, reference_q: SCORE_SCALE, predecessor_q: None, entrants: &[], placement: crate::reward_v1::Placement::QRankHead };
     assert_eq!(q_outcome(&one)?.mode, CutoffMode::NoTarget);
     // An off-grid q is refused.
     let off = [QEntrant { q: Some(29 * W + 1), gated: true, cluster: Some(0) }];
@@ -838,13 +838,13 @@ fn the_minimum_success_gate_withholds_above_k_n() -> Result<()> {
 fn a_tampered_q_or_draw_is_refused_by_the_package() -> Result<()> {
     let (p, _) = finalized_with(&specs(), FIXTURE_QUANT)?;
     let mut q = p.clone();
-    q.entrants[0].q = Some(Score::new(q.entrants[0].q.unwrap().get() + q.quant.width)?);
+    q.entrants[0].q = Some(Score::new(q.entrants[0].q.unwrap().get() + q.quant.width())?);
     assert_eq!(q.validate_inputs().unwrap_err(), Error::Mismatch("entrant q"));
     let mut w = p.clone();
-    w.quant.width *= 2;
+    w.quant.v1_mut().unwrap().width *= 2;
     assert!(w.validate_inputs().is_err());
     let mut se = p.clone();
-    se.quant.se += 1;
+    se.quant.v1_mut().unwrap().se += 1;
     assert_eq!(se.validate_inputs().unwrap_err(), Error::Mismatch("quant se"));
     Ok(())
 }
@@ -857,7 +857,7 @@ fn a_tampered_q_or_draw_is_refused_by_the_package() -> Result<()> {
 fn a_closure_checks_against_its_result_without_the_package() -> Result<()> {
     let specs = specs();
     let mut m = fx::manifest(chain(), 7, 1000, sigma_permille(40), 0, &specs);
-    m.params.quant = FIXTURE_QUANT;
+    m.params.quant = FIXTURE_QUANT.into();
     let index = fx::default_index(&m.references);
     let mut p = fx::package(&m, bp(9100), None, &specs)?;
     finalize_fixture(&mut p, &index, &mut fx::spec_measure(&specs, 1000, |_, _| false))?;
@@ -949,6 +949,7 @@ fn copies_under_several_hotkeys_share_one_q_and_gain_nothing() -> Result<()> {
             reference_q: result.current.q.get(),
             predecessor_q: result.predecessor.as_ref().map(|p| p.q.get()),
             entrants,
+            placement: crate::reward_v1::Placement::QRankHead,
         })
     };
     let with = input(&entrants)?;
@@ -967,10 +968,10 @@ fn copies_under_several_hotkeys_share_one_q_and_gain_nothing() -> Result<()> {
         "a higher copy changes the placement"
     );
     // Negative control: under hotkey-keyed draws the copies would differ.
-    let tau = Tau::new(1000, b.quant.charged, b.params.quant.eps_total_milli)?;
+    let tau = Tau::new(1000, b.quant.charged(), b.params.quant.v1().unwrap().eps_total_milli)?;
     let cohort = quant::CohortBinding(b.cohort_manifest);
-    let d1 = quant::draw(&fx::FIXTURE_SEED, &cohort, &Subject::Entrant(Digest([0x31; 32])), b.quant.width, &tau)?;
-    let d2 = quant::draw(&fx::FIXTURE_SEED, &cohort, &Subject::Entrant(Digest([0x32; 32])), b.quant.width, &tau)?;
+    let d1 = quant::draw(&fx::FIXTURE_SEED, &cohort, &Subject::Entrant(Digest([0x31; 32])), b.quant.width(), &tau)?;
+    let d2 = quant::draw(&fx::FIXTURE_SEED, &cohort, &Subject::Entrant(Digest([0x32; 32])), b.quant.width(), &tau)?;
     assert_ne!(d1, d2, "distinct subjects draw independently");
     Ok(())
 }

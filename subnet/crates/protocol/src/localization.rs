@@ -184,11 +184,11 @@ impl LocalizationOutcomeV1 {
                 return Err(Error::Invalid("localization value for a withheld or unexecuted entrant"));
             }
         }
-        let counted = TERMS.bits(r.budget.executed)?.checked_add(r.budget.total).ok_or(Error::Overflow("counted bits"))?;
+        let counted = TERMS.bits(r.budget.executed())?.checked_add(r.budget.total()).ok_or(Error::Overflow("counted bits"))?;
         if self.result_bits < counted
             || self.cases != r.cases
-            || self.identify_bits != r.params.quant.identify_bits
-            || self.budget_factor != r.params.quant.budget_factor
+            || self.identify_bits != r.params.quant.identify_bits()
+            || self.budget_factor != r.params.quant.budget_factor()
         {
             return Err(Error::Mismatch("localization bit parameters"));
         }

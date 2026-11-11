@@ -166,7 +166,7 @@ impl Record for CoordinatorRow {
     const VERSION: u16 = 2;
     const SIGNER: Option<KeyRole> = Some(KeyRole::Authorization);
     fn validate(&self) -> Result<()> {
-        self.reward_rule.check_reward_v2(&self.chain)?;
+        self.reward_rule.check_band_rule(&self.chain)?;
         if let RowSource::Cohort { cohort_label, .. } = &self.source {
             validate_label(cohort_label)?;
         }
@@ -559,7 +559,10 @@ impl CoordinatorRow {
         let terms = v.checked_terms(keys)?;
         let row = Self {
             chain: v.chain.clone(),
-            reward_rule: RewardRule::RewardV2,
+            // The target's own rule: a cohort target's band rule, or the
+            // launch burn target's (kept at reward-v2 so every validator
+            // build decodes the burn row).
+            reward_rule: v.target.reward_rule,
             source: v.row_source()?,
             target: v.target_digest,
             result: match &v.target.source {

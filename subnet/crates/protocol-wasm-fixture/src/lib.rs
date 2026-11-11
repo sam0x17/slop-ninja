@@ -7,6 +7,8 @@ use std::sync::OnceLock;
 static REPORT: OnceLock<Vec<u8>> = OnceLock::new();
 static REWARD_V1_REPORT: OnceLock<Vec<u8>> = OnceLock::new();
 static QUANT_V1_REPORT: OnceLock<Vec<u8>> = OnceLock::new();
+static QUANT_V2_REPORT: OnceLock<Vec<u8>> = OnceLock::new();
+static REWARD_V3_REPORT: OnceLock<Vec<u8>> = OnceLock::new();
 
 fn bytes(report: slop_ninja_protocol::Result<String>) -> Vec<u8> {
     match report {
@@ -25,6 +27,14 @@ fn reward_v1_report() -> &'static [u8] {
 
 fn quant_v1_report() -> &'static [u8] {
     QUANT_V1_REPORT.get_or_init(|| bytes(slop_ninja_protocol::fixtures_quant::golden_report()))
+}
+
+fn quant_v2_report() -> &'static [u8] {
+    QUANT_V2_REPORT.get_or_init(|| bytes(slop_ninja_protocol::fixtures_quant2::golden_report()))
+}
+
+fn reward_v3_report() -> &'static [u8] {
+    REWARD_V3_REPORT.get_or_init(|| bytes(slop_ninja_protocol::fixtures_reward_v3::golden_report()))
 }
 
 /// Address of the version-1 report in linear memory.
@@ -61,4 +71,28 @@ pub extern "C" fn slop_ninja_fixture_reward_v1_report_ptr() -> usize {
 #[unsafe(no_mangle)]
 pub extern "C" fn slop_ninja_fixture_reward_v1_report_len() -> usize {
     reward_v1_report().len()
+}
+
+/// Address of the `quant-v2` report in linear memory.
+#[unsafe(no_mangle)]
+pub extern "C" fn slop_ninja_fixture_quant_v2_report_ptr() -> usize {
+    quant_v2_report().as_ptr() as usize
+}
+
+/// Length of the `quant-v2` report in bytes.
+#[unsafe(no_mangle)]
+pub extern "C" fn slop_ninja_fixture_quant_v2_report_len() -> usize {
+    quant_v2_report().len()
+}
+
+/// Address of the `reward-v3` report in linear memory.
+#[unsafe(no_mangle)]
+pub extern "C" fn slop_ninja_fixture_reward_v3_report_ptr() -> usize {
+    reward_v3_report().as_ptr() as usize
+}
+
+/// Length of the `reward-v3` report in bytes.
+#[unsafe(no_mangle)]
+pub extern "C" fn slop_ninja_fixture_reward_v3_report_len() -> usize {
+    reward_v3_report().len()
 }

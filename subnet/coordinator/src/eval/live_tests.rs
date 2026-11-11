@@ -198,12 +198,12 @@ fn live_values_follow_the_cohort_at_block_cadence_and_match_the_package() {
         assert_eq!((r["reference"]["done"].as_u64(), r["reference"]["total"].as_u64()), (Some(40), Some(40)));
         // Pre-finalized values are the package's own.
         let pkg = sim.packages_v3.last().unwrap();
-        let pw = pkg.package.quant.width;
+        let pw = pkg.package.quant.width();
         let g = |v: u64| {
             let mut buf = [0u8; slop_ninja_protocol::quant::MAX_DECIMAL_LEN];
             slop_ninja_protocol::quant::format_grid(v, pw, &mut buf).unwrap().to_owned()
         };
-        assert_eq!(r["prefinal"]["current"], g(pkg.package.quant.reference_q.get()));
+        assert_eq!(r["prefinal"]["current"], g(pkg.package.quant.reference_q().get()));
         assert_eq!(r["prefinal"]["quantization"]["width"], g(pw));
         for (k, b) in [(0usize, 0xd1u8), (1, 0xd2)] {
             assert_eq!(row(r, b)["prefinal"], g(pkg.package.entrants[k].q.unwrap().get()), "entrant {k}");
@@ -212,12 +212,12 @@ fn live_values_follow_the_cohort_at_block_cadence_and_match_the_package() {
         assert_eq!(r["defects"], json!([]));
         // The margin line is on the grid at or above R_k's value.
         let m = r["prefinal"]["margin_line"].as_str().unwrap();
-        assert!(slop_ninja_protocol::quant::parse_grid(m, pw).unwrap() >= pkg.package.quant.reference_q.get());
+        assert!(slop_ninja_protocol::quant::parse_grid(m, pw).unwrap() >= pkg.package.quant.reference_q().get());
         // Nothing exact leaves: no exact score, SE or sum in any report.
         let text: String = seen.iter().map(Value::to_string).collect();
         let mut exact: Vec<u64> = pkg.package.entrants.iter().filter_map(|e| e.score.map(|s| s.get())).collect();
         exact.push(pkg.package.reference.score.get());
-        exact.push(pkg.package.quant.se);
+        exact.push(pkg.package.quant.v1().unwrap().se);
         for v in exact.into_iter().filter(|v| *v > 1_000_000) {
             for needle in [v.to_string(), format!("{v:x}"), hex::encode(v.to_be_bytes()), hex::encode(v.to_le_bytes())] {
                 assert!(!text.contains(&needle), "exact value {v} in a report");
@@ -362,10 +362,10 @@ fn a_prefinal_mismatch_is_recorded_and_counted_never_refused() {
         let signed = vec![(2i64, Some(good))];
         assert_eq!(tx(db, |s| live::cross_check(s, seq, &signed)).unwrap(), Vec::new());
         // (N) A drifted value is caught.
-        let drift = vec![(2i64, Some(good + pkg.package.quant.width))];
+        let drift = vec![(2i64, Some(good + pkg.package.quant.width()))];
         let defects = tx(db, |s| live::cross_check(s, seq, &drift)).unwrap();
         assert_eq!(defects.len(), 1);
-        let w = pkg.package.quant.width;
+        let w = pkg.package.quant.width();
         // Within the bound: recorded and counted, no stop.
         tx(db, |s| live::record_defects(s, seq, &defects, 10, w, 1_000_000, 8, 1)).unwrap();
         let terms: Value = serde_json::from_str(

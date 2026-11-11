@@ -209,6 +209,11 @@ pub enum RewardRule {
     /// included. See [`crate::reward_v1`]. It replaced `reward-v1` in place;
     /// records naming `reward-v1` (tag 2) no longer decode.
     RewardV2,
+    /// `reward-v3`: the same band mechanism with each near-copy cluster of
+    /// gated entrants placed by its roster-first member, permitted on every
+    /// chain. See [`crate::reward_v1`]. Every decoder from before it refuses
+    /// its tag (4).
+    RewardV3,
 }
 
 impl RewardRule {
@@ -216,18 +221,36 @@ impl RewardRule {
         match self {
             Self::TestnetRewardV0 => "testnet-reward-v0",
             Self::RewardV2 => "reward-v2",
+            Self::RewardV3 => "reward-v3",
+        }
+    }
+
+    /// The rule with this published name.
+    pub fn from_name(name: &str) -> Option<Self> {
+        [Self::TestnetRewardV0, Self::RewardV2, Self::RewardV3]
+            .into_iter()
+            .find(|r| r.name() == name)
+    }
+
+    /// How a band rule places near-copy clusters; `None` for
+    /// `testnet-reward-v0`.
+    pub fn placement(self) -> Option<crate::reward_v1::Placement> {
+        match self {
+            Self::TestnetRewardV0 => None,
+            Self::RewardV2 => Some(crate::reward_v1::Placement::QRankHead),
+            Self::RewardV3 => Some(crate::reward_v1::Placement::RosterFirst),
         }
     }
 
     /// Fails closed unless the rule is permitted on `chain`.
     /// `testnet-reward-v0` (shortcut T8) is permitted only on [`TESTNET_GENESIS`],
     /// so no record using it can be encoded, decoded or scored for Finney.
-    /// `reward-v2` is permitted on every chain.
+    /// `reward-v2` and `reward-v3` are permitted on every chain.
     pub fn check_chain(self, chain: &ChainBinding) -> Result<()> {
         match self {
             Self::TestnetRewardV0 if chain.genesis == TESTNET_GENESIS => Ok(()),
             Self::TestnetRewardV0 => Err(Error::Mismatch("testnet_reward_v0 genesis")),
-            Self::RewardV2 => Ok(()),
+            Self::RewardV2 | Self::RewardV3 => Ok(()),
         }
     }
 
@@ -241,9 +264,10 @@ impl RewardRule {
         self.check_chain(chain)
     }
 
-    /// Version-2 and later records carry the `reward-v2` calculation only.
-    pub(crate) fn check_reward_v2(self, chain: &ChainBinding) -> Result<()> {
-        if self != Self::RewardV2 {
+    /// Version-2 and later records carry a band rule only (`reward-v2` or
+    /// `reward-v3`).
+    pub(crate) fn check_band_rule(self, chain: &ChainBinding) -> Result<()> {
+        if self.placement().is_none() {
             return Err(Error::Mismatch("reward rule record version"));
         }
         self.check_chain(chain)
@@ -255,12 +279,14 @@ impl Canonical for RewardRule {
         e.u8(match self {
             Self::TestnetRewardV0 => 1,
             Self::RewardV2 => 3,
+            Self::RewardV3 => 4,
         });
     }
     fn decode_from(d: &mut Decoder<'_>) -> Result<Self> {
         match d.u8()? {
             1 => Ok(Self::TestnetRewardV0),
             3 => Ok(Self::RewardV2),
+            4 => Ok(Self::RewardV3),
             tag => Err(Error::InvalidTag {
                 field: "reward_rule",
                 tag,

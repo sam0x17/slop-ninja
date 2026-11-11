@@ -3,8 +3,8 @@
 //! private submission records, artifact objects and their inference-content
 //! identity, the published-artifact index and the near-copy relation, the
 //! validators' launch and reward-intent authorizations and their revocation, deterministic
-//! reward arithmetic for `testnet-reward-v0` (testnet only) and `reward-v2`, and the
-//! `quant-v1` score quantization with its public [`QuantizedResult`], and the
+//! reward arithmetic for `testnet-reward-v0` (testnet only), `reward-v2` and `reward-v3`, the
+//! `quant-v1` and `quant-v2` score quantizations with their public [`QuantizedResult`], and the
 //! `live-v1` segment readings released while a cohort is scored ([`live`]).
 //!
 //! The crate is pure computation. It performs no I/O, reads no clock or
@@ -26,6 +26,7 @@ pub mod localization;
 mod operation;
 pub mod operator;
 pub mod quant;
+pub mod quant2;
 mod quantized_result;
 mod records;
 mod records_v2;
@@ -41,6 +42,10 @@ pub mod fixtures;
 pub mod fixtures_reward_v1;
 #[cfg(any(test, feature = "fixtures"))]
 pub mod fixtures_quant;
+#[cfg(any(test, feature = "fixtures"))]
+pub mod fixtures_quant2;
+#[cfg(any(test, feature = "fixtures"))]
+pub mod fixtures_reward_v3;
 
 pub use artifact::{
     ArtifactFile, ArtifactHeader, ArtifactReader, FileRole, MAX_ARTIFACT_HEADER_LEN,
@@ -85,12 +90,13 @@ pub use records_v2::{
     ProbeMatch, PromotionAudit, PublicCheck, PublicCopy, PublishedContents, PublishedIndex,
     PublishedIndexBinding, ROW_TOTAL, ReferenceModel, ReferenceScore, ReferenceSet,
     RegistrationSnapshotV2, RewardV1Params, RosterEntry, ScorePackageV2, Stratum, TargetSource,
-    WeightRowV2, canonical_fingerprints, MIN_SUCCESS_REASON, QuantDraw, QuantParams, QuantRecord,
+    WeightRowV2, canonical_fingerprints, MIN_SUCCESS_REASON, QuantBlock, QuantDraw, QuantParams, QuantParamsV2,
+    QuantRecord, QuantRecordBlock, QuantRecordV2,
 };
 pub use gate_feedback::{EntrantFeedback, GateClasses, GateFeedbackV1, GateThresholds};
 pub use localization::{LocalizationMode, LocalizationOutcomeV1, LocalizationState, LocalizationValue};
 pub use quantized_result::{
-    BudgetRecord, EntrantOutcome, NotExecuted, QuantRule, QuantizedResult, ResultBand,
+    BudgetBlock, BudgetRecord, BudgetRecordV2, EntrantOutcome, NotExecuted, QuantRule, QuantizedResult, ResultBand,
     ResultEntrant, ResultReference,
 };
 pub use sign::{KeyRole, MAX_SIGNED_RECORD_LEN, Signed, SignedStream, StreamedRecord, TrustedKeys, sign, signing_payload};
@@ -109,6 +115,10 @@ mod tests_live;
 mod tests_localization;
 #[cfg(test)]
 mod tests_quant;
+#[cfg(test)]
+mod tests_quant2;
+#[cfg(test)]
+mod tests_reward_v3;
 #[cfg(test)]
 mod tests_reward_v1;
 #[cfg(test)]

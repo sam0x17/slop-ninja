@@ -1,0 +1,46 @@
+schema=slop_ninja.protocol.golden/reward-v3
+e1.v2=Margin cutoff=910000000000000000 clusters=[2:[2, 3]@k0 1:[1]@k1 4:[4]@k2] units=[0, 21654, 12738, 12737, 18406]
+e1.v3=Margin cutoff=910000000000000000 clusters=[1:[1]@k0 4:[4]@k1] units=[0, 35424, 0, 0, 30111]
+e1b.v2=Margin cutoff=910000000000000000 clusters=[2:[2, 0, 3]@k0 1:[1]@k1 4:[4]@k2] units=[8492, 21654, 8492, 8491, 18406]
+e1b.v3=Margin cutoff=910000000000000000 clusters=[0:[0, 2, 3]@k0 1:[1]@k1 4:[4]@k2] units=[8492, 21654, 8492, 8491, 18406]
+e2.v2=Margin cutoff=910000000000000000 clusters=[1:[1]@k0] units=[0, 65535, 0]
+e2k0.v2=Margin cutoff=910000000000000000 clusters=[1:[1]@k0] units=[0, 65535, 0]
+e2.v3=Fallback cutoff=890000000000000000 clusters=[0:[0, 1]@k0 2:[2]@k1] units=[17712, 17712, 30111]
+e2k0.v3=NoTarget cutoff=none clusters=[] units=[0, 0, 0]
+e3.v2=Fallback cutoff=820000000000000000 clusters=[1:[1, 0]@k0 2:[2]@k1] units=[17712, 17712, 30111]
+e3.v3=Fallback cutoff=810000000000000000 clusters=[2:[2]@k0 0:[0, 1]@k1] units=[15056, 15055, 35424]
+e4.abc.v3=Margin cutoff=910000000000000000 clusters=[0:[0, 1]@k0 2:[2]@k1] units=[17712, 17712, 30111]
+e4.cba.v3=Margin cutoff=910000000000000000 clusters=[2:[2]@k0 0:[0, 1]@k1] units=[15056, 15055, 35424]
+top.v2=NoTarget cutoff=none clusters=[] units=[0, 0]
+top.v3=NoTarget cutoff=none clusters=[] units=[0, 0]
+ties.v2=Margin cutoff=910000000000000000 clusters=[2:[2, 1]@k0 0:[0]@k1 3:[3]@k1 4:[4]@k2] units=[10827, 12738, 12737, 10827, 18406]
+ties.v3=Margin cutoff=910000000000000000 clusters=[0:[0]@k0 1:[1, 2]@k0 3:[3]@k0 4:[4]@k1] units=[11808, 5904, 5904, 11808, 30111]
+computed.quant_v1.v2=Margin cutoff=917200200000000000 promoted=11 entrants=11>11:8492,12>12:3316,13>13:21654,14:-:0,15>15:8457,16>11:8492,17>12:3316,18:-:0,19:-:0,1a:-:0,1b>11:8492,1c>12:3316,1d:-:0,1e:-:0,1f:-:0,20:-:0,22:-:0,23:-:0
+computed.quant_v1.v3=Margin cutoff=917200200000000000 promoted=11 entrants=11>11:5095,12>12:2819,13>13:21654,14>11:5095,15>15:9949,16>11:5095,17>12:2819,18:-:0,19:-:0,1a>11:5095,1b>11:5095,1c>12:2819,1d:-:0,1e:-:0,1f>1f:0,20:-:0,22:-:0,23>23:0
+computed.quant_v1.v3.manifest=04424322aa19f3c3a11a74dd02b664d3e1637a74133849bcfda3bc35d181605e
+computed.quant_v1.v3.package=cce18c6e92f3320c59ea5dd861976528d80d88c1b1d931c2b5ec7d6e592cf413
+computed.quant_v1.v3.result=668a9b2a47f8d2e7fe7a7944f4620fa5b14712e106aa25a2773c8ccf6d729d20
+computed.quant_v1.v2.manifest=50e494d6f77cb6907cbd495940648681a857c931fed3044c54bd5f7ac0578d71
+computed.quant_v1.units_equal=9/18
+computed.quant_v2.v2=Margin cutoff=900000000000000000 promoted=11 entrants=11>11:4096,12>12:5461,13>13:16384,14>11:4096,15>15:16384,16>11:4096,17>12:5461,18:-:0,19:-:0,1a>11:4096,1b:-:0,1c>12:5461,1d:-:0,1e:-:0,1f:-:0,20:-:0,22:-:0,23:-:0
+computed.quant_v2.v3=NoTarget cutoff=none promoted=none entrants=11>11:0,12>12:0,13>13:0,14>11:0,15>15:0,16>11:0,17>12:0,18:-:0,19:-:0,1a>11:0,1b>11:0,1c>12:0,1d:-:0,1e:-:0,1f>1f:0,20:-:0,22:-:0,23>23:0
+computed.quant_v2.v3.manifest=b3db3b654aaaab4d8a5df96240a51700d23a6b50934f8efcfbc790a2f8baaf45
+computed.quant_v2.v3.package=7e2bd1da73e50a4231ee2be0c550040b666157afed0c329cdf735a375b50cc4d
+computed.quant_v2.v3.result=7d7f7ea5c72a8cbb6470c99abfde23e055ba43951cbae31b57aa67b311e15a25
+computed.quant_v2.v2.manifest=b0a2d358d75992f7d4c84a6a506e616fccdcb34c6d2681e0432732992fc90919
+computed.quant_v2.units_equal=9/18
+scenario.twins.v2=Margin cutoff=917200002000000000 promoted=43 entrants=41>43:17712,42>42:30111,43>43:17712
+scenario.twins.v3=Margin cutoff=917200002000000000 promoted=41 entrants=41>41:17712,42>42:30111,43>41:17712
+scenario.first_copy_gated_out.v2=Margin cutoff=917200000000000000 promoted=45 entrants=44:-:0,45>45:35424,46>46:30111
+scenario.first_copy_gated_out.v3=Margin cutoff=917200000000000000 promoted=45 entrants=44:-:0,45>45:35424,46>46:30111
+scenario.first_copy_withheld.v2=Margin cutoff=917200000000000000 promoted=48 entrants=47:-:0,48>48:35424,49>49:30111
+scenario.first_copy_withheld.v3=Margin cutoff=917200002000000000 promoted=48 entrants=47:-:0,48>48:35424,49>49:30111
+scenario.members_outside_band.v2=Margin cutoff=917199992000000000 promoted=4b entrants=4a>4b:17712,4b>4b:17712,4c:-:0,4d>4d:30111
+scenario.members_outside_band.v3=Margin cutoff=917200000000000000 promoted=4d entrants=4a>4a:10037,4b>4a:10037,4c>4a:10037,4d>4d:35424
+promotion.v2=Margin cutoff=917200000000000000 promoted=52 entrants=51>52:32768,52>52:32767
+promotion.v2.audited=52
+promotion.v3=Margin cutoff=917200000000000000 promoted=51 entrants=51>51:32768,52>51:32767
+promotion.v3.audited=51
+reward_rule.v3=tag=4 name=reward-v3
+reward_rule.tag5=Err(InvalidTag { field: "reward_rule", tag: 5 })
+launch_burn.rule=reward-v2

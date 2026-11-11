@@ -13,7 +13,7 @@ fn specs() -> Vec<Spec> {
 
 fn result_with(specs: &[Spec], q: QuantParams) -> Result<QuantizedResult> {
     let mut m = fx::manifest(chain(), 7, 1000, sigma_permille(40), 0, specs);
-    m.params.quant = q;
+    m.params.quant = q.into();
     let index = fx::default_index(&m.references);
     let mut p = fx::package(&m, bp(9100), None, specs)?;
     finalize_fixture(&mut p, &index, &mut fx::spec_measure(specs, 1000, |_, _| false))?;
@@ -34,10 +34,10 @@ fn record_for(r: &QuantizedResult, entrants: Vec<Option<LocalizationValue>>) -> 
         bits: LocalizationOutcomeV1::count_bits(&entrants),
         entrants,
         // The complete counted total when the gate is the plan's only term.
-        result_bits: r.budget.total + TERMS.bits(r.budget.executed)?,
+        result_bits: r.budget.total() + TERMS.bits(r.budget.executed())?,
         cases: r.cases,
-        identify_bits: r.params.quant.identify_bits,
-        budget_factor: r.params.quant.budget_factor,
+        identify_bits: r.params.quant.identify_bits(),
+        budget_factor: r.params.quant.budget_factor(),
     })
 }
 
@@ -69,7 +69,7 @@ fn the_record_counts_its_bits_and_round_trips_signed() -> Result<()> {
     // A total that leaves out the record's term (the result's budget alone)
     // is refused; one that also counts another rule's term is accepted.
     let mut alone = rec.clone();
-    alone.result_bits = r.budget.total;
+    alone.result_bits = r.budget.total();
     assert_eq!(alone.check_result(&r).unwrap_err(), Error::Mismatch("localization bit parameters"));
     let mut more = rec.clone();
     more.result_bits += 5;

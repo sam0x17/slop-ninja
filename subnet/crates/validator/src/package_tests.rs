@@ -2241,7 +2241,7 @@ pub(crate) mod rv1 {
             .collect();
         let row = CoordinatorRow {
             chain: c.manifest.chain.clone(),
-            reward_rule: RewardRule::RewardV2,
+            reward_rule: c.target.reward_rule,
             source: RowSource::Cohort {
                 cohort: auth.cohort,
                 cohort_label: c.manifest.cohort_label.clone(),
@@ -2307,6 +2307,17 @@ pub(crate) mod rv1 {
     pub fn single(tag: u8) -> (Cohort, Vec<Spec>) {
         let specs = vec![Spec::new(tag, bp(9600))];
         let manifest = fx::manifest(fx::chain(), 7, 1000, fx::sigma_permille(40), 0, &specs);
+        let (package, _) = fx::finalized(&manifest, bp(9100), None, &specs).unwrap();
+        let launch = CalculationTargetV2::launch_burn(fx::chain()).digest().unwrap();
+        (bound(manifest, package, launch, &specs), specs)
+    }
+
+    /// [`single`] under the roster-first placement: a fresh record's first
+    /// cohort, whose target, row and authorization carry `RewardRule` tag 4.
+    pub fn single_roster_first(tag: u8) -> (Cohort, Vec<Spec>) {
+        let specs = vec![Spec::new(tag, bp(9600)), Spec::new(tag + 1, bp(9650)).near(tag)];
+        let mut manifest = fx::manifest(fx::chain(), 7, 1000, fx::sigma_permille(40), 0, &specs);
+        manifest.reward_rule = RewardRule::RewardV3;
         let (package, _) = fx::finalized(&manifest, bp(9100), None, &specs).unwrap();
         let launch = CalculationTargetV2::launch_burn(fx::chain()).digest().unwrap();
         (bound(manifest, package, launch, &specs), specs)
@@ -2490,6 +2501,77 @@ fn a_restart_over_an_activated_target_follows_the_new_records_first_cohort() -> 
     let held = app.held.clone().context("held")?;
     assert_eq!((held.activated_epoch, held.restart_floor), (Some(activated), Some(120)), "the floor stays");
     assert_eq!(held.target, slop_ninja_protocol::Record::digest(&fresh.target).map_err(|e| anyhow::anyhow!("{e}"))?.to_string());
+    Ok(())
+}
+
+/// A restart that opens a record under the roster-first placement (tag 4):
+/// the launch burn row keeps the older tag, so this build and every earlier
+/// one verifies it from the floor; the new record's first cohort row carries
+/// tag 4, which this build verifies and commits, paying the roster-first
+/// cluster equally. A row whose rule tag no build knows (5, as tag 4 is to
+/// a build from before the rule) is refused before the journal, and the
+/// burn row stays the target in force.
+#[test]
+fn a_restart_into_a_roster_first_record_commits_its_rows() -> Result<()> {
+    let root = scratch()?;
+    let (first, _, mut specs) = rv1::cohorts();
+    let (fresh, fresh_specs) = rv1::single_roster_first(0x46);
+    assert_eq!(
+        fresh.target.reward_rule.placement(),
+        Some(slop_ninja_protocol::reward_v1::Placement::RosterFirst)
+    );
+    specs.extend(fresh_specs);
+    let mut app = rv1_app(root.path())?;
+    let snap = rv1::snapshot(&specs);
+    app.snapshot = snap.clone();
+    let dry = |app: &mut TestApp| block_on(apply(app, &head(), Mode::DryRun, &Faults::none()));
+    app.bundle = rv1::bundle(&first, &snap);
+    app.epoch = 80;
+    assert!(matches!(dry(&mut app)?, AppOutcome::DryRun { .. }));
+    // The switch to burn: the launch row (reward-v2 tag) from the floor.
+    app.bundle = rv1::launch(120);
+    app.epoch = 120;
+    match dry(&mut app)? {
+        AppOutcome::DryRun { entries, .. } => assert_eq!(entries, vec![(2, 65535)], "the burn row"),
+        other => panic!("expected the burn row, got {other:?}"),
+    }
+    let burning = app.held.clone().context("target in force")?;
+    // A row with an unknown rule tag: refused, nothing changes.
+    let activated = fresh.closure.closed_epoch;
+    let mut unknown = rv1::row(&fresh, &snap);
+    {
+        // The rule byte follows the chain binding inside the signed record.
+        let row = slop_ninja_protocol::Signed::<slop_ninja_protocol::CoordinatorRow>::from_bytes(&unknown).unwrap();
+        let mut e = slop_ninja_protocol::Encoder::new();
+        slop_ninja_protocol::Canonical::encode_to(&row.record, &mut e);
+        let record = e.into_bytes();
+        let mut c = slop_ninja_protocol::Encoder::new();
+        slop_ninja_protocol::Canonical::encode_to(&row.record.chain, &mut c);
+        let chain_len = c.into_bytes().len();
+        assert_eq!(record[chain_len], 4, "the roster-first rule's tag");
+        let at = unknown.windows(record.len()).position(|w| w == record.as_slice()).expect("record inside the envelope");
+        unknown[at + chain_len] = 5;
+    }
+    app.bundle = serde_json::to_vec(&crate::package_v2::row_bundle("cohort", &fresh.authorization, None, &unknown)).unwrap();
+    app.epoch = activated;
+    assert!(
+        !matches!(dry(&mut app)?, AppOutcome::DryRun { .. }),
+        "an unknown rule tag is never committed"
+    );
+    assert_eq!(app.held, Some(burning.clone()), "the burn row stays in force");
+    // The new record's first cohort row: verified and committed; the near
+    // copy shares its head's credit.
+    assert!(activated >= 120);
+    app.bundle = rv1::bundle(&fresh, &snap);
+    match dry(&mut app)? {
+        AppOutcome::DryRun { entries, .. } => {
+            assert_eq!(entries.len(), 2, "both cluster members are paid: {entries:?}");
+            assert_eq!(entries.iter().map(|e| u32::from(e.1)).sum::<u32>(), 65535);
+        }
+        other => panic!("expected the roster-first row, got {other:?}"),
+    }
+    let now = app.held.clone().context("target in force")?;
+    assert_eq!((now.activated_epoch, now.restart_floor), (Some(activated), Some(120)));
     Ok(())
 }
 

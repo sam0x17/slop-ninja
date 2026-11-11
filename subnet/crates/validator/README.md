@@ -675,6 +675,23 @@ the reveal ledger alone; the next dispatch run retires the old target's
 never-signed work as superseded. The next run needs the restarted chain's
 launch bundle, fetched or installed by the operator.
 
+### Reward rules
+
+A cohort row names its reward rule. This build verifies and commits rows of
+`reward-v2` (tag 3) and `reward-v3` (tag 4, the roster-first placement of
+near-copy clusters). A record changes its reward rule only through a
+restart: the coordinator switches to burn, and the restart's launch burn
+row keeps `reward-v2`'s tag, so every build verifies it from the floor. A
+build from before `reward-v3` refuses the first `reward-v3` row it meets and
+keeps committing the burn row it holds: a lagging validator burns and pays
+nobody wrongly, and no update barrier depends on other validators. Install
+a build that decodes `reward-v3` before a record under it produces its first
+cohort target, by hand as for any update (stop the unit, keep the journal,
+its pending work and the wallets, replace the binary, start the unit; the
+run reconciles chain effects before it signs again). Validators never open a
+cohort manifest or result, so the quantization rule (`quant-v1` or
+`quant-v2`) needs nothing from them.
+
 ### Rolling back past this rtao pin
 
 A build at rtao `0c128160` (the previous pin) decodes three things in the

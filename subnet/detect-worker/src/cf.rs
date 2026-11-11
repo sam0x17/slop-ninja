@@ -163,11 +163,20 @@ struct Refused {
     words: Option<usize>,
     #[serde(skip_serializing_if = "Option::is_none")]
     tokens: Option<u64>,
+    /// With `too_short`: the fewest words scored now (24, or 150 when
+    /// passages are off or unavailable).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    min_words: Option<usize>,
 }
 
 fn refused(code: &'static str, words: Option<usize>, tokens: Option<u64>) -> web_sys::Response {
-    let body = serde_json::to_vec(&Refused { state: "refused", code, words, tokens }).unwrap_or_default();
+    let body = serde_json::to_vec(&Refused { state: "refused", code, words, tokens, min_words: None }).unwrap_or_default();
     json_raw(200, &body)
+}
+
+/// The `too_short` refusal, naming the minimum that applies.
+fn too_short(words: usize, tokens: u64, min_words: usize) -> Refused {
+    Refused { state: "refused", code: "too_short", words: Some(words), tokens: Some(tokens), min_words: Some(min_words) }
 }
 
 #[wasm_bindgen]
@@ -298,6 +307,8 @@ struct WarmAnswer {
     state: &'static str,
     tool: bool,
     spans: bool,
+    /// The fewest words scored: 24, or 150 with spans off.
+    min_words: usize,
     #[serde(skip_serializing_if = "Option::is_none")]
     site_key: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -339,6 +350,7 @@ async fn warm(req: &Request, env: &Env) -> web_sys::Response {
         state,
         tool,
         spans: switch_on(env, "DETECT_SPANS"),
+        min_words: policy::min_words(switch_on(env, "DETECT_SPANS")),
         site_key: var(env, "TURNSTILE_SITE_KEY"),
         package: package(env).map(|p| PackageLine { digest: p.published, publication_pending: p.pending }),
     };
@@ -676,11 +688,15 @@ async fn score(mut req: Request, env: Env, answer: &Answer) {
         return answer.send(refused("too_long", None, tokens));
     };
     let words = policy::words(text);
+    // A short text's rule reads passages: with spans off, the span-free
+    // minimum applies.
+    let spans_on = switch_on(&env, "DETECT_SPANS");
     let length = match policy::length_bin(words) {
-        Ok(l) => l,
-        Err(w) => {
+        Ok(l) if spans_on || !l.is_short() => l,
+        _ => {
             metric(&env, "too_short", "", "", Some(tokens), false, 0);
-            return answer.send(refused("too_short", Some(w), Some(tokens)));
+            let r = too_short(words, tokens, policy::min_words(spans_on));
+            return answer.send(json_raw(200, &serde_json::to_vec(&r).unwrap_or_default()));
         }
     };
     if english::english_screen(text).is_some() {
@@ -804,10 +820,11 @@ async fn run(
             return;
         }
     };
-    let outcome = answer::read(&reply, &pkg.load, text, switch_on(env, "DETECT_SPANS"));
+    let outcome = answer::read(&reply, &pkg.load, text, switch_on(env, "DETECT_SPANS"), length);
     drop(reply);
     match outcome {
-        Outcome::Scored { band, confidence, share, tokens: scorer_tokens, spans } => {
+        Outcome::Scored(scored) => {
+            let band = scored.band;
             // The slot is freed and the receipt issued at once: the receipt
             // comes from the feedback object, which answers within a hold or
             // the result carries no receipt.
@@ -819,13 +836,9 @@ async fn run(
             .await;
             let receipt = receipt.and_then(|r| r.receipt).unwrap_or_default();
             let line = answer::answer(
-                band,
-                confidence,
-                share,
+                scored,
                 words,
-                scorer_tokens,
                 length,
-                spans,
                 text,
                 PackageLine { digest: pkg.published.clone(), publication_pending: pkg.pending },
                 receipt,
@@ -833,9 +846,15 @@ async fn run(
             metric(env, "result", band.code(), length.code(), Some(tokens), cold, now_ms().saturating_sub(started));
             let _ = lines.line(&line).await;
         }
+        Outcome::ShortWithoutSpans => {
+            let _ = gate_tell(env, "/done", &done(Some(served)), hold).await;
+            metric(env, "short_without_spans", "", length.code(), Some(tokens), cold, served);
+            let _ = lines.line(&too_short(words, tokens, bound::MEASURED_MIN_WORDS)).await;
+        }
         Outcome::Declined(code) => {
             let _ = gate_tell(env, "/done", &done(Some(served)), hold).await;
-            let _ = lines.line(&Refused { state: "refused", code, words: Some(words), tokens: Some(tokens) }).await;
+            let r = Refused { state: "refused", code, words: Some(words), tokens: Some(tokens), min_words: None };
+            let _ = lines.line(&r).await;
         }
         Outcome::Fault => {
             let _ = gate_tell(env, "/done", &done(None), hold).await;

@@ -58,9 +58,14 @@ pub const RAW_BODY_BYTES: u64 = TEXT_FIELD_BYTES + TURNSTILE_TOKEN_BYTES + ENVEL
 /// The scorer's own body limit (`limits::MAX_SCORE_BODY`, 8 MiB): the body
 /// forwarded to it is built here and refused above this, never truncated.
 pub const SCORER_MAX_BODY: u64 = 8 << 20;
-/// Whitespace words below which no score is shown: human false-positive
-/// rates were measured only from 150 to 450 words.
-pub const MIN_WORDS: usize = 150;
+/// Whitespace words below which no score is shown: the span floor
+/// ([`crate::policy::SPAN_MIN_WORDS`]). The short-text rule reads a
+/// passage's confidence, and no passage is shorter.
+pub const MIN_WORDS: usize = 24;
+/// Where the four bands start: their human false-positive rates were
+/// measured from 150 to 450 words. Below it the short-text rule applies,
+/// and with spans off this is the minimum.
+pub const MEASURED_MIN_WORDS: usize = 150;
 /// The top of the measured length range; longer texts carry a label.
 pub const MEASURED_MAX_WORDS: usize = 450;
 

@@ -190,6 +190,27 @@ mod tests {
         }
     }
 
+    /// Short-text results carry their bin, and the longest receipt fits the
+    /// feedback body bound.
+    #[test]
+    fn short_receipts_verify_and_fit_the_feedback_body() {
+        let key = [7u8; 32];
+        let bands = [Band::VeryStrong, Band::Strong, Band::Unclear, Band::Weak, Band::NoStrongSigns];
+        let bins = [LengthBin::Short24, LengthBin::Short50, LengthBin::Short100, LengthBin::Measured, LengthBin::Longer];
+        for band in bands {
+            for len in bins {
+                let r = issue(&key, &[5u8; 16], band, len).unwrap();
+                assert_eq!(verify(&key, &r), Some(([5u8; 16], band, len)));
+                for claim in [Claim::WroteIt, Claim::WasAi] {
+                    let body = format!(r#"{{"receipt":"{r}","claim":"{}"}}"#, claim.code());
+                    assert!(body.len() <= crate::routes::FEEDBACK_BODY_BYTES, "{body}");
+                }
+            }
+        }
+        let r = issue(&key, &[5u8; 16], Band::NoStrongSigns, LengthBin::Short24).unwrap();
+        assert_eq!(verify(&key, &r.replace(".24_49.", ".50_99.")), None);
+    }
+
     #[test]
     fn claims_round_trip() {
         for c in [Claim::WroteIt, Claim::WasAi] {

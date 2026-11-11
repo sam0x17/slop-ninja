@@ -6,7 +6,8 @@ binding (`DETECT_TESTNET`). This Worker has no route, no custom domain, no
 default `workers_dev` subdomain and no preview URLs. It scores one pasted text with A's
 reference span package on one scorer Container and returns an evidence band,
 the two document percentages and, in the strong bands only, highlighted
-passages. Until the reference package's public bucket opens, every result's
+passages. A text of 24 to 149 words gets one result instead, "strong signs"
+(with its passages) or "no strong signs", with no percentage. Until the reference package's public bucket opens, every result's
 version line says "publication pending".
 
 It shares no Container instance, Durable Object, binding or bucket with
@@ -46,7 +47,8 @@ browser ── website Worker ──service binding──► detect Worker ─�
      checked);
   8. the rest of the reservation (503 "busy");
   9. the exact token count with the scorer's own tokenizer table;
-  10. the length floor and the English screen.
+  10. the length floor (24 words, or 150 with the span switch off) and the
+      English screen.
 
   A refusal answers one JSON object. An accepted text gets an NDJSON stream
   of queue positions, then "starting" when the instance is cold, then the
@@ -116,8 +118,23 @@ the launch gate; they are not abuse thresholds.
 - Bands cut at the release's Calibration-split operating points: 99.988%
   (0.9998820476527482, the top isotonic level) and 90.9%
   (0.9090909090909091, the 1% human-FPR point), and 50%.
-- No score under 150 whitespace words; texts over 450 words carry a label,
-  because human false positives were measured on 150 to 450 words.
+- The four bands start at 150 whitespace words; texts over 450 words carry a
+  label, because the bands' human false positives were measured on 150 to 450
+  words.
+- From 24 to 149 words (bins `24_49`, `50_99`, `100_149`) the result is
+  `strong` only when the confidence reaches a release level and a passage's
+  own confidence reaches a level of the span confidence map, per bin: 24-99
+  words, the top level (99.988%) and a passage at 96.38% or more; 100-149
+  words, 90.9% and a passage at 94.20% or more. Otherwise it is
+  `no_strong_signs`. The pairs were chosen on the Calibration split by the
+  release's 1% rule and measured on the consumed Test
+  (`docs/detect-evidence.md`, "Short texts"); they belong to span package
+  d24. A short result carries no percentage, share or passage confidence,
+  and passages only when `strong`.
+- A short text needs passages: with the span switch off it is refused as
+  `too_short` with `min_words` 150, and so is a scored short text whose
+  passages are missing or fail the checks below. Under 24 words (the span
+  floor) nothing is scored.
 - Passages are shown only in the two strong bands, only with the span switch
   on, never under 24 words, with UTF-16 offsets checked against the scorer's
   byte offsets (any mismatch drops every passage).

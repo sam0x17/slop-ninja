@@ -673,7 +673,13 @@ Byte-for-byte checks, natively:
   `AccountId`, `NetUidStorageIndex`) and the coordinator the same inputs:
   commit calls, eleven storage keys, signing payloads and signed extrinsics
   with one shared signature, the timelock payload, round and first reveal
-  block, and ciphertexts that each side decrypts.
+  block, and ciphertexts that each side decrypts. Its own `Cargo.lock` does
+  not follow this crate's: a change to the coordinator's dependencies, or to a
+  path crate it uses, also needs `cargo update --offline -p
+  slop-ninja-coordinator` (or `-p` the changed crate) in `parity/`, or the
+  suite's `cargo test --locked` refuses to build. `cargo test --test
+  parity_lock` in `subnet/` fails while that lock is stale and names the
+  packages to refresh.
 
 ### Target and row
 

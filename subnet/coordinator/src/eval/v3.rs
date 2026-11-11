@@ -329,6 +329,67 @@ pub struct V3State {
     /// names.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub result: Option<H>,
+    /// The released q (score units) of the references and the promoted
+    /// entrant, by inference content: a later seal's `quant-v2` headroom
+    /// source ([`sealed_quant`]).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub released: Vec<(H, u64)>,
+}
+
+/// A scored plan's band rule by name.
+pub fn band_rule(name: &str) -> R<RewardRule> {
+    RewardRule::from_name(name)
+        .filter(|r| r.placement().is_some())
+        .ok_or(EvalError::Plan("reward_rule"))
+}
+
+/// The manifest's quantization block at the seal. Under `quant-v1`, the
+/// plan's block. Under `quant-v2` the headroom `H` is signed here (public
+/// data, no privacy cost): with source `previous`, `1 - q` for the released
+/// q of the reference in force from the most recent cohort of this store
+/// that released one; otherwise, or with source `fixed`, the plan's
+/// `initial_ppb`.
+pub fn sealed_quant(sql: &impl Sql, v: &RewardV1Plan, references: &ReferenceSet) -> R<slop_ninja_protocol::QuantBlock> {
+    let block = v.quant_params().map_err(|e| EvalError::Plan(e.0))?;
+    let slop_ninja_protocol::QuantBlock::V2(mut params) = block else {
+        return Ok(block);
+    };
+    let source = v.quant.as_ref().and_then(|q| q.headroom.as_ref()).map(|h| h.source.as_str());
+    if source == Some(crate::eval::plan::HEADROOM_PREVIOUS)
+        && let Some(q) = released_q(sql, &references.current.content)?
+    {
+        let headroom = slop_ninja_protocol::SCORE_SCALE.saturating_sub(q) / slop_ninja_protocol::quant2::UNIT;
+        params.headroom_pub_ppb = u32::try_from(headroom).map_err(|_| EvalError::State("headroom"))?;
+    }
+    Ok(slop_ninja_protocol::QuantBlock::V2(params))
+}
+
+/// The most recently released q of the model with inference content
+/// `content` among this store's packaged cohorts, newest first, read a page
+/// of small `released` lists at a time (the reference in force is released
+/// by every packaged cohort of its record, so the first page answers).
+fn released_q(sql: &impl Sql, content: &Digest) -> R<Option<u64>> {
+    const PAGE: i64 = 16;
+    let mut offset = 0i64;
+    loop {
+        let rows = sql.exec(
+            "SELECT v3 ->> 'released' FROM cohorts
+              WHERE package_digest IS NOT NULL AND phase IN ('transition','closed') AND v3 ->> 'released' IS NOT NULL
+              ORDER BY seq DESC LIMIT ? OFFSET ?",
+            &[i(PAGE), i(offset)],
+        )?;
+        for r in &rows {
+            let Some(t) = opt_text(r, 0) else { continue };
+            let released: Vec<(H, u64)> = serde_json::from_str(&t).map_err(|_| EvalError::State("released q"))?;
+            if let Some((_, q)) = released.iter().find(|(h, _)| h.0 == *content) {
+                return Ok(Some(*q));
+            }
+        }
+        if (rows.len() as i64) < PAGE {
+            return Ok(None);
+        }
+        offset += PAGE;
+    }
 }
 
 pub fn state(sql: &impl Sql, seq: i64) -> R<V3State> {
@@ -2024,7 +2085,7 @@ pub fn prepare_seal(sql: &impl Sql, cfg: &EvalConfig, seq: i64, inputs: &SealInp
         cohort: plan.cohort,
         cohort_label: c.label.clone(),
         opened_epoch: c.opened_epoch.ok_or(EvalError::State("opened epoch"))?,
-        reward_rule: RewardRule::RewardV2,
+        reward_rule: band_rule(&plan.reward_rule)?,
         schedule: CohortSchedule {
             tempos: u16::try_from(plan.k_tempos).map_err(|_| EvalError::Plan("k_tempos"))?,
             admission_min: u16::try_from(plan.admission_tempos).map_err(|_| EvalError::Plan("admission"))?,
@@ -2041,7 +2102,7 @@ pub fn prepare_seal(sql: &impl Sql, cfg: &EvalConfig, seq: i64, inputs: &SealInp
                 .collect(),
             batch: record_digest(&index),
         },
-        params: RewardV1Params::new(v.sigma, v.quant_params().map_err(|e| EvalError::Plan(e.0))?),
+        params: RewardV1Params::new(v.sigma, sealed_quant(sql, v, &references)?),
         references,
         published: published.binding().map_err(|_| EvalError::State("published binding"))?,
         probes,
@@ -2794,7 +2855,7 @@ pub fn prepare_package(
         cohort_label: manifest.cohort_label.clone(),
         cohort_manifest: manifest.digest().map_err(|_| EvalError::State("manifest digest"))?,
         revision: 0,
-        reward_rule: RewardRule::RewardV2,
+        reward_rule: manifest.reward_rule,
         params: manifest.params,
         span_gate: manifest.span_gate,
         cases: manifest.batch.cases,
@@ -2949,6 +3010,23 @@ pub fn prepare_package(
     st.mode = Some(format!("{:?}", package.mode));
     st.result = Some(H(package.result));
     st.promoted = evaluation.promoted;
+    // The released q of every model whose q the result publishes as a
+    // reference or a promotion: the next seal's `quant-v2` headroom source.
+    st.released = std::iter::once((H(package.reference.model.content), package.quant.reference_q().get()))
+        .chain(
+            package
+                .predecessor
+                .as_ref()
+                .zip(package.quant.predecessor_q())
+                .map(|(p, q)| (H(p.model.content), q.get())),
+        )
+        .chain(
+            evaluation
+                .promoted
+                .and_then(|i| package.entrants.get(i))
+                .and_then(|e| e.q.filter(|_| !e.withheld()).map(|q| (H(e.content), q.get()))),
+        )
+        .collect();
     st.pending_contents = package.entrants.iter().map(|e| H(e.content)).collect();
     st.pending_fingerprints = pending_fps;
     st.closure_fingerprints = closure_fps
@@ -2957,7 +3035,8 @@ pub fn prepare_package(
         .collect();
     let components = json!({
         "schema": "slop_ninja_eval_score_components_v2",
-        "cohort": plan.cohort, "label": c.label, "reward_rule": "reward-v2",
+        "cohort": plan.cohort, "label": c.label, "reward_rule": package.reward_rule.name(),
+        "quant_rule": package.params.quant.rule().name(),
         "cohort_manifest": package.cohort_manifest.to_string(),
         "mode": format!("{:?}", package.mode),
         "promoted": package.promoted.map(|h| hex::encode(h.0)),

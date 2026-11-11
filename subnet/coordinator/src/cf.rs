@@ -829,9 +829,14 @@ impl ChainJournal {
                 let Ok(k) = signing::auto::AuthorizationKeySource::authorization_key(&EnvKeys(self.env.clone()), &trusted) else { break };
                 use slop_ninja_protocol::Record as _;
                 let signed = match kind.as_str() {
-                    "restart" => slop_ninja_protocol::decisions::ChainRestart::from_bytes(&bytes)
-                        .and_then(|r| slop_ninja_protocol::sign(r, &k))
-                        .and_then(|s| s.to_bytes()),
+                    // Version 2 names the fresh record's rules; a version-1
+                    // record queued before this build is signed as it is.
+                    "restart" => match slop_ninja_protocol::decisions::ChainRestartV2::from_bytes(&bytes) {
+                        Ok(r) => slop_ninja_protocol::sign(r, &k).and_then(|s| s.to_bytes()),
+                        Err(_) => slop_ninja_protocol::decisions::ChainRestart::from_bytes(&bytes)
+                            .and_then(|r| slop_ninja_protocol::sign(r, &k))
+                            .and_then(|s| s.to_bytes()),
+                    },
                     _ => slop_ninja_protocol::decisions::RestartAddendum::from_bytes(&bytes)
                         .and_then(|r| slop_ninja_protocol::sign(r, &k))
                         .and_then(|s| s.to_bytes()),

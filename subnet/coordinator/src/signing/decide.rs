@@ -356,9 +356,12 @@ fn set_json(floor: u64, last: Option<u64>, set: &RestartSet) -> Value {
 /// Planned operations of epochs at or after `floor` with no attempt are
 /// dropped and planned again under the burn row. Each cohort in `past` is
 /// journaled as `restarted_past` in `sign_restart_past`, which no handoff
-/// query reads, and a signed, content-free `ChainRestart` record names the
-/// floor, the launch authorization, `last`, `past` and `unlisted`. A refusal
-/// changes nothing.
+/// query reads, and a signed, content-free `ChainRestartV2` record names the
+/// floor, the launch authorization, `last`, `past`, `unlisted` and the fresh
+/// record's `reward_rule` and `quant_rule`, which the body must name
+/// (`rules_missing`, `rule_unknown`) and the offline statement signs; the
+/// handoff installs only targets of those rules from then on
+/// ([`record_rules`]). A refusal changes nothing.
 ///
 /// While no operator key is configured (`key` is `None`), the restart is a
 /// token-level action, so a coordinator deployed before its key still has a
@@ -380,6 +383,15 @@ pub fn restart(
         Err(code) => return Ok(Err(code.into())),
     };
     let Some(floor) = req.body.get("floor").and_then(Value::as_u64) else { return Ok(Err("floor_missing".into())) };
+    // The fresh record's reward and quantization rules, named in the body
+    // (which the offline statement signs): a rule change happens here only.
+    let rules = match (req.body.get("reward_rule").and_then(Value::as_str), req.body.get("quant_rule").and_then(Value::as_str)) {
+        (Some(r), Some(q)) => match crate::config::RecordRules::parse(Some(&format!("{r},{q}"))) {
+            Ok(rules) => rules,
+            Err(_) => return Ok(Err("rule_unknown".into())),
+        },
+        _ => return Ok(Err("rules_missing".into())),
+    };
     let bundle = req.body.get("bundle").and_then(Value::as_str).unwrap_or_default().to_owned();
     let last = req.body.get("last").and_then(Value::as_u64);
     // The set this floor passes, from the journal alone; every refusal
@@ -446,7 +458,7 @@ pub fn restart(
     };
     let effect = json!({"floor": floor, "held": held.digest().to_string(), "held_activated_epoch": held.activated_epoch(),
         "launch_authorization": launch.digest.to_string(), "last": last, "past": past, "unlisted": unlisted, "info": info,
-        "signed": statement.is_some()});
+        "signed": statement.is_some(), "reward_rule": rules.reward.name(), "quant_rule": rules.quant.name()});
     if req.preview {
         return Ok(Ok(json!({"preview": true, "past_named": named, "effect": effect})));
     }
@@ -487,7 +499,7 @@ pub fn restart(
             &[bind_u64(floor)?, bind_u64(*n)?, req.decision_sha256.map_or(SqlValue::Null, |d| d.hex().into()), bind_u64(now_ms)?],
         )?;
     }
-    let record = slop_ninja_protocol::decisions::ChainRestart {
+    let record = slop_ninja_protocol::decisions::ChainRestartV2 {
         chain: chain.clone(),
         floor,
         launch_authorization: launch.digest,
@@ -501,6 +513,8 @@ pub fn restart(
         unlisted: unlisted.clone(),
         decision: req.decision_sha256,
         statement,
+        reward_rule: rules.reward,
+        quant_rule: rules.quant,
     };
     queue_restart_record(sql, floor, "restart", None, &record, now_ms)?;
     log(sql, now_ms, None, None, None, "chain_restart", Some(&format!("floor {floor} past {computed:?} unlisted {unlisted:?}")))?;
@@ -514,6 +528,24 @@ pub fn restart(
     let seq = operator::record(sql, req, "coordinator.restart", statement.as_ref(), &out, Some(finalized), now_ms)?;
     set(&mut out, "operator_seq", json!(seq));
     Ok(Ok(out))
+}
+
+/// The rules of the chain record in force: those the latest restart named
+/// (`ChainRestartV2`), or `reward-v2,quant-v1` for the record in force before
+/// restarts named their rules (no restart, or a version-1 restart record).
+pub fn record_rules(sql: &impl Sql) -> Result<crate::config::RecordRules, StoreError> {
+    let rows = sql.exec("SELECT record_hex FROM sign_restart_records WHERE kind = 'restart' ORDER BY floor DESC, id DESC LIMIT 1", &[])?;
+    let Some(hex_text) = rows.first().and_then(|r| r.first()).and_then(|v| match v {
+        SqlValue::Text(t) => Some(t.clone()),
+        _ => None,
+    }) else {
+        return Ok(crate::config::RecordRules::default());
+    };
+    let bytes = hex::decode(hex_text).map_err(|_| StoreError("restart record"))?;
+    match <slop_ninja_protocol::decisions::ChainRestartV2 as slop_ninja_protocol::Record>::from_bytes(&bytes) {
+        Ok(r) => Ok(crate::config::RecordRules { reward: r.reward_rule, quant: r.quant_rule }),
+        Err(_) => Ok(crate::config::RecordRules::default()),
+    }
 }
 
 /// Queues a signed restart record (signed with the authorization key and

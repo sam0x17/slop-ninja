@@ -1260,6 +1260,13 @@ pub fn handle(
     if listed_cohort != Some(cohort) {
         return fail("cohort_number_changed", listed_cohort);
     }
+    // The record-rule guard: a cohort of other rules than the record's (the
+    // latest restart's) is never installed. The operator restarts naming
+    // its rules, or declines the closure.
+    let rules = super::decide::record_rules(sql)?;
+    if c.package.reward_rule != rules.reward || c.package.params.quant.rule() != rules.quant {
+        return fail("target_rule_outside_record", Some(cohort));
+    }
     if c.manifest.opened_epoch < floor {
         return Ok(Handle::Failed(Handled::failed(&obs.label, Some(cohort), "before_restarted_record")));
     }

@@ -2378,24 +2378,32 @@ staged by the tracked pin, one change per deploy):
    slop_ninja_eval_ops restart --authority <name> --status main-status.json \
        --wrangler subnet/coordinator/wrangler.toml --reference r0-artifact.json \
        --expect-package <R_0 package digest> --probe-template <a probe plan> --out <dir> \
-       --decision <the recorded decision>
+       --decision <the recorded decision> --reward-rule <reward-v2|reward-v3> \
+       --quant-rule <quant-v1|quant-v2>
    ```
 
    `<name>` is lowercase letters and digits. The tool refuses a status whose
    authority (name, first cohort, predecessors) is not the one the tree
    tracks, an authority that is not idle, has work left or is already
    superseded, a missing `--decision` (the recorded user decision the
-   restart runs under, kept in `restart.json`), a name already used, a name whose
+   restart runs under, kept in `restart.json`), missing or unknown
+   `--reward-rule` / `--quant-rule` (the fresh record's rules; a record changes
+   its rules only here), a name already used, a name whose
    label prefix `testnet-<name>-` an earlier label has, a reference record
    whose `package_sha256` is not `--expect-package` (the R_0 package the
    restart was decided on, so a stale record never starts the chain), and a
    plan the coordinator would refuse (at the tracked `ROSTER_CAP`).
    `r0-artifact.json` is R_0's artifact record as plans name it (owner,
    contract, package and model digests, the scorer image digest, commitment
-   block, manifest key). `<dir>/restart.json` holds the three authority vars
+   block, manifest key). `<dir>/restart.json` holds the four authority vars
    to commit (`EVAL_MAIN_FIRST_COHORT` is one past the replaced authority's
    highest cohort number; `EVAL_MAIN_PREVIOUS` lists the earlier named
-   authorities), the coordinator's `AUTO_TARGET_AUTHORITIES` (the new
+   authorities; `EVAL_MAIN_RULES` the record's rules, `<reward>,<quant>`, which
+   every plan, template and cohort start must name: `rule_outside_record`
+   otherwise, and `authority-check` refuses a tree whose `EVAL_MAIN_RULES`
+   differs from the deployed authority's `record_rules`,
+   `record_rules_mismatch`, unless it switches to a fresh authority; a tree
+   without the var runs `reward-v2,quant-v1`), the coordinator's `AUTO_TARGET_AUTHORITIES` (the new
    name), the publisher's `RECORD_LABEL_PREFIX` and
    `PUBLISH_FROM_EPOCH`, `record_from_epoch` (the same epoch), R_0 and the
    probe record's key; `<dir>/probe-plan.json` is the probe build.

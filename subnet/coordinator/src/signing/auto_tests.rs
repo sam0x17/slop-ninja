@@ -1678,7 +1678,8 @@ fn op_key() -> (SigningKey, slop_ninja_protocol::operator::OperatorKey) {
 fn restart_body(h: &H, decision: &str, floor: u64, issued: u64, past: &[u64], unlisted: &[u64], last: Option<u64>) -> serde_json::Value {
     let held = h.held().digest().to_string();
     serde_json::json!({"action": "restart", "decision": decision, "reason": "operator_decision", "floor": floor,
-        "bundle": launch_bundle_json(issued), "last": last, "past": past, "unlisted": unlisted, "expect": {"held": held}})
+        "bundle": launch_bundle_json(issued), "last": last, "past": past, "unlisted": unlisted, "expect": {"held": held},
+        "reward_rule": "reward-v2", "quant_rule": "quant-v1"})
 }
 
 fn signed(body: serde_json::Value) -> serde_json::Value {
@@ -1708,7 +1709,7 @@ fn previewed(mut body: serde_json::Value) -> serde_json::Value {
 /// issued at another epoch, a stale held target) changes nothing. The
 /// accepted restart journals it as `restarted_past`, writes nothing to
 /// `sign_auto_absent`, installs the launch row from the floor, and queues the
-/// signed `ChainRestart` record; a later replay answers the same.
+/// signed `ChainRestartV2` record; a later replay answers the same.
 #[test]
 fn burn_now_names_every_pre_floor_cohort_and_refusals_change_nothing() {
     let h = H::new();
@@ -1748,7 +1749,7 @@ fn burn_now_names_every_pre_floor_cohort_and_refusals_change_nothing() {
     assert_eq!(h.db.count("sign_auto_absent"), 0, "a restart never marks a number absent");
     assert_eq!(h.db.count("sign_restart_records"), 1);
     let rec: String = h.db.conn.query_row("SELECT record_hex FROM sign_restart_records", [], |r| r.get(0)).unwrap();
-    let rec = <slop_ninja_protocol::decisions::ChainRestart as Record_>::from_bytes(&hex::decode(rec).unwrap()).unwrap();
+    let rec = <slop_ninja_protocol::decisions::ChainRestartV2 as Record_>::from_bytes(&hex::decode(rec).unwrap()).unwrap();
     assert_eq!((rec.floor, rec.last, rec.past.len()), (250, Some(12), 1));
     // The same decision replays its recorded effect and changes nothing.
     let again = decide_restart(&h, signed(restart_body(&h, "drill-p5", 250, 250, &[11], &[], Some(12))), 300);
@@ -1902,7 +1903,7 @@ fn a_restart_from_an_activated_target_installs_the_new_records_first_cohort() {
     let v = decide_restart(&h, signed(restart_body(&h, "e2e-1", floor, floor, &[], &[], None)), 300).unwrap();
     assert_eq!(v["held_activated_epoch"], t1.closed_epoch);
     let rec: String = h.db.conn.query_row("SELECT record_hex FROM sign_restart_records", [], |r| r.get(0)).unwrap();
-    let rec = <slop_ninja_protocol::decisions::ChainRestart as Record_>::from_bytes(&hex::decode(rec).unwrap()).unwrap();
+    let rec = <slop_ninja_protocol::decisions::ChainRestartV2 as Record_>::from_bytes(&hex::decode(rec).unwrap()).unwrap();
     assert_eq!((rec.previous_target, rec.previous_activated_epoch), (t1.target, Some(t1.closed_epoch)));
     assert_eq!(h.pointer_kind(), "launch");
     // The new record's first cohort: number 7 (opened at 140), over burn.
@@ -2056,6 +2057,6 @@ fn with_no_operator_key_configured_the_restart_is_token_level() {
     let signed_flag: i64 = h.db.conn.query_row("SELECT signed FROM operator_actions", [], |r| r.get(0)).unwrap();
     assert_eq!(signed_flag, 0);
     let rec: String = h.db.conn.query_row("SELECT record_hex FROM sign_restart_records", [], |r| r.get(0)).unwrap();
-    let rec = <slop_ninja_protocol::decisions::ChainRestart as Record_>::from_bytes(&hex::decode(rec).unwrap()).unwrap();
+    let rec = <slop_ninja_protocol::decisions::ChainRestartV2 as Record_>::from_bytes(&hex::decode(rec).unwrap()).unwrap();
     assert_eq!(rec.statement, None);
 }

@@ -208,7 +208,10 @@ pub fn prepare(sql: &impl Sql, seq: i64) -> R<()> {
     let c = cohort(sql, seq)?;
     let lp = live_plan(&c).ok_or(state_err("live block"))?.clone();
     let v1 = c.plan.reward_v1.as_ref().ok_or(state_err("reward_v1 block"))?;
-    let q = v1.quant_params().map_err(|e| EvalError::Plan(e.0))?;
+    // Under quant-v2 the sealed manifest's signed headroom fixes the scale,
+    // so L follows the cohort's actual counted bits; quant-v1's block is the
+    // plan's.
+    let q = sealed_quant(sql, &c)?;
     let n = sealed(sql, seq)?.batch_tasks;
     let executed = u16::try_from(count(sql, "SELECT COUNT(*) FROM jobs WHERE seq = ? AND role = 'entrant'", &[i(seq)])?)
         .map_err(|_| state_err("roster"))?;
@@ -217,7 +220,7 @@ pub fn prepare(sql: &impl Sql, seq: i64) -> R<()> {
     // Every other rule's counted terms, from the plan's one source
     // (`RewardV1Plan::counted_terms`): a rule that publishes hidden-data
     // bits adds them there, which lowers L without live code.
-    let d = live::derive_segments(n, executed, predecessor, &slop_ninja_protocol::QuantBlock::V1(q), &params, &v1.counted_terms())
+    let d = live::derive_segments(n, executed, predecessor, &q, &params, &v1.counted_terms())
         .map_err(|_| state_err("live derivation"))?;
     let mut width = SqlValue::Null;
     if d.segments >= live::MIN_SEGMENTS {
@@ -711,14 +714,28 @@ pub fn release_due(sql: &impl Sql, cfg: &EvalConfig, seq: i64) -> R<bool> {
     Ok(false)
 }
 
+/// The cohort's quantization block: under `quant-v1` the plan's (the
+/// manifest signs the same), read without decoding the manifest; under
+/// `quant-v2` the sealed manifest's, whose signed headroom fixes the scale.
+fn sealed_quant(sql: &impl Sql, c: &Cohort) -> R<slop_ninja_protocol::QuantBlock> {
+    let v1 = c.plan.reward_v1.as_ref().ok_or(state_err("reward_v1 block"))?;
+    match v1.quant_params().map_err(|e| EvalError::Plan(e.0))? {
+        slop_ninja_protocol::QuantBlock::V1(q) => Ok(slop_ninja_protocol::QuantBlock::V1(q)),
+        slop_ninja_protocol::QuantBlock::V2(_) => Ok(crate::eval::v3::stored_manifest(sql, c)?.params.quant),
+    }
+}
+
 fn job_done(sql: &impl Sql, seq: i64, job: &Job) -> R<bool> {
     Ok(job.tasks > 0 && count(sql, "SELECT COUNT(*) FROM preds WHERE seq = ? AND job = ?", &[i(seq), i(job.job)])? == job.tasks)
 }
 
-/// The pre-finalized values: `R_k`'s once it finished the batch without a
-/// failure (with the grid width and the margin line), then each entrant's
-/// once its whole job is done, then `R_k-1`'s once it and `R_k` finished
-/// without a failure. One value per call.
+/// The pre-finalized values. Under `quant-v1`: `R_k`'s once it finished
+/// the batch without a failure (with the grid width and the margin line),
+/// then each entrant's once its whole job is done, then `R_k-1`'s once it
+/// and `R_k` finished without a failure. Under `quant-v2` the grid is sealed
+/// and needs no reference measurement: the width is recorded at once, each
+/// entrant's value once its own job is done, and `R_k`'s (with the margin
+/// line) and `R_k-1`'s as under `quant-v1`. One value per call.
 #[allow(clippy::too_many_arguments)]
 fn release_prefinal(
     sql: &impl Sql,
@@ -732,20 +749,24 @@ fn release_prefinal(
 ) -> R<bool> {
     let seq = c.seq;
     let have = |job: i64| -> R<bool> { Ok(!stored(sql, seq, job, "prefinal")?.is_empty()) };
-    if !job_done(sql, seq, reference)? {
-        return Ok(false);
-    }
-    let Some((ref_u, ref_failed)) = batch_outcomes(sql, seq, reference.job, None)? else { return Ok(false) };
-    if ref_failed > 0 {
-        // The package will wait for a signed correction: nothing is shown.
-        return Ok(false);
-    }
-    let v1 = c.plan.reward_v1.as_ref().ok_or(state_err("reward_v1"))?;
-    let q = v1.quant_params().map_err(|e| EvalError::Plan(e.0))?;
+    // R_k's batch once done: its utilities and failures.
+    let ref_outcome = if job_done(sql, seq, reference)? { batch_outcomes(sql, seq, reference.job, None)? } else { None };
+    let ref_clean = ref_outcome.as_ref().filter(|(_, failed)| *failed == 0).map(|(u, _)| u);
     let charged = quant::charged(lr.executed, lr.predecessor);
-    let tau = quant::Tau::new(lr.n, charged, q.eps_total_milli).map_err(|_| state_err("tau"))?;
-    let se = quant::SeMeasure::measure(ref_u.iter().copied()).map_err(|_| state_err("se"))?;
-    let w = quant::width(se.se, &tau).map_err(|_| state_err("width"))?;
+    let noise = match sealed_quant(sql, c)? {
+        slop_ninja_protocol::QuantBlock::V1(q) => {
+            // The package will wait for a signed correction of a failed R_k:
+            // nothing is shown, as nothing is before R_k's batch is done.
+            let Some(ref_u) = ref_clean else { return Ok(false) };
+            let tau = quant::Tau::new(lr.n, charged, q.eps_total_milli).map_err(|_| state_err("tau"))?;
+            let se = quant::SeMeasure::measure(ref_u.iter().copied()).map_err(|_| state_err("se"))?;
+            reward_v1::NoiseScale::Laplace { w: quant::width(se.se, &tau).map_err(|_| state_err("width"))?, tau }
+        }
+        slop_ninja_protocol::QuantBlock::V2(q) => reward_v1::NoiseScale::Gaussian(
+            slop_ninja_protocol::quant2::Scale::derive(lr.n, charged, &q).map_err(|_| state_err("scale"))?,
+        ),
+    };
+    let w = noise.width();
     let cohort = binding(c)?;
     let score_of = |u: &[u64]| -> R<Score> {
         let sum: u128 = u.iter().map(|x| u128::from(*x)).sum();
@@ -758,15 +779,17 @@ fn release_prefinal(
             subject: subject_of(st, c, job)?,
             score: score_of(u)?,
             failed,
-            noise: reward_v1::NoiseScale::Laplace { w, tau },
+            noise,
         })
         .map_err(|_| state_err("preview"))
     };
-    if !have(reference.job)? {
+    if let Some(ref_u) = ref_clean
+        && !have(reference.job)?
+    {
         if ref_u.len() != lr.n as usize {
             return Err(state_err("reference batch"));
         }
-        let p = preview(reference, &ref_u, None)?;
+        let p = preview(reference, ref_u, None)?;
         let params = crate::eval::v3::stored_manifest(sql, c)?.params;
         let margin = reward_v1::margin_line(&params, p.q, w).map_err(|_| state_err("margin line"))?;
         sql.exec(
@@ -775,6 +798,11 @@ fn release_prefinal(
         )?;
         insert(sql, seq, reference.job, "prefinal", 0, Some(p.q), "value")?;
         return Ok(true);
+    }
+    if lr.quant_width.is_none() {
+        // quant-v2: the sealed grid, before R_k's value (quant-v1 sets it with
+        // R_k's value above, so it never reaches here without one).
+        sql.exec("UPDATE live_cohorts SET quant_width = ? WHERE seq = ? AND quant_width IS NULL", &[s(w.to_string()), i(seq)])?;
     }
     for job in js.iter().filter(|j| j.role == "entrant") {
         if have(job.job)? || !job_done(sql, seq, job)? {
@@ -791,7 +819,8 @@ fn release_prefinal(
         }
         return Ok(true);
     }
-    if let Some(pred) = js.iter().find(|j| j.role == "previous_reference")
+    if ref_clean.is_some()
+        && let Some(pred) = js.iter().find(|j| j.role == "previous_reference")
         && !have(pred.job)?
         && job_done(sql, seq, pred)?
         && let Some((u, 0)) = batch_outcomes(sql, seq, pred.job, None)?
@@ -949,8 +978,17 @@ fn cohort_report(sql: &impl Sql, seq: i64, number: i64) -> R<Value> {
             if margin.is_some_and(|m| m < cur) {
                 return Err(state_err("margin line below the reference"));
             }
+            let quantization = match sealed_quant(sql, &c)? {
+                slop_ninja_protocol::QuantBlock::V1(_) => json!({"rule": quant::QUANT_RULE, "width": grid(w, w)?}),
+                slop_ninja_protocol::QuantBlock::V2(q) => {
+                    let scale = slop_ninja_protocol::quant2::Scale::derive(lr.n, quant::charged(lr.executed, lr.predecessor), &q)
+                        .map_err(|_| state_err("scale"))?;
+                    json!({"rule": slop_ninja_protocol::quant2::QUANT_RULE, "width": grid(w, w)?,
+                           "sigma_ppb": scale.sigma, "rho_micro": scale.rho_micro})
+                }
+            };
             out["prefinal"] = json!({
-                "quantization": {"rule": quant::QUANT_RULE, "width": grid(w, w)?},
+                "quantization": quantization,
                 "current": current, "predecessor": pred.unwrap_or(Value::Null),
                 "margin_line": margin.map(|m| grid(m, w)).transpose()?,
             });

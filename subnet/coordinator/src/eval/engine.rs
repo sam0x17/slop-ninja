@@ -1850,6 +1850,11 @@ pub struct Admission {
 
 /// Parses and checks a plan for this instance (a cohort plan for `main`, a
 /// load plan for `load`) without storing anything.
+/// The record-rule guard's refusal: the plan's reward or quantization rule
+/// differs from the authority's record rules (`EVAL_MAIN_RULES`).
+pub const RULE_OUTSIDE_RECORD: &str =
+    "rule_outside_record: the plan's reward or quantization rule is not this record's; switch to burn and open a fresh record";
+
 pub fn admit(cfg: &EvalConfig, bytes: &[u8]) -> R<(CohortPlan, Admission)> {
     let plan = if cfg.is_load() {
         LoadPlan::parse(bytes, cfg.ceilings).map_err(|e| EvalError::Plan(e.0))?.cohort_plan()
@@ -1860,6 +1865,22 @@ pub fn admit(cfg: &EvalConfig, bytes: &[u8]) -> R<(CohortPlan, Admission)> {
     // labels and cohort numbers, so nothing it writes shares a label or a
     // number with an earlier authority's (`config::Authority`).
     cfg.authority.admits(&plan.label, plan.cohort).map_err(EvalError::Plan)?;
+    // The record-rule guard: a scored plan names exactly its authority's
+    // record rules. A rule change is a switch to burn and a fresh record
+    // (a new authority naming the new rules), never a plan.
+    if plan.is_v3() && !cfg.is_load() {
+        let quant = plan
+            .reward_v1
+            .as_ref()
+            .and_then(|v| v.quant.as_ref())
+            .map(|q| q.rule())
+            .transpose()
+            .map_err(|e| EvalError::Plan(e.0))?;
+        let rules = cfg.authority.rules();
+        if plan.reward_rule != rules.reward.name() || quant.is_some_and(|q| q != rules.quant) {
+            return Err(EvalError::Plan(RULE_OUTSIDE_RECORD));
+        }
+    }
     if cfg.max_score_lanes == 0 {
         return Err(EvalError::Plan("MAX_SCORE_LANES is not configured"));
     }

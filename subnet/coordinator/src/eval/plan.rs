@@ -654,20 +654,28 @@ impl LivePlan {
             return Err(PlanError("reward_v1.live.rule (live-v1)"));
         }
         self.params()
-            .validate(n, chunk_docs, roster_cap, &slop_ninja_protocol::QuantBlock::V1(quant.params()), terms)
+            .validate(n, chunk_docs, roster_cap, &quant.params()?, terms)
             .map_err(|_| PlanError("reward_v1.live (segments_max 0 or at least 2, eps_live_milli > 0, a chunk per segment, rows within the roster row bound)"))
     }
 }
 
 /// The `reward_v1.quant` block: the versioned per-cohort parameters of the
-/// `quant-v1` score quantization (`slop_ninja_protocol::quant`). None is
-/// compiled in; each is a plan value bound into the signed manifest.
+/// score quantization, by rule. `rule` absent or `quant-v1`: `quant-v1`
+/// (`slop_ninja_protocol::quant`), with `eps_total_milli`; `quant-v2`
+/// (`slop_ninja_protocol::quant2`), with `noise_target_h_milli`,
+/// `rho_max_milli`, `headroom` and `headroom_basis`. None is compiled in;
+/// each is a plan value bound into the signed manifest. A stored `quant-v1`
+/// block parses and serializes exactly as before.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct QuantPlan {
-    /// The cohort's total privacy budget `eps_total` in thousandths, split
-    /// equally over every released score.
-    pub eps_total_milli: u32,
+    /// `quant-v1` (also when absent) or `quant-v2`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub rule: Option<String>,
+    /// `quant-v1`: the cohort's total privacy budget `eps_total` in
+    /// thousandths, split equally over every released score.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub eps_total_milli: Option<u32>,
     /// `h`: bits that identifying one human document of the pool takes.
     pub identify_bits: u16,
     /// `F`: the published bits stay `F` times below `n h`.
@@ -677,24 +685,93 @@ pub struct QuantPlan {
     /// Where `k_n` was derived from (a short content-free description:
     /// the measurement, its bound and its target rate), like `sigma_basis`.
     pub min_success_basis: String,
+    /// `quant-v2`: `t_H`, the total release SD's target in thousandths of
+    /// the reference's headroom.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub noise_target_h_milli: Option<u16>,
+    /// `quant-v2`: the per-cohort zCDP cap of the released scores, in
+    /// thousandths.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub rho_max_milli: Option<u32>,
+    /// `quant-v2`: where the seal takes the signed headroom `H` from.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub headroom: Option<HeadroomPlan>,
+    /// `quant-v2`: where `headroom.initial_ppb` was derived from (short and
+    /// content-free, like `min_success_basis`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub headroom_basis: Option<String>,
 }
 
+/// `quant-v2`'s headroom source: `previous` takes the released `q` of the
+/// reference in force from the most recent cohort of this store that
+/// released one (`H = 1 - q`), else `initial_ppb`; `fixed` always takes
+/// `initial_ppb`. `H` is public data, signed into the manifest at the seal.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct HeadroomPlan {
+    pub source: String,
+    pub initial_ppb: u32,
+}
+
+/// The headroom sources ([`HeadroomPlan::source`]).
+pub const HEADROOM_PREVIOUS: &str = "previous";
+pub const HEADROOM_FIXED: &str = "fixed";
+
 impl QuantPlan {
-    /// The manifest's signed parameters.
-    pub fn params(&self) -> slop_ninja_protocol::QuantParams {
-        slop_ninja_protocol::QuantParams {
-            eps_total_milli: self.eps_total_milli,
-            identify_bits: self.identify_bits,
-            budget_factor: self.budget_factor,
-            min_success_max_failed: self.min_success_max_failed,
+    /// The block's rule: absent or `quant-v1`, or `quant-v2`.
+    pub fn rule(&self) -> Result<slop_ninja_protocol::QuantRule, PlanError> {
+        match self.rule.as_deref() {
+            None | Some(slop_ninja_protocol::quant::QUANT_RULE) => Ok(slop_ninja_protocol::QuantRule::QuantV1),
+            Some(slop_ninja_protocol::quant2::QUANT_RULE) => Ok(slop_ninja_protocol::QuantRule::QuantV2),
+            Some(_) => Err(PlanError("reward_v1.quant.rule (quant-v1 or quant-v2)")),
+        }
+    }
+
+    /// The manifest's signed parameters, under `quant-v2` with the plan's
+    /// initial headroom (the seal may replace it, [`HeadroomPlan`]). Each
+    /// rule takes its own fields only.
+    pub fn params(&self) -> Result<slop_ninja_protocol::QuantBlock, PlanError> {
+        let v2_fields = self.noise_target_h_milli.is_some()
+            || self.rho_max_milli.is_some()
+            || self.headroom.is_some()
+            || self.headroom_basis.is_some();
+        match self.rule()? {
+            slop_ninja_protocol::QuantRule::QuantV1 => {
+                if v2_fields {
+                    return Err(PlanError("reward_v1.quant (quant-v2 fields under quant-v1)"));
+                }
+                Ok(slop_ninja_protocol::QuantBlock::V1(slop_ninja_protocol::QuantParams {
+                    eps_total_milli: self.eps_total_milli.ok_or(PlanError("reward_v1.quant.eps_total_milli"))?,
+                    identify_bits: self.identify_bits,
+                    budget_factor: self.budget_factor,
+                    min_success_max_failed: self.min_success_max_failed,
+                }))
+            }
+            slop_ninja_protocol::QuantRule::QuantV2 => {
+                if self.eps_total_milli.is_some() {
+                    return Err(PlanError("reward_v1.quant (eps_total_milli under quant-v2)"));
+                }
+                let headroom = self.headroom.as_ref().ok_or(PlanError("reward_v1.quant.headroom"))?;
+                Ok(slop_ninja_protocol::QuantBlock::V2(slop_ninja_protocol::QuantParamsV2 {
+                    noise_target_h_milli: self
+                        .noise_target_h_milli
+                        .ok_or(PlanError("reward_v1.quant.noise_target_h_milli"))?,
+                    rho_max_milli: self.rho_max_milli.ok_or(PlanError("reward_v1.quant.rho_max_milli"))?,
+                    headroom_pub_ppb: headroom.initial_ppb,
+                    identify_bits: self.identify_bits,
+                    budget_factor: self.budget_factor,
+                    min_success_max_failed: self.min_success_max_failed,
+                }))
+            }
         }
     }
 
     /// Positive parameters, `k_n < n`, and the plan-time bit budget: the
     /// worst case over every roster size up to `roster_cap`, with and
     /// without a predecessor, at the narrowest grid the noise allows, must stay
-    /// within `n h / F` (`slop_ninja_protocol::quant::worst_case`). The
-    /// manifest checks the same at seal.
+    /// within `n h / F` (`quant::worst_case`, or under `quant-v2` the
+    /// floor-only scale, which no signed headroom exceeds). The manifest
+    /// checks the same at seal.
     pub fn validate(&self, n: u32, roster_cap: u16) -> Result<(), PlanError> {
         self.validate_terms(n, roster_cap, &slop_ninja_protocol::quant::CountedTerms::NONE)
     }
@@ -702,7 +779,7 @@ impl QuantPlan {
     /// [`validate`](Self::validate) over the complete counted total: the
     /// worst case adds `terms` (the plan's
     /// [`RewardV1Plan::counted_terms`]) at every roster size
-    /// (`slop_ninja_protocol::quant::worst_case_terms`).
+    /// (`quant::worst_case_terms`, `quant2::worst_case_terms`).
     pub fn validate_terms(
         &self,
         n: u32,
@@ -710,23 +787,35 @@ impl QuantPlan {
         terms: &slop_ninja_protocol::quant::CountedTerms,
     ) -> Result<(), PlanError> {
         let e = |c: bool, what: &'static str| if c { Ok(()) } else { Err(PlanError(what)) };
-        e(self.params().validate().is_ok(), "reward_v1.quant (positive eps, h and F)")?;
-        e(n >= 2, "reward_v1.quant (at least two batch documents for SE)")?;
+        let block = self.params()?;
+        e(block.validate().is_ok(), "reward_v1.quant (positive parameters, h and F)")?;
+        e(n >= 2, "reward_v1.quant (at least two batch documents)")?;
         e(self.min_success_max_failed < n, "reward_v1.quant.min_success_max_failed (below n)")?;
         e(
             !self.min_success_basis.is_empty() && self.min_success_basis.len() <= 200,
             "reward_v1.quant.min_success_basis",
         )?;
-        let within = slop_ninja_protocol::quant::worst_case_terms(
-            n,
-            roster_cap,
-            self.eps_total_milli,
-            self.identify_bits,
-            self.budget_factor,
-            terms,
-        )
-        .is_ok_and(|(_, within)| within);
-        e(within, "reward_v1.quant (the worst-case bit budget exceeds n h / F at this roster cap)")
+        if let Some(h) = &self.headroom {
+            e(
+                h.source == HEADROOM_PREVIOUS || h.source == HEADROOM_FIXED,
+                "reward_v1.quant.headroom.source (previous or fixed)",
+            )?;
+            e(
+                h.initial_ppb > 0 && h.initial_ppb <= slop_ninja_protocol::quant2::MAX_HEADROOM_PPB,
+                "reward_v1.quant.headroom.initial_ppb (above 0, at most 10^9)",
+            )?;
+            e(
+                self.headroom_basis.as_ref().is_some_and(|b| !b.is_empty() && b.len() <= 200),
+                "reward_v1.quant.headroom_basis",
+            )?;
+        }
+        match block.worst_case().worst_case_terms(n, roster_cap, terms) {
+            Ok((_, within)) => e(within, "reward_v1.quant (the worst-case bit budget exceeds n h / F at this roster cap)"),
+            Err(slop_ninja_protocol::Error::OutOfRange(_)) => Err(PlanError(
+                "reward_v1.quant (the privacy floor at this roster cap exceeds one score unit: n too small)",
+            )),
+            Err(_) => Err(PlanError("reward_v1.quant (the worst-case bit budget)")),
+        }
     }
 }
 
@@ -1050,10 +1139,11 @@ impl RewardV1Plan {
         Ok(())
     }
 
-    /// The manifest's `quant-v1` parameters; a plan without the block
-    /// cannot seal a scored cohort.
-    pub fn quant_params(&self) -> Result<slop_ninja_protocol::QuantParams, PlanError> {
-        self.quant.as_ref().map(QuantPlan::params).ok_or(PlanError("reward_v1.quant"))
+    /// The manifest's quantization parameters under the block's rule (under
+    /// `quant-v2` with the plan's initial headroom, which the seal may
+    /// replace); a plan without the block cannot seal a scored cohort.
+    pub fn quant_params(&self) -> Result<slop_ninja_protocol::QuantBlock, PlanError> {
+        self.quant.as_ref().ok_or(PlanError("reward_v1.quant"))?.params()
     }
 
     /// Every other rule's counted hidden-data terms under this plan
@@ -1609,8 +1699,16 @@ impl CohortPlan {
     /// Checks shared by cohort and load plans: scorer, fan-out, identities and roster.
     fn validate_common(&self, ceilings: Ceilings, load: bool) -> Result<(), PlanError> {
         let e = |c: bool, what: &'static str| if c { Ok(()) } else { Err(PlanError(what)) };
-        let rule = if load || self.schema == PLAN_SCHEMA { "testnet-reward-v0" } else { "reward-v2" };
-        e(self.reward_rule == rule, "reward_rule")?;
+        // Scored (v3) plans name a band rule: reward-v2, or reward-v3 (the
+        // roster-first placement). Which one a cohort may use is the eval
+        // authority's record rule, checked where plans are admitted.
+        let band = ["reward-v2", "reward-v3"];
+        let ok = if load || self.schema == PLAN_SCHEMA {
+            self.reward_rule == "testnet-reward-v0"
+        } else {
+            band.contains(&self.reward_rule.as_str())
+        };
+        e(ok, "reward_rule")?;
         // At least one attempt; the receipt's attempt number (u8) bounds it.
         e(self.max_attempts >= 1, "max_attempts")?;
         e(
@@ -1841,12 +1939,74 @@ pub(crate) mod tests {
     /// and a generous `k_n` (so their crash fixtures stay scored).
     pub fn quant_block() -> QuantPlan {
         QuantPlan {
-            eps_total_milli: 2_000_000,
+            rule: None,
+            eps_total_milli: Some(2_000_000),
             identify_bits: 2000,
             budget_factor: 1,
             min_success_max_failed: 9,
             min_success_basis: "synthetic test value".into(),
+            noise_target_h_milli: None,
+            rho_max_milli: None,
+            headroom: None,
+            headroom_basis: None,
         }
+    }
+
+    /// A `quant-v2` block: the testnet template (n 1,000 at a roster limit of
+    /// 40) and the mainnet one (n 4,000 at 256 entrants) pass at the
+    /// floor-only worst case; a
+    /// batch too small for its cap's privacy floor is refused; each rule
+    /// takes its own fields only; a stored `quant-v1` block keeps its JSON.
+    #[test]
+    fn a_quant_v2_block_checks_its_floor_only_worst_case() {
+        const F10: u16 = 10;
+        let v2 = QuantPlan {
+            rule: Some("quant-v2".into()),
+            eps_total_milli: None,
+            identify_bits: 8,
+            budget_factor: F10,
+            min_success_max_failed: 2,
+            min_success_basis: "synthetic test value".into(),
+            noise_target_h_milli: Some(70),
+            rho_max_milli: Some(500),
+            headroom: Some(HeadroomPlan { source: HEADROOM_PREVIOUS.into(), initial_ppb: 153_000_000 }),
+            headroom_basis: Some("synthetic test value".into()),
+        };
+        let terms = slop_ninja_protocol::quant::CountedTerms { per_executed: 2, per_cohort: 2 };
+        v2.validate_terms(1000, 40, &terms).unwrap();
+        v2.validate_terms(4000, 256, &terms).unwrap();
+        assert!(v2.validate(3, 256).unwrap_err().0.contains("privacy floor"));
+        match v2.params().unwrap() {
+            slop_ninja_protocol::QuantBlock::V2(p) => assert_eq!(p.headroom_pub_ppb, 153_000_000),
+            other => panic!("{other:?}"),
+        }
+        let mixed = QuantPlan { eps_total_milli: Some(2000), ..v2.clone() };
+        assert!(mixed.validate(1000, 40).is_err());
+        let no_target = QuantPlan { noise_target_h_milli: None, ..v2.clone() };
+        assert!(no_target.validate(1000, 40).is_err());
+        let bad_source = QuantPlan { headroom: Some(HeadroomPlan { source: "guess".into(), initial_ppb: 1 }), ..v2.clone() };
+        assert!(bad_source.validate(1000, 40).is_err());
+        let zero = QuantPlan { headroom: Some(HeadroomPlan { source: HEADROOM_FIXED.into(), initial_ppb: 0 }), ..v2.clone() };
+        assert!(zero.validate(1000, 40).is_err());
+        let no_basis = QuantPlan { headroom_basis: None, ..v2.clone() };
+        assert!(no_basis.validate(1000, 40).is_err());
+        let unknown = QuantPlan { rule: Some("quant-v9".into()), ..v2.clone() };
+        assert!(unknown.validate(1000, 40).is_err());
+        let v1_extra = QuantPlan { rule: None, eps_total_milli: Some(2000), ..v2.clone() };
+        assert!(v1_extra.validate(1000, 40).is_err(), "quant-v2 fields under quant-v1");
+        // A quant-v1 block's JSON is unchanged by the new optional fields.
+        let v1 = QuantPlan { eps_total_milli: Some(2000), identify_bits: 8, ..quant_block() };
+        let v1 = QuantPlan { budget_factor: F10, min_success_max_failed: 2, ..v1 };
+        let text = serde_json::to_string(&v1).unwrap();
+        let expected = concat!(
+            r#"{"eps_total_milli":2000,"identify_bits":8,"#,
+            r#""budget_factor":"#,
+            r#"10,"min_success_max_failed":2,"min_success_basis":"synthetic test value"}"#,
+        );
+        assert_eq!(text, expected);
+        assert_eq!(serde_json::from_str::<QuantPlan>(&text).unwrap(), v1);
+        let back: QuantPlan = serde_json::from_str(&serde_json::to_string(&v2).unwrap()).unwrap();
+        assert_eq!(back, v2);
     }
 
     /// The plan-time budget is the rule's worst case: the testnet batch of
@@ -1855,16 +2015,16 @@ pub(crate) mod tests {
     /// below `n`.
     #[test]
     fn the_quant_block_checks_the_worst_case_bit_budget() {
-        let testnet = QuantPlan { eps_total_milli: 2000, identify_bits: 8, budget_factor: 10, min_success_max_failed: 2, ..quant_block() };
+        let testnet = QuantPlan { eps_total_milli: Some(2000), identify_bits: 8, budget_factor: 10, min_success_max_failed: 2, ..quant_block() };
         testnet.validate(1000, 40).unwrap();
         assert!(testnet.validate(4000, 256).unwrap_err().0.contains("bit budget"));
         let k = QuantPlan { min_success_max_failed: 1000, ..testnet.clone() };
         assert!(k.validate(1000, 40).unwrap_err().0.starts_with("reward_v1.quant.min_success_max_failed"));
-        let no_eps = QuantPlan { eps_total_milli: 0, ..testnet.clone() };
+        let no_eps = QuantPlan { eps_total_milli: Some(0), ..testnet.clone() };
         assert!(no_eps.validate(1000, 40).is_err());
         let no_basis = QuantPlan { min_success_basis: String::new(), ..testnet.clone() };
         assert!(no_basis.validate(1000, 40).is_err());
-        assert_eq!(testnet.params().min_success_max_failed, 2);
+        assert_eq!(testnet.params().unwrap().min_success_max_failed(), 2);
         // The plan's counted terms enter the same worst case: none change
         // nothing, and a rule's term that does not fit is refused.
         use slop_ninja_protocol::quant::CountedTerms;

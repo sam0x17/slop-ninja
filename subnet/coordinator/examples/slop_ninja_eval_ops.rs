@@ -20,7 +20,7 @@
 //! slop_ninja_eval_ops report-summary VERIFY_REPORT.json
 //! slop_ninja_eval_ops restart --authority NAME --status STATUS.json --wrangler WRANGLER.toml
 //!     --reference ARTIFACT.json --expect-package SHA256 --probe-template PLAN.json --out DIR
-//!     --decision REFERENCE [--probe-version V]
+//!     --decision REFERENCE --reward-rule RULE --quant-rule RULE [--probe-version V]
 //! slop_ninja_eval_ops restart-cohort --restart DIR/restart.json --record RECORD.json --template PLAN.json
 //!     --cohort N --label-suffix S --wrangler WRANGLER.toml
 //! slop_ninja_eval_ops authority-check --wrangler WRANGLER.toml --status STATUS.json
@@ -173,7 +173,9 @@
 //!   `succession_recorded` and `work` in STATUS.json, which must be an eval
 //!   status) must equal the one the tree to deploy tracks
 //!   (`EVAL_MAIN_AUTHORITY`, `EVAL_MAIN_FIRST_COHORT`, `EVAL_MAIN_PREVIOUS`)
-//!   and must not be superseded, or exit 1; `--freeze` alone redeploys a
+//!   and must not be superseded, or exit 1; its record rules (`record_rules`,
+//!   absent: `reward-v2,quant-v1`) must equal the tree's `EVAL_MAIN_RULES`
+//!   (`record_rules_mismatch`) unless the tree switches to a fresh authority; `--freeze` alone redeploys a
 //!   superseded one frozen. It fails closed: an error reply, a Worker status
 //!   without an eval status, or a status without any of those fields
 //!   refuses. With `--switch` (the switch or rollback commit only) the tree's
@@ -570,7 +572,10 @@ fn auto_target_check(path: &str, tracked: &Authority) -> Result<(), String> {
 /// The authority a tracked `wrangler.toml` names for the main instance.
 fn tracked_authority(vars: &BTreeMap<String, String>) -> Authority {
     let v = |k: &str| vars.get(k).map(String::as_str);
+    let rules = slop_ninja_coordinator::config::RecordRules::parse(v("EVAL_MAIN_RULES"))
+        .unwrap_or_else(|_| fail("wrangler.toml: EVAL_MAIN_RULES names no reward and quantization rule"));
     Authority::parse_with(v("EVAL_MAIN_AUTHORITY"), v("EVAL_MAIN_FIRST_COHORT"), v("EVAL_MAIN_PREVIOUS"))
+        .map(|a| a.with_rules(rules))
         .unwrap_or_else(|_| fail("wrangler.toml: the EVAL_MAIN_* vars name no authority"))
 }
 
@@ -660,6 +665,14 @@ fn restart(flags: &BTreeMap<String, String>) {
     if deployed.work {
         fail(&format!("{replaced} still has work (a closure, a spend settlement, a purge, an admission clean-up or admitted objects awaiting the publisher's report)"));
     }
+    // The fresh record's rules: named on every restart, so a rule change is
+    // decided and recorded with it (restart.json, EVAL_MAIN_RULES).
+    let rules = slop_ninja_coordinator::config::RecordRules::parse(Some(&format!(
+        "{},{}",
+        flag::<String>(flags, "reward-rule"),
+        flag::<String>(flags, "quant-rule")
+    )))
+    .unwrap_or_else(|_| fail("--reward-rule names a band rule (reward-v2 or reward-v3) and --quant-rule a quantization rule (quant-v1 or quant-v2)"));
     // The recorded decision the restart runs under (kept in restart.json).
     let decision: String = flag(flags, "decision");
     if decision.trim().is_empty() || decision.contains(['\n', '\r']) {
@@ -717,6 +730,7 @@ fn restart(flags: &BTreeMap<String, String>) {
     let version: u32 = opt(flags, "probe-version").unwrap_or(1);
     let mut plan = read_json(&flag::<String>(flags, "probe-template"));
     plan["schema"] = json!(PROBE_PLAN_SCHEMA);
+    plan["reward_rule"] = json!(rules.reward.name());
     plan["cohort"] = json!(first);
     plan["label"] = json!(format!("{prefix}probe-v{version}"));
     plan["reference"] = reference.clone();
@@ -743,7 +757,8 @@ fn restart(flags: &BTreeMap<String, String>) {
         "label_prefix": prefix,
         // Commit these in [env.eval-testnet.vars] (never --var).
         "vars": {"EVAL_MAIN_AUTHORITY": name, "EVAL_MAIN_FIRST_COHORT": first.to_string(),
-            "EVAL_MAIN_PREVIOUS": previous.join(",")},
+            "EVAL_MAIN_PREVIOUS": previous.join(","), "EVAL_MAIN_RULES": rules.name()},
+        "record_rules": rules.name(),
         // Commit this in the coordinator's [env.testnet.vars], in the same
         // commit as the three above: the automatic handoff hands in only the
         // named authorities' cohorts (`authority-check` refuses a tree whose

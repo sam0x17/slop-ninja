@@ -3655,6 +3655,51 @@ fn attempt_resolve_reruns_the_evidence_check_without_deciding_it() {
     assert_eq!(h.db.count("operator_actions"), 1);
 }
 
+/// A restart names the fresh record's rules: a body without them is refused
+/// (`rules_missing`), unknown names too (`rule_unknown`), both before
+/// anything is written; the queued record is a `ChainRestartV2` naming them,
+/// and the journal's record rules follow it (`decide::record_rules`).
+#[test]
+fn a_restart_names_the_fresh_records_rules() {
+    let mut h = H::new();
+    tx(&h.db, |sql| install_target(sql, &h.cfg, &h.trusted, &launch_bundle_json(1), T0)).unwrap().unwrap();
+    h.resume();
+    h.until(80, committed);
+    let signed_epoch = h.ops()[0].epoch;
+    tx(&h.db, |sql| pause(sql, "operator_hold", T0)).unwrap();
+    let k = slop_ninja_protocol::SigningKey::from_bytes(&[0x62; 32]);
+    let key = slop_ninja_protocol::operator::OperatorKey::from_bytes(k.verifying_key().to_bytes()).unwrap();
+    let c = chain_601();
+    let to = super::decide::address(&c);
+    let held = tx(&h.db, |sql| held_target(sql, &h.cfg)).unwrap().digest().to_string();
+    let floor = signed_epoch + 3;
+    let body = |decision: &str, rules: Option<(&str, &str)>| {
+        let mut b = serde_json::json!({"action": "restart", "decision": decision, "reason": "operator_decision", "floor": floor,
+            "bundle": launch_bundle_json(floor), "last": null, "past": [], "unlisted": [], "expect": {"held": held}});
+        if let Some((r, q)) = rules {
+            b["reward_rule"] = serde_json::json!(r);
+            b["quant_rule"] = serde_json::json!(q);
+        }
+        crate::operator::tests::signed_body(&k, "coordinator.restart", &to, b)
+    };
+    let decide = |h: &H, b: serde_json::Value| {
+        tx(&h.db, |sql| super::decide::decide(sql, &h.cfg, &h.trusted, b, Some(&key), Some(floor), T0)).unwrap()
+    };
+    assert_eq!(tx(&h.db, super::decide::record_rules).unwrap().name(), "reward-v2,quant-v1");
+    assert_eq!(decide(&h, body("rules-a", None)).map_err(|r| r.code), Err("rules_missing"));
+    assert_eq!(decide(&h, body("rules-b", Some(("reward-v9", "quant-v2")))).map_err(|r| r.code), Err("rule_unknown"));
+    assert_eq!(decide(&h, body("rules-c", Some(("testnet-reward-v0", "quant-v1")))).map_err(|r| r.code), Err("rule_unknown"));
+    assert_eq!(h.db.count("sign_restart_records"), 0, "a refusal writes nothing");
+    let v = decide(&h, body("rules-d", Some(("reward-v3", "quant-v2")))).unwrap();
+    assert_eq!((v["reward_rule"].as_str(), v["quant_rule"].as_str()), (Some("reward-v3"), Some("quant-v2")));
+    let rows = h.db.conn.prepare("SELECT record_hex FROM sign_restart_records WHERE kind = 'restart'").unwrap()
+        .query_map([], |r| r.get::<_, String>(0)).unwrap().collect::<Result<Vec<_>, _>>().unwrap();
+    assert_eq!(rows.len(), 1);
+    let rec = <slop_ninja_protocol::decisions::ChainRestartV2 as slop_ninja_protocol::Record>::from_bytes(&hex::decode(&rows[0]).unwrap()).unwrap();
+    assert_eq!((rec.reward_rule, rec.quant_rule, rec.floor), (slop_ninja_protocol::RewardRule::RewardV3, slop_ninja_protocol::QuantRule::QuantV2, floor));
+    assert_eq!(tx(&h.db, super::decide::record_rules).unwrap().name(), "reward-v3,quant-v2");
+}
+
 /// P1-R: a floor at or below an epoch that holds a signed attempt is
 /// refused (`epoch_signed`) and changes nothing; a planned operation of an
 /// epoch at or after the floor that never signed is dropped and planned
@@ -3674,7 +3719,8 @@ fn burn_now_refuses_a_signed_epoch_and_replans_an_unsigned_one() {
     let held = tx(&h.db, |sql| held_target(sql, &h.cfg)).unwrap().digest().to_string();
     let body = |decision: &str, floor: u64| {
         let b = serde_json::json!({"action": "restart", "decision": decision, "reason": "operator_decision", "floor": floor,
-            "bundle": launch_bundle_json(floor), "last": null, "past": [], "unlisted": [], "expect": {"held": held}});
+            "bundle": launch_bundle_json(floor), "last": null, "past": [], "unlisted": [], "expect": {"held": held},
+            "reward_rule": "reward-v2", "quant_rule": "quant-v1"});
         crate::operator::tests::signed_body(&k, "coordinator.restart", &to, b)
     };
     let decide = |h: &H, b: serde_json::Value, observed: u64| {

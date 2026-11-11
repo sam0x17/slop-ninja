@@ -91,15 +91,18 @@ pub fn private_seed(env: &Env) -> Option<[u8; 32]> {
 }
 
 /// The main instance's authority the deployment names (`EVAL_MAIN_AUTHORITY`,
-/// `EVAL_MAIN_FIRST_COHORT` and `EVAL_MAIN_PREVIOUS`, tracked in
-/// `wrangler.toml`; `config::Authority::parse_with`).
+/// `EVAL_MAIN_FIRST_COHORT`, `EVAL_MAIN_PREVIOUS` and its record's rules
+/// `EVAL_MAIN_RULES`, tracked in `wrangler.toml`;
+/// `config::Authority::parse_with`, `config::RecordRules::parse`).
 pub fn main_authority(env: &Env) -> std::result::Result<crate::config::Authority, &'static str> {
     let v = |name: &str| env.var(name).ok().map(|v| v.to_string());
+    let rules = crate::config::RecordRules::parse(v("EVAL_MAIN_RULES").as_deref()).map_err(|_| "EVAL_MAIN_RULES")?;
     crate::config::Authority::parse_with(
         v("EVAL_MAIN_AUTHORITY").as_deref(),
         v("EVAL_MAIN_FIRST_COHORT").as_deref(),
         v("EVAL_MAIN_PREVIOUS").as_deref(),
     )
+    .map(|a| a.with_rules(rules))
     .map_err(|_| "EVAL_MAIN_AUTHORITY")
 }
 
@@ -965,6 +968,7 @@ impl DurableObject for EvalCohort {
                         v["instance"] = j!(instance);
                         v["authority"] = j!(self.state.id().to_string());
                         v["authority_name"] = j!(cfg.authority.name());
+                        v["record_rules"] = j!(cfg.authority.rules().name());
                         v["authority_retired"] = j!(cfg.authority.is_retired());
                         v["first_cohort"] = j!(cfg.authority.first_cohort());
                         v["label_prefix"] = j!(cfg.authority.label_prefix());

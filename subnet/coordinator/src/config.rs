@@ -315,6 +315,53 @@ pub struct Authority {
     superseded_by: Option<String>,
     /// Earlier named authorities (`EVAL_MAIN_PREVIOUS`), oldest first.
     previous: Vec<String>,
+    /// The reward and quantization rules of this authority's chain record
+    /// (`EVAL_MAIN_RULES`): the only rules a plan may name here.
+    rules: RecordRules,
+}
+
+/// The reward and quantization rules of a chain record (`EVAL_MAIN_RULES`,
+/// `<reward rule>,<quant rule>`). A deployment that names none runs the
+/// record in force before records named their rules: `reward-v2,quant-v1`.
+/// A record changes rules only by a restart into a fresh authority.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct RecordRules {
+    pub reward: slop_ninja_protocol::RewardRule,
+    pub quant: slop_ninja_protocol::QuantRule,
+}
+
+impl Default for RecordRules {
+    fn default() -> Self {
+        Self {
+            reward: slop_ninja_protocol::RewardRule::RewardV2,
+            quant: slop_ninja_protocol::QuantRule::QuantV1,
+        }
+    }
+}
+
+impl RecordRules {
+    /// Parses `<reward rule>,<quant rule>`: a band rule and a quantization
+    /// rule by name. Unset or empty is the default.
+    pub fn parse(value: Option<&str>) -> Result<Self, ConfigError> {
+        let Some(v) = value.map(str::trim).filter(|v| !v.is_empty()) else {
+            return Ok(Self::default());
+        };
+        let (reward, quant) = v.split_once(',').ok_or(ConfigError::Authority)?;
+        let reward = slop_ninja_protocol::RewardRule::from_name(reward.trim())
+            .filter(|r| r.placement().is_some())
+            .ok_or(ConfigError::Authority)?;
+        let quant = match quant.trim() {
+            slop_ninja_protocol::quant::QUANT_RULE => slop_ninja_protocol::QuantRule::QuantV1,
+            slop_ninja_protocol::quant2::QUANT_RULE => slop_ninja_protocol::QuantRule::QuantV2,
+            _ => return Err(ConfigError::Authority),
+        };
+        Ok(Self { reward, quant })
+    }
+
+    /// `<reward rule>,<quant rule>`.
+    pub fn name(&self) -> String {
+        format!("{},{}", self.reward.name(), self.quant.name())
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -373,6 +420,7 @@ impl Authority {
                     retired: false,
                     superseded_by: None,
                     previous: listed,
+                    rules: RecordRules::default(),
                 })
             }
             Some(_) => Err(ConfigError::Authority),
@@ -409,7 +457,20 @@ impl Authority {
             retired: true,
             superseded_by: None,
             previous: Vec::new(),
+            rules: RecordRules::default(),
         }
+    }
+
+    /// This authority with its record's rules (`EVAL_MAIN_RULES`).
+    pub fn with_rules(mut self, rules: RecordRules) -> Self {
+        self.rules = rules;
+        self
+    }
+
+    /// The rules of this authority's chain record: the only rules a plan
+    /// may name here.
+    pub fn rules(&self) -> RecordRules {
+        self.rules
     }
 
     pub fn is_original(&self) -> bool {
@@ -950,6 +1011,9 @@ pub struct DeployedAuthority {
     /// receipt deletion is not included (`retention_work`): it finishes under
     /// the successor's notices.
     pub work: bool,
+    /// The record rules it reports (`record_rules`); a build from before
+    /// records named their rules reports none and runs `reward-v2,quant-v1`.
+    pub record_rules: RecordRules,
 }
 
 /// The eval status in `status`: itself, or the Worker `/status`'s
@@ -1062,6 +1126,11 @@ impl DeployedAuthority {
             superseded_by,
             succession_recorded,
             work,
+            record_rules: match st.get("record_rules") {
+                None => RecordRules::default(),
+                Some(v) => RecordRules::parse(Some(v.as_str().ok_or("record_rules is not a name")?))
+                    .map_err(|_| "the status reports unknown record_rules")?,
+            },
         })
     }
 }
@@ -1149,6 +1218,17 @@ pub fn deploy_check(
         && d.first_cohort == tracked.first_cohort()
         && d.predecessors == tracked_preds;
     let DeployMode::Switch { freeze } = mode else {
+        // A record's rules never change under it: only a switch to a fresh
+        // authority names other rules.
+        if same && d.record_rules != tracked.rules() {
+            return Err(format!(
+                "record_rules_mismatch: the deployed authority {} runs {} and the tree tracks {} for it; \
+                 restore EVAL_MAIN_RULES, or switch to a fresh authority that names the new rules",
+                d.name,
+                d.record_rules.name(),
+                tracked.rules().name()
+            ));
+        }
         if !same {
             return Err(format!(
                 "deployed authority {} (first cohort {}, predecessors {:?}) differs from the tracked {} \
@@ -2435,4 +2515,40 @@ mod tests {
         assert_eq!(r0c.label_authority("finney-r0c-21"), Some("main"));
         assert_eq!(r0c.label_authority(""), Some("main"));
     }
+
+    #[test]
+    fn record_rules_parse_band_and_quant_rules() {
+        assert_eq!(RecordRules::parse(None).unwrap(), RecordRules::default());
+        assert_eq!(RecordRules::parse(Some(" ")).unwrap().name(), "reward-v2,quant-v1");
+        assert_eq!(RecordRules::parse(Some("reward-v3,quant-v2")).unwrap().name(), "reward-v3,quant-v2");
+        assert_eq!(RecordRules::parse(Some(" reward-v3 , quant-v1 ")).unwrap().name(), "reward-v3,quant-v1");
+        for bad in ["reward-v3", "testnet-reward-v0,quant-v1", "reward-v4,quant-v1", "reward-v3,quant-v3", "quant-v2,reward-v3"] {
+            assert!(RecordRules::parse(Some(bad)).is_err(), "{bad}");
+        }
+        let a = Authority::named("r2", 30).unwrap().with_rules(RecordRules::parse(Some("reward-v3,quant-v2")).unwrap());
+        assert_eq!(own_authority(Some(&a), "r2", None).rules(), a.rules());
+    }
+
+
+    /// A deployment never changes the rules of the record it runs: the
+    /// tree's `EVAL_MAIN_RULES` must equal the deployed authority's
+    /// `record_rules` (absent: `reward-v2,quant-v1`) unless it switches to a
+    /// fresh authority.
+    #[test]
+    fn the_deploy_check_keeps_the_records_rules() {
+        let closed = serde_json::json!([{"label": "testnet-rv1-a", "cohort": 12, "phase": "closed"}]);
+        let main = Authority::default();
+        let ok = status_of(Some("main"), 0, &[], closed.clone());
+        assert!(deploy_check(&main, &ok, None, DeployMode::Same).is_ok(), "absent: the default rules");
+        let v3 = main.clone().with_rules(RecordRules::parse(Some("reward-v3,quant-v2")).unwrap());
+        let refused = deploy_check(&v3, &ok, None, DeployMode::Same).unwrap_err();
+        assert!(refused.starts_with("record_rules_mismatch"), "{refused}");
+        let mut reports = ok.clone();
+        reports["record_rules"] = serde_json::json!("reward-v3,quant-v2");
+        assert!(deploy_check(&v3, &reports, None, DeployMode::Same).is_ok());
+        assert!(deploy_check(&main, &reports, None, DeployMode::Same).unwrap_err().starts_with("record_rules_mismatch"));
+        reports["record_rules"] = serde_json::json!("reward-v9,quant-v1");
+        assert!(deploy_check(&v3, &reports, None, DeployMode::Same).is_err());
+    }
+
 }

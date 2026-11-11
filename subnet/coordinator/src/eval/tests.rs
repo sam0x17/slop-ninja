@@ -2712,6 +2712,45 @@ fn abandonment_reasons_come_from_a_fixed_vocabulary() {
     }
 }
 
+/// The record-rule guard: a scored plan names exactly its authority's record
+/// rules (`EVAL_MAIN_RULES`, default `reward-v2,quant-v1`); a reward-v3 or
+/// quant-v2 plan is refused in a record of other rules, and admitted in a
+/// record that names them.
+#[test]
+fn plans_name_their_records_rules() {
+    let weak = super::plan::tests::artifact(super::plan::tests::identity(0, 0xb0), 0x22);
+    let probe = super::plan::ProbeRef { version: 1, size: 1024, key: "probes/v1/record.json".into(), sha256: hex::encode([1; 32]) };
+    let mut ok = plan_v3(2, "testnet-rv1-ok", 1000, weak);
+    ok.reward_v1.as_mut().unwrap().probes = vec![probe];
+    ok.reward_v1.as_mut().unwrap().canary.draw_humans = 200;
+    let admit = |cfg: &EvalConfig, p: &CohortPlan| engine::admit(cfg, &serde_json::to_vec(p).unwrap()).map(|_| ());
+    let outside = |r: Result<(), engine::EvalError>| matches!(r, Err(engine::EvalError::Plan(m)) if m == engine::RULE_OUTSIDE_RECORD);
+    admit(&cfg(), &ok).unwrap();
+    let mut v3 = ok.clone();
+    v3.reward_rule = "reward-v3".into();
+    assert!(outside(admit(&cfg(), &v3)));
+    let mut q2 = ok.clone();
+    *q2.reward_v1.as_mut().unwrap().quant.as_mut().unwrap() = super::plan::QuantPlan {
+        rule: Some("quant-v2".into()),
+        eps_total_milli: None,
+        noise_target_h_milli: Some(70),
+        rho_max_milli: Some(500),
+        headroom: Some(super::plan::HeadroomPlan { source: super::plan::HEADROOM_PREVIOUS.into(), initial_ppb: 153_000_000 }),
+        headroom_basis: Some("synthetic test value".into()),
+        ..ok.reward_v1.as_ref().unwrap().quant.clone().unwrap()
+    };
+    assert!(outside(admit(&cfg(), &q2)));
+    let rules = |v: &str| crate::config::RecordRules::parse(Some(v)).unwrap();
+    let in_record = |r: &str| EvalConfig { authority: crate::config::Authority::default().with_rules(rules(r)), ..cfg() };
+    admit(&in_record("reward-v3,quant-v1"), &v3).unwrap();
+    assert!(outside(admit(&in_record("reward-v3,quant-v1"), &ok)));
+    admit(&in_record("reward-v2,quant-v2"), &q2).unwrap();
+    let mut both = q2.clone();
+    both.reward_rule = "reward-v3".into();
+    admit(&in_record("reward-v3,quant-v2"), &both).unwrap();
+    assert!(outside(admit(&in_record("reward-v3,quant-v2"), &ok)));
+}
+
 /// L2 review r1 (item 9): a new cohort plan declares its generation pause
 /// bound; a template without one gives its cohorts the compiled bound
 /// written into their plans, so the seal binds it.
@@ -8262,7 +8301,7 @@ fn span_plans_count_the_anchor_job_and_the_record_bits() {
         v.canary.draw_humans = 200;
         // The testnet bit parameters: n 1,000, eps 2, h 8, F 10.
         let q = v.quant.as_mut().unwrap();
-        (q.eps_total_milli, q.identify_bits, q.budget_factor) = (2000, 8, 10);
+        (q.eps_total_milli, q.identify_bits, q.budget_factor) = (Some(2000), 8, 10);
     }
     p.validate(none).unwrap();
     let docs = p.scored_docs();
@@ -8279,7 +8318,6 @@ fn span_plans_count_the_anchor_job_and_the_record_bits() {
     // The live readings' L counts it too, and still fits the bound.
     let (q, lp) = (v1.quant_params().unwrap(), LiveParams { eps_live_milli: 1000, segments_max: 4 });
     for pred in [false, true] {
-        let q = slop_ninja_protocol::QuantBlock::V1(q);
         let with = live::derive_segments(1000, 40, pred, &q, &lp, &v1.counted_terms()).unwrap();
         let without = live::derive_segments(1000, 40, pred, &q, &lp, &CountedTerms::NONE).unwrap();
         assert_eq!(with.counted, without.counted + 42);

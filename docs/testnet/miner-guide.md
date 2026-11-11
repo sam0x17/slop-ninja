@@ -1159,6 +1159,16 @@ One within the near-copy distance of a published artifact, or of either
 reference, fails the public-copy gate unless it scores more than half a band
 above it.
 
+**The revenue pot is separate.** SlopNinja plans to put the revenue of its
+detection products into a public pot that pays the mainnet registration and
+then buys mainnet alpha: half is burned, and half is distributed on mainnet,
+through a claim contract, to testnet miners in proportion to the testnet-era
+revenue earned by their winning models. Only a model that beats the reference
+and becomes the reference itself can be credited. This is a planned operator
+policy, not an entitlement, and it changes no score, row or emission; the
+[terms](terms.md#the-pots-planned-distribution) say what it is and is not, and
+the whitepaper's paid-inference section gives its rules.
+
 ### Reference model
 
 Testnet's reference is `R_0`, SlopNinja's released *A* document model,

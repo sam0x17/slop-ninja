@@ -42,6 +42,7 @@ Testnet subnet 601 is the rehearsal. It has no monetary value.
 | Batch | about 1,000 hidden documents per cohort, human-only, mixed and model-only |
 | Reward | AI-involvement Brier, against the reference `R_k`; share, attribution and false-positive tiers are gates; released scores are quantized on a grid with seeded noise (`quant-v1`), and the cutoff, credit and rank use them alone |
 | Burn regime | until an entrant beats the reference by the margin, no miner earns and the pool burns |
+| Revenue pot | planned, separate from emissions: the detection products' revenue pays the mainnet registration, then buys mainnet alpha, half burned and half distributed to testnet miners in proportion to the testnet-era revenue earned by their models that beat the reference; a planned operator policy, not an entitlement ([terms](terms.md#the-pots-planned-distribution)) |
 | Reference | `R_0`, scored every cohort; its [reference package](reference-packages.md) (`3c0ecc37`) is published under CC BY-SA 4.0, attached to the testnet release until public access opens; it changes by promotion or by a recorded operator reference decision ([terms](terms.md#operator-decisions)) |
 | Your artifact | private until its cohort's scoring starts, then public under CC BY-SA 4.0; it counts as a published copy in every later cohort, so enter a new model each time |
 | Code and docs | MIT OR Apache-2.0 |

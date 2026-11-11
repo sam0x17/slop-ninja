@@ -1,10 +1,11 @@
 # Testnet terms
 
-Version 3, November 11, 2026. It replaces version 2 of November 9, 2026 (which
-replaced version 1, the unnumbered terms published before it) and adds legal
-notices and recorded legal removals of published material. A commitment made
-after version 3 is published accepts it; an earlier commitment stays under the
-version in force when it was made, except that a legal removal
+Version 4, November 11, 2026. It replaces version 3 of the same day (which
+replaced version 2 of November 9, 2026, which replaced version 1, the
+unnumbered terms published before it) and adds what SlopNinja's planned
+distribution from its revenue pot to testnet miners is and is not. A
+commitment made after version 4 is published accepts it; an earlier commitment
+stays under the version in force when it was made, except that a legal removal
 ([Legal notices and removals](#legal-notices-and-removals)) can apply to
 material published under any version.
 
@@ -19,7 +20,60 @@ separately.
 Testnet is a rehearsal. Test TAO, testnet alpha, scores, credits and weight
 rows on subnet 601 have no monetary value. SlopNinja does not sell, buy,
 exchange or redeem them, and taking part creates no claim to any payment,
-token or mainnet allocation. SlopNinja does not provide test TAO.
+token or mainnet allocation; the planned distribution below does not change
+this. SlopNinja does not provide test TAO.
+
+## The pot's planned distribution
+
+SlopNinja plans to put the revenue of its detection products (a free detection
+page with advertising on the site's content pages, a paid detection API and
+other products) into a public pot, and to use it as section 8 of the
+[whitepaper](../../whitepaper/slop_ninja.pdf) describes. Once the pot holds
+about 1.5 times the cost of a mainnet subnet registration, SlopNinja registers
+the mainnet subnet with that money. Once that subnet launches, the money left
+from revenue earned before the launch buys the mainnet subnet's alpha: half of
+it is burned, and half is distributed to testnet miners on mainnet through a
+claim contract, in proportion to the testnet-era revenue earned by their
+winning models. After the launch, all revenue buys and burns alpha.
+
+What the distribution is:
+
+- **A plan of the operator.** It is SlopNinja's planned policy for the pot's
+  money, set out in the whitepaper and to be set out in the pot's charter. It
+  is not a term of participation and gives no one an entitlement to any
+  amount. Under the charter, a change to what the pot's money may be used for applies only to
+  money received after the change is published. As of November 11, 2026 the
+  pot has received no money.
+- **For winning models only.** Revenue is credited only to a model that has
+  beaten the reference and taken its place, under an attribution rule,
+  published before it is used, that credits revenue the detection products
+  earn while that model is the reference. Revenue earned while one of
+  SlopNinja's own models is the reference is credited to no miner, and a model
+  that earns emissions without becoming the reference is credited nothing.
+- **Paid in mainnet alpha.** The alpha is bought on the mainnet subnet with
+  the pot's TAO and claimed on mainnet through a claim contract whose rules
+  are published before it is used.
+
+What it is not:
+
+- **Not a value for testnet tokens or scores.** Test TAO, testnet alpha,
+  scores, credits and weight rows keep no monetary value. Nothing is exchanged
+  or redeemed for them, and the distribution is not measured by them.
+- **Not part of the reward mechanism.** It changes no score, gate, promotion,
+  weight row or emission, and validators do not check it.
+- **Not a promise of any amount or of mainnet.** What a miner receives
+  depends on the revenue credited to its models and on what the pot's
+  remaining money buys. If the pot never reaches the registration point, or no
+  revenue is credited to your model, you receive nothing. If SlopNinja
+  publicly abandons mainnet, the pot's TAO is burned and nothing is
+  distributed.
+- **Not a reward for traffic.** Do not visit, use, share or click anything,
+  advertising included, to raise what anyone receives: SlopNinja watches
+  traffic to pages with ads for invalid activity and switches the ads off
+  when it appears.
+
+The plan and its wording are reviewed by legal and tax advisers before the pot
+takes its first deposit and may change before then.
 
 ## Your submission
 

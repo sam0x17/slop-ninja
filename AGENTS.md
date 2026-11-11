@@ -48,13 +48,13 @@ pages), later serving the reigning reference, a paid detection API (card
 processor or TAO) once its package is published, and other products. Payouts
 go into a public pot, native TAO in a published two-of-three multisig with an
 independent third signer and a public ledger (whitepaper Section 8): at about
-1.5x the cost it pays the mainnet registration, then buys alpha, half burned
-and half claimable by testnet miners pro rata to the testnet-era revenue of
-their winning models (beaten references, never SlopNinja's); later revenue all
-buys and burns alpha; abandoning mainnet burns its TAO. The distribution
-changes no score, row or emission. Describe the pot operationally, never in
-terms of price, value to holders or returns. The page's Worker is built, not
-deployed.
+1.5x the registration cost it pays the mainnet registration (refunds go back
+to the pot), then buys alpha, half burned and half claimable by testnet miners
+pro rata to the testnet-era revenue of their winning models (models that beat
+the reference and took its place); later revenue all buys and burns alpha;
+abandoning mainnet burns its TAO. The distribution changes no score, row or
+emission. Describe the pot operationally, never in terms of price, value to
+holders or returns. The page's Worker is built, not deployed.
 B is the main product objective: authorized writing transformation toward the
 author's intended voice with meaning, readability, and tone preserved. A is a
 supporting detection and attribution mechanism and the initial standalone

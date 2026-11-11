@@ -41,7 +41,10 @@ money is used in three steps:
 
 1. **Registration.** Once the pot holds about 1.5 times the cost of a mainnet
    subnet registration, SlopNinja registers the mainnet subnet with that
-   money. Until then the pot's TAO is neither staked nor spent.
+   money. Until then the pot's TAO is neither staked nor spent. Any part of
+   the registration cost later returned to the subnet's owner account, for
+   example when the subnet is dissolved or deregistered, goes back to the pot
+   and is listed on the pot's public page.
 2. **Purchases for the testnet era.** Once the subnet launches (its emissions
    have started), the TAO left from revenue earned before the launch buys the
    subnet's alpha in daily tranches bound to the registration. Half is burned.
@@ -54,7 +57,8 @@ money is used in three steps:
 3. **After the launch.** All revenue from *A* and later *B* products buys and
    burns alpha, with nothing distributed.
 
-If mainnet is abandoned, the pot's TAO is burned and nothing is distributed.
+If mainnet is abandoned, the pot's TAO, including any registration cost
+returned to it, is burned and nothing is distributed.
 The distribution is separate from subnet emissions and changes no score, row
 or emission. As of November 11, 2026 the pot has received no money. The
 [design notes](cloudflare-subnet-draft.md#revenue-before-mainnet-the-detection-page-and-the-public-pot)

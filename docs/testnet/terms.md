@@ -30,11 +30,13 @@ page with advertising on the site's content pages, a paid detection API and
 other products) into a public pot, and to use it as section 8 of the
 [whitepaper](../../whitepaper/slop_ninja.pdf) describes. Once the pot holds
 about 1.5 times the cost of a mainnet subnet registration, SlopNinja registers
-the mainnet subnet with that money. Once that subnet launches, the money left
-from revenue earned before the launch buys the mainnet subnet's alpha: half of
-it is burned, and half is distributed to testnet miners on mainnet through a
-claim contract, in proportion to the testnet-era revenue earned by their
-winning models. After the launch, all revenue buys and burns alpha.
+the mainnet subnet with that money; any part of that cost later returned to the
+subnet's owner account goes back to the pot and is listed on its public page.
+Once that subnet launches, the money left from revenue earned before the
+launch buys the mainnet subnet's alpha: half of it is burned, and half is
+distributed to testnet miners on mainnet through a claim contract, in
+proportion to the testnet-era revenue earned by their winning models. After
+the launch, all revenue buys and burns alpha.
 
 What the distribution is:
 
@@ -47,7 +49,9 @@ What the distribution is:
 - **For winning models only.** Revenue is credited only to a model that has
   beaten the reference and taken its place, under an attribution rule,
   published before it is used, that credits revenue the detection products
-  earn while that model is the reference. Revenue earned while one of
+  earn while that model is the reference, subject to serving checks,
+  published before the pot's first deposit, that state what a promoted model
+  must show before it serves and is credited. Revenue earned while one of
   SlopNinja's own models is the reference is credited to no miner, and a model
   that earns emissions without becoming the reference is credited nothing.
 - **Paid in mainnet alpha.** The alpha is bought on the mainnet subnet with
@@ -65,8 +69,8 @@ What it is not:
   depends on the revenue credited to its models and on what the pot's
   remaining money buys. If the pot never reaches the registration point, or no
   revenue is credited to your model, you receive nothing. If SlopNinja
-  publicly abandons mainnet, the pot's TAO is burned and nothing is
-  distributed.
+  publicly abandons mainnet, the pot's TAO, including any registration cost
+  returned to it, is burned and nothing is distributed.
 - **Not a reward for traffic.** Do not visit, use, share or click anything,
   advertising included, to raise what anyone receives: SlopNinja watches
   traffic to pages with ads for invalid activity and switches the ads off

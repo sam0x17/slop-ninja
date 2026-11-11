@@ -77,8 +77,9 @@ Testnet subnet 601 is the rehearsal. It has no monetary value.
 - **Revenue pot (planned):** the detection products' revenue is to go into a
   public pot that pays the mainnet registration, then buys mainnet alpha, half
   burned and half distributed to testnet miners in proportion to the
-  testnet-era revenue earned by their models that beat the reference. It is a
-  planned operator policy, not an entitlement, and has received no money yet
+  testnet-era revenue earned by their models that beat the reference and took
+  its place. It is a planned operator policy, not an entitlement, and has
+  received no money yet
   ([terms](docs/testnet/terms.md#the-pots-planned-distribution)).
 - **Follow along:** the [status page](https://slop.ninja/testnet/status/), the
   [public API](https://slop.ninja/api/), the [whitepaper](whitepaper/slop_ninja.pdf)

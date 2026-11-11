@@ -681,9 +681,11 @@ registration.
    signer and a public ledger), not through the per-job burn route. Qualify the
    processor, and rehearse the pot's custody, monthly statement and tranche
    mechanics on testnet with test funds before its first deposit. At about 1.5
-   times the mainnet registration cost the pot pays the registration; after
-   the launch the rest buys that subnet's alpha in daily tranches bound to the
-   registration, half burned and half distributed through a claim contract to
+   times the mainnet registration cost the pot pays the registration, and any
+   part of that cost later returned to the subnet's owner account goes back to
+   the pot; after the launch the rest buys that subnet's alpha in daily
+   tranches bound to the registration, half burned and half distributed through
+   a claim contract to
    testnet miners in proportion to the testnet-era revenue earned by their
    winning models (those that beat the reference; SlopNinja's own models earn
    no miner credit); later revenue all buys and burns alpha; and its TAO is

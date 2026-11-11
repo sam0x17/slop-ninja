@@ -2548,7 +2548,10 @@ in three steps:
    registering a subnet on the main chain, SlopNinja registers the mainnet
    subnet with that money, leaving money for the purchases below; the subnet's
    owner account is SlopNinja's. Until then the pot's TAO is neither staked nor
-   spent, and the pot waits for this point without a deadline.
+   spent, and the pot waits for this point without a deadline. Any part of the
+   registration cost later returned to the owner account, for example when the
+   subnet is dissolved or deregistered, goes back to the pot and is listed on
+   the pot's public page, so an abandonment burns it as well.
 2. **Purchases for the testnet era.** Once the registered subnet launches
    (its emissions have started), the TAO left from revenue earned before the
    launch buys that subnet's alpha in daily limit-priced tranches sized to the
@@ -2567,10 +2570,11 @@ in three steps:
    burns the subnet's alpha, with nothing distributed.
 
 No pot money buys or burns testnet tokens. If SlopNinja publicly abandons
-mainnet, the TAO the pot holds is burned and nothing is distributed. A change
-to what the pot's money may be used for applies only to money received after
-the change is published; for money already received, SlopNinja may re-plan
-the timing and size of purchases by a published notice, but not these uses.
+mainnet, the TAO the pot holds, including any registration cost returned to
+it, is burned and nothing is distributed. A change to what the pot's money may
+be used for applies only to money received after the change is published; for
+money already received, SlopNinja may re-plan the timing and size of purchases
+by a published notice, but not these uses.
 The distribution changes no score, weight row or emission, and no validator
 checks it. Legal and tax advisers review the charter, these rules, the
 attribution rule and the page wording before the first deposit, and the pot's

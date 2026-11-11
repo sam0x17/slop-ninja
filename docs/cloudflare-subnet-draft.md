@@ -1,7 +1,7 @@
 # Draft Cloudflare subnet design
 
-Draft 0.40, November 10, 2026. Implementation design notes accompanying
-[whitepaper draft 0.64](../whitepaper/main.tex). Both describe a proposal;
+Draft 0.41, November 11, 2026. Implementation design notes accompanying
+[whitepaper draft 0.65](../whitepaper/main.tex). Both describe a proposal;
 neither establishes a deployed or qualified subnet.
 
 The [implementation plan](subnet-implementation-plan.md) defines the build
@@ -32,7 +32,9 @@ qualification. A paid job's principal buys and burns alpha. Before mainnet,
 the detection product's revenue (advertising on the site's content pages, never
 on the detection page itself, and a paid detection API once the served package
 is published, paid through a merchant-of-record card processor or directly in
-TAO) goes into a public pot instead of being burned job by job
+TAO) goes into a public pot instead of being burned job by job. The pot pays
+the mainnet registration, then buys alpha, half burned and half distributed to
+testnet miners whose winning models earned that revenue
 ([Revenue before mainnet](#revenue-before-mainnet-the-detection-page-and-the-public-pot)).
 Pricing multipliers and any inference
 share of emissions remain separately calibrated hyperparameters.
@@ -2472,6 +2474,8 @@ The principal of a paid job, a quoted and reserved workload, buys and burns
 alpha; the detection product's revenue goes into the public pot below instead.
 Miners receive quality emissions and, if activated,
 usage-based emissions; they receive no direct share of each customer payment.
+The pot's one distribution of alpha bought with testnet-era revenue, below, is
+separate from emissions.
 Burning the full inference principal is a deliberate policy that ties paid
 service demand to an alpha supply sink. Operating costs and reserves need
 separate funding. This allocation is not established as economically optimal;
@@ -2508,30 +2512,66 @@ text. Ads run only on the site's content pages, once an advertising network has
 approved them, with text-humanizing, essay-writing and detection-bypass
 advertisers blocked and no ads on the pages for writers who were flagged, on
 the pot's page or on policy pages; no page or post suggests that visiting, using, sharing or
-clicking anything increases burns, and the detection page does not promote the
-pot. A paid detection API follows once the package is published; it and any
+clicking anything increases burns or what any miner receives, and the detection
+page does not promote the pot. A paid detection API follows once the package is published; it and any
 later detection product are paid through a merchant-of-record card processor
-or directly in TAO and settle through the pot, not job by job.
+or directly in TAO and settle through the pot, not job by job, before and
+after the subnet's launch.
 
-Everything the detection product's advertising networks, sponsors and payment
+Later, the detection products are to serve the reigning reference model
+`R_k` whenever it passes serving checks published before the pot's first
+deposit, so that a miner's model that has beaten the reference can earn
+revenue. Promotion can rest on noise, and testnet promotions run without the
+lookup canary, so the checks decide what real users are served; they change no
+reward, promotion or row.
+
+Everything the detection products' advertising networks, sponsors and payment
 processors pay out to SlopNinja goes into the pot, net of the fees they deduct
 at source and before any of SlopNinja's own costs, which SlopNinja pays
-separately and never from the pot. The pot is native TAO in a published
-two-of-three multisignature account on the main Bittensor chain, whose signers
-are distinct from every subnet and operator key, one of them held by an
-independent person. Payouts are converted to TAO each month; the pot is never
-staked and never pays SlopNinja. A public page lists gross payouts,
-conversions, the balance and burns, each with its transaction, and a signed
-monthly statement whose hash is recorded on chain. Once the mainnet subnet is
-registered and its emissions have started, the pot buys and burns that
-subnet's alpha in daily limit-priced tranches sized to the subnet's pool, each
-bound to the registration by its network number, registration block and owner
-account; if any of them no longer matches, burns stop until SlopNinja publishes
-what happens next. No pot money buys or burns testnet tokens, and if SlopNinja
-publicly abandons mainnet, the pot's TAO is burned. The pot changes no miner or
-validator reward. Legal and tax advisers review the charter, these rules and
-the page wording before the first deposit, and the pot's custody, monthly
-statement and tranche mechanics are rehearsed on testnet with test funds first.
+separately and never from the pot, except the mainnet registration below. The
+pot is native TAO in a published two-of-three multisignature account on the
+main Bittensor chain, whose signers are distinct from every subnet and
+operator key, one of them held by an independent person. Payouts are converted
+to TAO each month. A public page lists gross payouts, conversions, the
+balance, the registration, purchases, burns and claims, each with its
+transaction, and the revenue credited to each model, together with a signed
+monthly statement whose hash is recorded on chain. As of November 11, 2026 the
+pot has received no money, so these rules govern all of it. The money is used
+in three steps:
+
+1. **Registration.** Once the pot holds about 1.5 times the cost of
+   registering a subnet on the main chain, SlopNinja registers the mainnet
+   subnet with that money, leaving money for the purchases below; the subnet's
+   owner account is SlopNinja's. Until then the pot's TAO is neither staked nor
+   spent, and the pot waits for this point without a deadline.
+2. **Purchases for the testnet era.** Once the registered subnet launches
+   (its emissions have started), the TAO left from revenue earned before the
+   launch buys that subnet's alpha in daily limit-priced tranches sized to the
+   subnet's pool, each bound to the registration by its network number,
+   registration block and owner account; if any of them no longer matches,
+   purchases stop until SlopNinja publishes what happens next. Half of the
+   alpha bought is burned. The other half is distributed to testnet miners on
+   mainnet through a claim contract, in proportion to the testnet-era revenue
+   earned by their winning models. A model counts as winning only once it has
+   beaten the reference and taken its place, so revenue earned while one of
+   SlopNinja's own models is the reference is credited to no miner; if no miner's model
+   was credited with any revenue, this half is burned as well. The attribution
+   rule that credits each payout to the models that earned it, and the claim
+   contract's rules, are published before they are used.
+3. **After the launch.** All revenue from *A* and later *B* products buys and
+   burns the subnet's alpha, with nothing distributed.
+
+No pot money buys or burns testnet tokens. If SlopNinja publicly abandons
+mainnet, the TAO the pot holds is burned and nothing is distributed. A change
+to what the pot's money may be used for applies only to money received after
+the change is published; for money already received, SlopNinja may re-plan
+the timing and size of purchases by a published notice, but not these uses.
+The distribution changes no score, weight row or emission, and no validator
+checks it. Legal and tax advisers review the charter, these rules, the
+attribution rule and the page wording before the first deposit, and the pot's
+custody, monthly statement and tranche mechanics are rehearsed on testnet with
+test funds first, as are its registration payment and claim contract before
+they are used.
 
 The service behind the page, the [detect Worker](../subnet/detect-worker/README.md),
 is built but not yet deployed, and the page opens only after its serving
@@ -3565,7 +3605,7 @@ Deferred requirements apply before their respective features activate.
 | [Rewards](../whitepaper/sections/07-rewards.tex) | The cohort batch, reuse rule and rewrite ledger, the Common Crawl stock (domain rules, share caps, cohort generation profile, era gates), the testnet stock, its no-fresh-stock rule and the testnet-only rule that lifts the reuse limits for exposed pools, lookup exposure and the canary, involvement Brier utility, the reference model, reference decisions, the span-equivalent decision, the testnet's one advance-announced replacement and the mainnet opening reference, `reward-v2` bands on quantized scores (`quant-v1`, the bit budget) and the max-upscaled committed row, pre-finalized scores and `live-v1` segment readings, the public-copy gate and fingerprint probe, clusters and their placement by the earliest-admitted member under `reward-v2`'s successor, retained-head promotion and fallback cutoff, failure rules, burns, the open mainnet emission split, and optional C/paid-use allocations. |
 | [Cohorts](../whitepaper/sections/07b-cohorts.tex) | Daily 20-tempo cohorts, lagged payout with per-tempo re-commits, native abstention from all-burn rows, the launch and reward-intent authorizations, which never expire, durable active-target records, fan-out evaluation lanes, durable recovery, the operator decisions and the offline operator-decision key, receipt retention, the runtime-version rule, automatic updates/migrations, and parallel validator commit/reveal with no coordinator finality or adoption barrier. |
 | [Confidentiality](../whitepaper/sections/05-confidentiality.tex) | Central A execution and proposed miner-owned Cloudflare B accounts; provider/operator trust, content isolation, private weights, and remaining logging tests. |
-| [Paid inference](../whitepaper/sections/06-paid-inference.tex) | Revenue before mainnet (the free detection page with its evidence bands and advertising rules, the paid detection API, and the public pot's custody, ledger and burns), operator quotes, bounded asynchronous jobs, card/TAO/alpha burns for paid jobs, private delivery, operator receipts, payer assignments, and refunds. |
+| [Paid inference](../whitepaper/sections/06-paid-inference.tex) | Revenue before mainnet (the free detection page with its evidence bands and advertising rules, the paid detection API, and the public pot's custody, ledger, registration payment, burns and distribution to testnet miners), operator quotes, bounded asynchronous jobs, card/TAO/alpha burns for paid jobs, private delivery, operator receipts, payer assignments, and refunds. |
 | [Tokenomics](../whitepaper/sections/06a-tokenomics.tex) | Cost and price scenarios, burn hypothesis, emission allocation, liquidity, self-purchase incentives, and sensitivity graphs. |
 | [Later transformation](../whitepaper/sections/07a-adjudication.tex) | The CFG as B's edit representation, author fit, preservation/readability/tone, nonregression, exact-byte evidence, and service obligations; B authority and settlement remain undecided. |
 | [Grammar contributions](../whitepaper/sections/07c-grammar.tex) | Later one-time credit for accepted reusable contributions to the grammar used by later B, with correctness and overlap rules to qualify. |
@@ -3593,7 +3633,8 @@ cohorts without a working outside entrant reuse exposed documents instead of
 drawing fresh stock, with the testnet-only lift of their reuse limits,
 pre-finalized scores and testnet `live-v1` readings, cluster placement by the
 earliest-admitted member for `reward-v2`'s successor, the operator decisions,
-and the detection page with the public pot's custody and burn rule. Whitepaper draft 0.64 incorporates the proposal with the following choices marked open; each must be
+and the detection page with the public pot's custody, registration payment,
+burns and distribution to testnet miners. Whitepaper draft 0.65 incorporates the proposal with the following choices marked open; each must be
 settled before the corresponding feature goes live:
 
 1. *A*'s supported numerical architectures, identity policy, profile pooling,
@@ -3654,8 +3695,11 @@ settled before the corresponding feature goes live:
    controls and wording before it opens; the merchant-of-record processor for
    the detection API; the advisers' review of the pot's charter, rules and
    wording and a testnet rehearsal of its custody, monthly statement and
-   tranche mechanics before the first deposit; and, after registration, each
-   purchase and burn checked against finalized chain state.
+   tranche mechanics before the first deposit; the serving checks under which
+   the detection products serve the reigning reference, the attribution rule
+   that credits revenue to winning models, and the claim contract with its
+   testnet rehearsal, each published before it is used; and the registration
+   and each purchase, burn and claim checked against finalized chain state.
 5. Before later *B*: model/base qualification, content-privacy controls, panel
    ranking, report selection, benchmark/service/incident authority, native
    mechanism remapping, measured workload/review capacity, and the qualified

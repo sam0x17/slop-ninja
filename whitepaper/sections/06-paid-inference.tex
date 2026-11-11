@@ -52,7 +52,10 @@ Container that sleeps while the page is idle, so submitted text reaches no
 miner, and no submitted text is reused for training without consent. The page
 opens once its serving parity, abuse controls, and wording have been checked,
 and it says that the package's public download is pending until it is
-published.
+published. Later, the detection products are to serve the reigning reference
+model (Section~\ref{reference-model}) whenever it passes serving checks that
+are published before the pot below receives its first deposit, so that a
+miner's model that has beaten the reference can earn revenue.
 
 The page reports what \textit{A} has measured and no more. Its headline is one
 of four evidence bands, set at the package's calibrated 1\% and 0.1\% human
@@ -78,50 +81,75 @@ flagged, on the pot's page, or on policy pages. A paid detection API, priced
 at the hypothesis below, reached by key, and paid in advance, follows once the
 package is published, and other paid detection products may follow it. They
 are paid through a merchant-of-record card processor or directly in TAO and
-settle through the pot, before and after the subnet's registration, rather
-than one job at a time.
+settle through the pot, before and after the subnet's launch, rather than one
+job at a time.
 
-Everything that the detection product's advertising networks, sponsors, and
+Everything that the detection products' advertising networks, sponsors, and
 payment processors pay out to SlopNinja goes into a public pot, before any of
-SlopNinja's own costs, which it pays separately and never from the pot. The
-payouts arrive net of the fees and revenue shares that networks and processors
-deduct at source, so, unlike the per-job route below, where SlopNinja funds
-processing fees and the whole price is burned, the pot receives what is
-actually paid out. A later product joins the pot only through a published
-change to its charter. The pot
-is held as native TAO in a published two-of-three multisignature account on
-the main Bittensor chain, whose signers are distinct from every subnet and
-operator key, one of them held by an independent person. Payouts are converted
-to TAO each month, and the pot is never staked and never pays SlopNinja. A
-public page lists gross payouts, conversions, the balance, and burns, each with
-its transaction, and a signed monthly statement whose hash is recorded on
-chain. Once the mainnet subnet is registered and its emissions have started,
-the pot buys and burns that subnet's alpha in daily tranches, each limit-priced
-and sized to the subnet's pool, and each bound to the registration by the
-subnet's network number, its registration block, and its owner account; if any
-of them no longer matches, burns stop until SlopNinja publishes what happens
-next. No pot money buys or burns testnet tokens. If SlopNinja publicly abandons mainnet,
-the pot's TAO is burned. A change to what the pot's money may be used for
-applies only to money received after the change is published; for money
-already received, SlopNinja may re-plan the timing and size of burns by a
-published notice, and the money is still only burned. The charter, these
-rules, and the wording below are reviewed by legal and tax advisers before the
-first deposit.
+SlopNinja's own costs. SlopNinja pays those separately and never from the pot,
+except for the mainnet registration below. The payouts arrive net of the fees
+and revenue shares that networks and processors deduct at source, so, unlike
+the per-job route below, where SlopNinja funds processing fees and the whole
+price is burned, the pot receives what is actually paid out. A later product
+joins the pot only through a published change to its charter. The pot is held
+as native TAO in a published two-of-three multisignature account on the main
+Bittensor chain, whose signers are distinct from every subnet and operator
+key, one of them held by an independent person. Payouts are converted to TAO
+each month. A public page lists gross payouts, conversions, the balance, the
+registration, purchases, burns, and claims, each with its transaction, and the
+revenue credited to each model, together with a signed monthly statement whose
+hash is recorded on chain. As of November 11, 2026 the pot has received no
+money, so the rules below govern all of it.
+
+The pot's money is used in three steps:
+\begin{enumerate}\tightlist
+\item \textbf{Registration.} Once the pot holds about 1.5 times the cost of
+registering a subnet on the main chain, SlopNinja registers the mainnet subnet
+with that money, so that money remains for the purchases below. The subnet's
+owner account is SlopNinja's. Until then the pot's TAO is neither staked nor
+spent, and the pot waits for this point without a deadline.
+\item \textbf{Purchases for the testnet era.} Once the registered subnet
+launches, that is, once its emissions have started, the TAO left from revenue
+earned before the launch (testnet-era revenue) buys the subnet's alpha in
+daily tranches, each limit-priced and sized to the subnet's pool, and each
+bound to the registration by the subnet's network number, its registration
+block, and its owner account; if any of them no longer matches, purchases stop
+until SlopNinja publishes what happens next. Half of the alpha bought is
+burned. The other half is distributed to testnet miners on mainnet through a
+claim contract, in proportion to the testnet-era revenue earned by their
+winning models. A model counts as winning only once it has beaten the
+reference and taken its place (Section~\ref{reference-model}), so revenue
+earned while one of SlopNinja's own models is the reference is credited to no miner. If
+no miner's model was credited with any revenue, this half is burned as well.
+The attribution rule, which credits each payout to the models that earned it,
+and the claim contract's rules are published before they are used.
+\item \textbf{After the launch.} All revenue from \textit{A} and later
+\textit{B} products buys and burns the subnet's alpha, with nothing
+distributed.
+\end{enumerate}
+No pot money buys or burns testnet tokens. If SlopNinja publicly abandons
+mainnet, the TAO the pot holds is burned, and nothing is distributed. A change
+to what the pot's money may be used for applies only to money received after
+the change is published; for money already received, SlopNinja may re-plan the
+timing and size of purchases by a published notice, but not these uses. The
+charter, these rules, the attribution rule, and the wording below are reviewed
+by legal and tax advisers before the first deposit.
 
 Advertising networks forbid inviting people to view or click ads, and a pledge
-that ties advertising income to burns could be read as such an invitation. So
-no SlopNinja page or post suggests that visiting, using, sharing, or clicking
-anything increases burns, the detection page does not promote the pot, and
-traffic to pages with ads is watched for invalid activity, with ads switched
-off pending review when it appears.
+that ties advertising income to burns or to a distribution could be read as
+such an invitation. So no SlopNinja page or post suggests that visiting, using,
+sharing, or clicking anything increases burns or what any miner receives, the
+detection page does not promote the pot, and traffic to pages with ads is
+watched for invalid activity, with ads switched off pending review when it
+appears.
 
 The pot's purchases are separate from the per-job burns below. Those apply to
 paid jobs, the quoted and reserved workloads of
 Section~\ref{reservation-and-delivery}, once the subnet's alpha exists, and
 the per-job card route through Coinbase Onramp remains the candidate for them
-after it is qualified.
-Neither the pot nor its later burn changes how miners or validators are
-rewarded.
+after it is qualified. The distribution to testnet miners is separate from
+subnet emissions: it changes no score, weight row, or emission, and no
+validator checks it.
 
 \subsection{Pricing and cost calibration}\label{market-pricing-in-alpha}
 

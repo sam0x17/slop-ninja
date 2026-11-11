@@ -1,6 +1,6 @@
 # Whitepaper
 
-[Draft 0.64](slop_ninja.pdf), November 11, 2026, describes a subnet whose main
+[Draft 0.65](slop_ninja.pdf), November 11, 2026, describes a subnet whose main
 objective is B: transforming authorized writing toward the author's intended
 voice while preserving meaning, readability, and tone. A supplies supporting
 detection and attribution signals for that editing process and launches first.
@@ -117,14 +117,22 @@ receiver and Workers chain signing remain integration work to qualify.
 
 Testnet runs for several months before the mainnet subnet is registered.
 Revenue from ad-supported public detection pages served by A, and from other
-products, accrues in a publicly visible pot that buys and burns the subnet's
-alpha once mainnet is registered. The detection page runs the span package,
-stores no text and carries no advertising; ads run on content pages. The pot
-takes everything the detection product's networks and processors pay out,
-holds it as native TAO in a published two-of-three multisignature account with
-an independent third signer, lists every payout, conversion and burn, and after
-registration burns in daily tranches bound to that registration; if mainnet is
-abandoned, the pot's TAO is burned.
+products, accrues in a publicly visible pot. The detection page first runs the
+span package, later the reigning reference model once it passes published
+serving checks; it stores no text and carries no advertising, and ads run on
+content pages. The pot takes everything the detection products' networks and
+processors pay out, holds it as native TAO in a published two-of-three
+multisignature account with an independent third signer, and lists every
+payout, conversion, purchase, burn and claim. Once it holds about 1.5 times
+the cost of a mainnet registration, SlopNinja registers the mainnet subnet
+with it. After the launch, the rest buys the subnet's alpha in daily tranches
+bound to that registration: half is burned, and half is distributed through a
+claim contract to testnet miners in proportion to the testnet-era revenue
+earned by their winning models, which must first have beaten the reference;
+revenue earned while one of SlopNinja's own models is the reference is
+credited to no miner. From the launch on, all revenue buys and burns alpha. If
+mainnet is abandoned, the pot's TAO is burned. The distribution changes no
+score, row or emission.
 
 The tokenomics analysis covers burn demand, cost recovery, emission allocation,
 operating liquidity, and self-purchase incentives. Its graphs use the dated
@@ -149,7 +157,7 @@ TeX Gyre Pagella/Heros and Latin Modern Mono fonts. It renders the SVG diagram
 and compiles the native LaTeX source, including the PGFPlots graphs. Build output
 stays in ignored `build/`. The PDF and PDF diagram are checked in.
 
-Draft 0.64 was built on the authorized compute host with `build.sh` inside a local Docker image
+Draft 0.65 was built on the authorized compute host with `build.sh` inside a local Docker image
 derived from `texlive/texlive:TL2025-historic`, pinned by digest
 `sha256:7056390eac37715fd3e01875037ceb4016cb17d44c611f7bbbfa7a012007979f`,
 with Debian's `librsvg2-bin` 2.63.3 added and the XeLaTeX format prebuilt. The

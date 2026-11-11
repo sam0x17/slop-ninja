@@ -1,10 +1,12 @@
 # Paid inference
 
-Whitepaper draft 0.64 proposes hosted *A* first, with paid access opened at the
+Whitepaper draft 0.65 proposes hosted *A* first, with paid access opened at the
 coordinator's discretion after quality and service qualification. SlopNinja
 serves the public model. Later private *B* serving requires separate activation.
 Before mainnet, a free detection page and later a paid detection API earn
-revenue for a public pot ([below](#revenue-before-mainnet)); paid jobs, the
+revenue for a public pot ([below](#revenue-before-mainnet)) that pays the
+mainnet registration, then buys alpha to burn and to distribute to testnet
+miners whose models beat the reference; paid jobs, the
 quoted and reserved workloads this guide describes, keep the per-job burn
 route below once the subnet's alpha exists.
 The [whitepaper's paid-service section](../whitepaper/sections/06-paid-inference.tex)
@@ -25,17 +27,39 @@ detection API follows once the package is published, paid through a
 merchant-of-record card processor or directly in TAO, and settles through the
 pot rather than one job at a time.
 
-Everything the detection product's advertising networks, sponsors and payment
+Later, the detection products are to serve the reigning reference model
+whenever it passes serving checks published before the pot's first deposit.
+
+Everything the detection products' advertising networks, sponsors and payment
 processors pay out goes into the pot, net of the fees they deduct at source;
-SlopNinja pays its own costs separately and never from the pot. The pot is
-native TAO in a published two-of-three multisignature account with an
-independent third signer, never staked, with a public page listing every
-payout, conversion, balance and burn and a signed monthly statement. Once the
-mainnet subnet is registered and its emissions have started, the pot buys and
-burns that subnet's alpha in daily tranches bound to the registration; if
-mainnet is abandoned, its TAO is burned. It changes no miner or validator
-reward. The [design notes](cloudflare-subnet-draft.md#revenue-before-mainnet-the-detection-page-and-the-public-pot)
-give the full rules. The page's service, the
+SlopNinja pays its own costs separately and never from the pot, except the
+mainnet registration below. The pot is native TAO in a published two-of-three
+multisignature account with an independent third signer, with a public page
+listing every payout, conversion, balance, registration, purchase, burn and
+claim, the revenue credited to each model, and a signed monthly statement. Its
+money is used in three steps:
+
+1. **Registration.** Once the pot holds about 1.5 times the cost of a mainnet
+   subnet registration, SlopNinja registers the mainnet subnet with that
+   money. Until then the pot's TAO is neither staked nor spent.
+2. **Purchases for the testnet era.** Once the subnet launches (its emissions
+   have started), the TAO left from revenue earned before the launch buys the
+   subnet's alpha in daily tranches bound to the registration. Half is burned.
+   The other half is distributed to testnet miners on mainnet through a claim
+   contract, in proportion to the testnet-era revenue earned by their winning
+   models: models that beat the reference and took its place. Revenue earned
+   while one of SlopNinja's own models is the reference is credited to no miner; if no
+   miner's model was credited, that half is burned too. The attribution rule
+   and the claim contract's rules are published before they are used.
+3. **After the launch.** All revenue from *A* and later *B* products buys and
+   burns alpha, with nothing distributed.
+
+If mainnet is abandoned, the pot's TAO is burned and nothing is distributed.
+The distribution is separate from subnet emissions and changes no score, row
+or emission. As of November 11, 2026 the pot has received no money. The
+[design notes](cloudflare-subnet-draft.md#revenue-before-mainnet-the-detection-page-and-the-public-pot)
+give the full rules, and the [testnet terms](testnet/terms.md#the-pots-planned-distribution)
+say what the distribution is and is not. The page's service, the
 [detect Worker](../subnet/detect-worker/README.md), is built but not yet
 deployed; the paid detection API and the pot are not yet implemented.
 

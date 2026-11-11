@@ -31,7 +31,7 @@ Dev-iter ones) and passes a package-corpus scan. Paid A serves a published,
 qualified artifact (R0 once its public package is published).
 Update the whitepaper's baseline evidence at meaningful evaluated milestones,
 not after every experiment. Keep both A and B's measured limits explicit.
-Whitepaper draft 0.64 and `docs/cloudflare-subnet-draft.md` describe the current plan: launch A
+Whitepaper draft 0.65 and `docs/cloudflare-subnet-draft.md` describe the current plan: launch A
 alone; B transformation and C (shared contributions to the grammar B uses)
 activate separately, each by its own decision, and C may activate before B so
 the grammar can grow first. A reads raw text; the native CFG is a later B input
@@ -42,15 +42,17 @@ Testnet (subnet 601) runs for several months before the mainnet subnet is
 registered, with admission open to every registered hotkey. Testnet subnet
 pages live under `/testnet/<page>`, their unprefixed paths reserved for
 mainnet; the detection product, not a subnet page, lives at `/detect/`.
-Revenue starts on testnet: a free AI-detection page running SlopNinja's span
-package in its own runtime (no stored text, no ad or analytics script; ads
-only on approved content pages), a paid detection API once the package is
-published, and other products. Their payouts go into a public pot
-(whitepaper Section 8): native TAO in a published two-of-three multisig with
-an independent third signer, every payout, conversion and burn listed; after
-mainnet registration it buys and burns that subnet's alpha in daily tranches
-bound to the registration, and its TAO is burned if mainnet is abandoned. The
-pot changes no miner or validator reward. Describe it operationally, never in
+Revenue starts on testnet: a free AI-detection page in SlopNinja's own runtime
+(no stored text, no ad or analytics script; ads only on approved content
+pages), later serving the reigning reference, a paid detection API (card
+processor or TAO) once its package is published, and other products. Payouts
+go into a public pot, native TAO in a published two-of-three multisig with an
+independent third signer and a public ledger (whitepaper Section 8): at about
+1.5x the cost it pays the mainnet registration, then buys alpha, half burned
+and half claimable by testnet miners pro rata to the testnet-era revenue of
+their winning models (beaten references, never SlopNinja's); later revenue all
+buys and burns alpha; abandoning mainnet burns its TAO. The distribution
+changes no score, row or emission. Describe the pot operationally, never in
 terms of price, value to holders or returns. The page's Worker is built, not
 deployed.
 B is the main product objective: authorized writing transformation toward the
@@ -74,8 +76,8 @@ per-sentence AI share and confidence derive from the same probabilities,
 consistent with the document outputs. Document confidence Brier is the only
 reward; share, attribution and spans are qualification gates only. Spans are
 required: from the first manifest enforcing the span gate, every entry carries
-a token-level head whose decoder never emits a span under 24 words (artifact
-spec v5, with a miner client release); failing the gate earns no credit. The
+a token-level head with the 24-word decoder floor (artifact spec v5, with a
+miner client release); failing the gate earns no credit. The
 gate compares each entrant with a fixed anchor, SlopNinja's first span
 package, on the same batch under the 24-word floor, with margins fixed after
 measurement on closed testnet cohorts to let heads as good as the anchor pass; the
@@ -94,8 +96,7 @@ keeps R0's encoder and document heads frozen, so on the same CPU class its
 document outputs are bit-identical to R0's, and adds S2c's seed-17 tower and
 token head with the 24-word decoder and a span confidence map fitted on the
 Calibration split under the floor (whitepaper Section 3). Since November 9 it
-is the span-serving package (span package d24), replacing the earlier S2c
-package, whose decoder allowed shorter spans. Testnet scores R0 as R_0 on a
+is the span-serving package (span package d24). Testnet scores R0 as R_0 on a
 fresh chain record. Before the first cohort that enforces the span gate, one
 signed span-equivalent reference decision passes R_0's position to d24, after
 d24 runs once as an ordinary entry (published, fingerprinted); it changes no
@@ -292,9 +293,8 @@ admissions, upgrades, or recovery. Keep publication and per-validator chain
 delivery separate; publication does not prove payment. Coordinator-owned
 scheduling budgets stop during coordinator silence and resume at eligible tempo
 boundaries. Coordinator work leases and external obligations have separate
-clocks; validators' reward-intent authorizations never expire.
-Tempo durations are minimum scheduling targets; slow work or missed wakeups
-move advancement to a later boundary without discarding the cohort. Pin evaluation
+clocks.
+Tempo durations are minimum scheduling targets. Pin evaluation
 semantics separately from operational builds and the live Finney runtime; runtime
 upgrades never invalidate cohorts, packages, rows or journals or require
 re-certification. Never bake a runtime version into any record, identity, gate,
@@ -319,8 +319,7 @@ has the pin's details, rollback limits and live evidence; see also
 `subnet/README.md`.
 For paid jobs, Coinbase Onramp is selected for card-to-native-TAO funding, then
 subnet alpha burning, subject to qualifying our integration, payment methods,
-and settlement; the detection API uses a merchant-of-record card processor or
-direct TAO and settles through the pot.
+and settlement.
 Solana is preferred for any additional crypto entry route; Ethereum mainnet is
 not selected. Paid-use emissions are a separate choice.
 Keep the whitepaper and design notes aligned when these decisions change.

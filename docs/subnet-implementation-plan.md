@@ -1,7 +1,7 @@
 # Subnet implementation plan
 
 November 10, 2026. This plan implements the [Cloudflare design](cloudflare-subnet-draft.md)
-and [whitepaper draft 0.64](../whitepaper/main.tex). It describes work to build and qualify;
+and [whitepaper draft 0.65](../whitepaper/main.tex). It describes work to build and qualify;
 it does not establish a deployed subnet. Launch includes A alone. B and C have
 separate activation requirements. A reads raw text; the native grammar serves
 later B and C. The shared protocol crate implements the `reward-v2`
@@ -680,10 +680,18 @@ registration.
    in a published two-of-three multisignature account with an independent third
    signer and a public ledger), not through the per-job burn route. Qualify the
    processor, and rehearse the pot's custody, monthly statement and tranche
-   mechanics on testnet with test funds before its first deposit; after mainnet
-   registration the pot buys and burns that subnet's alpha in daily tranches
-   bound to the registration, and its TAO is burned if mainnet is abandoned.
-   The paid detection API and the pot are not yet implemented.
+   mechanics on testnet with test funds before its first deposit. At about 1.5
+   times the mainnet registration cost the pot pays the registration; after
+   the launch the rest buys that subnet's alpha in daily tranches bound to the
+   registration, half burned and half distributed through a claim contract to
+   testnet miners in proportion to the testnet-era revenue earned by their
+   winning models (those that beat the reference; SlopNinja's own models earn
+   no miner credit); later revenue all buys and burns alpha; and its TAO is
+   burned if mainnet is abandoned. Build, before they are used: the serving
+   checks that let the detection products serve the reigning reference, the
+   attribution rule and its ledger rows, and the claim contract with its
+   testnet rehearsal. The paid detection API and the pot are not yet
+   implemented.
 
    Done when sandbox-funded jobs survive timeouts and duplicate callbacks, return
    the quoted refunds, and burn the correct principal once after valid delivery.

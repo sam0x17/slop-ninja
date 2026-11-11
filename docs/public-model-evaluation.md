@@ -1,6 +1,6 @@
 # Public-model evaluation
 
-[Whitepaper draft 0.64](../whitepaper/slop_ninja.pdf) and the
+[Whitepaper draft 0.65](../whitepaper/slop_ninja.pdf) and the
 [Cloudflare design](cloudflare-subnet-draft.md) define the current proposal.
 Launch admits public *A* artifacts and uses coordinator-led hidden evaluation.
 The coordinator signs the weight row its private scores imply, and every

@@ -18,10 +18,11 @@ A release's binaries are built from this repository, and they also contain
 code from third-party Rust packages, each under its own licence, and the
 Rust standard library (MIT OR Apache-2.0).
 
-`testnet-v0.1.0` does not list those packages. Later releases carry a
-`THIRD-PARTY-LICENSES` file among their assets, covered by the signed
-`SHA256SUMS`. For each third-party package built into the release's binaries
-it gives the version, the declared licence (an SPDX expression), the source
+`testnet-v0.1.0` does not list those packages. `testnet-v0.2.0` and later
+releases carry a `THIRD-PARTY-LICENSES` file among their assets, covered by
+the signed `SHA256SUMS`. For each third-party package of the release's build
+(those compiled into its binaries, and those that run only at build time) it
+gives the version, the declared licence (an SPDX expression), the source
 (crates.io, or a git repository at a commit) and the licence texts from the
 published package. Where a package ships no text for a licence it declares,
 the file gives that licence's standard text.

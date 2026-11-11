@@ -20,8 +20,11 @@ Testnet subnet 601 is the rehearsal. It has no monetary value.
 - Admission is open to every hotkey registered on subnet 601 (since November
   7, 2026). Commit and upload anew for every cohort, with a new model: a
   model you entered before is a published copy that is not executed.
-- The first signed release, `testnet-v0.1.0`, was published on the
-  repository's Releases page on November 9, 2026 ([Release key](#release-key)).
+- Two signed releases are on the repository's Releases page
+  ([Release key](#release-key)): `testnet-v0.1.0` (November 9, 2026) holds
+  the miner client, the artifact checker and `R_0`'s archives;
+  `testnet-v0.2.0` (November 11, 2026) holds the validator and its journal
+  tool.
 - Follow along on the [status page](https://slop.ninja/testnet/status/), through the
   [public API](https://slop.ninja/api/) and in the
   [whitepaper](../../whitepaper/slop_ninja.pdf).
@@ -72,8 +75,8 @@ Testnet subnet 601 is the rehearsal. It has no monetary value.
 | Training guide and public training recipe | in the repository; tested end to end on Linux x86_64 with CUDA (a smoke run) |
 | Public repository | [sam0x17/slop-ninja](https://github.com/sam0x17/slop-ninja) |
 | Release public key | published below ([Release key](#release-key)) |
-| Signed release binaries (Linux x86_64) | live: `testnet-v0.1.0`, published November 9, 2026, holds the miner client and the artifact checker, built from the public repository, signed and smoke-tested |
-| Validator release binaries | not in the first release: the validator client is changing, and a validator release follows later; until then, build from source with the [validator guide](validator-guide.md) |
+| Signed miner release (Linux x86_64) | live: `testnet-v0.1.0`, published November 9, 2026, holds the miner client and the artifact checker, built from the public repository, signed and smoke-tested |
+| Signed validator release (Linux x86_64) | live: `testnet-v0.2.0`, published November 11, 2026, holds the validator and its journal tool with their `THIRD-PARTY-LICENSES`, built from the public repository, signed and smoke-tested; install it with the [validator guide](validator-guide.md#2-install). Upgrading to it is roll-forward only |
 | Coordinator unsigned cohort read (`check`, `commit`, `status`, `next-cohort`), at `https://testnet-admission.slop.ninja` (pinned in `testnet-trust.json`) | live |
 | Coordinator signed admission routes (used by `upload`, `repair` and the hotkey view of `status`; the artifact goes straight to R2 under presigned URLs they return) | open to every hotkey registered on subnet 601 since November 7, 2026 |
 | Public status host (the data host the clients read with `--public`, separate from the status page): status snapshot, cohort index, signed packages, leaderboard, published artifacts | not yet live |
@@ -119,15 +122,23 @@ printf '%s\n' 'slop-ninja-testnet-release namespaces="file" ssh-ed25519 AAAAC3Nz
 ssh-keygen -Y verify -f allowed_signers -I slop-ninja-testnet-release -n file \
   -s SHA256SUMS.sig < SHA256SUMS
 sha256sum -c SHA256SUMS
-chmod 0755 slop_ninja_miner slop_ninja_artifact_check
 ```
 
 The first command must print
 `Good "file" signature for slop-ninja-testnet-release with ED25519 key SHA256:4YzEnNK8C7zjNWvasiQhv0XDJKdrnKB6L33stMQra1Q`,
 and the second `OK` for every file. Stop if either does not. If you did not
-download the two `R_0` archives, run `sha256sum -c --ignore-missing SHA256SUMS`
-instead and check that it prints `OK` for each file you did download. The
-first release, `testnet-v0.1.0`, holds:
+download every file of a release (for example the two `R_0` archives of
+`testnet-v0.1.0`), run `sha256sum -c --ignore-missing SHA256SUMS` instead and
+check that it prints `OK` for each file you did download. Then install the
+binaries as the [miner guide](miner-guide.md#release-binaries-linux-x86_64)
+or the [validator guide](validator-guide.md#2-install) shows.
+
+| Release | Published | For | Built from |
+| --- | --- | --- | --- |
+| `testnet-v0.1.0` | November 9, 2026 | miners: the miner client, the artifact checker and `R_0`'s archives | commit `939fda70` |
+| `testnet-v0.2.0` | November 11, 2026 | validators: the validator and its journal tool; miners need nothing from it | commit `38aafbf6` |
+
+`testnet-v0.1.0` holds:
 
 | File | What it is |
 | --- | --- |
@@ -143,18 +154,32 @@ The two `R_0` archives are attached because the public data host is not
 enabled yet; the [miner guide](miner-guide.md#r_0-archives-optional) says how
 to verify and unpack them.
 
-The first release holds no validator binaries: the validator client is
-changing, and a validator release follows later. Until then, build the
-validator from source as the [validator guide](validator-guide.md) describes.
+`testnet-v0.2.0` holds:
+
+| File | What it is |
+| --- | --- |
+| `slop_ninja_validator` | the native validator ([validator guide](validator-guide.md), experimental) |
+| `slop-ninja-journal` | the validator's offline journal tool (`inspect`, `pause`, `review-failure`) |
+| `testnet-trust.json` | the trust roots, byte for byte the copy in `testnet-v0.1.0` |
+| `THIRD-PARTY-LICENSES` | the licences of the third-party Rust packages the two binaries are built from ([licences and notices](licences.md#release-binaries)) |
+| `SHA256SUMS`, `SHA256SUMS.sig` | the digests of the four files above, and the signature over them |
+| `allowed_signers`, `slop-ninja-release-testnet.pub` | copies of the key above, for convenience only |
+
 The validator installer (`subnet/crates/validator/deploy/install.sh`) makes the
 same signature and digest checks itself, against a pinned copy of this key,
-before it installs the validator's two binaries from a release that holds them.
+before it installs the validator's two binaries from the release directory
+([validator guide](validator-guide.md#persistent-operation)). Run it from a
+checkout of this repository at the release's tag. An upgrade to
+`testnet-v0.2.0` is roll-forward only: once it has written its held-target
+record in the new `v2` schema, no earlier build opens that record, and
+`rollback-check` exits 3 ([validator
+guide](validator-guide.md#upgrading-to-testnet-v020)).
 
 The binaries are for Linux x86_64. Each release's notes name the commit it
 was built from, the oldest glibc its binaries need (read from their symbol
 versions) and the results of a smoke test of the signed files on one Linux
-x86_64 host. `testnet-v0.1.0` was built from commit `939fda70` and needs
-glibc 2.34 or later.
+x86_64 host. `testnet-v0.1.0` was built from commit `939fda70` and
+`testnet-v0.2.0` from commit `38aafbf6`; both need glibc 2.34 or later.
 There are no macOS or Linux arm64 binaries: build from source as the guides
 describe. Those platforms are untested.
 

@@ -63,7 +63,7 @@ reaches the margin cutoff above `R_0` ([Rewards](#13-rewards)).
 | [Training guide](training-guide.md) and its public recipe, the path from ModernBERT-base and public data to an admissible artifact | in the repository; tested end to end on Linux x86_64 with CUDA (a smoke run) |
 | Release public key | published on the [landing page](README.md#release-key) |
 | Public repository | [sam0x17/slop-ninja](https://github.com/sam0x17/slop-ninja) |
-| Signed release binaries (Linux x86_64) | live: `testnet-v0.1.0`, published November 9, 2026, holds the miner client and the artifact checker, built from the public repository, signed and smoke-tested; a validator release follows later |
+| Signed release binaries (Linux x86_64) | live: `testnet-v0.1.0`, published November 9, 2026, holds the miner client and the artifact checker, built from the public repository, signed and smoke-tested; the validator's binaries are in `testnet-v0.2.0`, which miners do not need |
 | Coordinator unsigned cohort read (`GET /admission/v2/cohort`), used by `check`, `commit`, `status` and `next-cohort`, served by the upload Worker at `https://testnet-admission.slop.ninja` | live |
 | Coordinator signed admission routes, used by `upload`, `repair` and the hotkey view of `status`; the artifact goes straight to R2 under presigned URLs they return | open to every hotkey registered on subnet 601 since November 7, 2026; an unregistered hotkey is answered `not_registered` |
 | Public status host (`--public`), with the published packages, leaderboard and artifacts | not yet live; until it is, `status` and `next-cohort` show the calendar from the coordinator's unsigned cohort read |
@@ -131,9 +131,11 @@ Releases appear on the public repository's Releases page. The first,
 - `allowed_signers` and `slop-ninja-release-testnet.pub`, copies of the key
   for convenience only.
 
-It holds no validator binaries: the validator client is changing, and a
-validator release follows later. The binaries need glibc 2.34 or later; on
-any other platform, build from source.
+It holds no validator binaries. Those are in `testnet-v0.2.0`, published on
+November 11, 2026 ([validator guide](validator-guide.md#2-install)), which
+holds nothing for miners: take the miner client, the artifact checker and
+the archives from `testnet-v0.1.0`. The binaries need glibc 2.34 or later;
+on any other platform, build from source.
 
 Download the release's files into a new, empty directory:
 

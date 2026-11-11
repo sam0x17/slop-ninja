@@ -65,11 +65,11 @@ Testnet subnet 601 is the rehearsal. It has no monetary value.
   upload anew for every cohort: a commitment counts for one cohort only, and a
   model you entered before is a published copy that earns nothing, so each
   cohort needs a new model.
-- **Releases:** `testnet-v0.1.0`, published November 9, 2026 on the
-  repository's Releases page, holds the signed miner client and artifact
-  checker for Linux x86_64 and `R_0`'s reference package (`3c0ecc37`).
-  Validators, and miners on other platforms, build from source as the guides
-  describe.
+- **Releases:** two signed releases for Linux x86_64 are on the repository's
+  Releases page. `testnet-v0.1.0` (November 9, 2026) holds the miner client,
+  the artifact checker and `R_0`'s reference package (`3c0ecc37`);
+  `testnet-v0.2.0` (November 11, 2026) holds the validator and its journal
+  tool. On other platforms, build from source as the guides describe.
 - **Scores:** every released score is quantized on a grid with seeded noise
   (`quant-v1`), and credit and rank follow the quantized scores; exact scores
   stay with the coordinator. The [miner guide](docs/testnet/miner-guide.md#13-rewards)

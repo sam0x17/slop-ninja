@@ -648,10 +648,18 @@ trust roots, decision D20) is set aside as
 so the new authority's launch bundle is accepted. A record written before
 records named an authority is bound to the current keys at the next start.
 
-A chain record restarted under the same keys (the announce-time restart
-with R0 as R_0 and no predecessor) needs an explicit reset, because the
-held target would otherwise refuse the restarted launch bundle and every
-target not descended from it:
+A chain record the coordinator restarts under the same keys by switching to
+burn needs no reset (P1-V): its launch row, under a launch authorization
+issued after the held target's activation and not before a floor already
+held, is accepted over the held target, and the validator then holds the
+launch burn row with that issue epoch as its restart floor. A launch row
+issued no later than the held activation and, while it holds a floor, a
+launch row issued before it (both `restart_stale`) or a row whose target
+activated before it (`row_before_restart`) are deferrals, never commits. A
+restart that the status page asks validators to reset by hand, or one met
+by a build before P1-V, needs an explicit reset, because the held target
+would otherwise refuse the restarted launch bundle and every target not
+descended from it:
 
 ```sh
 systemctl --user stop slop_ninja_validator-dispatch@<name>
@@ -748,21 +756,23 @@ command reads a chain key or prints a seed.
 
 ## Install
 
-Build from source as in the [validator guide](../../../docs/testnet/validator-guide.md#2-install).
+Take the binaries from the signed release `testnet-v0.2.0` (Linux x86_64),
+or build from source, as in the [validator guide](../../../docs/testnet/validator-guide.md#2-install).
 
 Install the binaries, the units, the configuration and lingering for
 instance `<name>`, check the configuration, create the journal and enable
 the continuous dispatch unit (`--dry-run` prints each step instead; Linux
-only):
+only), from a checkout at the release's tag:
 
 ```sh
-subnet/crates/validator/deploy/install.sh --instance <name> --from <target>/release --unverified \
+subnet/crates/validator/deploy/install.sh --instance <name> --from <release dir> \
   --config config.toml --init --enable --start
 ```
 
-`--unverified` is for binaries you built yourself. For a signed release, pass
-its directory without it: the installer then needs `SHA256SUMS` and the
-release's detached signature over it, `SHA256SUMS.sig`. Before installing
+For binaries you built yourself, pass `--from <target>/release --unverified`
+instead; `--unverified` is for those only. Without it the installer needs
+`SHA256SUMS` and the release's detached signature over it,
+`SHA256SUMS.sig`. Before installing
 anything it copies both and the two binaries to a private temporary
 directory, verifies the signature there with `ssh-keygen -Y verify -n file`
 (OpenSSH 8.1 or later) against the release key pinned beside it,

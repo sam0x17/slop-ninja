@@ -55,7 +55,7 @@ the hidden evaluation is part of the protocol.
 | Piece | State |
 | --- | --- |
 | `slop_ninja_validator` startup checks, `observe`, the dry run and journaled dispatch | built and tested on Linux x86_64; live commits, per-tempo re-commits and fault drills ran on subnet 601 on October 30, 2026, under a fixture package |
-| Verification of the coordinator's signed row (`slop_ninja.coordinator_row_bundle/v1`; earlier package bundles are refused as `bundle_schema_retired`) | in the current source (build from source, [section 2](#2-install)); validator release binaries follow in a later release |
+| Verification of the coordinator's signed row (`slop_ninja.coordinator_row_bundle/v1`; earlier package bundles are refused as `bundle_schema_retired`) | in the signed release `testnet-v0.2.0` and the current source ([section 2](#2-install)) |
 | The coordinator's signed row | live: the deployed coordinator signs a row record for the active target whenever its paid entries change |
 | Published rows on the public status host | not yet live |
 | The row fetcher (`[fetch]`) | built and tested offline against the publisher's layout; waits for the public host, so until it is live every validator installs each row bundle by hand or reads a local mirror (below). The coordinator signs each closed cohort's authorization itself, so the pointer names the current one with no operator step |
@@ -63,15 +63,23 @@ the hidden evaluation is part of the protocol.
 | Committing the launch burn row | live on subnet 601: both SlopNinja validators commit and reveal it each tempo under rtao's owner-row opt-in (below); first native commit and reveal on November 3, 2026 |
 | Release public key | published on the [landing page](README.md#release-key) |
 | Public repository | [sam0x17/slop-ninja](https://github.com/sam0x17/slop-ninja) |
-| Validator release binaries (Linux x86_64) | not in the first release, which holds only the miner client and the artifact checker; a validator release follows later. Until then, build from source ([section 2](#2-install)) |
+| Validator release binaries (Linux x86_64) | live: `testnet-v0.2.0`, published November 11, 2026, holds `slop_ninja_validator` and `slop-ninja-journal`, built from the public repository, signed and smoke-tested ([section 2](#2-install)); the miner client stays in `testnet-v0.1.0` |
 
 Today an outside validator can install the binary, create its journal, run the
 startup checks and use `observe`. Committing rows waits for the pieces above.
 
 ## 1. Requirements
 
-- Linux x86_64, the tested platform. macOS is untested.
-- Rust 1.89 or later to build from source; the tested toolchain is 1.99.1.
+- Linux x86_64 with glibc 2.34 or later, the tested platform and the one
+  the release binaries are built for. macOS and Linux arm64 are untested.
+- OpenSSH 8.1 or later (`ssh -V`), to verify the release signature; the
+  installer checks it too.
+- A clone of the [public repository](https://github.com/sam0x17/slop-ninja):
+  the installer and the release key it trusts come from it.
+- Rust 1.89 or later (the tested toolchain is 1.99.1) and a C compiler, also
+  with the release binaries: rtao, the wallet and registration tool, is
+  built from source ([miner guide](miner-guide.md#rtao-for-wallets-and-registration)).
+  On platforms without release binaries you also build the validator.
 - A testnet coldkey and a registered validator hotkey on subnet 601, with
   enough stake for a validator permit. Permits go to the highest-stake hotkeys,
   up to the subnet's validator limit; read the current values with rtao before
@@ -82,9 +90,88 @@ startup checks and use `observe`. Committing rows waits for the pieces above.
 
 ## 2. Install
 
-The first release holds no validator binaries; a validator release follows
-later. Until then, build from a checkout of the
-[public repository](https://github.com/sam0x17/slop-ninja):
+`slop_ninja_validator` is the validator. `slop-ninja-journal` inspects and
+pauses the journal offline. Neither needs Python or btcli. A validator that
+already runs an earlier build upgrades as [Upgrading to
+`testnet-v0.2.0`](#upgrading-to-testnet-v020) shows.
+
+### Release binaries (Linux x86_64)
+
+The signed release `testnet-v0.2.0`, published on November 11, 2026, is the
+first with the validator's binaries. The miner client, the artifact checker
+and `R_0`'s archives stay in `testnet-v0.1.0`; miners need nothing from
+`testnet-v0.2.0`. It holds:
+
+- the Linux x86_64 binaries `slop_ninja_validator` and `slop-ninja-journal`;
+- `testnet-trust.json`, the trust file with the three keys for
+  [section 3](#3-configure), byte for byte the copy in `testnet-v0.1.0`;
+- `THIRD-PARTY-LICENSES`, the licences of the third-party Rust packages the
+  two binaries are built from: each package's version, declared licence,
+  source and licence texts ([licences and notices](licences.md#release-binaries));
+- `SHA256SUMS`, the digests of those four files, and its detached signature
+  `SHA256SUMS.sig`;
+- `allowed_signers` and `slop-ninja-release-testnet.pub`, copies of the key
+  for convenience only.
+
+Download the release's files into a new, empty directory:
+
+```sh
+mkdir slop-ninja-validator-release && cd slop-ninja-validator-release
+REPO=https://github.com/sam0x17/slop-ninja
+TAG=testnet-v0.2.0
+for f in slop_ninja_validator slop-ninja-journal testnet-trust.json THIRD-PARTY-LICENSES SHA256SUMS SHA256SUMS.sig; do
+  curl -fLO "$REPO/releases/download/$TAG/$f"
+done
+```
+
+Verify them with the key from the [landing page](README.md#release-key),
+not with the release's own copies: in that directory, write the
+allowed-signers line from the landing page to `allowed_signers` (its
+`printf` command does this), then check the signature and the digests:
+
+```sh
+ssh-keygen -Y verify -f allowed_signers -I slop-ninja-testnet-release -n file \
+  -s SHA256SUMS.sig < SHA256SUMS
+sha256sum -c SHA256SUMS
+```
+
+`ssh-keygen` must print `Good "file" signature for
+slop-ninja-testnet-release with ED25519 key` followed by the fingerprint the
+landing page gives, and `sha256sum` `OK` for each of the four files; stop if
+either does not. Keep this directory: it is the `<release dir>` you give
+the installer ([Persistent operation](#persistent-operation)), which checks
+the signature and both binaries' digests again, against the key pinned in
+your checkout. For the manual steps of sections 4 and 5, install the two
+binaries now:
+
+```sh
+mkdir -p ~/.local/bin
+install -m 0755 slop_ninja_validator slop-ninja-journal ~/.local/bin/
+slop_ninja_validator --version
+```
+
+It prints `slop_ninja_validator 0.1.0 (commit
+38aafbf62dd08e38991537293675b52ec669ba4c)`: the crate's version, which is
+not the release's, and the commit the release was built from.
+`~/.local/bin` must be on your `PATH`, or call the binaries by path. On a
+glibc older than 2.39 the dynamic loader prints one warning line at each
+start (``weak version `GLIBC_2.39' not found``), and the validator runs
+without the two glibc 2.39 functions (`pidfd_spawnp`, `pidfd_getpid`) that
+Rust's standard library uses only where present.
+
+The installer comes from your clone of the repository, at the release's tag,
+never from a copy that came with a release:
+
+```sh
+git clone https://github.com/sam0x17/slop-ninja.git
+cd slop-ninja
+git checkout testnet-v0.2.0
+```
+
+### Build from source
+
+On platforms without release binaries, build from that checkout and install
+what you built:
 
 ```sh
 cd <checkout>/subnet
@@ -92,9 +179,11 @@ cargo build --release --locked -p slop_ninja_validator -p slop-ninja-subnet
 install -m 0755 target/release/slop_ninja_validator target/release/slop-ninja-journal ~/.local/bin/
 ```
 
-`slop_ninja_validator` is the validator. `slop-ninja-journal` inspects and
-pauses the journal offline. The build uses rtao from Git at the pinned revision
-and needs no Python or btcli.
+The build uses rtao from Git at the pinned revision. The installer takes
+such a build only with `--unverified` ([Persistent
+operation](#persistent-operation)).
+
+### Register and stake
 
 Register and stake with rtao, as the [miner guide](miner-guide.md#4-register-on-subnet-601)
 shows for a miner hotkey:
@@ -281,18 +370,21 @@ validator survives logout and reboots. The installer does all of this:
 
 ```sh
 cd <checkout>/subnet/crates/validator
-deploy/install.sh --instance my-instance --from <directory with the release binaries> \
+deploy/install.sh --instance my-instance --from <release dir> \
   --config <your edited configuration> --init --enable --start
 ```
 
-Run it from your repository checkout, never from a copy that came with a
-release: the release key it trusts is the file beside it, so a script and key
-shipped inside a release could vouch for that release themselves. The
-checkout is also how a replaced or withdrawn release key reaches you: the
-installer has no other revocation path, so update your checkout before
-installing a new release. Until a validator release is published, install
-the binaries you built in section 2 with
-`--from <checkout>/subnet/target/release --unverified`.
+`<release dir>` is the directory holding the files of `testnet-v0.2.0`
+([section 2](#release-binaries-linux-x86_64)); no `--unverified`. Run the
+installer from your repository checkout at the release's tag, never from a
+copy that came with a release: the release key it trusts is the file beside
+it, so a script and key shipped inside a release could vouch for that
+release themselves. The checkout is also how a replaced or withdrawn release
+key reaches you: the installer has no other revocation path, so update your
+checkout (fetch, then check out the new release's tag) before installing a
+new release. For binaries you built yourself ([Build from
+source](#build-from-source)), pass
+`--from <checkout>/subnet/target/release --unverified` instead.
 
 It installs the two binaries, the unit templates, the configuration with
 mode 0600 (it never replaces
@@ -325,6 +417,42 @@ journalctl --user -u slop_ninja_validator-dispatch@my-instance -f
 Stopping the unit pauses the journal; retained work survives, and the next
 start recovers first. Keep `recommit` at its default, `per_tempo`: with
 `once`, every restart commits again.
+
+### Upgrading to `testnet-v0.2.0`
+
+A validator running an earlier build (one you built from source) upgrades
+from the release directory of [section 2](#release-binaries-linux-x86_64),
+with the installer of a checkout at `testnet-v0.2.0`. Check the new build
+first, then replace it in a settled window, with no commit or reveal in
+flight (the journal recovers an interrupted one anyway):
+
+```sh
+cd <checkout>/subnet/crates/validator
+deploy/install.sh --instance my-instance --from <release dir> --dry-run
+systemctl --user stop slop_ninja_validator-dispatch@my-instance
+# back up the directory that holds journal_path (the journal and the files beside it)
+deploy/install.sh --instance my-instance --from <release dir>
+systemctl --user start slop_ninja_validator-dispatch@my-instance
+journalctl --user -u slop_ninja_validator-dispatch@my-instance -f
+```
+
+The validator recovers its journal before anything else, then commits the
+next tempo's row.
+
+**The upgrade is roll-forward only.** `testnet-v0.2.0` stores a restart
+floor (restarted chain records, under [Fetching the coordinator's
+row](#fetching-the-coordinators-row)) in the held-target record,
+`<journal_path>.held-target.json`, whose schema is now
+`slop_ninja.validator_held_target/v2`. It reads a v1 record (written by
+earlier builds) as holding no floor and rewrites it as v2 the next time it
+records the held target. Earlier builds read only v1 records and refuse a v2
+one. Once the new build has written its first v2 record, `rollback-check`
+lists `held_target.schema`, retires nothing (also with `--retire`) and exits
+3 with "roll forward only": do not install an older build after that. Before
+that record is written, `rollback-check` works as before (validator README,
+[Rolling back past this rtao pin](../../subnet/crates/validator/README.md#rolling-back-past-this-rtao-pin)).
+A signature does not make a build newer:
+installing an older signed release is still a rollback.
 
 ## Fetching the coordinator's row
 
@@ -475,8 +603,24 @@ only when a newer one supersedes it or a signed revocation withdraws it:
 names the trust roots it was written under. After a rotation (new keys in
 `[package.trusted_keys]` from a new `testnet-trust.json`), the old record is
 set aside automatically and the validator starts again from the launch burn
-row. When the chain record restarts under the same keys (announced on the
-status page), reset it yourself:
+row.
+
+When the coordinator restarts its chain record under the same keys, by
+switching to burn, it installs the launch burn row under a new launch
+authorization whose issue epoch is the restart floor. Your validator
+(`testnet-v0.2.0` or later) accepts that launch row over the target it
+holds when the authorization was issued after the held target's activation
+epoch and not before a floor it already holds; it then holds the launch
+burn row and records the issue epoch as its restart floor, with no
+`reset-target`. It does not commit a launch row issued no later than the
+held target's activation or before its floor (`restart_stale`), nor, while
+it holds a floor, a row whose target activated before that floor
+(`row_before_restart`). Both are deferrals, not halts: a continuous run
+logs `tempo_waiting` with the code and waits in the same process, and a
+one-shot run exits for a later retry. So no row from before a restart is
+committed again.
+For a restart that the status page asks validators to reset by hand, or
+with a build from before the restart floor, reset it yourself:
 
 ```sh
 systemctl --user stop slop_ninja_validator-dispatch@my-instance
@@ -606,6 +750,9 @@ failed weight call, even a reviewed or settled one, it never exits 0: every
 release before `review-failure` existed halts on such a journal and cannot
 clear it, so roll forward only (see the validator README,
 [Rolling back past this rtao pin](../../subnet/crates/validator/README.md#rolling-back-past-this-rtao-pin)).
+Nor does it exit 0 once `testnet-v0.2.0` or a later build has written its
+held-target record in the v2 schema: roll forward only ([Upgrading to
+`testnet-v0.2.0`](#upgrading-to-testnet-v020)).
 A valid release signature does not make a build newer: the signature binds
 the binaries' digests, not a version, so the same steps apply to an older
 signed release.

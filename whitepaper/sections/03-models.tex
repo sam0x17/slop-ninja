@@ -80,8 +80,9 @@ percentage:
  \qquad
  \texttt{ai\_confidence\_percent} = 100\,p_{\mathrm{AI}}.
 \]
-Binary training labels are zero for documented human-only work and one for
-model-only or mixed work. The model learns a probability from those labels;
+Binary training labels are zero for human-only documents as the frozen
+labeling policy declares them, whether documented human-only work or a
+historical-human proxy, and one for model-only or mixed work. The model learns a probability from those labels;
 it does not convert a hard decision into a percentage. Documented three-way
 histories additionally supervise the origin components. The three probabilities
 sum to one, and their calibration method and workload profile are frozen with

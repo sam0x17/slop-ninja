@@ -358,8 +358,10 @@ audits. Prevention therefore does most of the work.
 Let \(a_i(t)\) be model \(i\)'s predicted AI-involvement probability for document
 \(t\), its displayed AI confidence divided by 100 and the sum of its model-only
 and mixed probabilities. The independent label \(y_t\) is one for either
-model-only or mixed production and zero for documented human-only work under
-the frozen labeling policy. Binary Brier utility is
+model-only or mixed production and zero for the batch's human-only documents
+as the frozen labeling policy declares them, including the historical-human
+proxies of Section~\ref{human-stock}, which are not documented human-only
+work. Binary Brier utility is
 \begin{equation}\label{eq:brier-utility}
  u_i(t)=1-(a_i(t)-y_t)^2.
 \end{equation}

@@ -28,7 +28,7 @@ quantized scores released under a per-cohort privacy budget (gates and cluster
 membership use private statistics), equal quantized scores share credit, and subnet 78's near-equal drop is not used; eligibility
 requires a margin over the reference rather than
 subnet 78's 1\% grace below the incumbent; a fallback cutoff, a SlopNinja rule
-with no subnet 78 counterpart, keeps rewards flowing when nobody reaches that
+with no subnet 78 counterpart, can keep rewards flowing when nobody reaches that
 margin; a detected copy of any earlier published artifact earns nothing, and
 near-duplicate entrants share one credit equally; and no record, identity, or
 gate carries a chain runtime version. Its predecessor \texttt{reward-v1},
@@ -241,9 +241,11 @@ records the changed estimand; \(\sigma\), \(\delta\), and \(w\) are then
 re-derived. When a stock cannot fill a batch, or the mainnet floor, no new
 cohort opens and the last target stays live, paying the same clusters, until new
 stock arrives. Every text in the public stock can be recognized
-(Section~\ref{lookup-exposure}); this is an accepted pilot limit of testnet,
-which reaches mainnet only through the reference testnet hands on
-(Section~\ref{reference-model}).
+(Section~\ref{lookup-exposure}); this is an accepted pilot limit of testnet.
+It reaches mainnet's scoring only through the reference testnet hands on
+(Section~\ref{reference-model}), and it also reaches the revenue pot's
+distribution on mainnet, which credits testnet promotions
+(Section~\ref{testnet-revenue}).
 
 Testnet keeps fresh stock for cohorts with outside entrants. A cohort whose
 roster has no admitted outside entrant with a working artifact, such as a
@@ -847,7 +849,7 @@ where \(\max_N\) is the top cluster score in cohort \(N\), so
 \(\hat C_N\leq\max_N\). Clusters whose score reaches the cutoff are
 \emph{retained}; the others earn nothing. The fallback removes the
 bottom 15\% of the score range that would earn against the previous reference,
-so rewards keep flowing to the current cohort; the reference does not advance.
+so that rewards can flow to the current cohort; the reference does not advance.
 The anchor is \(R_{k-1}\) rather than \(R_k\) because no entrant's released
 score has reached the margin cutoff, so none is publicly shown to be better than
 \(R_k\), and a cutoff at
@@ -856,7 +858,15 @@ noise whether entrants equal to it earn.
 Anchoring on the last reference the subnet passed by the margin lets independent
 models as good as \(R_k\), including new models from \(R_k\)'s author, earn in a
 fallback cohort, while detected copies of \(R_k\) fail the public-copy gate
-(Section~\ref{reference-model}). For example, on a 0.01 grid, if \(R_{k-1}\)
+(Section~\ref{reference-model}). On the released grid this works less well
+than the exact scores suggest. When \(R_k\) leads \(R_{k-1}\) by about one
+unrounded margin, as it does after a close promotion, the gap is a small
+fraction of a grid step, so \(\hat C_N\) is almost always one step above
+\(\hat S_{R_{k-1}}\) and the 15\% term rarely moves it. The fallback is then
+a second draw against a bar about as high as the margin cutoff rather than a
+lower bar: it separates entrants as good as \(R_k\) little from entrants only
+as good as \(R_{k-1}\), and when nobody reaches it, the previous target stays
+live and pays the previous cohort's winners. For example, on a 0.01 grid, if \(R_{k-1}\)
 scores 0.94 on the batch and the top entrant 0.96, \(C_N\) is 0.943 and the
 cutoff 0.95. An entrant whose released score is just short of the margin
 cutoff therefore earns in a fallback cohort but not when another entrant
@@ -923,7 +933,9 @@ from a perturbed copy that escapes detection (described below), and equally
 good entrants earn equally only in expectation over many artifacts. These rates
 leave out the strict false-positive tier and the canary, which can only lower
 promotion, and they are measured again under \texttt{reward-v2} on simulated
-rosters before launch (Section~\ref{protocol-checks-before-launch}).
+rosters before launch, together with how often a fallback cohort pays an
+entrant equal to \(R_k\) or only as good as \(R_{k-1}\)
+(Section~\ref{protocol-checks-before-launch}).
 
 With \(r=0.85\), a lone cluster receives the whole pool, and two clusters with
 different quantized scores, which with one-step bands lie in different bands,

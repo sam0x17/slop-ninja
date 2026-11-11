@@ -1131,8 +1131,12 @@ When a gated entrant's quantized score reaches the cutoff:
 Once a predecessor reference `R_{k-1}` exists, a cohort in which nobody
 reaches the margin cutoff, but some gated entrant's quantized score is above
 `R_{k-1}`'s, is scored against a fallback cutoff between `R_{k-1}`'s quantized
-score and the top one, so rewards keep flowing; the reference does not
-advance. In any other case the previous target stays live.
+score and the top one, so rewards can keep flowing; the reference does not
+advance. That cutoff is also rounded up onto the grid, so when `R_k` beat
+`R_{k-1}` by a close margin it is almost always one grid step above
+`R_{k-1}`'s quantized score, about as high as the margin cutoff, and reaching
+it is again largely a matter of the draw. In any other case
+the previous target stays live.
 
 Credit among the entrants at or above the cutoff follows `reward-v2`, the
 whitepaper's band rule on quantized scores. Entrants with the same inference

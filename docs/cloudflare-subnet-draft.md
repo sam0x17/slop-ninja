@@ -777,8 +777,10 @@ retired by a later manifest with the changed estimand recorded, and `sigma`,
 `delta` and `w` are re-derived. If a stock cannot fill a batch (or the mainnet
 floor), no cohort opens and the last target stays live, paying the same
 clusters, until new stock arrives. Every public text can be recognized; this
-exposure is a stated testnet pilot limit, which reaches mainnet only through
-the reference testnet hands on (see **Mainnet reference**).
+exposure is a stated testnet pilot limit. It reaches mainnet's scoring only
+through the reference testnet hands on (see **Mainnet reference**), and it
+also reaches the revenue pot's distribution, which credits testnet promotions
+([Revenue before mainnet](#revenue-before-mainnet-the-detection-page-and-the-public-pot)).
 
 **Testnet: no fresh stock without a working outside entrant.** A testnet cohort
 whose roster has no admitted outside entrant with a working artifact (for
@@ -2521,9 +2523,12 @@ after the subnet's launch.
 Later, the detection products are to serve the reigning reference model
 `R_k` whenever it passes serving checks published before the pot's first
 deposit, so that a miner's model that has beaten the reference can earn
-revenue. Promotion can rest on noise, and testnet promotions run without the
-lookup canary, so the checks decide what real users are served; they change no
-reward, promotion or row.
+revenue. Promotion can rest on release noise or partly on recognizing testnet
+documents, and testnet promotions run without the lookup canary, so the checks
+decide what real users are served, and a credited model inherits those limits;
+the checks and the attribution rule are to state what a promoted model must
+show before it serves and is credited. They change no reward, promotion or
+row.
 
 Everything the detection products' advertising networks, sponsors and payment
 processors pay out to SlopNinja goes into the pot, net of the fees they deduct

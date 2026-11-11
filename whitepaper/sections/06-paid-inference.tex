@@ -119,10 +119,15 @@ burned. The other half is distributed to testnet miners on mainnet through a
 claim contract, in proportion to the testnet-era revenue earned by their
 winning models. A model counts as winning only once it has beaten the
 reference and taken its place (Section~\ref{reference-model}), so revenue
-earned while one of SlopNinja's own models is the reference is credited to no miner. If
-no miner's model was credited with any revenue, this half is burned as well.
-The attribution rule, which credits each payout to the models that earned it,
-and the claim contract's rules are published before they are used.
+earned while one of SlopNinja's own models is the reference is credited to no
+miner. If no miner's model was credited with any revenue, this half is burned
+as well. Winning inherits the limits of a testnet promotion: it can rest partly
+on recognizing testnet documents or on release noise
+(Sections~\ref{lookup-exposure} and~\ref{reference-model}), so credit can
+reach a model no better than the one it displaced. The serving checks and the
+attribution rule, which credits each payout to the models that earned it, are
+to state what a promoted model must show before it serves and is credited;
+they and the claim contract's rules are published before they are used.
 \item \textbf{After the launch.} All revenue from \textit{A} and later
 \textit{B} products buys and burns the subnet's alpha, with nothing
 distributed.

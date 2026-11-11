@@ -55,6 +55,15 @@
 # one drill object to the feed (and, while email is on, emails one drill
 # message, subject "SlopNinja testnet alert drill"), once per id, at the next
 # tick; it is never repeated for the same id. Leave it unset otherwise.
+# ALERT_EMAIL_RULES = "<rule>,<rule>" names the rules email carries (default
+# commit_gap, watermark_stalled, cohort_fault, signing_backing_off,
+# coordinator_unwatched and publisher_alerts_undelivered; a name no sender
+# raises is kept, with relay_config_warning), and
+# ALERT_EMAIL_MIN_INTERVAL_SECS the per-subject minimum interval between
+# episodes emailed (default 21600); email sends one message when a listed
+# condition fires and one when it resolves, never its reminders, within that
+# interval and a daily limit of the listed rules times the intervals in a day
+# (README, "Email policy").
 #
 # Only NETWORK is required. An optional setting that does not parse is ignored
 # (its default applies) and reported as relay_config_warning; ALERT_EMAIL_TO

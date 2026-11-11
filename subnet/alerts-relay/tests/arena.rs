@@ -99,6 +99,13 @@ fn cfg() -> config::Config {
         ("ALERT_EMAIL_ENABLED", "true"),
         ("ALERT_EMAIL_FROM", "alerts@example.invalid"),
         ("ALERT_EMAIL_TO", "ops@example.invalid"),
+        // Every rule these measurements deliver, with a one-second interval,
+        // so each event is emailed and the largest messages are built.
+        (
+            "ALERT_EMAIL_RULES",
+            "r,publication_refused,publication_pending,publisher_silent,coordinator_unwatched,spend_tracker_stale",
+        ),
+        ("ALERT_EMAIL_MIN_INTERVAL_SECS", "1"),
     ];
     config::parse(|k| {
         vars.iter()
@@ -146,6 +153,8 @@ fn measure_post(events: Vec<Event>) -> (usize, u64) {
         &bytes, &c, &table, &Discard, &budget, T0,
     ));
     assert_eq!(a.status, 200, "{}", a.body);
+    // Every event went into the message (none deferred by the policy).
+    assert!(a.body.ends_with(r#""skipped":0}"#), "{}", a.body);
     drop(hold);
     drop(bytes);
     let peak = PEAK.load(Ordering::Relaxed) - before;
@@ -196,12 +205,35 @@ fn measure_tick() -> (usize, u64) {
     (peak, budget.peak())
 }
 
+/// The most events a post holds that the email policy emails: the shortest
+/// listed rule, and one subject each (the shortest distinct ones), so no
+/// opening is deferred by the per-subject interval.
 fn smallest_events() -> Vec<Event> {
+    const DIGITS: &[u8] = b"0123456789abcdefghijklmnopqrstuvwxyz";
+    let subject = |mut n: usize| {
+        let mut s = Vec::new();
+        loop {
+            s.push(DIGITS[n % DIGITS.len()]);
+            n /= DIGITS.len();
+            if n == 0 {
+                break;
+            }
+        }
+        String::from_utf8(s).unwrap()
+    };
     let mut out = Vec::new();
     let mut size = 0;
     let mut since = 0;
     loop {
-        let e = Event::new(RULES, EventKind::Firing, "", "", "", since, None);
+        let e = Event::new(
+            RULES,
+            EventKind::Firing,
+            "r",
+            &subject(since as usize),
+            "",
+            since,
+            None,
+        );
         if size + e.wire_len() + 1 > POST_EVENTS_BYTES {
             break;
         }

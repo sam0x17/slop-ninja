@@ -39,13 +39,16 @@
 //!   (claims, unknown outcomes) are kept the same way, so a timed-out send
 //!   is retried once, not once per cron period.
 //! - The ledger records how far its sweeps reached ([`Table::cutoff`]). An
-//!   unconfirmed resolution whose firing has no row is settled without an
-//!   email only while the ledger still covers that firing's whole episode
-//!   (it started at or after the cutoff); otherwise its firing may have been
-//!   swept, and the resolution is emailed ([`maybe_sent`]).
+//!   unconfirmed resolution whose firing has no feed row is settled without
+//!   an object only while the ledger still covers that firing's whole
+//!   episode (it started at or after the cutoff); otherwise its firing may
+//!   have been swept, and the resolution is written ([`maybe_sent`]). Email
+//!   decides every resolution by the email policy's episode rows instead,
+//!   with the same rule over their own retention ([`crate::email`]).
 
 use slop_ninja_alerts_wire::PUBLISHER_CRON_PERIOD_MS;
 
+use crate::email::LimitRow;
 use crate::feed::{FiringEntry, WriteNote};
 use crate::relay::SendError;
 
@@ -165,6 +168,19 @@ pub trait Table {
     fn feed_firing_entries(&self) -> Result<(Vec<FiringEntry>, u64), StoreError>;
     /// The last event write's outcome.
     fn feed_last_note(&self) -> Result<Option<WriteNote>, StoreError>;
+
+    // The email path's limits ([`crate::email`]).
+
+    fn email_get(&self, key: &str) -> Result<Option<LimitRow>, StoreError>;
+    fn email_put(&self, key: &str, row: LimitRow) -> Result<(), StoreError>;
+    fn email_remove(&self, key: &str) -> Result<(), StoreError>;
+    /// Removes rows last touched before `before_ms`; when it removed any,
+    /// records the cutoff (the largest one so far).
+    fn email_sweep(&self, before_ms: u64) -> Result<(), StoreError>;
+    /// The largest cutoff of a sweep that removed a row: rows touched
+    /// before it may be gone; rows touched since are all there (0 while no
+    /// sweep has removed any).
+    fn email_cutoff(&self) -> Result<u64, StoreError>;
 }
 
 /// What a claim found.
@@ -289,10 +305,11 @@ pub fn settle_acknowledged(
 }
 
 /// Whether the firing `id`, of an episode first seen at `since_ms` (the
-/// sender's clock), may have been emailed: it has a row (sent, or a send of
-/// it is out or timed out), or the ledger no longer covers the episode (a
-/// sweep reached past its start, so a row for it may be gone). An
-/// unconfirmed resolution is emailed only then.
+/// sender's clock), may have been delivered: it has a row (written, or a
+/// write of it is out or timed out), or the ledger no longer covers the
+/// episode (a sweep reached past its start, so a row for it may be gone).
+/// An unconfirmed resolution goes to the feed only then (email's rule is
+/// [`crate::email::decide`]).
 pub fn maybe_sent(t: &impl Table, id: &str, since_ms: u64) -> Result<bool, StoreError> {
     Ok(t.get(id)?.is_some() || since_ms < t.cutoff()?)
 }
@@ -313,6 +330,8 @@ pub struct MemTable {
     objects: std::cell::RefCell<std::collections::BTreeMap<String, Vec<u8>>>,
     firing: std::cell::RefCell<std::collections::BTreeMap<String, (u64, FiringEntry)>>,
     note: std::cell::RefCell<Option<WriteNote>>,
+    limits: std::cell::RefCell<std::collections::BTreeMap<String, LimitRow>>,
+    limits_cutoff: std::cell::Cell<u64>,
     pub feed_script: std::cell::RefCell<Vec<Result<(), SendError>>>,
     /// Scripted timeouts land nothing (a put that never reached the bucket)
     /// instead of landing their object.
@@ -476,6 +495,30 @@ impl Table for MemTable {
     }
     fn feed_last_note(&self) -> Result<Option<WriteNote>, StoreError> {
         Ok(self.note.borrow().clone())
+    }
+    fn email_get(&self, key: &str) -> Result<Option<LimitRow>, StoreError> {
+        Ok(self.limits.borrow().get(key).copied())
+    }
+    fn email_put(&self, key: &str, row: LimitRow) -> Result<(), StoreError> {
+        self.limits.borrow_mut().insert(key.to_owned(), row);
+        Ok(())
+    }
+    fn email_remove(&self, key: &str) -> Result<(), StoreError> {
+        self.limits.borrow_mut().remove(key);
+        Ok(())
+    }
+    fn email_sweep(&self, before_ms: u64) -> Result<(), StoreError> {
+        let mut rows = self.limits.borrow_mut();
+        let n = rows.len();
+        rows.retain(|_, r| r.at_ms >= before_ms);
+        if rows.len() < n {
+            self.limits_cutoff
+                .set(self.limits_cutoff.get().max(before_ms));
+        }
+        Ok(())
+    }
+    fn email_cutoff(&self) -> Result<u64, StoreError> {
+        Ok(self.limits_cutoff.get())
     }
 }
 

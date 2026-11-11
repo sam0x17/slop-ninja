@@ -366,16 +366,24 @@ pub fn message_id(events: &[Event], domain: &str) -> String {
 // The fixed text of a message, in pieces, so its bounds below are their
 // lengths and cannot drift from the text.
 const HEAD: [&str; 4] = ["SlopNinja ", " alerts from ", " (rules ", ").\n\n"];
-const FOOTER: &str = "-- \nSent by the private alerts relay (rules slop_ninja.alerts_relay.rules/v1), \
-     once per event (twice at most when a send's outcome was unknown). A reminder follows every \
-     renotify interval while a condition lasts, and a resolution when it clears. The relay does \
-     not read replies.\n";
+const FOOTER: &str = "-- \nSent by the private alerts relay (email slop_ninja.alerts_relay.email/v1) \
+     for the rules on its email list: one email when a condition fires and one when it resolves, \
+     within a per-subject interval and a daily limit. Reminders and every other alert go to the \
+     private alert feed only. The relay does not read replies.\n";
 /// Around one event: `[`, its tag, `] `, its rule, ` `, its subject, a
 /// line break and indent, its detail, a line break.
 const EVENT_HEAD: [&str; 4] = ["[", "] ", " ", "\n  "];
 const EVENT_LINE_END: &str = "\n";
 const UNCONFIRMED: &str =
     "  (its firing was never confirmed to the sender: the firing email may not have gone out)\n";
+/// A reminder is emailed only as the first email on record of its episode
+/// ([`crate::email`]): its firing was deferred by the limits or came while
+/// email was off, or the episode's row was swept while its sender was
+/// silent (its firing may have been emailed before). A resolution never
+/// carries it, so an event carries at most one of the two notes.
+const FIRST_EMAIL: &str =
+    "  (first email on record: its firing was deferred, came while email was off, or expired)\n";
+const NOTE_BYTES: usize = max(UNCONFIRMED.len(), FIRST_EMAIL.len());
 /// Then `  since `, the time, `; event `, the id's prefix, a blank line.
 const EVENT_TAIL: [&str; 3] = ["  since ", "; event ", "\n\n"];
 const ID_PREFIX: usize = 12;
@@ -398,12 +406,12 @@ const fn max(a: usize, b: usize) -> usize {
 }
 
 /// The fixed text one event adds besides its rule, subject and detail: the
-/// pieces around it, the longest tag, the unconfirmed note, the longest
-/// time and the id's prefix.
+/// pieces around it, the longest tag, the longer note, the longest time
+/// and the id's prefix.
 pub const EVENT_FIXED_BYTES: usize = total(&EVENT_HEAD)
     + LONGEST_TAG
     + EVENT_LINE_END.len()
-    + UNCONFIRMED.len()
+    + NOTE_BYTES
     + total(&EVENT_TAIL)
     + RFC3339_MAX_BYTES
     + ID_PREFIX;
@@ -445,6 +453,8 @@ pub fn text(events: &[Event], network: &str, source: Source<'_>) -> String {
         t.push_str(EVENT_LINE_END);
         if e.unconfirmed() {
             t.push_str(UNCONFIRMED);
+        } else if e.state == EventKind::Reminder {
+            t.push_str(FIRST_EMAIL);
         }
         t.push_str(EVENT_TAIL[0]);
         t.push_str(&rfc3339(e.since_ms));
@@ -935,11 +945,16 @@ pub(crate) mod tests {
             none.len(),
             MESSAGE_FIXED_BYTES + "testnet".len() + RULES.len()
         );
-        // The reminder's tag is the longest; the note is not printed for it.
+        // The reminder's tag is the longest; it carries the first-email
+        // note.
         assert_eq!(
             one.len() - none.len(),
-            EVENT_FIXED_BYTES - UNCONFIRMED.len() + "rule".len() + "subject".len() + "detail".len()
+            EVENT_FIXED_BYTES - (NOTE_BYTES - FIRST_EMAIL.len())
+                + "rule".len()
+                + "subject".len()
+                + "detail".len()
         );
+        assert!(one.contains("first email on record: its firing was deferred"));
         let mut z = ev(EventKind::Resolved, "rule", "subject", "detail");
         z.notified_ms = None;
         z.since_ms = u64::MAX;
@@ -947,7 +962,7 @@ pub(crate) mod tests {
         let unconfirmed = text(std::slice::from_ref(&z), "testnet", src);
         assert_eq!(
             unconfirmed.len() - none.len(),
-            EVENT_FIXED_BYTES - (LONGEST_TAG - "RESOLVED".len())
+            EVENT_FIXED_BYTES - (LONGEST_TAG - "RESOLVED".len()) - (NOTE_BYTES - UNCONFIRMED.len())
                 + "rule".len()
                 + "subject".len()
                 + "detail".len()

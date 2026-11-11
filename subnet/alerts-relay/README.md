@@ -4,7 +4,10 @@ A private Cloudflare Worker that delivers SlopNinja testnet alerts to a
 private alert feed in its own bucket (decision D18): one content-free object
 per event, which the operator reads with private tooling
 (see [Alert feed](#alert-feed-slop_ninjaalert_feedv1)). Email is an
-optional second path, off by default. The relay has no route, no
+optional second path, off by default, for critical alerts only: the rules
+it lists, one email when a condition fires and one when it resolves, rate
+limited (see [Email policy](#email-policy-slop_ninjaalerts_relayemailv1)).
+The relay has no route, no
 `workers.dev` name and no preview URLs: the publisher's service binding is
 the only way in, and its own one-minute cron does the rest. Addresses, when
 email is on, are deploy-time secrets read from the operator's private files;
@@ -27,8 +30,8 @@ feed build described here is not deployed yet.
    event carries an id derived from the publisher's alert state and the
    fields it is derived from; the relay recomputes every id and refuses a
    post whose ids do not match. It delivers each id once per sink: one feed
-   object, and one email while email is on (see
-   [Sent-event ledger](#sent-event-ledger)).
+   object, and one email while email is on and the email policy carries
+   the event (see [Sent-event ledger](#sent-event-ledger)).
    - It answers 200 only when every event of the post is settled in every
      enabled sink (delivered now or before), so the publisher acknowledges
      exactly then; otherwise 503, and the publisher's next run retries.
@@ -40,8 +43,9 @@ feed build described here is not deployed yet.
    - When the answer is lost anyway, the publisher keeps the firing marked
      as attempted. If the condition clears before a retry is acknowledged,
      the publisher posts an unconfirmed resolution. The relay delivers it to
-     a sink only when that sink's ledger rows show the firing may have gone
-     out there, and settles it without delivering otherwise. A delivered
+     a sink only when that sink's rows (the feed's ledger rows, the email
+     policy's episode rows) show the firing may have gone out there, and
+     settles it without delivering otherwise. A delivered
      firing is therefore never left without its resolution.
 2. **A dead-man check on the publisher.** After every run whose alert phase
    finished and saved its state, the publisher posts a heartbeat
@@ -128,7 +132,7 @@ have been failing for two cron periods (see [Limits](#limits)).
 | `spend_tracker_stale` | `tracker` | the tracker's newest output is older than two of its schedule periods, no readable upload exists, or the bucket has not answered for two schedule periods |
 | `spend_tracker_blind` | `tracker` | the tracker's newest readable run could not authenticate to Cloudflare |
 | `spend_tracker_incomplete` | `tracker` | held two of the tracker's schedule periods: its newest readable runs did not price everything (a non-zero exit, `complete` false, or alert state `undetermined`) |
-| `relay_config_warning` | `relay` | an optional relay setting did not parse, so its default is in force (the alert names the settings, never their values) |
+| `relay_config_warning` | `relay` | an optional relay setting did not parse, so its default is in force, or `ALERT_EMAIL_RULES` names a rule neither the publisher nor the relay raises, kept as given (the alert names the settings, never their values) |
 
 Every bound comes from a deployment parameter, never a tuned constant:
 
@@ -184,7 +188,7 @@ Every alert names its rule and subject. What to do:
 | `spend_tracker_stale` | Check the operator's private spend tracker: its schedule, its last run and its Cloudflare login (an expired login stops the uploads too). If the detail says the bucket has not answered, check the bucket binding and R2. |
 | `spend_tracker_blind` | The tracker ran but could not authenticate: check its Cloudflare login in the operator's private spend tracker. |
 | `spend_tracker_incomplete` | The tracker's runs keep failing to price something (rate limits, scope or API changes, an unknown product), so a crossed threshold may go unreported. Read the last runs' logs and their run failures in the operator's private spend tracker. The detail gives the exit code, the failure count and the alert state only. |
-| `relay_config_warning` | An optional relay setting does not parse and its default is in force (figures off, the external ping off, or a default period). Fix the deploy-time var or secret named in the detail and redeploy the relay. |
+| `relay_config_warning` | An optional relay setting does not parse and its default is in force (figures off, the external ping off, or a default period), or the email list names a rule no sender raises (a misspelt name never emails; compare the list with the rule tables). Fix the deploy-time var or secret named in the detail and redeploy the relay. |
 | External monitor pages (when enabled) | The relay's cron stopped, its tick fails, its configuration is refused, or its writes or sends have failed for two cron periods. Read the relay's live log: the tick line shows `delivery_ok`, and a failed write or send logs its code and message. |
 
 The publisher's own rules (their table is in `subnet/publisher/src/alerts.rs`
@@ -233,7 +237,10 @@ as one JSON object, once per event id ([`src/feed.rs`](src/feed.rs)):
   counts, whether its deliveries work (`delivery_ok`), the last write's
   result, the last status check after a token change (`status_check`:
   `utc`, `utc_ms`, `coordinator`, `eval`, `settled`; absent before the
-  first) and the firing set (the
+  first), the email policy in force and today's use of its limits
+  (`email_limits`: `rule`, `rules` (how many are listed),
+  `min_interval_s`, `daily_limit`, `opened_today`, `deferred_today`; stated with
+  email off too) and the firing set (the
   conditions whose last object was a firing or a reminder). The firing set
   is listed within one post's events bound and counted in full
   (`firing_count`, `firing_omitted`). Conditions that fired before the feed
@@ -284,6 +291,79 @@ on or off. A set but invalid address is a `relay_config_warning`, and
 email stays off. The email path keeps its own
 ledger rows (the bare event ids) and its own outcome, so turning it on or
 off never changes the feed.
+
+### Email policy (`slop_ninja.alerts_relay.email/v1`)
+
+Email is for critical alerts. Which events it carries, and how often, is
+decided in [`src/email.rs`](src/email.rs); the feed carries every event
+whatever the policy says, and the policy applies only while email is on.
+
+- **Rule list.** Only the rules named in the deploy-time var
+  `ALERT_EMAIL_RULES` (a comma list) are emailed. Unset, the list is
+  `commit_gap`, `watermark_stalled`, `cohort_fault`, `signing_backing_off`
+  (the publisher's rules for the coordinator's commits, its confirmed
+  watermark, a paused cohort and a failing signer),
+  `coordinator_unwatched` (the relay's stand-in for the first ones while the
+  publisher is silent) and `publisher_alerts_undelivered` (the publisher's
+  alerts are not reaching the relay, so a critical one would otherwise
+  reach neither email nor the feed). Every other rule, the relay's own
+  included, goes to the feed alone. A list with a name that is not a
+  contract name (lowercase letters, digits and `._/-`) is a
+  `relay_config_warning`, and the default list applies. A list that names a
+  rule neither the publisher nor the relay raises (a misspelling, say) is
+  kept as given, with a `relay_config_warning`, so a rule newer than the
+  relay's build still emails.
+- **One email per episode, and one at its resolution.** An episode is one
+  condition from when it is first seen to its resolution: its rule, its
+  subject and when it was first seen, whatever the sender's rule set, so a
+  rule-set change during an episode neither emails it again nor loses its
+  resolution. It is emailed once: at its firing, or, when the firing was
+  deferred by the limits below or came while email was off, at the first
+  reminder the limits allow; that email says it is the first one on record
+  about the condition. Later reminders are not emailed. Its resolution is
+  emailed when the episode was, and never counts against the limits (one
+  per emailed episode); the resolution of an episode never emailed is not.
+- **Per-subject minimum interval.** An episode's email is deferred while
+  the last email that opened an episode of the same rule and subject is
+  younger than `ALERT_EMAIL_MIN_INTERVAL_SECS` (default 21,600 s: the
+  publisher's default renotify interval, so email speaks about one subject
+  no more often than the feed restates an open condition). The episode is
+  considered again at its next reminder, one renotify interval later. A
+  condition that flaps is emailed at most once per interval; one that comes
+  back within the interval and lasts is emailed at its first reminder past
+  it.
+- **Daily limit.** At most `daily_limit` episodes are emailed per UTC day: the
+  number of listed rules times the whole intervals in a day, rounded up
+  (24 with the defaults: six rules, four 6-hour intervals). It binds only
+  when more subjects open than one per listed rule and interval (a storm of
+  cohort faults, for example), and defers episodes the same way. It
+  counts episodes, not messages: one post's events share one message.
+- **Reservations.** An episode's email is reserved (the episode, the event
+  that opens it, the subject's time and the day's count) in the same
+  synchronous step that claims its event in the ledger, and given back when
+  the send is refused (nothing went out), so the sender's retry is not
+  deferred by its own refused attempt. A send that timed out keeps its
+  reservation (it may have gone out), and an event that already has a
+  ledger row is settled by the ledger, never decided again. An attempt that
+  stopped before its send settled (an isolate that ended mid-send) keeps
+  its reservation too: the opening event's retry is sent under it, even
+  after a refused retry, until it counts as sent.
+- **State.** The policy's rows are in the Durable Object's `email_limits`
+  table: one per episode (emailed or deferred, touched by each of its
+  events), one per opening event until it counts as sent, one per subject
+  (its last opening) and two per UTC day (the episodes emailed and those
+  first deferred). No key depends on the sender's rule set. Rows untouched
+  for a day or the interval, whichever is longer, plus two ledger
+  retentions (36 hours with the defaults) are deleted by the tick. An open
+  episode's reminders keep its row; a resolution whose episode row may have
+  been deleted (the episode began before the last deletion's cutoff) is
+  emailed, so an emailed firing is never left without its resolution.
+- `latest.json` states the policy and the day's counts (`email_limits`),
+  and each tick's log line the events the policy skipped and the day's
+  openings against the limit. A post's answer counts them (`skipped`).
+
+The drill message (`DRILL_ID`) is outside the policy: it tests the
+delivery path and is sent once per drill id whatever the list says.
 
 Cloudflare's documentation (Email Service pages dated 2026-08-25 to
 2026-10-30) says:
@@ -357,6 +437,10 @@ The Worker never changes Email Routing:
 
 ## Sent-event ledger
 
+An event the email policy does not email is settled for the email sink
+without a claim, so it is acknowledged to its sender at once; the rules
+below apply to the events it emails.
+
 Before delivering, the relay claims every event id of the batch in its
 Durable Object's SQLite table, once per sink: `feed:<event id>` for the
 feed's object, the bare event id for email (its rows predate the feed). The
@@ -389,10 +473,12 @@ rules below hold for each:
   not once per period. A retry that arrives after a longer outage finds no
   row and is delivered again.
 - The ledger records how far its sweeps reached. An unconfirmed
-  resolution whose firing has no row in a sink is settled there without
+  resolution whose firing has no feed row is settled there without
   delivering only while the ledger still covers the firing's whole
   episode. Past that (an outage longer than the retention), the resolution
-  is delivered, with a note that its firing may not have gone out.
+  is delivered, with a note that its firing may not have gone out. Email
+  applies the same rule to the email policy's episode rows, over their own
+  retention (see [Email policy](#email-policy-slop_ninjaalerts_relayemailv1)).
 
 Relay ticks run one at a time behind a tick lease:
 
@@ -482,15 +568,18 @@ See `wrangler.toml`.
 Only `NETWORK` is required: if it is missing or wrong, the relay refuses
 every request (503) and delivers nothing. Every other setting is optional:
 one that does not parse is ignored, its default is in force, and the relay
-reports `relay_config_warning` naming it. `ALERT_EMAIL_TO` absent is email
-off, not a warning; `ALERT_EMAIL_TO` set without `ALERT_EMAIL_ENABLED =
-"true"` is email off with a warning.
+reports `relay_config_warning` naming it (an email list naming a rule no
+sender raises is kept, with the same warning). `ALERT_EMAIL_TO` absent is
+email off, not a warning; `ALERT_EMAIL_TO` set without
+`ALERT_EMAIL_ENABLED = "true"` is email off with a warning.
 
 | Name | Kind | Meaning |
 | --- | --- | --- |
 | `NETWORK` | var, required | must be `testnet` |
 | `ALERT_EMAIL_FROM`, `ALERT_EMAIL_TO` | secrets, optional | one plain mailbox each, checked at every request; email is on only while `ALERT_EMAIL_TO` is set and `ALERT_EMAIL_ENABLED` is `true` (off by default) |
 | `ALERT_EMAIL_ENABLED` | deploy-time var | `true` turns email on while `ALERT_EMAIL_TO` is set (default off) |
+| `ALERT_EMAIL_RULES` | deploy-time var | the rules email carries, a comma list of rule names (default `commit_gap,watermark_stalled,cohort_fault,signing_backing_off,coordinator_unwatched,publisher_alerts_undelivered`; see [Email policy](#email-policy-slop_ninjaalerts_relayemailv1)) |
+| `ALERT_EMAIL_MIN_INTERVAL_SECS` | deploy-time var | the per-subject minimum interval between episodes emailed (default 21,600); the daily limit follows from it and the list |
 | `WATCHDOG_SILENCE_SECS` | var | fallback for the coordinator's watchdog silence until the first heartbeat carries the publisher's bound (default 300) |
 | `TRACKER_PERIOD_SECS` | var | fallback for the tracker's schedule period until an upload states it (default 86,400) |
 | `SPEND_FIGURES_IN_EMAIL` | deploy-time var | `true` puts month totals in spend alert email bodies while email is on (default off; never in the feed) |
@@ -523,10 +612,26 @@ delivery path only: it raises no rule and has no ledger row.
 
 The rule drills use real conditions instead, for example the first
 `publisher_silent` before the publisher's heartbeats start, or the
-publisher's `config_warning`.
+publisher's `config_warning`. A rule drill reaches email only when its
+rule is on `ALERT_EMAIL_RULES`, and a second drill of one subject within
+`ALERT_EMAIL_MIN_INTERVAL_SECS` is deferred, so an email drill of a rule
+deploys a list naming it and, to repeat it, a short interval, then the
+production values again.
 
 ## Limits
 
+- **Email is for the listed rules only, and rate limited.** A rule not on
+  `ALERT_EMAIL_RULES` is never emailed, however serious; reminders are
+  never emailed. A condition that comes back within the per-subject
+  interval after a resolution was emailed is emailed only at its first
+  reminder past the interval (one renotify interval later), so for that
+  long the last email about it says it resolved; one that comes back and
+  clears again within the interval is not emailed at all. Past the daily
+  limit, episodes wait for a reminder on a later UTC day. An emailed
+  episode whose sender is silent for longer than the email rows' retention
+  (36 hours by default) loses its row: its next reminder is emailed again,
+  as the first email on record about the condition, and its resolution
+  follows. The feed carries all of it at once.
 - **A Cloudflare-wide cron outage** stops the publisher's cron and the
   relay's cron together, so nothing is delivered until crons run again.
   A reader's dead-man outside Cloudflare (`relay_silent`) sees `latest.json`
@@ -573,11 +678,12 @@ publisher's `config_warning`.
   such an outage is still delivered, with the note that its firing may not
   have gone out. Resolutions of firings that went out are delivered after
   an outage of any length.
-- **A rule-set change between a firing and its resolution.** An
-  unconfirmed resolution is looked up under the post's rule set. A firing
-  sent under an earlier rule set is not found, so its resolution is not
-  delivered. Rule sets change only with a deploy (the publisher's v4, with
-  the unknown-read rule, is one).
+- **A rule-set change between a firing and its resolution.** The feed
+  looks an unconfirmed resolution up under the post's rule set. A firing
+  written under an earlier rule set is not found, so the feed does not
+  deliver that resolution. Email is not affected: the email policy's
+  episode rows ignore the rule set. Rule sets change only with a deploy
+  (the publisher's v4, with the unknown-read rule, is one).
 - **The tracker sees spend about a day late** (it runs daily). A spend alert
   is therefore no faster than the tracker; see the tracker's own notes on
   detection lag.
@@ -597,6 +703,12 @@ The publisher's sink tests run with the publisher's own suite, and the
 `no_runtime_gates` lint scans this crate.
 ## Not yet done
 
+- The email policy's deploy with email on (the recipient secret, the
+  enabling var, the production list and interval), then live checks: one
+  email at a listed firing and one at its resolution, none at its
+  reminders, none for an unlisted rule, `latest.json` `email_limits`, and
+  the operator's confirmation that they arrived.
+
 - The feed build's deploy (from main, after review), then the publisher's
   rule set v4: before v4 one missed status read still flaps a status rule
   (a new event id each time).
@@ -614,5 +726,5 @@ The publisher's sink tests run with the publisher's own suite, and the
     a publisher that never sent one);
   - a retried post that sends one email (native tests only);
   - a stale and a blind tracker upload;
-  - the user's confirmation that the drill emails arrived, and where, and
+  - the operator's confirmation that the drill emails arrived, and where, and
     the delivered `Message-ID` and `Date`.

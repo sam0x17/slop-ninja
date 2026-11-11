@@ -548,6 +548,11 @@ pub struct Latest {
     /// The relay's last status check after a token change
     /// ([`crate::status::CheckState`]); absent before its first.
     pub status_check: Option<CheckNote>,
+    /// The email policy in force and today's use of its limits
+    /// ([`crate::email`]); stated with email off too (it applies once
+    /// email is on).
+    #[serde(default)]
+    pub email_limits: EmailLimits,
     /// Conditions whose last object was a firing or a reminder.
     pub firing_count: u64,
     /// Entries of the firing set not listed (past [`LATEST_BYTES`]).
@@ -555,16 +560,43 @@ pub struct Latest {
     pub firing: Vec<FiringEntry>,
 }
 
+/// The email policy as `latest.json` states it: its rule version, how many
+/// rules it lists, its per-subject minimum interval and daily limit, and the
+/// openings and deferred episodes of the current UTC day. The list itself
+/// is the deploy's `ALERT_EMAIL_RULES` (or the default).
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct EmailLimits {
+    pub rule: String,
+    pub rules: u64,
+    pub min_interval_s: u64,
+    pub daily_limit: u64,
+    pub opened_today: u64,
+    pub deferred_today: u64,
+}
+
+impl EmailLimits {
+    pub fn new(policy: &crate::email::Policy, today: crate::email::Usage) -> Self {
+        Self {
+            rule: crate::email::EMAIL_RULE.into(),
+            rules: policy.rules.len() as u64,
+            min_interval_s: policy.min_interval_ms / 1000,
+            daily_limit: policy.daily_limit(),
+            opened_today: today.opened,
+            deferred_today: today.deferred,
+        }
+    }
+}
+
 /// `latest.json` with empty strings, no numbers and no firing entries, in
 /// serde's field order (a test checks it).
-const LATEST_SKELETON: &str = r#"{"schema":"","network":"","utc":"","utc_ms":,"tick":,"cron_period_s":,"pull_period_s":,"tick_reads_s":,"write_gap_s":,"retention_s":,"retained_from_ms":,"horizon_s":,"object_bytes":,"email":"","delivery_ok":,"due":,"written":,"emailed":,"undelivered":,"config_warnings":,"last_write":{"utc":"","utc_ms":,"result":"","code":""},"status_check":{"utc":"","utc_ms":,"coordinator":"","eval":"","settled":},"firing_count":,"firing_omitted":,"firing":[]}"#;
+const LATEST_SKELETON: &str = r#"{"schema":"","network":"","utc":"","utc_ms":,"tick":,"cron_period_s":,"pull_period_s":,"tick_reads_s":,"write_gap_s":,"retention_s":,"retained_from_ms":,"horizon_s":,"object_bytes":,"email":"","delivery_ok":,"due":,"written":,"emailed":,"undelivered":,"config_warnings":,"last_write":{"utc":"","utc_ms":,"result":"","code":""},"status_check":{"utc":"","utc_ms":,"coordinator":"","eval":"","settled":},"email_limits":{"rule":"","rules":,"min_interval_s":,"daily_limit":,"opened_today":,"deferred_today":},"firing_count":,"firing_omitted":,"firing":[]}"#;
 
 /// `latest.json` without firing entries at its widest: the skeleton, the
 /// schema, the network the configuration admits, three times, the longer
 /// email state and write result, a refusal code at the contract's string
 /// bound (code text needs no escaping), two status check outcomes at their
-/// bound (no escaping either), nineteen numbers and two of the longer
-/// boolean.
+/// bound (no escaping either), the email rule's version, twenty-four
+/// numbers and two of the longer boolean.
 pub const LATEST_FIXED_BYTES: usize = LATEST_SKELETON.len()
     + LATEST_SCHEMA.len()
     + crate::config::NETWORK.len()
@@ -573,7 +605,8 @@ pub const LATEST_FIXED_BYTES: usize = LATEST_SKELETON.len()
     + "refused".len()
     + MAX_STRING_BYTES
     + 2 * crate::status::OUTCOME_MAX_BYTES
-    + 19 * U64_DIGITS
+    + crate::email::EMAIL_RULE.len()
+    + 24 * U64_DIGITS
     + 2 * "false".len();
 /// `latest.json`'s bound: the fixed part and the firing entries within one
 /// post's events bound (the same splitter bound every alert batch has).
@@ -785,6 +818,14 @@ pub(crate) mod tests {
                 eval: format!("{}x", "ok caller=publisher"),
                 settled: false,
             })),
+            email_limits: EmailLimits {
+                rule: crate::email::EMAIL_RULE.into(),
+                rules: u64::MAX,
+                min_interval_s: u64::MAX,
+                daily_limit: u64::MAX,
+                opened_today: u64::MAX,
+                deferred_today: u64::MAX,
+            },
             firing_count: u64::MAX,
             firing_omitted: u64::MAX,
             ..Latest::default()

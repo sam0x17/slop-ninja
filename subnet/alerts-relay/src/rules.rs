@@ -384,8 +384,9 @@ pub fn conditions(i: &Inputs<'_>, b: &Bounds, state: &AlertState) -> Vec<Conditi
             RELAY_CONFIG_WARNING,
             "relay",
             format!(
-                "the relay ignored these settings and uses their defaults: {}. Fix the deploy-time \
-                 vars or secrets (wrangler secret list --env testnet on the relay) and redeploy.",
+                "the relay warns about these settings (one that does not parse is ignored and its \
+                 default applies): {}. Fix the deploy-time vars or secrets (wrangler secret list \
+                 --env testnet on the relay) and redeploy.",
                 i.config_warnings.join("; ")
             ),
             0,
@@ -1225,7 +1226,8 @@ pub(crate) mod tests {
         assert!(!incomplete(&upload(&[])));
     }
 
-    /// An optional relay setting that did not parse is emailed by name.
+    /// An optional relay setting that did not parse, or a rule list naming
+    /// a rule no sender raises, is reported by name.
     #[test]
     fn relay_config_warnings_are_reported() {
         let b = bounds();

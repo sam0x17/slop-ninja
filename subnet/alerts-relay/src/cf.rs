@@ -8,8 +8,9 @@
 //!   and pings the external dead-man URL (when enabled) only after a tick
 //!   that finished with its delivery path working.
 //! - `AlertsRelayState`: one SQLite-backed object holding the sent-event
-//!   ledger, the alert feed's index, the relay's alert state and the
-//!   publisher's last heartbeat. It reads every body within its bound
+//!   ledger, the alert feed's index, the email policy's rows
+//!   ([`crate::email`]), the relay's alert state and the publisher's last
+//!   heartbeat. It reads every body within its bound
 //!   ([`crate::arena`]), writes the alert feed's objects to its private
 //!   bucket, sends email through the `send_email` binding while email is on
 //!   and runs one tick at a time.
@@ -29,6 +30,7 @@ use worker::{
 
 use crate::arena::{self, Budget, ReadError, Reader};
 use crate::config::{self, Config};
+use crate::email::LimitRow;
 use crate::feed::{FiringEntry, WriteNote};
 use crate::ledger::{Mark, Row, StoreError, Table};
 use crate::mime::Message;
@@ -146,6 +148,12 @@ fn ensure_schema(sql: &SqlStorage) -> Result<()> {
         "CREATE TABLE IF NOT EXISTS feed_firing (k TEXT PRIMARY KEY, v TEXT NOT NULL, at_ms INTEGER NOT NULL)",
         None,
     )?;
+    // The email policy's rows (`crate::email`): episodes, subjects' last
+    // openings and the day's counts.
+    sql.exec(
+        "CREATE TABLE IF NOT EXISTS email_limits (k TEXT PRIMARY KEY, n INTEGER NOT NULL, at_ms INTEGER NOT NULL)",
+        None,
+    )?;
     Ok(())
 }
 
@@ -168,6 +176,12 @@ struct SentRow {
 #[derive(Deserialize)]
 struct KvRow {
     v: String,
+}
+
+#[derive(Deserialize)]
+struct LimitSqlRow {
+    n: i64,
+    at_ms: i64,
 }
 
 /// The relay's store: the ledger's table (one row per event id touched
@@ -200,6 +214,7 @@ impl<'a> SqlTable<'a> {
 }
 
 const LEDGER_CUTOFF: &str = "ledger_cutoff";
+const EMAIL_CUTOFF: &str = "email_cutoff";
 
 fn int(n: u64) -> SqlStorageValue {
     SqlStorageValue::Integer(n as i64)
@@ -408,6 +423,69 @@ impl Table for SqlTable<'_> {
         Ok(kv_get(self.sql, FEED_NOTE)
             .map_err(|_| StoreError("sql note"))?
             .and_then(|v| serde_json::from_str(&v).ok()))
+    }
+
+    fn email_get(&self, key: &str) -> std::result::Result<Option<LimitRow>, StoreError> {
+        let rows: Vec<LimitSqlRow> = self
+            .sql
+            .exec(
+                "SELECT n, at_ms FROM email_limits WHERE k = ?",
+                vec![key.into()],
+            )
+            .and_then(|c| c.to_array())
+            .map_err(|_| StoreError("sql email get"))?;
+        Ok(rows.first().map(|r| LimitRow {
+            n: r.n.max(0) as u64,
+            at_ms: r.at_ms.max(0) as u64,
+        }))
+    }
+
+    fn email_put(&self, key: &str, row: LimitRow) -> std::result::Result<(), StoreError> {
+        self.sql
+            .exec(
+                "INSERT INTO email_limits (k, n, at_ms) VALUES (?, ?, ?) \
+                 ON CONFLICT(k) DO UPDATE SET n = excluded.n, at_ms = excluded.at_ms",
+                vec![key.into(), int(row.n), int(row.at_ms)],
+            )
+            .map(|_| ())
+            .map_err(|_| StoreError("sql email put"))
+    }
+
+    fn email_remove(&self, key: &str) -> std::result::Result<(), StoreError> {
+        self.sql
+            .exec("DELETE FROM email_limits WHERE k = ?", vec![key.into()])
+            .map(|_| ())
+            .map_err(|_| StoreError("sql email delete"))
+    }
+
+    fn email_sweep(&self, before: u64) -> std::result::Result<(), StoreError> {
+        let count: Vec<CountRow> = self
+            .sql
+            .exec(
+                "SELECT COUNT(*) AS n FROM email_limits WHERE at_ms < ?",
+                vec![int(before)],
+            )
+            .and_then(|c| c.to_array())
+            .map_err(|_| StoreError("sql email sweep"))?;
+        if count.first().is_none_or(|r| r.n <= 0) {
+            return Ok(());
+        }
+        self.sql
+            .exec(
+                "DELETE FROM email_limits WHERE at_ms < ?",
+                vec![int(before)],
+            )
+            .map_err(|_| StoreError("sql email sweep"))?;
+        let cutoff = self.email_cutoff()?.max(before);
+        kv_put(self.sql, EMAIL_CUTOFF, &cutoff.to_string())
+            .map_err(|_| StoreError("sql email cutoff"))
+    }
+
+    fn email_cutoff(&self) -> std::result::Result<u64, StoreError> {
+        match kv_get(self.sql, EMAIL_CUTOFF).map_err(|_| StoreError("sql email cutoff"))? {
+            None => Ok(0),
+            Some(v) => v.parse().map_err(|_| StoreError("sql email cutoff")),
+        }
     }
 }
 
@@ -810,16 +888,21 @@ impl AlertsRelayState {
                 // The budget's peak: the drill's live reading of the
                 // accounted memory (arena rule; the reserve is not measured
                 // otherwise).
+                let today = r.email_today.unwrap_or_default();
                 console_log!(
-                    "relay: tick {} due {} written {} sent {} undelivered {} stopped {} delivery_ok {} email {} swept {} latest {} budget peak {} of {}",
+                    "relay: tick {} due {} written {} sent {} skipped {} undelivered {} stopped {} delivery_ok {} email {} opened today {} of {} deferred today {} swept {} latest {} budget peak {} of {}",
                     st.ticks,
                     r.due,
                     r.written,
                     r.sent,
+                    r.skipped,
                     r.undelivered,
                     r.stopped,
                     r.delivery_ok,
                     if cfg.email.is_some() { "on" } else { "off" },
+                    today.opened,
+                    cfg.email_policy.daily_limit(),
+                    today.deferred,
                     r.swept,
                     r.latest.unwrap_or("skipped"),
                     budget().peak(),
@@ -839,7 +922,7 @@ impl AlertsRelayState {
                     log_failure("tick", f);
                 }
                 for w in &cfg.warnings {
-                    console_error!("relay: setting ignored: {w}");
+                    console_error!("relay: setting warning: {w}");
                 }
                 let headers = Headers::new();
                 headers.set("content-type", "application/json")?;

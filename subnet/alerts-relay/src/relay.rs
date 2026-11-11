@@ -12,6 +12,7 @@ use slop_ninja_alerts_wire::{
 
 use crate::arena::{self, Budget};
 use crate::config::Config;
+use crate::email;
 use crate::feed::{self, Written};
 use crate::ledger::{self, Claim, Outcome, StoreError, Table};
 use crate::mime::{self, Addresses, Message, Source};
@@ -60,12 +61,16 @@ pub enum Delivery {
     /// Every event is settled now in every enabled sink: `written` feed
     /// objects and `emailed` events by this call (email only when it is
     /// on), `duplicate` written before, `unfired` resolutions of firings that
-    /// never went out (nothing to resolve, so nothing is written).
+    /// never went out (nothing to resolve, so nothing is written), and
+    /// `skipped` events the email policy does not email ([`email`]: a rule
+    /// not on the list, a reminder, the resolution of an episode never
+    /// emailed, an opening deferred by the limits).
     Delivered {
         written: usize,
         emailed: usize,
         duplicate: usize,
         unfired: usize,
+        skipped: usize,
     },
     /// Another sender holds a live claim on some events: retry later.
     Busy { written: usize, emailed: usize },
@@ -81,6 +86,8 @@ struct SinkOutcome {
     done: usize,
     duplicate: usize,
     unfired: usize,
+    /// Settled without a send by the email policy ([`email`]).
+    skipped: usize,
     busy: usize,
     failure: Option<Failure>,
 }
@@ -129,6 +136,7 @@ pub async fn send_events(
             emailed: mailed.done,
             duplicate: fed.duplicate,
             unfired: fed.unfired,
+            skipped: mailed.skipped,
         },
     })
 }
@@ -205,8 +213,17 @@ async fn feed_events(
     Ok(o)
 }
 
-/// The email part of a delivery (only while email is on): claims each id,
-/// sends one message with the claimed ones, then settles them.
+/// The email part of a delivery (only while email is on): decides each
+/// event by the email policy ([`email`]: the rule list, one email per
+/// episode and one at its resolution, the per-subject interval and the
+/// daily limit), claims the ones to send, sends one message with the claimed
+/// ones, then settles them. An event that already has a ledger row (a
+/// retry) is not decided again: the ledger settles it. An event the policy
+/// does not email is settled for this sink without a send (the feed has
+/// it). A refused send gives back the openings this call reserved; an
+/// opening reserved by an attempt that stopped before its send settled
+/// stays with its opening event, whose retry is sent under it
+/// ([`email::decide`]).
 #[allow(clippy::too_many_arguments)]
 async fn email_events(
     table: &impl Table,
@@ -218,18 +235,37 @@ async fn email_events(
     events: &[&Event],
     now_ms: u64,
 ) -> Result<SinkOutcome, StoreError> {
+    let policy = &cfg.email_policy;
     let mut out = SinkOutcome::default();
     let mut mine: Vec<Event> = Vec::new();
     let mut retries: Vec<bool> = Vec::new();
+    let mut reserved: Vec<email::Reservation> = Vec::new();
     for e in events {
-        if e.unconfirmed() && !ledger::maybe_sent(table, &e.firing_id(source.rules), e.since_ms)? {
-            out.unfired += 1;
+        if !policy.listed(&e.rule) {
+            out.skipped += 1;
             continue;
         }
-        match ledger::claim(table, &e.id, now_ms)? {
+        let mut reservation = None;
+        if table.get(&e.id)?.is_none() {
+            match email::decide(table, policy, e, now_ms)? {
+                email::Decision::Skip(_) => {
+                    out.skipped += 1;
+                    continue;
+                }
+                email::Decision::Send(r) => reservation = r,
+            }
+        }
+        let claim = ledger::claim(table, &e.id, now_ms)?;
+        if let (Some(r), false) = (&reservation, matches!(claim, Claim::Mine { .. })) {
+            // Not reached for an event decided just now (it had no row),
+            // but a reservation made here is never kept without its send.
+            email::release(table, r)?;
+        }
+        match claim {
             Claim::Mine { retry } => {
                 mine.push((*e).clone());
                 retries.push(retry);
+                reserved.extend(reservation);
             }
             Claim::Sent => out.duplicate += 1,
             Claim::Busy => out.busy += 1,
@@ -240,7 +276,14 @@ async fn email_events(
     }
     let settle = |outcome: Outcome| -> Result<(), StoreError> {
         for (e, retry) in mine.iter().zip(&retries) {
-            ledger::settle(table, &e.id, *retry, outcome, now_ms)?;
+            if ledger::settle(table, &e.id, *retry, outcome, now_ms)? {
+                email::sent(table, e)?;
+            }
+        }
+        if outcome == Outcome::Refused {
+            for r in &reserved {
+                email::release(table, r)?;
+            }
         }
         Ok(())
     };
@@ -338,10 +381,11 @@ pub async fn handle_post(
             emailed,
             duplicate,
             unfired,
+            skipped,
         }) => (
             200,
             format!(
-                r#"{{"written":{written},"emailed":{emailed},"duplicate":{duplicate},"unfired":{unfired}}}"#
+                r#"{{"written":{written},"emailed":{emailed},"duplicate":{duplicate},"unfired":{unfired},"skipped":{skipped}}}"#
             ),
         ),
         Ok(Delivery::Busy { .. }) => (503, r#"{"error":"busy"}"#.into()),
@@ -422,6 +466,12 @@ pub struct TickReport {
     pub written: usize,
     /// Events emailed (0 while email is off).
     pub sent: usize,
+    /// Events the email policy did not email ([`email`]; 0 while email is
+    /// off): the feed has them.
+    pub skipped: usize,
+    /// Today's (UTC) openings and deferred episodes of the email policy,
+    /// read for `latest.json` (`None` when the tick stopped first).
+    pub email_today: Option<email::Usage>,
     pub undelivered: usize,
     pub failure: Option<Failure>,
     /// Another tick took the lease over: this one stopped before its next
@@ -558,6 +608,11 @@ pub async fn tick(
     rules::resolution_notes(&mut st.alerts, &inputs);
     let renotify = rules::renotify_ms(reads.heartbeat);
     ledger::sweep(table, now_ms, ledger::retention_ms(renotify))?;
+    email::sweep(
+        table,
+        now_ms,
+        email::retention_ms(renotify, cfg.email_policy.min_interval_ms),
+    )?;
     let events = due(&st.alerts, now_ms, renotify);
     hooks.save(st)?;
     let mut report = TickReport {
@@ -579,10 +634,14 @@ pub async fn tick(
         hooks.save(st)?;
         match send_events(table, mailer, budget, cfg, source, &batch, now_ms).await? {
             Delivery::Delivered {
-                written, emailed, ..
+                written,
+                emailed,
+                skipped,
+                ..
             } => {
                 report.written += written;
                 report.sent += emailed;
+                report.skipped += skipped;
                 acknowledge(&mut st.alerts, &batch, now_ms);
                 hooks.save(st)?;
             }
@@ -627,6 +686,7 @@ pub async fn tick(
     }
     if !report.stopped && hooks.renew(RELAY_ANSWER_MS) {
         let horizon = feed::horizon_ms(retention, renotify);
+        report.email_today = Some(email::usage(table, now_ms)?);
         report.latest =
             Some(latest(st, cfg, table, budget, &report, retention, horizon, now_ms).await?);
     }
@@ -749,6 +809,10 @@ async fn latest(
         config_warnings: cfg.warnings.len() as u64,
         last_write: table.feed_last_note()?,
         status_check: st.status_check.last.as_ref().map(feed::CheckNote::new),
+        email_limits: feed::EmailLimits::new(
+            &cfg.email_policy,
+            report.email_today.unwrap_or_default(),
+        ),
         ..feed::Latest::default()
     };
     l.fill(entries, total);
@@ -847,7 +911,23 @@ mod tests {
         }
     }
 
+    /// Every rule these tests deliver, with a one-second minimum interval,
+    /// so they exercise the ledger as such; the policy's own tests below
+    /// use the defaults.
+    const TEST_RULES: [(&str, &str); 2] = [
+        (
+            "ALERT_EMAIL_RULES",
+            "commit_gap,r,spend_alert,spend_tracker_stale,relay_config_warning",
+        ),
+        ("ALERT_EMAIL_MIN_INTERVAL_SECS", "1"),
+    ];
+
     fn cfg() -> Config {
+        cfg_with(&[])
+    }
+
+    /// Email on with the default policy.
+    fn cfg_default() -> Config {
         crate::config::parse(vars(&BASE)).unwrap()
     }
 
@@ -882,14 +962,14 @@ mod tests {
             answer(block_on(handle_post(&body, &c, &t, &m, &b, T0))),
             (
                 200,
-                r#"{"written":1,"emailed":1,"duplicate":0,"unfired":0}"#.into()
+                r#"{"written":1,"emailed":1,"duplicate":0,"unfired":0,"skipped":0}"#.into()
             )
         );
         assert_eq!(
             answer(block_on(handle_post(&body, &c, &t, &m, &b, T0 + 60_000))),
             (
                 200,
-                r#"{"written":0,"emailed":0,"duplicate":1,"unfired":0}"#.into()
+                r#"{"written":0,"emailed":0,"duplicate":1,"unfired":0,"skipped":0}"#.into()
             )
         );
         assert_eq!(m.count(), 1, "one email for the retried post");
@@ -930,7 +1010,8 @@ mod tests {
             200
         );
         assert_eq!(m.count(), 2);
-        let body = post(vec![ev(EventKind::Reminder, "r", "s", "d")]);
+        // A reminder of another episode, never emailed: its first email.
+        let body = post(vec![ev(EventKind::Reminder, "r", "s2", "d")]);
         let m = Recorder::scripted(vec![Err(SendError::Timeout)]);
         assert_eq!(block_on(handle_post(&body, &c, &t, &m, &b, T0)).status, 503);
         assert_eq!(
@@ -1019,7 +1100,7 @@ mod tests {
             answer(block_on(handle_post(&post(vec![z]), &c, &t, &m, &b, T0))),
             (
                 200,
-                r#"{"written":0,"emailed":0,"duplicate":0,"unfired":1}"#.into()
+                r#"{"written":0,"emailed":0,"duplicate":0,"unfired":1,"skipped":1}"#.into()
             )
         );
         assert_eq!(m.count(), 0);
@@ -1103,8 +1184,9 @@ mod tests {
 
     /// Ticks: a spend alert emails once; a tick that overlaps it (the same
     /// starting state, the same due events) sends nothing more; the reminder
-    /// follows the publisher's renotify interval from its heartbeat; the
-    /// state is saved after each delivered batch.
+    /// follows the publisher's renotify interval from its heartbeat, and
+    /// goes to the feed only; the state is saved after each delivered
+    /// batch.
     #[test]
     fn ticks_email_once_and_overlaps_are_deduplicated() {
         let (t, m, b, c) = (MemTable::default(), Recorder::default(), budget(), cfg());
@@ -1170,9 +1252,10 @@ mod tests {
                 .due,
             0
         );
+        // The reminder goes to the feed only: one email per episode.
         let r = block_on(tick(&mut st, &c, &r2, &t, &m, &b, &h, T0 + 3_600_000)).unwrap();
-        assert_eq!((r.due, r.sent), (1, 1));
-        assert!(m.sent.borrow()[1].subject.contains("STILL FIRING"));
+        assert_eq!((r.due, r.written, r.sent, r.skipped), (1, 1, 0, 1));
+        assert_eq!(m.count(), 1);
         assert_eq!(st.watch_since_ms, Some(T0));
         assert_eq!(st.tracker_answered_ms, Some(T0 + 3_600_000));
         assert_eq!(b.held(), 0);
@@ -1324,8 +1407,15 @@ mod tests {
 
     fn cfg_with(extra: &[(&'static str, &'static str)]) -> Config {
         let mut p = BASE.to_vec();
+        p.extend_from_slice(&TEST_RULES);
         p.extend_from_slice(extra);
-        crate::config::parse(vars(&p)).unwrap()
+        let mut c = crate::config::parse(vars(&p)).unwrap();
+        // `r` is a test rule no sender raises: its warning is not what
+        // these tests are about.
+        let unknown = crate::config::ConfigError::UnknownRule("ALERT_EMAIL_RULES");
+        assert!(c.warnings.contains(&unknown));
+        c.warnings.retain(|w| *w != unknown);
+        c
     }
 
     /// A typo in an optional setting never stops the relay: posts and ticks
@@ -1587,7 +1677,7 @@ mod tests {
             answer(block_on(handle_post(&post(vec![z]), &c, &t, &m, &b, later))),
             (
                 200,
-                r#"{"written":1,"emailed":1,"duplicate":0,"unfired":0}"#.into()
+                r#"{"written":1,"emailed":1,"duplicate":0,"unfired":0,"skipped":0}"#.into()
             )
         );
         let text = qp_decode(m.sent.borrow()[1].raw.split_once("\r\n\r\n").unwrap().1);
@@ -1636,7 +1726,7 @@ mod tests {
             answer(block_on(handle_post(&body, &c, &t, &m, &b, T0))),
             (
                 200,
-                r#"{"written":1,"emailed":0,"duplicate":0,"unfired":0}"#.into()
+                r#"{"written":1,"emailed":0,"duplicate":0,"unfired":0,"skipped":0}"#.into()
             )
         );
         for n in 1..4 {
@@ -1651,7 +1741,7 @@ mod tests {
                 ))),
                 (
                     200,
-                    r#"{"written":0,"emailed":0,"duplicate":1,"unfired":0}"#.into()
+                    r#"{"written":0,"emailed":0,"duplicate":1,"unfired":0,"skipped":0}"#.into()
                 )
             );
         }
@@ -1813,7 +1903,7 @@ mod tests {
             ))),
             (
                 200,
-                r#"{"written":0,"emailed":0,"duplicate":0,"unfired":1}"#.into()
+                r#"{"written":0,"emailed":0,"duplicate":0,"unfired":1,"skipped":0}"#.into()
             )
         );
         assert!(t.feed().is_empty());
@@ -2269,5 +2359,253 @@ mod tests {
         .unwrap();
         assert!(r.stopped && r.drill.is_none() && st.drill_sent.is_none());
         assert_eq!(b.held(), 0);
+    }
+
+    fn subjects_and_texts(m: &Recorder) -> Vec<(String, String)> {
+        m.sent
+            .borrow()
+            .iter()
+            .map(|x| {
+                let body = qp_decode(x.raw.split_once("\r\n\r\n").unwrap().1);
+                (x.subject.clone(), body.replace("\r\n", " "))
+            })
+            .collect()
+    }
+
+    /// The default policy on posts: a listed rule is emailed once when it
+    /// fires and once when it resolves, never at its reminders; a rule not
+    /// on the list goes to the feed alone; every event is answered (200)
+    /// and written to the feed.
+    #[test]
+    fn email_carries_the_listed_rules_once_per_episode() {
+        let (t, m, b, c) = (
+            MemTable::default(),
+            Recorder::default(),
+            budget(),
+            cfg_default(),
+        );
+        let since = T0 - 60_000;
+        let at = |state, rule: &str, notified| {
+            Event::new(RULES, state, rule, "coordinator", "d", since, notified)
+        };
+        let f = at(EventKind::Firing, "commit_gap", None);
+        let other = at(EventKind::Firing, "status_unreachable", None);
+        assert_eq!(
+            answer(block_on(handle_post(
+                &post(vec![f, other]),
+                &c,
+                &t,
+                &m,
+                &b,
+                T0
+            ))),
+            (
+                200,
+                r#"{"written":2,"emailed":1,"duplicate":0,"unfired":0,"skipped":1}"#.into()
+            )
+        );
+        let r = at(EventKind::Reminder, "commit_gap", Some(T0));
+        let a = block_on(handle_post(
+            &post(vec![r]),
+            &c,
+            &t,
+            &m,
+            &b,
+            T0 + 6 * 3_600_000,
+        ));
+        assert_eq!(
+            answer(a),
+            (
+                200,
+                r#"{"written":1,"emailed":0,"duplicate":0,"unfired":0,"skipped":1}"#.into()
+            )
+        );
+        let z = at(EventKind::Resolved, "commit_gap", Some(T0 + 6 * 3_600_000));
+        let zo = at(EventKind::Resolved, "status_unreachable", Some(T0));
+        let a = block_on(handle_post(
+            &post(vec![z, zo]),
+            &c,
+            &t,
+            &m,
+            &b,
+            T0 + 7 * 3_600_000,
+        ));
+        assert_eq!(a.status, 200);
+        assert_eq!(
+            m.subjects(),
+            vec![
+                "[slop-ninja testnet] FIRING commit_gap coordinator",
+                "[slop-ninja testnet] RESOLVED commit_gap coordinator"
+            ]
+        );
+        assert_eq!(t.feed().len(), 5, "the feed has every event");
+        let text = &subjects_and_texts(&m)[0].1;
+        assert!(text.contains("slop_ninja.alerts_relay.email/v1"), "{text}");
+        assert!(text.contains("Reminders and every other alert go to the private alert feed only"));
+        assert_eq!(b.held(), 0);
+    }
+
+    /// A condition that flaps within the minimum interval is emailed once;
+    /// a recurrence deferred is emailed at its first reminder past the
+    /// interval (saying it is the first email about it), and its
+    /// resolution follows.
+    #[test]
+    fn a_flapping_condition_is_held_back_until_its_reminder() {
+        let (t, m, b, c) = (
+            MemTable::default(),
+            Recorder::default(),
+            budget(),
+            cfg_default(),
+        );
+        let h = 3_600_000;
+        let ep = |since: u64, state, notified| {
+            Event::new(
+                RULES,
+                state,
+                "watermark_stalled",
+                "coordinator",
+                "d",
+                since,
+                notified,
+            )
+        };
+        let mut at = T0;
+        for n in 0..5u64 {
+            let since = T0 + n * 600_000;
+            for e in [
+                ep(since, EventKind::Firing, None),
+                ep(since, EventKind::Resolved, Some(since)),
+            ] {
+                assert_eq!(
+                    block_on(handle_post(&post(vec![e]), &c, &t, &m, &b, at)).status,
+                    200
+                );
+                at += 60_000;
+            }
+        }
+        assert_eq!(
+            m.subjects(),
+            vec![
+                "[slop-ninja testnet] FIRING watermark_stalled coordinator",
+                "[slop-ninja testnet] RESOLVED watermark_stalled coordinator"
+            ],
+            "four flaps deferred"
+        );
+        // A recurrence that lasts: deferred at its firing, emailed at its
+        // first reminder (one renotify interval later, past the interval).
+        let since = T0 + h;
+        assert_eq!(
+            block_on(handle_post(
+                &post(vec![ep(since, EventKind::Firing, None)]),
+                &c,
+                &t,
+                &m,
+                &b,
+                since
+            ))
+            .status,
+            200
+        );
+        assert_eq!(m.count(), 2);
+        let r = ep(since, EventKind::Reminder, Some(since));
+        assert_eq!(
+            block_on(handle_post(&post(vec![r]), &c, &t, &m, &b, since + 6 * h)).status,
+            200
+        );
+        let z = ep(since, EventKind::Resolved, Some(since + 6 * h));
+        assert_eq!(
+            block_on(handle_post(&post(vec![z]), &c, &t, &m, &b, since + 7 * h)).status,
+            200
+        );
+        let sent = subjects_and_texts(&m);
+        assert_eq!(sent.len(), 4);
+        assert_eq!(
+            sent[2].0,
+            "[slop-ninja testnet] STILL FIRING watermark_stalled coordinator"
+        );
+        assert!(
+            sent[2].1.contains("first email on record: its firing"),
+            "{}",
+            sent[2].1
+        );
+        assert_eq!(
+            sent[3].0,
+            "[slop-ninja testnet] RESOLVED watermark_stalled coordinator"
+        );
+        let today = email::usage(&t, since + 7 * h).unwrap();
+        assert!(today.opened >= 1);
+    }
+
+    /// A refused opening is given back: the publisher's retry is emailed
+    /// at once, not deferred by the minimum interval.
+    #[test]
+    fn a_refused_email_does_not_hold_back_its_retry() {
+        let (t, b, c) = (MemTable::default(), budget(), cfg_default());
+        let m = Recorder::scripted(vec![Err(SendError::Refused(Failure::new(
+            "E_DELIVERY_FAILED",
+            "",
+        )))]);
+        let body = post(vec![ev(
+            EventKind::Firing,
+            "cohort_fault",
+            "testnet-r1-27",
+            "d",
+        )]);
+        assert_eq!(block_on(handle_post(&body, &c, &t, &m, &b, T0)).status, 503);
+        assert_eq!(email::usage(&t, T0).unwrap(), email::Usage::default());
+        assert_eq!(
+            answer(block_on(handle_post(&body, &c, &t, &m, &b, T0 + 60_000))),
+            (
+                200,
+                r#"{"written":0,"emailed":1,"duplicate":1,"unfired":0,"skipped":0}"#.into()
+            )
+        );
+        assert_eq!(m.count(), 2);
+        assert_eq!(email::usage(&t, T0).unwrap().opened, 1);
+    }
+
+    /// The default policy on the relay's own rules: a stale tracker is not
+    /// on the list, so it goes to the feed alone; latest.json states the
+    /// policy and today's use.
+    #[test]
+    fn ticks_email_only_listed_relay_rules() {
+        let (t, m, b, c, h) = (
+            MemTable::default(),
+            Recorder::default(),
+            budget(),
+            cfg_default(),
+            Hooks::default(),
+        );
+        let intake = Intake::default();
+        let tr = tracker::Read::Missing;
+        let hb = beat(T0);
+        let mut st = TickState::default();
+        let r = block_on(tick(
+            &mut st,
+            &c,
+            &reads(Some(&hb), &intake, &tr),
+            &t,
+            &m,
+            &b,
+            &h,
+            T0,
+        ))
+        .unwrap();
+        assert_eq!((r.due, r.written, r.sent, r.skipped), (1, 1, 0, 1));
+        assert_eq!(m.count(), 0);
+        assert!(r.delivery_ok);
+        let latest: feed::Latest =
+            serde_json::from_slice(&t.object(feed::LATEST_KEY).unwrap()).unwrap();
+        assert_eq!(
+            latest.email_limits,
+            feed::EmailLimits {
+                rule: "slop_ninja.alerts_relay.email/v1".into(),
+                rules: 6,
+                min_interval_s: 21_600,
+                daily_limit: 24,
+                opened_today: 0,
+                deferred_today: 0,
+            }
+        );
     }
 }

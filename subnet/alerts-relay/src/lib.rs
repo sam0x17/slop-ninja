@@ -28,6 +28,12 @@
 //!    tracker's output is older than two of its schedule periods, and one
 //!    when its runs have not priced everything for that long.
 //!
+//! Email, when it is on, follows its own policy ([`email`]): only the rules
+//! the operator lists (the critical ones by default), one email when an
+//! episode fires and one when it resolves, never its reminders, with a
+//! per-subject minimum interval and a daily limit derived from the number of
+//! listed rules. The feed carries every event whatever email does.
+//!
 //! The cron is outside the coordinator and the publisher and advances no
 //! protocol state. Every tick rewrites the feed's `latest.json`, which a
 //! reader outside Cloudflare reads as the relay's dead-man; the
@@ -43,6 +49,7 @@
 
 pub mod arena;
 pub mod config;
+pub mod email;
 pub mod feed;
 pub mod ledger;
 pub mod mime;

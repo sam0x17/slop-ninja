@@ -13,7 +13,16 @@
 //! default is used (for an address: email off) and it is named in
 //! [`Config::warnings`], which the relay reports as `relay_config_warning`,
 //! so a typo in an optional var never stops the relay.
+//!
+//! While email is on, `ALERT_EMAIL_RULES` (a comma list of rule names) and
+//! `ALERT_EMAIL_MIN_INTERVAL_SECS` set its policy ([`crate::email`]); unset,
+//! the defaults apply (the critical rules, and the publisher's default
+//! renotify interval). A list that names a rule neither the publisher nor
+//! the relay raises ([`crate::email::known`]) is kept as given, with a
+//! warning, so a misspelt name is noticed and a rule newer than this
+//! build still emails.
 
+use crate::email::{DEFAULT_MIN_INTERVAL_MS, Policy};
 use crate::mime::Addresses;
 use crate::rules::Bounds;
 
@@ -28,8 +37,12 @@ pub enum ConfigError {
     Flag(&'static str),
     Url(&'static str),
     Name(&'static str),
+    List(&'static str),
     /// A recipient is set while email is not enabled.
     NotEnabled(&'static str),
+    /// A rule list names a rule neither the publisher nor the relay raises
+    /// (the list is kept as given).
+    UnknownRule(&'static str),
 }
 
 /// Names the setting and what it must be, never its value.
@@ -45,9 +58,18 @@ impl core::fmt::Display for ConfigError {
                 f,
                 "{v} must be a name of lowercase letters, digits and ._/-"
             ),
+            Self::List(v) => write!(
+                f,
+                "{v} must be a comma list of names of lowercase letters, digits and ._/-"
+            ),
             Self::NotEnabled(v) => write!(
                 f,
                 "{v} is set while ALERT_EMAIL_ENABLED is not true: email stays off"
+            ),
+            Self::UnknownRule(v) => write!(
+                f,
+                "{v} names a rule that neither the publisher nor the relay raises: the list is \
+                 kept as given (check the spelling)"
             ),
         }
     }
@@ -64,6 +86,11 @@ pub struct Config {
     /// mailbox alone, and only while email is on. Subjects and the alert
     /// feed never carry figures.
     pub spend_figures: bool,
+    /// Which events email carries and how often ([`crate::email`]): the
+    /// rules of `ALERT_EMAIL_RULES` and the per-subject minimum interval of
+    /// `ALERT_EMAIL_MIN_INTERVAL_SECS`, else the defaults. Used only while
+    /// email is on.
+    pub email_policy: Policy,
     /// The coordinator's watchdog silence, used until a publisher heartbeat
     /// carries the publisher's own watermark bound.
     pub silence_ms: u64,
@@ -153,6 +180,26 @@ fn drill_id(value: Option<String>) -> Result<Option<String>, ConfigError> {
     }
 }
 
+/// The email list: comma-separated rule names (blanks around a name and
+/// empty entries ignored); unset or blank is the default list, and a list
+/// with an invalid name, or none, is refused (the default applies, with a
+/// warning).
+fn email_rules(value: Option<String>) -> Result<Option<Vec<String>>, ConfigError> {
+    let Some(v) = value.filter(|v| !v.trim().is_empty()) else {
+        return Ok(None);
+    };
+    let rules: Vec<String> = v
+        .split(',')
+        .map(str::trim)
+        .filter(|n| !n.is_empty())
+        .map(str::to_owned)
+        .collect();
+    if rules.is_empty() || !rules.iter().all(|n| slop_ninja_alerts_wire::valid_name(n)) {
+        return Err(ConfigError::List("ALERT_EMAIL_RULES"));
+    }
+    Ok(Some(rules))
+}
+
 /// The spend tracker's schedule: it runs once a day.
 pub const DEFAULT_TRACKER_PERIOD_SECS: u64 = 86_400;
 /// The coordinator's watchdog silence, as the publisher's
@@ -206,6 +253,25 @@ pub fn parse(get: impl Fn(&str) -> Option<String>) -> Result<Config, ConfigError
         DEFAULT_TRACKER_PERIOD_SECS * 1000,
     );
     let spend_figures = optional(&mut warnings, flag(&get, "SPEND_FIGURES_IN_EMAIL"), false);
+    let default_policy = Policy::default();
+    let listed = optional(&mut warnings, email_rules(get("ALERT_EMAIL_RULES")), None);
+    if listed
+        .as_ref()
+        .is_some_and(|l| !l.iter().all(|r| crate::email::known(r)))
+    {
+        warnings.push(ConfigError::UnknownRule("ALERT_EMAIL_RULES"));
+    }
+    let rules = listed.unwrap_or(default_policy.rules);
+    let min_interval_ms = optional(
+        &mut warnings,
+        positive_ms(
+            &get,
+            "ALERT_EMAIL_MIN_INTERVAL_SECS",
+            DEFAULT_MIN_INTERVAL_MS / 1000,
+        ),
+        DEFAULT_MIN_INTERVAL_MS,
+    );
+    let email_policy = Policy::new(rules, min_interval_ms);
     let enabled = optional(&mut warnings, flag(&get, "HEARTBEAT_ENABLED"), false);
     let heartbeat = if enabled {
         let url = https("HEARTBEAT_URL", get("HEARTBEAT_URL"))
@@ -219,6 +285,7 @@ pub fn parse(get: impl Fn(&str) -> Option<String>) -> Result<Config, ConfigError
         network: NETWORK.into(),
         email,
         spend_figures,
+        email_policy,
         silence_ms,
         tracker_period_ms,
         heartbeat,
@@ -399,6 +466,90 @@ pub(crate) mod tests {
         let mut p = BASE.to_vec();
         p.push(("DRILL_ID", &long));
         assert_eq!(parse(vars(&p)).unwrap().drill, None);
+    }
+
+    /// The email policy: the default list and interval unless set; a list
+    /// or interval that does not parse is a warning (by name), and the
+    /// default applies.
+    #[test]
+    fn email_policy_settings() {
+        let with = |pairs: &[(&'static str, &'static str)]| {
+            let mut p = BASE.to_vec();
+            p.extend_from_slice(pairs);
+            parse(vars(&p)).unwrap()
+        };
+        let c = parse(vars(&BASE)).unwrap();
+        assert_eq!(c.email_policy, Policy::default());
+        assert_eq!(c.email_policy.min_interval_ms, 21_600_000);
+        assert_eq!(
+            with(&[("ALERT_EMAIL_RULES", " ")]).email_policy,
+            Policy::default()
+        );
+        let c = with(&[
+            ("ALERT_EMAIL_RULES", " commit_gap, ,spend_alert,commit_gap,"),
+            ("ALERT_EMAIL_MIN_INTERVAL_SECS", "3600"),
+        ]);
+        assert!(c.warnings.is_empty());
+        assert_eq!(c.email_policy.rules, ["commit_gap", "spend_alert"]);
+        assert_eq!(c.email_policy.min_interval_ms, 3_600_000);
+        assert_eq!(c.email_policy.daily_limit(), 48);
+        // A name no sender raises (misspelt): kept, and warned about by
+        // the setting's name, never the value.
+        let c = with(&[("ALERT_EMAIL_RULES", "commit_gap,watermark_stall")]);
+        assert_eq!(c.email_policy.rules, ["commit_gap", "watermark_stall"]);
+        assert_eq!(
+            c.warnings,
+            vec![ConfigError::UnknownRule("ALERT_EMAIL_RULES")]
+        );
+        assert!(!c.warnings[0].to_string().contains("watermark_stall"));
+        // Every rule of either sender is known: no warning.
+        let every = crate::email::PUBLISHER_RULES
+            .iter()
+            .chain(crate::email::RELAY_RULES)
+            .copied()
+            .collect::<Vec<_>>()
+            .join(",");
+        let c = parse(vars(&[
+            BASE[0],
+            BASE[1],
+            BASE[2],
+            BASE[3],
+            ("ALERT_EMAIL_RULES", every.as_str()),
+        ]))
+        .unwrap();
+        assert!(c.warnings.is_empty(), "{:?}", c.warnings);
+        for bad in [
+            "Commit_gap",
+            "commit_gap spend_alert",
+            ",,",
+            "a@b",
+            "x\r\nBcc: y",
+        ] {
+            let c = with(&[("ALERT_EMAIL_RULES", bad)]);
+            assert_eq!(c.email_policy, Policy::default(), "{bad:?}");
+            assert_eq!(
+                c.warnings,
+                vec![ConfigError::List("ALERT_EMAIL_RULES")],
+                "{bad:?}"
+            );
+            assert!(!c.warnings[0].to_string().contains("Commit"));
+        }
+        for bad in ["0", "-1", "1h", "18446744073709551615"] {
+            let c = with(&[("ALERT_EMAIL_MIN_INTERVAL_SECS", bad)]);
+            assert_eq!(c.email_policy.min_interval_ms, 21_600_000, "{bad:?}");
+            assert_eq!(
+                c.warnings,
+                vec![ConfigError::Number("ALERT_EMAIL_MIN_INTERVAL_SECS")],
+                "{bad:?}"
+            );
+        }
+        // Email off: the policy still parses (and still warns), unused.
+        let c = parse(vars(&[
+            ("NETWORK", "testnet"),
+            ("ALERT_EMAIL_RULES", "cohort_fault"),
+        ]))
+        .unwrap();
+        assert_eq!((c.email.is_none(), c.email_policy.rules.len()), (true, 1));
     }
 
     fn missing_to_enabled() {

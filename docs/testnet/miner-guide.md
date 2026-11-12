@@ -20,8 +20,9 @@ The whole path, with the section for each step and what tells you it worked:
    ([Install](#2-install)): `ssh-keygen` prints `Good "file" signature`,
    `sha256sum` prints `OK` for each file, and `slop_ninja_miner --version`
    prints `slop_ninja_miner 0.1.0`.
-3. **Make a hotkey and register it on subnet 601** with rtao, which you build
-   with Rust ([steps 3 and 4](#3-wallet-and-hotkey)):
+3. **Install rtao** with `cargo install --locked rtao-cli`
+   ([rtao](#rtao-for-wallets-and-registration)), then **make a hotkey and
+   register it on subnet 601** ([steps 3 and 4](#3-wallet-and-hotkey)):
    `rtao subnets metagraph 601 --network test` lists your hotkey with a UID.
 4. **Train an artifact** with the [training guide](training-guide.md)
    ([step 5](#5-train-an-artifact)). Its smoke run gives an admissible but
@@ -90,10 +91,11 @@ when it goes live. The release key is on the [landing page](README.md#release-ke
 
 - A Linux or macOS machine for the client. Linux x86_64 is tested; macOS and
   Linux arm64 are untested.
-- Rust 1.89 or later (rtao's minimum; tested: 1.99.1) and a C compiler,
-  also when you use the release binaries: you build rtao, the wallet and
-  registration tool, from source, and the optional local scorer too. On
-  platforms without release binaries you also build the client.
+- Rust 1.90 or later (rtao-cli 0.1.0's minimum; tested: 1.99.1) and a C
+  compiler, also when you use the release binaries: `cargo install` builds
+  rtao, the wallet and registration tool, from source, and you build the
+  optional local scorer from source too. On platforms without release
+  binaries you also build the client.
 - A training machine as the [training guide](training-guide.md#what-you-need)
   describes: tested on Linux x86_64 with a 24 GB NVIDIA GPU and CUDA 12.8
   wheels, and about 16 GB of disk.
@@ -280,12 +282,24 @@ writes the object with mode 0600.
 ### rtao, for wallets and registration
 
 The client signs with an ordinary Bittensor hotkey file. Install the rtao
-command line tool at the same pin the client uses:
+command line tool from crates.io. Its crate is `rtao-cli`; the crate named
+`rtao` is the library and has no command to install.
 
 ```sh
-cargo install --locked --git https://github.com/sam0x17/rtao \
-  --rev fa83052d37b39f002f7a4d3cc5c04f25503e1d11 rtao-cli
+cargo install --locked rtao-cli
 rtao --version
+```
+
+rtao-cli 0.1.0, the version tested here, prints
+`rtao 0.1.0 (bittensor-core v490)`. It is built from a newer rtao revision
+than the one the subnet's crates pin; hotkey files written by either load in
+the other (checked on November 12, 2026).
+
+The subnet's crates pin the rtao library at commit `fa83052d`. If you need the
+command line tool at exactly that commit, install it from Git instead:
+
+```sh
+cargo install --locked --git https://github.com/sam0x17/rtao --rev fa83052d37b39f002f7a4d3cc5c04f25503e1d11 rtao-cli
 ```
 
 A wallet that another tool already wrote in the standard layout
@@ -300,7 +314,7 @@ for testnet. The names below are examples.
 
 ```sh
 rtao wallet create --wallet my-wallet --wallet-hotkey my-miner
-rtao wallet show --wallet my-wallet
+rtao wallet show --wallet my-wallet --wallet-hotkey my-miner
 ```
 
 `wallet create` asks for a coldkey password, writes an encrypted coldkey and
@@ -323,7 +337,7 @@ rtao subnets metagraph 601 --network test
 
 The coldkey pays the subnet's current registration cost, which is known only
 when the call executes. `rtao subnets register --help` describes the call in
-full. At the pinned revision it says:
+full. In rtao-cli 0.1.0, as at the pinned revision, it says:
 
 - **Burn and collateral.** When the subnet's collateral lock share `p` is
   zero, the whole cost is burned. When `p` is above zero, `1 - p` of it is

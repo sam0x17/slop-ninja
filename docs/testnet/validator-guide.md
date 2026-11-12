@@ -76,9 +76,10 @@ startup checks and use `observe`. Committing rows waits for the pieces above.
   installer checks it too.
 - A clone of the [public repository](https://github.com/sam0x17/slop-ninja):
   the installer and the release key it trusts come from it.
-- Rust 1.89 or later (the tested toolchain is 1.99.1) and a C compiler, also
+- Rust 1.90 or later (the tested toolchain is 1.99.1) and a C compiler, also
   with the release binaries: rtao, the wallet and registration tool, is
-  built from source ([miner guide](miner-guide.md#rtao-for-wallets-and-registration)).
+  built from source with `cargo install --locked rtao-cli`
+  ([miner guide](miner-guide.md#rtao-for-wallets-and-registration)).
   On platforms without release binaries you also build the validator.
 - A testnet coldkey and a registered validator hotkey on subnet 601, with
   enough stake for a validator permit. Permits go to the highest-stake hotkeys,

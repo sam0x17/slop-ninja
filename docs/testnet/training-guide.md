@@ -684,10 +684,12 @@ build output in the checkout adds about 1.2 GB and the restored datasets
 
 ## Reporting problems
 
-Report a problem with the recipe or its tools as the miner guide's
-[step 15](miner-guide.md#15-reporting-problems) says, with the step, the
-command and its output. Report a security problem privately by email to
-[security@slop.ninja](mailto:security@slop.ninja), not in a public issue
+Ask questions about the recipe in the SlopNinja channel for testnet subnet
+601 on the Bittensor Discord or in an issue; the miner guide's
+[step 15](miner-guide.md#15-reporting-problems) gives the channel link and
+the server invite. Report a problem with the recipe or its tools as that step
+says, with the step, the command and its output. Report a security problem
+privately by email to [security@slop.ninja](mailto:security@slop.ninja), not in a public issue
 ([security policy](../../SECURITY.md)). Never post your mnemonic, keyfiles or
 password, and never post your artifact, its model files or your opening
 before the cohort closes.

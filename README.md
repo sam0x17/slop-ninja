@@ -18,6 +18,7 @@
 **[Whitepaper](whitepaper/slop_ninja.pdf)** ·
 **[Miner&nbsp;guide](docs/testnet/miner-guide.md)** ·
 **[Validator&nbsp;guide](docs/testnet/validator-guide.md)** ·
+**[Discord](#community)** ·
 **[X&nbsp;@SlopNinja](https://x.com/SlopNinja)**
 
 </div>
@@ -82,7 +83,8 @@ Testnet subnet 601 is the rehearsal. It has no monetary value.
   received no money yet
   ([terms](docs/testnet/terms.md#the-pots-planned-distribution)).
 - **Follow along:** the [status page](https://slop.ninja/testnet/status/), the
-  [public API](https://slop.ninja/api/), the [whitepaper](whitepaper/slop_ninja.pdf)
+  [public API](https://slop.ninja/api/), the [whitepaper](whitepaper/slop_ninja.pdf),
+  the [SlopNinja channel](#community) for subnet 601 on the Bittensor Discord
   and [@SlopNinja](https://x.com/SlopNinja) on X.
 
 The [testnet landing page](docs/testnet/README.md) has the key facts, what is
@@ -99,9 +101,22 @@ live and the release key.
 The specifications are the [artifact spec](docs/testnet/artifact-spec.md), the
 [admission API](docs/testnet/admission-api.md), the
 [scorer threat model](docs/testnet/scorer-threat-model.md) and the
-[reference packages](docs/testnet/reference-packages.md). Questions and bug
-reports go to the repository's **Issues** tab; security problems go to the
-private contact [below](#security).
+[reference packages](docs/testnet/reference-packages.md).
+
+## Community
+
+The SlopNinja channel for testnet subnet 601 on the Bittensor Discord is open:
+
+- channel: <https://discord.com/channels/799672011265015819/1569363956831756318>
+- Bittensor community server invite: <https://discord.gg/rY4XsCGrd2> (it does not expire)
+
+The channel link opens for members of the Bittensor community server; if you
+are not one yet, join with the invite first. The channel is for the subnet's
+mechanism: mining, validating, artifacts, cohorts and rewards.
+
+Ask questions in the channel or in the repository's **Issues** tab. Bug
+reports go to the **Issues** tab; security problems go to the private contact
+[below](#security).
 
 ## Repository layout
 

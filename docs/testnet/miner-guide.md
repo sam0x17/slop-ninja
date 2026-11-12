@@ -108,7 +108,8 @@ when it goes live. The release key is on the [landing page](README.md#release-ke
   following hours. It read about 0.155 τ on October 30, 2026. Keep a little
   more for the call's fee ([step 4](#4-register-on-subnet-601)). SlopNinja
   does not hand out test TAO; get it from the Bittensor community's testnet
-  sources, for example by asking in the Bittensor Discord.
+  sources, for example by asking on the Bittensor Discord (server invite
+  <https://discord.gg/rY4XsCGrd2>).
 - An uplink that can send your packed object, up to about 955 MB (the spec's
   largest object), inside a cohort's admission window (16 tempos, about 19
   hours, under the testnet template; `next-cohort` prints each cohort's own; see
@@ -1291,7 +1292,18 @@ operator downtime never becomes a miner failure.
 
 ## 15. Reporting problems
 
-Open an issue in the public repository's **Issues** tab. Include:
+Ask questions in the SlopNinja channel for testnet subnet 601 on the
+Bittensor Discord or in an issue:
+
+- channel: <https://discord.com/channels/799672011265015819/1569363956831756318>
+- Bittensor community server invite: <https://discord.gg/rY4XsCGrd2> (it does not expire)
+
+The channel link opens for members of the Bittensor community server; if you
+are not one yet, join with the invite first. The channel is for the subnet's
+mechanism: mining, validating, artifacts, cohorts and rewards.
+
+To report a problem, open an issue in the public repository's **Issues** tab.
+Include:
 
 - `slop_ninja_miner --version`, `slop_ninja_artifact_check --version` and your
   platform;

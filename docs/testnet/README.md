@@ -26,10 +26,12 @@ Testnet subnet 601 is the rehearsal. It has no monetary value.
   `testnet-v0.2.0` (November 11, 2026) holds the validator and its journal
   tool.
 - Follow along on the [status page](https://slop.ninja/testnet/status/), through the
-  [public API](https://slop.ninja/api/) and in the
-  [whitepaper](../../whitepaper/slop_ninja.pdf).
-- Report problems in the public repository's **Issues** tab, and security
-  problems privately ([Getting help](#getting-help)).
+  [public API](https://slop.ninja/api/), in the
+  [whitepaper](../../whitepaper/slop_ninja.pdf) and in the SlopNinja channel
+  for subnet 601 on the Bittensor Discord ([Getting help](#getting-help)).
+- Ask questions in the Discord channel or the public repository's **Issues**
+  tab, report problems in the **Issues** tab, and report security problems
+  privately ([Getting help](#getting-help)).
 
 ## Key facts
 
@@ -89,6 +91,7 @@ Testnet subnet 601 is the rehearsal. It has no monetary value.
 Links:
 
 - public repository: <https://github.com/sam0x17/slop-ninja>, with its **Issues** tab as the issue tracker;
+- Discord: the SlopNinja channel for testnet subnet 601 on the Bittensor Discord, <https://discord.com/channels/799672011265015819/1569363956831756318>; the link opens for members of the Bittensor community server, whose invite <https://discord.gg/rY4XsCGrd2> does not expire;
 - status page: <https://slop.ninja/testnet/status/>; public API: <https://slop.ninja/api/>; the public status host is not yet live;
 - release public key: [below](#release-key);
 - private security contact: [security@slop.ninja](mailto:security@slop.ninja) ([security policy](../../SECURITY.md));
@@ -186,6 +189,17 @@ There are no macOS or Linux arm64 binaries: build from source as the guides
 describe. Those platforms are untested.
 
 ## Getting help
+
+Ask questions about mining and validating in the SlopNinja channel for
+testnet subnet 601 on the Bittensor Discord or in the public repository's
+**Issues** tab:
+
+- channel: <https://discord.com/channels/799672011265015819/1569363956831756318>
+- Bittensor community server invite: <https://discord.gg/rY4XsCGrd2> (it does not expire)
+
+The channel link opens for members of the Bittensor community server; if you
+are not one yet, join with the invite first. The channel is for the subnet's
+mechanism: mining, validating, artifacts, cohorts and rewards.
 
 Report problems in the public repository's **Issues** tab.
 Report security problems privately to [security@slop.ninja](mailto:security@slop.ninja), never in a

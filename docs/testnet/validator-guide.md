@@ -876,8 +876,17 @@ Each `recovery_round` event also counts `failures_awaiting_decode`,
 
 ## Reporting problems
 
-Open an issue in the public repository's **Issues** tab with
-the output of `slop_ninja_validator --version` (the version and the commit the
+Ask questions in the SlopNinja channel for testnet subnet 601 on the
+Bittensor Discord or in an issue:
+
+- channel: <https://discord.com/channels/799672011265015819/1569363956831756318>
+- Bittensor community server invite: <https://discord.gg/rY4XsCGrd2> (it does not expire)
+
+The channel link opens for members of the Bittensor community server; if you
+are not one yet, join with the invite first.
+
+To report a problem, open an issue in the public repository's **Issues** tab
+with the output of `slop_ninja_validator --version` (the version and the commit the
 binary was built from; `slop-ninja-journal --version` prints the same), the
 command, the exit code and the logged event names. Never post the journal,
 keyfiles or mnemonics. Report a security problem privately to

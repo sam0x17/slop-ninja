@@ -162,9 +162,9 @@ mod tests {
     #[test]
     fn the_ledger_accepts_each_receipt_once_and_stays_within_its_share() {
         let mut l = Ledger::new(1, [1u8; 32], 2);
-        let a = l.issue(&[1u8; 16], Band::Weak, LengthBin::Longer).unwrap();
+        let a = l.issue(&[1u8; 16], Band::Weak, LengthBin::Long).unwrap();
         let b = l.issue(&[2u8; 16], Band::Unclear, LengthBin::Measured).unwrap();
-        assert_eq!(l.vote(&a), Some((Band::Weak, LengthBin::Longer)));
+        assert_eq!(l.vote(&a), Some((Band::Weak, LengthBin::Long)));
         assert_eq!(l.vote(&a), None, "a receipt counts once");
         assert_eq!(l.vote("junk"), None);
         assert!(!l.stale(1));
@@ -196,7 +196,7 @@ mod tests {
     fn short_receipts_verify_and_fit_the_feedback_body() {
         let key = [7u8; 32];
         let bands = [Band::VeryStrong, Band::Strong, Band::Unclear, Band::Weak, Band::NoStrongSigns];
-        let bins = [LengthBin::Short24, LengthBin::Short50, LengthBin::Short100, LengthBin::Measured, LengthBin::Longer];
+        let bins = [LengthBin::Short24, LengthBin::Short50, LengthBin::Short100, LengthBin::Measured, LengthBin::Long];
         for band in bands {
             for len in bins {
                 let r = issue(&key, &[5u8; 16], band, len).unwrap();

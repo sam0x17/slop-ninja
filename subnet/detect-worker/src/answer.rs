@@ -5,15 +5,18 @@
 //! attribution, sentences). A text hash is a linkable identifier, and
 //! attribution is not ready for a public page, so only named fields are
 //! read here and only these leave: the band, the two percentages as the page
-//! prints them, the word and token counts, the length label, notices, and
-//! the spans when the band and the span switch allow them. A short text
+//! prints them, the word and token counts, the length label, the free cut
+//! (the sent text's words, which part was scored and where it ends),
+//! notices, and the spans when the band and the span switch allow them. A short text
 //! (24 to 149 words) gets only its result, "strong" or "no_strong_signs",
 //! with no percentage, share or passage confidence. Each span carries
-//! UTF-16 offsets into the exact text the page sent, computed here from the
-//! scorer's character offsets (and checked against its byte offsets), so
+//! UTF-16 offsets into the exact text the page sent (the scored part is its
+//! prefix), computed here from the scorer's character offsets (and checked
+//! against its byte offsets), so
 //! the page never splits a surrogate pair. Any inconsistency drops every
 //! span; nothing is repaired.
 
+use crate::cut::Cut;
 use crate::policy::{self, Band, LengthBin};
 use serde::{Deserialize, Serialize};
 
@@ -102,7 +105,16 @@ pub struct Answer {
     pub confidence_text: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub share_text: Option<String>,
+    /// Whitespace words scored (the length bin's count).
     pub words: usize,
+    /// Whitespace words of the whole text sent.
+    pub total_words: usize,
+    /// How the scored part was chosen: `none` (the whole text),
+    /// `first_1000_words` or `token_limit` (`crate::cut`).
+    pub cut: &'static str,
+    /// Where the scored part ends, in UTF-16 units of the text sent.
+    pub scored_end: usize,
+    /// The scored part's tokens, frame included.
     pub tokens: u64,
     pub length: &'static str,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -140,7 +152,7 @@ pub enum Outcome {
 }
 
 /// Reads a scorer reply for `package` (the load digest sent) about `text`,
-/// a text of length bin `length`.
+/// the scored part, of length bin `length`.
 pub fn read(reply: &[u8], package: &str, text: &str, spans_on: bool, length: LengthBin) -> Outcome {
     let Ok(r) = serde_json::from_slice::<Reply>(reply) else { return Outcome::Fault };
     if r.package != package || r.results.len() != 1 {
@@ -226,9 +238,11 @@ fn utf16_spans(text: &str, spans: &[ScorerSpan]) -> Option<Vec<Span>> {
     Some(out)
 }
 
-/// The browser's result for a scored text.
-pub fn answer(scored: Scored, words: usize, length: LengthBin, text: &str, package: PackageLine, receipt: String) -> Answer {
+/// The browser's result for a scored text: `cut` is the free check's scored
+/// part of what was sent. Notices name what is in the scored part.
+pub fn answer(scored: Scored, length: LengthBin, cut: &Cut<'_>, package: PackageLine, receipt: String) -> Answer {
     let Scored { band, percents, tokens, spans } = scored;
+    let text = cut.scored;
     let (spans, spans_note) = match spans {
         Ok(s) => (Some(s), None),
         Err(n) => (None, Some(n)),
@@ -239,7 +253,10 @@ pub fn answer(scored: Scored, words: usize, length: LengthBin, text: &str, packa
         confidence_tenths: percents.map(|(c, _)| policy::tenths_floor(c)),
         confidence_text: percents.map(|(c, _)| policy::confidence_text(c)),
         share_text: percents.map(|(c, s)| policy::share_text(s, c)),
-        words,
+        words: cut.scored_words,
+        total_words: cut.total_words,
+        cut: cut.kind.code(),
+        scored_end: cut.scored_end(),
         tokens,
         length: length.code(),
         spans,
@@ -300,11 +317,17 @@ mod tests {
         PackageLine { digest: "d".into(), publication_pending: true }
     }
 
+    /// A text scored whole.
+    fn whole(text: &str) -> Cut<'_> {
+        let n = policy::words(text);
+        Cut { scored: text, kind: crate::cut::Kind::Whole, total_words: n, scored_words: n, tokens: 300 }
+    }
+
     #[test]
     fn hashes_and_attribution_never_leave() {
         let text = words(200);
         let sc = scored(read(&reply(97.3, 34.0, json!([])), PKG, &text, true, M));
-        let a = answer(sc, 200, M, &text, pkg(), "r".into());
+        let a = answer(sc, M, &whole(&text), pkg(), "r".into());
         let s = serde_json::to_string(&a).unwrap();
         for leak in ["f00d", "beef", "cafe", "text_sha256", "attribution", "origin", "other_ai", "\"ms\"", "sentences"] {
             assert!(!s.contains(leak), "{leak} in {s}");
@@ -388,7 +411,7 @@ mod tests {
         assert_eq!(sc.band, Band::Strong);
         assert_eq!(sc.percents, None);
         assert_eq!(sc.spans, Ok(vec![Span { start: 0, end: text.len(), words: 30, confidence: None }]));
-        let a = answer(sc, 30, s24, &text, pkg(), "r".into());
+        let a = answer(sc, s24, &whole(&text), pkg(), "r".into());
         assert_eq!(a.length, "24_49");
         let s = serde_json::to_value(&a).unwrap();
         for absent in ["confidence_tenths", "confidence_text", "share_text", "spans_note"] {
@@ -404,7 +427,7 @@ mod tests {
             let sc = scored(read(&r, PKG, &text, true, s24));
             assert_eq!(sc.band, Band::NoStrongSigns, "{conf} {span}");
             assert_eq!(sc.spans, Err(SpansNote::StrongBandsOnly));
-            let a = answer(sc, 30, s24, &text, pkg(), "r".into());
+            let a = answer(sc, s24, &whole(&text), pkg(), "r".into());
             let s = serde_json::to_value(&a).unwrap();
             assert_eq!(s["band"], "no_strong_signs");
             assert!(s.get("spans").is_none() && s.get("confidence_text").is_none() && s.get("share_text").is_none());
@@ -448,5 +471,38 @@ mod tests {
         assert_eq!(read(&reply(99.999, 80.0, json!([bad])), PKG, &text, true, s24), Outcome::ShortWithoutSpans);
         let under_floor = span_conf(&text, 0, 20, 4, 99.0);
         assert_eq!(read(&reply(99.999, 80.0, json!([under_floor])), PKG, &text, true, s24), Outcome::ShortWithoutSpans);
+    }
+
+    /// A long text's first 1,000 words, cut at a sentence end: the answer
+    /// carries both counts, the cut and where it ends, and its passages'
+    /// offsets index the text as sent.
+    #[test]
+    fn a_cut_result_names_its_part() {
+        let mut w: Vec<String> = (0..1500).map(|i| ["the", "river", "ran", "past"][i % 4].to_string()).collect();
+        w[0] = "😀".into();
+        w[985].push('.');
+        let sent = w.join(" ");
+        let c = crate::cut::free_cut(&sent, &mut |_, _| true).unwrap();
+        assert_eq!((c.kind, c.scored_words, c.total_words), (crate::cut::Kind::FirstWords, 986, 1500));
+        let length = policy::length_bin(c.scored_words).unwrap();
+        assert_eq!(length, LengthBin::Long);
+        let end = c.scored.chars().count();
+        let sp = json!([span_json(c.scored, end - 200, end, 30)]);
+        let sc = scored(read(&reply(99.99, 60.0, sp), PKG, c.scored, true, length));
+        let a = answer(sc, length, &c, pkg(), "r".into());
+        let v = serde_json::to_value(&a).unwrap();
+        assert_eq!((v["words"].as_u64(), v["total_words"].as_u64()), (Some(986), Some(1500)));
+        assert_eq!((v["cut"].as_str(), v["length"].as_str()), (Some("first_1000_words"), Some("451_1000")));
+        let units: Vec<u16> = sent.encode_utf16().collect();
+        let scored_end = v["scored_end"].as_u64().unwrap() as usize;
+        assert_eq!(String::from_utf16(&units[..scored_end]).unwrap(), c.scored);
+        // The passage ends where the scored part ends, in the sent text's units.
+        assert_eq!(a.spans.as_ref().unwrap()[0].end, scored_end);
+        // A whole text says so.
+        let text = words(200);
+        let sc = scored(read(&reply(20.0, 5.0, json!([])), PKG, &text, true, M));
+        let v = serde_json::to_value(answer(sc, M, &whole(&text), pkg(), "r".into())).unwrap();
+        assert_eq!((v["cut"].as_str(), v["words"].as_u64(), v["total_words"].as_u64()), (Some("none"), Some(200), Some(200)));
+        assert_eq!(v["scored_end"].as_u64(), Some(text.len() as u64));
     }
 }

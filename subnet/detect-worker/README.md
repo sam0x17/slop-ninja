@@ -7,7 +7,10 @@ default `workers_dev` subdomain and no preview URLs. It scores one pasted text w
 reference span package on one scorer Container and returns an evidence band,
 the two document percentages and, in the strong bands only, highlighted
 passages. A text of 24 to 149 words gets one result instead, "strong signs"
-(with its passages) or "no strong signs", with no percentage. Until the reference package's public bucket opens, every result's
+(with its passages) or "no strong signs", with no percentage. A text of more
+than 1,000 words is scored on its first 1,000 words, cut back to the last
+sentence end, and the result says how many words it scored of how many.
+Until the reference package's public bucket opens, every result's
 version line says "publication pending".
 
 It shares no Container instance, Durable Object, binding or bucket with
@@ -46,9 +49,12 @@ browser ── website Worker ──service binding──► detect Worker ─�
   7. Turnstile siteverify (single use, hostname and action `detect_score`
      checked);
   8. the rest of the reservation (503 "busy");
-  9. the exact token count with the scorer's own tokenizer table;
-  10. the length floor (24 words, or 150 with the span switch off) and the
-      English screen.
+  9. the free cut (`cut.rs`, "The free cut" below), with exact token counts
+     from the scorer's own tokenizer table;
+  10. the scored part's length floor (24 words, or 150 with the span switch
+      off) and the English screen on it.
+
+  Only the scored part is forwarded to the scorer.
 
   A refusal answers one JSON object. An accepted text gets an NDJSON stream
   of queue positions, then "starting" when the instance is cold, then the
@@ -62,13 +68,44 @@ browser ── website Worker ──service binding──► detect Worker ─�
   junk or replayed receipts loads only that object, and a scan waits at most
   one hold for its receipt (it answers without one otherwise).
 
+## The free cut
+
+The free check scores at most the first 1,000 whitespace words of a text and
+never stops inside a sentence: a text that stops mid-sentence looks
+AI-written to the detector far more often (`docs/detect-evidence.md`, "Long
+texts"). In order:
+
+1. **C1.** A text of more than 1,000 words is scored from its start to the
+   last unit end at or before the start of word 1,001. A unit end is a
+   sentence end (".", "?" or "!" followed by whitespace; not `said."` and
+   not "…") or the end of the last character before a blank line. If the
+   first 1,000 words hold none, the cut falls at the last line end there
+   (chat logs and other text written one line per utterance).
+2. **C2.** If that part (or a text of 1,000 words or fewer) is over the
+   scorer's 2,048 tokens with the frame, it is cut back to the last unit end
+   inside them (the last line end if none fits), found by binary search with
+   exact counts.
+3. **C3.** If neither finds a unit end or a line end, nothing is scored:
+   refusal `no_sentence_end` with the text's `total_words`. A cut leaving
+   fewer than 24 words gets `too_short`, as any short text does.
+
+The length bin, the English screen, the notices and the passages all belong
+to the scored part. A result carries `words` (scored), `total_words` (sent),
+`cut` (`none`, `first_1000_words` or `token_limit`) and `scored_end`, the
+scored part's end as a UTF-16 offset into the text sent, so the page can grey
+the rest. Refusals of a text after the cut carry the same counts and `cut`.
+The rule is the long-text measurement's own: on its 3,457 consumed-Test and
+Calibration sources over 1,000 words, C1 here gives byte-identical texts. The
+1,000 words are a product rule, not a measured bound; the measured range
+reaches them.
+
 ## Bounds, derived rather than tuned
 
 | Control | Bound | Source |
 |---|---|---|
 | Tokens | 2,048 with the frame | the scorer's limit, counted here exactly (`slop-ninja-scorer-tokens`) |
-| Body | 2,046 × 512 × 9 + 2,048 + 26 = 9,430,042 bytes | the longest token (512 bytes), the largest escaped-JSON-to-NFC ratio (9, U+01D5), the Turnstile token's documented length and the envelope's fixed bytes; tests recompute 512 from the tokenizer table and 9 from the scorer's NFC crate |
-| Text | 2,046 × 512 × 3 bytes | a decomposed character is at most 3 times its NFC bytes (recomputed by a test); a longer text is refused without being tokenized |
+| Body | 2,046 × 512 × 9 + 2,048 + 26 = 9,430,042 bytes | the longest token (512 bytes), the largest escaped-JSON-to-NFC ratio (9, U+01D5), the Turnstile token's documented length and the envelope's fixed bytes; tests recompute 512 from the tokenizer table and 9 from the scorer's NFC crate. With the free cut a longer body could still hold a scorable first 1,000 words, so this is the free route's read budget; the scan memory below admits less |
+| Text | 2,046 × 512 × 3 bytes | a decomposed character is at most 3 times its NFC bytes (recomputed by a test); the free cut never tokenizes a longer prefix |
 | Forwarded body | the scorer's 8 MiB | measured on the body built here; refused, never truncated |
 | Isolate scan memory | the memory model's linear memory less the stack, the glue partition, the objects' memory and warm requests | `routes.rs`; each score request reserves 83 bytes per body byte (body, text, NFC copy, the tokenizer's scratch, the forwarded body) plus the reply bound: 2 of those bytes before it reads anything, the rest once Turnstile passes |
 | Gate tickets | the gate's 8 MiB table at 256 bytes per ticket (with its waiting ask's channel) | `routes.rs` |
@@ -77,10 +114,11 @@ browser ── website Worker ──service binding──► detect Worker ─�
 
 An added token with `lstrip` (`[MASK]`) also takes the whitespace before it,
 however long. A text whose length rests on such whitespace is refused by the
-body bound as too large, which only ever refuses more. The isolate scan memory
-refuses, as too large, any request that could not fit even alone (about 1 MB
-of body); no text within the token limit written as ordinary prose comes
-near that.
+body bound as too large, or cut shorter than it had to be, which only ever
+refuses or cuts more. The isolate scan memory refuses, as too large, any
+request that could not fit even alone (about 1 MB of body, well over a
+hundred thousand words of ordinary prose); the page then asks for a section
+of the document.
 
 ## Liveness
 
@@ -118,9 +156,12 @@ the launch gate; they are not abuse thresholds.
 - Bands cut at the release's Calibration-split operating points: 99.988%
   (0.9998820476527482, the top isotonic level) and 90.9%
   (0.9090909090909091, the 1% human-FPR point), and 50%.
-- The four bands start at 150 whitespace words; texts over 450 words carry a
-  label, because the bands' human false positives were measured on 150 to 450
-  words.
+- The four bands apply from 150 to 1,000 scored words. The band table was
+  measured at 150-450 words (bin `150_450`); for texts that end at a sentence
+  end, its human rates were measured to hold at 451-1,000 words (bin
+  `451_1000`, so the page can say so and add that a small AI part in a long
+  text is caught less often; `docs/detect-evidence.md`, "Long texts"). A
+  longer text is scored on its first 1,000 words ("The free cut").
 - From 24 to 149 words (bins `24_49`, `50_99`, `100_149`) the result is
   `strong` only when the confidence reaches a release level and a passage's
   own confidence reaches a level of the span confidence map, per bin: 24-99

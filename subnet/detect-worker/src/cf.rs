@@ -12,9 +12,11 @@
 //!   either); the intake reservation (503 unread when busy); the body, read
 //!   within Turnstile's token validity (408 past it); the strict envelope;
 //!   Turnstile siteverify (single use, hostname and action checked); the rest
-//!   of the reservation (503 when busy); the exact token count; the length
-//!   floor; the English screen. Refusals answer one JSON object. An accepted
-//!   text gets an NDJSON stream: queue positions, "starting" on a cold
+//!   of the reservation (503 when busy); the free cut (at most the first
+//!   1,000 words, never inside a sentence, within the scorer's tokens, counted
+//!   exactly: `cut.rs`); the scored part's length floor and English screen.
+//!   Only the scored part is forwarded. Refusals answer one JSON object. An
+//!   accepted text gets an NDJSON stream: queue positions, "starting" on a cold
 //!   instance, then the result or an error. Each line is written within one
 //!   hold, or the reader is taken as gone. The gate sees a ticket and a
 //!   client key, never the text, which stays in this invocation.
@@ -29,6 +31,7 @@
 
 use crate::answer::{self, Outcome, PackageLine};
 use crate::cf_io::{self, Settled, now_ms};
+use crate::cut::{self, Cut, NoCut};
 use crate::envelope;
 use crate::policy::{self, Band, LengthBin};
 use crate::routes::{self, ScanMemory, NoRoom};
@@ -159,6 +162,7 @@ fn fail(status: u16, code: &'static str) -> web_sys::Response {
 struct Refused {
     state: &'static str,
     code: &'static str,
+    /// The scored part's words.
     #[serde(skip_serializing_if = "Option::is_none")]
     words: Option<usize>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -167,16 +171,42 @@ struct Refused {
     /// passages are off or unavailable).
     #[serde(skip_serializing_if = "Option::is_none")]
     min_words: Option<usize>,
+    /// The whole text's words.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    total_words: Option<usize>,
+    /// How the scored part was chosen (`cut.rs`).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    cut: Option<&'static str>,
+}
+
+impl Refused {
+    fn new(code: &'static str) -> Refused {
+        Refused { state: "refused", code, words: None, tokens: None, min_words: None, total_words: None, cut: None }
+    }
+
+    /// A refusal of the free cut's scored part.
+    fn of(code: &'static str, c: &Cut<'_>) -> Refused {
+        Refused {
+            words: Some(c.scored_words),
+            tokens: Some(c.tokens),
+            total_words: Some(c.total_words),
+            cut: Some(c.kind.code()),
+            ..Refused::new(code)
+        }
+    }
+
+    fn send(&self) -> web_sys::Response {
+        json_raw(200, &serde_json::to_vec(self).unwrap_or_default())
+    }
 }
 
 fn refused(code: &'static str, words: Option<usize>, tokens: Option<u64>) -> web_sys::Response {
-    let body = serde_json::to_vec(&Refused { state: "refused", code, words, tokens, min_words: None }).unwrap_or_default();
-    json_raw(200, &body)
+    Refused { words, tokens, ..Refused::new(code) }.send()
 }
 
 /// The `too_short` refusal, naming the minimum that applies.
-fn too_short(words: usize, tokens: u64, min_words: usize) -> Refused {
-    Refused { state: "refused", code: "too_short", words: Some(words), tokens: Some(tokens), min_words: Some(min_words) }
+fn too_short(c: &Cut<'_>, min_words: usize) -> Refused {
+    Refused { min_words: Some(min_words), ..Refused::of("too_short", c) }
 }
 
 #[wasm_bindgen]
@@ -674,36 +704,35 @@ async fn score(mut req: Request, env: Env, answer: &Answer) {
     if text.trim().is_empty() {
         return answer.send(refused("empty", None, None));
     }
-    let tokens = if text.len() as u64 > bound::MAX_TEXT_BYTES {
-        None
-    } else {
-        let mut admit = |bytes: usize, _align: usize| bytes <= reservation;
-        match slop_ninja_scorer_tokens::count(text, &mut admit) {
-            Ok(n) => Some(n),
-            Err(_) => return answer.send(fail(503, "busy")),
+    // The free cut: the part scored (at most the first 1,000 words, never
+    // inside a sentence, within the scorer's tokens), counted exactly. Its
+    // counts allocate within the reservation.
+    let mut admit = |bytes: usize, _align: usize| bytes <= reservation;
+    let cut = match cut::free_cut(text, &mut admit) {
+        Ok(c) => c,
+        Err(NoCut::NoSentenceEnd) => {
+            metric(&env, "no_sentence_end", "", "", None, false, 0);
+            let r = Refused { total_words: Some(policy::words(text)), ..Refused::new("no_sentence_end") };
+            return answer.send(r.send());
         }
+        Err(NoCut::Count(_)) => return answer.send(fail(503, "busy")),
     };
-    let Some(tokens) = tokens.filter(|t| *t <= bound::MAX_TOKENS) else {
-        metric(&env, "too_long", "", "", tokens, false, 0);
-        return answer.send(refused("too_long", None, tokens));
-    };
-    let words = policy::words(text);
+    let (scored, tokens) = (cut.scored, cut.tokens);
     // A short text's rule reads passages: with spans off, the span-free
     // minimum applies.
     let spans_on = switch_on(&env, "DETECT_SPANS");
-    let length = match policy::length_bin(words) {
+    let length = match policy::length_bin(cut.scored_words) {
         Ok(l) if spans_on || !l.is_short() => l,
         _ => {
             metric(&env, "too_short", "", "", Some(tokens), false, 0);
-            let r = too_short(words, tokens, policy::min_words(spans_on));
-            return answer.send(json_raw(200, &serde_json::to_vec(&r).unwrap_or_default()));
+            return answer.send(too_short(&cut, policy::min_words(spans_on)).send());
         }
     };
-    if english::english_screen(text).is_some() {
+    if english::english_screen(scored).is_some() {
         metric(&env, "not_english", "", length.code(), Some(tokens), false, 0);
-        return answer.send(refused("not_english", Some(words), Some(tokens)));
+        return answer.send(Refused::of("not_english", &cut).send());
     }
-    let fwd = Forward { package: &pkg.load, spans: true, docs: [ForwardDoc { id: "d", text }] };
+    let fwd = Forward { package: &pkg.load, spans: true, docs: [ForwardDoc { id: "d", text: scored }] };
     let Ok(fwd) = serde_json::to_string(&fwd) else { return answer.send(fail(500, "internal")) };
     if fwd.len() as u64 > bound::SCORER_MAX_BODY {
         return answer.send(refused("too_long", None, Some(tokens)));
@@ -726,7 +755,7 @@ async fn score(mut req: Request, env: Env, answer: &Answer) {
         Ok(r) => answer.send(r),
         Err(_) => return answer.send(fail(500, "internal")),
     }
-    run(&env, &req, &mut lines, &w, &pkg, fwd, text, tokens, words, length, started).await;
+    run(&env, &req, &mut lines, &w, &pkg, fwd, &cut, length, started).await;
     lines.close().await;
     drop(held);
 }
@@ -739,12 +768,11 @@ async fn run(
     w: &Waits,
     pkg: &Package,
     fwd: String,
-    text: &str,
-    tokens: u64,
-    words: usize,
+    cut: &Cut<'_>,
     length: LengthBin,
     started: u64,
 ) {
+    let (text, tokens) = (cut.scored, cut.tokens);
     let hold = w.hold_ms;
     let ip = req.headers().get("cf-connecting-ip").ok().flatten();
     let prefix = ip.as_deref().and_then(crate::address_prefix).unwrap_or_else(|| "none".into());
@@ -837,9 +865,8 @@ async fn run(
             let receipt = receipt.and_then(|r| r.receipt).unwrap_or_default();
             let line = answer::answer(
                 scored,
-                words,
                 length,
-                text,
+                cut,
                 PackageLine { digest: pkg.published.clone(), publication_pending: pkg.pending },
                 receipt,
             );
@@ -849,12 +876,11 @@ async fn run(
         Outcome::ShortWithoutSpans => {
             let _ = gate_tell(env, "/done", &done(Some(served)), hold).await;
             metric(env, "short_without_spans", "", length.code(), Some(tokens), cold, served);
-            let _ = lines.line(&too_short(words, tokens, bound::MEASURED_MIN_WORDS)).await;
+            let _ = lines.line(&too_short(cut, bound::MEASURED_MIN_WORDS)).await;
         }
         Outcome::Declined(code) => {
             let _ = gate_tell(env, "/done", &done(Some(served)), hold).await;
-            let r = Refused { state: "refused", code, words: Some(words), tokens: Some(tokens), min_words: None };
-            let _ = lines.line(&r).await;
+            let _ = lines.line(&Refused::of(code, cut)).await;
         }
         Outcome::Fault => {
             let _ = gate_tell(env, "/done", &done(None), hold).await;

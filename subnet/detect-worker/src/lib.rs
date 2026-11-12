@@ -10,6 +10,8 @@
 //!   the pinned tokenizer and the scorer's NFC tables;
 //! - [`envelope`]: the strict request parser;
 //! - [`english`]: the human pools' English screen, ported;
+//! - [`cut`]: the free check's scored part: at most the first 1,000 words,
+//!   never cut inside a sentence, within the scorer's tokens;
 //! - [`policy`]: length policy, bands, display rules and notices;
 //! - [`answer`]: the response allow-list and UTF-16 offsets;
 //! - [`receipt`]: content-free feedback receipts and their ledger;
@@ -33,6 +35,7 @@
 
 pub mod answer;
 pub mod bound;
+pub mod cut;
 pub mod english;
 pub mod envelope;
 pub mod gate;

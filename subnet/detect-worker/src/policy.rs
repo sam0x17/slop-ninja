@@ -1,8 +1,13 @@
 //! What the page may say about a text, from A's measured evidence.
 //!
 //! - **Length.** The four bands' human false-positive rates were measured on
-//!   texts of 150 to 450 whitespace words (the human pools' word count). A
-//!   longer text is scored with a label. From 24 to 149 words the page gives
+//!   texts of 150 to 450 whitespace words (the human pools' word count), and
+//!   for texts that end at a sentence end they were measured to hold from 451
+//!   to 1,000 words; those get their own bin, so the page can say so and add
+//!   that a small AI part is caught less often in a longer text. The free
+//!   check scores at most the first 1,000 words, cut back to a sentence end
+//!   (`crate::cut`), and the bin is that of the words scored. From 24 to 149
+//!   words the page gives
 //!   one positive result under a per-bin rule measured on excerpts of the
 //!   consumed Test and chosen on the Calibration split
 //!   (`docs/detect-evidence.md`, short texts); under 24 words, the span floor,
@@ -105,10 +110,11 @@ pub enum LengthBin {
     Short50,
     /// 100 to 149 words: the short-text rule.
     Short100,
-    /// 150 to 450 words: human false positives measured.
+    /// 150 to 450 words: the band table.
     Measured,
-    /// 451 words to 2,048 tokens: scored, labelled.
-    Longer,
+    /// 451 to 1,000 scored words: the band table's human rates measured to
+    /// hold; the AI side caught less often when the AI part is small.
+    Long,
 }
 
 /// A short bin's rule: the result is "strong signs" when the document's
@@ -140,12 +146,12 @@ impl LengthBin {
             LengthBin::Short50 => "50_99",
             LengthBin::Short100 => "100_149",
             LengthBin::Measured => "150_450",
-            LengthBin::Longer => "over_450",
+            LengthBin::Long => "451_1000",
         }
     }
 
     pub fn from_code(s: &str) -> Option<LengthBin> {
-        [LengthBin::Short24, LengthBin::Short50, LengthBin::Short100, LengthBin::Measured, LengthBin::Longer]
+        [LengthBin::Short24, LengthBin::Short50, LengthBin::Short100, LengthBin::Measured, LengthBin::Long]
             .into_iter()
             .find(|b| b.code() == s)
     }
@@ -157,7 +163,7 @@ impl LengthBin {
                 Some(ShortRule { confidence_level: VERY_STRONG_CUT, span_level: SHORT_SPAN_LEVEL })
             }
             LengthBin::Short100 => Some(ShortRule { confidence_level: STRONG_CUT, span_level: SHORT_SPAN_LEVEL_100 }),
-            LengthBin::Measured | LengthBin::Longer => None,
+            LengthBin::Measured | LengthBin::Long => None,
         }
     }
 
@@ -171,16 +177,19 @@ pub fn words(s: &str) -> usize {
     s.split_whitespace().count()
 }
 
-/// The length decision before any scoring: `Err(words)` when too short.
+/// The length decision before scoring, on the scored part's words:
+/// `Err(words)` when too short. The free cut scores at most
+/// [`crate::bound::FREE_MAX_WORDS`] words, inside the measured range, so
+/// [`LengthBin::Long`] never holds more.
 pub fn length_bin(words: usize) -> Result<LengthBin, usize> {
-    use crate::bound::{MEASURED_MAX_WORDS, MEASURED_MIN_WORDS, MIN_WORDS};
+    use crate::bound::{BAND_TABLE_MAX_WORDS, MEASURED_MIN_WORDS, MIN_WORDS};
     Ok(match words {
         w if w < MIN_WORDS => return Err(words),
         w if w < 50 => LengthBin::Short24,
         w if w < 100 => LengthBin::Short50,
         w if w < MEASURED_MIN_WORDS => LengthBin::Short100,
-        w if w <= MEASURED_MAX_WORDS => LengthBin::Measured,
-        _ => LengthBin::Longer,
+        w if w <= BAND_TABLE_MAX_WORDS => LengthBin::Measured,
+        _ => LengthBin::Long,
     })
 }
 
@@ -272,12 +281,15 @@ mod tests {
         assert_eq!(length_bin(149), Ok(LengthBin::Short100));
         assert_eq!(length_bin(150), Ok(LengthBin::Measured));
         assert_eq!(length_bin(450), Ok(LengthBin::Measured));
-        assert_eq!(length_bin(451), Ok(LengthBin::Longer));
+        assert_eq!(length_bin(451), Ok(LengthBin::Long));
+        assert_eq!(length_bin(1000), Ok(LengthBin::Long));
+        assert_eq!(LengthBin::Long.code(), "451_1000");
+        assert_eq!(LengthBin::from_code("over_450"), None);
         assert_eq!(words("  one\ttwo\nthree  "), 3);
         assert_eq!((min_words(true), min_words(false)), (24, 150));
-        for b in [LengthBin::Short24, LengthBin::Short50, LengthBin::Short100, LengthBin::Measured, LengthBin::Longer] {
+        for b in [LengthBin::Short24, LengthBin::Short50, LengthBin::Short100, LengthBin::Measured, LengthBin::Long] {
             assert_eq!(LengthBin::from_code(b.code()), Some(b));
-            assert_eq!(b.is_short(), !matches!(b, LengthBin::Measured | LengthBin::Longer));
+            assert_eq!(b.is_short(), !matches!(b, LengthBin::Measured | LengthBin::Long));
         }
         // The span floor is the shortest scored text, so a text under 48
         // words holds at most one passage.
@@ -309,7 +321,7 @@ mod tests {
         assert!(!r.strong(below(STRONG_CUT * 100.), [span100]));
         assert!(!r.strong(STRONG_CUT * 100., [below(span100)]));
         assert!(!r.strong(99.99, []));
-        assert!(LengthBin::Measured.short_rule().is_none() && LengthBin::Longer.short_rule().is_none());
+        assert!(LengthBin::Measured.short_rule().is_none() && LengthBin::Long.short_rule().is_none());
         assert!(!Band::NoStrongSigns.shows_spans());
     }
 

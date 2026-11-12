@@ -12,6 +12,7 @@ fn src(name: &str) -> String {
 const SOURCES: &[&str] = &[
     "lib.rs",
     "bound.rs",
+    "cut.rs",
     "english.rs",
     "envelope.rs",
     "policy.rs",

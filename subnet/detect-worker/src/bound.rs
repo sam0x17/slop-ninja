@@ -23,8 +23,13 @@
 //!   maximum length complete the bound.
 //!
 //! So a body over [`RAW_BODY_BYTES`] cannot hold a text of at most
-//! [`MAX_TOKENS`] tokens (lstrip whitespace aside), and it is refused with
-//! 413 before a byte of it is read into memory.
+//! [`MAX_TOKENS`] tokens (lstrip whitespace aside). With the free cut
+//! (`crate::cut`) a longer text is no longer refused for its length: its
+//! first [`FREE_MAX_WORDS`] words are scored. The same bound is therefore the
+//! free route's read budget: a body over it is refused with 413 before a byte
+//! of it is read into memory, and in practice the isolate's scan memory
+//! (`crate::routes`) admits about 1 MB of body, well over a hundred thousand
+//! words of ordinary prose.
 
 /// The scorer's token limit, frame included (`engine::MAX_TOKENS`).
 pub const MAX_TOKENS: u64 = 2048;
@@ -41,8 +46,8 @@ pub const NFC_ESCAPE_FACTOR: u64 = 9;
 /// Bytes of UTF-8 text per byte of its NFC form, at most (rounded up;
 /// recomputed by a test): a decomposed character is at most this many times
 /// its composed bytes. A text longer than this many times the content
-/// tokens' bytes cannot fit the token limit, so it is refused without being
-/// tokenized.
+/// tokens' bytes cannot fit the token limit, so the free cut never
+/// tokenizes a longer prefix.
 pub const TEXT_BYTES_PER_NFC_BYTE: u64 = 3;
 /// The longest text that can fit the token limit.
 pub const MAX_TEXT_BYTES: u64 = CONTENT_TOKENS * MAX_TOKEN_TEXT_BYTES * TEXT_BYTES_PER_NFC_BYTE;
@@ -63,11 +68,24 @@ pub const SCORER_MAX_BODY: u64 = 8 << 20;
 /// passage's confidence, and no passage is shorter.
 pub const MIN_WORDS: usize = 24;
 /// Where the four bands start: their human false-positive rates were
-/// measured from 150 to 450 words. Below it the short-text rule applies,
-/// and with spans off this is the minimum.
+/// measured from 150 words. Below it the short-text rule applies, and with
+/// spans off this is the minimum.
 pub const MEASURED_MIN_WORDS: usize = 150;
-/// The top of the measured length range; longer texts carry a label.
-pub const MEASURED_MAX_WORDS: usize = 450;
+/// The top of the band table's own range: its rates were measured on texts
+/// of 150 to 450 words. Longer scored texts are in their own length bin,
+/// whose rates were measured separately.
+pub const BAND_TABLE_MAX_WORDS: usize = 450;
+/// The top of the measured length range: for texts that end at a sentence
+/// end, the band table's human rates were measured to hold up to 1,000
+/// words (`docs/detect-evidence.md`, "Long texts").
+pub const MEASURED_MAX_WORDS: usize = 1000;
+/// The free check's word limit, a product rule rather than a measured bound:
+/// a longer text is scored on its first 1,000 words, cut back to a sentence
+/// end (`crate::cut`). It never exceeds the measured range.
+pub const FREE_MAX_WORDS: usize = 1000;
+
+const _: () = assert!(MEASURED_MIN_WORDS <= BAND_TABLE_MAX_WORDS && BAND_TABLE_MAX_WORDS < MEASURED_MAX_WORDS);
+const _: () = assert!(FREE_MAX_WORDS <= MEASURED_MAX_WORDS);
 
 const _: () = assert!(RAW_BODY_BYTES == 9_427_968 + 2048 + 26);
 

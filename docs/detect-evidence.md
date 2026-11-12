@@ -18,10 +18,15 @@ signs of AI involvement**, with its highlighted passages, or **no strong
 signs**. It shows no percentage, no share and no very strong band at these
 lengths (see "Short texts").
 
-The page scores English text of 24 words or more, up to 2,048 tokens (roughly
-1,500 words). It labels texts over 450 words with a note that human false
-positives were measured on shorter texts (for longer ones, in one domain only),
-and withholds results for text that fails its English screen.
+The page scores English text of 24 words or more and withholds results for
+text that fails its English screen. It scores at most the first 1,000 words
+of a text: a longer text is cut back to the last sentence end or paragraph
+break inside its first 1,000 words, never inside a sentence, and further if
+dense text would exceed the 2,048 tokens *A* reads at once; the page says how
+many of the text's words it scored. The four bands' human false-positive
+rates were measured at 150-450 words and, for texts that end at a sentence
+end, at 451-1,000 words, where a small AI-edited part is caught less often
+(see "Long texts").
 
 This document gives the measured rates that the page's copy cites. All figures
 are aggregates, computed in November 2026 (the Common Crawl pilot's scores date
@@ -197,9 +202,9 @@ Test.
 ## Length
 
 Human false-positive rates in the band table were measured on texts of 150-450
-words only. Within that range the strong-band rate is not monotonic in length:
-20 of 1,081 (1.85%) at 150-199 words, 15 of 1,846 (0.81%) at 200-299 and 8 of
-359 (2.2%) at 300-450.
+words; "Long texts" below measures 451-1,000 words. Within the band table's
+range the strong-band rate is not monotonic in length: 20 of 1,081 (1.85%) at
+150-199 words, 15 of 1,846 (0.81%) at 200-299 and 8 of 359 (2.2%) at 300-450.
 
 **Shorter texts.** To measure the human side below 150 words, every Test human
 excerpt was re-excerpted from its own start: the leading run of whole units
@@ -233,14 +238,7 @@ themselves, the screen would refuse 4; the 150-450 row includes them.)
   to be short (emails, posts, short answers), which may behave differently.
 - This table measures the human side only. "Short texts" below adds a 24-49-word
   bin and the AI side.
-- **Longer texts** were measured for one domain only. The 260 Project Gutenberg
-  Test excerpts were extended in their own source files from the same start to
-  the first sentence end at or after 500 and 1,000 words. At about 500 words
-  (median 514), 1 of 260 reached the strong band. At about 1,000 words (median
-  1,013), none of 256 did; of the other 4, one book had no 1,000 words left
-  after the excerpt's start and three extensions exceeded the 2,048-token
-  limit. At 150-450 words, 1 of the same 260 reached it. Gutenberg books have a
-  low rate at every length, so this says little about long texts in general.
+- Longer texts are measured in "Long texts" below.
 
 ## Short texts
 
@@ -346,6 +344,193 @@ On the Test (rule chosen on CAL, rates measured on the consumed Test):
 - **No very strong result.** A stricter pair chosen the same way for 0.1% would
   rest on one or two CAL human excerpts, too few to choose a rule, so the page
   has no second positive result under 150 words.
+
+## Long texts
+
+The page scores at most the first 1,000 words of a text. This section measures
+the served package on texts of 451 to 1,000 words and on the cut that produces
+a text's first 1,000 words: the consumed Test, with CAL beside it.
+
+**How the long texts were made.** Every Test human document is an excerpt of
+at most 450 words and no AI-involved document is longer than 619 words, so the
+long texts were built from them, each starting at its source text's start:
+
+- **Natural human texts**: the 260 Project Gutenberg Test excerpts (170 on CAL)
+  continued in their own book files, and the ELLIPSE essays (student and
+  learner essays) whose Test document is exactly an essay's leading
+  paragraphs, re-rendered whole (1,059 of 2,130; few essays pass 700 words).
+- **Extended mixed texts**: a mixed document (span or full rewrite) whose
+  parent is one of those human texts, followed by the parent's own
+  continuation. This is a natural long document with one AI-edited part,
+  which always sits in its opening 150-450 words (Test: 388 sources, CAL: 169).
+- **Joined texts** (not natural text): documents of one domain (humans, all 18
+  primary domains), of one domain and one generator (model-only or mixed), or
+  of one frontier generator, joined by a blank line, each document used once.
+  A joined text changes topic at each join, which a real document does not, so
+  joined and natural texts are reported apart.
+
+Each source gave up to four texts: one of 450-699 words and one of 700-1,000
+words (each to the first unit end at or after a hashed target length), the
+first 1,000 words exactly, and the same first 1,000 words cut back to the last
+unit end inside them (the page's cut, below; kept if at least 900 words). A
+unit end is a sentence end (".", "?" or "!" followed by whitespace) or a blank
+line. The texts of one source overlap, so the bins are reported apart, never
+pooled. Texts that fail the page's English screen were left out. Every text
+was scored with the scoring server build and model package the page uses; 32
+texts over the 2,048-token limit (all from Project Gutenberg books) were left
+out.
+
+### Human texts of 451 to 1,000 words
+
+Texts that end at a sentence end or blank line:
+
+| Words | Population | Texts | 50% or more | Strong band or above | Very strong |
+|---|---|---:|---:|---:|---:|
+| 150-450 (the band table) | primary humans | 3,286 | 203 (6.2%) | 43 (1.31%, 0.97-1.76%) | 0 |
+| 450-699 | natural: Gutenberg books, student essays | 259 | 1 | 1 (0.39%) | 0 |
+| 450-699 | joined primary humans | 602 | 53 (8.8%) | 8 (1.33%, 0.67-2.60%) | 0 |
+| 450-699 | learner essays, whole | 187 | 9 | 2 (1.07%) | 1 |
+| 700-1,000 | natural | 239 | 2 | 1 (0.42%) | 0 |
+| 700-1,000 | joined primary humans | 611 | 55 (9.0%) | 7 (1.15%, 0.56-2.35%) | 0 |
+| 700-1,000 | learner essays, whole | 33 | 3 | 1 | 1 |
+| first 1,000, the page's cut | natural | 257 | 2 | 0 (0-1.47%) | 0 |
+| first 1,000, the page's cut | joined primary humans | 637 | 55 (8.6%) | 6 (0.94%, 0.43-2.04%) | 0 |
+| first 1,000, the page's cut | learner essays, whole | 13 | 2 | 1 | 1 |
+
+- Joined human texts from all 18 primary domains reach the strong band at the
+  band table's rate (1.33%, 1.15% and 0.94% against 1.31%), and natural long
+  human text at most once per bin. None of the 2,605 primary human texts
+  reaches the very strong band (interval 0-0.15%). The 50%-or-more rate of
+  joined texts is a little higher (8.6-9.0% against 6.2%), below the strong
+  cut. By domain, FineWeb web text is the highest (2 of 40, 3 of 40 and 3 of
+  42), as at 150-450 words.
+- A long human text is not flagged as often as its worst part: at 450-699
+  words, 26 of the 602 joined texts hold a document that reached the strong
+  band on its own, but only 8 joined texts are flagged.
+- Two whole learner essays reach the very strong band (one at 523 words, one
+  at 911 words and in its first 1,000 words). At 150-450 words the 1,980
+  learner essays had 5 in the strong band and none very strong. There are too
+  few long essays for a rate, but the very strong band is not free of long
+  learner essays.
+- **CAL agrees.** In the three bins that end at a sentence end, the strong cut
+  flags 1 of 359, 0 of 357 and 0 of 377 CAL human texts (Gutenberg books and
+  joined texts), and the very strong cut none: within the 1% and 0.1% the
+  release's operating points allow (3 and 0 texts). The page uses the same
+  bands and cuts from 150 to 1,000 words, in two length bins (150-450 and
+  451-1,000) so it can say which evidence applies.
+
+### The cut: exactly 1,000 words or the last sentence end
+
+The same first 1,000 words of each source, cut at exactly word 1,000 (inside
+a sentence in 616 of the 637 joined human texts) and cut back to the last unit
+end inside them:
+
+| Population (Test) | Texts | Strong or above: exact cut / sentence cut | Very strong: exact / sentence | Mean confidence: exact / sentence |
+|---|---:|---:|---:|---:|
+| joined primary humans | 637 | **309 (48.5%) / 6 (0.94%)** | 129 (20.3%) / 0 | 0.674 / 0.245 |
+| natural humans (Gutenberg, student essays) | 257 | 1 / 0 | 0 / 0 | 0.178 / 0.128 |
+| extended mixed (one AI-edited part) | 294 | **118 (40.1%) / 199 (67.7%)** | 12 (4.1%) / 53 (18.0%) | 0.770 / 0.866 |
+| joined model-only, primary and frontier | 691 | 691 / 691 | 691 / 690 | above 0.999 / above 0.999 |
+| joined mixed, primary and frontier | 635 | 624 / 621 | 528 / 521 | 0.992 / 0.990 |
+
+On CAL, the joined human texts reach the strong band 106 of 214 times (49.5%)
+at the exact cut and never at the sentence cut; very strong 65 against 0.
+
+- A text that stops mid-sentence is read as AI-like. On paragraph-formatted
+  human text the confidence jumps (Wikipedia 58 of 68 joined texts flagged at
+  the exact cut, Global Voices 36 of 39); where lines routinely end without
+  punctuation it barely moves (Gutenberg 0 of 52, Ubuntu IRC 0 of 26). On
+  hard-wrapped Gutenberg text the exact cut instead lowers the detection of
+  AI-edited documents (67.7% to 40.1%): it makes the output unreliable in both
+  directions rather than adding a constant. The human excerpts the model was
+  trained and tested on were never cut inside a sentence (each ends at a
+  sentence, line or paragraph end); that is one likely reason, not tested
+  here.
+- **The page's cut** is therefore the sentence cut: the last unit end at or
+  before the start of word 1,001. It dropped a median of 10 words (90th
+  percentile 29, 99th 62, largest 97); in every source a unit end lay within
+  the last 300 words of the 1,000, and within the last 100 for 99.65%. Text
+  written one line per utterance with no punctuation is cut at its last line
+  end; no measured source needed that. The Worker's word cut reproduces the
+  measurement's texts byte for byte on all 3,457 sources over 1,000 words (12
+  dense ones are then cut further to fit the token limit, below).
+- **The same effect at 150-450 words.** The 3,164 primary human Test documents
+  with their last 1-8 words dropped, so that each ends mid-sentence, reach the
+  strong band or above 721 times (22.8%, 21.4-24.3%) and the very strong band
+  283 times (8.9%), against 42 (1.33%) and 0 for the same documents whole.
+  Global Voices (50%), Wikipedia (46%), Wikisource and Wikinews (37-38%) rise
+  the most; Ubuntu IRC and Project Gutenberg barely move (1 to 2 each, of 143
+  and 260). The page scores a text it is sent as sent, so a text that already
+  stops mid-sentence is not covered by the rates in this document, at any
+  length.
+
+### AI-involved texts of 451 to 1,000 words
+
+| Words | Population | Texts | Strong band or above | Very strong |
+|---|---|---:|---:|---:|
+| 150-450 (the band table) | primary and frontier AI-involved documents | 7,209 | 6,209 (86.1%) | 5,310 (73.7%) |
+| 450-699 | extended mixed | 296 | 254 (85.8%) | 142 (48.0%) |
+| 450-699 | joined model-only | 726 | 726 (100%) | 723 (99.6%) |
+| 450-699 | joined mixed | 665 | 610 (91.7%) | 487 (73.2%) |
+| 700-1,000 | extended mixed | 286 | 208 (72.7%) | 73 (25.5%) |
+| 700-1,000 | joined model-only | 697 | 697 (100%) | 695 (99.7%) |
+| 700-1,000 | joined mixed | 625 | 601 (96.2%) | 501 (80.2%) |
+| first 1,000, the page's cut | extended mixed | 294 | 199 (67.7%) | 53 (18.0%) |
+| first 1,000, the page's cut | joined model-only | 691 | 691 (100%) | 690 (99.9%) |
+| first 1,000, the page's cut | joined mixed | 635 | 621 (97.8%) | 521 (82.0%) |
+
+The joined rows include frontier generations; on their own, frontier
+model-only texts reach the strong band at every length and mixed ones 92.5%,
+95.9% and 96.1%.
+
+- **Mostly AI-written text stays caught** at every length.
+- **A long document with a small AI-edited part is caught less often than the
+  band table's AI column says.** The extended mixed texts' AI parts, on their
+  own as the 150-450-word mixed documents they came from, reach the strong
+  band about 92% of the time. Followed by their original continuation (mean
+  AI share 25%, 17% and 14%), they reach it 85.8%, 72.7% and 67.7% of the
+  time, and the very strong band 48.0%, 25.5% and 18.0%. AI parts of 100 words
+  or more stay at 84-96% at every length; parts under 100 words fall to 34% at
+  1,000 words (48% for the 150-450-word mixed documents with as few AI words).
+  This is the evidence thinning, not a misplaced cut: the human rates are
+  unchanged, and lower cuts would raise them. CAL repeats it (extended mixed
+  80.5%, 73.1% and 69.8%).
+- **Highlighted passages.** Every AI text in the strong bands has at least one,
+  and none is under 24 words, in any band. Byte precision and recall against
+  AI passages of 24 words or more: extended mixed 0.93 / 0.97, 0.91 / 0.99 and
+  0.88 / 0.99; joined mixed 0.90-0.91 / 0.87-0.89; joined model-only 0.999 /
+  0.997 (150-450-word mixed documents in the strong bands: 0.936 / 0.873).
+  Every long human text in the strong bands also gets a passage.
+- **Estimated share**, mean absolute error: extended mixed 14.0, 17.6 and 19.0
+  percentage points; joined mixed 10.3, 8.9 and 8.5; joined model-only 0.7
+  (150-450-word mixed documents: 15.5). Joined human texts show a share of 25%
+  or more 2.9-3.5% of the time and natural ones 1.6-2.1% (150-450: 5.5%).
+
+### Calibration, tokens and later parts of a book
+
+- **Calibration.** The release's calibration map is used at every length.
+  On joined human texts with joined model-only texts, the Brier score is
+  0.043, 0.047 and 0.049 in the three sentence-ended bins, against 0.034 at
+  150-450 words for the same composition (expected calibration error 0.100,
+  0.111 and 0.118 against 0.088): the joined human texts' mean confidence rises
+  from 0.179 to 0.221-0.245 while their strong-band rate does not. The natural
+  set (Gutenberg and essay humans with extended mixed texts) has a Brier score
+  of 0.029-0.040. The exact 1,000-word cut is the only badly calibrated set
+  (0.286). CAL follows the Test.
+- **Tokens.** Test primary human documents have a median of 1.28 content
+  tokens per word (10th-90th percentile 1.17-1.50), so a 1,000-word text is
+  about 1,300 tokens and fits the 2,048-token limit for about 99.9% of them
+  by projected density. Dense prose does not always: projected, 1.0% of the
+  Test's Federal Register documents and 0.38% of its Gutenberg ones, and 2.3%
+  of CAL's Gutenberg and Federal Register documents; measured, 2 of 259 Test
+  and 4 of 166 CAL Gutenberg texts at 1,000 words. For such text the page cuts
+  further back, to the last unit end inside the limit, counted exactly with
+  the scorer's own tokenizer.
+- **Later parts of a book.** Three consecutive parts of at most 1,000 words,
+  each cut at a sentence end, of 243 Test Gutenberg books: none reached the
+  strong band in any part (interval 0-1.56%; 4 books had a part at 50% or
+  more). Book prose has the lowest human rate of any domain here, so this shows
+  only that later parts of a book behave like its start.
 
 ## Estimated share on human documents
 
@@ -473,9 +658,18 @@ and the human sets), under the 24-word floor:
   chosen on CAL after the Test had been opened. CAL holds about 1,100 human
   documents, so each bin's rule was chosen with room for only 11 to 21
   flagged human excerpts. The rule belongs to span package d24: another package needs its
-  own measurement. The long-length human rate covers one domain. On the AI side, no Test document
-  is longer than 619 words and only 52 of the 7,209 exceed 450, so detection
-  and passage rates for longer texts were not measured.
+  own measurement.
+- Long texts were built, not found: natural long human text covers Project
+  Gutenberg books and ELLIPSE essays only, and the other domains rest on
+  joined documents, which change topic at each join. No natural long AI text
+  exists: the AI rows are joined generations, or extended mixed texts whose AI
+  part always sits in the opening 150-450 words; an AI part later in a long
+  document was not measured. The mid-sentence effect was found during the
+  long-text measurement, not planned for; the sentence-cut texts and the
+  150-450-word check were added after it was seen. The rule for judging
+  whether the bands hold above 450 words was written before the long-bin
+  results outside Gutenberg were read. The figures belong to span package
+  d24.
 - The Common Crawl pilot's documents are web pages from before the cutoff, not
   documented human writing; its hand review covered a sample of the flagged
   documents.

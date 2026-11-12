@@ -32,6 +32,16 @@ smoke input, seed, device and environment, and compares their computation:
   (`BITWISE.json`) holds counts, digests and key paths only, never text or
   row ids.
 
+KD mode (protocol doc-r2 H-KD): `--candidate-config` gives the candidate its own
+config directory, whose protocol may differ from `--config`'s only by a
+`distill` block with alpha 0 in the compared arm, and
+`--candidate-distill-targets` its targets file. Both runs use the same tree
+in that check. The binding inputs then skip `arm_definition` and
+`protocol_sha256`, a `kd_protocol` section records any other protocol
+difference, and `kd_pass` is `bitwise_equal` with alpha 0, no other protocol
+difference and the candidate binding naming the targets file's digest;
+`compare` exits 0 on a KD pass and 1 otherwise.
+
 A D3 pass (`d3_pass`) is `bitwise_equal` and every D3 condition: the smoke
 bundle rebuilt byte for byte from `--source`'s Train block, at most 1% of
 its lines; `--r0-binding` (R0's F-17 binding.json) equal to its expected
@@ -108,6 +118,8 @@ D3_EXPECT = ("r0_binding_sha256", "source_manifest_sha256", "source_weights_sha2
              "contract_sha256", "protocol_sha256")
 ENVIRONMENT = ("torch", "cuda", "transformers_model_source_sha256", "device")
 EXIT_D3_PASS, EXIT_DIFFERENT, EXIT_EQUAL_NOT_D3 = 0, 1, 3
+# KD mode: binding fields that differ by construction between the plain and the distill alpha-0 config.
+KD_BINDING_SKIP = ("arm_definition", "protocol_sha256")
 # A row line's split key, read from its bytes (full_a_bundle.SPLIT_BYTES).
 SPLIT_BYTES = re.compile(rb'"split"\s*:\s*"([^"\\]*)"')
 TRAINER_FILES = ("binding.json", "cohort-weights.json", "initial-gate.json", "history.json", "fit.json",
@@ -458,7 +470,7 @@ def trace(args):
         data=args.data, config=args.config, artifact=args.artifact, init=args.init, out=args.out, arm=args.arm,
         seed=args.seed, device=args.device, report_split=None, consume_sealed_split=None, use_record=None,
         train_subset_rows=None, train_subset_rule=None, diagnostic_dev_subset_rows=None, init_fit=None,
-        train_allowlist=None, final_step=False)
+        train_allowlist=None, final_step=False, distill_targets=getattr(args, "distill_targets", None))
     if args.synthetic_fixture:
         # Offline tests only: the trees' own tiny random ModernBERT and whitespace tokenizer (test_full_a).
         from unittest import mock
@@ -531,7 +543,26 @@ def tensors(saved):
     return {f"{part}.{k}": v for part, state in saved["model"].items() for k, v in state.items()}
 
 
-def compare_outputs(ref, cand, ref_trace, cand_trace):
+def kd_protocol(reference_config, candidate_config, arm):
+    """(differences, alpha) between a plain protocol and its distill alpha-0 variant: the candidate's arm minus
+    its `distill` block must equal the reference arm, and every other protocol field must be equal."""
+    a, b = read_json(Path(reference_config) / "protocol.json"), read_json(Path(candidate_config) / "protocol.json")
+    arms_b = dict(b.get("arms") or {})
+    distill = None
+    if isinstance(arms_b.get(arm), dict):
+        arm_b = dict(arms_b[arm])
+        distill = arm_b.pop("distill", None)
+        arms_b[arm] = arm_b
+    differences = diff(a, dict(b, arms=arms_b), "/protocol")
+    if not isinstance(distill, dict):
+        differences.append("/protocol/arms/" + arm + "/distill (absent)")
+    alpha = distill.get("alpha") if isinstance(distill, dict) else None
+    contract = diff(read_json(Path(reference_config) / "contract.json"),
+                    read_json(Path(candidate_config) / "contract.json"), "/contract")
+    return differences + contract, alpha
+
+
+def compare_outputs(ref, cand, ref_trace, cand_trace, binding_skip=()):
     """Section results for two trainer output directories and their step traces."""
     ref, cand = Path(ref), Path(cand)
     for d in (ref, cand):
@@ -550,8 +581,9 @@ def compare_outputs(ref, cand, ref_trace, cand_trace):
     out["fit"] = section(diff({k: fa.get(k) for k in FIT_COMPUTED}, {k: fb.get(k) for k in FIT_COMPUTED}, "/fit"),
                          len(FIT_COMPUTED))
     ba, bb = read_json(ref / "binding.json"), read_json(cand / "binding.json")
-    out["binding_inputs"] = section(diff({k: ba.get(k) for k in BINDING_INPUTS}, {k: bb.get(k) for k in BINDING_INPUTS},
-                                         "/binding"), len(BINDING_INPUTS))
+    keys = [k for k in BINDING_INPUTS if k not in binding_skip]
+    out["binding_inputs"] = section(diff({k: ba.get(k) for k in keys}, {k: bb.get(k) for k in keys}, "/binding"),
+                                    len(keys))
     for name in ("dev_iter-raw.jsonl", "dev_iter-predictions.jsonl"):
         ra, rb = jsonl(ref / name), jsonl(cand / name)
         # Rows are compared by position; ids are not written to the report.
@@ -585,20 +617,39 @@ def compare(args):
     for name, tree in trees.items():
         t = tree.parent / "TREE.json"
         records[name] = read_json(t) if t.exists() else {"files": {f.name: sha256_file(f) for f in sorted(tree.glob("*.py"))}}
+    kd_config = getattr(args, "candidate_config", None)
+    kd_targets = getattr(args, "candidate_distill_targets", None)
+    demand((kd_config is None) == (kd_targets is None),
+           "KD mode needs both --candidate-config and --candidate-distill-targets")
+    configs = {"reference": Path(args.config), "candidate": Path(kd_config or args.config)}
     work, out = new_dir(args.out)
     try:
         for name, tree in trees.items():
             cmd = [sys.executable, "-I", "-B", str(Path(__file__).resolve()), "trace", "--tree", str(tree.resolve()),
-                   "--data", str(Path(args.data).resolve()), "--config", str(Path(args.config).resolve()),
+                   "--data", str(Path(args.data).resolve()), "--config", str(configs[name].resolve()),
                    "--artifact", args.artifact, "--init", str(Path(args.init).resolve()), "--arm", args.arm,
                    "--seed", str(args.seed), "--device", args.device, "--out", str(work / name),
                    "--trace", str(work / f"{name}-steps.json")] + (["--synthetic-fixture"] if args.synthetic_fixture else [])
+            if name == "candidate" and kd_targets is not None:
+                cmd += ["--distill-targets", str(Path(kd_targets).resolve())]
             with open(work / f"{name}.stdout", "wb") as so, open(work / f"{name}.stderr", "wb") as se:
                 rc = subprocess.run(cmd, stdout=so, stderr=se, cwd=str(work)).returncode
             demand(rc == 0, f"the {name} trainer exited {rc} (see {name}.stderr)")
         sections = compare_outputs(work / "reference", work / "candidate", work / "reference-steps.json",
-                                   work / "candidate-steps.json")
+                                   work / "candidate-steps.json", KD_BINDING_SKIP if kd_config else ())
         equal = all(s["differences"] == 0 for s in sections.values())
+        kd = None
+        if kd_config:
+            protocol_differences, alpha = kd_protocol(args.config, kd_config, args.arm)
+            bound = (read_json(work / "candidate" / "binding.json").get("document_options") or {}).get("distill") or {}
+            targets_bound = bound.get("targets_sha256") == sha256_file(kd_targets)
+            kd = {"protocol": section(protocol_differences, 1), "alpha": alpha, "targets_sha256": sha256_file(kd_targets),
+                  "candidate_binds_targets": targets_bound, "binding_skipped": list(KD_BINDING_SKIP),
+                  "same_tree": records["reference"]["files"] == records["candidate"]["files"],
+                  "kd_pass": equal and alpha == 0 and not protocol_differences and targets_bound,
+                  "rule": "kd_pass: bitwise_equal (binding inputs without arm_definition and protocol_sha256), the "
+                          "candidate protocol equal to the reference protocol but for a distill block with alpha 0 in "
+                          "the compared arm, equal contracts, and the candidate binding naming the targets digest"}
         sel = smoke.get("selection") or {}
         conditions, observed, expect, fraction = d3_check(args, work, records["reference"])
         d3_pass = equal and all(conditions.values())
@@ -607,7 +658,10 @@ def compare(args):
                                 "binding_checked": records["reference"].get("binding")},
                   "candidate": {"commit": records["candidate"].get("commit"), "files": records["candidate"]["files"]},
                   "candidate_options": {"train_allowlist": None, "final_step": False, "train_subset_rows": None,
-                                        "init_fit": None, "report_split": None},
+                                        "init_fit": None, "report_split": None,
+                                        "config_protocol_sha256": sha256_file(configs["candidate"] / "protocol.json"),
+                                        "distill_targets_sha256": sha256_file(kd_targets) if kd_targets else None},
+                  "kd": kd,
                   "smoke": {"manifest_sha256": sha256_file(Path(args.data) / "MANIFEST.json"),
                             "smoke_only": smoke.get("smoke_only"), "selection": sel, "rows_fraction": fraction},
                   "run": {"arm": args.arm, "seed": args.seed, "device": args.device,
@@ -621,7 +675,7 @@ def compare(args):
                   "record_only": list(RECORD_ONLY)}
         write_new(work / "BITWISE.json", pretty(report))
         os.rename(work, out)
-        print(json.dumps({"bitwise_equal": equal, "d3_pass": d3_pass,
+        print(json.dumps({"bitwise_equal": equal, "d3_pass": d3_pass, "kd_pass": None if kd is None else kd["kd_pass"],
                           "differences": {k: v["differences"] for k, v in sections.items()},
                           "d3_conditions": conditions}), flush=True)
         return report
@@ -655,6 +709,7 @@ def main(argv=None):
         if name == "trace":
             c.add_argument("--tree", required=True)
             c.add_argument("--trace", required=True)
+            c.add_argument("--distill-targets", default=None, help="the fit's --distill-targets (KD mode candidate)")
         else:
             c.add_argument("--reference-tree", required=True)
             c.add_argument("--candidate-tree", required=True)
@@ -669,6 +724,9 @@ def main(argv=None):
             c.add_argument("--r0-binding", default=None, help="R0's F-17 binding.json")
             for k in D3_EXPECT:
                 c.add_argument("--expect-" + k.replace("_", "-"), dest="expect_" + k, default=None)
+            c.add_argument("--candidate-config", default=None,
+                           help="KD mode: the candidate's config directory (a distill block with alpha 0)")
+            c.add_argument("--candidate-distill-targets", default=None, help="KD mode: the candidate's targets file")
     a = p.parse_args(argv)
     if a.cmd == "extract":
         r = extract(a.repo, a.commit, a.out, a.binding)
@@ -681,6 +739,8 @@ def main(argv=None):
         trace(a)
     else:
         r = compare(a)
+        if r["kd"] is not None:
+            sys.exit(0 if r["kd"]["kd_pass"] else EXIT_DIFFERENT)
         sys.exit(EXIT_D3_PASS if r["d3_pass"] else EXIT_EQUAL_NOT_D3 if r["bitwise_equal"] else EXIT_DIFFERENT)
 
 

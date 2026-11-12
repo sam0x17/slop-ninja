@@ -29,6 +29,30 @@ for the public parent in place of the V6 parent's, and writes the artifact
 spec's schemas. `test_public_a.py` checks its pins against the artifact
 checker's sources.
 
+## Document-model training options
+
+`train_full_a.py` takes three document-model options (`full_a_doc.py`). Each
+is off by default, and with all of them off the training computation is
+unchanged:
+
+- `share_supervision.bin_balance` in an arm reweights the share terms of mixed
+  rows so that each populated share bin carries an equal part of the mixed
+  share mass, within a clip ratio;
+- `attribution.unsupervised_cohort_ids` in the protocol leaves the listed
+  cohorts' rows without attribution supervision and outside the contrastive
+  structure, while their AI words still count toward share and involvement;
+- a `distill` block in an arm, with `--distill-targets FILE`, mixes each
+  document term with a soft term against teacher-mean targets (alpha,
+  temperature); alpha 0 trains bit for bit as no distillation.
+
+`raw_full_a.py` writes a fit's FP32 raw heads for its Train block (`train`) or
+for a rows file (`rows`). The Rust example `seed_mean_full_a` in
+`grammar-a-baseline` averages several fits' Train raw heads into a targets
+file (`distill-targets`) and several fits' mining score files into one file of
+the same schema (`mining-mean`). `bitwise_full_a.py compare` with
+`--candidate-config` and `--candidate-distill-targets` checks a distillation
+config at alpha 0 against the same config without it.
+
 ## Public reference cases
 
 `reference_cases/a-public-reference-cases-v1.jsonl` holds 200 synthetic

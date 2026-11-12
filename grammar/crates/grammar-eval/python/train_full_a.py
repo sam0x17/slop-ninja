@@ -53,6 +53,16 @@ the training computation is unchanged):
 A trainer bundle is read by block (full_a_bundle), so a fit never parses a
 Dev-select or CAL block it does not open; the binding then carries block
 digests in place of the whole rows file's.
+
+Document-model options (protocol doc-r2, `full_a_doc`; each off by default,
+and with all of them off the training computation is unchanged): the arm's
+`share_supervision.bin_balance` (share-bin balanced share supervision), the
+protocol's `attribution.unsupervised_cohort_ids` (no attribution supervision
+and no contrastive role for the listed cohorts' rows) and the arm block
+`distill` with `--distill-targets FILE` (seed-ensemble distillation, alpha and
+temperature). The binding and fit.json record them under `document_options`.
+Per-row Train weights (zero weights included) and class shares come from the
+bundle's weights, and `--final-step` trains to the last step.
 """
 from __future__ import annotations
 
@@ -71,6 +81,7 @@ from safetensors.torch import save_file
 import full_a
 import full_a_aux as aux
 import full_a_bundle as bundle
+import full_a_doc as doc
 import full_a_s2 as s2
 import full_a_spans as spans_rule
 import last_block_a as base
@@ -96,6 +107,7 @@ GUARDED_WORD_METRIC = "dev_iter_raw_mixed_word_brier_document_guarded"
 SELECTION_METRICS = (INVOLVEMENT_METRIC, WORD_METRIC, GUARDED_WORD_METRIC)
 SPAN_ARM_FIELDS = {"token_head", "freeze", "token_weighting"}
 S2_ARM_FIELDS = {"s2"}  # protocol spans-S2 (full_a_s2); absent = no S2 mechanism
+DOC_ARM_FIELDS = {"distill"}  # protocol doc-r2 (full_a_doc); absent = no distillation
 SELECTION_SPLIT = "dev_iter"
 REPORT_SPLITS = ("dev_select", "cal")
 REPORT_SCHEMA = "slop_ninja_full_a_report_split_v2"
@@ -160,7 +172,8 @@ def span_fields(arm):
 def validate_arm(name, arm):
     base_fields = {"span_head", "share_mode", "share_supervision", "batching", "style_adversary", "contrastive"}
     shared.demand(set(arm) in (base_fields, base_fields | SPAN_ARM_FIELDS,
-                               base_fields | SPAN_ARM_FIELDS | S2_ARM_FIELDS) and
+                               base_fields | SPAN_ARM_FIELDS | S2_ARM_FIELDS, base_fields | DOC_ARM_FIELDS,
+                               base_fields | SPAN_ARM_FIELDS | DOC_ARM_FIELDS) and
                   arm["share_mode"] in full_a.SHARE_MODES, "arm fields: " + name)
     s2.validate(name, arm.get("s2"), arm)
     sp = span_fields(arm)
@@ -177,8 +190,10 @@ def validate_arm(name, arm):
                       arm["contrastive"] is None and arm["share_supervision"]["bins"] is None,
                       "a frozen document model trains the token head only: " + name)
     sv = arm["share_supervision"]
-    shared.demand(isinstance(sv, dict) and set(sv) == {"conditional_loss_weight", "bins"} and
+    shared.demand(isinstance(sv, dict) and set(sv) in ({"conditional_loss_weight", "bins"},
+                                                       {"conditional_loss_weight", "bins", "bin_balance"}) and
                   number(sv["conditional_loss_weight"], lo=0), "share supervision: " + name)
+    doc.validate_document_arm(name, arm, sp)
     if sv["bins"] is not None:
         shared.demand(isinstance(sv["bins"], dict) and set(sv["bins"]) == {"loss_weight", "hidden"} and
                       number(sv["bins"]["loss_weight"], positive=True) and type(sv["bins"]["hidden"]) is int and
@@ -265,8 +280,10 @@ def validate_protocol(p):
     shared.demand(r is None or (isinstance(r, dict) and set(r) == {"rule", "profiles_sha256"} and
                                 r["rule"] == FIXED_ROSTER and isinstance(r["profiles_sha256"], str) and
                                 len(r["profiles_sha256"]) == 64), "ai roster")
-    shared.demand(set(p["attribution"]) == {"loss_weight"} and number(p["attribution"]["loss_weight"], lo=0),
-                  "attribution")
+    shared.demand(set(p["attribution"]) in ({"loss_weight"}, {"loss_weight", "unsupervised_cohort_ids"}) and
+                  number(p["attribution"]["loss_weight"], lo=0), "attribution")
+    if "unsupervised_cohort_ids" in p["attribution"]:
+        doc.validate_mask(p["attribution"]["unsupervised_cohort_ids"])
     bundle.validate_weighting(p["train_weighting"])
     shared.demand(isinstance(p["arms"], dict) and p["arms"], "arms")
     for name, arm in p["arms"].items():
@@ -543,6 +560,10 @@ def microbatches(indices, lengths, budget):
 
 def contrastive_keys(population):
     gens = [aux.HUMAN if m.label is None else m.label for m in population.meta]
+    masked = getattr(population, "attribution_masked", None)
+    if masked is not None:
+        # doc-r2 attribution mask: outside the contrastive structure and the generator chunks.
+        gens = [None if x else g for g, x in zip(gens, masked)]
     voices = [m.voice_cluster for m in population.meta]
     return gens, voices
 
@@ -815,7 +836,7 @@ def set_rng_state(state, device):
 
 
 def train_step(model, heads, arm, train, indices, device, pad_id, budget, role_weight, scale_reversal, aux_den,
-               s2_state=None):
+               s2_state=None, doc_state=None):
     """One logical batch: optional exact contrastive pre-pass (gradient cache),
     then per-microbatch forward/backward of the joint, adversary and injected
     contrastive gradients. Returns per-term values for logging.
@@ -824,7 +845,11 @@ def train_step(model, heads, arm, train, indices, device, pad_id, budget, role_w
     anchor objective against the frozen teacher; `pair_contrast` adds one parent
     entry per spliced child to the logical batch (document terms only) and
     scales human document weights. Without s2_state the computation is the
-    spans-v1 one."""
+    spans-v1 one.
+
+    doc-r2 (doc_state, set only with share-bin balance or distillation): the
+    joint is full_a_doc.objective with the per-row share multipliers and the
+    soft targets; without doc_state it is full_a.objective, unchanged."""
     extra = heads.modules()
     pc = None if s2_state is None else s2_state.get("pair_contrast")
     teacher = None if s2_state is None else s2_state.get("teacher")
@@ -844,6 +869,8 @@ def train_step(model, heads, arm, train, indices, device, pad_id, budget, role_w
     scale = len(train) / len(indices)
     terms = {"joint": 0., "adversary": 0., "contrastive": 0., "share_bins": 0., "anchors": 0}
     parts = {k: 0. for k in LOSS_PARTS}
+    if doc_state is not None and doc_state["soft"] is not None:
+        parts.update({k: 0. for k in doc.DISTILL_PARTS})
     injected = None
     c = arm["contrastive"]
     if c is not None:
@@ -876,11 +903,19 @@ def train_step(model, heads, arm, train, indices, device, pad_id, budget, role_w
         ids, mask, content, labels, words = train.batch(rows, device, pad_id)
         out = model(ids, mask, content, words=words)
         group_parts = {}
-        loss = full_a.objective(out, [train.targets(i) for i in rows], doc_weights,
-                                train.denominators, labels, model.token_loss_weight, role_weight,
-                                getattr(model, "conditional_share_weight", 0.), model.share_mode, group_parts,
-                                model.token_head_weight, token_weights,
-                                not model.frozen_document and teacher is None) * scale
+        if doc_state is None:
+            loss = full_a.objective(out, [train.targets(i) for i in rows], doc_weights,
+                                    train.denominators, labels, model.token_loss_weight, role_weight,
+                                    getattr(model, "conditional_share_weight", 0.), model.share_mode, group_parts,
+                                    model.token_head_weight, token_weights,
+                                    not model.frozen_document and teacher is None) * scale
+        else:
+            factors, soft = doc_state["share_factors"], doc_state["soft"]
+            loss = doc.objective(out, [train.targets(i) for i in rows], doc_weights, train.denominators,
+                                 role_weight, getattr(model, "conditional_share_weight", 0.), model.share_mode,
+                                 group_parts, None if factors is None else [factors[i] for i in rows],
+                                 None if soft is None else [soft[i] for i in rows], doc_state["alpha"],
+                                 doc_state["temperature"]) * scale
         if teacher is not None:
             t = s2.teacher_outputs(teacher, ids, mask, content, words)
             loss = loss + s2.anchor_objective(out, t, doc_weights, train.denominators["origin"],
@@ -1007,6 +1042,10 @@ def fit(args, root, config, output):
     shared.demand(dev_rows is None or subset_rows is not None, "a Dev-iter subset is for diagnostic subset fits only")
     allowlist = getattr(args, "train_allowlist", None)
     shared.demand(allowlist is None or subset_rows is None, "--train-allowlist and --train-subset-rows are exclusive")
+    masked_cohorts = protocol["attribution"].get("unsupervised_cohort_ids")
+    balance, distill = doc.options(arm)
+    distill_path = getattr(args, "distill_targets", None)
+    shared.demand((distill is None) == (distill_path is None), "--distill-targets goes with an arm's distill block")
     full_meta = full_dropped = subset = dev_keep = keep = allow_record = None
     if allowlist is not None:
         allow_record, allow_ids = bundle.read_allowlist(allowlist, root)
@@ -1029,11 +1068,28 @@ def fit(args, root, config, output):
         keep = subset
     if dev_rows is not None:
         dev_keep = s2.dev_subset(root, dev_rows)
-    train = bundle.Population(root, "train", tokenize, special, profiles["ai"], cohort_weighted=True,
-                              weighting=protocol["train_weighting"], keep=keep, token_weighting=sp["token_weighting"])
+    if masked_cohorts is None:
+        train = bundle.Population(root, "train", tokenize, special, profiles["ai"], cohort_weighted=True,
+                                  weighting=protocol["train_weighting"], keep=keep,
+                                  token_weighting=sp["token_weighting"])
+    else:
+        train = doc.MaskedPopulation(root, "train", tokenize, special, profiles["ai"], cohort_weighted=True,
+                                     weighting=protocol["train_weighting"], keep=keep,
+                                     token_weighting=sp["token_weighting"], unsupervised_cohorts=masked_cohorts)
     dev = bundle.Population(root, SELECTION_SPLIT, tokenize, special, profiles["ai"], cohort_weighted=False,
                             span_words=th is not None, keep=dev_keep)
     load_seconds = time.monotonic() - loaded
+    # doc-r2 options (full_a_doc): share-bin multipliers from the final Train weights, distillation targets.
+    balance_record = None if balance is None else doc.bin_multipliers(train.meta, train.weights,
+                                                                      balance["max_ratio"])
+    distill_soft = distill_record = doc_state = None
+    if distill is not None:
+        distill_soft, distill_record = doc.distill_state(distill, distill_path, train, root, profiles["ai"])
+    if balance is not None or (distill is not None and distill["alpha"] > 0):
+        doc_state = {"share_factors": None if balance is None else doc.row_factors(train.meta, balance_record),
+                     "soft": distill_soft if distill is not None and distill["alpha"] > 0 else None,
+                     "alpha": 0. if distill is None else distill["alpha"],
+                     "temperature": 1. if distill is None else distill["temperature"]}
     if allow_record is not None:
         shared.demand(len(train) == allow_record["count"], "allow-listed Train rows differ from the allow-list")
     pair_contrast = s2.PairContrast(train, require_all=keep is None) if mechanism == "pair_contrast" else None
@@ -1049,10 +1105,11 @@ def fit(args, root, config, output):
         shared.demand(dev_keep is not None or flagged <= {m.id for m in dev.meta}, "excluded span rows outside Dev-iter")
         dev.span_exclude = frozenset(flagged)
     supervised_ai = {train.targets(i)["ai"] for i in range(len(train))} - {None}
-    if fixed is None and allow_record is None:
+    if fixed is None and allow_record is None and masked_cohorts is None:
         shared.demand(supervised_ai == set(range(len(profiles["ai"]))), "AI roster not established by Train supervision")
     elif fixed is None:
-        # The roster stays the bundle's Train labels; labels without allow-listed rows stay unsupervised.
+        # The roster stays the bundle's Train labels; labels without allow-listed (or with only attribution-masked)
+        # rows stay unsupervised.
         shared.demand(len(supervised_ai) >= 2, "allow-listed Train rows supervise fewer than two AI profiles")
     else:
         shared.demand(len(supervised_ai) >= 2, "a fixed roster needs Train supervision for at least two profiles")
@@ -1127,6 +1184,14 @@ def fit(args, root, config, output):
         binding["train_allowlist"] = allow_record
     if final_step:
         binding["checkpoint_rule"] = FINAL_STEP_RULE
+    if masked_cohorts is not None or balance is not None or distill is not None:
+        binding["document_options"] = {
+            "module_sha256": bridge.sha256(doc.__file__),
+            "attribution_unsupervised_cohort_ids": None if masked_cohorts is None else sorted(masked_cohorts),
+            "share_bin_balance": balance,
+            "distill": None if distill is None else {**distill, "targets_sha256": distill_record["targets_sha256"],
+                                                     "targets_rows": distill_record["targets_rows"],
+                                                     "soft_terms": distill["alpha"] > 0}}
     if mechanism is not None or subset_rule == "coarse" or dev_keep is not None:
         binding["s2"] = {"mechanism": mechanism, "module_sha256": bridge.sha256(s2.__file__),
                          "rule": {"anchor": s2.ANCHOR_RULE, "pair_contrast": s2.CONTRAST_RULE,
@@ -1263,7 +1328,8 @@ def fit(args, root, config, output):
             lam = aux.reversal_scale(arm["style_adversary"]["reversal"], state["global_step"], steps_per_epoch) \
                 if arm["style_adversary"] else 0.
             terms = train_step(model, aux_heads, arm, train, indices, device, pad_id,
-                               protocol["microbatch_token_budget"], role_weight, lam, aux_den, s2_state)
+                               protocol["microbatch_token_budget"], role_weight, lam, aux_den, s2_state,
+                               doc_state=doc_state)
             terms["grad_norm_main"] = float(torch.nn.utils.clip_grad_norm_(main_params, clip, error_if_nonfinite=True))
             terms["grad_norm_aux"] = float(torch.nn.utils.clip_grad_norm_(aux_params, aux_clip,
                                                                          error_if_nonfinite=True)) if aux_params else 0.
@@ -1411,6 +1477,11 @@ def fit(args, root, config, output):
                         if th is not None else [])}
     if allow_record is not None:
         record["train_allowlist"] = allow_record
+    if "document_options" in binding:
+        record["document_options"] = {
+            "share_bin_balance": balance_record,
+            "attribution_mask": train.mask_record() if masked_cohorts is not None else None,
+            "distill": distill_record}
     if final_step:
         record.update({"checkpoint_rule": FINAL_STEP_RULE, "selection_split": None, "selection_metric": None,
                        "selection_value": None, "document_guard": None, "selection_score_is_biased": False,
@@ -1448,4 +1519,6 @@ if __name__ == "__main__":
                    help="slop_ninja_a_row_allowlist_v1 file: train on its Train rows only (weights kept, no refill)")
     p.add_argument("--final-step", action="store_true",
                    help="take the final step's model: no checkpoint selection; Dev-iter scored once, after training")
+    p.add_argument("--distill-targets", default=None,
+                   help="slop_ninja_full_a_distill_targets_v1 file for an arm with a distill block (full_a_doc)")
     run(p.parse_args())

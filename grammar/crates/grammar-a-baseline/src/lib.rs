@@ -16,6 +16,7 @@ pub mod pangram_store;
 pub mod pangram_subsample;
 pub mod provenance;
 pub mod r2_eval;
+pub mod seed_mean;
 pub mod shared;
 pub mod tierc;
 pub mod warm_shared;

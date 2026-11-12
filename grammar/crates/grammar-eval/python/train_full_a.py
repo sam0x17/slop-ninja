@@ -63,6 +63,18 @@ and no contrastive role for the listed cohorts' rows) and the arm block
 temperature). The binding and fit.json record them under `document_options`.
 Per-row Train weights (zero weights included) and class shares come from the
 bundle's weights, and `--final-step` trains to the last step.
+
+Teacher classes (teacher_a; off by default, and with the protocol's
+`teacher_class` absent every path here is unchanged): a protocol and contract
+naming the same class fit a larger pretrained encoder with the same recipe.
+`--artifact` is then the class's pinned local snapshot (digests checked at
+load) and `--init` is not given; the stage-3 heads take the encoder's width
+and start fresh from the fit seed, so the step-0 V6 gate is skipped; the
+contract's dimensions are the class width; arms train document heads only and
+`--init-fit` is refused. The binding and fit.json carry a `teacher_class`
+record. A teacher fit binds no initializer, so every `export_full_a.py` route
+refuses it and it is never packaged; `teacher_a.py raw` and `raw_full_a.py`
+score it.
 """
 from __future__ import annotations
 
@@ -87,6 +99,7 @@ import full_a_spans as spans_rule
 import last_block_a as base
 import provenance_paths
 import shared_a as shared
+import teacher_a
 import v6_embeddings as bridge
 import warm_start_a
 from warm_start_a import WarmStartA, initializer
@@ -290,11 +303,18 @@ def validate_protocol(p):
         validate_arm(name, arm)
         shared.demand(e["metric"] == INVOLVEMENT_METRIC or span_fields(arm)["token_head"] is not None,
                       "word-Brier selection needs a token head: " + name)
+    # Optional teacher class (teacher_a): a larger encoder with this recipe; absent = the base path.
+    if p.get("teacher_class") is not None:
+        teacher_a.validate_class(p["teacher_class"])
+        for name, arm in p["arms"].items():
+            teacher_a.check_arm(name, arm)
     return p
 
 
 def validate_contract(c, manifest_sha256):
-    shared.demand(c["schema"] == CONTRACT_SCHEMA and c["input_mode"] == "text" and c["raw_dimension"] == 768 and
+    # 768 (the V6 h) unless the contract names a teacher class, whose encoder width it then declares.
+    width = teacher_a.contract_width(c)
+    shared.demand(c["schema"] == CONTRACT_SCHEMA and c["input_mode"] == "text" and c["raw_dimension"] == width and
                   c["zero_cfg_coordinates"] == full_a.CFG_ZEROS and
                   c["maximum_tokens_including_specials"] == full_a.MAX_TOKENS and c["token_truncation"] is False and
                   c["origin_order"] == ["human_only", "model_only", "mixed"] and
@@ -302,7 +322,7 @@ def validate_contract(c, manifest_sha256):
                   c["span_coordinates"] == "utf8_byte_offsets_in_exact_final_text", "full-A contract meaning")
     shared.demand(c["bundle_manifest_sha256"] == manifest_sha256, "contract is bound to another bundle")
     n = c["embedding_normalization"]
-    shared.demand(n["fit"] == "train_query_only_equal_source_family_weight" and n["dimension"] == 768 and
+    shared.demand(n["fit"] == "train_query_only_equal_source_family_weight" and n["dimension"] == width and
                   n["calibration_used_for_fit"] is False and n["development_used_for_fit"] is False and
                   n["reference_used_for_fit"] is False and n["final_test_opened"] is False,
                   "normalization must be Train-only")
@@ -325,14 +345,14 @@ def arm_of(protocol, name):
 class Aux:
     """Training-only heads and their vocabularies (Train-derived)."""
 
-    def __init__(self, arm, train, device):
+    def __init__(self, arm, train, device, width=768):
         self.adversary = self.projection = self.share_bins = None
         self.cluster_index, self.axes_index = {}, {}
         a, c = arm["style_adversary"], arm["contrastive"]
         bins = arm["share_supervision"]["bins"]
         if bins is not None:
             shared.demand(any(m.origin == 2 for m in train.meta), "share-bin head needs mixed Train rows")
-            self.share_bins = aux.ShareBins(768, bins["hidden"]).to(device)
+            self.share_bins = aux.ShareBins(width, bins["hidden"]).to(device)
         if a is not None:
             counts = {}
             for m in train.meta:
@@ -343,10 +363,10 @@ class Aux:
             self.cluster_index = {k: i for i, k in enumerate(clusters)}
             self.axes_index = {k: i for i, k in enumerate(axes)}
             shared.demand(len(clusters) >= 2 or axes, "style adversary has no Train targets")
-            self.adversary = aux.StyleAdversary(len(clusters), len(axes), a["hidden"]).to(device)
+            self.adversary = aux.StyleAdversary(len(clusters), len(axes), a["hidden"], width).to(device)
         self.keys = None
         if c is not None:
-            self.projection = aux.Projection(768, c["projection_hidden"], c["projection_dim"]).to(device)
+            self.projection = aux.Projection(width, c["projection_hidden"], c["projection_dim"]).to(device)
             self.keys = contrastive_keys(train)  # (generator key, voice cluster) per Train row
 
     def modules(self):
@@ -388,16 +408,29 @@ class Aux:
 
 
 def load(args, protocol, device):
-    encoder, tokenizer, parent, _ = base.load_encoder(args.artifact, device)
+    if protocol.get("teacher_class") is not None:
+        # The class's pinned snapshot (teacher_a.load checks every file's digest).
+        encoder, tokenizer, parent = teacher_a.load(args.artifact, protocol["teacher_class"], device)
+    else:
+        encoder, tokenizer, parent, _ = base.load_encoder(args.artifact, device)
     shared.demand(encoder.config._attn_implementation == protocol["attention_implementation"] == "eager",
                   "eager attention required")
     return encoder, tokenizer, parent
 
 
-def build(encoder, contract, init, arm, protocol, device):
+def build(encoder, contract, init, arm, protocol, device, seed=None):
+    """The model of an arm. A teacher class's heads take the encoder width and start fresh from `seed` (its
+    initializer `init` is None); otherwise WarmStartA from the V6 initializer."""
     profiles = {"human": contract["human_profiles"], "ai": contract["ai_profiles"]}
     norm = contract["embedding_normalization"]
-    heads = WarmStartA(init, norm["mean"], norm["scale"], len(profiles["human"]), len(profiles["ai"]), "text")
+    if protocol.get("teacher_class") is not None:
+        width = teacher_a.width_of(encoder)
+        shared.demand(init is None and contract.get("teacher_class") == protocol["teacher_class"] and
+                      width == contract["raw_dimension"], "teacher class, width or initializer")
+        teacher_a.check_arm("build", arm)
+        heads = teacher_a.fresh_heads(width, norm, len(profiles["human"]), len(profiles["ai"]), seed)
+    else:
+        heads = WarmStartA(init, norm["mean"], norm["scale"], len(profiles["human"]), len(profiles["ai"]), "text")
     span = None if arm["span_head"] is None else full_a.SpanHead(arm["span_head"]["pooling"])
     th = span_fields(arm)["token_head"]
     token_head = None if th is None else full_a.TokenHead(width=th["hidden"])
@@ -763,11 +796,12 @@ def gate_indices(population, extra=8):
     return chosen
 
 
-def initial_gate(model, population, device, pad_id, budget, init_fit=False):
+def initial_gate(model, population, device, pad_id, budget, init_fit=False, teacher_class=None):
     """Step-0 function preservation against V6's own classifier (FP32,
     unpadded; skipped for --init-fit starts, which the evaluation-0 raw gate
-    checks instead), then padded agreement for the same documents grouped as
-    training microbatches (origin and token-head logits)."""
+    checks instead, and for a teacher class, whose heads start fresh), then
+    padded agreement for the same documents grouped as training microbatches
+    (origin and token-head logits)."""
     model.eval()
     worst, padded = 0., 0.
     indices = gate_indices(population)
@@ -796,7 +830,7 @@ def initial_gate(model, population, device, pad_id, budget, init_fit=False):
                     a, b = out["span_logits"][j, :n], token_singles[i]
                     token_padded = max(token_padded, float((a.sigmoid() - b.sigmoid()).abs().max()))
                     token_padded_logit = max(token_padded_logit, float((a - b).abs().max()))
-    if not init_fit:
+    if not init_fit and teacher_class is None:
         shared.demand(worst <= 1e-6, f"initial A differs from V6: {worst}")
     shared.demand(padded <= 1e-4, f"padded microbatch disagrees with unpadded: {padded}")
     # Token probabilities are per-token states, more sensitive than the pooled origin: a trained token head
@@ -804,8 +838,9 @@ def initial_gate(model, population, device, pad_id, budget, init_fit=False):
     shared.demand(token_padded <= 1e-3, f"padded token probabilities disagree with unpadded: {token_padded}")
     return {"rows": len(indices), "row_indices": indices, "row_tokens": [int(population.lengths[i]) for i in indices],
             "padded_groups": [len(g) for g in groups],
-            "initial_origin_max_abs_error": None if init_fit else worst,
-            "initial_reference": "init_fit (evaluation-0 Dev-iter raw gate)" if init_fit else "V6 classifier",
+            "initial_origin_max_abs_error": None if init_fit or teacher_class is not None else worst,
+            "initial_reference": "init_fit (evaluation-0 Dev-iter raw gate)" if init_fit else
+            f"none (teacher class {teacher_class}: fresh heads)" if teacher_class is not None else "V6 classifier",
             "padded_vs_unpadded_origin_max_abs_error": padded,
             "padded_vs_unpadded_token_probability_max_abs_error": token_padded if model.token_head is not None else None,
             "padded_vs_unpadded_token_logit_max_abs_error": token_padded_logit if model.token_head is not None else None}
@@ -991,14 +1026,19 @@ def fit(args, root, config, output):
     protocol = validate_protocol(read(protocol_path))
     shared.demand(args.seed in protocol["seeds"] and args.arm in protocol["arms"], "seed/arm outside protocol")
     arm = arm_of(protocol, args.arm)
+    teacher_class = protocol.get("teacher_class")
+    shared.demand(contract.get("teacher_class") == teacher_class,
+                  "the contract and protocol name different teacher classes")
+    shared.demand((getattr(args, "init", None) is None) == (teacher_class is not None),
+                  "--init names the V6 initializer; a teacher class takes none")
     role_weight = protocol["attribution"]["loss_weight"]
     device = torch.device(args.device)
     configure(device, protocol["cuda_memory_fraction"])
     torch.manual_seed(args.seed)
     encoder, tokenizer, parent = load(args, protocol, device)
     shared.demand(contract["parent_artifact_id"] == parent["artifact_id"], "encoder parent changed")
-    init = initializer(args.init)
-    model, profiles = build(encoder, contract, init, arm, protocol, device)
+    init = None if teacher_class is not None else initializer(args.init)
+    model, profiles = build(encoder, contract, init, arm, protocol, device, args.seed)
     model.token_loss_weight = 0. if arm["span_head"] is None else arm["span_head"]["token_loss_weight"]
     model.conditional_share_weight = arm["share_supervision"]["conditional_loss_weight"]
     sp = span_fields(arm)
@@ -1006,6 +1046,7 @@ def fit(args, root, config, output):
     model.token_head_weight = 0. if th is None else th["loss_weight"]
     init_record = init_saved = init_dir = None
     if getattr(args, "init_fit", None):
+        shared.demand(teacher_class is None, "a teacher class starts from its pretrained snapshot, never --init-fit")
         init_record, init_saved, init_dir = load_init_fit(model, args.init_fit, args.seed, contract)
     frozen = sp["freeze"] == "encoder_and_document_heads"
     shared.demand(not frozen or init_record is not None, "a frozen document model needs --init-fit")
@@ -1125,7 +1166,7 @@ def fit(args, root, config, output):
                                 train.dropped if keep is None else full_dropped,
                                 scheme=protocol["train_weighting"]["scheme"]),
         train, weights_doc.get("overrides"))
-    aux_heads = Aux(arm, train, device)
+    aux_heads = Aux(arm, train, device, contract["raw_dimension"])
     extra = aux_heads.modules()
     aux_den = aux_heads.denominators(train)
     if arm["style_adversary"] is not None:
@@ -1159,7 +1200,8 @@ def fit(args, root, config, output):
     binding = {"schema": BINDING_SCHEMA, "arm": args.arm, "arm_definition": arm, "seed": args.seed,
                "bundle_sha256": digests, "contract_sha256": bridge.sha256(contract_path),
                "protocol_sha256": bridge.sha256(protocol_path),
-               "initializer_sha256": bridge.sha256(args.init), "parent_artifact_id": parent["artifact_id"],
+               "initializer_sha256": None if teacher_class is not None else bridge.sha256(args.init),
+               "parent_artifact_id": parent["artifact_id"],
                "trainer_sha256": bridge.sha256(__file__), "model_sha256": bridge.sha256(full_a.__file__),
                "aux_sha256": bridge.sha256(aux.__file__), "bundle_reader_sha256": bridge.sha256(bundle.__file__),
                "architecture_sha256": bridge.sha256(base.__file__), "shared_loss_sha256": bridge.sha256(shared.__file__),
@@ -1192,6 +1234,8 @@ def fit(args, root, config, output):
             "distill": None if distill is None else {**distill, "targets_sha256": distill_record["targets_sha256"],
                                                      "targets_rows": distill_record["targets_rows"],
                                                      "soft_terms": distill["alpha"] > 0}}
+    if teacher_class is not None:
+        binding["teacher_class"] = teacher_a.binding_record(teacher_class, encoder)
     if mechanism is not None or subset_rule == "coarse" or dev_keep is not None:
         binding["s2"] = {"mechanism": mechanism, "module_sha256": bridge.sha256(s2.__file__),
                          "rule": {"anchor": s2.ANCHOR_RULE, "pair_contrast": s2.CONTRAST_RULE,
@@ -1221,7 +1265,7 @@ def fit(args, root, config, output):
         # The per-cohort, per-label weight log precedes any optimizer step.
         bridge.write_json(output / "cohort-weights.json", weight_log)
         gate = initial_gate(model, train, device, pad_id, protocol["microbatch_token_budget"],
-                            init_fit=init_record is not None)
+                            init_fit=init_record is not None, teacher_class=teacher_class)
         bridge.write_json(output / "initial-gate.json", gate)
     shared.demand(read(output / "cohort-weights.json") == json.loads(json.dumps(weight_log)),
                   "cohort weight log differs from this bundle")
@@ -1491,6 +1535,11 @@ def fit(args, root, config, output):
             "Final-step checkpoint: no Dev-iter selection; Dev-iter was scored once, after the last step.",
             "Dev-iter iteration evidence, not final Test."] + \
             [x for x in record["limitations"][2:] if not x.startswith("Evaluation-0")]
+    if teacher_class is not None:
+        record["teacher_class"] = binding["teacher_class"]
+        record["limitations"] = [x for x in record["limitations"] if not x.startswith("Evaluation-0")] + [
+            f"Teacher class {teacher_class}: fresh heads on a pretrained encoder (no V6 step-0 gate); never "
+            "exported, packaged, entered or served."]
     bridge.write_json(output / "fit.json", record)
     print(json.dumps({"complete": True, "selected_evaluation": best["evaluation"],
                       "best": None if final_step else state["best"]}), flush=True)
@@ -1498,8 +1547,10 @@ def fit(args, root, config, output):
 
 if __name__ == "__main__":
     p = argparse.ArgumentParser(description=__doc__)
-    for key in ("data", "config", "artifact", "init", "out", "arm"):
+    for key in ("data", "config", "artifact", "out", "arm"):
         p.add_argument("--" + key, required=True)
+    p.add_argument("--init", default=None,
+                   help="the V6 classifier initializer (required unless the protocol names a teacher class)")
     p.add_argument("--seed", type=int, required=True)
     p.add_argument("--device", choices=("cpu", "cuda"), default="cuda")
     p.add_argument("--report-split", choices=REPORT_SPLITS, default=None,

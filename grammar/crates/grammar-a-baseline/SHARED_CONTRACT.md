@@ -423,7 +423,11 @@ tower states and the token logits.
 `examples/prepare_full_a_contract.rs` writes `contract.json` for a bundle:
 the MANIFEST digest, the empty human roster, the AI roster (sorted Train
 generator labels with a positive cohort weight) and a Train-only V6 h
-normalization taken from a given file, whose digest it records.
+normalization taken from a given file, whose digest it records. With
+`--teacher-class NAME` it writes a teacher class's contract instead
+(`grammar-eval/python/teacher_a.py`): `teacher_class` is recorded, and
+`raw_dimension` and the normalization's dimension are the class's encoder
+width. A teacher fit is never exported, so such a contract is never published.
 
 `examples/fit_full_a_normalization.rs` fits that normalization fresh over a
 bundle's Train rows with a positive cohort weight:
@@ -440,7 +444,9 @@ and every planned row. `fit` requires one complete extractor run per planned
 shard (its request snapshot equal to the shard), every planned row once with
 status ok and the planned text digest, and one representation contract; it
 computes the equal source-family mean and variance in FP64 over two passes,
-scale `max(sqrt(variance), 0.01)`, as the stage-3 fit did. The extractor runs
+scale `max(sqrt(variance), 0.01)`, as the stage-3 fit did. The runs declare one
+dimension (768 for the V6 h; a teacher class's width for runs of
+`teacher_a.py embed`), and every embedding must have it. The extractor runs
 in the pinned V6 CPU runtime (torch 2.14.0+cpu). Measured on build-host with
 10 real Train rows: about 5 ms per token single-threaded (1-2.3 s for 208-439
 tokens), so the full 53k-row Train is about 30 CPU-hours unsharded; shard it

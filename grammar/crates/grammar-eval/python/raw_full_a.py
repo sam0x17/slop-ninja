@@ -16,6 +16,11 @@ checkpoint). `manifest.json` records the fit and checkpoint digests, the AI
 roster, the input digest and the output digest. No calibration, selection or
 Test access. This route lives beside the exporter, not in it, so the
 exporter's own bytes (which its export manifest records) stay unchanged.
+
+A teacher-class fit (teacher_a) is scored here too, without `--init`: its
+lineage is checked by `teacher_a.completed_fit` (the exporter's checks, with
+the teacher module's digest in place of an initializer) and its model is
+rebuilt from the class's snapshot (`--artifact`).
 """
 from __future__ import annotations
 
@@ -33,6 +38,7 @@ import export_full_a as exporter
 import full_a
 import full_a_bundle as bundle
 import shared_a as shared
+import teacher_a
 import train_full_a as trainer
 import v6_embeddings as bridge
 
@@ -59,12 +65,13 @@ def rows_of_block(root, split):
 def raw_heads(args, source, source_record):
     root, config, fit, out = (Path(p).resolve() for p in (args.data, args.config, args.fit, args.out))
     shared.demand(not out.exists(), "new output required")
-    digests, report, binding, saved = exporter.completed_fit(root, config, fit, args.init,
-                                                             getattr(args, "allow_diagnostic_subset", False))
+    # Base fits go to the exporter's own checks; a teacher fit gets them with no initializer.
+    digests, report, binding, saved = teacher_a.completed_fit(root, config, fit, args.init,
+                                                              getattr(args, "allow_diagnostic_subset", False))
     device = torch.device(args.device)
     trainer.configure(device, trainer.validate_protocol(read(config / "protocol.json"))["cuda_memory_fraction"])
-    model, tokenizer, contract, protocol, arm, profiles = exporter.restore_model(args, root, config, binding, saved,
-                                                                                device)
+    model, tokenizer, contract, protocol, arm, profiles = teacher_a.restore_model(args, root, config, binding, saved,
+                                                                                 device)
     tokenize, special = full_a.hf_tokenize(tokenizer), set(tokenizer.all_special_ids)
     out.mkdir()
     n, seen = 0, set()
@@ -91,7 +98,8 @@ def raw_heads(args, source, source_record):
         "precision": "fp32", "final_test_opened": False, "calibrated": False, "device": str(device),
         "torch": torch.__version__,
         "involvement_logit_semantics": "log(p_model+p_mixed)-log(p_human) of the final uncalibrated origin",
-        "origin_logits_semantics": "original_classifier_linear_divided_by_base_temperature; no CAL map"})
+        "origin_logits_semantics": "original_classifier_linear_divided_by_base_temperature; no CAL map",
+        **({"teacher_class": binding["teacher_class"]} if teacher_a.is_teacher_binding(binding) else {})})
     print(json.dumps({"complete": True, "rows": n}), flush=True)
 
 
@@ -111,8 +119,9 @@ def main(argv=None):
     sub = parser.add_subparsers(dest="command", required=True)
     for name, func in (("train", train), ("rows", rows)):
         p = sub.add_parser(name)
-        for key in ("data", "config", "fit", "artifact", "init", "out"):
+        for key in ("data", "config", "fit", "artifact", "out"):
             p.add_argument("--" + key, required=True)
+        p.add_argument("--init", default=None, help="the fit's V6 initializer (omitted for a teacher-class fit)")
         p.add_argument("--device", choices=("cpu", "cuda"), default="cuda")
         p.add_argument("--allow-diagnostic-subset", action="store_true",
                        help="smoke only: accept a diagnostic Train-subset fit")

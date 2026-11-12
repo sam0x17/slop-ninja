@@ -67,3 +67,41 @@ text was written (`plain`, `model` or `mixed`).
 `export_full_a.py export --synthetic-cases FILE` appends such a file's cases
 after the built-in synthetic cases in `reference-requests.jsonl`, so the
 export's reference predictions cover them too.
+
+## Teacher classes
+
+`teacher_a.py` lets `train_full_a.py` fit a larger pretrained encoder with the
+same recipe, as a teacher for capacity measurements and for distillation into
+the served graph class. It is off by default: with `teacher_class` absent from
+the protocol, every trainer and exporter path is the base one. The one class,
+`modernbert_large_v1`, is `answerdotai/ModernBERT-large` at revision
+`45bb4654a4d5aaff24dd11d4781fa46d39bf8c13`, whose tokenizer files are
+ModernBERT-base's upstream bytes, so the tokenizer is the artifact spec's
+pinned one.
+
+A protocol and its contract name the same class in `teacher_class`. The
+trainer's `--artifact` is then a local snapshot holding exactly the class's
+pinned files, checked against their SHA-256 at every load, and there is no
+`--init`. The stage-3 heads keep WarmStartA's structure and forward at the
+encoder's width, but every head starts fresh from the fit seed, so the step-0
+V6 gate is skipped. Arms train document heads only. The contract's dimensions
+are the class width, and its normalization is the base Train-only rule fitted
+on the class's pretrained h:
+
+```sh
+fit_full_a_normalization requests --bundle B --out norm/req
+teacher_a.py embed --teacher-class modernbert_large_v1 --artifact SNAPSHOT \
+  --requests norm/req/requests-000.jsonl --output norm/run-000 --device cuda --max-padded 8192
+fit_full_a_normalization fit --plan norm/req/plan.json --run norm/run-000 --out norm/normalization.json
+prepare_full_a_contract --bundle B --normalization norm/normalization.json \
+  --parent-artifact-id "$(teacher_a.py id --teacher-class modernbert_large_v1 | jq -r .artifact_id)" \
+  --teacher-class modernbert_large_v1 --roster ROSTER --out config/contract.json
+```
+
+`teacher_a.py check` verifies a downloaded snapshot against the pins. A
+teacher fit is never packaged: it binds no initializer, so every
+`export_full_a.py` route refuses it, and the exporter's bytes are unchanged.
+`teacher_a.py raw` scores its Dev-iter or CAL block in the exporter's raw
+format, and `raw_full_a.py` its Train block or a rows file, both without
+`--init`. `test_full_a_teacher.py` covers the class on a tiny synthetic
+snapshot.

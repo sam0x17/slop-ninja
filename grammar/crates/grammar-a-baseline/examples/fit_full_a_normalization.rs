@@ -1,5 +1,7 @@
-//! Fit a fresh Train-only normalization of the frozen V6 h over a shared-contract
-//! bundle's Train rows (`train_query_only_equal_source_family_weight`).
+//! Fit a fresh Train-only normalization of an encoder's h over a shared-contract
+//! bundle's Train rows (`train_query_only_equal_source_family_weight`): the
+//! frozen V6 h (768 coordinates), or a teacher class's pretrained h at its own
+//! width (`teacher_a.py embed`).
 //!
 //! requests --bundle BUNDLE --out NEW_DIR [--shards N] [--sample-keep K --sample-modulus M]
 //!     Writes `requests-NNN.jsonl` ({id, text}: exact Train text, one shard per
@@ -9,10 +11,11 @@
 //!     source groups: SHA-256("slop_ninja_v6_h_normalization_v1\0" + group)
 //!     prefix mod M < K.
 //! fit --plan NEW_DIR/plan.json --run RUN_DIR... --out NEW_NORMALIZATION.json
-//!     Each RUN_DIR is a complete `v6_embeddings.py` run over one planned shard
-//!     (its request snapshot must equal the shard). Every planned row must be
-//!     present once with status ok, the planned text digest and one
-//!     representation contract across runs. Mean and variance use equal
+//!     Each RUN_DIR is a complete `v6_embeddings.py` run (or a run in its format)
+//!     over one planned shard (its request snapshot must equal the shard). Every
+//!     planned row must be present once with status ok, the planned text digest
+//!     and one representation contract across runs. The runs declare one
+//!     dimension, and every embedding has that many coordinates. Mean and variance use equal
 //!     source-family weights (1 / (groups x rows in the group)), two passes in
 //!     FP64; scale = max(sqrt(variance), 0.01). No label, Dev, CAL or Test row
 //!     is read.
@@ -34,6 +37,8 @@ use std::fs::{self, File};
 use std::io::{BufRead, BufReader, BufWriter, Read, Seek, SeekFrom, Write};
 use std::path::{Path, PathBuf};
 
+/// The V6 h width; a teacher class's runs declare their own.
+#[cfg(test)]
 const DIM: usize = 768;
 const PLAN_SCHEMA: &str = "slop_ninja_full_a_v6_h_normalization_plan_v1";
 const NORMALIZATION_SCHEMA: &str = "slop_ninja_v6_train_family_normalization_v1";
@@ -191,8 +196,8 @@ fn weights(planned: &[Value]) -> Result<HashMap<String, (f64, String)>> {
         .collect()
 }
 
-/// Visit every embedding row of the runs, checked against the plan.
-fn each_embedding(runs: &[PathBuf], plan: &HashMap<String, (f64, String)>,
+/// Visit every embedding row of the runs, checked against the plan and the runs' dimension.
+fn each_embedding(runs: &[PathBuf], plan: &HashMap<String, (f64, String)>, dim: usize,
                   mut f: impl FnMut(f64, &[f64])) -> Result<usize> {
     let mut seen = std::collections::HashSet::new();
     for run in runs {
@@ -209,7 +214,7 @@ fn each_embedding(runs: &[PathBuf], plan: &HashMap<String, (f64, String)>,
             ensure!(v["status"] == "ok", "embedding {id}: status {} (Train rows must be supported)", v["status"]);
             ensure!(v["text_sha256"].as_str() == Some(digest.as_str()), "embedding {id}: text binding differs");
             let e = v["embedding"].as_array().context("embedding")?;
-            ensure!(e.len() == DIM, "embedding {id}: dimension");
+            ensure!(e.len() == dim, "embedding {id}: dimension");
             let x = e.iter().map(|x| x.as_f64().filter(|x| x.is_finite()).context("finite embedding"))
                 .collect::<Result<Vec<_>>>()?;
             f(*w, &x);
@@ -232,12 +237,15 @@ fn fit(plan_path: &Path, runs: &[PathBuf], out: &Path) -> Result<()> {
                 "planned shard {} changed", s["shard"]);
     }
     let mut contract = None;
+    let mut dimension = None;
     let mut used = std::collections::BTreeSet::new();
     let mut receipts = Vec::new();
     for run in runs {
         let m = read(&run.join("manifest.json"))?;
-        ensure!(m["schema"] == "slop_ninja_v6_embeddings_run_v1" && m["status"] == "complete" &&
-                m["dimension"] == DIM as u64, "{} is not a complete V6 embedding run", run.display());
+        let d = m["dimension"].as_u64().filter(|d| *d > 0).map(|d| d as usize);
+        ensure!(m["schema"] == "slop_ninja_v6_embeddings_run_v1" && m["status"] == "complete" && d.is_some(),
+                "{} is not a complete embedding run", run.display());
+        ensure!(*dimension.get_or_insert(d.unwrap()) == d.unwrap(), "runs declare different dimensions");
         ensure!(m["rows_sha256"].as_str() == Some(sha256_file(&run.join("rows.jsonl"))?.as_str()) &&
                 m["requests_sha256"].as_str() == Some(sha256_file(&run.join("requests.jsonl"))?.as_str()),
                 "{}: run files changed since its manifest", run.display());
@@ -257,17 +265,18 @@ fn fit(plan_path: &Path, runs: &[PathBuf], out: &Path) -> Result<()> {
     ensure!(used.len() == shards.len(), "every planned shard needs one run ({} of {})", used.len(), shards.len());
     let planned = plan["planned"].as_array().context("planned rows")?;
     let w = weights(planned)?;
-    let mut mean = vec![0.0; DIM];
+    let dim = dimension.context("no runs")?;
+    let mut mean = vec![0.0; dim];
     let mut total = 0.0;
-    let rows = each_embedding(runs, &w, |wt, x| {
+    let rows = each_embedding(runs, &w, dim, |wt, x| {
         total += wt;
         for (m, v) in mean.iter_mut().zip(x) {
             *m += wt * v;
         }
     })?;
     ensure!((total - 1.0).abs() < 1e-9, "family weights must sum to 1 ({total})");
-    let mut variance = vec![0.0; DIM];
-    each_embedding(runs, &w, |wt, x| {
+    let mut variance = vec![0.0; dim];
+    each_embedding(runs, &w, dim, |wt, x| {
         for ((v, m), x) in variance.iter_mut().zip(&mean).zip(x) {
             *v += wt * (x - m).powi(2);
         }
@@ -278,7 +287,7 @@ fn fit(plan_path: &Path, runs: &[PathBuf], out: &Path) -> Result<()> {
     }
     let (contract_sha, artifact) = contract.context("no runs")?;
     let groups = planned.iter().map(|r| r["source_group"].as_str().unwrap()).collect::<std::collections::BTreeSet<_>>();
-    let value = json!({"schema": NORMALIZATION_SCHEMA, "fit": FIT, "dimension": DIM, "fit_rows": rows,
+    let value = json!({"schema": NORMALIZATION_SCHEMA, "fit": FIT, "dimension": dim, "fit_rows": rows,
         "fit_families": groups.len(), "mean": mean, "variance": variance, "scale": scale, "scale_floor": SCALE_FLOOR,
         "development_used_for_fit": false, "calibration_used_for_fit": false, "reference_used_for_fit": false,
         "final_test_opened": false, "labels_used_for_fit": false,
@@ -314,6 +323,11 @@ mod tests {
 
     /// A fake complete embedding run over one shard; embedding = f(id).
     fn fake_run(dir: &Path, requests: &Path, f: impl Fn(&str) -> Vec<f64>) {
+        fake_run_at(dir, requests, DIM, f)
+    }
+
+    /// The same, declaring `dim` coordinates in its manifest.
+    fn fake_run_at(dir: &Path, requests: &Path, dim: usize, f: impl Fn(&str) -> Vec<f64>) {
         fs::create_dir_all(dir).unwrap();
         fs::copy(requests, dir.join("requests.jsonl")).unwrap();
         let mut rows = String::new();
@@ -325,7 +339,7 @@ mod tests {
         }
         fs::write(dir.join("rows.jsonl"), rows).unwrap();
         fs::write(dir.join("manifest.json"), json!({"schema": "slop_ninja_v6_embeddings_run_v1",
-            "status": "complete", "dimension": DIM, "unsupported": 0,
+            "status": "complete", "dimension": dim, "unsupported": 0,
             "rows_sha256": sha256_file(&dir.join("rows.jsonl")).unwrap(),
             "requests_sha256": sha256_file(&dir.join("requests.jsonl")).unwrap(),
             "representation_contract_sha256": "c", "representation_contract": {"artifact_id": "v6"}}).to_string())
@@ -375,6 +389,34 @@ mod tests {
         bad.push_str(&format!("{}\n", row("t", "test", "test text", "t", 1.0)));
         fs::write(bundle.join("rows.jsonl"), bad).unwrap();
         assert!(requests(&bundle, &d.join("req2"), 1, 0, 0).is_err());
+    }
+
+    #[test]
+    fn the_fit_takes_the_runs_dimension_and_refuses_mixed_or_short_rows() {
+        let dir = tempfile::tempdir().unwrap();
+        let d = dir.path();
+        let bundle = d.join("bundle");
+        fs::create_dir(&bundle).unwrap();
+        let rows = [row("a1", "train", "x one", "a", 1.0), row("b1", "train", "y one", "b", 1.0)];
+        fs::write(bundle.join("rows.jsonl"), rows.iter().map(|r| format!("{r}\n")).collect::<String>()).unwrap();
+        fs::write(bundle.join("weights.json"), "{}").unwrap();
+        fs::write(bundle.join("MANIFEST.json"), "{}").unwrap();
+        let out = d.join("req");
+        requests(&bundle, &out, 2, 0, 0).unwrap();
+        // A teacher class's h (1,024 coordinates): the fit keeps that width.
+        let wide = |id: &str| vec![if id.starts_with('b') { 3.0 } else { 1.0 }; 1024];
+        fake_run_at(&d.join("w0"), &out.join("requests-000.jsonl"), 1024, wide);
+        fake_run_at(&d.join("w1"), &out.join("requests-001.jsonl"), 1024, wide);
+        fit(&out.join("plan.json"), &[d.join("w0"), d.join("w1")], &d.join("wide.json")).unwrap();
+        let n = read(&d.join("wide.json")).unwrap();
+        assert_eq!(n["dimension"], 1024);
+        assert_eq!((n["mean"].as_array().unwrap().len(), n["scale"].as_array().unwrap().len()), (1024, 1024));
+        assert!((n["mean"][1023].as_f64().unwrap() - 2.0).abs() < 1e-12);
+        // Runs that declare different widths, or rows shorter than the declared width, are refused.
+        fake_run(&d.join("v1"), &out.join("requests-001.jsonl"), |_| vec![0.0; DIM]);
+        assert!(fit(&out.join("plan.json"), &[d.join("w0"), d.join("v1")], &d.join("mixed.json")).is_err());
+        fake_run_at(&d.join("s1"), &out.join("requests-001.jsonl"), 1024, |_| vec![0.0; DIM]);
+        assert!(fit(&out.join("plan.json"), &[d.join("w0"), d.join("s1")], &d.join("short.json")).is_err());
     }
 
     #[test]

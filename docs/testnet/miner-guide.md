@@ -20,7 +20,7 @@ The whole path, with the section for each step and what tells you it worked:
    ([Install](#2-install)): `ssh-keygen` prints `Good "file" signature`,
    `sha256sum` prints `OK` for each file, and `slop_ninja_miner --version`
    prints `slop_ninja_miner 0.1.0`.
-3. **Install rtao** with `cargo install --locked rtao-cli`
+3. **Install rtao** with `cargo install --locked rtao`
    ([rtao](#rtao-for-wallets-and-registration)), then **make a hotkey and
    register it on subnet 601** ([steps 3 and 4](#3-wallet-and-hotkey)):
    `rtao subnets metagraph 601 --network test` lists your hotkey with a UID.
@@ -91,7 +91,7 @@ when it goes live. The release key is on the [landing page](README.md#release-ke
 
 - A Linux or macOS machine for the client. Linux x86_64 is tested; macOS and
   Linux arm64 are untested.
-- Rust 1.90 or later (rtao-cli 0.1.0's minimum; tested: 1.99.1) and a C
+- Rust 1.90 or later (rtao 0.1.1's minimum; tested: 1.99.1) and a C
   compiler, also when you use the release binaries: `cargo install` builds
   rtao, the wallet and registration tool, from source, and you build the
   optional local scorer from source too. On platforms without release
@@ -282,21 +282,26 @@ writes the object with mode 0600.
 ### rtao, for wallets and registration
 
 The client signs with an ordinary Bittensor hotkey file. Install the rtao
-command line tool from crates.io. Its crate is `rtao-cli`; the crate named
-`rtao` is the library and has no command to install.
+command line tool from crates.io:
 
 ```sh
-cargo install --locked rtao-cli
+cargo install --locked rtao
 rtao --version
 ```
 
-rtao-cli 0.1.0, the version tested here, prints
-`rtao 0.1.0 (bittensor-core v490)`. It is built from a newer rtao revision
-than the one the subnet's crates pin; hotkey files written by either load in
-the other (checked on November 12, 2026).
+rtao 0.1.1, the version tested here, needs Rust 1.90 or later (it builds with
+1.90.0 and 1.99.1) and prints `rtao 0.1.1 (bittensor-core v490)`. It is built
+from a newer rtao revision than the one the subnet's crates pin; hotkey files
+written by either load in the other (checked on November 12, 2026).
+
+If you installed the tool earlier as `rtao-cli`, from crates.io or from Git,
+run `cargo uninstall rtao-cli` first. Otherwise cargo stops with
+"binary `rtao` already exists in destination".
 
 The subnet's crates pin the rtao library at commit `fa83052d`. If you need the
-command line tool at exactly that commit, install it from Git instead:
+command line tool at exactly that commit, install it from Git instead. At that
+commit the command is still in the package `rtao-cli`, which the line names.
+If rtao from crates.io is installed, run `cargo uninstall rtao` first:
 
 ```sh
 cargo install --locked --git https://github.com/sam0x17/rtao --rev fa83052d37b39f002f7a4d3cc5c04f25503e1d11 rtao-cli
@@ -337,7 +342,7 @@ rtao subnets metagraph 601 --network test
 
 The coldkey pays the subnet's current registration cost, which is known only
 when the call executes. `rtao subnets register --help` describes the call in
-full. In rtao-cli 0.1.0, as at the pinned revision, it says:
+full. In rtao 0.1.1, as at the pinned revision, it says:
 
 - **Burn and collateral.** When the subnet's collateral lock share `p` is
   zero, the whole cost is burned. When `p` is above zero, `1 - p` of it is

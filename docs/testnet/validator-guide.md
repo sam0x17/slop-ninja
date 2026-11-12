@@ -78,7 +78,7 @@ startup checks and use `observe`. Committing rows waits for the pieces above.
   the installer and the release key it trusts come from it.
 - Rust 1.90 or later (the tested toolchain is 1.99.1) and a C compiler, also
   with the release binaries: rtao, the wallet and registration tool, is
-  built from source with `cargo install --locked rtao-cli`
+  built from source with `cargo install --locked rtao`
   ([miner guide](miner-guide.md#rtao-for-wallets-and-registration)).
   On platforms without release binaries you also build the validator.
 - A testnet coldkey and a registered validator hotkey on subnet 601, with

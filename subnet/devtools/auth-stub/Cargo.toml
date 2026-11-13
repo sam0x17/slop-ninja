@@ -16,6 +16,10 @@ serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 sha2 = "0.10"
 slop-ninja-dev-http = { path = "../http" }
+# The account contract's sign-in methods and stored avatar types, and the
+# origin type every Worker parses its origin vars with.
+slop-ninja-account-wire = { path = "../../crates/account-wire" }
+slop-ninja-detect-page = { path = "../../crates/detect-page" }
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 js-sys = "0.3"

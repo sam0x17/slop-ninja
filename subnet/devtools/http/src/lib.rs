@@ -6,6 +6,40 @@
 
 use serde::Serialize;
 
+/// The dev session's fixed values, which every Worker's `[env.dev]` repeats
+/// (README, "Joining the session"); `tests/dev_configs.rs` holds the
+/// configs, the session script and the smoke check to them.
+pub mod session {
+    /// `SITE_ORIGIN` of every `[env.dev]`: the site session.
+    pub const SITE_ORIGIN: &str = "https://slop.localhost:8787";
+    /// `SECRET_ORIGIN` of every `[env.dev]`: the secret-host session.
+    pub const SECRET_ORIGIN: &str = "https://s.slop.localhost:8788";
+    /// `STUB_ORIGIN`: the stubs session, where the browser meets the
+    /// sign-in stubs.
+    pub const STUB_ORIGIN: &str = "https://auth.slop.localhost:8789";
+    /// `MAIL_SUBJECT_PREFIX` of every `[env.dev]`.
+    pub const MAIL_SUBJECT_PREFIX: &str = "[dev] ";
+
+    /// One D1 store of the site session.
+    #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+    pub struct Store {
+        /// The binding name, as in production.
+        pub binding: &'static str,
+        /// The `database_id` of the Worker's `[env.dev]` entry: the local
+        /// store is keyed by it, so the Worker reads the store that
+        /// `dev-session.sh migrate` filled.
+        pub database_id: &'static str,
+        /// The Worker under `subnet/` whose `migrations/` it takes.
+        pub worker: &'static str,
+    }
+
+    /// The site session's D1 stores (`session/stores.toml`).
+    pub const STORES: &[Store] = &[
+        Store { binding: "DETECT_STORE", database_id: "dev-detect-store", worker: "detect-worker" },
+        Store { binding: "ACCOUNT_STORE", database_id: "dev-account-store", worker: "account-worker" },
+    ];
+}
+
 /// One request, as the stubs read it.
 #[derive(Clone, Debug, Default)]
 pub struct Call {

@@ -28,7 +28,9 @@ the browser must reach the sign-in stubs' authorize pages, and test suites read 
 `auth-stub` is the stubs session's door to its two neighbours: `/__scorer/<path>` reaches the stub scorer and
 `/__fixture/<host>/<path>` the fixture site.
 
-Local D1 (every migration applied), R2, Durable Objects and queues all run inside the site session. The origins come
+Local D1, R2, Durable Objects and queues all run inside the site session. Its two D1 stores, the detect store and the
+account store, are named in [`session/stores.toml`](session/stores.toml), and `migrate` applies each Worker's own
+`migrations/` to them. The origins come
 from dev vars, so `__Host-` cookies and the Origin checks behave as in production: a cookie set on
 `slop.localhost` never reaches `s.slop.localhost`.
 
@@ -36,7 +38,8 @@ from dev vars, so `__Host-` cookies and the Origin checks behave as in productio
 cd subnet/devtools/session
 ./dev-session.sh cert       # once: a local certificate for *.slop.localhost (trust it in the test browser)
 ./dev-session.sh build      # the three stub Workers (worker-build 0.8.x; WORKER_BUILD names another binary)
-./dev-session.sh migrate    # every D1 migration of the site session's Workers, into its local stores
+./dev-session.sh migrate    # both D1 stores' migrations (session/stores.toml), into the site session's local state
+./dev-session.sh stores     # each local store's tables
 ./dev-session.sh stubs      # terminal 1
 WEB_REPO=<website checkout> ./dev-session.sh site      # terminal 2
 WEB_REPO=<website checkout> ./dev-session.sh secret    # terminal 3
@@ -58,16 +61,25 @@ A Worker joins the site or secret session by defining `[env.dev]` in its Wrangle
 - **Vars:** `SITE_ORIGIN = "https://slop.localhost:8787"`, `SECRET_ORIGIN = "https://s.slop.localhost:8788"`,
   `MAIL_SUBJECT_PREFIX = "[dev] "`, and `STUB_ORIGIN = "https://auth.slop.localhost:8789"` where the browser is sent
   to a sign-in stub.
-- **Local resources only:** D1 bindings with a placeholder `database_id` and their `migrations_dir`, R2 buckets,
-  queues and Durable Objects, all simulated locally. No route, custom domain, `workers_dev` or account.
+- **Local resources only:** D1 bindings, R2 buckets, queues and Durable Objects, all simulated locally. No route,
+  custom domain, `workers_dev` or account.
+- **D1:** the local store is keyed by `database_id`, so a Worker's `[[env.dev.d1_databases]]` entry names its session
+  store exactly as `session/stores.toml` does, with `migrations_dir = "migrations"`. No other Worker binds either store.
+
+  | Worker | Binding | `database_id` | Migrations |
+  |---|---|---|---|
+  | detect | `DETECT_STORE` | `dev-detect-store` | `subnet/detect-worker/migrations/` |
+  | account | `ACCOUNT_STORE` | `dev-account-store` | `subnet/account-worker/migrations/` |
 - **Stubs, only here and only behind the cargo feature `dev`:**
   - detect: `STUB_SCORER` (service `slop-ninja-dev-stub-scorer`) in place of the scorer Container's port;
   - account: `AUTH_STUB` (service `slop-ninja-dev-auth-stub`) for the token, user and mail calls, with the browser sent
     to `STUB_ORIGIN` for authorize;
   - detect-fetch: `FIXTURE_SITE` (service `slop-ninja-dev-fixture-site`) for hosts under `fixtures.test`.
 
-A source test (`http/tests/dev_configs.rs`) refuses any `slop-ninja-dev-` name outside `[env.dev]` in a Worker
-config under `subnet/`.
+The values are fixed in one place, `slop_ninja_dev_http::session` (the origins, the subject prefix and the stores). A
+source test (`http/tests/dev_configs.rs`) refuses any `slop-ninja-dev-` name outside `[env.dev]` in a Worker config
+under `subnet/`, parses the dev origins with the page contract's `Origins` (as every Worker parses its origin vars),
+and holds every `[env.dev.vars]`, every `[env.dev]` D1 entry, the session script and the smoke check to these values.
 
 **Provider endpoints in the account Worker's dev build** (stub origin `S`, server calls through `AUTH_STUB`):
 
@@ -98,6 +110,11 @@ Test users (all synthetic, under `example.com` and `example.org`):
 | `carol` | unverified | SVG labelled `image/png` |
 | `dave` | none | HTML labelled `image/png` |
 | `erin` | verified | PNG over 64 KiB |
+
+Its providers are the account contract's OAuth sign-in methods (`slop-ninja-account-wire` `Provider`, under the same
+wire strings), and `SITE_ORIGIN` and `STUB_ORIGIN` parse with the page contract's `Origin`: a malformed origin answers
+500 rather than falling back to a default. The avatar answers are labelled with the contract's stored types
+(`AvatarType`); the SVG, HTML and oversized answers are ones the account Worker drops.
 
 The stub is stricter than the providers where SlopNinja's flows promise more: `state` and an S256 (or, except
 GitHub, plain) PKCE challenge are required, the redirect URI must match exactly, and each code is single use. It
@@ -133,7 +150,8 @@ have the real shape, and `token_count` is the scorer's own count from the compil
 2,048-token refusal matches.
 
 Answers come from markers in the text, one token each (`sn-stub:<key>=<value>`); with none the document is in the
-`weak` band. The full table is in [`stub-scorer/src/markers.rs`](stub-scorer/src/markers.rs):
+`weak` band. Band values are the page contract's band codes (`slop-ninja-detect-page` `Band`), and the fixture site's
+`/article/<band>` takes the same codes. The full table is in [`stub-scorer/src/markers.rs`](stub-scorer/src/markers.rs):
 
 | Marker | Effect |
 |---|---|
@@ -164,18 +182,27 @@ Every request is logged with the headers a test checks (agent, Web Bot Auth, coo
 cargo run --manifest-path subnet/devtools/wallet-stub/Cargo.toml -- address --seed alice
 cargo run --manifest-path subnet/devtools/wallet-stub/Cargo.toml -- variants --seed alice --message-file challenge.txt
 cargo run --manifest-path subnet/devtools/wallet-stub/Cargo.toml -- verify --ss58 <address> --signature 0x... --message-file challenge.txt
+cargo run --manifest-path subnet/devtools/wallet-stub/Cargo.toml -- variants --seed alice --challenge-file answer.json
 ```
+
+`--challenge-file` reads the account Worker's `/wallet/challenge` answer (`slop-ninja-account-wire`
+`WalletChallengeAnswer`, JSON; `-` reads stdin) and signs its `message`; `sign` and `variants` then also print
+`verify_request`, the `/wallet/verify` body (`WalletVerifyRequest`) that answers it.
 
 A seed name maps to the mini secret `SHA-256("slop_ninja_dev_wallet_stub/v1/" ‖ name)`; the keys are public test
 keys, never Substrate's `//Alice`, and must never hold funds. Signatures use the `substrate` signing context and are
 derandomized from the seed and the bytes, so fixtures stay stable. `wrapped` signs `<Bytes>…</Bytes>`, `wrong-key`
 signs with another test key under the requested address, and `wrong-message` signs the message with ` (altered)`
-appended. A test checks every variant against `rtao_core::keys::verify_strict` at the fleet's rtao pin.
+appended. A test checks every variant against `rtao_core::keys::verify_strict` at the fleet's rtao pin, signing the account
+contract's own `/wallet/challenge` fixture issued to the stub's address and carrying each signature in a
+`/wallet/verify` body.
 
 ## Checks
 
 - Native unit tests: `cargo test --workspace` here, and `cargo test` in `wallet-stub/`. They include the stub
   scorer's protocol read through `slop-ninja-scorer-client`, the client the detect Worker's lane uses.
+- Source checks (`http/tests/dev_configs.rs`): local-only stub and store configs, `[env.dev]`-only stub names, the dev
+  origins and stores agreed everywhere, and a session script that never logs in, deploys or leaves `--local`.
 - `./dev-session.sh smoke` against a running stubs session: the three OAuth code flows with PKCE (the ID token
   checked against the stub's key set), mail capture, the slow-exchange switch, the scorer protocol and markers, and
   the fixture site.
@@ -184,5 +211,9 @@ First run, 2026-11-13, with Wrangler 4.159.0 and no Cloudflare login: the stubs 
 `https://auth.slop.localhost:8789`; site and secret sessions with stand-in Workers on `slop.localhost:8787` and
 `s.slop.localhost:8788` reached all three stubs and each other through the dev registry; D1 migrations applied under
 `[env.dev]` to the site session's local store; R2, a Durable Object and a queue (producer and consumer) worked
-locally; and a `__Host-` cookie set on the site host was not sent to the secret host. The site session has not yet
-run with the real Workers, which join as each gains its `[env.dev]`.
+locally; and a `__Host-` cookie set on the site host was not sent to the secret host. Second run, the same day, after
+the detect and account stores' first migrations landed: `migrate` applied both (`0001_detect_store.sql`, 31
+statements; `0001_account_store.sql`, 28) to the site session's local state and a second `migrate` found nothing to
+apply; a stand-in Worker in the site session, bound to both stores under the session's ids from its own config, read
+every table, saw foreign keys on, and had its CHECK and NOT NULL violations refused. The site session has not yet run
+with the real Workers, which join as each gains its `[env.dev]`.

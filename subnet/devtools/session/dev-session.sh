@@ -3,7 +3,8 @@
 #
 #   dev-session.sh cert       make the local TLS certificate (once)
 #   dev-session.sh build      build the three stub Workers (worker-build --release)
-#   dev-session.sh migrate    apply every D1 migration of the site session to its local stores
+#   dev-session.sh migrate    apply both D1 stores' migrations (stores.toml) to the site session's local state
+#   dev-session.sh stores     list the tables of each local store
 #   dev-session.sh stubs      run the stubs session      (https://auth.slop.localhost:8789)
 #   dev-session.sh site       run the site session       (https://slop.localhost:8787)
 #   dev-session.sh secret     run the secret-host session (https://s.slop.localhost:8788)
@@ -81,14 +82,17 @@ serve() { # <port> <persist dir> <wrangler args...>
 case ${1:-} in
   cert) cert ;;
   build) build ;;
-  migrate)
-    for w in detect-worker account-worker; do
-      cfg=$SUBNET/$w/wrangler.toml
-      [[ -f $cfg ]] || { echo "dev-session: no $w yet, skipped" >&2; continue; }
-      # Every D1 binding of the dev environment, by binding name.
-      for db in $(sed -n '/^\[\[env\.dev\.d1_databases\]\]/,/^\[/{s/^binding *= *"\([^"]*\)".*/\1/p}' "$cfg"); do
-        wrangler d1 migrations apply "$db" --local --env dev -c "$cfg" --persist-to "$STATE/site"
-      done
+  migrate|stores)
+    # The site session's D1 stores (stores.toml): migrate applies each
+    # Worker's own migrations/ to the session's local state; stores lists
+    # each store's tables.
+    for db in $(sed -n 's/^binding *= *"\([^"]*\)".*/\1/p' "$HERE/stores.toml"); do
+      if [[ ${1:-} == migrate ]]; then
+        wrangler d1 migrations apply "$db" --local -c "$HERE/stores.toml" --persist-to "$STATE/site"
+      else
+        wrangler d1 execute "$db" --local -c "$HERE/stores.toml" --persist-to "$STATE/site" \
+          --command "SELECT name FROM sqlite_master WHERE type = 'table' ORDER BY name"
+      fi
     done ;;
   stubs)
     args=()
@@ -106,5 +110,5 @@ case ${1:-} in
   smoke)
     cert
     NODE_EXTRA_CA_CERTS=$STATE/cert.pem exec node "$HERE/smoke.mjs" "https://auth.slop.localhost:$STUBS_PORT" ;;
-  *) sed -n '2,20p' "${BASH_SOURCE[0]}"; exit 2 ;;
+  *) sed -n '2,21p' "${BASH_SOURCE[0]}"; exit 2 ;;
 esac

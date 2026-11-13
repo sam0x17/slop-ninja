@@ -1,0 +1,30 @@
+# SlopNinja dev session: the site session's two D1 stores, for
+# `dev-session.sh migrate` only (local dev sessions; never deployed).
+#
+# No Worker runs from this file, and it names no account, route, custom
+# domain, workers_dev subdomain or preview URL. `dev-session.sh migrate`
+# applies each Worker's own migrations/ to the site session's local state
+# (`--local --persist-to`). The local store is keyed by database_id, so the
+# detect and account Workers' [env.dev] D1 entries carry the same binding
+# and database_id as here (http/src/lib.rs `session::STORES`), with
+# migrations_dir = "migrations"; a source test holds both sides to it.
+
+name = "slop-ninja-dev-stores"
+compatibility_date = "2026-10-20"
+workers_dev = false
+preview_urls = false
+
+[observability]
+enabled = false
+
+[[d1_databases]]
+binding = "DETECT_STORE"
+database_name = "detect-store-dev"
+database_id = "dev-detect-store"
+migrations_dir = "../../detect-worker/migrations"
+
+[[d1_databases]]
+binding = "ACCOUNT_STORE"
+database_name = "account-store-dev"
+database_id = "dev-account-store"
+migrations_dir = "../../account-worker/migrations"

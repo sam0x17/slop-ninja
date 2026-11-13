@@ -123,7 +123,7 @@ mod cf {
         Ok(Uint8Array::new(&sig).to_vec())
     }
 
-    fn config(env: &Env) -> Config {
+    fn config(env: &Env) -> std::result::Result<Config, String> {
         Config::from_vars(|k| env.var(k).ok().map(|v| v.to_string()))
     }
 
@@ -143,7 +143,10 @@ mod cf {
             if oversize {
                 return response_of(Reply::json(413, &json!({"error": "body"}))).await;
             }
-            let cfg = config(&self.env);
+            let cfg = match config(&self.env) {
+                Ok(c) => c,
+                Err(e) => return response_of(Reply::json(500, &json!({"error": format!("config: {e}")}))).await,
+            };
             let storage = self.state.storage();
             let mut stub: Stub = storage.get(STATE).await?.unwrap_or_default();
             let outcome = stub.handle(&cfg, &call, Date::now().as_millis());

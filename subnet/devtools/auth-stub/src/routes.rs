@@ -14,9 +14,13 @@ use base64::engine::general_purpose::{STANDARD, URL_SAFE_NO_PAD};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
+use slop_ninja_account_wire::Provider as Method;
+use slop_ninja_detect_page::Origin;
 use slop_ninja_dev_http::{Call, Reply, encode, escape, field};
 use std::collections::BTreeMap;
 
+/// A provider the stub plays: one of the account contract's OAuth sign-in
+/// methods ([`Method::is_oauth`]), under the same wire string.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum Provider {
@@ -26,12 +30,30 @@ pub enum Provider {
 }
 
 impl Provider {
-    pub fn name(self) -> &'static str {
+    pub const ALL: [Provider; 3] = [Provider::Google, Provider::Github, Provider::X];
+
+    /// The account contract's sign-in method.
+    pub fn method(self) -> Method {
         match self {
-            Provider::Google => "google",
-            Provider::Github => "github",
-            Provider::X => "x",
+            Provider::Google => Method::Google,
+            Provider::Github => Method::Github,
+            Provider::X => Method::X,
         }
+    }
+
+    /// The provider of an OAuth sign-in method; `None` for email and wallet.
+    pub fn of_method(m: Method) -> Option<Provider> {
+        Provider::ALL.into_iter().find(|p| p.method() == m)
+    }
+
+    /// The provider a method's wire string names.
+    pub fn parse(s: &str) -> Option<Provider> {
+        Method::parse(s).and_then(Provider::of_method)
+    }
+
+    /// The method's wire string (`google`, `github`, `x`).
+    pub fn name(self) -> &'static str {
+        self.method().as_str()
     }
 
     /// How long an issued code may be exchanged.
@@ -64,25 +86,31 @@ pub struct Client {
 #[derive(Clone, Debug)]
 pub struct Config {
     /// The stub's own origin, as the browser reaches it.
-    pub origin: String,
+    pub origin: Origin,
     pub google: Client,
     pub github: Client,
     pub x: Client,
 }
 
 /// The default site origin of the dev session.
-pub const DEV_SITE_ORIGIN: &str = "https://slop.localhost:8787";
+pub const DEV_SITE_ORIGIN: &str = slop_ninja_dev_http::session::SITE_ORIGIN;
 /// The default origin of the stubs session.
-pub const DEV_STUB_ORIGIN: &str = "https://auth.slop.localhost:8789";
+pub const DEV_STUB_ORIGIN: &str = slop_ninja_dev_http::session::STUB_ORIGIN;
 
 impl Config {
     /// From vars: `STUB_ORIGIN`, `SITE_ORIGIN` and, per provider `P` in
     /// `GOOGLE`, `GITHUB` and `X`, `P_CLIENT_ID`, `P_CLIENT_SECRET` and
     /// `P_REDIRECT_URIS` (comma-separated; default
-    /// `<SITE_ORIGIN>/auth/<p>/callback`).
-    pub fn from_vars(get: impl Fn(&str) -> Option<String>) -> Config {
+    /// `<SITE_ORIGIN>/auth/<p>/callback`). Both origins parse as the
+    /// Workers parse theirs ([`Origin::parse`]); one that does not is an
+    /// error, never a silent default.
+    pub fn from_vars(get: impl Fn(&str) -> Option<String>) -> Result<Config, String> {
         let get = |k: &str| get(k).map(|v| v.trim().to_owned()).filter(|v| !v.is_empty());
-        let site = get("SITE_ORIGIN").unwrap_or_else(|| DEV_SITE_ORIGIN.to_owned());
+        let origin = |k: &str, default: &str| {
+            let v = get(k).unwrap_or_else(|| default.to_owned());
+            Origin::parse(&v).map_err(|e| format!("{k} {v:?}: {e:?}"))
+        };
+        let site = origin("SITE_ORIGIN", DEV_SITE_ORIGIN)?;
         let client = |p: Provider| {
             let up = p.name().to_ascii_uppercase();
             Client {
@@ -90,15 +118,15 @@ impl Config {
                 secret: get(&format!("{up}_CLIENT_SECRET")).unwrap_or_else(|| format!("dev-{}-client-secret-not-real", p.name())),
                 redirect_uris: get(&format!("{up}_REDIRECT_URIS"))
                     .map(|v| v.split(',').map(|s| s.trim().to_owned()).filter(|s| !s.is_empty()).collect())
-                    .unwrap_or_else(|| vec![format!("{site}/auth/{}/callback", p.name())]),
+                    .unwrap_or_else(|| vec![site.url(&format!("/auth/{}/callback", p.name()))]),
             }
         };
-        Config {
-            origin: get("STUB_ORIGIN").unwrap_or_else(|| DEV_STUB_ORIGIN.to_owned()),
+        Ok(Config {
+            origin: origin("STUB_ORIGIN", DEV_STUB_ORIGIN)?,
             google: client(Provider::Google),
             github: client(Provider::Github),
             x: client(Provider::X),
-        }
+        })
     }
 
     pub fn client(&self, p: Provider) -> &Client {
@@ -408,16 +436,9 @@ impl Stub {
             }
             serde_json::from_value(v).map_err(|e| e.to_string())
         }
-        let done = match which.as_str() {
-            "google" | "github" | "x" => {
-                let p = match which.as_str() {
-                    "google" => Provider::Google,
-                    "github" => Provider::Github,
-                    _ => Provider::X,
-                };
-                merge(self.switches(p), patch).map(|s| *self.switches_mut(p) = s)
-            }
-            "mail" => merge(&self.mail_switches, patch).map(|s| self.mail_switches = s),
+        let done = match (which.as_str(), Provider::parse(&which)) {
+            (_, Some(p)) => merge(self.switches(p), patch).map(|s| *self.switches_mut(p) = s),
+            ("mail", None) => merge(&self.mail_switches, patch).map(|s| self.mail_switches = s),
             _ => Err("provider: google, github, x or mail".to_owned()),
         };
         match done {
@@ -824,9 +845,9 @@ pub fn discovery(cfg: &Config) -> Value {
     let o = &cfg.origin;
     json!({
         "issuer": "https://accounts.google.com",
-        "authorization_endpoint": format!("{o}/google/o/oauth2/v2/auth"),
-        "token_endpoint": format!("{o}/google/token"),
-        "jwks_uri": format!("{o}/google/oauth2/v3/certs"),
+        "authorization_endpoint": o.url("/google/o/oauth2/v2/auth"),
+        "token_endpoint": o.url("/google/token"),
+        "jwks_uri": o.url("/google/oauth2/v3/certs"),
         "response_types_supported": ["code"],
         "subject_types_supported": ["public"],
         "id_token_signing_alg_values_supported": ["RS256"],
@@ -869,7 +890,7 @@ fn index(cfg: &Config) -> Reply {
         &format!(
             "<!doctype html><title>auth stub</title><h1>SlopNinja dev auth stub</h1>\
              <p>Origin {}. Dev only: OAuth for Google, GitHub and X, and the mail capture at /mail.</p><ul>{users}</ul>",
-            escape(&cfg.origin)
+            escape(cfg.origin.as_str())
         ),
     )
 }

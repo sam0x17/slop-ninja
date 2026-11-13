@@ -26,6 +26,7 @@
 //! first paragraph; `none`: no marker), `/article/short` (40 words) and
 //! `/canonical` (an article whose canonical link names `plain`'s).
 
+use slop_ninja_detect_page::Band;
 use slop_ninja_dev_http::{Body, Call, Reply};
 
 /// The fixture domain: under the reserved `.test` top-level domain, so a
@@ -55,12 +56,10 @@ pub const PARAGRAPHS: &[&str] = &[
     "The minutes of the meeting were posted on the noticeboard outside the library the next morning, and a short survey was left at the front desk so that anyone who had not been able to attend could still give their view on the plan before it was agreed.",
 ];
 
-/// The stub scorer's band marker for an article (`none`: no marker).
+/// The stub scorer's band marker for an article: a band code of the page
+/// contract ([`Band`]); anything else (`none`) carries no marker.
 fn band_marker(band: &str) -> Option<String> {
-    match band {
-        "weak" | "unclear" | "strong" | "very_strong" => Some(format!("sn-stub:band={band}")),
-        _ => None,
-    }
+    Band::parse(band).map(|b| format!("sn-stub:band={b}"))
 }
 
 /// `n` words of the synthetic prose.
@@ -262,7 +261,7 @@ pub fn page(call: &Call) -> Reply {
 fn common(label: &str, path: &str) -> Option<Reply> {
     if let Some(band) = path.strip_prefix("/article/") {
         return Some(match band {
-            "weak" | "unclear" | "strong" | "very_strong" | "none" => html(200, article(band, "")),
+            b if b == "none" || Band::parse(b).is_some() => html(200, article(b, "")),
             "short" => html(200, article_html("A short note", Some("sn-stub:band=very_strong"), &[prose_words(40)], "")),
             _ => Reply::text(404, "no such article"),
         });
@@ -341,6 +340,11 @@ mod tests {
         let a = get(&h("plain"), "/article/strong").body_text();
         assert!(a.contains("sn-stub:band=strong") && a.contains("<article>"));
         assert!(!get(&h("plain"), "/article/none").body_text().contains("sn-stub:"));
+        // One article per band code of the page contract.
+        for b in Band::ALL {
+            assert!(get(&h("plain"), &format!("/article/{b}")).body_text().contains(&format!("sn-stub:band={b}")), "{b}");
+        }
+        assert_eq!(get(&h("plain"), "/article/enormous").status, 404);
         let words: usize = PARAGRAPHS.iter().map(|p| p.split_whitespace().count()).sum();
         assert!(words >= 300, "{words} words: inside the measured range");
         assert_eq!(prose_words(40).split_whitespace().count(), 40);

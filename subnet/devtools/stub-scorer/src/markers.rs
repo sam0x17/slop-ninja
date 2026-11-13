@@ -24,36 +24,19 @@ pub const PREFIX: &str = "sn-stub:";
 /// The longest delay a marker may ask for.
 pub const MAX_DELAY_MS: u64 = 300_000;
 
-/// A document's band, as the detect Worker cuts it.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum Band {
-    VeryStrong,
-    Strong,
-    Unclear,
-    Weak,
-}
+/// A document's band, as the detect Worker cuts it: the page contract's
+/// band codes, so a `band=` marker takes exactly the page's wire strings.
+pub use slop_ninja_detect_page::Band;
 
-impl Band {
-    pub fn parse(s: &str) -> Option<Band> {
-        Some(match s {
-            "very_strong" => Band::VeryStrong,
-            "strong" => Band::Strong,
-            "unclear" => Band::Unclear,
-            "weak" => Band::Weak,
-            _ => return None,
-        })
-    }
-
-    /// `(ai_confidence_percent, ai_share_percent)`: each well inside its
-    /// band of the detect Worker's cuts (99.988..., 90.909..., 50), and
-    /// `very_strong` above every short-text level.
-    pub fn percents(self) -> (f64, f64) {
-        match self {
-            Band::VeryStrong => (99.995, 88.0),
-            Band::Strong => (95.0, 61.5),
-            Band::Unclear => (70.0, 30.0),
-            Band::Weak => (12.5, 3.0),
-        }
+/// `(ai_confidence_percent, ai_share_percent)` of a band: each well inside
+/// its band of the detect Worker's cuts (99.988..., 90.909..., 50), and
+/// `very_strong` above every short-text level.
+pub fn band_percents(band: Band) -> (f64, f64) {
+    match band {
+        Band::VeryStrong => (99.995, 88.0),
+        Band::Strong => (95.0, 61.5),
+        Band::Unclear => (70.0, 30.0),
+        Band::Weak => (12.5, 3.0),
     }
 }
 
@@ -132,7 +115,7 @@ pub struct Region {
 impl Directives {
     /// `(ai_confidence_percent, ai_share_percent)` for this text.
     pub fn percents(&self) -> (f64, f64) {
-        let (c, s) = self.band.unwrap_or(Band::Weak).percents();
+        let (c, s) = band_percents(self.band.unwrap_or(Band::Weak));
         (self.conf.unwrap_or(c), self.share.unwrap_or(s))
     }
 }
@@ -225,7 +208,7 @@ mod tests {
     fn no_marker_is_weak_and_bad_values_are_ignored() {
         let d = parse("A plain text with no markers at all.");
         assert_eq!(d, Directives::default());
-        assert_eq!(d.percents(), Band::Weak.percents());
+        assert_eq!(d.percents(), band_percents(Band::Weak));
         let d = parse("sn-stub:band=enormous sn-stub:conf=101 sn-stub:http=99 sn-stub:spans=maybe sn-stub:what");
         assert_eq!(d, Directives::default());
     }
@@ -245,13 +228,15 @@ mod tests {
     fn band_values_sit_inside_the_detect_workers_cuts() {
         // The detect Worker's cuts (policy.rs): very strong 99.988..., strong
         // 90.909..., unclear 50; the 24-99-word passage level 96.377....
-        assert!(Band::VeryStrong.percents().0 >= 99.98820476527482);
-        assert!((90.9090909090909..99.98820476527482).contains(&Band::Strong.percents().0));
-        assert!((50.0..90.9090909090909).contains(&Band::Unclear.percents().0));
-        assert!(Band::Weak.percents().0 < 50.0);
-        for b in [Band::VeryStrong, Band::Strong, Band::Unclear, Band::Weak] {
-            let (c, s) = b.percents();
+        assert!(band_percents(Band::VeryStrong).0 >= 99.98820476527482);
+        assert!((90.9090909090909..99.98820476527482).contains(&band_percents(Band::Strong).0));
+        assert!((50.0..90.9090909090909).contains(&band_percents(Band::Unclear).0));
+        assert!(band_percents(Band::Weak).0 < 50.0);
+        for &b in Band::ALL {
+            let (c, s) = band_percents(b);
             assert!(s <= c, "share never above confidence");
+            // Every band code of the page contract is a marker value.
+            assert_eq!(parse(&format!("sn-stub:band={b}.")).band, Some(b));
         }
     }
 }

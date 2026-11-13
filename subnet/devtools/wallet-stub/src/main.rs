@@ -8,13 +8,19 @@
 //! slop_ninja_wallet_stub verify   --ss58 <address> --signature <hex> <message>
 //! ```
 //!
-//! `<message>` is `--message <text>`, `--message-hex <hex>` or
-//! `--message-file <path>` (`-` reads stdin); the bytes are used exactly,
-//! with no trailing newline added or removed.
+//! `<message>` is `--message <text>`, `--message-hex <hex>`,
+//! `--message-file <path>` (`-` reads stdin) or `--challenge-file <path>`
+//! (`-` reads stdin): the account Worker's `/wallet/challenge` answer
+//! (JSON), whose `message` is signed. The bytes are used exactly, with no
+//! trailing newline added or removed. With a challenge, `sign` and
+//! `variants` also print `verify_request`, the `/wallet/verify` body that
+//! answers it.
 
 use clap::{Args, Parser, Subcommand};
 use serde_json::{Value, json};
-use slop_ninja_dev_wallet_stub::{PREFIX_GENERIC, Signed, Variant, hex0x, keypair, seed, sign, ss58, unhex, verify};
+use slop_ninja_dev_wallet_stub::{
+    PREFIX_GENERIC, Signed, Variant, WalletChallengeAnswer, hex0x, keypair, seed, sign, ss58, unhex, verify, verify_request,
+};
 use std::io::Read;
 use std::process::ExitCode;
 
@@ -37,23 +43,37 @@ struct Message {
     /// A file holding the message bytes; `-` reads stdin.
     #[arg(long)]
     message_file: Option<String>,
+    /// A `/wallet/challenge` answer (JSON) whose `message` is signed; `-`
+    /// reads stdin.
+    #[arg(long)]
+    challenge_file: Option<String>,
+}
+
+fn read_file(p: &str) -> Result<Vec<u8>, String> {
+    if p == "-" {
+        let mut b = Vec::new();
+        std::io::stdin().read_to_end(&mut b).map_err(|e| e.to_string())?;
+        return Ok(b);
+    }
+    std::fs::read(p).map_err(|e| format!("{p}: {e}"))
 }
 
 impl Message {
-    fn bytes(&self) -> Result<Vec<u8>, String> {
+    /// The bytes to sign, and the challenge they came from.
+    fn bytes(&self) -> Result<(Vec<u8>, Option<WalletChallengeAnswer>), String> {
         if let Some(m) = &self.message {
-            return Ok(m.as_bytes().to_vec());
+            return Ok((m.as_bytes().to_vec(), None));
         }
         if let Some(h) = &self.message_hex {
-            return unhex(h).ok_or_else(|| "--message-hex is not hex".to_owned());
+            return Ok((unhex(h).ok_or_else(|| "--message-hex is not hex".to_owned())?, None));
+        }
+        if let Some(p) = &self.challenge_file {
+            let c: WalletChallengeAnswer =
+                serde_json::from_slice(&read_file(p)?).map_err(|e| format!("--challenge-file: not a /wallet/challenge answer: {e}"))?;
+            return Ok((c.message.as_bytes().to_vec(), Some(c)));
         }
         match self.message_file.as_deref() {
-            Some("-") => {
-                let mut b = Vec::new();
-                std::io::stdin().read_to_end(&mut b).map_err(|e| e.to_string())?;
-                Ok(b)
-            }
-            Some(p) => std::fs::read(p).map_err(|e| format!("{p}: {e}")),
+            Some(p) => Ok((read_file(p)?, None)),
             None => Err("no message".to_owned()),
         }
     }
@@ -95,9 +115,13 @@ enum Cmd {
     },
 }
 
-fn signed_json(s: &Signed) -> Value {
-    json!({"variant": s.variant.name(), "ss58": s.ss58, "public_key": hex0x(&s.public_key),
-        "signed_hex": hex0x(&s.signed), "signature": hex0x(&s.signature)})
+fn signed_json(s: &Signed, challenge: Option<&WalletChallengeAnswer>) -> Result<Value, String> {
+    let mut v = json!({"variant": s.variant.name(), "ss58": s.ss58, "public_key": hex0x(&s.public_key),
+        "signed_hex": hex0x(&s.signed), "signature": hex0x(&s.signature)});
+    if let Some(c) = challenge {
+        v["verify_request"] = serde_json::to_value(verify_request(c, s)).map_err(|e| e.to_string())?;
+    }
+    Ok(v)
 }
 
 fn run(cli: Cli) -> Result<Value, String> {
@@ -106,14 +130,17 @@ fn run(cli: Cli) -> Result<Value, String> {
             let pk = keypair(&seed(&name)).public.to_bytes();
             json!({"seed": name, "ss58": ss58(&pk, prefix), "prefix": prefix, "public_key": hex0x(&pk)})
         }
-        Cmd::Sign { seed: name, variant, message } => signed_json(&sign(&name, &message.bytes()?, variant)),
+        Cmd::Sign { seed: name, variant, message } => {
+            let (m, c) = message.bytes()?;
+            signed_json(&sign(&name, &m, variant), c.as_ref())?
+        }
         Cmd::Variants { seed: name, message } => {
-            let m = message.bytes()?;
-            Value::Array(Variant::ALL.iter().map(|v| signed_json(&sign(&name, &m, *v))).collect())
+            let (m, c) = message.bytes()?;
+            Value::Array(Variant::ALL.iter().map(|v| signed_json(&sign(&name, &m, *v), c.as_ref())).collect::<Result<_, _>>()?)
         }
         Cmd::Verify { ss58: addr, signature, message } => {
             let sig = unhex(&signature).ok_or("--signature is not hex")?;
-            let (raw, wrapped) = verify(&addr, &message.bytes()?, &sig).ok_or("not an sr25519 address and 64-byte signature")?;
+            let (raw, wrapped) = verify(&addr, &message.bytes()?.0, &sig).ok_or("not an sr25519 address and 64-byte signature")?;
             json!({"raw": raw, "wrapped": wrapped, "accepted": raw || wrapped})
         }
     })

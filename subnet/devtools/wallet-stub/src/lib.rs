@@ -207,6 +207,16 @@ pub fn verify(addr: &str, message: &[u8], signature: &[u8]) -> Option<(bool, boo
     Some((ok(message), ok(&wrap(message))))
 }
 
+/// The account Worker's wallet sign-in bodies: the `/wallet/challenge`
+/// answer a signature answers, and the `/wallet/verify` body it goes in.
+pub use slop_ninja_account_wire::{WalletChallengeAnswer, WalletVerifyRequest};
+
+/// The `/wallet/verify` body that answers `challenge` with `signed`'s
+/// signature (`0x` hex, as wallets print it).
+pub fn verify_request(challenge: &WalletChallengeAnswer, signed: &Signed) -> WalletVerifyRequest {
+    WalletVerifyRequest { challenge_id: challenge.challenge_id.clone(), signature: hex0x(&signed.signature) }
+}
+
 /// Hex with a `0x` prefix, as wallets print signatures.
 pub fn hex0x(b: &[u8]) -> String {
     format!("0x{}", hex::encode(b))

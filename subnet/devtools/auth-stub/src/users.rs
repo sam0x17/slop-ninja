@@ -2,6 +2,9 @@
 //! the reserved `example.com` and `example.org` domains, and the ids are
 //! made up. Each user has one identity per provider and a default avatar.
 
+// The stored avatar types of the account contract.
+use slop_ninja_account_wire::AvatarType;
+
 /// What the X avatar route serves for a user.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -119,28 +122,58 @@ pub const PNG_1X1: &[u8] = &[
     0x45, 0x4E, 0x44, 0xAE, 0x42, 0x60, 0x82,
 ];
 
+impl Avatar {
+    pub const ALL: [Avatar; 9] = [
+        Avatar::Png,
+        Avatar::Jpeg,
+        Avatar::Gif,
+        Avatar::Webp,
+        Avatar::Svg,
+        Avatar::Html,
+        Avatar::Big,
+        Avatar::Redirect,
+        Avatar::Missing,
+    ];
+
+    /// What the account Worker keeps of this answer: the stored type its
+    /// magic bytes name (`avatars.content_type`), or nothing (the answer is
+    /// dropped).
+    pub fn stored(self) -> Option<AvatarType> {
+        match self {
+            Avatar::Png => Some(AvatarType::Png),
+            Avatar::Jpeg => Some(AvatarType::Jpeg),
+            Avatar::Gif => Some(AvatarType::Gif),
+            Avatar::Webp => Some(AvatarType::Webp),
+            Avatar::Svg | Avatar::Html | Avatar::Big | Avatar::Redirect | Avatar::Missing => None,
+        }
+    }
+}
+
 /// The bytes and the upstream `Content-Type` of an avatar kind; `None`
-/// for the kinds that answer no image (redirect, missing).
+/// for the kinds that answer no image (redirect, missing). The labels are
+/// the account contract's stored types; the SVG and HTML answers carry the
+/// PNG label, which their bytes contradict.
 pub fn avatar_bytes(kind: Avatar) -> Option<(Vec<u8>, &'static str)> {
     let padded = |magic: &[u8], len: usize| {
         let mut v = magic.to_vec();
         v.resize(len, 0);
         v
     };
+    let png = AvatarType::Png.as_str();
     Some(match kind {
-        Avatar::Png => (PNG_1X1.to_vec(), "image/png"),
-        Avatar::Jpeg => (padded(&[0xFF, 0xD8, 0xFF, 0xE0, 0x00, 0x10, b'J', b'F', b'I', b'F', 0x00], 128), "image/jpeg"),
-        Avatar::Gif => (padded(b"GIF89a", 64), "image/gif"),
+        Avatar::Png => (PNG_1X1.to_vec(), png),
+        Avatar::Jpeg => (padded(&[0xFF, 0xD8, 0xFF, 0xE0, 0x00, 0x10, b'J', b'F', b'I', b'F', 0x00], 128), AvatarType::Jpeg.as_str()),
+        Avatar::Gif => (padded(b"GIF89a", 64), AvatarType::Gif.as_str()),
         Avatar::Webp => {
             let mut v = b"RIFF".to_vec();
             v.extend_from_slice(&56u32.to_le_bytes());
             v.extend_from_slice(b"WEBPVP8 ");
             v.resize(64, 0);
-            (v, "image/webp")
+            (v, AvatarType::Webp.as_str())
         }
-        Avatar::Svg => (b"<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"48\" height=\"48\"></svg>".to_vec(), "image/png"),
-        Avatar::Html => (b"<!doctype html><html><body>not an image</body></html>".to_vec(), "image/png"),
-        Avatar::Big => (padded(PNG_1X1, 70 * 1024), "image/png"),
+        Avatar::Svg => (b"<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"48\" height=\"48\"></svg>".to_vec(), png),
+        Avatar::Html => (b"<!doctype html><html><body>not an image</body></html>".to_vec(), png),
+        Avatar::Big => (padded(PNG_1X1, 70 * 1024), png),
         Avatar::Redirect | Avatar::Missing => return None,
     })
 }

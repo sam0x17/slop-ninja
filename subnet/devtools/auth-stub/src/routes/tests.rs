@@ -1,4 +1,5 @@
 use super::*;
+use slop_ninja_account_wire::AvatarType;
 use slop_ninja_dev_http::pairs;
 
 /// A PKCE verifier of the allowed form (43 to 128 unreserved characters).
@@ -6,7 +7,7 @@ const VERIFIER: &str = "verifier-verifier-verifier-verifier-verifier";
 const SITE: &str = DEV_SITE_ORIGIN;
 
 fn cfg() -> Config {
-    Config::from_vars(|_| None)
+    Config::from_vars(|_| None).expect("the dev defaults parse")
 }
 
 fn challenge() -> String {
@@ -356,4 +357,66 @@ fn pkce_checks_the_verifier_form() {
     // The challenge is the unpadded base64url SHA-256 of the verifier.
     assert_eq!(challenge().len(), 43);
     assert!(!pkce_ok(VERIFIER, &b64url(&Sha256::digest(b"another verifier")), "S256"));
+}
+
+#[test]
+fn providers_are_the_account_contracts_oauth_methods() {
+    let oauth: Vec<Method> = Method::ALL.iter().copied().filter(|m| m.is_oauth()).collect();
+    assert_eq!(Provider::ALL.map(Provider::method).to_vec(), oauth);
+    for p in Provider::ALL {
+        assert_eq!(Provider::parse(p.name()), Some(p));
+        assert_eq!(serde_json::to_value(p).ok(), Some(json!(p.method().as_str())), "stored state keeps the wire string");
+    }
+    assert_eq!(Provider::of_method(Method::Email), None);
+    assert_eq!(Provider::of_method(Method::Bittensor), None);
+    // A switch names a provider by its method; email and wallet are not stubbed here.
+    let mut s = Stub::default();
+    let r = reply(s.handle(&cfg(), &Call::new("POST", "/__stub/switch").json(&json!({"provider": "bittensor", "deny": true})), 0));
+    assert_eq!(r.status, 400);
+}
+
+#[test]
+fn origins_parse_as_the_workers_parse_theirs() {
+    let c = cfg();
+    assert_eq!(c.origin.as_str(), DEV_STUB_ORIGIN);
+    for p in Provider::ALL {
+        assert_eq!(c.client(p).redirect_uris, vec![redirect_uri(p)]);
+    }
+    let with = |k: &'static str, v: &'static str| Config::from_vars(move |q| (q == k).then(|| v.to_owned()));
+    let moved = with("SITE_ORIGIN", "https://site.example:9443").expect("an origin");
+    assert_eq!(moved.github.redirect_uris, vec!["https://site.example:9443/auth/github/callback".to_owned()]);
+    for (k, bad) in [
+        ("SITE_ORIGIN", "http://slop.localhost:8787"),
+        ("SITE_ORIGIN", "https://slop.localhost:8787/"),
+        ("SITE_ORIGIN", "https://Slop.localhost"),
+        ("STUB_ORIGIN", "https://auth.slop.localhost:08789"),
+    ] {
+        assert!(with(k, bad).is_err(), "{k} {bad}");
+    }
+}
+
+#[test]
+fn avatar_labels_are_the_stored_types() {
+    for a in Avatar::ALL {
+        match (a.stored(), users::avatar_bytes(a)) {
+            // A kept answer is labelled with the type its bytes are.
+            (Some(t), Some((bytes, label))) => {
+                assert_eq!(label, t.as_str(), "{a:?}");
+                let magic: &[u8] = match t {
+                    AvatarType::Png => b"\x89PNG",
+                    AvatarType::Jpeg => b"\xFF\xD8\xFF",
+                    AvatarType::Gif => b"GIF8",
+                    AvatarType::Webp => b"RIFF",
+                };
+                assert!(bytes.starts_with(magic) && bytes.len() <= 64 * 1024, "{a:?}");
+            }
+            // A dropped one is mislabelled, oversized, or no image at all.
+            (None, Some((bytes, label))) => {
+                assert_eq!(label, AvatarType::Png.as_str(), "{a:?}");
+                assert!(!bytes.starts_with(b"\x89PNG") || bytes.len() > 64 * 1024, "{a:?}");
+            }
+            (None, None) => assert!(matches!(a, Avatar::Redirect | Avatar::Missing)),
+            (Some(_), None) => panic!("{a:?}: a stored type needs bytes"),
+        }
+    }
 }

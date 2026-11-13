@@ -2,26 +2,45 @@
 //! (`rtao_core::keys::verify_strict`, at the fleet's pin): the raw and the
 //! wrapped signatures verify over exactly the bytes they signed, and the
 //! wrong-key and wrong-message signatures over nothing the sign-in accepts.
-//! The stub's SS58 encoding is checked against the core's own.
+//! The messages are the account contract's own fixture of a
+//! `/wallet/challenge` answer, and each signature travels in the contract's
+//! `/wallet/verify` body. The stub's SS58 encoding is checked against the
+//! core's own.
 
 use rtao_core::keys::{CRYPTO_SR25519, public_key_from_ss58, ss58_from_public, verify_strict};
-use slop_ninja_dev_wallet_stub::{Variant, decode_ss58, keypair, seed, sign, ss58, wrap};
+use slop_ninja_dev_wallet_stub::{
+    Variant, WalletChallengeAnswer, WalletVerifyRequest, decode_ss58, keypair, seed, sign, ss58, unhex, verify_request, wrap,
+};
 
-/// A sign-in message in the extension path's layout, on the dev session's
-/// site origin.
-fn siws(addr: &str) -> String {
-    format!(
-        "slop.localhost:8787 wants you to sign in with your Bittensor account:\n{addr}\n\n\
-         Sign in to SlopNinja. This is not a transaction and costs nothing.\n\n\
-         URI: https://slop.localhost:8787/signin/\nVersion: 1\nNonce: 0123456789ABCDEFGHJKMNPQRS\n\
-         Issued At: 2026-11-13T00:00:00.000Z\nExpiration Time: 2026-11-13T00:05:00.000Z"
-    )
+/// The contract's fixture of a `/wallet/challenge` answer (the extension
+/// path's message layout).
+fn fixture_challenge() -> WalletChallengeAnswer {
+    let p = concat!(env!("CARGO_MANIFEST_DIR"), "/../../crates/detect-page/tests/fixtures/account/wallet-challenge-answer.json");
+    let text = std::fs::read_to_string(p).unwrap_or_else(|e| panic!("{p}: {e}"));
+    serde_json::from_str(&text).expect("a /wallet/challenge answer")
+}
+
+/// The same challenge issued to `addr`: the message's address line (its
+/// second) replaced, as the account Worker writes it for that address.
+fn issued_to(c: &WalletChallengeAnswer, addr: &str) -> WalletChallengeAnswer {
+    let mut lines: Vec<&str> = c.message.split('\n').collect();
+    assert!(lines[0].ends_with(" wants you to sign in with your Bittensor account:"), "{}", lines[0]);
+    lines[1] = addr;
+    WalletChallengeAnswer { challenge_id: c.challenge_id.clone(), message: lines.join("\n") }
 }
 
 /// The account Worker's rule: the raw bytes, then the `<Bytes>` wrapping.
 fn accepted(addr: &str, msg: &[u8], sig: &[u8]) -> (bool, bool) {
     let check = |m: &[u8]| verify_strict(m, sig, addr, CRYPTO_SR25519).expect("well-formed input");
     (check(msg), check(&wrap(msg)))
+}
+
+fn intended(v: Variant) -> (bool, bool) {
+    match v {
+        Variant::Raw => (true, false),
+        Variant::Wrapped => (false, true),
+        Variant::WrongKey | Variant::WrongMessage => (false, false),
+    }
 }
 
 #[test]
@@ -43,19 +62,30 @@ fn ss58_matches_the_core() {
 
 #[test]
 fn every_variant_meets_verify_strict_as_intended() {
+    let fixture = fixture_challenge();
     for name in ["alice", "bob", "wallet-only"] {
         let addr = sign(name, b"", Variant::Raw).ss58;
-        let message = siws(&addr);
+        let challenge = issued_to(&fixture, &addr);
         for v in Variant::ALL {
-            let s = sign(name, message.as_bytes(), v);
-            let got = accepted(&s.ss58, message.as_bytes(), &s.signature);
-            let want = match v {
-                Variant::Raw => (true, false),
-                Variant::Wrapped => (false, true),
-                Variant::WrongKey | Variant::WrongMessage => (false, false),
-            };
-            assert_eq!(got, want, "{name} {}", v.name());
+            let s = sign(name, challenge.message.as_bytes(), v);
+            assert_eq!(accepted(&s.ss58, challenge.message.as_bytes(), &s.signature), intended(v), "{name} {}", v.name());
         }
+    }
+}
+
+#[test]
+fn verify_bodies_carry_each_variant_to_the_verifier() {
+    let addr = sign("alice", b"", Variant::Raw).ss58;
+    let challenge = issued_to(&fixture_challenge(), &addr);
+    for v in Variant::ALL {
+        let s = sign("alice", challenge.message.as_bytes(), v);
+        // The body as a suite posts it, read back as the account Worker reads it.
+        let json = serde_json::to_string(&verify_request(&challenge, &s)).expect("serializes");
+        let body: WalletVerifyRequest = serde_json::from_str(&json).expect("a /wallet/verify body");
+        assert_eq!(body.challenge_id, challenge.challenge_id);
+        assert!(body.signature.starts_with("0x") && body.signature.len() == 2 + 128, "{}", body.signature);
+        let sig = unhex(&body.signature).expect("hex");
+        assert_eq!(accepted(&addr, challenge.message.as_bytes(), &sig), intended(v), "{}", v.name());
     }
 }
 

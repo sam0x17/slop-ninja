@@ -294,7 +294,9 @@ impl AuthPolicy {
             return_to_paths: v(
                 ReturnToPaths {
                     exact: vec!["/".to_owned()],
-                    prefixes: ["/detect/", "/d/", "/account/"].map(str::to_owned).to_vec(),
+                    prefixes: ["/detect/", "/d/", "/account/", "/takedown/"]
+                        .map(str::to_owned)
+                        .to_vec(),
                 },
                 "the pages a sign-in starts from; no other path is a destination",
             ),

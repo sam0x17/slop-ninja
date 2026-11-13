@@ -63,6 +63,8 @@ SPLICED_FIELDS = {"token_weight", "pair_id", "source_kind", "edit_history_sha256
 REQUIRED = ROW_FIELDS - {"text", "text_ref", "genre", "voice_id", "voice_cluster_id", "voice_origin",
                          "style_axes", "operation", "ai_byte_spans"} - SPLICED_FIELDS
 TOKEN_WEIGHTINGS = ("row_weight", "bundle_token_weight")
+# Span-target floors (protocol field `span_target_floor`): policy -> minimum gold-span length in share words.
+SPAN_TARGET_FLOORS = {"slop_ninja_span_target_floor24_v1": 24}
 FLAG_CONTENT, FLAG_WORD = 1, 2
 
 
@@ -726,10 +728,15 @@ class Population:
     (full_a_spans.words), each word's overlapping word-bearing token positions
     and its label from ai_byte_spans (1 inside, 0 outside, -1 partial; human
     rows 0, model-only rows 1, mixed rows without spans -1), as flat arrays.
+
+    span_target_floor (protocol `span_target_floor`, None = off): AI token and
+    span-word labels of gold spans under the floor's length become -1
+    (floor_span_targets); span_target_floor_record counts what was masked.
     """
 
     def __init__(self, root, split, tokenize, special_ids, ai_profiles, cohort_weighted, drop_zero_weight=True,
-                 weighting=None, keep=None, token_weighting="row_weight", span_words=False):
+                 weighting=None, keep=None, token_weighting="row_weight", span_words=False,
+                 span_target_floor=None):
         self.split = canonical_split(split)
         self.ai_profiles = list(ai_profiles)
         self.ai_index = {k: i for i, k in enumerate(self.ai_profiles)}
@@ -738,6 +745,8 @@ class Population:
         starts = array("q", [0])
         demand(token_weighting in TOKEN_WEIGHTINGS, "token weighting")
         self.token_weighting, self.span_words = token_weighting, span_words
+        self.span_target_floor = validate_span_target_floor(span_target_floor)
+        floor_rec = Counter()
         word_tokens, word_ptr, word_labels = array("i"), array("q", [0]), array("b")
         row_words = array("q", [0])
         self.span_word_failures = Counter()
@@ -766,6 +775,18 @@ class Population:
                 text = texts.text(raw, m)
                 tok_ids, offsets = tokenize(text)
                 lab = full_a.token_labels(text, tok_ids, offsets, special_ids, m.origin, m.spans)
+                floored_words = None
+                if self.span_target_floor is not None:
+                    had_target = any(x >= 0 for x in lab)
+                    had_ai = any(x == 1 for x in lab)
+                    lab, floored_words, r = floor_span_targets(text, offsets, m.origin, m.spans, lab,
+                                                               self.span_target_floor["min_words"])
+                    floor_rec.update(r)
+                    if had_ai and not any(x == 1 for x in lab):
+                        floor_rec["rows_left_without_ai_token_target"] += 1
+                    if had_target and not any(x >= 0 for x in lab):
+                        floor_rec["rows_left_without_token_target"] += 1
+                    floor_rec["rows_with_masked_tokens"] += r["masked_ai_tokens"] > 0
                 content = full_a.content_mask_for(tok_ids, special_ids)
                 words = full_a.word_mask_for(text, tok_ids, offsets, special_ids)
                 if span_words:
@@ -777,6 +798,8 @@ class Population:
                         self.span_word_failures["word_without_token"] += 1
                     if groups is None:
                         groups, wl = [], []
+                    elif floored_words is not None:
+                        wl = floored_words
                     elif m.origin == 2:
                         wl = spans_rule.word_labels(text, ws, m.spans) if m.spans is not None else [-1] * len(ws)
                     else:
@@ -796,6 +819,10 @@ class Population:
         finally:
             texts.close()
         demand(self.meta, f"empty {self.split} population")
+        self.span_target_floor_record = None if self.span_target_floor is None else {
+            **self.span_target_floor, **{k: int(floor_rec[k]) for k in (
+                "gold_spans", "short_spans", "masked_ai_tokens", "masked_ai_words", "rows_with_masked_tokens",
+                "rows_left_without_ai_token_target", "rows_left_without_token_target")}}
         self.ids = np.frombuffer(ids, dtype=np.int32).copy()
         self.labels = np.frombuffer(labels, dtype=np.int8).copy()
         self.flags = np.frombuffer(flags, dtype=np.uint8).copy()
@@ -908,6 +935,60 @@ class Population:
 
 
 # ------------------------------------------------------------- cohort weights
+
+def validate_span_target_floor(f):
+    """None, or {"policy", "min_words"} naming a known floor and its length."""
+    demand(f is None or (isinstance(f, dict) and set(f) == {"policy", "min_words"} and
+                         f["policy"] in SPAN_TARGET_FLOORS and type(f["min_words"]) is int and
+                         f["min_words"] == SPAN_TARGET_FLOORS[f["policy"]]), "span target floor")
+    return f
+
+
+def floor_span_targets(text, offsets, origin, spans, token_labels, min_words):
+    """Policy slop_ninja_span_target_floor24_v1 (2026-11-06 rule: never train or
+    evaluate spans under 24 words). A gold span is a maximal run of share words
+    labelled AI (full_a_spans.word_labels for mixed rows with spans; every word of
+    a model-only row); a partly AI word is unlabelled and ends a run. An AI token
+    (token label 1) that overlaps no word of a run of min_words or more words is
+    unsupervised (-1), never relabelled human; human (0) and unlabelled tokens are
+    unchanged. Word labels of short-run words become -1 (span metrics). Rows
+    without AI token targets (human-only, mixed without spans) are unchanged.
+    Document targets (origin, share, attribution) never depend on this.
+
+    Returns (token_labels, word_labels or None, record) where record counts
+    gold spans, short spans, masked AI tokens and masked AI words."""
+    rec = {"gold_spans": 0, "short_spans": 0, "masked_ai_tokens": 0, "masked_ai_words": 0}
+    if origin not in (1, 2) or (origin == 2 and spans is None):
+        return token_labels, None, rec
+    ws = spans_rule.words(text)
+    wl = spans_rule.word_labels(text, ws, spans) if origin == 2 else [1] * len(ws)
+    long_char = bytearray(len(text))
+    i, n = 0, len(ws)
+    out_words = list(wl)
+    while i < n:
+        if wl[i] != 1:
+            i += 1
+            continue
+        j = i
+        while j < n and wl[j] == 1:
+            j += 1
+        rec["gold_spans"] += 1
+        if j - i >= min_words:
+            for a, b in ws[i:j]:
+                long_char[a:b] = b"\x01" * (b - a)
+        else:
+            rec["short_spans"] += 1
+            rec["masked_ai_words"] += j - i
+            for w in range(i, j):
+                out_words[w] = -1
+        i = j
+    labels = list(token_labels)
+    for k, (lab, (a, b)) in enumerate(zip(token_labels, offsets)):
+        if lab == 1 and not any(long_char[a:b]):
+            labels[k] = -1
+            rec["masked_ai_tokens"] += 1
+    return labels, out_words, rec
+
 
 def label_key(label):
     return HUMAN_LABEL_KEY if label is None else label

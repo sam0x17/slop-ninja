@@ -54,6 +54,11 @@ A trainer bundle is read by block (full_a_bundle), so a fit never parses a
 Dev-select or CAL block it does not open; the binding then carries block
 digests in place of the whole rows file's.
 
+Optional protocol field `span_target_floor` (slop_ninja_span_target_floor24_v1):
+AI tokens and span words of gold AI spans under 24 words carry no span target
+in Train, Dev-iter and any report split (unsupervised, not human); document
+targets are unchanged. fit.json records what was masked.
+
 Document-model options (protocol doc-r2, `full_a_doc`; each off by default,
 and with all of them off the training computation is unchanged): the arm's
 `share_supervision.bin_balance` (share-bin balanced share supervision), the
@@ -288,6 +293,9 @@ def validate_protocol(p):
     shared.demand(ex is None or (isinstance(ex, dict) and set(ex) == {"file", "sha256", "split"} and
                                  ex["split"] == SELECTION_SPLIT and isinstance(ex["file"], str) and
                                  isinstance(ex["sha256"], str) and len(ex["sha256"]) == 64), "span metric exclusions")
+    # 2026-11-06 span-target floor (optional): AI spans under the floor are unsupervised in
+    # every token/word span target of the trainer's populations (full_a_bundle.floor_span_targets).
+    bundle.validate_span_target_floor(p.get("span_target_floor"))
     shared.demand(number(p["cuda_memory_fraction"], hi=.95, positive=True), "CUDA memory cap")
     r = p.get("ai_roster")
     shared.demand(r is None or (isinstance(r, dict) and set(r) == {"rule", "profiles_sha256"} and
@@ -303,6 +311,8 @@ def validate_protocol(p):
         validate_arm(name, arm)
         shared.demand(e["metric"] == INVOLVEMENT_METRIC or span_fields(arm)["token_head"] is not None,
                       "word-Brier selection needs a token head: " + name)
+        shared.demand(p.get("span_target_floor") is None or span_fields(arm)["token_head"] is not None,
+                      "a span-target floor needs a token head: " + name)
     # Optional teacher class (teacher_a): a larger encoder with this recipe; absent = the base path.
     if p.get("teacher_class") is not None:
         teacher_a.validate_class(p["teacher_class"])
@@ -1112,13 +1122,16 @@ def fit(args, root, config, output):
     if masked_cohorts is None:
         train = bundle.Population(root, "train", tokenize, special, profiles["ai"], cohort_weighted=True,
                                   weighting=protocol["train_weighting"], keep=keep,
-                                  token_weighting=sp["token_weighting"])
+                                  token_weighting=sp["token_weighting"],
+                                  span_target_floor=protocol.get("span_target_floor"))
     else:
         train = doc.MaskedPopulation(root, "train", tokenize, special, profiles["ai"], cohort_weighted=True,
                                      weighting=protocol["train_weighting"], keep=keep,
-                                     token_weighting=sp["token_weighting"], unsupervised_cohorts=masked_cohorts)
+                                     token_weighting=sp["token_weighting"], unsupervised_cohorts=masked_cohorts,
+                                     span_target_floor=protocol.get("span_target_floor"))
     dev = bundle.Population(root, SELECTION_SPLIT, tokenize, special, profiles["ai"], cohort_weighted=False,
-                            span_words=th is not None, keep=dev_keep)
+                            span_words=th is not None, keep=dev_keep,
+                            span_target_floor=protocol.get("span_target_floor"))
     load_seconds = time.monotonic() - loaded
     # doc-r2 options (full_a_doc): share-bin multipliers from the final Train weights, distillation targets.
     balance_record = None if balance is None else doc.bin_multipliers(train.meta, train.weights,
@@ -1447,7 +1460,7 @@ def fit(args, root, config, output):
             f.flush()
             os.fsync(f.fileno())
         rep = bundle.Population(root, report_split, tokenize, special, profiles["ai"], cohort_weighted=False,
-                                span_words=th is not None)
+                                span_words=th is not None, span_target_floor=protocol.get("span_target_floor"))
         disjoint(train, rep)
         disjoint(dev, rep)
         _, _, rep_diag, rep_raw, rep_preds, rep_tokens = evaluate(model, rep, device, pad_id, role_weight, export=True)
@@ -1482,6 +1495,8 @@ def fit(args, root, config, output):
         "dev_iter_token_logits_sha256": bridge.sha256(output / "dev_iter-token-logits.jsonl") if th is not None
         else None,
         "dev_iter_rows_sha256": dev_digest,
+        **({} if protocol.get("span_target_floor") is None else {"span_target_floor": {
+            "train": train.span_target_floor_record, "dev_iter": dev.span_target_floor_record}}),
         "selected_dev_iter_diagnostics": diagnostics, "report": report,
         "stopped_early": state["stopped"], "evaluations": state["evaluations"], "steps_per_epoch": steps_per_epoch,
         "schedule": {"horizon_steps": horizon, "warmup_steps": warmup, "total_scheduled_steps": total_steps,

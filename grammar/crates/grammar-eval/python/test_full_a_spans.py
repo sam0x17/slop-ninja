@@ -367,6 +367,26 @@ class FrozenFit(unittest.TestCase):
             self.assertEqual(art["token_head"]["hidden"], 16)
             self.assertEqual(art["weights"]["token_head.first.weight"]["shape"], [16, 768])
             self.assertEqual(art["span_emission"]["decoder"], sp.DIAGNOSTIC_DECODER)
+            # The same S0 fit under the 24-word span-target floor: document outputs unchanged, the
+            # masking recorded, and the floor bound through the protocol digest.
+            p["span_target_floor"] = {"policy": "slop_ninja_span_target_floor24_v1", "min_words": 24}
+            fconf = Path(d) / "fconf"
+            synthetic.write_config(fconf, bundle.bundle_digests(root)[bundle.MANIFEST], labels, p)
+            (fconf / "init.json").write_text("{}")
+            s0f = Path(d) / "s0f"
+            with mock.patch.object(trainer, "load_init_fit", lambda m, path, seed, c: real(m, e1, seed, c)):
+                fitter_args_fit(fitter, root, fconf, s0f, "S0")
+            ffit = json.loads((s0f / "fit.json").read_text())
+            self.assertNotIn("span_target_floor", fit)
+            rec = ffit["span_target_floor"]
+            self.assertEqual(rec["train"]["policy"], "slop_ninja_span_target_floor24_v1")
+            self.assertGreater(rec["train"]["masked_ai_tokens"], 0)
+            self.assertEqual(rec["train"]["masked_ai_tokens"],
+                             fit["train_population"]["labelled_ai_tokens"] - ffit["train_population"]["labelled_ai_tokens"])
+            self.assertEqual(ffit["train_population"]["labelled_human_tokens"], fit["train_population"]["labelled_human_tokens"])
+            self.assertTrue(ffit["frozen_document_check"]["encoder_and_document_heads_bitwise_equal_to_init"])
+            self.assertEqual((s0f / "dev_iter-raw.jsonl").read_bytes(), (s0 / "dev_iter-raw.jsonl").read_bytes())
+            self.assertNotEqual(ffit["binding"]["protocol_sha256"], fit["binding"]["protocol_sha256"])
 
     def test_frozen_arm_needs_init_fit_and_token_head(self):
         p = span_protocol()
@@ -380,6 +400,95 @@ class FrozenFit(unittest.TestCase):
         trainer.validate_protocol(p)
         p["early_stopping"]["metric"] = trainer.INVOLVEMENT_METRIC
         with self.assertRaisesRegex(ValueError, "document guard"):
+            trainer.validate_protocol(p)
+
+
+FLOOR24 = {"policy": "slop_ninja_span_target_floor24_v1", "min_words": 24}
+
+
+class SpanTargetFloor(unittest.TestCase):
+    """slop_ninja_span_target_floor24_v1: AI spans under 24 words leave the span targets."""
+
+    @staticmethod
+    def case():
+        # 30 human words, a 3-word AI span, 5 human words, a 25-word AI span, 2 human words.
+        h = lambda k, n: [f"h{k}{i}" for i in range(n)]
+        a = lambda k, n: [f"a{k}{i}" for i in range(n)]
+        parts = [(h(0, 30), 0), (a(1, 3), 1), (h(2, 5), 0), (a(3, 25), 1), (h(4, 2), 0)]
+        text, spans, pos = "", [], 0
+        for i, (ws, ai) in enumerate(parts):
+            chunk = " ".join(ws)
+            if i:
+                text += " "
+            start = len(text)
+            text += chunk
+            if ai:
+                spans.append([start, len(text)])
+        return text, spans
+
+    def test_short_ai_runs_are_unsupervised_not_human(self):
+        text, spans = self.case()
+        tok = base.FakeTokenizer()
+        ids, offs = full_a.hf_tokenize(tok)(text)
+        special = {base.PAD, base.CLS, base.SEP}
+        lab = full_a.token_labels(text, ids, offs, special, 2, spans)
+        got, words, rec = bundle.floor_span_targets(text, offs, 2, spans, lab, 24)
+        self.assertEqual(rec, {"gold_spans": 2, "short_spans": 1, "masked_ai_tokens": 3, "masked_ai_words": 3})
+        for x, y, (a, b) in zip(lab, got, offs):
+            piece = text[a:b].strip()
+            if piece.startswith("a1"):
+                self.assertEqual((x, y), (1, -1))
+            else:
+                self.assertEqual(x, y)
+        self.assertEqual(sum(y == 1 for y in got), 25)
+        self.assertEqual(sum(y == 0 for y in got), sum(x == 0 for x in lab))
+        ws = sp.words(text)
+        self.assertEqual([w for w, l in zip(ws, words) if l == -1], [w for w in ws if text[w[0]:w[1]].startswith("a1")])
+        # A 24-word run is kept; a 23-word model-only document is unsupervised; human rows are unchanged.
+        t24 = " ".join(f"m{i}" for i in range(24))
+        ids, offs = full_a.hf_tokenize(tok)(t24)
+        lab = full_a.token_labels(t24, ids, offs, special, 1, None)
+        self.assertEqual(bundle.floor_span_targets(t24, offs, 1, None, lab, 24)[0], lab)
+        t23 = " ".join(f"m{i}" for i in range(23))
+        ids, offs = full_a.hf_tokenize(tok)(t23)
+        lab = full_a.token_labels(t23, ids, offs, special, 1, None)
+        self.assertTrue(all(x == -1 for x in bundle.floor_span_targets(t23, offs, 1, None, lab, 24)[0]))
+        lab = full_a.token_labels(t23, ids, offs, special, 0, None)
+        self.assertEqual(bundle.floor_span_targets(t23, offs, 0, None, lab, 24)[0], lab)
+
+    def test_population_floor_changes_only_ai_span_targets(self):
+        with tempfile.TemporaryDirectory() as d:
+            root, config = Path(d) / "bundle", Path(d) / "config"
+            base.write_bundle(root, config)
+            mk = lambda split, floor, **kw: bundle.Population(
+                root, split, full_a.hf_tokenize(base.FakeTokenizer()), {base.PAD, base.CLS, base.SEP},
+                ["claude-x", "gen-a", "gen-b"], cohort_weighted=split == "train", span_target_floor=floor, **kw)
+            for split, kw in (("train", {}), ("dev_iter", {"span_words": True})):
+                off, on = mk(split, None, **kw), mk(split, FLOOR24, **kw)
+                self.assertIsNone(off.span_target_floor_record)
+                changed = off.labels != on.labels
+                self.assertTrue(bool(((off.labels[changed] == 1) & (on.labels[changed] == -1)).all()))
+                self.assertEqual(int(changed.sum()), on.span_target_floor_record["masked_ai_tokens"])
+                self.assertEqual([m.id for m in off.meta], [m.id for m in on.meta])
+                self.assertEqual(off.weights, on.weights)
+                self.assertEqual([off.targets(i) for i in range(len(off))], [on.targets(i) for i in range(len(on))])
+                if kw:
+                    wc = off.word_labels != on.word_labels
+                    self.assertTrue(bool(((off.word_labels[wc] == 1) & (on.word_labels[wc] == -1)).all()))
+                    self.assertEqual(int(wc.sum()), on.span_target_floor_record["masked_ai_words"])
+
+    def test_only_the_declared_floor_is_accepted(self):
+        bundle.validate_span_target_floor(None)
+        bundle.validate_span_target_floor(dict(FLOOR24))
+        for bad in ({"policy": "slop_ninja_span_target_floor24_v1", "min_words": 10}, {"min_words": 24},
+                    {"policy": "other", "min_words": 24}, dict(FLOOR24, extra=1)):
+            with self.assertRaises(ValueError):
+                bundle.validate_span_target_floor(bad)
+        p = span_protocol()
+        p["span_target_floor"] = dict(FLOOR24)
+        trainer.validate_protocol(p)
+        p["span_target_floor"]["min_words"] = 12
+        with self.assertRaisesRegex(ValueError, "span target floor"):
             trainer.validate_protocol(p)
 
 

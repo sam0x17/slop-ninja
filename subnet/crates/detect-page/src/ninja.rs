@@ -69,24 +69,36 @@ pub fn ninja_state(input: NinjaInput, cards_generic: bool) -> Option<NinjaState>
     }
 }
 
-/// How the gauge marks its two ends. Both are decorative (`aria-hidden`);
-/// the gauge's `aria-label` carries the meaning.
+/// How the gauge marks its two ends. All three are decorative
+/// (`aria-hidden`); the gauge's `aria-label` carries the meaning. Pages and
+/// cards take the same choice from the `GAUGE_ENDS` var ([`GaugeEnds::parse`]).
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum GaugeEnds {
-    /// The Fluent UI emoji ninja at the human end and robot at the slop end,
-    /// each on a soft disc (MIT; `assets/third-party/fluent-emoji/`).
+    /// SlopNinja's own human bust at the human end and robot bust at the
+    /// slop end, each clipped to a light disc with a thin mint ring
+    /// (`assets/brand/gauge/`, outside the code licence like the logo).
     #[default]
+    Icons,
+    /// A fallback build variant: the Fluent UI emoji ninja and robot, each
+    /// on a soft disc (Microsoft, MIT). A build that ships it carries the two
+    /// files with Microsoft's licence beside them.
     Emoji,
     /// The fallback: "H" and "S".
     Letters,
 }
 
 impl GaugeEnds {
+    /// The site path of the human end's art ([`GaugeEnds::Icons`]). The
+    /// secret host carries its own copy at the same path.
+    pub const HUMAN_ICON: &'static str = "/assets/gauge/human.svg";
+    /// The site path of the slop end's art ([`GaugeEnds::Icons`]).
+    pub const SLOP_ICON: &'static str = "/assets/gauge/robot.svg";
+
     /// The site path of the human end's art ([`GaugeEnds::Emoji`]). The secret
     /// host carries its own copy at the same path.
     pub const HUMAN_ASSET: &'static str = "/assets/emoji/ninja.svg";
-    /// The site path of the slop end's art.
+    /// The site path of the slop end's art ([`GaugeEnds::Emoji`]).
     pub const SLOP_ASSET: &'static str = "/assets/emoji/robot.svg";
 
     /// The two letters of [`GaugeEnds::Letters`] (human end, slop end).
@@ -94,4 +106,24 @@ impl GaugeEnds {
 
     /// The words the ends stand for, for the gauge's label.
     pub const WORDS: (&'static str, &'static str) = ("Human", "Slop");
+
+    /// Every variant, in declaration order.
+    pub const ALL: &'static [GaugeEnds] = &[GaugeEnds::Icons, GaugeEnds::Emoji, GaugeEnds::Letters];
+
+    /// The `GAUGE_ENDS` value: `icons`, `emoji` or `letters` (the wire string).
+    pub fn as_str(self) -> &'static str {
+        match self {
+            GaugeEnds::Icons => "icons",
+            GaugeEnds::Emoji => "emoji",
+            GaugeEnds::Letters => "letters",
+        }
+    }
+
+    /// Parses a `GAUGE_ENDS` value; an absent or empty var is the default.
+    pub fn parse(var: Option<&str>) -> Option<GaugeEnds> {
+        match var.map(str::trim) {
+            None | Some("") => Some(GaugeEnds::default()),
+            Some(v) => GaugeEnds::ALL.iter().copied().find(|e| e.as_str() == v),
+        }
+    }
 }

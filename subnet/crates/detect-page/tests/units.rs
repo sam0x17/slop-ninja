@@ -213,9 +213,16 @@ fn ninja_state_matches_the_mockup_edges() {
 
 #[test]
 fn gauge_ends() {
-    assert_eq!(GaugeEnds::default(), GaugeEnds::Emoji);
-    assert_eq!(serde_json::to_string(&GaugeEnds::Letters).unwrap(), "\"letters\"");
+    assert_eq!(GaugeEnds::default(), GaugeEnds::Icons);
+    for e in GaugeEnds::ALL {
+        assert_eq!(serde_json::to_string(e).unwrap(), format!("\"{}\"", e.as_str()));
+        assert_eq!(GaugeEnds::parse(Some(e.as_str())), Some(*e));
+    }
+    assert_eq!(GaugeEnds::parse(None), Some(GaugeEnds::Icons));
+    assert_eq!(GaugeEnds::parse(Some(" ")), Some(GaugeEnds::Icons));
+    assert_eq!(GaugeEnds::parse(Some("Icons")), None);
     assert_eq!(GaugeEnds::LETTERS, ("H", "S"));
+    assert!(GaugeEnds::HUMAN_ICON.ends_with("/gauge/human.svg") && GaugeEnds::SLOP_ICON.ends_with("/gauge/robot.svg"));
     assert!(GaugeEnds::HUMAN_ASSET.ends_with("/ninja.svg") && GaugeEnds::SLOP_ASSET.ends_with("/robot.svg"));
 }
 

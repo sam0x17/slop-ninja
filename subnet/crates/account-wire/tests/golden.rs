@@ -95,29 +95,29 @@ fn entries() -> Vec<(String, String)> {
                 StepUpChoice {
                     identity_id: 1,
                     provider: Provider::Email,
-                    label: "kate@host.example".into(),
+                    label: "reader@host.example".into(),
                     state: MethodState::On,
                 },
                 StepUpChoice {
                     identity_id: 2,
                     provider: Provider::Github,
-                    label: "kate-gardens".into(),
+                    label: "reader-fixture".into(),
                     state: MethodState::On,
                 },
             ]),
         }),
     );
     let mut ids = vec![
-        identity(1, Provider::Email, "kate@host.example", false),
-        identity(2, Provider::Github, "kate-gardens", true),
-        identity(3, Provider::X, "@kate_gardens", false),
+        identity(1, Provider::Email, "reader@host.example", false),
+        identity(2, Provider::Github, "reader-fixture", true),
+        identity(3, Provider::X, "@reader_fixture", false),
         identity(4, Provider::Bittensor, SS58, false),
     ];
     put(
         &mut e,
         "view-account",
         View::Account(AccountView {
-            label: "kate-gardens".into(),
+            label: "reader-fixture".into(),
             signed_in_with: Provider::Github,
             identities: ids.clone(),
             connect: vec![MethodRow { method: Provider::Google, state: MethodState::On }],
@@ -133,7 +133,7 @@ fn entries() -> Vec<(String, String)> {
         &mut e,
         "view-account-one-method",
         View::Account(AccountView {
-            label: "kate@host.example".into(),
+            label: "reader@host.example".into(),
             signed_in_with: Provider::Email,
             identities: ids,
             connect: methods(MethodState::Absent).into_iter().filter(|m| m.method != Provider::Email).collect(),
@@ -146,11 +146,11 @@ fn entries() -> Vec<(String, String)> {
         &mut e,
         "view-link-confirm",
         View::LinkConfirm(LinkConfirmView {
-            label: "kate-gardens".into(),
+            label: "reader-fixture".into(),
             pending: Some(PendingView {
                 kind: PendingKind::Link,
                 provider: Provider::X,
-                label: Some("@kate_gardens".into()),
+                label: Some("@reader_fixture".into()),
                 merge_blocked: false,
             }),
         }),
@@ -159,11 +159,11 @@ fn entries() -> Vec<(String, String)> {
         &mut e,
         "view-link-confirm-merge",
         View::LinkConfirm(LinkConfirmView {
-            label: "kate-gardens".into(),
+            label: "reader-fixture".into(),
             pending: Some(PendingView {
                 kind: PendingKind::Merge,
                 provider: Provider::Google,
-                label: Some("kate.other@host.example".into()),
+                label: Some("reader.other@host.example".into()),
                 merge_blocked: true,
             }),
         }),
@@ -171,13 +171,13 @@ fn entries() -> Vec<(String, String)> {
     put(
         &mut e,
         "view-link-confirm-nothing",
-        View::LinkConfirm(LinkConfirmView { label: "kate-gardens".into(), pending: None }),
+        View::LinkConfirm(LinkConfirmView { label: "reader-fixture".into(), pending: None }),
     );
     put(
         &mut e,
         "view-sessions",
         View::Sessions(SessionsView {
-            label: "kate-gardens".into(),
+            label: "reader-fixture".into(),
             sessions: vec![
                 SessionRow {
                     session_ref: "3b7e0c1d9a8f6e5d".into(),
@@ -218,7 +218,7 @@ fn entries() -> Vec<(String, String)> {
         &mut e,
         "view-detections",
         View::Detections(DetectionsView {
-            label: "kate-gardens".into(),
+            label: "reader-fixture".into(),
             entries: detections.clone(),
             read_only: false,
         }),
@@ -226,13 +226,13 @@ fn entries() -> Vec<(String, String)> {
     put(
         &mut e,
         "view-detections-empty",
-        View::Detections(DetectionsView { label: "kate-gardens".into(), entries: Vec::new(), read_only: false }),
+        View::Detections(DetectionsView { label: "reader-fixture".into(), entries: Vec::new(), read_only: false }),
     );
     put(
         &mut e,
         "view-billing",
         View::Billing(BillingView {
-            label: "kate-gardens".into(),
+            label: "reader-fixture".into(),
             state: BillingState::Grants,
             credit_tokens: 18_400,
             plan: Some(PlanView {
@@ -254,7 +254,7 @@ fn entries() -> Vec<(String, String)> {
         &mut e,
         "view-billing-off",
         View::Billing(BillingView {
-            label: "kate-gardens".into(),
+            label: "reader-fixture".into(),
             state: BillingState::Off,
             credit_tokens: 0,
             plan: None,
@@ -265,7 +265,7 @@ fn entries() -> Vec<(String, String)> {
         &mut e,
         "view-delete",
         View::Delete(DeleteView {
-            label: "kate-gardens".into(),
+            label: "reader-fixture".into(),
             credit_tokens: 18_400,
             has_plan: true,
             saved_pages: 3,
@@ -281,7 +281,7 @@ fn entries() -> Vec<(String, String)> {
     put(
         &mut e,
         "me-signed-in",
-        MeAnswer { signed_in: true, label: Some("kate-gardens".into()), method: Some(Provider::Github) },
+        MeAnswer { signed_in: true, label: Some("reader-fixture".into()), method: Some(Provider::Github) },
     );
     put(&mut e, "me-signed-out", MeAnswer { signed_in: false, label: None, method: None });
     // Saved links.
@@ -369,18 +369,28 @@ fn entries() -> Vec<(String, String)> {
     put(
         &mut e,
         "email-peek",
-        EmailPeekAnswer { intent: MailIntent::Signin, address: "kate@host.example".into(), provider: None },
+        EmailPeekAnswer { intent: MailIntent::Signin, address: "reader@host.example".into(), provider: None },
     );
     put(
         &mut e,
         "email-peek-attach",
         EmailPeekAnswer {
             intent: MailIntent::AttachPending,
-            address: "kate@host.example".into(),
+            address: "reader@host.example".into(),
             provider: Some(Provider::Google),
         },
     );
     put(&mut e, "next", NextAnswer { return_to: "/account/link/confirm".into() });
+    // Account forms (urlencoded on the wire; the same field names here).
+    for a in LinkAction::ALL {
+        put(&mut e, &format!("form-link-confirm-{}", a.as_str()), LinkConfirmForm { action: *a });
+    }
+    put(&mut e, "form-unlink", UnlinkForm { identity_id: 3 });
+    put(&mut e, "form-sessions-revoke", SessionRevokeForm { session_ref: "8c4f2a6b1e0d9c7a".into() });
+    put(&mut e, "form-delete", DeleteAccountForm { confirm: "delete".into(), mode: PurgeMode::Delete });
+    put(&mut e, "form-delete-release", DeleteAccountForm { confirm: "delete".into(), mode: PurgeMode::Release });
+    put(&mut e, "form-empty", EmptyForm {});
+    put(&mut e, "form-entry", EntryForm { entry_id: 11 });
     put(
         &mut e,
         "wallet-challenge-request",
@@ -443,11 +453,15 @@ fn every_view_page_has_a_fixture() {
 #[test]
 fn mail_draws_on_the_right_buckets() {
     let u = UserId([9; 16]);
-    let link = mail_buckets(MailIntent::Link, "aa", Some(u));
+    let link = mail_buckets(MailIntent::Link, "aa", Some(u)).unwrap();
     assert_eq!(link.iter().map(Bucket::name).collect::<Vec<_>>(), ["email_link:aa", &format!("link_mail:{}", u.hex())]);
+    // A connect mail never skips its account's quota.
+    assert_eq!(mail_buckets(MailIntent::Link, "aa", None), Err(NoRequester));
     for m in [MailIntent::Signin, MailIntent::StepUp, MailIntent::AttachPending, MailIntent::Recover] {
-        let b = mail_buckets(m, "aa", Some(u));
-        assert_eq!(b.iter().map(Bucket::name).collect::<Vec<_>>(), ["email:aa"], "{}", m.as_str());
+        for r in [Some(u), None] {
+            let b = mail_buckets(m, "aa", r).unwrap();
+            assert_eq!(b.iter().map(Bucket::name).collect::<Vec<_>>(), ["email:aa"], "{}", m.as_str());
+        }
     }
     // No link mail ever draws on the sign-in bucket.
     assert!(link.iter().all(|b| b.kind != BucketKind::Email));
@@ -465,4 +479,49 @@ fn session_answer_becomes_the_principal() {
     assert_eq!(s.principal().encode(), "v1;abababababababababababababababab;5;1");
     assert!(Provider::X.is_oauth() && !Provider::Bittensor.is_oauth());
     assert_eq!(Provider::Bittensor.switch(), "auth.bittensor");
+}
+
+#[test]
+fn every_account_form_route_has_its_body() {
+    use slop_ninja_account_wire::detect_page::RouteId;
+    use slop_ninja_account_wire::detect_page::sn::Callee;
+    // Every forwarded account POST outside the JSON APIs and webhooks is a
+    // form, and has its body type.
+    for r in RouteId::ALL {
+        let s = r.spec();
+        let form = s.callee == Callee::Account && s.method == "POST" && s.csrf && !s.path.starts_with("/api/");
+        assert_eq!(form_fields(*r).is_some(), form, "{}", r.as_str());
+    }
+    // There is no separate merge route: a merge is the link-confirm form's
+    // `merge` action.
+    assert!(RouteId::ALL.iter().all(|r| !r.spec().path.contains("merge")));
+    assert_eq!(form_fields(RouteId::LinkConfirm), Some(&["action"][..]));
+    // Each type's FIELDS are exactly its serde keys.
+    fn keys<T: Serialize>(v: &T) -> Vec<String> {
+        match serde_json::to_value(v).unwrap() {
+            serde_json::Value::Object(m) => m.keys().cloned().collect(),
+            _ => panic!("not an object"),
+        }
+    }
+    let sorted = |f: &[&str]| {
+        let mut v: Vec<String> = f.iter().map(|s| (*s).to_owned()).collect();
+        v.sort();
+        v
+    };
+    assert_eq!(keys(&LinkConfirmForm { action: LinkAction::Connect }), sorted(LinkConfirmForm::FIELDS));
+    assert_eq!(keys(&UnlinkForm { identity_id: 1 }), sorted(UnlinkForm::FIELDS));
+    assert_eq!(keys(&SessionRevokeForm { session_ref: "r".into() }), sorted(SessionRevokeForm::FIELDS));
+    let delete = DeleteAccountForm { confirm: " Delete ".into(), mode: PurgeMode::Delete };
+    assert_eq!(keys(&delete), sorted(DeleteAccountForm::FIELDS));
+    assert_eq!(keys(&EmptyForm {}), sorted(EmptyForm::FIELDS));
+    assert_eq!(keys(&EntryForm { entry_id: 1 }), sorted(EntryForm::FIELDS));
+    // The typed word, and nothing else.
+    assert!(delete.confirmed());
+    for bad in ["", "delete it", "yes", "deleted"] {
+        assert!(!DeleteAccountForm { confirm: bad.into(), mode: PurgeMode::Delete }.confirmed(), "{bad}");
+    }
+    // A forged body naming an identity is refused, not ignored.
+    assert!(serde_json::from_str::<LinkConfirmForm>(r#"{"action":"connect","provider":"x","subject":"1"}"#).is_err());
+    assert!(serde_json::from_str::<LinkConfirmForm>(r#"{"action":"attach"}"#).is_err());
+    assert!(serde_json::from_str::<EmptyForm>(r#"{"user_id":"00"}"#).is_err());
 }

@@ -18,6 +18,8 @@
 //! - [`queue`]: the `detect-jobs` queue's messages;
 //! - [`ae`]: the Analytics Engine point schema;
 //! - [`switches`]: the kill switches;
+//! - [`x`]: posts on X: the canonical post URL and the typed static quote
+//!   ([`XEmbed`]);
 //! - [`codes`]: the closed value sets, each with one wire string.
 //!
 //! The crate is pure (no I/O, no runtime) and compiles natively and for
@@ -39,12 +41,14 @@ pub mod refusal;
 pub mod slug;
 pub mod sn;
 pub mod switches;
+pub mod x;
 
 pub use card::{Card, CardLink};
 pub use codes::*;
 pub use ids::{IdH, UserId};
 pub use ninja::{GaugeEnds, NinjaInput, ninja_state};
 pub use origins::{Origin, Origins};
-pub use page::{PAGE_SCHEMA, Page};
+pub use page::{PAGE_SCHEMA, Page, XView};
 pub use refusal::{ApiRefusal, RefusalCode};
 pub use sn::{Principal, RouteId};
+pub use x::{XEmbed, XPart};

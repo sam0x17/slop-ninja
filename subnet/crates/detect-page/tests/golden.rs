@@ -146,9 +146,11 @@ fn base(kind: Kind, slug: Option<&str>, state: DetState) -> Page {
         run: None,
         sections: None,
         text: None,
+        embed: None,
         source: None,
         pending: None,
         failure: None,
+        ended: None,
         removal: None,
         card: None,
         ninja: None,
@@ -365,16 +367,118 @@ fn secret_short(r: ShortResult) -> Page {
     live(p)
 }
 
-fn pasted_post(rule: bool) -> Page {
+/// The source a submitter named for pasted text: its host only, not checked.
+fn submitted(host: &str) -> Source {
+    Source { host: host.into(), via: SourceVia::Submitter, checked: false, ..domain_only(host) }
+}
+
+/// Pasted text whose source is an X post: ordinary paste, stored and shown
+/// with its whole text (`platform = paste`), with the plain host line.
+fn pasted_post() -> Page {
     let mut p = secret_short(ShortResult::Strong);
-    p.source = Some(Source { host: "x.com".into(), via: SourceVia::Submitter, checked: false, ..domain_only("x.com") });
-    if rule {
-        let run = p.run.as_mut().unwrap();
-        run.spans.clear();
-        run.spans_note = Some(SpansNote::Unavailable);
-        p.text = Some(Text { page_words: None, ..withheld(WithheldReason::XSourceRule) });
-    }
+    p.source = Some(submitted("x.com"));
     p
+}
+
+/// The page a share of `https://x.com/a/status/1` makes, banded, read under
+/// an older package: the whole text and its passages, the plain host line
+/// and the re-run link, like any paste.
+fn pasted_x_source() -> Page {
+    let mut p = secret_strong();
+    p.source = Some(submitted("x.com"));
+    p.serving = serving(true);
+    p
+}
+
+// ---------------------------------------------------------------------- X
+
+/// The slug of the X fixtures.
+const X_SLUG: &str = "x4m8q2t";
+
+/// An X page's source: the post's canonical URL, read through X, with no
+/// title, site, author, date or hash.
+fn x_source(id: u64, reputation: Reputation) -> Source {
+    Source {
+        host: x::X_HOST.into(),
+        url: x::x_canonical(id),
+        title: None,
+        site_name: None,
+        author: None,
+        published_at: None,
+        fetched_at: Some(T0 - 2_000),
+        via: SourceVia::X,
+        status: Some(SourceStatus::Ok),
+        reputation: Some(reputation),
+        link: true,
+        checked: true,
+        page_hash: None,
+        stale: false,
+    }
+}
+
+/// X's markup of post `id`, made typed.
+fn x_embed(id: u64, parts: Vec<XPart>) -> XEmbed {
+    XEmbed {
+        lang: Some("en".into()),
+        dir: x::TextDir::Ltr,
+        parts,
+        author_name: "Fixture Gardener".into(),
+        author_url: "https://twitter.com/fixture_author".into(),
+        date_text: "November 18, 2026".into(),
+        permalink: format!("https://twitter.com/fixture_author/status/{id}?ref_src=twsrc%5Etfw"),
+    }
+}
+
+fn text_part(s: &str) -> XPart {
+    XPart::Text { text: s.into() }
+}
+
+fn link_part(href: &str, text: &str) -> XPart {
+    XPart::Link { href: href.into(), text: text.into() }
+}
+
+/// A live X page: the run with no passages, the post's source and its
+/// embed, if any.
+fn x_post(id: u64, mut run: Run, reputation: Reputation, embed: Option<XEmbed>) -> Page {
+    let mut p = base(Kind::PublicUrl, Some(X_SLUG), DetState::Live);
+    p.platform = Platform::X;
+    p.robots = Robots::Noindex;
+    run.spans.clear();
+    run.spans_note = Some(SpansNote::XPost);
+    p.run = Some(run);
+    p.source = Some(x_source(id, reputation));
+    p.embed = embed;
+    live(p)
+}
+
+/// A short post (60 words), "Strong signs", shown as X's quote.
+fn x_post_short() -> Page {
+    let parts = vec![
+        text_part(&format!("{P1} ")),
+        link_part("https://twitter.com/hashtag/gardening?src=hash&ref_src=twsrc%5Etfw", "#gardening"),
+        XPart::Break,
+        XPart::Break,
+        text_part(&format!("{P2} ")),
+        link_part("https://twitter.com/fixture_author?ref_src=twsrc%5Etfw", "@fixture_author"),
+    ];
+    x_post(2, short_run(ShortResult::Strong, words(P1) + words(P2) + 2), Reputation::Ranked, Some(x_embed(2, parts)))
+}
+
+/// A long post (412 words): band and share, no highlighting; X's quote is
+/// cut where X cuts it.
+fn x_post_long() -> Page {
+    let parts = vec![
+        text_part(P1),
+        XPart::Break,
+        XPart::Break,
+        text_part(
+            "Moreover, by leveraging innovative composting strategies and data-driven planting schedules, organizers can unlock…",
+        ),
+        text_part(" "),
+        link_part("https://t.co/fixture01", "https://t.co/fixture01"),
+    ];
+    let run = banded_run(Band::Strong, 973, "97.3%", 43, 412, 412, CutKind::None);
+    x_post(3, run, Reputation::Ranked, Some(x_embed(3, parts)))
 }
 
 fn paid_document() -> Page {
@@ -533,8 +637,12 @@ fn pages() -> Vec<(&'static str, &'static str, Page)> {
         secret_short(ShortResult::Strong),
     ));
     v.push(("17-secret-short-none", "run.short none: short gauge, stoic", secret_short(ShortResult::None)));
-    v.push(("18-secret-pasted-post", "pasted post: source given by the submitter, not checked", pasted_post(false)));
-    v.push(("19-secret-x-source-rule", "x.com-source rule: result without the text", pasted_post(true)));
+    v.push(("18-secret-pasted-post", "pasted post: source given by the submitter, not checked", pasted_post()));
+    v.push((
+        "19-secret-pasted-x-source",
+        "paste with an X post as its source: whole text, plain host line, re-run link (older package)",
+        pasted_x_source(),
+    ));
     let (body, scored, total) = long_body();
     let mut p = base(Kind::PrivateText, Some(SECRET), DetState::Live);
     let mut run = banded_run(Band::VeryStrong, 999, "above 99.9%", 86, scored, total, CutKind::FirstWords);
@@ -578,6 +686,35 @@ fn pages() -> Vec<(&'static str, &'static str, Page)> {
     p.source =
         Some(Source { link: false, ..source("meridian-ledger.example", Some("Ledger notes: a synthetic example")) });
     v.push(("28-example", "kind example: synthetic example report, noindex", live(p)));
+    v.push((
+        "29-x-post-short",
+        "X post under 150 words: short gauge, X's quote, no text body, noindex",
+        x_post_short(),
+    ));
+    v.push((
+        "30-x-post-long",
+        "X post of 150 words and more: band and share, no highlighting, X's quote",
+        x_post_long(),
+    ));
+    let run = short_run(ShortResult::None, 40);
+    v.push((
+        "31-x-post-adult",
+        "adult X post: no static quote, View on X and the click-to-load link",
+        x_post(4, run, Reputation::Adult, None),
+    ));
+    let run = banded_run(Band::VeryStrong, 999, "above 99.9%", 86, 1000, 1180, CutKind::FirstWords);
+    v.push((
+        "32-x-post-embed-unavailable",
+        "X could not be reached: result, View on X, no-store",
+        x_post(5, run, Reputation::Ranked, None),
+    ));
+    let mut p = base(Kind::PublicUrl, Some(X_SLUG), DetState::Deleted);
+    p.platform = Platform::X;
+    p.robots = Robots::Noindex;
+    p.canonical = None;
+    p.state_v = 3;
+    p.ended = Some(Ended { code: RefusalCode::XGone });
+    v.push(("33-x-post-gone", "post gone from X: 410, report removed (x_gone)", p));
     v
 }
 
@@ -620,6 +757,8 @@ fn cards() -> Vec<(String, Card)> {
     v.push(("secret-short-none-stoic".into(), Card::from_page(&secret_short(ShortResult::None), false).unwrap()));
     let free_cut = pages().into_iter().find(|x| x.0 == "20-secret-free-cut").unwrap().2;
     v.push(("secret-free-cut".into(), Card::from_page(&free_cut, false).unwrap()));
+    v.push(("x-post-short-strong".into(), Card::from_page(&x_post_short(), false).unwrap()));
+    v.push(("x-post-band-strong".into(), Card::from_page(&x_post_long(), false).unwrap()));
     v.push(("paid-document".into(), Card::from_page(&paid_document(), false).unwrap()));
     let withheld = pages().into_iter().find(|x| x.0 == "08-public-excerpt-withheld").unwrap().2;
     v.push(("generic-excerpt-withheld".into(), Card::from_page(&withheld, false).unwrap()));
@@ -677,6 +816,7 @@ fn entries() -> Vec<Entry> {
             serde_json::json!({
                 "shows": row,
                 "status": page.http_status(),
+                "no_store": page.no_store(),
                 "robots": page.robots.header_value(),
                 "canonical": page.canonical,
             }),
@@ -772,7 +912,7 @@ fn entries() -> Vec<Entry> {
             seal: "AQ3vb2xkLXNlYWwtZXhhbXBsZQ".into(),
             expiry: Expiry::Keep,
             save: true,
-            source: Some("https://x.com/gardener/status/1".into()),
+            source: Some("https://x.com/a/status/1".into()),
         },
     ));
     e.push(entry(
@@ -890,6 +1030,10 @@ fn entries() -> Vec<Entry> {
             r.total_words = Some(17);
             r.cut = Some(CutKind::None);
         }
+        if *code == RefusalCode::XPostLink {
+            r = ApiRefusal::x_post_link(2).unwrap();
+        }
+        r.check().unwrap_or_else(|err| panic!("{code}: {err:?}"));
         e.push(entry(format!("refusals/{}.json", code.as_str()), r));
     }
     // Queue messages.
@@ -969,7 +1113,10 @@ fn files_round_trip_through_their_types() {
         check::<Card>(&f.unwrap().path());
     }
     for f in std::fs::read_dir(dir().join("refusals")).unwrap() {
-        check::<ApiRefusal>(&f.unwrap().path());
+        let p = f.unwrap().path();
+        check::<ApiRefusal>(&p);
+        let r: ApiRefusal = serde_json::from_str(&std::fs::read_to_string(&p).unwrap()).unwrap();
+        r.check().unwrap_or_else(|e| panic!("{}: {e:?}", p.display()));
     }
     for f in std::fs::read_dir(dir().join("queue")).unwrap() {
         check::<QueueMessage>(&f.unwrap().path());
@@ -1006,7 +1153,30 @@ fn the_page_set_covers_every_plan_step() {
     assert!(has(&|p| p.run.as_ref().is_some_and(|r| r.cut != CutKind::None)));
     assert!(has(&|p| p.source.as_ref().is_some_and(|s| s.via == SourceVia::Submitter)));
     assert!(has(&|p| p.source.as_ref().is_some_and(|s| s.reputation == Some(Reputation::Unranked))));
-    assert!(has(&|p| p.platform == Platform::Bluesky));
+    for pl in Platform::ALL {
+        assert!(has(&|p| p.platform == *pl), "platform {pl}");
+    }
+    // Pasted text with an X post as its source is ordinary paste: stored and
+    // shown whole, with the plain host line.
+    assert!(has(&|p| p.platform == Platform::Paste
+        && p.source.as_ref().is_some_and(|s| s.host == "x.com" && s.via == SourceVia::Submitter && !s.checked)
+        && p.text.as_ref().is_some_and(|t| t.shown == Shown::Full && t.body.is_some())
+        && p.run.as_ref().is_some_and(|r| r.band.is_some() && !r.spans.is_empty())));
+    // Posts on X: short and long, each way the post is shown, and gone.
+    assert!(has(&|p| p.is_x_post() && p.run.as_ref().is_some_and(|r| r.short.is_some())));
+    assert!(has(&|p| p.is_x_post() && p.run.as_ref().is_some_and(|r| r.band.is_some())));
+    assert!(has(&|p| matches!(p.x_view(), Some(XView::Quote(_)))));
+    assert!(has(&|p| p.x_view() == Some(XView::Adult)));
+    assert!(has(&|p| p.x_view() == Some(XView::Unavailable) && p.no_store()));
+    assert!(has(&|p| p.is_x_post() && p.ended.is_some_and(|e| e.code == RefusalCode::XGone) && p.http_status() == 410));
+    for (name, _, p) in &pages {
+        if p.is_x_post() {
+            assert!(p.text.is_none() && p.robots == Robots::Noindex, "{name}");
+            assert!(p.run.as_ref().is_none_or(|r| r.spans.is_empty()), "{name}");
+        } else {
+            assert!(p.embed.is_none() && !p.no_store(), "{name}");
+        }
+    }
     assert!(has(&|p| p
         .text
         .as_ref()
@@ -1018,5 +1188,15 @@ fn the_page_set_covers_every_plan_step() {
     }
     for n in NinjaState::ALL {
         assert!(cards.iter().any(|(_, c)| c.variant == CardVariant::Band && c.ninja == Some(*n)), "card ninja {n}");
+    }
+    // X cards: "a post on X", and nothing from X (no handle, host or text).
+    let x_cards: Vec<_> = cards.iter().filter(|(_, c)| c.source_label == card::X_LABEL).collect();
+    assert!(x_cards.iter().any(|(_, c)| c.variant == CardVariant::Short));
+    assert!(x_cards.iter().any(|(_, c)| c.variant == CardVariant::Band));
+    for (name, c) in &x_cards {
+        let json = serde_json::to_string(c).unwrap();
+        for banned in ["fixture_author", "x.com", "twitter", "t.co", "Fixture Gardener", "fast-paced"] {
+            assert!(!json.contains(banned), "{name}: {banned}");
+        }
     }
 }

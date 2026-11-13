@@ -146,6 +146,9 @@ pub const CATALOG: &[(Target, &str)] = &[
     (Target::Detect, "purge"),
     (Target::Detect, "delete_private"),
     (Target::Detect, "index_force"),
+    // `x_purge {reason}`: every X detection, run document and source row,
+    // as a class (when access to X's API ends).
+    (Target::Detect, "x_purge"),
     (Target::Detect, "set_switch"),
     (Target::Detect, "set_examples"),
     (Target::Detect, "status"),

@@ -1,170 +1,233 @@
 {
   "01-public-very-strong": {
     "canonical": "k7m2xq9",
+    "no_store": false,
     "robots": "index",
     "shows": "public_url, ranked, band 4",
     "status": 200
   },
   "02-public-strong": {
     "canonical": "k7m2xq9",
+    "no_store": false,
     "robots": "index",
     "shows": "public_url, ranked, band 3",
     "status": 200
   },
   "03-public-unclear": {
     "canonical": "k7m2xq9",
+    "no_store": false,
     "robots": "index",
     "shows": "band 2 public: title, first sentence, continue link",
     "status": 200
   },
   "04-public-weak": {
     "canonical": "k7m2xq9",
+    "no_store": false,
     "robots": "index",
     "shows": "band 1 public: title, first sentence, continue link",
     "status": 200
   },
   "05-public-unranked": {
     "canonical": "k7m2xq9",
+    "no_store": false,
     "robots": "noindex",
     "shows": "public_url unranked: no title or excerpt, address unlinked",
     "status": 200
   },
   "06-public-source-gone": {
     "canonical": "k7m2xq9",
+    "no_store": false,
     "robots": "noindex",
     "shows": "source gone: score and positions stay, excerpt goes",
     "status": 200
   },
   "07-public-unlisted": {
     "canonical": "k7m2xq9",
+    "no_store": false,
     "robots": "noindex",
     "shows": "source unlisted: score and band, domain only",
     "status": 200
   },
   "08-public-excerpt-withheld": {
     "canonical": "k7m2xq9",
+    "no_store": false,
     "robots": "noindex",
     "shows": "excerpt_withheld: score, band, source link; generic card",
     "status": 200
   },
   "09-public-superseded": {
     "canonical": "p4r8tz2",
+    "no_store": false,
     "robots": "index",
     "shows": "superseded_by: banner and canonical to the newest page",
     "status": 200
   },
   "10-public-older-package": {
     "canonical": "k7m2xq9",
+    "no_store": false,
     "robots": "index",
     "shows": "serving.differs_from_run: re-run banner",
     "status": 200
   },
   "11-public-pending": {
     "canonical": null,
+    "no_store": false,
     "robots": "noindex",
     "shows": "pending public: domain only, Run it",
     "status": 200
   },
   "12-public-failed": {
     "canonical": null,
+    "no_store": false,
     "robots": "noindex",
     "shows": "failed: reason and domain only",
     "status": 200
   },
   "13-public-removed": {
     "canonical": null,
+    "no_store": false,
     "robots": "noindex",
     "shows": "removed: 451 with blocked-by",
     "status": 451
   },
   "14-bluesky-post": {
     "canonical": "k7m2xq9",
+    "no_store": false,
     "robots": "noindex",
     "shows": "public_url Bluesky post: short text, noindex",
     "status": 200
   },
   "15-secret-text": {
     "canonical": null,
+    "no_store": false,
     "robots": "noindex, nofollow, noarchive, nosnippet, noimageindex",
     "shows": "private_text: whole text, secret notice",
     "status": 200
   },
   "16-secret-short-strong": {
     "canonical": null,
+    "no_store": false,
     "robots": "noindex, nofollow, noarchive, nosnippet, noimageindex",
     "shows": "run.short strong: short gauge, ready, neutral shade",
     "status": 200
   },
   "17-secret-short-none": {
     "canonical": null,
+    "no_store": false,
     "robots": "noindex, nofollow, noarchive, nosnippet, noimageindex",
     "shows": "run.short none: short gauge, stoic",
     "status": 200
   },
   "18-secret-pasted-post": {
     "canonical": null,
+    "no_store": false,
     "robots": "noindex, nofollow, noarchive, nosnippet, noimageindex",
     "shows": "pasted post: source given by the submitter, not checked",
     "status": 200
   },
-  "19-secret-x-source-rule": {
+  "19-secret-pasted-x-source": {
     "canonical": null,
+    "no_store": false,
     "robots": "noindex, nofollow, noarchive, nosnippet, noimageindex",
-    "shows": "x.com-source rule: result without the text",
+    "shows": "paste with an X post as its source: whole text, plain host line, re-run link (older package)",
     "status": 200
   },
   "20-secret-free-cut": {
     "canonical": null,
+    "no_store": false,
     "robots": "noindex, nofollow, noarchive, nosnippet, noimageindex",
     "shows": "run.cut: first N of M words; re-run link (live private_text, older package)",
     "status": 200
   },
   "21-secret-deleted": {
     "canonical": null,
+    "no_store": false,
     "robots": "noindex, nofollow, noarchive, nosnippet, noimageindex",
     "shows": "deleted: 410",
     "status": 410
   },
   "22-secret-expired": {
     "canonical": null,
+    "no_store": false,
     "robots": "noindex, nofollow, noarchive, nosnippet, noimageindex",
     "shows": "expired: 410",
     "status": 410
   },
   "23-secret-disabled": {
     "canonical": null,
+    "no_store": false,
     "robots": "noindex, nofollow, noarchive, nosnippet, noimageindex",
     "shows": "disabled: 451 while a report is reviewed",
     "status": 451
   },
   "24-paid-document": {
     "canonical": null,
+    "no_store": false,
     "robots": "noindex, nofollow, noarchive, nosnippet, noimageindex",
     "shows": "private_paid: section map, neutral dial, no ninja",
     "status": 200
   },
   "25-paid-pending": {
     "canonical": null,
+    "no_store": false,
     "robots": "noindex, nofollow, noarchive, nosnippet, noimageindex",
     "shows": "pending paid job: section progress",
     "status": 200
   },
   "26-paid-failed": {
     "canonical": null,
+    "no_store": false,
     "robots": "noindex, nofollow, noarchive, nosnippet, noimageindex",
     "shows": "failed paid job: nothing was charged",
     "status": 200
   },
   "27-unstored": {
     "canonical": null,
+    "no_store": false,
     "robots": "noindex",
     "shows": "unstored result: not saved, Get a link, free-cut notice",
     "status": 200
   },
   "28-example": {
     "canonical": null,
+    "no_store": false,
     "robots": "noindex",
     "shows": "kind example: synthetic example report, noindex",
     "status": 200
+  },
+  "29-x-post-short": {
+    "canonical": "x4m8q2t",
+    "no_store": false,
+    "robots": "noindex",
+    "shows": "X post under 150 words: short gauge, X's quote, no text body, noindex",
+    "status": 200
+  },
+  "30-x-post-long": {
+    "canonical": "x4m8q2t",
+    "no_store": false,
+    "robots": "noindex",
+    "shows": "X post of 150 words and more: band and share, no highlighting, X's quote",
+    "status": 200
+  },
+  "31-x-post-adult": {
+    "canonical": "x4m8q2t",
+    "no_store": false,
+    "robots": "noindex",
+    "shows": "adult X post: no static quote, View on X and the click-to-load link",
+    "status": 200
+  },
+  "32-x-post-embed-unavailable": {
+    "canonical": "x4m8q2t",
+    "no_store": true,
+    "robots": "noindex",
+    "shows": "X could not be reached: result, View on X, no-store",
+    "status": 200
+  },
+  "33-x-post-gone": {
+    "canonical": null,
+    "no_store": false,
+    "robots": "noindex",
+    "shows": "post gone from X: 410, report removed (x_gone)",
+    "status": 410
   }
 }

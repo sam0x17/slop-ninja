@@ -54,6 +54,7 @@
     "page_words": 612,
     "withheld_reason": "legal_notice"
   },
+  "embed": null,
   "source": {
     "host": "garden-diary.example",
     "url": "https://garden-diary.example/2026/11/garden-diary",
@@ -72,6 +73,7 @@
   },
   "pending": null,
   "failure": null,
+  "ended": null,
   "removal": {
     "scope": "excerpt",
     "basis": "copyright",

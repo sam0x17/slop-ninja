@@ -13,6 +13,12 @@
 //! `superseded_by` and `supersedes` are public slugs. The renderer builds
 //! absolute URLs from its configured origins ([`crate::Origins`]).
 //!
+//! A post on X checked from its link ([`Page::is_x_post`]) is a public page
+//! of `platform = x` that keeps no post text: `text` is `null`, the run has
+//! no passages, and the post is shown from [`Page::embed`], X's own markup
+//! made typed ([`crate::x`]). It is always `noindex`, never in a sitemap,
+//! and its page kind carries no ad slot.
+//!
 //! [`Page::check`] states the invariants a producer keeps and a consumer may
 //! rely on.
 
@@ -22,6 +28,8 @@ use crate::codes::*;
 use crate::ninja::{NinjaInput, ninja_state};
 use crate::refusal::RefusalCode;
 use crate::slug;
+pub use crate::x::XEmbed;
+use crate::x::{X_HOST, parse_x_canonical};
 
 /// The schema id.
 pub const PAGE_SCHEMA: &str = "slop_ninja_detect_page_v2";
@@ -78,14 +86,25 @@ pub struct Page {
     pub run: Option<Run>,
     /// A paid whole document's sections.
     pub sections: Option<Sections>,
+    /// The text block; always `null` on an X page, which keeps no post text.
     pub text: Option<Text>,
-    /// A public page's source; a pasted post's `{host, via: submitter,
-    /// checked: false}`; `null` on other secret pages.
+    /// An X page's static quote of the post, built from X's embed markup on
+    /// a page-cache miss and never stored. `null` on every other page, on an
+    /// adult post (no static quote) and when X could not be reached (see
+    /// [`Page::x_view`]).
+    pub embed: Option<XEmbed>,
+    /// A public page's source; a pasted text's `{host, via: submitter,
+    /// checked: false}`, whatever the host; `null` on other secret pages.
     pub source: Option<Source>,
     /// What a pending page shows.
     pub pending: Option<Pending>,
     /// Why a failed page failed.
     pub failure: Option<Failure>,
+    /// Why an ended page ended, when its copy is not its state's own line:
+    /// `x_gone` on an X page deleted because the post went (410, "This post
+    /// is no longer available on X, so its report was removed."). `null`
+    /// otherwise.
+    pub ended: Option<Ended>,
     /// The removal behind a `removed` or `excerpt_withheld` page.
     pub removal: Option<Removal>,
     /// The page's card, when it has one.
@@ -298,6 +317,34 @@ pub struct Failure {
     pub code: RefusalCode,
 }
 
+/// Why an ended page ended; the renderer prints the code's copy in place of
+/// the state's own line, with the state's status.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Ended {
+    /// One of [`ENDED_CODES`].
+    pub code: RefusalCode,
+}
+
+/// The codes an [`Ended`] may carry.
+pub const ENDED_CODES: &[RefusalCode] = &[RefusalCode::XGone];
+
+/// How an X page shows its post ([`Page::x_view`]).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum XView<'a> {
+    /// The static quote, in its frame with "View on X" and the click-to-load
+    /// link.
+    Quote(&'a XEmbed),
+    /// An adult post: no static quote, only "View on X" and the click-to-load
+    /// link.
+    Adult,
+    /// A withheld excerpt: no quote, only "View on X".
+    Withheld,
+    /// X could not be reached: "The post couldn't be loaded from X right now.
+    /// View it on X ↗", served `no-store` and kept out of the page cache, so
+    /// the next view tries again.
+    Unavailable,
+}
+
 /// A removal.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Removal {
@@ -352,6 +399,33 @@ impl Page {
     /// Whether the run is a paid whole document.
     pub fn is_paid_document(&self) -> bool {
         self.kind == Kind::PrivatePaid
+    }
+
+    /// Whether the page is a post on X checked from its link (`public_url`,
+    /// `platform = x`): no text block, no passages, always `noindex`, and the
+    /// page kind `x_post`, which never carries an ad slot.
+    pub fn is_x_post(&self) -> bool {
+        self.kind == Kind::PublicUrl && self.platform == Platform::X
+    }
+
+    /// How a shown X page (live or with its excerpt withheld) shows the post;
+    /// `None` for every other page.
+    pub fn x_view(&self) -> Option<XView<'_>> {
+        if !self.is_x_post() || !matches!(self.state, DetState::Live | DetState::ExcerptWithheld) {
+            return None;
+        }
+        Some(match &self.embed {
+            Some(e) => XView::Quote(e),
+            None if self.state == DetState::ExcerptWithheld => XView::Withheld,
+            None if self.source.as_ref().is_some_and(|s| s.reputation == Some(Reputation::Adult)) => XView::Adult,
+            None => XView::Unavailable,
+        })
+    }
+
+    /// Whether the page must be served `Cache-Control: no-store` and kept
+    /// out of the page cache: an X page whose post could not be loaded.
+    pub fn no_store(&self) -> bool {
+        self.x_view() == Some(XView::Unavailable)
     }
 
     /// The ninja input of the run, if there is one.
@@ -411,6 +485,12 @@ impl Page {
         }
         need((self.state == DetState::Pending) == self.pending.is_some(), "pending iff pending state")?;
         need((self.state == DetState::Failed) == self.failure.is_some(), "failure iff failed state")?;
+        if let Some(e) = self.ended {
+            need(ended && ENDED_CODES.contains(&e.code), "an ended reason only on an ended page")?;
+            if e.code == RefusalCode::XGone {
+                need(self.state == DetState::Deleted && self.is_x_post(), "x_gone ends a deleted X page")?;
+            }
+        }
         if matches!(self.state, DetState::Removed) && self.kind == Kind::PublicUrl {
             need(
                 self.removal.as_ref().is_some_and(|r| r.scope == RemovalScope::Page),
@@ -437,12 +517,13 @@ impl Page {
             let s = self.source.as_ref().ok_or(PageError("pending and failed public pages show the domain"))?;
             need(s.url.is_none() && s.title.is_none(), "the domain only")?;
         }
+        self.check_x()?;
         if !matches!(self.state, DetState::Live | DetState::ExcerptWithheld) {
             return Ok(());
         }
         // A shown result.
         let run = self.run.as_ref().ok_or(PageError("a live page has a run"))?;
-        need(self.text.is_some(), "a live page has its text block")?;
+        need(self.text.is_some() || self.is_x_post(), "a live page has its text block")?;
         if self.is_paid_document() {
             let s = self.sections.as_ref().ok_or(PageError("a paid document has sections"))?;
             need(run.band.is_none() && run.short.is_none() && run.length.is_none(), "a paid document has no band")?;
@@ -486,7 +567,14 @@ impl Page {
         }
         need(run.words <= run.total_words, "scored words within the text")?;
         need((run.cut == CutKind::None) == (run.words == run.total_words) || self.is_paid_document(), "cut and words")?;
-        let text = self.text.as_ref().ok_or(PageError("text"))?;
+        need(
+            self.receipt.is_some() == (self.state == DetState::Live && self.kind != Kind::Example),
+            "receipt on live pages",
+        )?;
+        let Some(text) = self.text.as_ref() else {
+            // An X page: check_x() has already required no passages.
+            return Ok(());
+        };
         let body_len = text.body.as_deref().map_or(0, utf16_len);
         let mut prev = 0;
         for s in &run.spans {
@@ -505,10 +593,50 @@ impl Page {
         if self.kind == Kind::PublicUrl {
             need(text.shown != Shown::Full, "a public page never shows the full text")?;
         }
-        need(
-            self.receipt.is_some() == (self.state == DetState::Live && self.kind != Kind::Example),
-            "receipt on live pages",
-        )?;
+        Ok(())
+    }
+
+    /// The X invariants: an X post is only a public page; it has no text
+    /// block, passages or anchors and is always `noindex`; its source is the
+    /// post (host `x.com`, the canonical post URL or the domain only, read
+    /// through X, with no title, site name, author, date or page hash); an
+    /// embed appears only on a live X page that is not adult, and passes
+    /// [`XEmbed::check`].
+    fn check_x(&self) -> Result<(), PageError> {
+        if !self.is_x_post() {
+            need(self.platform != Platform::X || self.kind == Kind::PublicUrl, "an X post is a public page")?;
+            need(self.embed.is_none(), "an embed only on an X page")?;
+            return Ok(());
+        }
+        need(self.robots == Robots::Noindex, "an X page is noindex")?;
+        need(self.text.is_none(), "an X page has no text body or anchors")?;
+        if let Some(run) = &self.run {
+            need(run.spans.is_empty() && run.spans_note == Some(SpansNote::XPost), "an X page draws no passage")?;
+        }
+        if let Some(s) = &self.source {
+            need(s.host == X_HOST && s.via == SourceVia::X, "an X page's source is the post on X")?;
+            need(
+                s.title.is_none()
+                    && s.site_name.is_none()
+                    && s.author.is_none()
+                    && s.published_at.is_none()
+                    && s.page_hash.is_none(),
+                "an X source keeps no title, site, author, date or hash",
+            )?;
+            need(s.url.as_deref().is_none_or(|u| parse_x_canonical(u).is_some()), "an X source is the canonical URL")?;
+        }
+        if matches!(self.state, DetState::Live | DetState::ExcerptWithheld) {
+            let s = self.source.as_ref().ok_or(PageError("a shown X page has its source"))?;
+            need(s.url.is_some() && s.link, "a shown X page links the post")?;
+        }
+        if let Some(e) = &self.embed {
+            need(self.state == DetState::Live, "an embed only on a live X page")?;
+            need(
+                self.source.as_ref().is_some_and(|s| s.reputation != Some(Reputation::Adult)),
+                "an adult post has no static quote",
+            )?;
+            e.check().map_err(|e| PageError(e.0))?;
+        }
         Ok(())
     }
 }

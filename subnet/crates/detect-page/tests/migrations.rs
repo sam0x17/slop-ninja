@@ -313,3 +313,61 @@ fn examples_and_counters() {
     run(&c, cov, &[]).unwrap();
     refused(&c, cov, &[], "UNIQUE constraint failed");
 }
+
+#[test]
+fn x_sources_runs_and_gone_pages() {
+    let c = db();
+    // Pasted text keeps nothing about its source in D1, so there is no
+    // column for a withheld text.
+    let cols: Vec<String> = c
+        .prepare("SELECT name FROM pragma_table_info('detections')")
+        .unwrap()
+        .query_map([], |r| r.get(0))
+        .unwrap()
+        .map(Result::unwrap)
+        .collect();
+    assert!(cols.contains(&"copy_of".to_owned()) && cols.contains(&"expiry_cap".to_owned()));
+    assert!(!cols.iter().any(|c| c.contains("withheld")), "{cols:?}");
+    // An X source: the canonical post URL, rank list `x`, no title or dates.
+    run(
+        &c,
+        "INSERT INTO sources (source_id, canon_key, canon_url, host, adapter, reputation, rank_list_v) \
+         VALUES (1, ?, 'https://x.com/i/status/2', 'x.com', 'x', 'adult', 'x')",
+        &[b(1)],
+    )
+    .unwrap();
+    // An X run: document-only, no content key; NULL keys never collide.
+    let x_run = "INSERT INTO runs (run_id, content_key, package_load, package_pub, package_label, policy_v, canon_v, \
+                 extract_v, display_v, evidence_id, band, words, total_words, cut, tokens, scored_at, doc_key, doc_bytes) \
+                 VALUES (?, NULL, 'l', 'p', 'span package d24', 'long-v1', 'canon_v1', 'x_text_v1', 'display_v1', 'e', \
+                 'strong', 300, 300, 'none', 400, 1, 'r/1', 10)";
+    run(&c, x_run, &[i(1)]).unwrap();
+    run(&c, x_run, &[i(2)]).unwrap();
+    run(
+        &c,
+        "INSERT INTO detections (id_h, public_slug, kind, platform, state, created_at, updated_at, source_id, run_id) \
+         VALUES (?, 'x4m8q2t', 'public_url', 'x', 'live', 1, 1, 1, 1)",
+        &[b(7)],
+    )
+    .unwrap();
+    // The post went: the page is deleted with its reason, the source gone.
+    run(
+        &c,
+        "UPDATE detections SET state = 'deleted', refusal = ?, run_id = NULL WHERE id_h = ?",
+        &[t(RefusalCode::XGone.as_str()), b(7)],
+    )
+    .unwrap();
+    run(&c, "UPDATE sources SET state = 'gone' WHERE source_id = 1", &[]).unwrap();
+    let (state, refusal): (String, String) = c
+        .query_row("SELECT state, refusal FROM detections WHERE public_slug = 'x4m8q2t'", [], |r| {
+            Ok((r.get(0)?, r.get(1)?))
+        })
+        .unwrap();
+    assert_eq!((state.as_str(), refusal.as_str()), ("deleted", "x_gone"));
+    // x_purge deletes the class: detections, runs and sources of adapter x.
+    run(&c, "DELETE FROM detections WHERE platform = 'x'", &[]).unwrap();
+    run(&c, "DELETE FROM runs WHERE extract_v = 'x_text_v1'", &[]).unwrap();
+    run(&c, "DELETE FROM sources WHERE adapter = 'x'", &[]).unwrap();
+    let n: i64 = c.query_row("SELECT count(*) FROM sources", [], |r| r.get(0)).unwrap();
+    assert_eq!(n, 0);
+}

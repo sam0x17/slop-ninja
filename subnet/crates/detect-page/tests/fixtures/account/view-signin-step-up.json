@@ -27,13 +27,13 @@
     {
       "identity_id": 1,
       "provider": "email",
-      "label": "kate@host.example",
+      "label": "reader@host.example",
       "state": "on"
     },
     {
       "identity_id": 2,
       "provider": "github",
-      "label": "kate-gardens",
+      "label": "reader-fixture",
       "state": "on"
     }
   ]

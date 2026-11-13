@@ -208,4 +208,7 @@ fn keys_and_codes() {
     }
     assert!(in_catalog(Target::Detect, "set_switch") && in_catalog(Target::Account, "set_switch"));
     assert!(!in_catalog(Target::Edge, "set_switch"));
+    // X's class purge is a detect op only.
+    assert!(in_catalog(Target::Detect, "x_purge"));
+    assert!(!in_catalog(Target::Account, "x_purge") && !in_catalog(Target::Edge, "x_purge"));
 }

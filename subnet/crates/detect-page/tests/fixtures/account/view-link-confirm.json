@@ -1,10 +1,10 @@
 {
   "page": "link_confirm",
-  "label": "kate-gardens",
+  "label": "reader-fixture",
   "pending": {
     "kind": "link",
     "provider": "x",
-    "label": "@kate_gardens",
+    "label": "@reader_fixture",
     "merge_blocked": false
   }
 }

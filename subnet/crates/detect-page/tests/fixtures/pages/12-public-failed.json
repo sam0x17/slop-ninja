@@ -22,6 +22,7 @@
   "run": null,
   "sections": null,
   "text": null,
+  "embed": null,
   "source": {
     "host": "garden-diary.example",
     "url": null,
@@ -42,6 +43,7 @@
   "failure": {
     "code": "login_wall"
   },
+  "ended": null,
   "removal": null,
   "card": null,
   "ninja": null,

@@ -155,11 +155,15 @@ impl Kind {
 }
 
 code_enum! {
-    /// Where the text came from (`detections.platform`).
+    /// Where the text came from (`detections.platform`). Pasted text is
+    /// `paste` whatever source the submitter names, an X host included.
     pub enum Platform {
         Paste = "paste",
         Web = "web",
         Bluesky = "bluesky",
+        /// A post on X checked from its link: a public page that keeps no
+        /// post text and shows the post through X's embed markup
+        /// ([`crate::x`]).
         X = "x",
     }
 }
@@ -218,11 +222,15 @@ impl Robots {
 }
 
 code_enum! {
-    /// Why no passage is drawn (built codes).
+    /// Why no passage is drawn (the built Worker's codes, and `x_post`).
     pub enum SpansNote {
         StrongBandsOnly = "strong_bands_only",
         Off = "off",
         Unavailable = "unavailable",
+        /// A post on X: the post is shown as X shows it, so no passage is
+        /// drawn at any length ("Passages aren't highlighted on posts from
+        /// X: the post is shown as X shows it." on 150 words and more).
+        XPost = "x_post",
     }
 }
 
@@ -306,8 +314,6 @@ code_enum! {
         SourceGone = "source_gone",
         Unlisted = "unlisted",
         Unranked = "unranked",
-        /// The x.com-source rule stored the result without the text.
-        XSourceRule = "x_source_rule",
     }
 }
 

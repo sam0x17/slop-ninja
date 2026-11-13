@@ -62,6 +62,9 @@ pub enum Group {
     Rerun,
     /// The public URL check.
     Url,
+    /// Posts on X: the free check's answer to a post link, the URL route's X
+    /// adapter and an X page that ended because the post went.
+    X,
     /// Page reads, manage and owner actions.
     Page,
     /// Paid checks and the ledger.
@@ -173,6 +176,35 @@ refusal_codes! {
     TooSlow = "too_slow", 422, Url;
     UnsupportedType = "unsupported_type", 422, Url;
     PageTooLarge = "page_too_large", 422, Url;
+
+    // ---------------------------------------------------------------------- x
+    /// The free check's input is only an X post's link (rule `x_post_v1`):
+    /// nothing is scored and no ticket is taken. Carries `url`, the post's
+    /// canonical URL ([`ApiRefusal::x_post_link`]); the tool page posts it
+    /// to the URL check and streams that. Sent only while `DETECT_URLS` and
+    /// `DETECT_X` are both on.
+    XPostLink = "x_post_link", 422, X;
+    /// "Checking a post from its link isn't available right now. Paste the
+    /// post's text to check it." (`DETECT_URLS` or `DETECT_X` is off.)
+    XOff = "x_off", 503, X;
+    /// A link on an X host that is not a post (a profile, a search, a list),
+    /// a `t.co` link or a mirror's link, sent to the URL check.
+    XNotAPost = "x_not_a_post", 422, X;
+    /// "We can't read this post on X. It may be deleted, protected or from a
+    /// suspended account." (Kept on the source for a day.)
+    XPostUnavailable = "x_post_unavailable", 422, X;
+    /// X is rate-limiting our reads; the reset time is held until it passes.
+    XBusy = "x_busy", 503, X;
+    /// "Checking posts from X is unavailable right now. Paste the post's text
+    /// to check it." (X refused our reads or our token, or the month's read
+    /// limit is reached.)
+    XUnavailable = "x_unavailable", 503, X;
+    /// The post's page was removed at the request of its author or of X, and
+    /// the post is not checked again (no API read).
+    XRemoved = "x_removed", 422, X;
+    /// "This post is no longer available on X, so its report was removed."
+    /// A deleted X page carries it as its [`crate::page::Ended`] reason.
+    XGone = "x_gone", 410, X;
 
     // ------------------------------------------------------------------- page
     /// "This secret link was deleted or has expired. Links are never reused."
@@ -313,11 +345,48 @@ pub struct ApiRefusal {
     pub total_words: Option<u32>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub cut: Option<CutKind>,
+    /// With `x_post_link` only: the post's canonical URL
+    /// (`https://x.com/i/status/<id>`), which the tool page posts to the URL
+    /// check.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub url: Option<String>,
 }
+
+/// A broken [`ApiRefusal`] form.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct RefusalError(pub &'static str);
 
 impl ApiRefusal {
     pub fn new(code: RefusalCode) -> ApiRefusal {
-        ApiRefusal { state: RefusedTag, code, words: None, tokens: None, min_words: None, total_words: None, cut: None }
+        ApiRefusal {
+            state: RefusedTag,
+            code,
+            words: None,
+            tokens: None,
+            min_words: None,
+            total_words: None,
+            cut: None,
+            url: None,
+        }
+    }
+
+    /// `x_post_link` for post `id`; `None` for an id X never issues
+    /// ([`crate::x::x_canonical`]).
+    pub fn x_post_link(id: u64) -> Option<ApiRefusal> {
+        let url = crate::x::x_canonical(id)?;
+        Some(ApiRefusal { url: Some(url), ..ApiRefusal::new(RefusalCode::XPostLink) })
+    }
+
+    /// Checks the form: `url` is present exactly on `x_post_link`, and is a
+    /// canonical post URL.
+    pub fn check(&self) -> Result<(), RefusalError> {
+        match (&self.url, self.code == RefusalCode::XPostLink) {
+            (Some(u), true) if crate::x::parse_x_canonical(u).is_some() => Ok(()),
+            (Some(_), true) => Err(RefusalError("x_post_link carries a canonical post URL")),
+            (None, true) => Err(RefusalError("x_post_link carries its url")),
+            (Some(_), false) => Err(RefusalError("only x_post_link carries a url")),
+            (None, false) => Ok(()),
+        }
     }
 }
 

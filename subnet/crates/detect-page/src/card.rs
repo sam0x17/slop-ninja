@@ -43,6 +43,9 @@ pub const DATE_LEN: usize = 10;
 pub const SECRET_LABEL: &str = "Private text · secret link";
 /// The source label of a Bluesky post's card.
 pub const BLUESKY_LABEL: &str = "a post on Bluesky";
+/// The source label of an X post's card. An X card carries no post text,
+/// handle, avatar, host or X mark.
+pub const X_LABEL: &str = "a post on X";
 
 /// Where a card points.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -213,6 +216,8 @@ impl Card {
             SECRET_LABEL.to_owned()
         } else if page.platform == Platform::Bluesky {
             BLUESKY_LABEL.to_owned()
+        } else if page.platform == Platform::X {
+            X_LABEL.to_owned()
         } else {
             clean_label(page.source.as_ref().map_or("", |s| s.host.as_str()), MAX_SOURCE_LABEL)
         };

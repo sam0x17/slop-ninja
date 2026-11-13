@@ -1,12 +1,12 @@
 {
   "page": "account",
-  "label": "kate@host.example",
+  "label": "reader@host.example",
   "signed_in_with": "email",
   "identities": [
     {
       "identity_id": 1,
       "provider": "email",
-      "label": "kate@host.example",
+      "label": "reader@host.example",
       "email_verified": true,
       "avatar_ref": null,
       "created_at": 1792577040000,

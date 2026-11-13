@@ -1,0 +1,109 @@
+{
+  "schema": "slop_ninja_detect_page_v2",
+  "slug": "x4m8q2t",
+  "host": "site",
+  "kind": "public_url",
+  "platform": "x",
+  "state": "live",
+  "state_v": 1,
+  "created_at": 1795169040000,
+  "expires_at": null,
+  "robots": "noindex",
+  "canonical": "x4m8q2t",
+  "superseded_by": null,
+  "supersedes": null,
+  "example_slot": null,
+  "serving": {
+    "package_label": "span package d24",
+    "package_pub_short": "e2536d12",
+    "publication_pending": true,
+    "differs_from_run": false
+  },
+  "run": {
+    "scored_at": 1795169040000,
+    "package": {
+      "label": "span package d24",
+      "published_digest": "e2536d12dff593d7b11895b3cbf6b10232601abfbebde248325afd707722b5e8",
+      "publication_pending": true
+    },
+    "scorer_build": "7030a86f",
+    "policy": "long-v1",
+    "evidence": "evidence-d24-web-v1",
+    "band": "strong",
+    "short": null,
+    "confidence_tenths": 973,
+    "confidence_text": "97.3%",
+    "share_pct": 43,
+    "share_text": "about 43%",
+    "words": 412,
+    "total_words": 412,
+    "cut": "none",
+    "tokens": 549,
+    "length": "150_450",
+    "spans": [],
+    "spans_note": "x_post",
+    "markers": [],
+    "invisible": false
+  },
+  "sections": null,
+  "text": null,
+  "embed": {
+    "lang": "en",
+    "dir": "ltr",
+    "parts": [
+      {
+        "type": "text",
+        "text": "In today's fast-paced world, community gardens serve as vibrant hubs that foster connection, promote sustainability, and empower residents to take meaningful ownership of their shared green spaces and local food systems."
+      },
+      {
+        "type": "break"
+      },
+      {
+        "type": "break"
+      },
+      {
+        "type": "text",
+        "text": "Moreover, by leveraging innovative composting strategies and data-driven planting schedules, organizers can unlock…"
+      },
+      {
+        "type": "text",
+        "text": " "
+      },
+      {
+        "type": "link",
+        "href": "https://t.co/fixture01",
+        "text": "https://t.co/fixture01"
+      }
+    ],
+    "author_name": "Fixture Gardener",
+    "author_url": "https://twitter.com/fixture_author",
+    "date_text": "November 18, 2026",
+    "permalink": "https://twitter.com/fixture_author/status/3?ref_src=twsrc%5Etfw"
+  },
+  "source": {
+    "host": "x.com",
+    "url": "https://x.com/i/status/3",
+    "title": null,
+    "site_name": null,
+    "author": null,
+    "published_at": null,
+    "fetched_at": 1795169038000,
+    "via": "x",
+    "status": "ok",
+    "reputation": "ranked",
+    "link": true,
+    "checked": true,
+    "page_hash": null,
+    "stale": false
+  },
+  "pending": null,
+  "failure": null,
+  "ended": null,
+  "removal": null,
+  "card": {
+    "variant": "band",
+    "image": "/d/x4m8q2t/card.png?v=1.1"
+  },
+  "ninja": "stoic",
+  "receipt": "0f1e2d3c4b5a69788796a5b4c3d2e1f0.very_strong.150_450.00112233445566778899aabbccddeeff"
+}

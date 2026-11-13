@@ -1,10 +1,10 @@
 {
   "page": "link_confirm",
-  "label": "kate-gardens",
+  "label": "reader-fixture",
   "pending": {
     "kind": "merge",
     "provider": "google",
-    "label": "kate.other@host.example",
+    "label": "reader.other@host.example",
     "merge_blocked": true
   }
 }

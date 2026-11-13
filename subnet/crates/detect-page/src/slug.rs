@@ -148,6 +148,10 @@ pub enum SlugRoute {
     Card,
     /// The secret host's manage shell: `/<20>/manage`.
     Manage,
+    /// An X page with X's own widget, loaded on the reader's click:
+    /// `/d/<7>/x` on the site host (`noindex`, canonical to `/d/<7>`, its own
+    /// cache key and CSP). The only route that loads X's script.
+    XWidget,
 }
 
 /// The result of matching a request path (without its query).
@@ -173,6 +177,7 @@ pub fn path(host: HostRole, route: SlugRoute, slug: &str) -> String {
         SlugRoute::Page => base,
         SlugRoute::Card => format!("{base}/card.png"),
         SlugRoute::Manage => format!("{base}/manage"),
+        SlugRoute::XWidget => format!("{base}/x"),
     }
 }
 
@@ -197,6 +202,7 @@ pub fn match_path(host: HostRole, path_: &str) -> PathMatch {
         (_, "/") => (SlugRoute::Page, true),
         (_, "/card.png") => (SlugRoute::Card, false),
         (HostRole::Secret, "/manage") => (SlugRoute::Manage, false),
+        (HostRole::Site, "/x") => (SlugRoute::XWidget, false),
         _ => return PathMatch::NoMatch,
     };
     match fold(segment, slug_len(host)) {

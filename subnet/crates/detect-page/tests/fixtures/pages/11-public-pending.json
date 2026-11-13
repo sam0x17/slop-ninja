@@ -22,6 +22,7 @@
   "run": null,
   "sections": null,
   "text": null,
+  "embed": null,
   "source": {
     "host": "garden-diary.example",
     "url": null,
@@ -43,6 +44,7 @@
     "job": null
   },
   "failure": null,
+  "ended": null,
   "removal": null,
   "card": null,
   "ninja": null,

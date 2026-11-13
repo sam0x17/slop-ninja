@@ -61,6 +61,7 @@
     "page_words": null,
     "withheld_reason": null
   },
+  "embed": null,
   "source": {
     "host": "bsky.app",
     "url": "https://bsky.app/profile/gardener.example/post/3kq2abc",
@@ -79,6 +80,7 @@
   },
   "pending": null,
   "failure": null,
+  "ended": null,
   "removal": null,
   "card": {
     "variant": "short",

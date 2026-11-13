@@ -51,7 +51,6 @@ CREATE TABLE detections (
   seal_nonce_h BLOB UNIQUE,                  -- one share per scan
   doc_key TEXT, doc_bytes INTEGER,
   sitemap_seq INTEGER UNIQUE, index_force TEXT CHECK (index_force IN ('on','off')),           -- operator override
-  text_withheld INTEGER NOT NULL DEFAULT 0,  -- the x.com-source rule stored the result only
   copy_of BLOB,                              -- a secret re-run copy's family root, the first original's id_h
   expiry_cap INTEGER,                        -- a copy's latest allowed expires_at, the original's
   CHECK ((owner_h IS NULL) = (owner_via IS NULL)));

@@ -148,6 +148,12 @@ fn page_paths_and_their_301_forms() {
     assert_eq!(slug::match_path(Secret, &format!("/{}/manage", s.to_uppercase())), to(&format!("/{s}/manage")));
     assert_eq!(slug::match_path(Secret, "/robots.txt"), PathMatch::NoMatch);
     assert_eq!(slug::match_path(Secret, "/d/k7m2xq9"), PathMatch::NoMatch);
+    // X's widget route lives on the site host only.
+    assert_eq!(slug::match_path(Site, "/d/k7m2xq9/x"), serve(SlugRoute::XWidget, "k7m2xq9"));
+    assert_eq!(slug::match_path(Site, "/d/K7M2XQ9/x"), to("/d/k7m2xq9/x"));
+    assert_eq!(slug::match_path(Site, "/d/k7m2xq9/x/"), PathMatch::NoMatch);
+    assert_eq!(slug::match_path(Site, "/d/k7m2xq9/X"), PathMatch::NoMatch);
+    assert_eq!(slug::path(Site, SlugRoute::XWidget, "k7m2xq9"), "/d/k7m2xq9/x");
     assert_eq!(slug::match_path(Secret, &format!("/{s}/x")), PathMatch::NoMatch);
 }
 
@@ -272,6 +278,18 @@ fn cards_follow_their_page() {
     let c = Card::from_page(&p, false).unwrap();
     assert_eq!(c.free_cut_note, Some(card::free_cut_note(run.words, run.total_words)));
     assert_eq!(card::document_headline(0, 5), "No strong signs of AI involvement in any of the 5 sections.");
+    // An X card says "a post on X" and nothing of the post, its host or its
+    // author, at every length and however the post is shown.
+    for name in ["29-x-post-short", "30-x-post-long", "31-x-post-adult", "32-x-post-embed-unavailable"] {
+        let c = Card::from_page(&fixture(name), false).unwrap();
+        assert_eq!(c.source_label, card::X_LABEL, "{name}");
+        assert_eq!(c.link.printed(&test_origins()), "site.example/d/x4m8q2t");
+        assert!(c.check().is_ok());
+    }
+    assert_eq!(Card::from_page(&fixture("33-x-post-gone"), false), Err(card::NoCard::NotShown));
+    // A paste whose source is an X post is a secret card like any other.
+    let c = Card::from_page(&fixture("19-secret-pasted-x-source"), false).unwrap();
+    assert_eq!((c.source_label.as_str(), &c.link), (card::SECRET_LABEL, &CardLink::SecretHost));
 }
 
 #[test]
@@ -366,6 +384,205 @@ fn span_offsets_are_utf16() {
     assert!(passage.starts_with("In today's") && passage.ends_with("growing together."));
     // The emoji before the passage takes two UTF-16 units.
     assert!(body.find("In today's").unwrap() as u32 > s.start);
+}
+
+// ---------------------------------------------------------------- X posts
+
+const X_FIXTURES: &[&str] =
+    &["29-x-post-short", "30-x-post-long", "31-x-post-adult", "32-x-post-embed-unavailable", "33-x-post-gone"];
+
+#[test]
+fn x_pages_keep_their_invariants() {
+    for name in X_FIXTURES {
+        let p = fixture(name);
+        assert!(p.check().is_ok(), "{name}");
+        assert!(p.is_x_post(), "{name}");
+        // No text body or anchors, never indexed.
+        assert!(p.text.is_none() && p.robots == Robots::Noindex, "{name}");
+        assert!(p.run.as_ref().is_none_or(|r| r.spans.is_empty() && r.spans_note == Some(SpansNote::XPost)));
+    }
+    // How each shows the post, and what it is served with.
+    let short = fixture("29-x-post-short");
+    assert!(matches!(short.x_view(), Some(XView::Quote(_))) && !short.no_store());
+    assert!(matches!(fixture("30-x-post-long").x_view(), Some(XView::Quote(_))));
+    assert_eq!(fixture("31-x-post-adult").x_view(), Some(XView::Adult));
+    let unavailable = fixture("32-x-post-embed-unavailable");
+    assert_eq!(unavailable.x_view(), Some(XView::Unavailable));
+    assert!(unavailable.no_store() && unavailable.http_status() == 200);
+    let gone = fixture("33-x-post-gone");
+    assert_eq!((gone.http_status(), gone.ended.map(|e| e.code)), (410, Some(RefusalCode::XGone)));
+    assert_eq!(gone.x_view(), None);
+    assert_eq!(fixture("01-public-very-strong").x_view(), None);
+}
+
+#[test]
+fn check_refuses_broken_x_pages() {
+    let refused = |p: Page, why: &str| assert!(p.check().is_err(), "{why}");
+    let mut p = fixture("29-x-post-short");
+    p.text = fixture("16-secret-short-strong").text;
+    refused(p, "an X page has no text body");
+    let mut p = fixture("30-x-post-long");
+    p.text = Some(page::Text {
+        body: None,
+        shown: Shown::Withheld,
+        anchors: vec![Anchor {
+            start: 0,
+            end: 0,
+            role: AnchorRole::Passage,
+            from_word: 1,
+            to_word: 30,
+            fragment: None,
+        }],
+        further: Vec::new(),
+        page_words: None,
+        withheld_reason: Some(WithheldReason::Unranked),
+    });
+    refused(p, "an X page has no anchors");
+    let mut p = fixture("29-x-post-short");
+    p.robots = Robots::Index;
+    refused(p, "an X page is noindex");
+    let mut p = fixture("30-x-post-long");
+    p.run.as_mut().unwrap().spans = vec![Span { start: 0, end: 10, words: 30, confidence: Some(90) }];
+    refused(p, "an X page draws no passage");
+    let mut p = fixture("30-x-post-long");
+    p.run.as_mut().unwrap().spans_note = Some(SpansNote::StrongBandsOnly);
+    refused(p, "an X page says why no passage is drawn");
+    let mut p = fixture("31-x-post-adult");
+    p.embed = fixture("29-x-post-short").embed;
+    refused(p, "an adult post has no static quote");
+    let mut p = fixture("29-x-post-short");
+    p.source.as_mut().unwrap().url = Some("https://x.com/fixture_author/status/2".into());
+    refused(p, "an X source is the canonical URL");
+    let mut p = fixture("29-x-post-short");
+    p.source.as_mut().unwrap().title = Some("A post".into());
+    refused(p, "an X source keeps no title");
+    let mut p = fixture("29-x-post-short");
+    p.source.as_mut().unwrap().via = SourceVia::Web;
+    refused(p, "an X source is read through X");
+    let mut p = fixture("29-x-post-short");
+    if let Some(XPart::Link { href, .. }) = p.embed.as_mut().unwrap().parts.get_mut(1) {
+        *href = "https://evil.example/".into();
+    }
+    refused(p, "embed links point at X");
+    let mut p = fixture("29-x-post-short");
+    p.embed.as_mut().unwrap().parts.clear();
+    refused(p, "an embed has text");
+    // The embed, the X platform and x_gone belong to X pages only.
+    let mut p = fixture("01-public-very-strong");
+    p.embed = fixture("29-x-post-short").embed;
+    refused(p, "an embed only on an X page");
+    let mut p = fixture("15-secret-text");
+    p.platform = Platform::X;
+    refused(p, "an X post is a public page");
+    let mut p = fixture("21-secret-deleted");
+    p.ended = Some(page::Ended { code: RefusalCode::XGone });
+    refused(p, "x_gone ends a deleted X page");
+    let mut p = fixture("33-x-post-gone");
+    p.state = DetState::Expired;
+    refused(p, "x_gone ends a deleted page");
+    let mut p = fixture("29-x-post-short");
+    p.ended = Some(page::Ended { code: RefusalCode::XGone });
+    refused(p, "an ended reason only on an ended page");
+    let mut p = fixture("33-x-post-gone");
+    p.ended = Some(page::Ended { code: RefusalCode::PageGone });
+    refused(p, "only the listed ended codes");
+}
+
+#[test]
+fn x_post_urls_and_embeds() {
+    use slop_ninja_detect_page::x::*;
+    assert_eq!(x_canonical(1).as_deref(), Some("https://x.com/i/status/1"));
+    assert_eq!(x_canonical(0), None);
+    assert_eq!(x_canonical(i64::MAX as u64).as_deref(), Some("https://x.com/i/status/9223372036854775807"));
+    assert_eq!(x_canonical(i64::MAX as u64 + 1), None);
+    assert_eq!(parse_x_canonical("https://x.com/i/status/1855"), Some(1855));
+    assert_eq!(parse_x_canonical("https://x.com/i/status/9223372036854775807"), Some(i64::MAX as u64));
+    for bad in [
+        "https://x.com/i/status/9223372036854775808",
+        "https://x.com/i/status/01",
+        "https://x.com/i/status/",
+        "https://x.com/i/status/12/",
+        "https://x.com/i/status/12?s=20",
+        "https://x.com/a/status/12",
+        "https://twitter.com/i/status/12",
+        "http://x.com/i/status/12",
+        "https://x.com/i/status/+12",
+        "https://x.com/i/status/12345678901234567890",
+    ] {
+        assert_eq!(parse_x_canonical(bad), None, "{bad}");
+    }
+    for ok in ["https://t.co/abc", "https://x.com", "https://twitter.com/a?ref_src=twsrc%5Etfw&x=1", "https://x.com#f"]
+    {
+        assert!(is_x_href(ok), "{ok}");
+    }
+    for bad in [
+        "http://t.co/abc",
+        "https://t.co.example/abc",
+        "https://www.x.com/a",
+        "https://X.com/a",
+        "https://x.com:443/a",
+        "https://@x.com/a",
+        "javascript:alert(1)",
+        "https://x.com/a\"onmouseover=1",
+        "https://x.com/a b",
+        "https://x.com/<script>",
+        "//x.com/a",
+    ] {
+        assert!(!is_x_href(bad), "{bad}");
+    }
+    assert!(is_handle("fixture_author") && !is_handle("") && !is_handle("sixteen_chars_xx") && !is_handle("a-b"));
+    let e = fixture("29-x-post-short").embed.unwrap();
+    assert_eq!(e.handle(), Some("fixture_author"));
+    assert!(e.check().is_ok());
+    let mut bad = e.clone();
+    bad.author_url = "https://twitter.com/fixture_author/likes".into();
+    assert!(bad.check().is_err(), "the author link names a handle");
+    let mut bad = e.clone();
+    bad.permalink = "https://evil.example/status/2".into();
+    assert!(bad.check().is_err());
+    let mut bad = e.clone();
+    bad.lang = Some("en\"".into());
+    assert!(bad.check().is_err());
+    // The parts' wire shape.
+    assert_eq!(serde_json::to_string(&XPart::Break).unwrap(), r#"{"type":"break"}"#);
+    assert_eq!(
+        serde_json::to_string(&XPart::Link { href: "https://t.co/a".into(), text: "t".into() }).unwrap(),
+        r#"{"type":"link","href":"https://t.co/a","text":"t"}"#
+    );
+    assert!(serde_json::from_str::<XPart>(r#"{"type":"image","src":"https://x.com/a.png"}"#).is_err());
+}
+
+#[test]
+fn the_retired_x_source_rule_is_gone() {
+    // Pasted text is ordinary paste whatever its source: none of the
+    // retired rule's names survive in the contracts, fixtures or schemas.
+    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
+    let banned = [
+        ["text", "_withheld"].concat(),
+        ["X_", "DEVELOPER"].concat(),
+        ["ADV", "16"].concat(),
+        ["x_source", "_rule"].concat(),
+        ["XSource", "Rule"].concat(),
+    ];
+    fn walk(dir: &std::path::Path, out: &mut Vec<std::path::PathBuf>) {
+        for e in std::fs::read_dir(dir).unwrap() {
+            let p = e.unwrap().path();
+            if p.is_dir() { walk(&p, out) } else { out.push(p) }
+        }
+    }
+    let mut files = Vec::new();
+    walk(&root.join("src"), &mut files);
+    walk(&root.join("tests/fixtures"), &mut files);
+    walk(&root.join("../account-wire/src"), &mut files);
+    walk(&root.join("../../detect-worker/migrations"), &mut files);
+    walk(&root.join("../../account-worker/migrations"), &mut files);
+    assert!(files.len() > 100);
+    for f in files {
+        let s = std::fs::read_to_string(&f).unwrap();
+        for b in &banned {
+            assert!(!s.contains(b.as_str()), "{} names {b}", f.display());
+        }
+    }
 }
 
 // ---------------------------------------------------------------- headers
@@ -505,6 +722,39 @@ fn refusal_codes() {
     ] {
         assert!(signin.contains(&s), "{s}");
     }
+    // The X codes, their statuses and their surface.
+    for (s, status) in [
+        ("x_post_link", 422),
+        ("x_off", 503),
+        ("x_not_a_post", 422),
+        ("x_post_unavailable", 422),
+        ("x_busy", 503),
+        ("x_unavailable", 503),
+        ("x_removed", 422),
+        ("x_gone", 410),
+    ] {
+        let c = RefusalCode::parse(s).unwrap_or_else(|| panic!("{s}"));
+        assert_eq!((c.status(), c.group()), (status, refusal::Group::X), "{s}");
+        assert_eq!(c.copy_key(), format!("refusal.{s}"));
+    }
+    let x: Vec<_> = RefusalCode::ALL.iter().filter(|c| c.group() == refusal::Group::X).collect();
+    assert_eq!(x.len(), 8);
+    // x_post_link carries the canonical post URL, and only it carries a url.
+    let link = ApiRefusal::x_post_link(1855).unwrap();
+    assert_eq!(
+        serde_json::to_string(&link).unwrap(),
+        r#"{"state":"refused","code":"x_post_link","url":"https://x.com/i/status/1855"}"#
+    );
+    assert!(link.check().is_ok());
+    assert_eq!(ApiRefusal::x_post_link(0), None);
+    assert!(ApiRefusal::new(RefusalCode::XPostLink).check().is_err());
+    let mut bad = link.clone();
+    bad.url = Some("https://x.com/fixture_author/status/1855".into());
+    assert!(bad.check().is_err());
+    let mut bad = ApiRefusal::new(RefusalCode::XOff);
+    bad.url = link.url.clone();
+    assert!(bad.check().is_err());
+    assert!(ApiRefusal::new(RefusalCode::XGone).check().is_ok());
     let r = serde_json::to_string(&ApiRefusal::new(RefusalCode::Busy)).unwrap();
     assert_eq!(r, r#"{"state":"refused","code":"busy"}"#);
     assert!(serde_json::from_str::<ApiRefusal>(r#"{"state":"error","code":"busy"}"#).is_err());
@@ -526,6 +776,7 @@ fn code_sets_parse_only_their_strings() {
     assert_eq!(Band::Weak.number(), 1);
     assert_eq!(Band::VeryStrong.number(), 4);
     assert!(NinjaState::Bow < NinjaState::Stoic && NinjaState::Ready < NinjaState::Strike);
+    assert_eq!(SpansNote::parse("x_post"), Some(SpansNote::XPost));
 }
 
 #[test]
@@ -535,19 +786,40 @@ fn switches_and_their_effective_state() {
     for s in SWITCHES {
         assert!(names.insert(s.name));
         assert!(s.states.contains(&s.off));
+        assert_eq!(parse_var(s, ""), Some(s.states[0]));
+        for st in s.states {
+            assert_eq!(parse_var(s, st), Some(*st));
+        }
     }
     let tool = switch("DETECT_TOOL").unwrap();
     assert_eq!(effective(tool, "on", Some("off")), "off");
     assert_eq!(effective(tool, "off", Some("on")), "off", "the var is the hard off");
     // A store that cannot be read: the var decides.
     assert_eq!(effective(tool, "on", None), "on");
-    assert_eq!(effective(tool, "anything", None), "on");
+    // An unset var is the default; a var that names no state forces the off
+    // state, so a typo never turns a switch on.
+    assert_eq!(effective(tool, "", None), "on");
+    assert_eq!(effective(tool, "anything", None), "off");
+    assert_eq!(parse_var(tool, "anything"), None);
+    let pages = switch("DETECT_PAGES").unwrap();
+    assert_eq!(effective(pages, "Off", Some("on")), "off");
+    assert_eq!(effective(pages, "OFF", None), "off");
     let paid = switch("DETECT_PAID").unwrap();
     assert_eq!(effective(paid, "", None), "off", "default off");
+    // DETECT_X: off by default, on only by var and row together.
+    let x = switch("DETECT_X").unwrap();
+    assert_eq!((x.states, x.off, x.owner), (&["off", "on"][..], "off", Owner::Detect));
+    assert_eq!(effective(x, "", None), "off");
+    assert_eq!(effective(x, "on", Some("on")), "on");
+    assert_eq!(effective(x, "on", Some("off")), "off");
+    assert_eq!(effective(x, "off", Some("on")), "off");
     let billing = switch("BILLING").unwrap();
     assert_eq!(effective(billing, "grants", Some("grants")), "grants");
     assert_eq!(effective(billing, "off", Some("grants")), "off");
     assert_eq!(effective(billing, "grants", Some("bogus")), "grants");
+    assert_eq!(effective(billing, "Live", Some("live")), "off");
+    let accounts = switch("ACCOUNTS").unwrap();
+    assert_eq!(effective(accounts, "read-only", Some("on")), "read_only");
     assert!(switch("auth.x").is_some() && switch("nope").is_none());
 }
 
@@ -562,7 +834,24 @@ fn metric_points_are_named_once() {
                 for banned in ["slug", "email", "user", "token", "text", "ip"] {
                     assert!(!f.contains(banned), "{}.{f}", p.name);
                 }
+                // No post id, handle or URL either (as whole name parts).
+                for part in f.split('_') {
+                    assert!(!["id", "handle", "url", "post"].contains(&part), "{}.{f}", p.name);
+                }
             }
         }
     }
+    // The X points carry an outcome only.
+    assert_eq!(ae::detect::XREAD, ae::Point { name: "xread", blobs: &["outcome"] });
+    assert_eq!(ae::detect::XEMBED, ae::Point { name: "xembed", blobs: &["outcome"] });
+    assert!(ae::detect::XEMBED_OUTCOMES.contains(&"invalid"));
+    for set in [ae::detect::XREAD_OUTCOMES, ae::detect::XEMBED_OUTCOMES] {
+        assert_eq!(set.iter().collect::<HashSet<_>>().len(), set.len());
+    }
+    // Alert names are unique across datasets.
+    let mut alerts = HashSet::new();
+    for a in ae::detect::ALERTS.iter().chain(ae::account::ALERTS) {
+        assert!(alerts.insert(*a), "{a}");
+    }
+    assert!(alerts.contains("x_read_budget"));
 }

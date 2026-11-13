@@ -5,7 +5,9 @@
 //! the website and the detect Worker call its saved-link routes
 //! ([`OwnedAddRequest`] and the rest); the detect Worker calls its billing
 //! routes ([`HoldRequest`] and the rest). The page scripts call its sign-in
-//! APIs ([`EmailStartRequest`], [`WalletChallengeRequest`] and the rest).
+//! APIs ([`EmailStartRequest`], [`WalletChallengeRequest`] and the rest), and
+//! the account pages' forms post the bodies of [`form_fields`]
+//! ([`LinkConfirmForm`] and the rest).
 //!
 //! Every timestamp is integer milliseconds UTC. User ids are
 //! [`UserId`]s (32 hex digits); they appear only in internal bodies, never
@@ -550,6 +552,126 @@ pub struct HoldEndAnswer {
     pub by_this_call: bool,
 }
 
+// -------------------------------------------------------------------- forms
+//
+// The bodies of the account pages' forms (`application/x-www-form-urlencoded`,
+// posted by plain HTML forms, so every action works without JavaScript). The
+// templates name each field as its type's `FIELDS` does; the Worker parses
+// the body into the type and refuses any other field (`malformed_request`).
+// No form carries a CSRF token (Fetch Metadata and `Origin` decide), and no
+// form names an identity to attach: that comes from the server's own rows.
+
+/// The word typed to confirm an account deletion.
+pub const DELETE_CONFIRM_WORD: &str = "delete";
+
+code_enum! {
+    /// The action of the link-confirm form: the only thing it carries.
+    pub enum LinkAction {
+        /// Attach the identity of a pending row of kind `link`.
+        Connect = "connect",
+        /// Merge the other account into this one (a pending row of kind
+        /// `merge` only). A merge runs nowhere else.
+        Merge = "merge",
+        /// Drop the pending row.
+        Cancel = "cancel",
+    }
+}
+
+/// `POST /account/link/confirm`: connect, merge or cancel what this
+/// browser's pending row holds, under the session and step-up checks.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct LinkConfirmForm {
+    pub action: LinkAction,
+}
+
+impl LinkConfirmForm {
+    pub const FIELDS: &'static [&'static str] = &["action"];
+}
+
+/// `POST /account/unlink`: remove one of the account's own sign-in methods
+/// (step-up; refused for the last one with `last_method`).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct UnlinkForm {
+    /// An [`IdentityRow::identity_id`] of this account.
+    pub identity_id: u64,
+}
+
+impl UnlinkForm {
+    pub const FIELDS: &'static [&'static str] = &["identity_id"];
+}
+
+/// `POST /account/sessions/revoke`: sign one session out.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct SessionRevokeForm {
+    /// A [`SessionRow::session_ref`] of this account.
+    pub session_ref: String,
+}
+
+impl SessionRevokeForm {
+    pub const FIELDS: &'static [&'static str] = &["session_ref"];
+}
+
+/// `POST /account/delete` (step-up): the typed word and what happens to the
+/// account's own pages.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct DeleteAccountForm {
+    /// The reader types [`DELETE_CONFIRM_WORD`]; anything else is refused
+    /// with `confirm_word`.
+    pub confirm: String,
+    /// `delete` (preselected) or `release` (keep as anonymous secret links).
+    pub mode: PurgeMode,
+}
+
+impl DeleteAccountForm {
+    pub const FIELDS: &'static [&'static str] = &["confirm", "mode"];
+
+    /// The typed word, ignoring surrounding spaces and ASCII case.
+    pub fn confirmed(&self) -> bool {
+        self.confirm.trim().eq_ignore_ascii_case(DELETE_CONFIRM_WORD)
+    }
+}
+
+/// `POST /auth/logout`, `/account/sessions/revoke-all` and
+/// `/account/export` (step-up): the form carries no field.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct EmptyForm {}
+
+impl EmptyForm {
+    pub const FIELDS: &'static [&'static str] = &[];
+}
+
+/// `POST /account/detections/remove` and `/account/detections/delete`: one
+/// saved link (the website's own routes, 8.8).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct EntryForm {
+    /// An [`OwnedEntry::entry_id`] of this account.
+    pub entry_id: u64,
+}
+
+impl EntryForm {
+    pub const FIELDS: &'static [&'static str] = &["entry_id"];
+}
+
+/// The fields of a forwarded account form route, or `None` for a route that
+/// takes no form (the JSON APIs, the OAuth GETs, the op route and webhooks).
+pub fn form_fields(route: detect_page::RouteId) -> Option<&'static [&'static str]> {
+    use detect_page::RouteId as R;
+    Some(match route {
+        R::LinkConfirm => LinkConfirmForm::FIELDS,
+        R::Unlink => UnlinkForm::FIELDS,
+        R::SessionsRevoke => SessionRevokeForm::FIELDS,
+        R::DeleteAccount => DeleteAccountForm::FIELDS,
+        R::Logout | R::SessionsRevokeAll | R::Export => EmptyForm::FIELDS,
+        _ => return None,
+    })
+}
+
 // ---------------------------------------------------------- sign-in APIs
 
 /// `POST /api/account/v1/email/start` (form or JSON). The answer never says
@@ -669,22 +791,33 @@ impl Bucket {
     }
 }
 
+/// A `link` mail was asked for without the account that requested it. A
+/// connect mail is only ever sent for a signed-in, stepped-up account, so
+/// the caller refuses the send rather than skip that account's quota.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct NoRequester;
+
 /// The buckets a mail draws on: a `link` mail draws on the address's
 /// `email_link` bucket and the requesting account's `link_mail` bucket,
-/// never on the sign-in bucket; every other mail draws on the address's
-/// `email` bucket only. So every send that draws on the sign-in bucket is a
-/// link its holder can use.
-pub fn mail_buckets(intent: MailIntent, addr_h_hex: &str, requester: Option<UserId>) -> Vec<Bucket> {
+/// never on the sign-in bucket, and needs `requester`; every other mail
+/// draws on the address's `email` bucket only (`requester` is not used).
+/// So every send that draws on the sign-in bucket is a link its holder can
+/// use, and no connect mail escapes its account's quota.
+pub fn mail_buckets(
+    intent: MailIntent,
+    addr_h_hex: &str,
+    requester: Option<UserId>,
+) -> Result<Vec<Bucket>, NoRequester> {
     match intent {
         MailIntent::Link => {
-            let mut v = vec![Bucket { kind: BucketKind::EmailLink, key: addr_h_hex.to_owned() }];
-            if let Some(u) = requester {
-                v.push(Bucket { kind: BucketKind::LinkMail, key: u.hex() });
-            }
-            v
+            let u = requester.ok_or(NoRequester)?;
+            Ok(vec![
+                Bucket { kind: BucketKind::EmailLink, key: addr_h_hex.to_owned() },
+                Bucket { kind: BucketKind::LinkMail, key: u.hex() },
+            ])
         }
         MailIntent::Signin | MailIntent::StepUp | MailIntent::AttachPending | MailIntent::Recover => {
-            vec![Bucket { kind: BucketKind::Email, key: addr_h_hex.to_owned() }]
+            Ok(vec![Bucket { kind: BucketKind::Email, key: addr_h_hex.to_owned() }])
         }
     }
 }

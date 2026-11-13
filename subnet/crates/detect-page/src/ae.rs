@@ -49,9 +49,35 @@ pub mod detect {
     pub const OWNER: Point = Point { name: "owner", blobs: &["result"] };
     /// `code` includes `d1` when the store could not be read.
     pub const ERROR: Point = Point { name: "error", blobs: &["code"] };
-    pub const ALL: &[Point] = &[SUBMIT, SCAN, QUEUE, FETCH, EXTRACT, REUSE, STORE, JOB, REMOVAL, MANAGE, OWNER, ERROR];
+    /// One read of a post through X's API (one of [`XREAD_OUTCOMES`]). It
+    /// carries no post id.
+    pub const XREAD: Point = Point { name: "xread", blobs: &["outcome"] };
+    /// One read of a post's embed markup (one of [`XEMBED_OUTCOMES`]). It
+    /// carries no post id.
+    pub const XEMBED: Point = Point { name: "xembed", blobs: &["outcome"] };
+    pub const ALL: &[Point] =
+        &[SUBMIT, SCAN, QUEUE, FETCH, EXTRACT, REUSE, STORE, JOB, REMOVAL, MANAGE, OWNER, ERROR, XREAD, XEMBED];
     /// `reuse` kinds.
     pub const REUSE_KINDS: &[&str] = &["claim_join", "content", "alias"];
+    /// `xread` outcomes: `post` (X returned the post; each one counts toward
+    /// the month's read limit), `unavailable_post` (not found, protected or
+    /// suspended), `rate_limited` (X asked us to wait), `quota` (X has no
+    /// reads left for the app), `token` (X refused the bearer token),
+    /// `limit` (the month's `X_READ_BUDGET` was reached, so no request was
+    /// made), `bad_answer` (over the bound or out of form) and `failed`
+    /// (transport or timeout).
+    pub const XREAD_OUTCOMES: &[&str] =
+        &["post", "unavailable_post", "rate_limited", "quota", "token", "limit", "bad_answer", "failed"];
+    /// `xembed` outcomes: `ok`, `gone` (X answered that the post is gone:
+    /// the page ends with `x_gone`), `invalid` (markup outside the allowed
+    /// shape or a link off X) and `failed` (transport, timeout or any other
+    /// answer: the page is served `no-store`).
+    pub const XEMBED_OUTCOMES: &[&str] = &["ok", "gone", "invalid", "failed"];
+    /// The month's X reads neared `X_READ_BUDGET` (at the poller's
+    /// threshold).
+    pub const X_READ_BUDGET: &str = "x_read_budget";
+    /// Alerts the poller raises from this dataset and the `status` op.
+    pub const ALERTS: &[&str] = &[X_READ_BUDGET];
 }
 
 /// The account Worker's dataset (binding `ACCOUNT_METRICS`).

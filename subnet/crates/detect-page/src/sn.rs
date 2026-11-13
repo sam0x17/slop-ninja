@@ -144,9 +144,10 @@ routes! {
     Logout = "logout", "POST", "/auth/logout", Account, Site, false, true;
     SessionsRevoke = "sessions_revoke", "POST", "/account/sessions/revoke", Account, Site, false, true;
     SessionsRevokeAll = "sessions_revoke_all", "POST", "/account/sessions/revoke-all", Account, Site, false, true;
+    // Connect, merge or cancel: a merge runs only here, through a pending
+    // row of kind `merge` (there is no separate merge route).
     LinkConfirm = "link_confirm", "POST", "/account/link/confirm", Account, Site, false, true;
     Unlink = "unlink", "POST", "/account/unlink", Account, Site, false, true;
-    Merge = "merge", "POST", "/account/merge", Account, Site, false, true;
     Export = "export", "POST", "/account/export", Account, Site, false, true;
     DeleteAccount = "delete_account", "POST", "/account/delete", Account, Site, false, true;
     BillingWebhook = "billing_webhook", "POST", "/api/billing/v1/webhook/<processor>", Account, Site, false, false;

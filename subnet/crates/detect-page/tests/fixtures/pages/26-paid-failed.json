@@ -22,11 +22,13 @@
   "run": null,
   "sections": null,
   "text": null,
+  "embed": null,
   "source": null,
   "pending": null,
   "failure": {
     "code": "scorer"
   },
+  "ended": null,
   "removal": null,
   "card": null,
   "ninja": null,

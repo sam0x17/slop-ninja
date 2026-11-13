@@ -32,14 +32,15 @@ pub const SWITCHES: &[Switch] = &[
     Switch { name: "DETECT_SPANS", owner: Owner::Detect, states: ON_OFF, off: "off" },
     Switch { name: "DETECT_STORE", owner: Owner::Detect, states: ON_OFF, off: "off" },
     Switch { name: "DETECT_URLS", owner: Owner::Detect, states: ON_OFF, off: "off" },
+    // Post links on X (`x_post_link`; off answers `x_off`). Existing X pages
+    // are still served and swept while it is off.
+    Switch { name: "DETECT_X", owner: Owner::Detect, states: OFF_ON, off: "off" },
     Switch { name: "DETECT_PAGES", owner: Owner::Detect, states: ON_OFF, off: "off" },
     Switch { name: "DETECT_CARDS", owner: Owner::Detect, states: &["normal", "generic"], off: "generic" },
     Switch { name: "DETECT_INDEX", owner: Owner::Detect, states: ON_OFF, off: "off" },
     Switch { name: "DETECT_EXCERPTS", owner: Owner::Detect, states: ON_OFF, off: "off" },
     Switch { name: "DETECT_EXPLAIN", owner: Owner::Detect, states: OFF_ON, off: "off" },
     Switch { name: "DETECT_PAID", owner: Owner::Detect, states: OFF_ON, off: "off" },
-    Switch { name: "X_DEVELOPER", owner: Owner::Detect, states: &["closed", "open"], off: "closed" },
-    Switch { name: "ADV16", owner: Owner::Detect, states: &["pending", "cleared"], off: "pending" },
     Switch { name: "EDGE_PRECLEARANCE", owner: Owner::Detect, states: OFF_ON, off: "off" },
     Switch { name: "ACCOUNTS", owner: Owner::Account, states: &["on", "read_only"], off: "read_only" },
     Switch { name: "auth.email", owner: Owner::Account, states: ON_OFF, off: "off" },
@@ -55,11 +56,24 @@ pub fn switch(name: &str) -> Option<&'static Switch> {
     SWITCHES.iter().find(|s| s.name == name)
 }
 
+/// The state a var names: exactly one of the switch's states, or the
+/// default for an empty (unset) var. Anything else is `None`; a deploy
+/// self-test refuses such a var.
+pub fn parse_var(sw: &Switch, var: &str) -> Option<&'static str> {
+    if var.is_empty() {
+        return Some(sw.states[0]);
+    }
+    sw.states.iter().copied().find(|s| *s == var)
+}
+
 /// The effective state: the var's hard off wins; otherwise the D1 row, or
-/// the var when the row is missing or unreadable. Unknown values fall back
-/// to the var.
+/// the var when the row is missing, unreadable or names no state.
+///
+/// A var that names no state (a typo such as `Off`) reads as the off state:
+/// the var exists to force a switch off, so one that cannot be read never
+/// turns it on. An empty var is the default.
 pub fn effective(sw: &Switch, var: &str, row: Option<&str>) -> &'static str {
-    let var = sw.states.iter().copied().find(|s| *s == var).unwrap_or(sw.states[0]);
+    let var = parse_var(sw, var).unwrap_or(sw.off);
     if var == sw.off {
         return var;
     }

@@ -7,7 +7,7 @@ decisions or raw transcripts. They belong in the private repository or ignored
 GitHub-side action (pull request, review, comment, merge, release, tag or issue
 edit) without the maintainer's explicit go.
 
-The project is named **SlopNinja**, with **slop.ninja** as the planned domain.
+The project is named **SlopNinja**, and its domain is **slop.ninja**.
 Use **SlopNinja**, one word, in project-facing prose and `slop_ninja` in
 filenames and command names. Frozen released or hashed bytes keep their
 original spelling. The GitHub repository slug is `slop-ninja`. Existing
@@ -90,8 +90,7 @@ evaluate spans under 24 words: mask shorter AI spans out of the span loss rather
 than labelling them human, leave them out of span scoring, and never decode a
 span under 24 words. Every AI word still counts toward document share and
 involvement.
-The release is R0 (seed 17) plus the S0+ token head, with document outputs
-bit-identical to R0 (`docs/a-spans-results.md`). SlopNinja's first span package
+Span localization results are in `docs/a-spans-results.md`. SlopNinja's first span package
 keeps R0's encoder and document heads frozen, so on the same CPU class its
 document outputs are bit-identical to R0's, and adds S2c's seed-17 tower and
 token head with the 24-word decoder and a span confidence map fitted on the
@@ -425,10 +424,11 @@ separate across fitting and evaluation. Date-based exports still need usable
 dates for their declared chronological split. Keep corpus discovery notes and
 downloaded samples in ignored `data/author-corpora/`.
 
-The native grammar for later B work lives in the independent `grammar/` Cargo
-workspace, which also hosts parser-free A crates (`grammar-a-*`,
-`grammar-cc-human`) and the public A training recipe in
-`grammar/crates/grammar-eval/python/`.
+The independent `grammar/` Cargo workspace hosts the parser-free A crates
+(`grammar-a-*`, `grammar-cc-human`), the spaCy-based feature crates and the
+public A training recipe in `grammar/crates/grammar-eval/python/`. The native
+grammar for later B work is not yet included in this repository
+(`grammar/README.md`).
 Keep parsing adapters separate from Rust syntax, word counts, feature extraction,
 geometry and rewrite rules. Version changes to feature meanings, denominators,
 rules and geometry. Compare all candidate points in the same frozen space; a

@@ -1,11 +1,12 @@
 //! Provider tables, request builders and the bounded response parsers.
 
-use slop_ninja_auth_core::origin::Origin;
+use slop_ninja_auth_core::Origin;
+use slop_ninja_auth_core::account_wire::{AvatarType, Provider};
 use slop_ninja_auth_core::pkce::Verifier;
 use slop_ninja_auth_core::providers::{
-    self, AVATAR_MAX, AuthorizeParams, ExchangeParams, ImageType, PROFILE_BODY_MAX, Provider,
+    self, AVATAR_MAX, AuthorizeParams, ExchangeParams, OAuthProvider, PROFILE_BODY_MAX,
     ProviderError, TOKEN_BODY_MAX, X_AVATAR_HOST, api_get, authorize_url, parse_github_emails,
-    parse_github_user, parse_token_response, parse_x_me, token_request, x_avatar_url,
+    parse_github_user, parse_token_response, parse_x_me, sniff_avatar, token_request, x_avatar_url,
 };
 use slop_ninja_auth_core::token::Token;
 
@@ -15,17 +16,29 @@ fn site() -> Origin {
 
 #[test]
 fn names_and_redirects() {
-    for p in Provider::ALL {
-        assert_eq!(Provider::parse(p.as_str()), Some(p));
+    for p in OAuthProvider::ALL {
+        assert_eq!(OAuthProvider::parse(p.as_str()), Some(p));
         assert_eq!(p.spec().provider, p);
     }
-    assert_eq!(Provider::parse("apple"), None);
+    assert_eq!(OAuthProvider::parse("apple"), None);
+    // The OAuth providers are exactly the contract's OAuth methods, under
+    // the same wire strings and kill switches.
+    for &m in Provider::ALL {
+        assert_eq!(OAuthProvider::of(m).is_some(), m.is_oauth(), "{m:?}");
+        if let Some(p) = OAuthProvider::of(m) {
+            assert_eq!(p.method(), m);
+            assert_eq!(p.as_str(), m.as_str());
+            assert_eq!(p.switch(), m.switch());
+        }
+    }
+    assert_eq!(OAuthProvider::parse("email"), None);
+    assert_eq!(OAuthProvider::parse("bittensor"), None);
     assert_eq!(
-        Provider::X.redirect_uri(&site()),
+        OAuthProvider::X.redirect_uri(&site()),
         "https://site.example/auth/x/callback"
     );
     // Every production endpoint is https on the provider's own host.
-    for p in Provider::ALL {
+    for p in OAuthProvider::ALL {
         let e = p.spec().endpoints();
         for u in [
             Some(&e.authorize),
@@ -65,7 +78,7 @@ fn authorize_urls() {
     let challenge = Verifier::from_random([3; 32]).challenge();
     let s = site();
 
-    let g = Provider::Google;
+    let g = OAuthProvider::Google;
     let redirect = g.redirect_uri(&s);
     let url = authorize_url(
         g.spec(),
@@ -80,7 +93,7 @@ fn authorize_urls() {
     );
     assert!(!url.contains("access_type"));
 
-    let gh = Provider::GitHub;
+    let gh = OAuthProvider::GitHub;
     let redirect = gh.redirect_uri(&s);
     let url = authorize_url(
         gh.spec(),
@@ -95,7 +108,7 @@ fn authorize_urls() {
     );
     assert!(!url.contains("nonce") && !url.contains("scope"));
 
-    let x = Provider::X;
+    let x = OAuthProvider::X;
     let redirect = x.redirect_uri(&s);
     let url = authorize_url(
         x.spec(),
@@ -124,7 +137,7 @@ fn exchange<'a>(redirect: &'a str) -> ExchangeParams<'a> {
 #[test]
 fn token_requests() {
     let s = site();
-    let redirect = Provider::Google.redirect_uri(&s);
+    let redirect = OAuthProvider::Google.redirect_uri(&s);
     let r = token_request(
         &providers::GOOGLE,
         &providers::GOOGLE.endpoints(),
@@ -140,7 +153,7 @@ fn token_requests() {
     // Debug never prints the body.
     assert!(!format!("{r:?}").contains("sec"));
 
-    let redirect = Provider::GitHub.redirect_uri(&s);
+    let redirect = OAuthProvider::GitHub.redirect_uri(&s);
     let r = token_request(
         &providers::GITHUB,
         &providers::GITHUB.endpoints(),
@@ -155,7 +168,7 @@ fn token_requests() {
             .contains(&("Accept", "application/json".to_owned()))
     );
 
-    let redirect = Provider::X.redirect_uri(&s);
+    let redirect = OAuthProvider::X.redirect_uri(&s);
     let r = token_request(
         &providers::X,
         &providers::X.endpoints(),
@@ -348,17 +361,17 @@ fn x_avatar() {
     assert!(x_avatar_url("https://PBS.TWIMG.COM/a.jpg").is_some());
 
     assert_eq!(
-        ImageType::sniff(&[0xFF, 0xD8, 0xFF, 0xE0]),
-        Some(ImageType::Jpeg)
+        sniff_avatar(&[0xFF, 0xD8, 0xFF, 0xE0]),
+        Some(AvatarType::Jpeg)
     );
     assert_eq!(
-        ImageType::sniff(b"\x89PNG\r\n\x1a\n...."),
-        Some(ImageType::Png)
+        sniff_avatar(b"\x89PNG\r\n\x1a\n...."),
+        Some(AvatarType::Png)
     );
-    assert_eq!(ImageType::sniff(b"GIF89a.."), Some(ImageType::Gif));
+    assert_eq!(sniff_avatar(b"GIF89a.."), Some(AvatarType::Gif));
     assert_eq!(
-        ImageType::sniff(b"RIFF\0\0\0\0WEBPVP8 "),
-        Some(ImageType::Webp)
+        sniff_avatar(b"RIFF\0\0\0\0WEBPVP8 "),
+        Some(AvatarType::Webp)
     );
     for bad in [
         &b"<svg xmlns='http://www.w3.org/2000/svg'/>"[..],
@@ -366,33 +379,36 @@ fn x_avatar() {
         b"RIFF\0\0\0\0WAVE",
         b"",
     ] {
-        assert_eq!(ImageType::sniff(bad), None);
+        assert_eq!(sniff_avatar(bad), None);
     }
     let mut big = vec![0xFF, 0xD8, 0xFF];
     big.resize(AVATAR_MAX + 1, 0);
-    assert_eq!(ImageType::sniff(&big), None);
-    assert_eq!(ImageType::Webp.content_type(), "image/webp");
+    assert_eq!(sniff_avatar(&big), None);
+    assert_eq!(AvatarType::Webp.as_str(), "image/webp");
 }
 
 #[cfg(feature = "dev")]
 #[test]
 fn dev_endpoints_move_under_the_stub() {
-    let stub = Origin::parse("http://127.0.0.1:8790").unwrap();
+    let stub = Origin::parse("https://stub.localhost:8790").unwrap();
     let e = providers::X.endpoints_at(&stub);
     assert_eq!(
         e.authorize,
-        "http://127.0.0.1:8790/x.com/i/oauth2/authorize"
+        "https://stub.localhost:8790/x.com/i/oauth2/authorize"
     );
-    assert_eq!(e.token, "http://127.0.0.1:8790/api.x.com/2/oauth2/token");
+    assert_eq!(
+        e.token,
+        "https://stub.localhost:8790/api.x.com/2/oauth2/token"
+    );
     assert_eq!(
         e.user.as_deref(),
         Some(
-            "http://127.0.0.1:8790/api.x.com/2/users/me?user.fields=confirmed_email,profile_image_url,username,name,verified_type"
+            "https://stub.localhost:8790/api.x.com/2/users/me?user.fields=confirmed_email,profile_image_url,username,name,verified_type"
         )
     );
     let g = providers::GITHUB.endpoints_at(&stub);
     assert_eq!(
         g.emails.as_deref(),
-        Some("http://127.0.0.1:8790/api.github.com/user/emails")
+        Some("https://stub.localhost:8790/api.github.com/user/emails")
     );
 }

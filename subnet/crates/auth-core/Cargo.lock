@@ -2332,6 +2332,14 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "0c790de23124f9ab44544d7ac05d60440adc586479ce501c1d6d7da3cd8c9cf5"
 
 [[package]]
+name = "slop-ninja-account-wire"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "slop-ninja-detect-page",
+]
+
+[[package]]
 name = "slop-ninja-auth-core"
 version = "0.1.0"
 dependencies = [
@@ -2346,9 +2354,18 @@ dependencies = [
  "serde",
  "serde_json",
  "sha2",
+ "slop-ninja-account-wire",
+ "slop-ninja-detect-page",
  "url",
  "wasm-bindgen",
  "worker",
+]
+
+[[package]]
+name = "slop-ninja-detect-page"
+version = "0.1.0"
+dependencies = [
+ "serde",
 ]
 
 [[package]]

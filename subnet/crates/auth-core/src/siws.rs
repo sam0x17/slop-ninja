@@ -34,8 +34,9 @@
 //! `slop_ninja_…` prefix.
 
 use rtao_core::keys::{self, CRYPTO_SR25519};
+use slop_ninja_account_wire::WalletMode;
+use slop_ninja_detect_page::{Origin, RefusalCode};
 
-use crate::origin::Origin;
 use crate::state::{Refusal, check_binding};
 use crate::time::rfc3339_ms;
 
@@ -51,27 +52,6 @@ pub const SS58_PREFIX: u16 = 42;
 pub const ADDRESS_MAX: usize = 64;
 /// The Crockford base32 alphabet.
 const CROCKFORD: &[u8; 32] = b"0123456789ABCDEFGHJKMNPQRSTVWXYZ";
-
-/// Which message form.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum Mode {
-    /// The browser extension (`signRaw`).
-    Extension,
-    /// `btcli wallet sign` or `rtao wallet sign`.
-    Cli,
-}
-
-impl Mode {
-    /// Parses the request's `mode`.
-    #[must_use]
-    pub fn parse(s: &str) -> Option<Self> {
-        match s {
-            "extension" => Some(Self::Extension),
-            "cli" => Some(Self::Cli),
-            _ => None,
-        }
-    }
-}
 
 /// A 128-bit challenge nonce, written as 26 Crockford base32 characters.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -107,13 +87,14 @@ pub enum SiwsError {
 }
 
 impl SiwsError {
-    /// The journal reason string.
+    /// The refusal code: `wallet_type` (400, "This sign-in needs an sr25519
+    /// (Substrate) account.") for an address that is not SS58, `signature`
+    /// (403) for a signature that is not 64 bytes of hex or does not verify.
     #[must_use]
-    pub const fn as_str(self) -> &'static str {
+    pub const fn code(self) -> RefusalCode {
         match self {
-            Self::Address => "address",
-            Self::SignatureFormat => "signature_format",
-            Self::BadSignature => "bad_signature",
+            Self::Address => RefusalCode::WalletType,
+            Self::SignatureFormat | Self::BadSignature => RefusalCode::Signature,
         }
     }
 }
@@ -150,18 +131,18 @@ pub struct Challenge<'a> {
 
 /// The exact message text for `mode`; the challenge row stores its bytes.
 #[must_use]
-pub fn message(mode: Mode, c: &Challenge<'_>) -> String {
+pub fn message(mode: WalletMode, c: &Challenge<'_>) -> String {
     let address = address_42(c.public_key);
     let nonce = c.nonce.encode();
     let issued = rfc3339_ms(c.issued_at_ms);
     let expires = rfc3339_ms(c.expires_at_ms);
     let domain = c.site.authority();
     match mode {
-        Mode::Extension => format!(
+        WalletMode::Extension => format!(
             "{domain} wants you to sign in with your Bittensor account:\n{address}\n\n{STATEMENT}\n\nURI: {}/signin/\nVersion: {VERSION}\nNonce: {nonce}\nIssued At: {issued}\nExpiration Time: {expires}",
             c.site.as_str()
         ),
-        Mode::Cli => {
+        WalletMode::Cli => {
             format!(
                 "{domain} sign-in for {address}; nonce {nonce}; issued {issued}; expires {expires}"
             )
@@ -229,7 +210,8 @@ pub struct ChallengeFacts {
 
 /// The verify's decision on the row it took: one must have been taken (so
 /// a reused challenge id finds nothing), the request's flow cookie must be
-/// the one the challenge was issued to, and it must not have expired.
+/// the one the challenge was issued to, and it must not have expired. A
+/// refusal answers [`Refusal::code`] with [`crate::state::Flow::WalletChallenge`].
 pub fn check_challenge(
     taken: Option<&ChallengeFacts>,
     flow_cookie: Option<&str>,

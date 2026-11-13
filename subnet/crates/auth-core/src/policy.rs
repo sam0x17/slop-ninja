@@ -6,8 +6,12 @@
 //! values change only by a versioned config deploy. [`AuthPolicy::v1`] is the
 //! default the var is written from.
 //!
-//! The mail budgets are token buckets ([`Bucket`], [`BucketState`]) with
-//! exact integer arithmetic, counted by the account Worker's quota object:
+//! The mail budgets are token buckets ([`TokenBucket`], [`BucketState`])
+//! with exact integer arithmetic, counted by the account Worker's quota
+//! object. Which buckets a send draws on, and their keys, are the account
+//! contract's ([`slop_ninja_account_wire::mail_buckets`],
+//! [`slop_ninja_account_wire::Bucket`]); the policy sizes them
+//! ([`AuthPolicy::bucket`]):
 //!
 //! - `email:<addr_h>` ([`AuthPolicy::email_ceiling`]) takes only sends whose
 //!   link its holder can use: `signin`, `step_up`, `attach_pending` and
@@ -22,9 +26,10 @@
 //! use, and no other account's requests can spend it.
 
 use serde::{Deserialize, Serialize};
+use slop_ninja_account_wire::BucketKind;
 
-/// The version string.
-pub const VERSION: &str = "auth-policy/v1";
+/// The version string ([`slop_ninja_account_wire::AUTH_POLICY`]).
+pub const VERSION: &str = slop_ninja_account_wire::AUTH_POLICY;
 
 /// A value with its reason.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -48,7 +53,7 @@ fn v<T>(value: T, reason: &str) -> Valued<T> {
 /// UTC-midnight edge).
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
-pub struct Bucket {
+pub struct TokenBucket {
     /// Sends when full.
     pub capacity: u32,
     /// Seconds per refilled send.
@@ -83,7 +88,7 @@ pub enum Take {
     },
 }
 
-impl Bucket {
+impl TokenBucket {
     /// A full bucket (a key never seen, or after the operator's
     /// `reset_quota`).
     #[must_use]
@@ -191,11 +196,11 @@ pub struct AuthPolicy {
     /// Spacing between links to one address from one browser.
     pub email_spacing_s: Valued<u64>,
     /// The per-address sign-in bucket `email:<addr_h>`.
-    pub email_ceiling: Valued<Bucket>,
+    pub email_ceiling: Valued<TokenBucket>,
     /// The per-address connect bucket `email_link:<addr_h>`.
-    pub email_link_ceiling: Valued<Bucket>,
+    pub email_link_ceiling: Valued<TokenBucket>,
     /// The per-account connect bucket `link_mail:<user_id>`.
-    pub link_mail_quota: Valued<Bucket>,
+    pub link_mail_quota: Valued<TokenBucket>,
     /// The wallet challenge rule.
     pub wallet_challenges: Valued<WalletChallenges>,
     /// The longest stored `return_to`, in bytes.
@@ -255,21 +260,21 @@ impl AuthPolicy {
                 "stops double sends from one browser; keyed by address and browser, so nobody else's request can delay or void a link",
             ),
             email_ceiling: v(
-                Bucket {
+                TokenBucket {
                     capacity: 10,
                     refill_every_s: 24 * HOUR / 10,
                 },
                 "complaint control only: no address receives more than ten unrequested sign-in links a day; a person needs one or two, and reaching it raises auth_mail_ceiling",
             ),
             email_link_ceiling: v(
-                Bucket {
+                TokenBucket {
                     capacity: 3,
                     refill_every_s: 24 * HOUR / 3,
                 },
                 "connect mails draw on their own per-address budget, so another account's requests never spend the holder's sign-in budget; when it is empty, connect requests to the address are refused",
             ),
             link_mail_quota: v(
-                Bucket {
+                TokenBucket {
                     capacity: 5,
                     refill_every_s: 24 * HOUR / 5,
                 },
@@ -422,45 +427,34 @@ impl AuthPolicy {
     }
 }
 
-/// The quota buckets a mail send draws on.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum BucketKind {
-    /// `email:<addr_h>`: sign-in, step-up, attach-pending and recover mail.
-    Email,
-    /// `email_link:<addr_h>`: connect mail, per address.
-    EmailLink,
-    /// `link_mail:<user_id>`: connect mail, per requesting account.
-    LinkMail,
-}
-
-impl BucketKind {
-    /// The bucket's parameters in `policy`.
+impl AuthPolicy {
+    /// The size of a quota bucket this policy owns: the value named by the
+    /// kind's [`BucketKind::policy_name`] (`email_ceiling`,
+    /// `email_link_ceiling` or `link_mail_quota`). `None` for the kinds the
+    /// billing policy sizes (`quote`, `checkout`, `api`).
     #[must_use]
-    pub fn bucket(self, policy: &AuthPolicy) -> Bucket {
-        match self {
-            Self::Email => policy.email_ceiling.value,
-            Self::EmailLink => policy.email_link_ceiling.value,
-            Self::LinkMail => policy.link_mail_quota.value,
+    pub fn bucket(&self, kind: BucketKind) -> Option<TokenBucket> {
+        match kind {
+            BucketKind::Email => Some(self.email_ceiling.value),
+            BucketKind::EmailLink => Some(self.email_link_ceiling.value),
+            BucketKind::LinkMail => Some(self.link_mail_quota.value),
+            BucketKind::Quote | BucketKind::Checkout | BucketKind::Api => None,
         }
     }
 }
 
-/// The quota key `email:<addr_h hex>`.
+/// The alert point raised by the send that empties a mail bucket
+/// ([`Take::Taken`] with `emptied`): `auth_mail_ceiling` for the sign-in
+/// bucket, `auth_link_ceiling` for an address's connect bucket, and none for
+/// an account's own connect quota or the billing buckets.
 #[must_use]
-pub fn email_key(addr_h: &[u8; 32]) -> String {
-    format!("email:{}", hex::encode(addr_h))
-}
-
-/// The quota key `email_link:<addr_h hex>`.
-#[must_use]
-pub fn email_link_key(addr_h: &[u8; 32]) -> String {
-    format!("email_link:{}", hex::encode(addr_h))
-}
-
-/// The quota key `link_mail:<user_id>`.
-#[must_use]
-pub fn link_mail_key(user_id: impl core::fmt::Display) -> String {
-    format!("link_mail:{user_id}")
+pub const fn ceiling_alert(kind: BucketKind) -> Option<&'static str> {
+    use slop_ninja_detect_page::ae::account::{AUTH_LINK_CEILING, AUTH_MAIL_CEILING};
+    match kind {
+        BucketKind::Email => Some(AUTH_MAIL_CEILING),
+        BucketKind::EmailLink => Some(AUTH_LINK_CEILING),
+        BucketKind::LinkMail | BucketKind::Quote | BucketKind::Checkout | BucketKind::Api => None,
+    }
 }
 
 #[cfg(test)]
@@ -562,12 +556,28 @@ mod tests {
     }
 
     #[test]
-    fn keys() {
-        assert_eq!(email_key(&[0xab; 32]), format!("email:{}", "ab".repeat(32)));
-        assert_eq!(
-            email_link_key(&[0; 32]),
-            format!("email_link:{}", "00".repeat(32))
-        );
-        assert_eq!(link_mail_key(42), "link_mail:42");
+    fn buckets_follow_the_account_contract() {
+        let p = AuthPolicy::v1();
+        let json: serde_json::Value = serde_json::from_str(&p.to_json()).unwrap();
+        let mut owned = 0;
+        for &kind in BucketKind::ALL {
+            match p.bucket(kind) {
+                // The value the contract names is this policy's field of
+                // that name, and it is the bucket returned.
+                Some(b) => {
+                    owned += 1;
+                    let field = &json[kind.policy_name()]["value"];
+                    assert_eq!(
+                        serde_json::from_value::<TokenBucket>(field.clone()).unwrap(),
+                        b,
+                        "{kind:?}"
+                    );
+                }
+                None => assert!(json.get(kind.policy_name()).is_none(), "{kind:?}"),
+            }
+        }
+        assert_eq!(owned, 3);
+        assert_eq!(VERSION, "auth-policy/v1");
+        assert_eq!(json["version"], VERSION);
     }
 }

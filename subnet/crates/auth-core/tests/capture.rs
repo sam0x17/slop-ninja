@@ -7,11 +7,11 @@ use std::pin::pin;
 use std::task::{Context, Poll, Waker};
 
 use proptest::prelude::*;
+use slop_ninja_auth_core::Origin;
 use slop_ninja_auth_core::email_addr::parse;
 use slop_ninja_auth_core::mail::capture::Capture;
 use slop_ninja_auth_core::mail::{self, MailConfig, MailKind, Mailer, SendFailure};
-use slop_ninja_auth_core::origin::Origin;
-use slop_ninja_auth_core::providers::Provider;
+use slop_ninja_auth_core::providers::OAuthProvider;
 use slop_ninja_auth_core::token::Token;
 
 /// Polls a future that completes without waiting (the capture never waits).
@@ -51,7 +51,7 @@ fn kinds_and_copy() {
         (MailKind::StepUp, "Confirm it's you on SlopNinja"),
         (
             MailKind::AttachPending {
-                provider: Provider::GitHub,
+                provider: OAuthProvider::GitHub,
             },
             "Connect your GitHub sign-in to SlopNinja",
         ),

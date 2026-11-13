@@ -16,7 +16,12 @@
 //!    not cut). That value is stored; the raw value never is.
 //!
 //! A refused value becomes `/account/` for a signed-in flow and `/detect/`
-//! otherwise ([`sanitize_or_default`]). Every redirect is built by
+//! otherwise ([`sanitize_or_default`]; these are the account contract's
+//! [`slop_ninja_account_wire::SIGNED_IN_RETURN`] and
+//! [`slop_ninja_account_wire::SIGNED_OUT_RETURN`], and a flow is signed in
+//! when its intent
+//! [`is_signed_in`](slop_ninja_account_wire::Intent::is_signed_in)). Every
+//! redirect is built by
 //! [`ReturnTo::location`]: the fixed configured origin followed by the stored
 //! path, so even a value that slipped past the parser could not leave the
 //! origin.
@@ -24,7 +29,8 @@
 use percent_encoding::percent_decode_str;
 use url::{Position, Url};
 
-use crate::origin::Origin;
+use slop_ninja_detect_page::Origin;
+
 use crate::policy::AuthPolicy;
 
 /// A sanitized destination: a same-origin path and query.
@@ -48,9 +54,9 @@ pub enum Refused {
 }
 
 /// The default for a signed-in flow.
-pub const SIGNED_IN_DEFAULT: &str = "/account/";
+pub const SIGNED_IN_DEFAULT: &str = slop_ninja_account_wire::SIGNED_IN_RETURN;
 /// The default otherwise.
-pub const SIGNED_OUT_DEFAULT: &str = "/detect/";
+pub const SIGNED_OUT_DEFAULT: &str = slop_ninja_account_wire::SIGNED_OUT_RETURN;
 
 impl ReturnTo {
     /// The stored path and query.
@@ -75,7 +81,7 @@ impl ReturnTo {
     /// The absolute `Location`: the configured origin plus the stored path.
     #[must_use]
     pub fn location(&self, site: &Origin) -> String {
-        format!("{}{}", site.as_str(), self.0)
+        site.url(&self.0)
     }
 
     /// The value percent-encoded as one query parameter value (the sign-in
@@ -130,8 +136,9 @@ pub fn sanitize(raw: &str, site: &Origin, policy: &AuthPolicy) -> Result<ReturnT
     if decoded.chars().any(bad_char) || decoded.starts_with("//") {
         return Err(Refused::Characters);
     }
-    let url: Url = site.root().join(raw).map_err(|_| Refused::Unparsable)?;
-    if url.origin() != site.root().origin()
+    let base = Url::parse(site.as_str()).map_err(|_| Refused::Unparsable)?;
+    let url = base.join(raw).map_err(|_| Refused::Unparsable)?;
+    if url.origin() != base.origin()
         || !url.username().is_empty()
         || url.password().is_some()
         || url.fragment().is_some()

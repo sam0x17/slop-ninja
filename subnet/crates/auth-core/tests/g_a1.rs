@@ -9,7 +9,7 @@ use base64::Engine as _;
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use slop_ninja_auth_core::oidc::{self, ClaimError, Expect};
 use slop_ninja_auth_core::pkce::{self, Verifier};
-use slop_ninja_auth_core::providers::{GOOGLE_ISSUERS, Provider};
+use slop_ninja_auth_core::providers::{GOOGLE_ISSUERS, OAuthProvider};
 use slop_ninja_auth_core::state::{
     CallbackQuery, FlowFacts, Refusal, check_email_token, check_flow,
 };
@@ -43,7 +43,7 @@ struct Started {
     binding: Token,
 }
 
-fn start(store: &mut TakeOnce<FlowFacts>, provider: Provider, n: u8) -> Started {
+fn start(store: &mut TakeOnce<FlowFacts>, provider: OAuthProvider, n: u8) -> Started {
     let state = tok(n);
     let binding = tok(n.wrapping_add(100));
     store.insert(
@@ -61,7 +61,7 @@ fn callback(
     store: &mut TakeOnce<FlowFacts>,
     query: &str,
     cookie_header: Option<&str>,
-    provider: Provider,
+    provider: OAuthProvider,
     now_ms: u64,
 ) -> Result<String, Refusal> {
     let q = CallbackQuery::parse(query)?;
@@ -82,25 +82,43 @@ fn flow_cookie(t: &Token) -> String {
 #[test]
 fn state_and_flow_cookie() {
     let mut store = TakeOnce::new();
-    let s = start(&mut store, Provider::Google, 1);
+    let s = start(&mut store, OAuthProvider::Google, 1);
     let query = format!("code=c0de&state={}", s.state.encode());
     let header = flow_cookie(&s.binding);
 
     // The good path, once.
     assert_eq!(
-        callback(&mut store, &query, Some(&header), Provider::Google, NOW_MS),
+        callback(
+            &mut store,
+            &query,
+            Some(&header),
+            OAuthProvider::Google,
+            NOW_MS
+        ),
         Ok("c0de".to_owned())
     );
     // Replayed state: the row is gone.
     assert_eq!(
-        callback(&mut store, &query, Some(&header), Provider::Google, NOW_MS),
+        callback(
+            &mut store,
+            &query,
+            Some(&header),
+            OAuthProvider::Google,
+            NOW_MS
+        ),
         Err(Refusal::Unknown)
     );
 
     // A state never issued.
     let other = format!("code=c0de&state={}", tok(9).encode());
     assert_eq!(
-        callback(&mut store, &other, Some(&header), Provider::Google, NOW_MS),
+        callback(
+            &mut store,
+            &other,
+            Some(&header),
+            OAuthProvider::Google,
+            NOW_MS
+        ),
         Err(Refusal::Unknown)
     );
     // Missing and malformed state.
@@ -109,7 +127,7 @@ fn state_and_flow_cookie() {
             &mut store,
             "code=c0de",
             Some(&header),
-            Provider::Google,
+            OAuthProvider::Google,
             NOW_MS
         ),
         Err(Refusal::MissingState)
@@ -119,17 +137,17 @@ fn state_and_flow_cookie() {
             &mut store,
             "code=c0de&state=abc",
             Some(&header),
-            Provider::Google,
+            OAuthProvider::Google,
             NOW_MS
         ),
         Err(Refusal::MalformedState)
     );
 
     // Missing flow cookie; the state is spent anyway.
-    let s = start(&mut store, Provider::Google, 2);
+    let s = start(&mut store, OAuthProvider::Google, 2);
     let q = format!("code=c0de&state={}", s.state.encode());
     assert_eq!(
-        callback(&mut store, &q, None, Provider::Google, NOW_MS),
+        callback(&mut store, &q, None, OAuthProvider::Google, NOW_MS),
         Err(Refusal::MissingFlowCookie)
     );
     assert_eq!(
@@ -137,70 +155,70 @@ fn state_and_flow_cookie() {
             &mut store,
             &q,
             Some(&flow_cookie(&s.binding)),
-            Provider::Google,
+            OAuthProvider::Google,
             NOW_MS
         ),
         Err(Refusal::Unknown)
     );
 
     // A different flow cookie (an attacker's own flow, or another browser).
-    let s = start(&mut store, Provider::Google, 3);
+    let s = start(&mut store, OAuthProvider::Google, 3);
     let q = format!("code=c0de&state={}", s.state.encode());
     assert_eq!(
         callback(
             &mut store,
             &q,
             Some(&flow_cookie(&tok(77))),
-            Provider::Google,
+            OAuthProvider::Google,
             NOW_MS
         ),
         Err(Refusal::BindingMismatch)
     );
 
     // A malformed flow cookie, and two flow cookies at once.
-    let s = start(&mut store, Provider::Google, 4);
+    let s = start(&mut store, OAuthProvider::Google, 4);
     let q = format!("code=c0de&state={}", s.state.encode());
     assert_eq!(
         callback(
             &mut store,
             &q,
             Some("__Host-sn_flow=zz"),
-            Provider::Google,
+            OAuthProvider::Google,
             NOW_MS
         ),
         Err(Refusal::MalformedFlowCookie)
     );
-    let s = start(&mut store, Provider::Google, 5);
+    let s = start(&mut store, OAuthProvider::Google, 5);
     let q = format!("code=c0de&state={}", s.state.encode());
     let two = format!("{}; {}", flow_cookie(&s.binding), flow_cookie(&tok(6)));
     assert_eq!(
-        callback(&mut store, &q, Some(&two), Provider::Google, NOW_MS),
+        callback(&mut store, &q, Some(&two), OAuthProvider::Google, NOW_MS),
         Err(Refusal::MissingFlowCookie)
     );
 
     // A Google state arriving at the GitHub callback (mix-up).
-    let s = start(&mut store, Provider::Google, 7);
+    let s = start(&mut store, OAuthProvider::Google, 7);
     let q = format!("code=c0de&state={}", s.state.encode());
     assert_eq!(
         callback(
             &mut store,
             &q,
             Some(&flow_cookie(&s.binding)),
-            Provider::GitHub,
+            OAuthProvider::GitHub,
             NOW_MS
         ),
         Err(Refusal::ProviderMismatch)
     );
 
     // Expired.
-    let s = start(&mut store, Provider::X, 8);
+    let s = start(&mut store, OAuthProvider::X, 8);
     let q = format!("code=c0de&state={}", s.state.encode());
     assert_eq!(
         callback(
             &mut store,
             &q,
             Some(&flow_cookie(&s.binding)),
-            Provider::X,
+            OAuthProvider::X,
             NOW_MS + 600_000
         ),
         Err(Refusal::Expired)

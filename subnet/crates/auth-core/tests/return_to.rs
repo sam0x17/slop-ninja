@@ -3,7 +3,7 @@
 //! origin.
 
 use proptest::prelude::*;
-use slop_ninja_auth_core::origin::Origin;
+use slop_ninja_auth_core::Origin;
 use slop_ninja_auth_core::policy::AuthPolicy;
 use slop_ninja_auth_core::return_to::{self, Refused, ReturnTo, sanitize, sanitize_or_default};
 use url::Url;
@@ -24,10 +24,11 @@ fn check(raw: &str) -> Result<ReturnTo, Refused> {
 /// reference, stays on the site origin.
 fn assert_stays_home(r: &ReturnTo) {
     let site = site();
+    let root = Url::parse(site.as_str()).unwrap();
     let loc = Url::parse(&r.location(&site)).unwrap();
-    assert_eq!(loc.origin(), site.root().origin(), "{}", r.as_str());
-    let joined = site.root().join(r.as_str()).unwrap();
-    assert_eq!(joined.origin(), site.root().origin(), "{}", r.as_str());
+    assert_eq!(loc.origin(), root.origin(), "{}", r.as_str());
+    let joined = root.join(r.as_str()).unwrap();
+    assert_eq!(joined.origin(), root.origin(), "{}", r.as_str());
     assert!(r.as_str().starts_with('/') && !r.as_str().starts_with("//"));
     // A stored value passes again unchanged.
     assert_eq!(

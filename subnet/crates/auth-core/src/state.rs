@@ -10,9 +10,32 @@
 //!
 //! The storage statement is the Worker's; these functions decide on what it
 //! returned, so the refusals are tested without a database.
+//!
+//! Each refusal answers one [`RefusalCode`], which depends on the flow
+//! ([`Refusal::code`]): an OAuth callback answers `state` for anything wrong
+//! with its `state` or flow cookie and `expired` for an expired row; an email
+//! link answers `expired` for a spent, unknown or expired token (as its peek
+//! does) and `link_wrong_browser` when the browser rule fails; a wallet
+//! challenge answers `expired` for a spent, unknown or expired challenge and
+//! `state` when the flow cookie is not the one it was issued to. The code is
+//! also the `reason` of the flow's `auth` metrics point; the finer variant
+//! never leaves the Worker.
 
-use crate::providers::Provider;
+use slop_ninja_detect_page::RefusalCode;
+
+use crate::providers::OAuthProvider;
 use crate::token::Token;
+
+/// Which single-use flow a refusal came from.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Flow {
+    /// An OAuth start and callback (`auth_flows`).
+    OAuth,
+    /// An email link's peek or confirm (`email_tokens`).
+    EmailLink,
+    /// A wallet challenge's verify (`wallet_chals`).
+    WalletChallenge,
+}
 
 /// The longest callback query read. A provider's `code` is well under a
 /// kilobyte (Google's about 75 characters, GitHub's 20, X's about 90) and
@@ -43,7 +66,7 @@ pub enum ProviderDenial {
 }
 
 /// Why a callback or a single-use token was refused. Each maps to a
-/// content-free journal reason.
+/// refusal code ([`Refusal::code`]).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Refusal {
     /// The query is too long, repeats a parameter or is not valid
@@ -70,20 +93,30 @@ pub enum Refusal {
 }
 
 impl Refusal {
-    /// The journal reason string.
+    /// The refusal code this answers with in `flow` (see the module text).
     #[must_use]
-    pub const fn as_str(self) -> &'static str {
+    pub const fn code(self, flow: Flow) -> RefusalCode {
+        match (flow, self) {
+            (_, Self::Expired) => RefusalCode::Expired,
+            (Flow::OAuth, _) => RefusalCode::State,
+            (Flow::EmailLink | Flow::WalletChallenge, Self::Unknown) => RefusalCode::Expired,
+            (
+                Flow::EmailLink,
+                Self::MissingFlowCookie | Self::MalformedFlowCookie | Self::BindingMismatch,
+            ) => RefusalCode::LinkWrongBrowser,
+            (Flow::EmailLink | Flow::WalletChallenge, _) => RefusalCode::State,
+        }
+    }
+}
+
+impl ProviderDenial {
+    /// The refusal code: `denied` when the reader declined, `provider`
+    /// otherwise.
+    #[must_use]
+    pub const fn code(self) -> RefusalCode {
         match self {
-            Self::MalformedQuery => "malformed_query",
-            Self::MissingState => "missing_state",
-            Self::MalformedState => "malformed_state",
-            Self::MissingCode => "missing_code",
-            Self::Unknown => "unknown",
-            Self::MissingFlowCookie => "missing_flow_cookie",
-            Self::MalformedFlowCookie => "malformed_flow_cookie",
-            Self::BindingMismatch => "binding_mismatch",
-            Self::ProviderMismatch => "provider_mismatch",
-            Self::Expired => "expired",
+            Self::AccessDenied => RefusalCode::Denied,
+            Self::Other => RefusalCode::Provider,
         }
     }
 }
@@ -132,7 +165,7 @@ fn is_code(c: &str) -> bool {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct FlowFacts {
     /// The provider the start redirected to.
-    pub provider: Provider,
+    pub provider: OAuthProvider,
     /// `SHA-256` of the flow cookie the start set or found.
     pub binding_h: [u8; 32],
     /// When the row expires (Unix milliseconds).
@@ -148,7 +181,7 @@ pub struct FlowFacts {
 pub fn check_flow(
     taken: Option<&FlowFacts>,
     flow_cookie: Option<&str>,
-    callback_provider: Provider,
+    callback_provider: OAuthProvider,
     now_ms: u64,
 ) -> Result<(), Refusal> {
     let row = taken.ok_or(Refusal::Unknown)?;

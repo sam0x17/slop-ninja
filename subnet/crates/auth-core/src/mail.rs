@@ -11,24 +11,24 @@
 //! builds: mail goes to the identity's subject and to nothing else.
 //!
 //! [`Mailer`] is the sending seam. On wasm32 the account Worker uses
-//! [`cloudflare::CloudflareMailer`] (Cloudflare Email Sending through the
+//! `cloudflare::CloudflareMailer` (Cloudflare Email Sending through the
 //! `send_email` binding); local development uses `Capture` (feature `dev`),
 //! which keeps each message for the tests and the auth stub instead.
 
+use slop_ninja_account_wire::{Bucket, MailIntent, NoRequester, UserId, mail_buckets};
+use slop_ninja_detect_page::Origin;
+
 use crate::email_addr::EmailNorm;
-use crate::origin::Origin;
-use crate::policy::BucketKind;
-use crate::providers::Provider;
+use crate::providers::OAuthProvider;
 use crate::token::Token;
 
 /// The display name every sign-in mail is sent under.
 pub const FROM_NAME: &str = "SlopNinja";
 /// The confirm page's path; the token follows in the fragment.
 pub const CONFIRM_PATH: &str = "/auth/email/confirm";
-/// The longest subject prefix accepted from config.
-pub const SUBJECT_PREFIX_MAX: usize = 32;
 
-/// A mail kind. Each is a different message.
+/// A mail kind. Each is a different message. Its intent, stored with the
+/// token, is the account contract's [`MailIntent`].
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum MailKind {
     /// "Your SlopNinja sign-in link".
@@ -41,7 +41,7 @@ pub enum MailKind {
     /// "Connect your ‹provider› sign-in to SlopNinja".
     AttachPending {
         /// The provider whose sign-in found this address in use.
-        provider: Provider,
+        provider: OAuthProvider,
     },
     /// Account recovery after the operator's accepted `attach_email` op
     /// (refused at launch; its copy awaits approval before that op opens).
@@ -49,29 +49,42 @@ pub enum MailKind {
 }
 
 impl MailKind {
-    /// The intent name stored with the token.
+    /// The intent stored with the token (`email_tokens.intent`).
     #[must_use]
-    pub const fn intent(self) -> &'static str {
+    pub const fn intent(self) -> MailIntent {
         match self {
-            Self::Signin => "signin",
-            Self::Link => "link",
-            Self::StepUp => "step_up",
-            Self::AttachPending { .. } => "attach_pending",
-            Self::Recover => "recover",
+            Self::Signin => MailIntent::Signin,
+            Self::Link => MailIntent::Link,
+            Self::StepUp => MailIntent::StepUp,
+            Self::AttachPending { .. } => MailIntent::AttachPending,
+            Self::Recover => MailIntent::Recover,
         }
     }
 
-    /// The quota buckets a send of this kind draws on (`auth-policy/v1`):
-    /// only mail whose link the holder can use draws on the per-address
-    /// sign-in bucket; connect mail draws on its own two.
+    /// The kind of a stored intent: `provider` is the pending row's provider
+    /// and is needed (and used) only for `attach_pending`.
     #[must_use]
-    pub const fn buckets(self) -> &'static [BucketKind] {
-        match self {
-            Self::Link => &[BucketKind::EmailLink, BucketKind::LinkMail],
-            Self::Signin | Self::StepUp | Self::AttachPending { .. } | Self::Recover => {
-                &[BucketKind::Email]
-            }
+    pub const fn of(intent: MailIntent, provider: Option<OAuthProvider>) -> Option<Self> {
+        match (intent, provider) {
+            (MailIntent::Signin, _) => Some(Self::Signin),
+            (MailIntent::Link, _) => Some(Self::Link),
+            (MailIntent::StepUp, _) => Some(Self::StepUp),
+            (MailIntent::AttachPending, Some(provider)) => Some(Self::AttachPending { provider }),
+            (MailIntent::AttachPending, None) => None,
+            (MailIntent::Recover, _) => Some(Self::Recover),
         }
+    }
+
+    /// The quota buckets a send of this kind to the address `addr_h` draws
+    /// on ([`mail_buckets`]): only mail whose link the holder can use draws
+    /// on the per-address sign-in bucket; connect mail draws on its own two
+    /// and needs the requesting account, `requester`.
+    pub fn buckets(
+        self,
+        addr_h: &[u8; 32],
+        requester: Option<UserId>,
+    ) -> Result<Vec<Bucket>, NoRequester> {
+        mail_buckets(self.intent(), &hex::encode(addr_h), requester)
     }
 }
 
@@ -97,7 +110,9 @@ pub struct MailConfig {
 pub enum ConfigError {
     /// The sender is not a valid address in normal form.
     FromAddress,
-    /// The subject prefix has a control character or is too long.
+    /// The subject prefix is not printable ASCII of at most
+    /// [`slop_ninja_account_wire::MAX_SUBJECT_PREFIX`] bytes
+    /// ([`slop_ninja_account_wire::mail_subject_prefix`]).
     SubjectPrefix,
 }
 
@@ -112,10 +127,8 @@ impl MailConfig {
         if EmailNorm::from_stored(from_address).is_none() {
             return Err(ConfigError::FromAddress);
         }
-        if subject_prefix.len() > SUBJECT_PREFIX_MAX || subject_prefix.chars().any(char::is_control)
-        {
-            return Err(ConfigError::SubjectPrefix);
-        }
+        let subject_prefix = slop_ninja_account_wire::mail_subject_prefix(subject_prefix)
+            .map_err(|_| ConfigError::SubjectPrefix)?;
         Ok(Self {
             from_address: from_address.to_owned(),
             link_origin,
@@ -180,9 +193,9 @@ fn copy(kind: MailKind, minutes: u64) -> (&'static str, String, String) {
         ),
         MailKind::AttachPending { provider } => (
             match provider {
-                Provider::Google => "Connect your Google sign-in to SlopNinja",
-                Provider::GitHub => "Connect your GitHub sign-in to SlopNinja",
-                Provider::X => "Connect your X sign-in to SlopNinja",
+                OAuthProvider::Google => "Connect your Google sign-in to SlopNinja",
+                OAuthProvider::GitHub => "Connect your GitHub sign-in to SlopNinja",
+                OAuthProvider::X => "Connect your X sign-in to SlopNinja",
             },
             format!(
                 "Someone tried to sign in to SlopNinja with {} using this address. If that was you, open this link in the same browser to sign in and connect it:",
@@ -317,7 +330,20 @@ impl SendFailure {
         matches!(self, Self::RateLimited | Self::DailyLimit)
     }
 
-    /// The metrics label.
+    /// The alert point it raises, if any
+    /// ([`slop_ninja_detect_page::ae::account::AUTH_MAIL_QUOTA`]).
+    #[must_use]
+    pub const fn alert(self) -> Option<&'static str> {
+        if self.is_quota() {
+            Some(slop_ninja_detect_page::ae::account::AUTH_MAIL_QUOTA)
+        } else {
+            None
+        }
+    }
+
+    /// The `result_code` of the account dataset's `mail` point
+    /// ([`slop_ninja_detect_page::ae::account::MAIL`]): a closed set, so the
+    /// point never carries free text from the sending service.
     #[must_use]
     pub const fn as_str(self) -> &'static str {
         match self {

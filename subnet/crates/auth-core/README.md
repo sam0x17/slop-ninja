@@ -10,6 +10,20 @@ The crate is its own Cargo workspace, like `crates/arena`: its Cloudflare mail b
 and Workers depend on it by path from their own workspaces. A Worker that enables the `wallet` feature carries the
 same rtao `[patch]` blocks as `Cargo.toml` here (as the admission Worker does).
 
+## Shared contracts
+
+The vocabulary comes from the contract crates `crates/account-wire` and `crates/detect-page` (re-exported as
+`account_wire` and `detect_page`); auth-core adds only the decisions:
+
+- origins: `Origins` and `Origin` from `SITE_ORIGIN` and `SECRET_ORIGIN`, which every host name here derives from;
+- refusals: every error type here maps to one `RefusalCode` (`code()`; for the single-use rows by flow,
+  `state::Refusal::code(Flow)`), the code the route answers with and the `reason` of the `auth` metrics point;
+- the CSRF scope: the forwarded route table's `csrf` column (`RouteId`);
+- the cookie names, the sign-in methods (`Provider`, of which `providers::OAuthProvider` is the OAuth part),
+  `MailIntent`, `WalletMode` and `AvatarType`;
+- the quota buckets and their keys (`mail_buckets`, `Bucket::name`), which `auth-policy/v1` sizes
+  (`AuthPolicy::bucket`), and the alert names (`policy::ceiling_alert`, `mail::SendFailure::alert`).
+
 ## Modules
 
 | Module | What it decides |
@@ -21,12 +35,11 @@ same rtao `[patch]` blocks as `Cargo.toml` here (as the admission Worker does).
 | `providers` | Google, GitHub and X endpoints and parameters as constants; authorize URLs (RFC 3986 encoding, S256 PKCE on every provider, a nonce for Google only, no offline access anywhere); token exchange requests (client secret in the body for Google and GitHub, Basic for X); profile reads; bounded parsers for token, `/user`, `/user/emails` and `/2/users/me` answers; the X avatar URL rule and byte sniffing |
 | `siws` (feature `wallet`) | the wallet sign-in message (Sign-In-with-Substrate layout for extensions, one line for the command-line tools), SS58 decoding with any registered prefix, signature hex parsing, and verification through `rtao_core::keys::verify_strict` over the issued bytes raw or `<Bytes>`-wrapped and nothing else; `check_challenge` on the challenge row |
 | `cookie` | `__Host-sn_session` and `__Host-sn_flow`: `Set-Cookie` strings, clearing, and lookup (a repeated name counts as absent) |
-| `csrf` | `check(method, Sec-Fetch-Site, Origin, host origin)`, its scope by request class, and the body content types |
+| `csrf` | `check(method, Sec-Fetch-Site, Origin, host origin)`, its scope from the forwarded route table's `csrf` column (`check_route`), and the body content types |
 | `email_addr` | ASCII dot-atom local parts, UTS 46 to A-label domains, `email_norm` (ASCII lower case only), `addr_h` |
 | `return_to` | the post-sign-in destination: character rules on the raw and percent-decoded value, a `url`-crate join against the configured origin, the prefix list, the length bound, an absolute `Location` |
 | `policy` | `auth-policy/v1` as JSON with a reason beside every value; the mail token buckets and which mail kinds draw on which |
 | `mail` | the mail kinds and their copy, `Mailer`, the Cloudflare Email Sending implementation (wasm32), and `Capture` (feature `dev`) |
-| `origin` | `SITE_ORIGIN` and `SECRET_ORIGIN` from config, validated as canonical origins |
 | `time` | RFC 3339 timestamps with milliseconds |
 
 ## Features
@@ -37,7 +50,7 @@ same rtao `[patch]` blocks as `Cargo.toml` here (as the admission Worker does).
 - `dev`: local development only. It adds `Spec::endpoints_at` (every provider endpoint moved under the auth stub's
   origin as `<stub origin>/<real host><real path and query>`, so the stub routes on the real host and path),
   `mail::capture::Capture` and, on wasm32, `ServiceCapture` (posts each message to the stub's `/mail` route over a
-  service binding), `oidc::test_token`, and `http` origins on loopback hosts. Release builds never enable it.
+  service binding) and `oidc::test_token`. Release builds never enable it.
 
 ## Bounds
 
@@ -66,7 +79,7 @@ per-request inputs.
   take the row by the posted token's hash and `check_email_token`.
 - **Wallet:** `siws::decode_address`, `siws::message` (store the exact bytes), and on verify take the row,
   `check_challenge`, `parse_signature`, `siws::verify`.
-- **Every browser route:** `csrf::check_for` first, and `csrf::content_type_ok` before reading a body.
+- **Every browser route:** `csrf::check_route` first, and `csrf::content_type_ok` before reading a body.
 
 ## Tests
 
@@ -74,5 +87,6 @@ per-request inputs.
 `tests/return_to.rs` with every bypass fixture, `tests/email_addr.rs` with the folding fixtures, `tests/csrf.rs` with
 the Fetch Metadata and `Origin` matrix including the secret host posting to the site host), the property that the
 mail recipient equals the identity's subject byte for byte (`tests/email_addr.rs`, `tests/capture.rs`), the separate
-budget for connect mail (`tests/mail_budgets.rs`) and the provider tables and parsers (`tests/providers.rs`). No test
-calls a provider, mail service or chain endpoint.
+budget for connect mail (`tests/mail_budgets.rs`), the provider tables and parsers (`tests/providers.rs`), and the
+shared contracts (`tests/contracts.rs`: every refusal is a sign-in or request code with its fixture, and the sign-in
+fixtures pass through these checks as the contract says). No test calls a provider, mail service or chain endpoint.

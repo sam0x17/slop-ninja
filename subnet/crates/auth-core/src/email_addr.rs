@@ -21,6 +21,7 @@
 
 use hmac::{Hmac, Mac};
 use sha2::Sha256;
+use slop_ninja_detect_page::RefusalCode;
 
 /// The longest address accepted, in octets (RFC 5321's path limit less the
 /// angle brackets).
@@ -78,7 +79,8 @@ impl EmailAddr {
 }
 
 /// Why an address was refused. Every refusal answers the reader like an
-/// accepted address and sends nothing; the reason is journaled content-free.
+/// accepted address and sends nothing; only the `auth` metrics point
+/// records it, content-free ([`EmailError::code`]).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum EmailError {
     /// Empty, or longer than [`ADDRESS_MAX`].
@@ -94,15 +96,15 @@ pub enum EmailError {
 }
 
 impl EmailError {
-    /// The journal reason string.
+    /// The `reason` of the `auth` point (`step` `failed`):
+    /// `malformed_request`. It is never answered: the reader gets the same
+    /// 303 or 202 as for an accepted address.
     #[must_use]
-    pub const fn as_str(self) -> &'static str {
+    pub const fn code(self) -> RefusalCode {
         match self {
-            Self::Length => "length",
-            Self::Control => "control",
-            Self::At => "at",
-            Self::Local => "local",
-            Self::Domain => "domain",
+            Self::Length | Self::Control | Self::At | Self::Local | Self::Domain => {
+                RefusalCode::MalformedRequest
+            }
         }
     }
 }

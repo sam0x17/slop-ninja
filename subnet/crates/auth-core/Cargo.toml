@@ -24,6 +24,12 @@ wallet = ["dep:rtao-core"]
 dev = []
 
 [dependencies]
+# The shared account and detection contracts: origins from config, the
+# refusal codes, the forwarded route table (whose `csrf` column is this
+# crate's CSRF scope), the cookie names, the sign-in enums and the quota
+# buckets. Both are pure and depend on serde only.
+slop-ninja-account-wire = { path = "../account-wire" }
+slop-ninja-detect-page = { path = "../detect-page" }
 base64 = "0.22"
 hex = "0.4"
 hmac = "0.12"

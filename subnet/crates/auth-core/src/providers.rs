@@ -18,13 +18,16 @@ use std::borrow::Cow;
 use base64::Engine as _;
 use percent_encoding::{AsciiSet, NON_ALPHANUMERIC, utf8_percent_encode};
 use serde::Deserialize;
+use slop_ninja_account_wire::{AvatarType, Provider};
+use slop_ninja_detect_page::{Origin, RefusalCode};
 
 use crate::email_addr::{self, EmailAddr};
-use crate::origin::Origin;
 
-/// A sign-in provider.
+/// An OAuth sign-in provider: the methods of the account contract's
+/// [`Provider`] that have an endpoint table here (email and the wallet do
+/// not). Its wire string is that [`Provider`]'s.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
-pub enum Provider {
+pub enum OAuthProvider {
     /// Google (OpenID Connect).
     Google,
     /// GitHub (a GitHub App used for sign-in).
@@ -33,18 +36,37 @@ pub enum Provider {
     X,
 }
 
-impl Provider {
+impl OAuthProvider {
     /// Every provider, in button order.
     pub const ALL: [Self; 3] = [Self::Google, Self::GitHub, Self::X];
 
-    /// The path segment and stored name: `google`, `github` or `x`.
+    /// The account contract's method.
+    #[must_use]
+    pub const fn method(self) -> Provider {
+        match self {
+            Self::Google => Provider::Google,
+            Self::GitHub => Provider::Github,
+            Self::X => Provider::X,
+        }
+    }
+
+    /// The OAuth provider of a method, if it is one
+    /// ([`Provider::is_oauth`]).
+    #[must_use]
+    pub const fn of(method: Provider) -> Option<Self> {
+        match method {
+            Provider::Google => Some(Self::Google),
+            Provider::Github => Some(Self::GitHub),
+            Provider::X => Some(Self::X),
+            Provider::Email | Provider::Bittensor => None,
+        }
+    }
+
+    /// The path segment and stored name (`identities.provider`): `google`,
+    /// `github` or `x`.
     #[must_use]
     pub const fn as_str(self) -> &'static str {
-        match self {
-            Self::Google => "google",
-            Self::GitHub => "github",
-            Self::X => "x",
-        }
+        self.method().as_str()
     }
 
     /// The name shown to readers and in mail.
@@ -60,7 +82,13 @@ impl Provider {
     /// Parses a stored or path name.
     #[must_use]
     pub fn parse(name: &str) -> Option<Self> {
-        Self::ALL.into_iter().find(|p| p.as_str() == name)
+        Provider::parse(name).and_then(Self::of)
+    }
+
+    /// The provider's kill switch (`auth.google`, `auth.github`, `auth.x`).
+    #[must_use]
+    pub fn switch(self) -> &'static str {
+        self.method().switch()
     }
 
     /// The provider's table.
@@ -100,7 +128,7 @@ pub enum ClientAuth {
 #[derive(Debug)]
 pub struct Spec {
     /// The provider.
-    pub provider: Provider,
+    pub provider: OAuthProvider,
     /// Authorization endpoint (a browser redirect).
     pub authorize: &'static str,
     /// Token endpoint (server to server).
@@ -133,7 +161,7 @@ pub const GOOGLE_ISSUERS: [&str; 2] = ["https://accounts.google.com", "accounts.
 /// brand-verified consent screen; no profile field is stored), a nonce and
 /// the account chooser. No `access_type=offline`.
 pub const GOOGLE: Spec = Spec {
-    provider: Provider::Google,
+    provider: OAuthProvider::Google,
     authorize: "https://accounts.google.com/o/oauth2/v2/auth",
     token: "https://oauth2.googleapis.com/token",
     user: None,
@@ -149,7 +177,7 @@ pub const GOOGLE: Spec = Spec {
 /// read), so no `scope`; `/user` for the numeric id and login, and
 /// `/user/emails` for the primary verified address.
 pub const GITHUB: Spec = Spec {
-    provider: Provider::GitHub,
+    provider: OAuthProvider::GitHub,
     authorize: "https://github.com/login/oauth/authorize",
     token: "https://github.com/login/oauth/access_token",
     user: Some("https://api.github.com/user"),
@@ -164,7 +192,7 @@ pub const GITHUB: Spec = Spec {
 /// X: OAuth 2.0 with PKCE, `users.read tweet.read users.email` (no
 /// `offline.access`), Basic client authentication, and one profile read.
 pub const X: Spec = Spec {
-    provider: Provider::X,
+    provider: OAuthProvider::X,
     authorize: "https://x.com/i/oauth2/authorize",
     token: "https://api.x.com/2/oauth2/token",
     user: Some(
@@ -209,7 +237,7 @@ impl Spec {
 
     /// Local development only: every endpoint moved under the auth stub's
     /// origin as `<base>/<real host><real path and query>`, for example
-    /// `http://127.0.0.1:8790/oauth2.googleapis.com/token`, so the stub
+    /// `https://stub.localhost:8790/oauth2.googleapis.com/token`, so the stub
     /// routes on the real host and path.
     #[cfg(feature = "dev")]
     #[must_use]
@@ -240,7 +268,7 @@ const QUERY_VALUE: &AsciiSet = &NON_ALPHANUMERIC
 pub struct AuthorizeParams<'a> {
     /// The provider's client id (config).
     pub client_id: &'a str,
-    /// [`Provider::redirect_uri`].
+    /// [`OAuthProvider::redirect_uri`].
     pub redirect_uri: &'a str,
     /// The flow's `state` token text.
     pub state: &'a str,
@@ -366,7 +394,7 @@ pub fn api_get(spec: &Spec, url: &str, access_token: &str) -> HttpRequest {
         ("Authorization", format!("Bearer {access_token}")),
         ("User-Agent", USER_AGENT.to_owned()),
     ];
-    if spec.provider == Provider::GitHub {
+    if spec.provider == OAuthProvider::GitHub {
         headers.push(("Accept", "application/vnd.github+json".to_owned()));
         headers.push(("X-GitHub-Api-Version", "2022-11-28".to_owned()));
     } else {
@@ -400,15 +428,18 @@ pub enum ProviderError {
 }
 
 impl ProviderError {
-    /// The journal reason string.
+    /// The refusal code: `method_off` (503, "unavailable right now") when
+    /// the provider is refusing for now, so the button reads as the method
+    /// being unavailable while every other method keeps working (for X this
+    /// is also the `x_refused` alert point's case); `provider` (502) for
+    /// every other failure.
     #[must_use]
-    pub const fn as_str(self) -> &'static str {
+    pub const fn code(self) -> RefusalCode {
         match self {
-            Self::TooLarge => "too_large",
-            Self::Malformed => "malformed",
-            Self::Refused => "refused",
-            Self::Unavailable => "unavailable",
-            Self::Upstream => "upstream",
+            Self::Unavailable => RefusalCode::MethodOff,
+            Self::TooLarge | Self::Malformed | Self::Refused | Self::Upstream => {
+                RefusalCode::Provider
+            }
         }
     }
 }
@@ -673,48 +704,31 @@ pub fn x_avatar_url(raw: &str) -> Option<url::Url> {
 }
 
 /// An avatar's type, decided from its bytes, never from the upstream
-/// `Content-Type`.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum ImageType {
-    /// `FF D8 FF`.
-    Jpeg,
-    /// `89 50 4E 47 0D 0A 1A 0A`.
-    Png,
-    /// `GIF87a` or `GIF89a`.
-    Gif,
-    /// `RIFF`, four bytes, `WEBP`.
-    Webp,
-}
-
-impl ImageType {
-    /// Sniffs the four accepted types; anything else (SVG, HTML, unknown)
-    /// is `None`, and a body over [`AVATAR_MAX`] is `None` too.
-    #[must_use]
-    pub fn sniff(bytes: &[u8]) -> Option<Self> {
-        if bytes.len() > AVATAR_MAX {
-            return None;
-        }
-        if bytes.starts_with(&[0xFF, 0xD8, 0xFF]) {
-            Some(Self::Jpeg)
-        } else if bytes.starts_with(&[0x89, b'P', b'N', b'G', 0x0D, 0x0A, 0x1A, 0x0A]) {
-            Some(Self::Png)
-        } else if bytes.starts_with(b"GIF87a") || bytes.starts_with(b"GIF89a") {
-            Some(Self::Gif)
-        } else if bytes.len() >= 12 && bytes.starts_with(b"RIFF") && &bytes[8..12] == b"WEBP" {
-            Some(Self::Webp)
-        } else {
-            None
-        }
+/// `Content-Type`: one of the account contract's [`AvatarType`]s
+/// (`avatars.content_type`, and the `Content-Type` the avatar route serves,
+/// [`AvatarType::as_str`]). The four accepted signatures:
+///
+/// - JPEG: `FF D8 FF`;
+/// - PNG: `89 50 4E 47 0D 0A 1A 0A`;
+/// - GIF: `GIF87a` or `GIF89a`;
+/// - WebP: `RIFF`, four bytes, `WEBP`.
+///
+/// Anything else (SVG, HTML, unknown) is `None`, and so is a body over
+/// [`AVATAR_MAX`].
+#[must_use]
+pub fn sniff_avatar(bytes: &[u8]) -> Option<AvatarType> {
+    if bytes.len() > AVATAR_MAX {
+        return None;
     }
-
-    /// The `Content-Type` the avatar route serves.
-    #[must_use]
-    pub const fn content_type(self) -> &'static str {
-        match self {
-            Self::Jpeg => "image/jpeg",
-            Self::Png => "image/png",
-            Self::Gif => "image/gif",
-            Self::Webp => "image/webp",
-        }
+    if bytes.starts_with(&[0xFF, 0xD8, 0xFF]) {
+        Some(AvatarType::Jpeg)
+    } else if bytes.starts_with(&[0x89, b'P', b'N', b'G', 0x0D, 0x0A, 0x1A, 0x0A]) {
+        Some(AvatarType::Png)
+    } else if bytes.starts_with(b"GIF87a") || bytes.starts_with(b"GIF89a") {
+        Some(AvatarType::Gif)
+    } else if bytes.len() >= 12 && bytes.starts_with(b"RIFF") && &bytes[8..12] == b"WEBP" {
+        Some(AvatarType::Webp)
+    } else {
+        None
     }
 }

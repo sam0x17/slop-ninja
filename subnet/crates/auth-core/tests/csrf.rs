@@ -2,15 +2,16 @@
 //! including a secret-host page posting to the site host.
 
 use slop_ninja_auth_core::csrf::{
-    BodyType, CsrfRefusal, RequestClass, applies, check, check_for, content_type_ok,
+    BodyType, CONTENT_TYPE_REFUSAL, CsrfRefusal, applies, check, check_route, content_type_ok,
 };
-use slop_ninja_auth_core::origin::AuthOrigins;
+use slop_ninja_auth_core::detect_page::sn::{Callee, Hosts};
+use slop_ninja_auth_core::{HostRole, Origins, RefusalCode, RouteId};
 
 const SITE: &str = "https://site.example";
 const SECRET: &str = "https://s.site.example";
 
-fn origins() -> AuthOrigins {
-    AuthOrigins::parse(SITE, SECRET).unwrap()
+fn origins() -> Origins {
+    Origins::from_vars(SITE, SECRET).unwrap()
 }
 
 /// The rule, stated independently of the implementation.
@@ -137,22 +138,111 @@ fn named_cases() {
 #[test]
 fn scope() {
     let o = origins();
-    for class in [RequestClass::ForwardedBrowser, RequestClass::AccountBrowser] {
-        assert!(applies(class));
-        assert_eq!(
-            check_for(class, "POST", Some("cross-site"), None, &o.site),
-            Err(CsrfRefusal::FetchSite)
-        );
+    // The scope is the forwarded route table's `csrf` column: every browser
+    // POST is marked, and the op routes, the paid API and webhooks are not.
+    let unmarked = [
+        RouteId::DetectOp,
+        RouteId::PaidApi,
+        RouteId::AccountOp,
+        RouteId::BillingWebhook,
+    ];
+    for &route in RouteId::ALL {
+        let spec = route.spec();
+        if unmarked.contains(&route) {
+            assert!(!applies(route), "{route:?}");
+            // Their own authentication decides; this check passes them.
+            for host in [HostRole::Site, HostRole::Secret] {
+                assert_eq!(
+                    check_route(route, host, &o, "POST", Some("cross-site"), None),
+                    Ok(()),
+                    "{route:?}"
+                );
+            }
+        } else if spec.method == "POST" {
+            assert!(applies(route), "{route:?}");
+            for host in [HostRole::Site, HostRole::Secret] {
+                if !spec.hosts.admits(host) {
+                    continue;
+                }
+                let own = o.of(host).as_str();
+                assert_eq!(
+                    check_route(route, host, &o, "POST", Some("cross-site"), None),
+                    Err(CsrfRefusal::FetchSite),
+                    "{route:?}"
+                );
+                assert_eq!(
+                    check_route(route, host, &o, "POST", Some("same-origin"), Some(own)),
+                    Ok(()),
+                    "{route:?}"
+                );
+            }
+        }
     }
-    for class in [
-        RequestClass::Internal,
-        RequestClass::Op,
-        RequestClass::Api,
-        RequestClass::Webhook,
-    ] {
-        assert!(!applies(class));
-        assert_eq!(check_for(class, "POST", None, None, &o.site), Ok(()));
+    // Every account route that changes state is a marked POST.
+    for &route in RouteId::ALL {
+        let spec = route.spec();
+        if spec.callee == Callee::Account && spec.method == "POST" && !unmarked.contains(&route) {
+            assert!(applies(route), "{route:?}");
+        }
     }
+    // A secret-host page posting to an account route on the site host: the
+    // route checks against the site's origin and refuses it.
+    assert_eq!(
+        check_route(
+            RouteId::EmailStart,
+            HostRole::Site,
+            &o,
+            "POST",
+            Some("same-site"),
+            Some(SECRET)
+        ),
+        Err(CsrfRefusal::FetchSite)
+    );
+    assert_eq!(
+        check_route(
+            RouteId::LinkConfirm,
+            HostRole::Site,
+            &o,
+            "POST",
+            None,
+            Some(SECRET)
+        ),
+        Err(CsrfRefusal::Origin)
+    );
+    // A route on both hosts checks against the host it arrived on.
+    assert_eq!(RouteId::Feedback.spec().hosts, Hosts::Both);
+    assert_eq!(
+        check_route(
+            RouteId::Feedback,
+            HostRole::Secret,
+            &o,
+            "POST",
+            None,
+            Some(SECRET)
+        ),
+        Ok(())
+    );
+    assert_eq!(
+        check_route(
+            RouteId::Feedback,
+            HostRole::Secret,
+            &o,
+            "POST",
+            None,
+            Some(SITE)
+        ),
+        Err(CsrfRefusal::Origin)
+    );
+}
+
+#[test]
+fn refusal_codes() {
+    assert_eq!(CsrfRefusal::FetchSite.code(), RefusalCode::Csrf);
+    assert_eq!(CsrfRefusal::Origin.code(), RefusalCode::Csrf);
+    assert_eq!(CsrfRefusal::Method.code(), RefusalCode::Method);
+    assert_eq!(RefusalCode::Csrf.status(), 403);
+    assert_eq!(RefusalCode::Method.status(), 405);
+    assert_eq!(CONTENT_TYPE_REFUSAL.status(), 415);
 }
 
 #[test]

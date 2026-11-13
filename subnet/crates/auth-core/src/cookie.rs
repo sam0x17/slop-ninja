@@ -12,10 +12,10 @@
 
 use crate::token::Token;
 
-/// The session cookie's name.
-pub const SESSION: &str = "__Host-sn_session";
-/// The flow cookie's name.
-pub const FLOW: &str = "__Host-sn_flow";
+/// The session cookie's name ([`slop_ninja_account_wire::SESSION_COOKIE`]).
+pub const SESSION: &str = slop_ninja_account_wire::SESSION_COOKIE;
+/// The flow cookie's name ([`slop_ninja_account_wire::FLOW_COOKIE`]).
+pub const FLOW: &str = slop_ninja_account_wire::FLOW_COOKIE;
 
 /// The longest `Cookie` header read; past it the request is treated as
 /// carrying neither cookie (a browser keeps one cookie under 4 KiB, and

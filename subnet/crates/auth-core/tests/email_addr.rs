@@ -2,9 +2,9 @@
 //! the identity's subject, byte for byte.
 
 use proptest::prelude::*;
+use slop_ninja_auth_core::Origin;
 use slop_ninja_auth_core::email_addr::{EmailError, EmailNorm, parse};
 use slop_ninja_auth_core::mail::{self, MailConfig, MailKind};
-use slop_ninja_auth_core::origin::Origin;
 use slop_ninja_auth_core::token::Token;
 
 #[test]
@@ -138,7 +138,7 @@ proptest! {
             MailKind::Signin,
             MailKind::Link,
             MailKind::StepUp,
-            MailKind::AttachPending { provider: slop_ninja_auth_core::providers::Provider::GitHub },
+            MailKind::AttachPending { provider: slop_ninja_auth_core::providers::OAuthProvider::GitHub },
         ] {
             let m = mail::compose(&config(), kind, &addr.norm, &token, 15);
             prop_assert_eq!(m.to.as_str().as_bytes(), subject.as_bytes());

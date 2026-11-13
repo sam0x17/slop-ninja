@@ -3,9 +3,10 @@
 //! issued bytes. Test keys come from sr25519 development seeds.
 
 use rtao_core::keys::{CRYPTO_SR25519, Keypair};
-use slop_ninja_auth_core::origin::Origin;
+use slop_ninja_auth_core::Origin;
+use slop_ninja_auth_core::account_wire::WalletMode;
 use slop_ninja_auth_core::siws::{
-    self, Challenge, ChallengeFacts, Mode, Nonce, SignedForm, SiwsError, check_challenge,
+    self, Challenge, ChallengeFacts, Nonce, SignedForm, SiwsError, check_challenge,
 };
 use slop_ninja_auth_core::state::Refusal;
 use slop_ninja_auth_core::token::Token;
@@ -20,7 +21,7 @@ fn site() -> Origin {
     Origin::parse("https://site.example").unwrap()
 }
 
-fn issued(mode: Mode, pk: &[u8; 32]) -> Vec<u8> {
+fn issued(mode: WalletMode, pk: &[u8; 32]) -> Vec<u8> {
     let site = site();
     let nonce = Nonce::from_random([0xA5; 16]);
     siws::message(
@@ -48,7 +49,7 @@ fn wrap(bytes: &[u8]) -> Vec<u8> {
 fn message_layout() {
     let alice = pair("//Alice");
     let pk = alice.public_key_bytes();
-    let text = String::from_utf8(issued(Mode::Extension, &pk)).unwrap();
+    let text = String::from_utf8(issued(WalletMode::Extension, &pk)).unwrap();
     let address = siws::address_42(&pk);
     // A generic-Substrate (prefix 42) address: 48 characters, leading `5`,
     // the same one the keypair reports.
@@ -61,7 +62,7 @@ fn message_layout() {
             "site.example wants you to sign in with your Bittensor account:\n{address}\n\nSign in to SlopNinja. This is not a transaction and costs nothing.\n\nURI: https://site.example/signin/\nVersion: 1\nNonce: 55MPJTB9D5MPJTB9D5MPJTB9D5\nIssued At: 2026-11-13T05:30:00.000Z\nExpiration Time: 2026-11-13T05:35:00.000Z"
         )
     );
-    let cli = String::from_utf8(issued(Mode::Cli, &pk)).unwrap();
+    let cli = String::from_utf8(issued(WalletMode::Cli, &pk)).unwrap();
     assert_eq!(
         cli,
         format!(
@@ -97,7 +98,7 @@ fn address_decoding() {
 fn raw_and_wrapped_only_for_issued_bytes() {
     let alice = pair("//Alice");
     let pk = alice.public_key_bytes();
-    for mode in [Mode::Extension, Mode::Cli] {
+    for mode in [WalletMode::Extension, WalletMode::Cli] {
         let msg = issued(mode, &pk);
         assert_eq!(
             siws::verify(&msg, &sig(&alice, &msg), &pk),
@@ -201,15 +202,15 @@ fn challenge_expiry_and_reuse() {
     );
 }
 
-#[cfg(feature = "dev")]
 #[test]
-fn loopback_domain_line_carries_the_port() {
-    let site = Origin::parse("http://127.0.0.1:8787").unwrap();
+fn local_domain_line_carries_the_port() {
+    // Local development serves both hosts over HTTPS on their own ports.
+    let site = Origin::parse("https://site.localhost:8787").unwrap();
     let alice = pair("//Alice");
     let pk = alice.public_key_bytes();
     let nonce = Nonce::from_random([1; 16]);
     let text = siws::message(
-        Mode::Extension,
+        WalletMode::Extension,
         &Challenge {
             site: &site,
             public_key: &pk,
@@ -218,6 +219,6 @@ fn loopback_domain_line_carries_the_port() {
             expires_at_ms: NOW_MS + 1,
         },
     );
-    assert!(text.starts_with("127.0.0.1:8787 wants you to sign in"));
-    assert!(text.contains("\nURI: http://127.0.0.1:8787/signin/\n"));
+    assert!(text.starts_with("site.localhost:8787 wants you to sign in"));
+    assert!(text.contains("\nURI: https://site.localhost:8787/signin/\n"));
 }

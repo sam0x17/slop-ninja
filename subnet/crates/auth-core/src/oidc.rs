@@ -18,6 +18,7 @@
 //! [`GOOGLE_ISSUERS`]: crate::providers::GOOGLE_ISSUERS
 
 use serde::Deserialize;
+use slop_ninja_detect_page::RefusalCode;
 
 use crate::b64;
 use crate::email_addr::{self, EmailAddr};
@@ -65,17 +66,20 @@ pub enum ClaimError {
 }
 
 impl ClaimError {
-    /// The journal reason string.
+    /// The refusal code: `provider` (502) for every failed claim. The token
+    /// came from the provider's own endpoint, so a failed claim is the
+    /// provider answering out of form or a mixed-up flow, and the reader is
+    /// asked to sign in again either way; the variant stays in the Worker.
     #[must_use]
-    pub const fn as_str(self) -> &'static str {
+    pub const fn code(self) -> RefusalCode {
         match self {
-            Self::Malformed => "malformed",
-            Self::Issuer => "iss",
-            Self::Audience => "aud",
-            Self::Expired => "exp",
-            Self::IssuedInFuture => "iat",
-            Self::Nonce => "nonce",
-            Self::Subject => "sub",
+            Self::Malformed
+            | Self::Issuer
+            | Self::Audience
+            | Self::Expired
+            | Self::IssuedInFuture
+            | Self::Nonce
+            | Self::Subject => RefusalCode::Provider,
         }
     }
 }

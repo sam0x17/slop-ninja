@@ -28,9 +28,18 @@
 //! - [`policy`]: `auth-policy/v1`, each value with its reason;
 //! - [`mail`]: the mail kinds and their copy, the [`mail::Mailer`] seam, the
 //!   Cloudflare Email Sending implementation (wasm32) and a capturing
-//!   implementation (feature `dev`);
-//! - [`origin`]: validated origins from config (`SITE_ORIGIN`,
-//!   `SECRET_ORIGIN`).
+//!   implementation (feature `dev`).
+//!
+//! The shared contracts come from the account and detection contract
+//! crates, re-exported here as [`account_wire`] and [`detect_page`]: the
+//! origins from config ([`Origins`], from `SITE_ORIGIN` and `SECRET_ORIGIN`),
+//! the refusal codes every check here maps its refusals to
+//! ([`RefusalCode`]), the forwarded route table whose `csrf` column is the
+//! CSRF scope, the cookie names, the sign-in enums ([`account_wire::Provider`],
+//! [`account_wire::MailIntent`], [`account_wire::WalletMode`],
+//! [`account_wire::AvatarType`]) and the quota buckets
+//! ([`account_wire::mail_buckets`]). This crate adds the decisions and none
+//! of the vocabulary.
 
 #![forbid(unsafe_code)]
 #![deny(missing_docs)]
@@ -40,7 +49,6 @@ pub mod csrf;
 pub mod email_addr;
 pub mod mail;
 pub mod oidc;
-pub mod origin;
 pub mod pkce;
 pub mod policy;
 pub mod providers;
@@ -52,6 +60,11 @@ pub mod time;
 pub mod token;
 
 mod b64;
+
+pub use slop_ninja_account_wire as account_wire;
+pub use slop_ninja_detect_page as detect_page;
+pub use slop_ninja_detect_page::origins::OriginError;
+pub use slop_ninja_detect_page::{HostRole, Origin, Origins, RefusalCode, RouteId};
 
 /// Constant-time equality of two byte strings of the same length.
 ///

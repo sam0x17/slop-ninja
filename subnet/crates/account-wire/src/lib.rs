@@ -189,29 +189,71 @@ code_enum! {
 /// `POST /internal/v1/session` (the cookie): the signed-in account, or 401.
 /// When the session was renewed, the response also carries a `Set-Cookie`
 /// header (the same token, a new `Max-Age`) for the website to pass on.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+///
+/// `user_id`, `auth_time` and `flags` are what the website forwards to the
+/// detect Worker, as `X-SN-Principal` ([`SessionAnswer::principal`]).
+/// `label`, `method` and `billing` are for the website's own rendering only
+/// ("Checking as ‹label›" on the paid quote page, "Save to my detections ·
+/// signed in as ‹label›" and the paid offer on the unstored result); the
+/// website never forwards them to another Worker.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct SessionAnswer {
     pub user_id: UserId,
     /// When the session last proved a sign-in method.
     pub auth_time: u64,
     /// The user's flags (`detect_page::sn::flags`).
     pub flags: u32,
+    /// The identity the session signed in with: its address, `@handle` or
+    /// SS58 address, as [`MeAnswer::label`] (shown to its holder only).
+    pub label: String,
+    /// That identity's method.
+    pub method: Provider,
+    /// The account Worker's `BILLING` state.
+    pub billing: BillingState,
 }
 
 impl SessionAnswer {
-    /// The `X-SN-Principal` value the website forwards.
+    /// The `X-SN-Principal` value the website forwards: only `user_id`,
+    /// `auth_time` and `flags`.
     pub fn principal(&self) -> detect_page::Principal {
         detect_page::Principal { user_id: self.user_id, auth_time_ms: self.auth_time, flags: self.flags }
     }
+
+    /// The account is an operator's test account for paid checks
+    /// (`set_flag {paid_preview}`).
+    pub fn paid_preview(&self) -> bool {
+        self.flags & detect_page::sn::flags::PAID_PREVIEW != 0
+    }
+
+    /// The account side of the unstored result's paid offer
+    /// (`detect_page::page::Page::paid_offer`).
+    pub fn paid_reader(&self) -> detect_page::page::PaidReader {
+        detect_page::page::PaidReader { billing: self.billing, paid_preview: self.paid_preview() }
+    }
 }
 
-/// `GET /api/account/v1/me` (the tool page's one call): no ids.
+/// `GET /api/account/v1/me` (the page scripts' one call): no ids.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct MeAnswer {
     pub signed_in: bool,
     /// "Signed in as ‹label›": the identity's address or handle.
     pub label: Option<String>,
     pub method: Option<Provider>,
+    /// The account Worker's `BILLING` state, signed in or not (it is the same
+    /// for every reader).
+    pub billing: BillingState,
+    /// The signed-in account is an operator's test account for paid checks;
+    /// always `false` when signed out.
+    pub paid_preview: bool,
+}
+
+impl MeAnswer {
+    /// The account side of the unstored result's paid offer
+    /// (`detect_page::page::Page::paid_offer`); `None` when signed out.
+    pub fn paid_reader(&self) -> Option<detect_page::page::PaidReader> {
+        self.signed_in
+            .then_some(detect_page::page::PaidReader { billing: self.billing, paid_preview: self.paid_preview })
+    }
 }
 
 // -------------------------------------------------------------------- views
@@ -646,7 +688,8 @@ impl EmptyForm {
 }
 
 /// `POST /account/detections/remove` and `/account/detections/delete`: one
-/// saved link (the website's own routes, 8.8).
+/// saved link (the website's own routes, which call the detect and account
+/// Workers in turn).
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct EntryForm {
@@ -704,10 +747,67 @@ pub struct EmailPeekAnswer {
     pub provider: Option<Provider>,
 }
 
-/// Where a confirmed flow goes next (a path the page checks is same-origin).
+/// Where a confirmed flow goes next: a path on the site's origin, which the
+/// page checks is same-origin before it navigates. It is the success answer
+/// of `/email/confirm` and of `/wallet/verify`, for every intent:
+/// - `link`: always [`LINK_CONFIRM_PATH`]; only that page's POST attaches
+///   the identity, and the pending row keeps the flow's own `return_to` for
+///   afterwards;
+/// - every other intent: the flow's stored `return_to` (from the start or
+///   challenge request, after `auth-core::return_to::sanitize`), or, when it
+///   was absent or refused, the intent's default ([`Intent::default_return_to`],
+///   [`MailIntent::default_return_to`]).
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct NextAnswer {
     pub return_to: String,
+}
+
+/// The page a `link` flow answers with ([`NextAnswer`]).
+pub const LINK_CONFIRM_PATH: &str = "/account/link/confirm";
+/// Where a flow started while signed in (`link`, `step_up`) goes when its
+/// `return_to` was absent or refused.
+pub const SIGNED_IN_RETURN: &str = "/account/";
+/// Where a flow started while signed out (a sign-in, `attach_pending`,
+/// `recover`) goes when its `return_to` was absent or refused.
+pub const SIGNED_OUT_RETURN: &str = "/detect/";
+
+impl Intent {
+    /// The flow was started by a signed-in account (`link`, `step_up`).
+    pub fn is_signed_in(self) -> bool {
+        matches!(self, Intent::Link | Intent::StepUp)
+    }
+
+    /// The `return_to` a flow stores when the request's was absent or
+    /// refused.
+    pub fn default_return_to(self) -> &'static str {
+        if self.is_signed_in() { SIGNED_IN_RETURN } else { SIGNED_OUT_RETURN }
+    }
+
+    /// The path a successful OAuth callback or `/wallet/verify` answers:
+    /// [`LINK_CONFIRM_PATH`] for `link`, else the flow's stored `return_to`
+    /// (already sanitized, or the default).
+    pub fn next_path(self, stored_return_to: &str) -> &str {
+        if self == Intent::Link { LINK_CONFIRM_PATH } else { stored_return_to }
+    }
+}
+
+impl MailIntent {
+    /// The mail was asked for by a signed-in account (`link`, `step_up`).
+    pub fn is_signed_in(self) -> bool {
+        matches!(self, MailIntent::Link | MailIntent::StepUp)
+    }
+
+    /// The `return_to` an email token stores when the request's was absent
+    /// or refused.
+    pub fn default_return_to(self) -> &'static str {
+        if self.is_signed_in() { SIGNED_IN_RETURN } else { SIGNED_OUT_RETURN }
+    }
+
+    /// The path a successful `/email/confirm` answers: [`LINK_CONFIRM_PATH`]
+    /// for `link`, else the token's stored `return_to`.
+    pub fn next_path(self, stored_return_to: &str) -> &str {
+        if self == MailIntent::Link { LINK_CONFIRM_PATH } else { stored_return_to }
+    }
 }
 
 /// `POST /api/account/v1/wallet/challenge`.
@@ -717,6 +817,13 @@ pub struct WalletChallengeRequest {
     pub address: String,
     pub mode: WalletMode,
     pub intent: Intent,
+    /// The page to land on after the flow (`/signin/?return_to=` or the
+    /// account page's own path). The Worker stores only the value
+    /// `auth-core::return_to::sanitize` re-serializes, in
+    /// `wallet_chals.return_to`, or [`Intent::default_return_to`] when it is
+    /// absent or refused; the raw value is never stored.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub return_to: Option<String>,
 }
 
 /// The message to sign.
@@ -726,7 +833,11 @@ pub struct WalletChallengeAnswer {
     pub message: String,
 }
 
-/// `POST /api/account/v1/wallet/verify`.
+/// `POST /api/account/v1/wallet/verify`. A success answers [`NextAnswer`]
+/// for every intent ([`Intent::next_path`] of the challenge's intent and
+/// stored `return_to`): `signin` with the new session's cookie, `step_up` with the
+/// rotated session's, and `link` with [`LINK_CONFIRM_PATH`] after writing
+/// the pending row.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct WalletVerifyRequest {
     pub challenge_id: String,

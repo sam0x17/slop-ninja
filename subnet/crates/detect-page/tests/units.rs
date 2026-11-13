@@ -398,6 +398,7 @@ const X_FIXTURES: &[&str] = &[
     "35-x-post-purged",
     "36-x-post-pending",
     "37-x-post-superseded",
+    "38-x-post-unchecked",
 ];
 
 /// Every X-looking URL in `json`: the strings that hold an X host or a
@@ -454,6 +455,7 @@ fn x_pages_keep_their_invariants() {
         ("33-x-post-gone", RefusalCode::XGone, 410),
         ("34-x-post-edited", RefusalCode::XEdited, 410),
         ("35-x-post-purged", RefusalCode::XPurged, 410),
+        ("38-x-post-unchecked", RefusalCode::XUnchecked, 410),
     ] {
         let p = fixture(name);
         assert_eq!((p.ended.map(|e| e.code), p.http_status()), (Some(code), status), "{name}");
@@ -547,6 +549,8 @@ fn check_refuses_broken_x_pages() {
         ("33-x-post-gone", RefusalCode::XRemoved),
         ("32-x-post-removed", RefusalCode::XGone),
         ("32-x-post-removed", RefusalCode::XPurged),
+        ("32-x-post-removed", RefusalCode::XUnchecked),
+        ("38-x-post-unchecked", RefusalCode::XRemoved),
         ("33-x-post-gone", RefusalCode::PageGone),
     ] {
         let mut p = fixture(name);
@@ -573,6 +577,87 @@ fn check_refuses_broken_x_pages() {
     let mut p = fixture("32-x-post-removed");
     p.removal = None;
     refused(p, "a removed X page names its removal");
+}
+
+#[test]
+fn x_delete_holds_only_a_source_id_and_its_cause() {
+    use slop_ninja_detect_page::queue::{Job, QueueMessage};
+    // The pattern names every field and no `..`, and each binding is typed:
+    // adding a field to the variant, or changing a type, breaks this test.
+    fn fields(job: &Job) -> Option<(u64, XDeleteCause)> {
+        match *job {
+            Job::XDelete { source_id, cause } => {
+                let id: u64 = source_id;
+                let cause: XDeleteCause = cause;
+                Some((id, cause))
+            }
+            _ => None,
+        }
+    }
+    // The causes are exactly these four, each a refusal code its detections
+    // end with, on its own state.
+    let causes: Vec<&str> = XDeleteCause::ALL.iter().map(|c| c.as_str()).collect();
+    assert_eq!(causes, ["x_gone", "x_edited", "x_unchecked", "x_removed"]);
+    for c in XDeleteCause::ALL {
+        assert_eq!(c.code().as_str(), c.as_str());
+        assert!(page::ENDED_CODES.contains(&c.code()), "{c}");
+        assert_eq!(page::Ended::state_of(c.code()), Some(c.state()), "{c}");
+        assert_eq!(c.deletes_source_row(), *c != XDeleteCause::XRemoved);
+    }
+    // x_purged has its own pages (`x_purge_page`), never an x_delete.
+    assert_eq!(XDeleteCause::parse("x_purged"), None);
+    // On the wire: the version, the type, the integer and the cause, and
+    // nothing else; no post id, X URL or slug.
+    let dir = format!("{}/tests/fixtures/queue", env!("CARGO_MANIFEST_DIR"));
+    for c in XDeleteCause::ALL {
+        let name = c.as_str().trim_start_matches("x_");
+        let raw = std::fs::read_to_string(format!("{dir}/x-delete-{name}.json")).unwrap();
+        let v: serde_json::Map<String, serde_json::Value> = serde_json::from_str(&raw).unwrap();
+        let mut keys: Vec<&str> = v.keys().map(String::as_str).collect();
+        keys.sort_unstable();
+        assert_eq!(keys, ["cause", "source_id", "type", "v"], "{name}");
+        assert!(v["source_id"].is_u64() && v["type"] == "x_delete" && v["cause"] == c.as_str(), "{name}");
+        assert!(!raw.contains("status") && !raw.contains("x.com"), "{name}");
+        let m: QueueMessage = serde_json::from_str(&raw).unwrap();
+        assert_eq!(fields(&m.job), Some((42, *c)));
+    }
+    // A cause outside the four, or a post id in place of the row id, does
+    // not parse.
+    assert!(
+        serde_json::from_str::<QueueMessage>(r#"{"v":1,"type":"x_delete","source_id":42,"cause":"x_purged"}"#).is_err()
+    );
+    assert!(
+        serde_json::from_str::<QueueMessage>(r#"{"v":1,"type":"x_delete","source_id":"x:status:1","cause":"x_gone"}"#)
+            .is_err()
+    );
+    assert!(serde_json::from_str::<QueueMessage>(r#"{"v":1,"type":"x_delete","cause":"x_gone"}"#).is_err());
+}
+
+#[test]
+fn paid_open_rides_only_on_a_cut_unstored_result() {
+    let refused = |p: Page, why: &str| assert!(p.check().is_err(), "{why}");
+    for name in ["27-unstored", "39-unstored-paid-open"] {
+        let p = fixture(name);
+        assert!(p.check().is_ok() && p.paid_open.is_some(), "{name}");
+        let mut q = p.clone();
+        q.paid_open = None;
+        refused(q, "a cut unstored result says whether paid checks are open");
+        let mut q = p;
+        q.run.as_mut().unwrap().cut = CutKind::None;
+        refused(q, "no paid offer for a text that was not cut");
+    }
+    for name in ["01-public-very-strong", "20-secret-free-cut", "28-example", "29-x-post-short", "21-secret-deleted"] {
+        let mut p = fixture(name);
+        assert_eq!(p.paid_open, None, "{name}");
+        p.paid_open = Some(true);
+        refused(p, "paid_open only on the unstored result");
+    }
+    // Every page but the two unstored fixtures offers nothing.
+    let reader = PaidReader { billing: BillingState::Grants, paid_preview: true };
+    assert_eq!(fixture("20-secret-free-cut").paid_offer(Some(reader)), PaidOffer::Nothing);
+    assert_eq!(fixture("39-unstored-paid-open").paid_offer(Some(reader)), PaidOffer::CheckAll);
+    assert_eq!(fixture("27-unstored").paid_offer(None), PaidOffer::Nothing);
+    assert_eq!(fixture("39-unstored-paid-open").paid_offer(None), PaidOffer::SignIn);
 }
 
 #[test]
@@ -891,6 +976,7 @@ fn refusal_codes() {
         ("x_removed", 422),
         ("x_gone", 410),
         ("x_edited", 410),
+        ("x_unchecked", 410),
         ("x_purged", 410),
     ] {
         let c = RefusalCode::parse(s).unwrap_or_else(|| panic!("{s}"));
@@ -898,7 +984,7 @@ fn refusal_codes() {
         assert_eq!(c.copy_key(), format!("refusal.{s}"));
     }
     let x: Vec<_> = RefusalCode::ALL.iter().filter(|c| c.group() == refusal::Group::X).collect();
-    assert_eq!(x.len(), 11);
+    assert_eq!(x.len(), 12);
     // x_post_link and x_post_superseded carry the canonical post URL, and
     // only they carry a url.
     let link = ApiRefusal::x_post_link(1855).unwrap();
@@ -928,7 +1014,11 @@ fn refusal_codes() {
         assert_eq!(page::Ended::state_of(*c), Some(want), "{c}");
     }
     assert_eq!(page::Ended::state_of(RefusalCode::PageGone), None);
-    assert_eq!(page::ENDED_CODES.len(), 4);
+    assert_eq!(page::ENDED_CODES.len(), 5);
+    // A live page whose run document is missing: 503, not an X code.
+    let ru = RefusalCode::parse("report_unavailable").unwrap();
+    assert_eq!((ru.status(), ru.group(), ru.copy_key()), (503, refusal::Group::Page, "refusal.report_unavailable"));
+    assert_eq!(page::Ended::state_of(ru), None);
     let r = serde_json::to_string(&ApiRefusal::new(RefusalCode::Busy)).unwrap();
     assert_eq!(r, r#"{"state":"refused","code":"busy"}"#);
     assert!(serde_json::from_str::<ApiRefusal>(r#"{"state":"error","code":"busy"}"#).is_err());

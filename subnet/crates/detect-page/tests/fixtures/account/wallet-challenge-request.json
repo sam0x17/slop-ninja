@@ -1,5 +1,6 @@
 {
   "address": "5Fixture000000000000000000000000000000000000000",
   "mode": "extension",
-  "intent": "signin"
+  "intent": "signin",
+  "return_to": "/d/k7m2xq9"
 }

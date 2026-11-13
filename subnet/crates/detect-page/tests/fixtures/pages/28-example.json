@@ -130,5 +130,6 @@
   "removal": null,
   "card": null,
   "ninja": "strike",
-  "receipt": null
+  "receipt": null,
+  "paid_open": null
 }

@@ -412,7 +412,18 @@ fn x_indexes_serve_the_sweep() {
     has("sources_x_fetched", "ON sources(fetched_at) WHERE adapter = 'x' AND canon_url IS NOT NULL");
     has("sources_x_candidate", "ON sources(gone_candidate_at) WHERE gone_candidate_at IS NOT NULL");
     has("sources_x_edit", "ON sources(edit_check_at) WHERE edit_check_at IS NOT NULL");
-    // Each due-source read uses its index.
+    has("sources_x_marked", "ON sources(x_mismatch_at) WHERE x_mismatch_at IS NOT NULL");
+    // The compliance reserve's count of marked sources reads the partial
+    // index alone, and counts only marked sources.
+    for (id, mark) in [(1u8, Some(5i64)), (2, None), (3, Some(6))] {
+        let canon = format!("https://x.com/i/status/{id}");
+        run(&c, X_SRC, &[i(id.into()), b(id), t(&canon), t("ranked")]).unwrap();
+        if let Some(m) = mark {
+            run(&c, "UPDATE sources SET x_mismatch_at = ? WHERE source_id = ?", &[i(m), i(id.into())]).unwrap();
+        }
+    }
+    assert_eq!(count(&c, "SELECT count(*) FROM sources WHERE x_mismatch_at IS NOT NULL"), 2);
+    // Each due-source read, and the reserve's count, uses its index.
     for (q, name) in [
         (
             "SELECT source_id FROM sources WHERE adapter = 'x' AND canon_url IS NOT NULL AND fetched_at < 9 \
@@ -429,6 +440,10 @@ fn x_indexes_serve_the_sweep() {
              ORDER BY edit_check_at LIMIT 10",
             "sources_x_edit",
         ),
+        ("SELECT count(*) FROM sources WHERE x_mismatch_at IS NOT NULL", "sources_x_marked"),
+        // Under X_EXISTENCE = lookup the count is every X source that holds
+        // canon_url.
+        ("SELECT count(*) FROM sources WHERE adapter = 'x' AND canon_url IS NOT NULL", "sources_x_fetched"),
     ] {
         let plan: Vec<String> = c
             .prepare(&format!("EXPLAIN QUERY PLAN {q}"))
@@ -493,6 +508,13 @@ fn deleting_an_x_source_follows_the_foreign_keys() {
     x_page(&c, 2, "x4m8q2u");
     delete_x_source(&c, 2, "deleted", RefusalCode::XEdited).unwrap();
     assert_eq!(count(&c, "SELECT count(*) FROM detections WHERE refusal = 'x_edited' AND run_id IS NULL"), 1);
+    // So does a marked source whose compliance lookup did not fit the
+    // budget; its mark goes with the row.
+    x_page(&c, 3, "x4m8q2v");
+    run(&c, "UPDATE sources SET x_mismatch_at = 7 WHERE source_id = 3", &[]).unwrap();
+    delete_x_source(&c, 3, "deleted", RefusalCode::XUnchecked).unwrap();
+    assert_eq!(count(&c, "SELECT count(*) FROM detections WHERE refusal = 'x_unchecked' AND source_id IS NULL"), 1);
+    assert_eq!(count(&c, "SELECT count(*) FROM sources WHERE x_mismatch_at IS NOT NULL"), 0);
 }
 
 #[test]

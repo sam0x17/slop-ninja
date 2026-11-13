@@ -63,6 +63,11 @@ fn wrong_target_is_refused() {
     // An account op addressed to detect.
     let misfiled = body(&op(Target::Detect, Env::Production, "grant_credit", 6), &k);
     assert_eq!(detect.verify(&misfiled, NOW).unwrap_err(), Refusal::UnknownOp);
+    // The X sign-in purge reaches the account Worker, and only it.
+    let purge = body(&op(Target::Account, Env::Production, "x_signin_purge", 10), &k);
+    assert_eq!(account.verify(&purge, NOW).unwrap().op.op, "x_signin_purge");
+    let purge_to_detect = body(&op(Target::Detect, Env::Production, "x_signin_purge", 11), &k);
+    assert_eq!(detect.verify(&purge_to_detect, NOW).unwrap_err(), Refusal::UnknownOp);
 }
 
 #[test]
@@ -213,6 +218,10 @@ fn keys_and_codes() {
         assert!(in_catalog(Target::Detect, o), "{o}");
         assert!(!in_catalog(Target::Account, o) && !in_catalog(Target::Edge, o), "{o}");
     }
+    // The X sign-in purge is an account op only: the account Worker holds
+    // the identities it deletes.
+    assert!(in_catalog(Target::Account, "x_signin_purge"));
+    assert!(!in_catalog(Target::Detect, "x_signin_purge") && !in_catalog(Target::Edge, "x_signin_purge"));
     // Every entry is listed once.
     let entries: std::collections::HashSet<_> = CATALOG.iter().collect();
     assert_eq!(entries.len(), CATALOG.len());

@@ -116,6 +116,37 @@ pub struct Page {
     pub ninja: Option<NinjaState>,
     /// The feedback receipt, on live pages and the unstored result.
     pub receipt: Option<String>,
+    /// On the unstored result of a text the free check cut (`run.cut` is not
+    /// `none`): whether paid whole-document checks are open to every
+    /// account (`DETECT_PAID = on`); `null` on every other page. It is the
+    /// same for every reader. What the page offers a reader also depends on
+    /// the account side ([`PaidReader`]); [`Page::paid_offer`] combines them.
+    pub paid_open: Option<bool>,
+}
+
+/// What the unstored result offers for the words past the free cut.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum PaidOffer {
+    /// Nothing: the text was not cut, paid checks are closed to this reader,
+    /// or the account side has `BILLING = off`.
+    Nothing,
+    /// "Sign in to check all N words" (a signed-out reader while paid checks
+    /// are open to every account).
+    SignIn,
+    /// The **Check all N words** button, which posts the text and the seal
+    /// to the paid quote.
+    CheckAll,
+}
+
+/// The account side of [`Page::paid_offer`], for a signed-in reader: the
+/// account Worker's `BILLING` state and the account's `paid_preview` flag
+/// (an operator's test account sees paid checks while they are closed to
+/// everyone else). The website takes it from the session answer when it
+/// renders the page, and the page scripts from `/api/account/v1/me`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct PaidReader {
+    pub billing: BillingState,
+    pub paid_preview: bool,
 }
 
 /// The package serving now.
@@ -241,7 +272,10 @@ pub struct Text {
     /// What each range of a public page's quoted body is.
     #[serde(default)]
     pub anchors: Vec<Anchor>,
-    /// Passages listed by word range and linked, not quoted.
+    /// Passages listed by word range and linked, not quoted. When the
+    /// source is gone (`source.status = gone`, text withheld), every passage
+    /// is listed here, so the positions stay while the excerpt goes; the
+    /// renderer then leaves them unlinked.
     #[serde(default)]
     pub further: Vec<FurtherPassage>,
     /// The source page's words (public pages).
@@ -330,29 +364,35 @@ pub struct Ended {
 /// The codes an [`Ended`] may carry, each on one state:
 /// - `x_gone` (deleted, 410): the post is no longer available on X;
 /// - `x_edited` (deleted, 410): the post was edited on X after the check;
+/// - `x_unchecked` (deleted, 410): the post could not be checked again
+///   within the read budget (or `X_MARKED = delete` deleted it), so its
+///   report was removed rather than kept up unchecked;
 /// - `x_purged` (deleted, 410): every report on posts from X was removed
 ///   (`x_purge`, or `DETECT_X = purged` while its pages run);
 /// - `x_removed` (removed, 451): the page was taken down at the request of
 ///   the post's author or of X; the page names its removal.
 pub const ENDED_CODES: &[RefusalCode] =
-    &[RefusalCode::XGone, RefusalCode::XEdited, RefusalCode::XPurged, RefusalCode::XRemoved];
+    &[RefusalCode::XGone, RefusalCode::XEdited, RefusalCode::XUnchecked, RefusalCode::XPurged, RefusalCode::XRemoved];
 
 impl Ended {
     /// The one state a code ends a page in; `None` for a code that is not
     /// in [`ENDED_CODES`].
     pub fn state_of(code: RefusalCode) -> Option<DetState> {
         match code {
-            RefusalCode::XGone | RefusalCode::XEdited | RefusalCode::XPurged => Some(DetState::Deleted),
+            RefusalCode::XGone | RefusalCode::XEdited | RefusalCode::XUnchecked | RefusalCode::XPurged => {
+                Some(DetState::Deleted)
+            }
             RefusalCode::XRemoved => Some(DetState::Removed),
             _ => None,
         }
     }
 }
 
-/// The ad page kinds (`ad-slots/v0`, DESIGN 4.2) of the detection pages that
-/// never carry an ad slot: the secret host, paid results, the unstored result
-/// and posts on X. `check-release` refuses an `AD_SLOTS` list naming any of
-/// them; the website's page-kind table holds the rest of the list.
+/// The ad page kinds (the website's `ad-slots/v0` names) of the detection
+/// pages that never carry an ad slot: the secret host, paid results, the
+/// unstored result and posts on X. `check-release` refuses an `AD_SLOTS`
+/// list naming any of them; the website's page-kind table holds the rest of
+/// the list.
 pub const AD_FREE_PAGE_KINDS: &[&str] = &["secret", "paid_result", "unstored_result", "x_post"];
 
 /// A removal.
@@ -438,6 +478,27 @@ impl Page {
         AD_FREE_PAGE_KINDS.contains(&self.ad_page_kind())
     }
 
+    /// What the unstored result offers `reader` (`None`: signed out) for the
+    /// words past the free cut:
+    /// - nothing on any other page, or when the text was not cut;
+    /// - signed in: **Check all N words** when the account side's `BILLING`
+    ///   is not `off` and paid checks are open to every account
+    ///   ([`Page::paid_open`]) or the account is a `paid_preview` test
+    ///   account; otherwise nothing;
+    /// - signed out: "Sign in to check all N words" only while paid checks
+    ///   are open to every account.
+    ///
+    /// The paid quote checks the same switches again when it is posted, and
+    /// refuses with `paid_off` if they changed after the page was rendered.
+    pub fn paid_offer(&self, reader: Option<PaidReader>) -> PaidOffer {
+        let Some(open) = self.paid_open else { return PaidOffer::Nothing };
+        match reader {
+            None if open => PaidOffer::SignIn,
+            Some(r) if r.billing != BillingState::Off && (open || r.paid_preview) => PaidOffer::CheckAll,
+            _ => PaidOffer::Nothing,
+        }
+    }
+
     /// The ninja input of the run, if there is one.
     pub fn ninja_input(&self) -> Option<NinjaInput> {
         let run = self.run.as_ref()?;
@@ -486,6 +547,11 @@ impl Page {
             need(slug::is_canonical(s, slug::PUBLIC_LEN), "canonical and supersession name public slugs")?;
         }
         need(self.robots != Robots::Index || self.state == DetState::Live, "only live pages are indexed")?;
+        let cut = self.run.as_ref().is_some_and(|r| r.cut != CutKind::None);
+        need(
+            self.paid_open.is_some() == (self.kind == Kind::Unstored && self.state == DetState::Live && cut),
+            "paid_open exactly on an unstored result whose text was cut",
+        )?;
         // State: what each state carries.
         let ended = self.state.is_ended();
         if ended || self.state == DetState::Pending || self.state == DetState::Failed {

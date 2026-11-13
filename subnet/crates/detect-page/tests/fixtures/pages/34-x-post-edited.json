@@ -32,5 +32,6 @@
   "removal": null,
   "card": null,
   "ninja": null,
-  "receipt": null
+  "receipt": null,
+  "paid_open": null
 }

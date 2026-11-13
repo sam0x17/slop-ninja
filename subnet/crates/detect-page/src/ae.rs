@@ -86,8 +86,9 @@ pub mod detect {
     ///   (`x_unavailable`);
     /// - `prefix_mismatch`: written beside `scored` when a long-post body
     ///   does not begin with the leading reply-mention run and is kept whole;
-    /// - `budget`: the billing cycle's `X_READ_BUDGET` was reached, so no
-    ///   request was made (`x_unavailable`).
+    /// - `budget`: the lookup did not fit the billing cycle's `X_READ_BUDGET`,
+    ///   so no request was made (a new read answers `x_unavailable`; a
+    ///   compliance lookup deletes its source with `x_unchecked`).
     pub const XREAD_OUTCOMES: &[&str] = &[
         "scored",
         "superseded",
@@ -110,21 +111,27 @@ pub mod detect {
     ///   shape); it starts the failure hold;
     /// - `failed`: a timeout, a 5xx or a network error;
     /// - `contradicted`: a lookup found the post that oEmbed called a
-    ///   candidate (the source is marked and oEmbed distrust starts);
-    /// - `control`: the message's control post did not answer `present` (or
-    ///   `X_CONTROL_ID` is missing), so every answer in it is `unexpected`.
+    ///   candidate, on a source that was not marked (the source is marked and
+    ///   oEmbed distrust starts; a marked source's candidate is expected and
+    ///   writes no `contradicted` point);
+    /// - `control`: one of the message's two controls failed: the live
+    ///   control (`X_CONTROL_ID`) did not answer `present`, or the gone
+    ///   control (`X_GONE_CONTROL_ID`) did not answer `gone_candidate`, or
+    ///   either id is missing or a placeholder. Every answer in that message
+    ///   then counts as `unexpected`, and nothing is recorded.
     pub const XCHECK_OUTCOMES: &[&str] =
         &["present", "gone_candidate", "unexpected", "failed", "contradicted", "control"];
     /// `xsweep` steps.
     pub const XSWEEP_STEPS: &[&str] = &["first", "next"];
-    /// The billing cycle's X reads neared `X_READ_BUDGET` (at the poller's
-    /// threshold).
+    /// The billing cycle's X reads, plus the compliance reserve the marked
+    /// sources hold, neared `X_READ_BUDGET` (at the poller's threshold).
     pub const X_READ_BUDGET: &str = "x_read_budget";
     /// Checking posts from X is unavailable: `xread` `usage_capped`,
     /// `credits` or `token`.
     pub const X_UNAVAILABLE: &str = "x_unavailable";
-    /// Any `xcheck` `unexpected` or `control` point: X may have changed
-    /// oEmbed, which would stop the existence checks.
+    /// Any `xcheck` `unexpected` or `control` point: X may have changed or
+    /// cached oEmbed's answers, the live control may be gone, or the gone
+    /// control answers `present`; any of these stops the existence checks.
     pub const X_CHECK_UNEXPECTED: &str = "x_check_unexpected";
     /// Any `xcheck` `contradicted` point: oEmbed called a post gone that the
     /// lookup found (oEmbed distrust holds until `x_oembed_trust`).

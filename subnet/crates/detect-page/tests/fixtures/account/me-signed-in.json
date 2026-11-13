@@ -1,5 +1,7 @@
 {
   "signed_in": true,
   "label": "reader-fixture",
-  "method": "github"
+  "method": "github",
+  "billing": "grants",
+  "paid_preview": false
 }

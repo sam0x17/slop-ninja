@@ -34,6 +34,7 @@ CREATE INDEX sources_host ON sources(host);
 CREATE INDEX sources_x_fetched ON sources(fetched_at) WHERE adapter = 'x' AND canon_url IS NOT NULL;   -- the X sweep
 CREATE INDEX sources_x_candidate ON sources(gone_candidate_at) WHERE gone_candidate_at IS NOT NULL;
 CREATE INDEX sources_x_edit ON sources(edit_check_at) WHERE edit_check_at IS NOT NULL;
+CREATE INDEX sources_x_marked ON sources(x_mismatch_at) WHERE x_mismatch_at IS NOT NULL;     -- the count of marked sources
 
 CREATE TABLE source_aliases (alias_key BLOB PRIMARY KEY, source_id INTEGER NOT NULL REFERENCES sources(source_id));
 

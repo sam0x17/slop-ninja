@@ -547,3 +547,51 @@ code_enum! {
         Purged = "purged",
     }
 }
+
+code_enum! {
+    /// Why an X source is being deleted, carried by `x_delete`
+    /// ([`crate::queue::Job::XDelete`]) when the deletion stopped between
+    /// its R2 delete and its D1 batch. Each cause is the refusal code its
+    /// detections end with ([`XDeleteCause::code`]).
+    pub enum XDeleteCause {
+        /// A confirmed gone: the post is no longer available on X.
+        XGone = "x_gone",
+        /// The post was edited on X after it was checked.
+        XEdited = "x_edited",
+        /// A compliance lookup did not fit the read budget, or a
+        /// contradiction under `X_MARKED = delete`.
+        XUnchecked = "x_unchecked",
+        /// A removal at the request of the post's author or of X: the
+        /// detections are removed and the source keeps only its key.
+        XRemoved = "x_removed",
+    }
+}
+
+impl XDeleteCause {
+    /// The refusal code the source's detections end with, also their
+    /// [`crate::page::Ended`] reason.
+    pub fn code(self) -> crate::refusal::RefusalCode {
+        use crate::refusal::RefusalCode as R;
+        match self {
+            XDeleteCause::XGone => R::XGone,
+            XDeleteCause::XEdited => R::XEdited,
+            XDeleteCause::XUnchecked => R::XUnchecked,
+            XDeleteCause::XRemoved => R::XRemoved,
+        }
+    }
+
+    /// The state the source's detections end in: `removed` for a removal,
+    /// `deleted` otherwise.
+    pub fn state(self) -> DetState {
+        match self {
+            XDeleteCause::XRemoved => DetState::Removed,
+            _ => DetState::Deleted,
+        }
+    }
+
+    /// Whether the source row goes (every cause but a removal, which keeps
+    /// the row as a tombstone holding only its key).
+    pub fn deletes_source_row(self) -> bool {
+        self != XDeleteCause::XRemoved
+    }
+}

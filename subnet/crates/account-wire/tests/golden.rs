@@ -277,13 +277,38 @@ fn entries() -> Vec<(String, String)> {
     put(&mut e, "view-request-account", ViewRequest { page: ViewPage::Account, step_up: false });
     put(&mut e, "view-request-signin-step-up", ViewRequest { page: ViewPage::Signin, step_up: true });
     // Session and me.
-    put(&mut e, "session", SessionAnswer { user_id: user(), auth_time: T0 - 5 * 60_000, flags: 1 });
+    // The session answer carries the label, method and BILLING state for the
+    // website's own pages; only user_id, auth_time and flags go to detect.
+    let session = SessionAnswer {
+        user_id: user(),
+        auth_time: T0 - 5 * 60_000,
+        flags: 0,
+        label: "reader-fixture".into(),
+        method: Provider::Github,
+        billing: BillingState::Grants,
+    };
+    put(&mut e, "session", session.clone());
     put(
         &mut e,
-        "me-signed-in",
-        MeAnswer { signed_in: true, label: Some("reader-fixture".into()), method: Some(Provider::Github) },
+        "session-paid-preview",
+        SessionAnswer { flags: 1, label: SS58.into(), method: Provider::Bittensor, ..session.clone() },
     );
-    put(&mut e, "me-signed-out", MeAnswer { signed_in: false, label: None, method: None });
+    put(&mut e, "session-billing-off", SessionAnswer { billing: BillingState::Off, ..session });
+    let me = MeAnswer {
+        signed_in: true,
+        label: Some("reader-fixture".into()),
+        method: Some(Provider::Github),
+        billing: BillingState::Grants,
+        paid_preview: false,
+    };
+    put(&mut e, "me-signed-in", me.clone());
+    put(&mut e, "me-paid-preview", MeAnswer { paid_preview: true, ..me.clone() });
+    put(&mut e, "me-billing-off", MeAnswer { billing: BillingState::Off, ..me });
+    put(
+        &mut e,
+        "me-signed-out",
+        MeAnswer { signed_in: false, label: None, method: None, billing: BillingState::Grants, paid_preview: false },
+    );
     // Saved links.
     put(
         &mut e,
@@ -380,7 +405,8 @@ fn entries() -> Vec<(String, String)> {
             provider: Some(Provider::Google),
         },
     );
-    put(&mut e, "next", NextAnswer { return_to: "/account/link/confirm".into() });
+    // The confirm and verify answers, for every intent.
+    put(&mut e, "next", NextAnswer { return_to: LINK_CONFIRM_PATH.into() });
     // Account forms (urlencoded on the wire; the same field names here).
     for a in LinkAction::ALL {
         put(&mut e, &format!("form-link-confirm-{}", a.as_str()), LinkConfirmForm { action: *a });
@@ -394,7 +420,17 @@ fn entries() -> Vec<(String, String)> {
     put(
         &mut e,
         "wallet-challenge-request",
-        WalletChallengeRequest { address: SS58.into(), mode: WalletMode::Extension, intent: Intent::Signin },
+        WalletChallengeRequest {
+            address: SS58.into(),
+            mode: WalletMode::Extension,
+            intent: Intent::Signin,
+            return_to: Some("/d/k7m2xq9".into()),
+        },
+    );
+    put(
+        &mut e,
+        "wallet-challenge-request-link",
+        WalletChallengeRequest { address: SS58.into(), mode: WalletMode::Cli, intent: Intent::Link, return_to: None },
     );
     put(
         &mut e,
@@ -412,6 +448,15 @@ Issued At: 2026-11-20T10:04:00.000Z\nExpiration Time: 2026-11-20T10:09:00.000Z"
         &mut e,
         "wallet-verify-request",
         WalletVerifyRequest { challenge_id: "challenge-fixture".into(), signature: format!("0x{}", "ab".repeat(64)) },
+    );
+    // Its answers: a sign-in lands on its stored return_to; a link on the
+    // confirm page; a step-up started from the account page back there.
+    put(&mut e, "wallet-verify-answer", NextAnswer { return_to: Intent::Signin.next_path("/d/k7m2xq9").into() });
+    put(&mut e, "wallet-verify-answer-link", NextAnswer { return_to: Intent::Link.next_path("/d/k7m2xq9").into() });
+    put(
+        &mut e,
+        "wallet-verify-answer-step-up",
+        NextAnswer { return_to: Intent::StepUp.next_path(Intent::StepUp.default_return_to()).into() },
     );
     e
 }
@@ -475,10 +520,105 @@ fn mail_draws_on_the_right_buckets() {
 
 #[test]
 fn session_answer_becomes_the_principal() {
-    let s = SessionAnswer { user_id: UserId([0xab; 16]), auth_time: 5, flags: 1 };
-    assert_eq!(s.principal().encode(), "v1;abababababababababababababababab;5;1");
+    let s = SessionAnswer {
+        user_id: UserId([0xab; 16]),
+        auth_time: 5,
+        flags: 1,
+        label: "reader@host.example".into(),
+        method: Provider::Email,
+        billing: BillingState::Grants,
+    };
+    // Only user_id, auth_time and flags are forwarded: the label, method and
+    // BILLING state stay with the website.
+    let header = s.principal().encode();
+    assert_eq!(header, "v1;abababababababababababababababab;5;1");
+    assert!(!header.contains("reader") && !header.contains("email") && !header.contains("grants"));
+    assert!(s.paid_preview());
+    assert!(!SessionAnswer { flags: 0, ..s.clone() }.paid_preview());
     assert!(Provider::X.is_oauth() && !Provider::Bittensor.is_oauth());
     assert_eq!(Provider::Bittensor.switch(), "auth.bittensor");
+}
+
+#[test]
+fn the_paid_offer_follows_the_page_and_the_reader() {
+    use slop_ninja_account_wire::detect_page::page::{PaidOffer, PaidReader};
+    let page = |name: &str| -> slop_ninja_account_wire::detect_page::Page {
+        serde_json::from_str(&std::fs::read_to_string(dir().join(format!("pages/{name}.json"))).unwrap()).unwrap()
+    };
+    let closed = page("27-unstored");
+    let open = page("39-unstored-paid-open");
+    assert_eq!((closed.paid_open, open.paid_open), (Some(false), Some(true)));
+    let me = |name: &str| -> MeAnswer {
+        serde_json::from_str(&std::fs::read_to_string(dir().join(format!("account/{name}.json"))).unwrap()).unwrap()
+    };
+    let session = |name: &str| -> SessionAnswer {
+        serde_json::from_str(&std::fs::read_to_string(dir().join(format!("account/{name}.json"))).unwrap()).unwrap()
+    };
+    // The page scripts' answer and the website's session answer agree.
+    for (m, s) in [
+        ("me-signed-in", "session"),
+        ("me-paid-preview", "session-paid-preview"),
+        ("me-billing-off", "session-billing-off"),
+    ] {
+        assert_eq!(me(m).paid_reader(), Some(session(s).paid_reader()), "{m}");
+    }
+    assert_eq!(me("me-signed-out").paid_reader(), None);
+    // Closed to the public (DETECT_PAID off): only a paid_preview account
+    // with BILLING on sees the button; a signed-out reader is not invited.
+    let cases: [(&str, Option<PaidReader>, PaidOffer, PaidOffer); 4] = [
+        ("signed out", me("me-signed-out").paid_reader(), PaidOffer::Nothing, PaidOffer::SignIn),
+        ("signed in", me("me-signed-in").paid_reader(), PaidOffer::Nothing, PaidOffer::CheckAll),
+        ("paid_preview", me("me-paid-preview").paid_reader(), PaidOffer::CheckAll, PaidOffer::CheckAll),
+        ("BILLING off", me("me-billing-off").paid_reader(), PaidOffer::Nothing, PaidOffer::Nothing),
+    ];
+    for (who, reader, when_closed, when_open) in cases {
+        assert_eq!(closed.paid_offer(reader), when_closed, "{who}, closed");
+        assert_eq!(open.paid_offer(reader), when_open, "{who}, open");
+    }
+    // A preview account with BILLING off sees nothing either.
+    let off_preview = PaidReader { billing: BillingState::Off, paid_preview: true };
+    assert_eq!(closed.paid_offer(Some(off_preview)), PaidOffer::Nothing);
+    // No other page offers a paid check, whoever reads it.
+    let best = Some(PaidReader { billing: BillingState::Live, paid_preview: true });
+    for name in ["01-public-very-strong", "15-secret-text", "20-secret-free-cut", "28-example", "30-x-post-long"] {
+        let p = page(name);
+        assert_eq!(
+            (p.paid_open, p.paid_offer(best), p.paid_offer(None)),
+            (None, PaidOffer::Nothing, PaidOffer::Nothing)
+        );
+    }
+}
+
+#[test]
+fn every_flow_answers_where_it_goes_next() {
+    // A link always lands on the confirm page; every other flow on its own
+    // stored destination.
+    assert_eq!(Intent::Link.next_path("/d/k7m2xq9"), LINK_CONFIRM_PATH);
+    assert_eq!(MailIntent::Link.next_path("/d/k7m2xq9"), LINK_CONFIRM_PATH);
+    for i in [Intent::Signin, Intent::StepUp] {
+        assert_eq!(i.next_path("/d/k7m2xq9"), "/d/k7m2xq9", "{}", i.as_str());
+    }
+    for m in [MailIntent::Signin, MailIntent::StepUp, MailIntent::AttachPending, MailIntent::Recover] {
+        assert_eq!(m.next_path("/detect/"), "/detect/", "{}", m.as_str());
+    }
+    // An absent or refused return_to: the account page when signed in, the
+    // tool otherwise.
+    assert_eq!(Intent::Signin.default_return_to(), SIGNED_OUT_RETURN);
+    assert_eq!(Intent::Link.default_return_to(), SIGNED_IN_RETURN);
+    assert_eq!(Intent::StepUp.default_return_to(), SIGNED_IN_RETURN);
+    for m in MailIntent::ALL {
+        let want =
+            if matches!(m, MailIntent::Link | MailIntent::StepUp) { SIGNED_IN_RETURN } else { SIGNED_OUT_RETURN };
+        assert_eq!(m.default_return_to(), want, "{}", m.as_str());
+    }
+    assert_eq!(
+        (SIGNED_IN_RETURN, SIGNED_OUT_RETURN, LINK_CONFIRM_PATH),
+        ("/account/", "/detect/", "/account/link/confirm")
+    );
+    // The wallet challenge's return_to is optional on the wire.
+    let c: WalletChallengeRequest =
+        serde_json::from_str(r#"{"address":"5F","mode":"extension","intent":"step_up"}"#).unwrap();
+    assert_eq!(c.return_to, None);
 }
 
 #[test]

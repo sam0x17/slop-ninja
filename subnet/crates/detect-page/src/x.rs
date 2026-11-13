@@ -72,7 +72,7 @@ pub fn x_source_key(id: u64) -> String {
 /// A post's link on a page: `https://x.com/i/status/<id>` and nothing else.
 ///
 /// It serializes as that string and deserializes only from it, so the type
-/// itself is the check (DESIGN 18.2's source test relies on it: `post_url` is
+/// itself is the check (the templates' source test relies on it: `post_url` is
 /// the one X URL a page carries, and it can only have this form).
 #[derive(Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct PostUrl(u64);

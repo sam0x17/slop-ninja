@@ -156,13 +156,28 @@ fn flows_bind_intent_and_user() {
     refused(&c, flow, &[b(4), b(1), t("signin"), b(5), NULL], "CHECK constraint failed");
     refused(&c, flow, &[b(5), b(1), t("link"), NULL, NULL], "CHECK constraint failed");
     refused(&c, flow, &[b(6), b(1), t("attach_pending"), NULL, NULL], "CHECK constraint failed");
-    let chal = "INSERT INTO wallet_chals (chal_h, binding_h, pubkey, message, intent, created_at, expires_at) \
-                VALUES (?, ?, ?, x'00', ?, ?, ?) ON CONFLICT (binding_h, pubkey) DO UPDATE SET chal_h = excluded.chal_h, \
-                message = excluded.message, intent = excluded.intent, created_at = excluded.created_at, \
-                expires_at = excluded.expires_at";
+    let chal = "INSERT INTO wallet_chals (chal_h, binding_h, pubkey, message, intent, return_to, created_at, \
+                expires_at) VALUES (?, ?, ?, x'00', ?, '/detect/', ?, ?) ON CONFLICT (binding_h, pubkey) DO UPDATE \
+                SET chal_h = excluded.chal_h, message = excluded.message, intent = excluded.intent, \
+                return_to = excluded.return_to, created_at = excluded.created_at, expires_at = excluded.expires_at";
     run(&c, chal, &[b(1), b(1), b(9), t("signin"), i(1), i(300)]).unwrap();
-    // A newer challenge from the same browser for the same key replaces it.
-    run(&c, chal, &[b(2), b(1), b(9), t("signin"), i(2), i(301)]).unwrap();
+    // A newer challenge from the same browser for the same key replaces it,
+    // with its own destination.
+    run(&c, &chal.replace("'/detect/'", "'/d/k7m2xq9'"), &[b(2), b(1), b(9), t("signin"), i(2), i(301)]).unwrap();
+    let to: String = c
+        .query_row("SELECT return_to FROM wallet_chals WHERE chal_h = x'02020202020202020202020202020202'", [], |r| {
+            r.get(0)
+        })
+        .unwrap();
+    assert_eq!(to, "/d/k7m2xq9");
+    // A challenge always stores where its flow goes.
+    refused(
+        &c,
+        "INSERT INTO wallet_chals (chal_h, binding_h, pubkey, message, intent, return_to, created_at, expires_at) \
+         VALUES (?, ?, ?, x'00', 'signin', NULL, 1, 2)",
+        &[b(5), b(5), b(9)],
+        "NOT NULL constraint failed: wallet_chals.return_to",
+    );
     // Other browsers' challenges for that key never touch it.
     for n in 10..40u8 {
         run(&c, chal, &[b(n), b(n), b(9), t("signin"), i(3), i(302)]).unwrap();
@@ -173,8 +188,8 @@ fn flows_bind_intent_and_user() {
     // The plain insert of a second challenge for (browser, key) is refused.
     refused(
         &c,
-        "INSERT INTO wallet_chals (chal_h, binding_h, pubkey, message, intent, created_at, expires_at) \
-         VALUES (?, ?, ?, x'00', 'signin', 1, 2)",
+        "INSERT INTO wallet_chals (chal_h, binding_h, pubkey, message, intent, return_to, created_at, expires_at) \
+         VALUES (?, ?, ?, x'00', 'signin', '/detect/', 1, 2)",
         &[b(4), b(1), b(9)],
         "UNIQUE constraint failed: wallet_chals.binding_h, wallet_chals.pubkey",
     );

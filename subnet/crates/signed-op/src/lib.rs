@@ -184,6 +184,19 @@ pub const CATALOG: &[(Target, &str)] = &[
     (Target::Account, "set_switch"),
     (Target::Account, "reset_quota"),
     (Target::Account, "unsuppress"),
+    // `x_signin_purge {reason, dry_run}`: deletes the data X sign-in stored
+    // (every identity with provider `x`, with its X user id, handle and any
+    // address that came from X, and its cached avatar) and revokes the
+    // sessions signed in with those identities; run when an end of the
+    // agreement with X takes effect. An account left with no other sign-in
+    // method is deleted as a holder's own deletion is, with its saved pages
+    // released as anonymous links, unless the operator's policy says
+    // otherwise. It works in pages that fit one invocation and is repeated
+    // until its dry run counts zero. `dry_run: true` answers counts only
+    // (identities, avatars, sessions, accounts with no other method) and
+    // writes nothing but its journal row; journal rows hold counts, never an
+    // X id, handle or address.
+    (Target::Account, "x_signin_purge"),
 ];
 
 /// Whether `op` is an op of `target`.

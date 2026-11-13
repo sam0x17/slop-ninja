@@ -223,6 +223,12 @@ refusal_codes! {
     /// removed. Check the post again from its link on X." A deleted X page
     /// carries it as its [`crate::page::Ended`] reason.
     XEdited = "x_edited", 410, X;
+    /// "We couldn't keep checking that this post is still on X, so its report
+    /// was removed." The source's compliance lookup did not fit the billing
+    /// cycle's `X_READ_BUDGET`, or `X_MARKED = delete` deleted a source that
+    /// oEmbed cannot see: a report is never kept up unchecked. A deleted X
+    /// page carries it as its [`crate::page::Ended`] reason.
+    XUnchecked = "x_unchecked", 410, X;
     /// "Reports on posts from X were removed." Every X page answers it once
     /// `x_purge` runs (`DETECT_X = purged`), as its
     /// [`crate::page::Ended`] reason.
@@ -235,6 +241,13 @@ refusal_codes! {
     PageRemoved = "page_removed", 451, Page;
     /// "This page is unavailable while a report is reviewed."
     PageDisabled = "page_disabled", 451, Page;
+    /// "This report is temporarily unavailable." A live page whose run
+    /// document is missing: an X page whose deletion removed the document
+    /// but not yet the rows (until `x_delete` or the next sweep finishes it),
+    /// or a page that a D1 point-in-time restore brought back without its
+    /// document. The page route answers this refusal in place of page JSON,
+    /// and the page is served `no-store` and never cached.
+    ReportUnavailable = "report_unavailable", 503, Page;
     /// "This page belongs to another account; it was removed from your list
     /// only."
     NotOwner = "not_owner", 403, Page;

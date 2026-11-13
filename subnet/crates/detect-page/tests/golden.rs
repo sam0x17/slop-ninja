@@ -36,7 +36,9 @@ const PUBLIC: &str = "k7m2xq9";
 const NEWER: &str = "p4r8tz2";
 const SECRET: &str = "7hq2kd9m4xw8rt3vn6pb";
 const SECRET2: &str = "c3jf8kq1zw5ty7hn2mdx";
-const RECEIPT: &str = "0f1e2d3c4b5a69788796a5b4c3d2e1f0.very_strong.150_450.00112233445566778899aabbccddeeff";
+/// A feedback receipt's id and tag (`<id>.<band>.<length bin>.<tag>`).
+const RECEIPT_ID: &str = "0f1e2d3c4b5a69788796a5b4c3d2e1f0";
+const RECEIPT_TAG: &str = "00112233445566778899aabbccddeeff";
 
 /// An AI-like passage of 31 words.
 const P1: &str = "In today's fast-paced world, community gardens serve as vibrant hubs that foster connection, promote \
@@ -155,6 +157,7 @@ fn base(kind: Kind, slug: Option<&str>, state: DetState) -> Page {
         card: None,
         ninja: None,
         receipt: None,
+        paid_open: None,
     }
 }
 
@@ -201,6 +204,23 @@ fn card_ref(p: &Page, variant: CardVariant) -> CardRef {
     CardRef { variant, image }
 }
 
+/// A live page's feedback receipt, in the built form
+/// `<id>.<band>.<length bin>.<tag>`: the band as the receipt names it (a
+/// short text's `strong` or `no_strong_signs`) and the run's length bin. A
+/// paid document has neither; its fixture keeps placeholder values there
+/// (the receipt is opaque to the page contract).
+fn receipt(p: &Page) -> String {
+    let run = p.run.as_ref().expect("a live page has a run");
+    let band = match (run.band, run.short) {
+        (Some(b), None) => b.as_str(),
+        (None, Some(ShortResult::Strong)) => "strong",
+        (None, Some(ShortResult::None)) => "no_strong_signs",
+        _ => Band::VeryStrong.as_str(),
+    };
+    let len = run.length.unwrap_or(LengthBin::Long);
+    format!("{RECEIPT_ID}.{band}.{len}.{RECEIPT_TAG}")
+}
+
 /// Finishes a live page: card, ninja and receipt.
 fn live(mut p: Page) -> Page {
     p.ninja = p.ninja_input().and_then(|i| ninja_state(i, false));
@@ -209,7 +229,7 @@ fn live(mut p: Page) -> Page {
         p.card = Some(card_ref(&p, variant));
     }
     if p.state == DetState::Live && p.kind != Kind::Example {
-        p.receipt = Some(RECEIPT.into());
+        p.receipt = Some(receipt(&p));
     }
     p
 }
@@ -546,8 +566,26 @@ fn pages() -> Vec<(&'static str, &'static str, Page)> {
     let mut p = public_strong(Band::Strong, 973, "97.3%", 43);
     p.robots = Robots::Noindex;
     p.source.as_mut().unwrap().status = Some(SourceStatus::Gone);
-    p.text = Some(withheld(WithheldReason::SourceGone));
-    p.run.as_mut().unwrap().spans.clear();
+    // The positions stay: every passage by its words on the source page and
+    // its confidence (the renderer lists them unlinked, since the source is
+    // gone); the excerpt and its UTF-16 spans go.
+    let excerpt = public_excerpt(true);
+    let run = p.run.as_mut().unwrap();
+    let mut further: Vec<FurtherPassage> = excerpt
+        .anchors
+        .iter()
+        .filter(|a| a.role == AnchorRole::Passage)
+        .zip(&run.spans)
+        .map(|(a, s)| FurtherPassage {
+            from_word: a.from_word,
+            to_word: a.to_word,
+            fragment: a.fragment.clone().unwrap(),
+            confidence: s.confidence,
+        })
+        .collect();
+    further.extend(excerpt.further);
+    run.spans.clear();
+    p.text = Some(Text { further, ..withheld(WithheldReason::SourceGone) });
     v.push(("06-public-source-gone", "source gone: score and positions stay, excerpt goes", p));
     let mut p = public_strong(Band::Strong, 973, "97.3%", 43);
     p.robots = Robots::Noindex;
@@ -658,7 +696,16 @@ fn pages() -> Vec<(&'static str, &'static str, Page)> {
     run.spans = vec![span(&body, &format!("{P1} {P2}"), Some(98))];
     p.run = Some(run);
     p.text = Some(full(&body));
-    v.push(("27-unstored", "unstored result: not saved, Get a link, free-cut notice", live(p)));
+    // DETECT_PAID off (the default): only a paid_preview account sees
+    // "Check all N words".
+    p.paid_open = Some(false);
+    let unstored = live(p);
+    let open = Page { paid_open: Some(true), ..unstored.clone() };
+    v.push((
+        "27-unstored",
+        "unstored result: not saved, Get a link, free-cut notice; paid checks closed to the public",
+        unstored,
+    ));
     let mut p = base(Kind::Example, None, DetState::Live);
     p.example_slot = Some(1);
     let text = public_excerpt(true);
@@ -710,6 +757,16 @@ fn pages() -> Vec<(&'static str, &'static str, Page)> {
     let mut p = x_unshown(DetState::Failed);
     p.failure = Some(Failure { code: RefusalCode::XPostSuperseded });
     v.push(("37-x-post-superseded", "link to an earlier version of an edited post: failed (x_post_superseded)", p));
+    v.push((
+        "38-x-post-unchecked",
+        "post that could not be checked again: 410, report removed (x_unchecked)",
+        x_ended(DetState::Deleted, RefusalCode::XUnchecked),
+    ));
+    v.push((
+        "39-unstored-paid-open",
+        "unstored result while paid checks are open (DETECT_PAID on): Check all N words when signed in",
+        open,
+    ));
     v
 }
 
@@ -1062,6 +1119,14 @@ fn entries() -> Vec<Entry> {
     for (name, job) in q {
         e.push(entry(format!("queue/{name}.json"), QueueMessage::new(job)));
     }
+    // x_delete: one per cause (a source id and the cause, nothing else).
+    for cause in XDeleteCause::ALL {
+        let name = cause.as_str().trim_start_matches("x_");
+        e.push(entry(
+            format!("queue/x-delete-{name}.json"),
+            QueueMessage::new(Job::XDelete { source_id: 42, cause: *cause }),
+        ));
+    }
     // The detect op route's body: the signed envelope and, beside it, the X
     // link of a restore. The key and signature are placeholders: the file
     // shows the shape (the units test signs and verifies a real one), and
@@ -1172,6 +1237,27 @@ fn the_page_set_covers_every_plan_step() {
     for n in NinjaState::ALL {
         assert!(has(&|p| p.ninja == Some(*n)), "ninja {n}");
     }
+    // Source gone: the score and the passages' positions (word ranges and
+    // confidence) stay; the excerpt and its offsets go.
+    let gone: Vec<_> = pages
+        .iter()
+        .filter(|(_, _, p)| p.source.as_ref().is_some_and(|s| s.status == Some(SourceStatus::Gone)))
+        .collect();
+    assert!(!gone.is_empty());
+    for (name, _, p) in &gone {
+        let (run, text) = (p.run.as_ref().unwrap(), p.text.as_ref().unwrap());
+        assert!(run.band.is_some_and(|b| b.is_strong()) && run.confidence_text.is_some(), "{name}: the score stays");
+        assert!(text.body.is_none() && text.anchors.is_empty() && run.spans.is_empty(), "{name}: the excerpt goes");
+        assert!(text.further.len() >= 2, "{name}: the positions stay");
+        assert!(text.further.iter().all(|f| f.from_word <= f.to_word && f.confidence.is_some()), "{name}");
+        assert!(text.further.windows(2).all(|w| w[0].to_word < w[1].from_word), "{name}: in order");
+    }
+    // The unstored result says whether paid checks are open to everyone, in
+    // both states; no other page carries it.
+    for open in [false, true] {
+        assert!(has(&|p| p.kind == Kind::Unstored && p.paid_open == Some(open)), "paid_open {open}");
+    }
+    assert!(pages.iter().all(|(_, _, p)| p.paid_open.is_none() || p.kind == Kind::Unstored));
     assert!(has(&|p| p.superseded_by.is_some()));
     assert!(has(&|p| p.serving.differs_from_run && p.kind == Kind::PrivateText));
     assert!(has(&|p| p.run.as_ref().is_some_and(|r| r.cut != CutKind::None)));
@@ -1198,6 +1284,7 @@ fn the_page_set_covers_every_plan_step() {
     for (code, status) in [
         (RefusalCode::XGone, 410),
         (RefusalCode::XEdited, 410),
+        (RefusalCode::XUnchecked, 410),
         (RefusalCode::XPurged, 410),
         (RefusalCode::XRemoved, 451),
     ] {

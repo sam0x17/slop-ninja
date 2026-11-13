@@ -65,6 +65,7 @@ CREATE INDEX email_tokens_exp ON email_tokens(expires_at);
 CREATE TABLE wallet_chals (chal_h BLOB PRIMARY KEY, binding_h BLOB NOT NULL, pubkey BLOB NOT NULL, message BLOB NOT NULL,
   intent TEXT NOT NULL CHECK (intent IN ('signin','link','step_up')),
   user_id BLOB, session_h BLOB,              -- link and step_up, as in auth_flows
+  return_to TEXT NOT NULL,                   -- the re-serialized path from auth-core::return_to, as in auth_flows
   created_at INTEGER NOT NULL, expires_at INTEGER NOT NULL,
   UNIQUE (binding_h, pubkey));               -- a newer challenge from one browser replaces its older one
 CREATE INDEX wallet_chals_exp ON wallet_chals(expires_at);

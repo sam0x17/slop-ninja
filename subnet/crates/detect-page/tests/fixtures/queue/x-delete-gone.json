@@ -1,0 +1,6 @@
+{
+  "v": 1,
+  "type": "x_delete",
+  "source_id": 42,
+  "cause": "x_gone"
+}

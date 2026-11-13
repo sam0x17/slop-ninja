@@ -1,12 +1,15 @@
 //! Main-text extraction with dom_smoothie (a Readability port that builds
-//! for `wasm32-unknown-unknown`), on stripped HTML that already passed the
-//! depth and element bounds ([`crate::strip::shape`]).
+//! for `wasm32-unknown-unknown`), on the DOM [`crate::dom`] built within the
+//! depth, element, node and attribute bounds: dom_smoothie's recursion runs
+//! only over a tree whose depth was measured.
 //!
 //! The output is the article's paragraphs joined by a blank line, with
 //! whitespace collapsed inside each (the detect Worker then applies
 //! `canon_v1`).
 
-use crate::bound::MAX_ELEMENTS;
+use crate::bound::{DomBounds, MAX_ELEMENTS};
+use crate::dom::{self, Built, DomError};
+use crate::routes::FETCH_SHARE_BYTES;
 use dom_smoothie::{Config, Readability, ReadabilityError, TextMode};
 
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
@@ -22,21 +25,48 @@ pub struct Extracted {
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ExtractError {
+    /// More elements, nodes or attributes than the page's bounds allow.
     TooManyElements,
+    /// The DOM nests deeper than [`crate::bound::DEPTH_BOUND`].
+    TooDeep,
     /// No readable main text.
     NoContent,
 }
 
-/// Extracts the main text of `html`, a page at `url`.
-pub fn extract(html: &str, url: &str) -> Result<Extracted, ExtractError> {
-    extract_with(html, url, MAX_ELEMENTS)
+impl From<DomError> for ExtractError {
+    fn from(e: DomError) -> ExtractError {
+        match e {
+            DomError::TooDeep => ExtractError::TooDeep,
+            DomError::TooLarge => ExtractError::TooManyElements,
+        }
+    }
 }
 
-/// [`extract`] with another element bound (0: none; measurements only).
-pub fn extract_with(html: &str, url: &str, max_elements: usize) -> Result<Extracted, ExtractError> {
+/// Builds the DOM of stripped `html` within `bounds` (see [`crate::dom`]).
+pub fn dom(html: &str, bounds: &DomBounds) -> Result<Built, ExtractError> {
+    Ok(dom::build(html, bounds)?)
+}
+
+/// Extracts the main text of `html`, a page at `url`, within one share's
+/// DOM bounds.
+pub fn extract(html: &str, url: &str) -> Result<Extracted, ExtractError> {
+    let built = dom(html, &DomBounds::within(html.len(), FETCH_SHARE_BYTES))?;
+    extract_dom(built, url, MAX_ELEMENTS)
+}
+
+/// [`extract`] with no bound on the DOM or its elements (measurements and
+/// tests only; never compiled into the Worker).
+#[cfg(test)]
+pub fn extract_unbounded(html: &str, url: &str) -> Result<Extracted, ExtractError> {
+    extract_dom(dom(html, &DomBounds::NONE)?, url, 0)
+}
+
+/// Extracts the main text of a built DOM, a page at `url`; dom_smoothie
+/// refuses more than `max_elements` elements (0: no bound).
+pub fn extract_dom(built: Built, url: &str, max_elements: usize) -> Result<Extracted, ExtractError> {
     // JSON-LD is read by the strip pass (its contents never reach the DOM).
     let cfg = Config { max_elements_to_parse: max_elements, text_mode: TextMode::Formatted, disable_json_ld: true, ..Config::default() };
-    let mut r = Readability::new(html, Some(url), Some(cfg)).map_err(|_| ExtractError::NoContent)?;
+    let mut r = Readability::with_document(built.doc, Some(url), Some(cfg)).map_err(|_| ExtractError::NoContent)?;
     let a = match r.parse() {
         Ok(a) => a,
         Err(ReadabilityError::TooManyElements(..)) => return Err(ExtractError::TooManyElements),
@@ -102,10 +132,10 @@ fn warm_long() -> String {
     )
 }
 
-/// Runs the strip pass, the shape check and the extractor once on
-/// [`WARM_DOC`], so the extraction stack's lazy statics are initialized in
-/// the scope current when it runs (the Worker's statics home), never in a
-/// request's scope.
+/// Runs the strip pass, the shape check, the DOM build and the extractor
+/// once on [`WARM_DOC`] and a long page, so the extraction stack's lazy
+/// statics are initialized in the scope current when it runs (the Worker's
+/// statics home), never in a request's scope.
 pub fn warm_up() {
     // The short page takes the extractor's retry paths, the long one its
     // first-pass success path; each initializes different statics.
@@ -151,6 +181,11 @@ pub fn paragraphs(text: &str) -> String {
 pub(crate) mod tests {
     use super::*;
 
+    /// The warm-up pages.
+    pub(crate) fn warm_pages() -> Vec<String> {
+        vec![WARM_DOC.to_owned(), warm_long()]
+    }
+
     /// A synthetic article of `paras` paragraphs of `words` words each.
     pub(crate) fn article(paras: usize, words: usize) -> String {
         let mut body = String::new();
@@ -192,51 +227,90 @@ pub(crate) mod tests {
         assert_eq!(paragraphs(""), "");
     }
 
-    /// The extractor survives nesting [`crate::bound::SURVIVED_DEPTH`] deep
-    /// on a 1 MiB thread stack (the wasm32 stack's size; native frames are
-    /// larger), so [`crate::bound::DEPTH_BOUND`], a quarter of it, keeps a
-    /// fourfold margin. Each depth runs in a child process, since a stack
-    /// overflow aborts the process.
+    const DEEP_URL: &str = "https://example.com/deep";
+
+    /// A page nesting `n` deep below `body` (give or take the list or table
+    /// around it) in one of [`SHAPES`], with an article's worth of words at
+    /// the bottom.
+    pub(crate) fn nested(shape: &str, n: usize) -> String {
+        let words = "word ".repeat(400);
+        let body = match shape {
+            "div" => format!("{}<p>{words}</p>", "<div class=\"content\">".repeat(n)),
+            "li-section" => format!("<ul>{}<p>{words}</p>", "<li><section>".repeat(n / 2)),
+            "marquee" => format!("{}<p>{words}</p>", "<marquee>".repeat(n)),
+            "table" => format!("{}<p>{words}</p>", "<table><tr><td>".repeat(n / 4)),
+            "b" => format!("<p>{}{words}</p>", "<b>".repeat(n)),
+            "div-span" => format!("{}<p>{words}</p>", "<div><span>w ".repeat(n / 2)),
+            _ => unreachable!("{shape}"),
+        };
+        format!("<!doctype html><html><head><title>t</title></head><body>{body}</body></html>")
+    }
+
+    /// Nesting shapes: `li` within `section` and `p` behind `marquee` are
+    /// the scopes the strip pass's estimate does not model; `div` within
+    /// `span` is the shape dom_smoothie rewraps.
+    pub(crate) const SHAPES: &[&str] = &["div", "li-section", "marquee", "table", "b", "div-span"];
+
+    /// On a 1 MiB thread stack (the wasm32 stack's size; native frames are
+    /// larger), for every shape in [`SHAPES`]: the extractor survives a DOM
+    /// [`crate::bound::SURVIVED_DEPTH`] deep, so [`crate::bound::DEPTH_BOUND`],
+    /// a quarter of it, keeps a fourfold margin; a page just within the bound
+    /// extracts; and a page four times deeper than the extractor survives is
+    /// refused `TooDeep` by the DOM build before any extraction recursion.
+    /// Each run is a child process, since a stack overflow aborts the
+    /// process.
     #[test]
     fn the_depth_bound_fits_the_stack() {
+        use crate::bound::{DEPTH_BOUND, SURVIVED_DEPTH};
         const CHILD: &str = "SLOP_NINJA_FETCH_DEPTH_CHILD";
-        if let Ok(d) = std::env::var(CHILD) {
-            let depth: usize = d.parse().unwrap();
+        if let Ok(v) = std::env::var(CHILD) {
+            let mut it = v.split(',');
+            let shape = it.next().unwrap().to_owned();
+            let n: usize = it.next().unwrap().parse().unwrap();
+            let bounded = it.next() == Some("bounded");
             let h = std::thread::Builder::new()
                 .stack_size(1 << 20)
                 .spawn(move || {
-                    let html = format!(
-                        "<html><body>{}<p>{}</p>{}</body></html>",
-                        "<div class=\"content\">".repeat(depth),
-                        "word ".repeat(400),
-                        "</div>".repeat(depth)
-                    );
-                    let s = crate::strip::shape(&html, usize::MAX, usize::MAX).unwrap();
-                    assert!(s.depth >= depth);
-                    let _ = extract(&html, "https://example.com/deep");
+                    let html = nested(&shape, n);
+                    let r = if bounded { extract(&html, DEEP_URL) } else { extract_unbounded(&html, DEEP_URL) };
+                    eprintln!("depth child: {:?}", r.map(|e| e.words));
                 })
                 .unwrap();
             h.join().unwrap();
             return;
         }
         let exe = std::env::current_exe().unwrap();
-        let run = |depth: usize| {
-            std::process::Command::new(&exe)
-                .args(["--exact", "extract::tests::the_depth_bound_fits_the_stack", "--test-threads=1"])
-                .env(CHILD, depth.to_string())
+        // The child's outcome line, or None when it did not finish (a stack
+        // overflow).
+        let run = |shape: &str, n: usize, bounded: bool| -> Option<String> {
+            let out = std::process::Command::new(&exe)
+                .args(["--exact", "extract::tests::the_depth_bound_fits_the_stack", "--test-threads=1", "--nocapture"])
+                .env(CHILD, format!("{shape},{n},{}", if bounded { "bounded" } else { "unbounded" }))
                 .output()
-                .unwrap()
-                .status
-                .success()
+                .unwrap();
+            let err = String::from_utf8_lossy(&out.stderr).into_owned();
+            out.status.success().then(|| err.lines().find_map(|l| l.strip_prefix("depth child: ")).unwrap_or("").to_owned())
         };
-        assert!(run(crate::bound::SURVIVED_DEPTH), "the extractor must survive SURVIVED_DEPTH on a 1 MiB stack");
+        for shape in SHAPES {
+            let r = run(shape, SURVIVED_DEPTH, false);
+            assert!(
+                r.as_deref().is_some_and(|l| l.starts_with("Ok(")),
+                "{shape}: the extractor must survive SURVIVED_DEPTH on a 1 MiB stack: {r:?}"
+            );
+            let r = run(shape, DEPTH_BOUND - 8, true);
+            assert!(r.as_deref().is_some_and(|l| l.starts_with("Ok(")), "{shape}: a page within the bound extracts: {r:?}");
+            let r = run(shape, 4 * SURVIVED_DEPTH, true);
+            assert_eq!(r.as_deref(), Some("Err(TooDeep)"), "{shape}: a deeper page is refused before extraction");
+        }
         if std::env::var("SLOP_NINJA_FETCH_DEPTH_PROBE").is_ok() {
-            // Measurement only: the first depth that fails.
-            let mut d = crate::bound::SURVIVED_DEPTH;
-            while d <= 1 << 16 && run(d) {
-                d *= 2;
+            // Measurement only: the first depth that fails, per shape.
+            for shape in SHAPES {
+                let mut d = SURVIVED_DEPTH;
+                while d <= 1 << 16 && run(shape, d, false).is_some() {
+                    d *= 2;
+                }
+                eprintln!("depth probe: {shape}: survives {}, fails at or below {d}", d / 2);
             }
-            eprintln!("depth probe: survives {}, fails at or below {d}", d / 2);
         }
     }
 }

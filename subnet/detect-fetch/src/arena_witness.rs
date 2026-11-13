@@ -16,12 +16,18 @@
 //!   [`crate::bound::page_work`] of the page's stripped bytes and elements.
 //!   The implied factors are printed for re-measurement after a dependency
 //!   update.
+//! - Pages the DOM build refuses (trees deeper than their tags, formatting
+//!   elements reconstructed into every block with and without many
+//!   attributes, attribute-dense tags): refused within the fetch route's
+//!   control plus one share.
 //! - A robots.txt at the parse bound with the densest rules: within the
 //!   robots route's control plus [`ROBOTS_WORK_BYTES`].
 
 use crate::bound::{BYTES_PER_ELEMENT, DEPTH_BOUND, EXTRACT_BYTES_PER_HTML_BYTE, HTML_BOUND, page_work};
 use crate::extract::{self, tests::article};
-use crate::routes::{FETCH_CONTROL_BYTES, R_FETCH, R_ROBOTS, R_STATICS, ROBOTS_CONTROL_BYTES, ROBOTS_WORK_BYTES, STATICS_HOME_BYTES};
+use crate::routes::{
+    FETCH_CONTROL_BYTES, FETCH_SHARE_BYTES, R_FETCH, R_ROBOTS, R_STATICS, ROBOTS_CONTROL_BYTES, ROBOTS_WORK_BYTES, STATICS_HOME_BYTES,
+};
 use crate::strip::{self, Stripper};
 use slop_ninja_arena::{Closed, Mode, PAGE, Route, Scope, set_mode, strict};
 use slop_ninja_detect_fetch_wire::robots::{ROBOTS_PARSE_BYTES, RobotsRules};
@@ -91,7 +97,7 @@ fn pipeline(html: &[u8]) -> Page {
     }
     let st = s.finish().expect("stripped");
     let shape = strip::shape(&st.html, DEPTH_BOUND, usize::MAX).expect("within the depth bound");
-    let ex = extract::extract_with(&st.html, "https://example.com/page", 0);
+    let ex = extract::extract_unbounded(&st.html, "https://example.com/page");
     let text = ex.map(|e| e.text).unwrap_or_default();
     let answer = serde_json::to_vec(&text).expect("json");
     assert!(answer.len() >= text.len());
@@ -162,6 +168,39 @@ fn arena_witness_a_page_at_the_bound_fits_its_share() {
     }
     let (_, page) = measure("text at the bound", &html);
     assert!(page.stripped <= HTML_BOUND);
+}
+
+/// Pages the DOM build refuses are refused within the fetch route's
+/// control plus one share: the build stops while the tree grows, so a page
+/// that would build hundreds of megabytes never does.
+#[test]
+fn arena_witness_refused_doms_stay_within_the_share() {
+    use crate::dom::tests::{li_section_page, p_marquee_page, reconstruction_page};
+    let tag = format!("<p{}>x</p>", (0..1000).map(|a| format!(" a{a}")).collect::<String>());
+    for (name, html, want) in [
+        ("li-section", li_section_page(), extract::ExtractError::TooDeep),
+        ("p-marquee", p_marquee_page(), extract::ExtractError::TooDeep),
+        // 20,504 tags nesting 504 deep; 10 million elements if built.
+        ("reconstruction", reconstruction_page(500, 0, 20_000), extract::ExtractError::TooManyElements),
+        // 2,001 tags; 2 million attributes if built.
+        ("reconstructed attributes", reconstruction_page(1, 1000, 2000), extract::ExtractError::TooManyElements),
+        ("attribute-dense", tag.repeat(800), extract::ExtractError::TooManyElements),
+    ] {
+        let ((stripped, elements, err), peak) = witness(R_FETCH.route(), MEASURE_BYTES, || {
+            let mut s = Stripper::new(HTML_BOUND, None);
+            for w in html.as_bytes().chunks(PAGE - 64) {
+                assert!(s.write(w));
+            }
+            let st = s.finish().expect("stripped");
+            let shape = strip::shape(&st.html, DEPTH_BOUND, crate::bound::MAX_ELEMENTS).expect("within the estimate's bounds");
+            assert!(crate::bound::fits(st.html.len(), shape.elements));
+            let err = extract::extract(&st.html, "https://example.com/page").err();
+            (st.html.len(), shape.elements, err)
+        });
+        eprintln!("arena witness: refused {name}: stripped {stripped} B, {elements} tags, {err:?}, peak {peak} B");
+        assert_eq!(err, Some(want), "{name}");
+        assert!(peak <= FETCH_CONTROL_BYTES + FETCH_SHARE_BYTES, "{name}: peak {peak} B exceeds one share");
+    }
 }
 
 #[test]

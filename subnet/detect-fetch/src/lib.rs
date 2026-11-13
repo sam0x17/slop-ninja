@@ -15,11 +15,12 @@
 //!   URL rules, re-screened for malware and phishing ([`screen`]) and, on a
 //!   new origin, checked against that origin's robots.txt, with an `https`
 //!   to `http` downgrade ending the chain ([`redirects`]); the body read as
-//!   a counted stream through the strip pass ([`strip`]: lol_html, the depth
-//!   and element bounds, the page's metadata and robots directives) into at
-//!   most `HTML_BOUND` bytes ([`bound`]), then main-text extraction
-//!   ([`extract`]: dom_smoothie); Bluesky posts through the public AppView
-//!   ([`bluesky`]).
+//!   a counted stream through the strip pass ([`strip`]: lol_html, the page's
+//!   metadata and robots directives, an early estimate of its shape) into at
+//!   most `HTML_BOUND` bytes ([`bound`]), the DOM build ([`dom`]: html5ever,
+//!   refusing a tree past the depth, element, node or attribute bounds as it
+//!   grows), then main-text extraction ([`extract`]: dom_smoothie); Bluesky
+//!   posts through the public AppView ([`bluesky`]).
 //!
 //! Neither route ever requests an X host (`x.com`, `twitter.com`, `t.co`,
 //! `twimg.com` or a subdomain): the submitted URL, every page hop, the
@@ -42,6 +43,7 @@
 
 pub mod bluesky;
 pub mod bound;
+pub mod dom;
 pub mod extract;
 pub mod fetch;
 pub mod fresh;

@@ -3,8 +3,8 @@
 //! Worker has no way in but the detect Worker's service binding, no binding
 //! of its own (never a private-network one), no logging sink and no real
 //! resource identifier, the staging fixture allowance cannot reach the
-//! production configuration, and dev-only code stays behind the `dev`
-//! feature.
+//! production configuration, dev-only code stays behind the `dev` feature,
+//! and no page becomes a DOM except through the bounded build.
 
 use std::fs;
 
@@ -17,6 +17,7 @@ const SOURCES: &[&str] = &[
     "src/bluesky.rs",
     "src/bound.rs",
     "src/cf.rs",
+    "src/dom.rs",
     "src/extract.rs",
     "src/fetch.rs",
     "src/fresh.rs",
@@ -75,6 +76,34 @@ fn nothing_writes_to_the_console() {
             assert!(!body.contains("eprint_ln"), "{name} uses eprintln! outside tests");
         }
     }
+}
+
+/// Outside tests, html5ever runs only in `dom.rs`'s bounded build, and
+/// dom_smoothie reads only a DOM that build made: no `Readability::new`,
+/// `Document::from` or other parse entry that would build a tree with no
+/// depth, element, node or attribute bound.
+#[test]
+fn every_dom_comes_from_the_bounded_build() {
+    for name in SOURCES {
+        let s = read(name);
+        // Everything before the test module.
+        let body = ["#[cfg(test)]\nmod tests", "#[cfg(test)]\npub(crate) mod tests"]
+            .iter()
+            .filter_map(|m| s.find(m))
+            .min()
+            .map_or(s.as_str(), |at| &s[..at]);
+        let lines = code(body);
+        for banned in ["Readability::new", "Readability::from", "Document::from", "Document::fragment", "parse_fragment", ".one("] {
+            assert!(!lines.iter().any(|l| l.contains(banned)), "{name} parses HTML with {banned}");
+        }
+        let parses = lines.iter().any(|l| l.contains("parse_document("));
+        assert_eq!(parses, *name == "src/dom.rs", "{name}: only the bounded build runs the tree builder");
+        let reads = lines.iter().any(|l| l.contains("Readability::with_document("));
+        assert_eq!(reads, *name == "src/extract.rs", "{name}: only extract_dom hands a DOM to dom_smoothie");
+    }
+    let extract = read("src/extract.rs");
+    let at = extract.find("pub fn extract_dom(built: Built,").expect("extract_dom takes a built DOM");
+    assert!(extract[at..].find("Readability::with_document(built.doc,").is_some());
 }
 
 #[test]

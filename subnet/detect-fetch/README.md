@@ -13,10 +13,11 @@ are refused before any request.
 | Route | Does |
 |---|---|
 | `POST /robots` | one robots.txt read under RFC 9309 (five redirects, 500 KiB, 4xx allowed, 5xx disallowed), parsed into the group for `SlopNinjaBot`, with content signals and `Crawl-delay` |
-| `POST /fetch` | one page: `GET` with the SlopNinjaBot user agent and Web Bot Auth signatures, manual redirects (each hop re-checked by the URL rules, its host screened against 1.1.1.1 for Families, its origin's robots.txt read, `https` to `http` refused), `X-Robots-Tag` and TDM checks, the lol_html strip pass into at most `HTML_BOUND` bytes with the depth and element bounds, then dom_smoothie extraction; Bluesky posts through the public AppView |
+| `POST /fetch` | one page: `GET` with the SlopNinjaBot user agent and Web Bot Auth signatures, manual redirects (each hop re-checked by the URL rules, its host screened against 1.1.1.1 for Families, its origin's robots.txt read, `https` to `http` refused), `X-Robots-Tag` and TDM checks, the lol_html strip pass into at most `HTML_BOUND` bytes, the html5ever DOM build that refuses a tree past the depth, element, node or attribute bounds as it grows, then dom_smoothie extraction; Bluesky posts through the public AppView |
 
 Modules: `fetch.rs` (the pipeline), `redirects.rs`, `robots.rs`, `screen.rs`,
-`strip.rs`, `extract.rs`, `bound.rs` (every bound and its derivation),
+`strip.rs`, `dom.rs` (the bounded DOM build), `extract.rs`, `bound.rs`
+(every bound and its derivation),
 `bluesky.rs`, `sign.rs` (Web Bot Auth), `fresh.rs`, `net.rs` (the network
 trait and the in-process fakes the tests use), `routes.rs` (arena routes and
 the isolate's fetch memory) and `cf.rs` (the wasm32 export).

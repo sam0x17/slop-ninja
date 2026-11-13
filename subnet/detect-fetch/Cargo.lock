@@ -1196,9 +1196,11 @@ name = "slop-ninja-detect-fetch"
 version = "0.1.0"
 dependencies = [
  "base64",
+ "dom_query",
  "dom_smoothie",
  "ed25519-dalek",
  "encoding_rs",
+ "html5ever",
  "httpdate",
  "js-sys",
  "lol_html",

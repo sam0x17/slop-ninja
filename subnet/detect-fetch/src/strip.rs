@@ -1,8 +1,10 @@
 //! The strip pass: the page body, decoded to UTF-8, streams through lol_html,
 //! which drops the parts that are never article text and reads the page's
 //! metadata and robots directives on the way, into at most `bound` bytes of
-//! stripped HTML (risk F11). Then [`shape`] counts the stripped page's
-//! elements and nesting depth before any DOM exists (risk F13).
+//! stripped HTML (risk F11). Then [`shape`] counts the stripped page's start
+//! tags and estimates its nesting before any DOM exists, an early refusal;
+//! the DOM build ([`crate::dom`]) checks the tree's real depth, elements,
+//! nodes and attributes (risks F11, F13).
 //!
 //! - **Charset** (risk F10): a byte-order mark, else the `Content-Type`
 //!   charset, else a `<meta>` charset in the first 1,024 bytes (the HTML
@@ -471,8 +473,10 @@ pub fn decode_plain(bytes: &[u8], charset: Option<&str>) -> String {
 /// The stripped page's shape, counted before any DOM exists.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Shape {
+    /// Start tags.
     pub elements: usize,
-    /// The deepest nesting reached (a bound on the DOM's, see [`shape`]).
+    /// The deepest nesting the estimate reached (no bound on the DOM's, see
+    /// [`shape`]).
     pub depth: usize,
 }
 
@@ -532,16 +536,22 @@ fn is(name: &str, list: &[&str]) -> bool {
     list.iter().any(|k| k.eq_ignore_ascii_case(name))
 }
 
-/// Counts elements and estimates the DOM's nesting depth of `html`, refusing
-/// past `depth_bound` or `element_bound`. It tokenizes tags as the HTML
-/// tokenizer does (attribute quoting, comments, raw-text elements) and
-/// approximates the tree builder: void elements never nest, an end tag pops
-/// to its open element (names compared exactly, case-insensitively), `p`,
-/// `li`, `dt`/`dd`, table sections, rows and cells, `option`, `a`, `button`
-/// and headings close their open predecessor, and formatting elements popped
-/// by another end tag are still counted, since the tree builder reopens
-/// them. Every approximation errs deeper, so the estimate is at least the
-/// DOM's depth. Nothing is allocated but the open-element stack, which holds
+/// Counts the start tags of `html` and estimates its nesting, refusing past
+/// `depth_bound` or `element_bound`: a cheap early refusal before any DOM
+/// exists, not a bound on the DOM. It tokenizes tags as the HTML tokenizer
+/// does (attribute quoting, comments, raw-text elements) and approximates
+/// the tree builder: void elements never nest, an end tag pops to its open
+/// element (names compared exactly, case-insensitively), `p`, `li`,
+/// `dt`/`dd`, table sections, rows and cells, `option`, `a`, `button` and
+/// headings close their open predecessor, and formatting elements popped by
+/// another end tag are still counted, since the tree builder reopens them.
+/// It does not model the tree builder's scopes, so the DOM can nest far
+/// deeper than the estimate (an `li` closes no `li` across a `section`, a
+/// `p` closes no `p` across a `marquee`, `td` or `table`), and the tree
+/// builder creates elements the page has no tags for (an implied `tbody`,
+/// formatting elements reconstructed in later blocks, adoption-agency
+/// clones). The DOM build ([`crate::dom`]) checks the real tree before any
+/// extraction. Nothing is allocated but the open-element stack, which holds
 /// slices of `html`.
 pub fn shape(html: &str, depth_bound: usize, element_bound: usize) -> Result<Shape, StripError> {
     let b = html.as_bytes();
@@ -870,6 +880,19 @@ mod tests {
         let mut f = Directives::default();
         f.apply_header("noai", "SlopNinjaBot");
         assert!(f.private());
+    }
+
+    /// Comments of every form (bogus ones included) and templates never
+    /// reach the DOM, which the DOM's node bound relies on
+    /// ([`crate::bound::NODES_PER_ELEMENT`]).
+    #[test]
+    fn comments_and_templates_are_removed() {
+        let html = "<p>a<!-- c --><?pi x?><!x><![CDATA[y]]></ 1><!--->b<template><p>t</p></template></p>";
+        let s = strip(html, 1 << 20).unwrap();
+        let doc = dom_query::Document::from(s.html.as_str());
+        let others = doc.root().descendants_it().filter(|n| !(n.is_element() || n.is_text() || n.is_doctype())).count();
+        assert_eq!(others, 0, "{}", s.html);
+        assert!(!s.html.contains("template"), "{}", s.html);
     }
 
     #[test]

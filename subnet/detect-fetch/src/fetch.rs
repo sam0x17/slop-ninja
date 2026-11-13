@@ -23,12 +23,15 @@
 //!    or a reservation end the fetch `private_source` unread.
 //! 6. HTML and XHTML stream through the strip pass ([`crate::strip`]) into
 //!    at most the stripped bound; the robots meta tags and the TDM meta tag
-//!    are read there; the shape check refuses deep or element-dense pages;
-//!    then [`crate::extract`]. A paywall marker, or a password field on a
-//!    page with little text, is a login wall. Plain text is read whole within
-//!    the same bound.
+//!    are read there; the shape check refuses deep or element-dense pages
+//!    early; the DOM build ([`crate::dom`]) refuses a tree deeper than the
+//!    depth bound (`too_deep`) or larger than the page's reservation
+//!    (`page_too_large`) as it grows; then [`crate::extract`] reads the
+//!    built tree. A paywall marker, or a password field on a page with
+//!    little text, is a login wall. Plain text is read whole within the same
+//!    bound.
 
-use crate::bound::{DEPTH_BOUND, EXTRACT_V, HTML_BOUND, LOGIN_WALL_WORDS, MAX_ELEMENTS};
+use crate::bound::{DEPTH_BOUND, DomBounds, EXTRACT_V, HTML_BOUND, LOGIN_WALL_WORDS, MAX_ELEMENTS};
 use crate::extract::{self, ExtractError};
 use crate::fresh::{fresh_ms, retry_after_ms};
 use crate::net::{Head, Headers, Net, NetError, body_within};
@@ -119,9 +122,10 @@ fn challenge(head: &Head) -> bool {
     head.get("cf-mitigated").is_some_and(|v| v.trim().eq_ignore_ascii_case("challenge"))
 }
 
-/// Runs one fetch. `on_stripped` is told the stripped page's bytes and
-/// elements before extraction (the Worker gives back the reservation the
-/// page does not need).
+/// Runs one fetch. `on_stripped` is told the stripped page's bytes and its
+/// DOM's counted elements ([`crate::dom::Built::counted_elements`]) before
+/// extraction (the Worker gives back the reservation the page does not
+/// need).
 pub async fn fetch<N: Net>(net: &mut N, ctx: &Ctx<'_>, req: &FetchRequest, on_stripped: &mut dyn FnMut(usize, usize)) -> FetchAnswer {
     let start = net.now_ms();
     let deadline = start.saturating_add(req.limits.wait_ms.min(MAX_WAIT_MS));
@@ -295,13 +299,22 @@ pub async fn fetch<N: Net>(net: &mut N, ctx: &Ctx<'_>, req: &FetchRequest, on_st
             if !crate::bound::fits(stripped.html.len(), shape.elements) {
                 return fail(Outcome::PageTooLarge);
             }
-            on_stripped(stripped.html.len(), shape.elements);
             if net.now_ms() > deadline {
                 return fail(Outcome::TooSlow);
             }
-            let ex = match extract::extract(&stripped.html, url.as_str()) {
+            // The DOM within the work this fetch holds (cf.rs takes
+            // `fetch_work` of the same bound at intake).
+            let dom_bounds = DomBounds::within(stripped.html.len(), crate::routes::fetch_work(html_bound));
+            let dom = match extract::dom(&stripped.html, &dom_bounds) {
+                Ok(d) => d,
+                Err(ExtractError::TooDeep) => return fail(Outcome::TooDeep),
+                Err(_) => return fail(Outcome::PageTooLarge),
+            };
+            on_stripped(stripped.html.len(), dom.counted_elements());
+            let ex = match extract::extract_dom(dom, url.as_str(), MAX_ELEMENTS) {
                 Ok(e) => e,
                 Err(ExtractError::TooManyElements) => return fail(Outcome::PageTooLarge),
+                Err(ExtractError::TooDeep) => return fail(Outcome::TooDeep),
                 Err(ExtractError::NoContent) if stripped.meta.password_field => return fail(Outcome::LoginWall),
                 Err(ExtractError::NoContent) => return fail(Outcome::ExtractFailed),
             };
@@ -540,6 +553,12 @@ mod tests {
         let deep = format!("<html><body>{}<p>x</p></body></html>", "<div>".repeat(DEPTH_BOUND + 10));
         let mut net = FakeNet::new().site("https://example.com/a", Reply::html(&deep));
         assert_eq!(run(&mut net, "https://example.com/a").outcome, Outcome::TooDeep);
+        // A page the tree builder grows far beyond its tags is too large.
+        let grown = crate::dom::tests::reconstruction_page(100, 0, 300);
+        let mut net = FakeNet::new().site("https://example.com/a", Reply::html(&grown));
+        let a = run(&mut net, "https://example.com/a");
+        assert_eq!(a.outcome, Outcome::PageTooLarge);
+        assert!(a.text.is_none());
         // The wall-clock budget covers every request.
         let mut net = FakeNet::new()
             .site("https://example.com/a", Reply::redirect(302, "/b"))
@@ -551,6 +570,34 @@ mod tests {
         assert_eq!(run_with(&mut net, &r, None).outcome, Outcome::TooSlow);
         let mut net = FakeNet::new().site("https://example.com/a", Reply::timeout());
         assert_eq!(run(&mut net, "https://example.com/a").outcome, Outcome::TooSlow);
+    }
+
+    /// Two pages nest about 20,000 deep in the DOM while the strip pass's
+    /// estimate stays under the depth bound (`li_section_page` and
+    /// `p_marquee_page` in `dom.rs`): each answers `too_deep` with no text
+    /// and no extraction, on a 1 MiB thread stack (an extraction that
+    /// recursed over either tree would overflow it and abort the test
+    /// binary). The reservation is never shrunk for them.
+    #[test]
+    fn pages_deeper_than_their_tags_answer_too_deep_without_extraction() {
+        let h = std::thread::Builder::new()
+            .stack_size(1 << 20)
+            .spawn(|| {
+                for html in [crate::dom::tests::li_section_page(), crate::dom::tests::p_marquee_page()] {
+                    let s = strip::shape(&crate::dom::tests::stripped(&html), DEPTH_BOUND, MAX_ELEMENTS).unwrap();
+                    assert!(s.depth <= DEPTH_BOUND, "{s:?}");
+                    let mut net = FakeNet::new().site("https://example.com/a", Reply::html(&html));
+                    let policy = Policy::production();
+                    let ctx = Ctx { policy: &policy, signer: None };
+                    let mut told = Vec::new();
+                    let a = block_on(fetch(&mut net, &ctx, &req("https://example.com/a"), &mut |b, e| told.push((b, e))));
+                    assert_eq!(a.outcome, Outcome::TooDeep);
+                    assert!(a.text.is_none() && a.meta.is_none());
+                    assert!(told.is_empty());
+                }
+            })
+            .unwrap();
+        h.join().unwrap();
     }
 
     #[test]

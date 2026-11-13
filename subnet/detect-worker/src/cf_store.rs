@@ -7,17 +7,27 @@
 //!   is off at launch, so every read is the primary's). Values bind as
 //!   numbers, strings, `null` and `Uint8Array` (blobs); rows come back as
 //!   objects, read by column name, with blob columns selected as `hex()`.
-//! - Every outbound call carries a deadline (one queue hold), and no call
-//!   carries an `X-SN-*` header: the callees' internal routes refuse them.
+//! - Every outbound call carries a deadline (one queue hold: R2 and the
+//!   queue raced against it, D1 statements too, binding calls with the
+//!   platform's abort signal), and no call carries an `X-SN-*` header: the
+//!   callees' internal routes refuse them.
+//! - A document read reserves its footprint from the isolate's scan memory
+//!   by the object's size before reading it (`routes::doc_footprint`), and
+//!   holds it until the request ends; no room answers as a failed read.
+//! - Queue messages go as JSON (`contentType: "json"`), the account
+//!   Worker's encoding, so the consumer reads every producer's the same way.
 //! - Nothing here writes a console line, and no error carries a statement's
 //!   text, a value or a body.
+
+use std::cell::RefCell;
 
 use serde::Serialize;
 use slop_ninja_account_wire::OwnedAddRequest;
 use slop_ninja_detect_page::queue::QueueMessage;
 use wasm_bindgen::JsValue;
-use worker::{Bucket, D1DatabaseSession, D1PreparedStatement, Env, Method};
+use worker::{Bucket, D1DatabaseSession, D1PreparedStatement, Env, Method, QueueContentType, RawMessageBuilder};
 
+use crate::cf::{Reserved, within};
 use crate::cf_io;
 use crate::db::{DbError, DocPage, Done, Io, IoError, Row, Sql, Stmt, Val};
 use crate::doc::StoredResult;
@@ -47,16 +57,24 @@ pub(crate) struct CfStore<'e> {
     env: &'e Env,
     db: D1DatabaseSession,
     docs: Bucket,
-    /// Every outbound call's deadline.
-    deadline_ms: u64,
+    /// Every outbound call's bound (a duration).
+    wait_ms: u64,
+    /// The scan memory the documents read so far hold, given back when the
+    /// invocation's store is dropped.
+    held: RefCell<Vec<Reserved>>,
 }
 
 impl<'e> CfStore<'e> {
     /// `None` when a binding is missing (the route answers `not_configured`).
-    pub(crate) fn new(env: &'e Env, deadline_ms: u64) -> Option<CfStore<'e>> {
+    pub(crate) fn new(env: &'e Env, wait_ms: u64) -> Option<CfStore<'e>> {
         let db = env.d1(STORE).ok()?.with_session(Some("first-unconstrained")).ok()?;
         let docs = env.bucket(DOCS).ok()?;
-        Some(CfStore { env, db, docs, deadline_ms })
+        Some(CfStore { env, db, docs, wait_ms, held: RefCell::new(Vec::new()) })
+    }
+
+    /// The absolute deadline of a call starting now (the R2 helpers' form).
+    fn until(&self) -> Option<u64> {
+        Some(cf_io::now_ms().saturating_add(self.wait_ms))
     }
 
     fn prepare(&self, s: &Stmt) -> Result<D1PreparedStatement, DbError> {
@@ -79,7 +97,7 @@ impl<'e> CfStore<'e> {
         let fetcher = self.env.service(binding).map_err(|_| IoError)?;
         let text = serde_json::to_string(body).map_err(|_| IoError)?;
         let mut req =
-            cf_io::internal_request(url, Method::Post, Some(&text), Some(self.deadline_ms)).map_err(|_| IoError)?;
+            cf_io::internal_request(url, Method::Post, Some(&text), Some(self.wait_ms)).map_err(|_| IoError)?;
         let _ = req.headers_mut().map(|h| h.set("Content-Type", "application/json"));
         let mut res = fetcher.fetch_request(req).await.map_err(|_| IoError)?;
         let ok = (200..300).contains(&res.status_code());
@@ -127,13 +145,14 @@ fn done_of(r: &worker::D1Result) -> Result<Done, DbError> {
 impl Sql for CfStore<'_> {
     async fn run(&self, s: Stmt) -> Result<Done, DbError> {
         let st = self.prepare(&s)?;
-        let r = st.all().await.map_err(|_| DbError::Failed)?;
+        let r = within(self.wait_ms, st.all()).await.ok_or(DbError::Failed)?.map_err(|_| DbError::Failed)?;
         done_of(&r)
     }
 
     async fn batch(&self, v: Vec<Stmt>) -> Result<Vec<Done>, DbError> {
         let stmts = v.iter().map(|s| self.prepare(s)).collect::<Result<Vec<_>, _>>()?;
-        let rs = self.db.batch(stmts).await.map_err(|_| DbError::Failed)?;
+        let rs =
+            within(self.wait_ms, self.db.batch(stmts)).await.ok_or(DbError::Failed)?.map_err(|_| DbError::Failed)?;
         rs.iter().map(done_of).collect()
     }
 }
@@ -171,18 +190,28 @@ impl Io for CfStore<'_> {
     }
 
     async fn doc_put(&self, key: &str, bytes: Vec<u8>) -> Result<(), IoError> {
-        if cf_io::r2_put(&self.docs, key, &bytes, Some(self.deadline_ms)).await { Ok(()) } else { Err(IoError) }
+        if cf_io::r2_put(&self.docs, key, &bytes, self.until()).await { Ok(()) } else { Err(IoError) }
     }
 
     async fn doc_get(&self, key: &str) -> Result<Option<Vec<u8>>, IoError> {
-        cf_io::r2_bytes(&self.docs, key, DOC_BYTES, Some(self.deadline_ms)).await.map_err(|_| IoError)
+        let Some(size) = cf_io::r2_size(&self.docs, key, self.until()).await.map_err(|_| IoError)? else {
+            return Ok(None);
+        };
+        if size > DOC_BYTES as u64 {
+            return Err(IoError);
+        }
+        let held = Reserved::take(crate::routes::doc_footprint(size)).map_err(|_| IoError)?;
+        self.held.borrow_mut().push(held);
+        let bound = usize::try_from(size).map_err(|_| IoError)?;
+        cf_io::r2_bytes(&self.docs, key, bound, self.until()).await.map_err(|_| IoError)
     }
 
     async fn doc_delete(&self, keys: &[String]) -> Result<(), IoError> {
         if keys.is_empty() {
             return Ok(());
         }
-        self.docs.delete_multiple(keys.iter().map(String::as_str).collect()).await.map_err(|_| IoError)
+        let del = self.docs.delete_multiple(keys.iter().map(String::as_str).collect());
+        within(self.wait_ms, del).await.ok_or(IoError)?.map_err(|_| IoError)
     }
 
     async fn doc_list(&self, prefix: &str, cursor: Option<&str>) -> Result<DocPage, IoError> {
@@ -190,7 +219,7 @@ impl Io for CfStore<'_> {
         if let Some(c) = cursor {
             b = b.cursor(c);
         }
-        let objs = b.execute().await.map_err(|_| IoError)?;
+        let objs = within(self.wait_ms, b.execute()).await.ok_or(IoError)?.map_err(|_| IoError)?;
         let objects = objs.objects().iter().map(|o| (o.key(), o.uploaded().as_millis())).collect();
         let cursor = if objs.truncated() { objs.cursor() } else { None };
         Ok(DocPage { objects, cursor })
@@ -205,7 +234,13 @@ impl Io for CfStore<'_> {
             return Ok(());
         }
         let q = self.env.queue(JOBS).map_err(|_| IoError)?;
-        q.send_batch(msgs).await.map_err(|_| IoError)
+        let mut batch = Vec::with_capacity(msgs.len());
+        for m in &msgs {
+            let text = serde_json::to_string(m).map_err(|_| IoError)?;
+            let value = js_sys::JSON::parse(&text).map_err(|_| IoError)?;
+            batch.push(RawMessageBuilder::new(value).build_with_content_type(QueueContentType::Json));
+        }
+        within(self.wait_ms, q.send_raw_batch(batch)).await.ok_or(IoError)?.map_err(|_| IoError)
     }
 
     async fn cache_purge(&self, urls: &[String]) -> Result<bool, IoError> {
@@ -213,7 +248,7 @@ impl Io for CfStore<'_> {
         let url = format!("https://api.cloudflare.com/client/v4/zones/{zone}/purge_cache");
         let text = serde_json::to_string(&PurgeBody { files: urls }).map_err(|_| IoError)?;
         let mut req =
-            cf_io::internal_request(&url, Method::Post, Some(&text), Some(self.deadline_ms)).map_err(|_| IoError)?;
+            cf_io::internal_request(&url, Method::Post, Some(&text), Some(self.wait_ms)).map_err(|_| IoError)?;
         if let Ok(h) = req.headers_mut() {
             let _ = h.set("Content-Type", "application/json");
             let _ = h.set("Authorization", &format!("Bearer {token}"));
@@ -243,8 +278,8 @@ impl Io for CfStore<'_> {
         let ns = self.env.durable_object("DETECT_FEEDBACK").ok()?;
         let stub = ns.id_from_name("feedback").ok()?.get_stub().ok()?;
         let text = serde_json::to_string(&IssueReq { band, length }).ok()?;
-        let req = cf_io::internal_request("https://feedback/issue", Method::Post, Some(&text), Some(self.deadline_ms))
-            .ok()?;
+        let req =
+            cf_io::internal_request("https://feedback/issue", Method::Post, Some(&text), Some(self.wait_ms)).ok()?;
         let mut res = stub.fetch_with_request(req).await.ok()?;
         if res.status_code() != 200 {
             cf_io::discard(&mut res);

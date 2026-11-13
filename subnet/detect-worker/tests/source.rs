@@ -28,7 +28,11 @@ const SOURCES: &[&str] = &[
     "switches.rs",
     "waits.rs",
     "xpost.rs",
+    "canon.rs",
+    "handoff.rs",
     "cf.rs",
+    "cf_routes.rs",
+    "cf_store.rs",
     "cf_gate.rs",
     "cf_feedback.rs",
     "cf_lane.rs",
@@ -65,7 +69,9 @@ fn first_statement(s: &str, sig: &str) -> String {
 #[test]
 fn every_entry_point_silences_panics_first() {
     let cf = src("cf.rs");
-    assert_eq!(first_statement(&cf, "pub fn fetch("), "silence_panics();");
+    for export in ["pub fn fetch(", "pub fn queue(", "pub fn scheduled("] {
+        assert_eq!(first_statement(&cf, export), "silence_panics();", "{export}");
+    }
     for name in ["cf_gate.rs", "cf_feedback.rs", "cf_lane.rs"] {
         let s = src(name);
         assert_eq!(first_statement(&s, "fn new(state: State, env: Env)"), "silence_panics();", "{name} new");
@@ -228,8 +234,24 @@ fn every_staging_resource_is_a_staging_resource() {
             assert!(v.ends_with("-staging"), "{v}");
         }
         if let Some(v) = l.strip_prefix("bucket_name = \"") {
-            assert_eq!(bucket_binding.as_deref(), Some("DETECT_PACKAGES_TESTNET"), "only the package bucket is shared");
-            assert_eq!(v.trim_end_matches('"'), "detect-packages-bucket-testnet");
+            let v = v.trim_end_matches('"');
+            if bucket_binding.as_deref() == Some("DETECT_PACKAGES_TESTNET") {
+                assert_eq!(v, "detect-packages-bucket-testnet");
+            } else {
+                assert!(v.ends_with("-staging"), "only the package bucket is shared: {v}");
+            }
+        }
+        for key in ["queue = \"", "dead_letter_queue = \""] {
+            if let Some(v) = l.strip_prefix(key) {
+                assert!(v.trim_end_matches('"').ends_with("-staging"), "{v}");
+            }
+        }
+        if let Some(v) = l.strip_prefix("service = \"") {
+            // The one other production resource staging binds: the alerts
+            // relay, whose legal stream serves both.
+            let v = v.trim_end_matches('"');
+            let relay = bucket_binding.as_deref() == Some("ALERTS_RELAY") && v == "slop-ninja-alerts-testnet";
+            assert!(relay || v.ends_with("-staging"), "{v}");
         }
         if let Some(v) = l.strip_prefix("dataset = \"") {
             assert!(v.trim_end_matches('"').ends_with("_staging"), "{v}");
@@ -249,8 +271,25 @@ fn every_staging_resource_is_a_staging_resource() {
         assert!(testnet.contains(&format!("\n{v} = ")), "testnet sets {v}");
         assert!(staging.contains(&format!("\n{v} = ")), "staging sets {v}");
     }
-    for b in ["DETECT_GATE", "DETECT_LANE", "DETECT_FEEDBACK", "DETECT_STORE", "DETECT_METRICS", "DETECT_WARM_LIMIT"] {
+    for b in [
+        "DETECT_GATE",
+        "DETECT_LANE",
+        "DETECT_FEEDBACK",
+        "DETECT_STORE",
+        "DETECT_METRICS",
+        "DETECT_WARM_LIMIT",
+        "DETECT_DOCS",
+        "DETECT_JOBS",
+        "ACCOUNT",
+        "ALERTS_RELAY",
+    ] {
         assert!(testnet.contains(&format!("\"{b}\"")) && staging.contains(&format!("\"{b}\"")), "{b} in both envs");
+    }
+    for v in ["PACKAGE_LABEL", "EVIDENCE_ID"] {
+        assert!(testnet.contains(&format!("\n{v} = ")) && staging.contains(&format!("\n{v} = ")), "{v} in both envs");
+    }
+    for env in [testnet, staging] {
+        assert!(env.contains("crons = [\"0 * * * *\"]"), "the hourly cron in every env");
     }
     assert!(staging.contains("max_instances = 1"));
     assert_ne!(
@@ -297,18 +336,31 @@ fn only_allow_listed_headers_are_read() {
 }
 
 /// A lone X post link is answered before the reservation grows, the cut,
-/// the floor and any ticket.
+/// the floor and any ticket; `canon_v1` runs before the cut, whose part
+/// before any ticket (`prepare`) holds the cut, the floor and the screen.
 #[test]
 fn an_x_post_link_takes_no_ticket() {
     let cf = src("cf.rs");
     let score = function_body(code(&cf), "async fn score(");
     let x = score.find("xpost::x_post_v1(text)").expect("the rule runs in score");
-    for later in ["held.grow(", "cut::free_cut(", "policy::length_bin(", "run(&env"] {
+    for later in ["held.grow(", "canon::canon_v1(text)", "prepare(&env", "run(&env"] {
         let at = score.find(later).unwrap_or_else(|| panic!("{later}"));
         assert!(x < at, "x_post_v1 runs before {later}");
     }
+    let canon = score.find("canon::canon_v1(text)").unwrap();
+    assert!(canon < score.find("prepare(&env").unwrap(), "canon_v1 before the cut");
     let env = score.find("envelope::parse(").expect("envelope");
     assert!(env < x, "on the envelope's text");
+    let prepare = function_body(code(&cf), "pub(crate) fn prepare<");
+    for step in ["cut::free_cut(canonical", "policy::length_bin(", "english::english_screen("] {
+        assert!(prepare.contains(step), "prepare runs {step}");
+    }
+    // The re-run scores through the same path.
+    let routes = src("cf_routes.rs");
+    let rerun = function_body(code(&routes), "impl rerun::Scorer for CfScorer");
+    for step in ["canon::canon_v1(text)", "prepare(env, RouteId::Rerun", "run(env,", "answer::to_original("] {
+        assert!(rerun.contains(step), "the re-run runs {step}");
+    }
 }
 
 /// The in-page challenge is gone (edge rules protect the routes), and the

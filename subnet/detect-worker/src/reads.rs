@@ -11,7 +11,10 @@
 //! - **preview** (`/internal/v1/preview {text, seal}`): the unstored result;
 //!   it writes nothing and does not consume the seal.
 //! - **card** (`/internal/v1/card {slug}`): the card JSON of a shown page.
+//! - **state** (`/api/detect/v1/state {slug}`): a pending public page's
+//!   poll: its state, whether its claim's lease ended, and its failure.
 
+use slop_ninja_detect_page::api::StateAnswer;
 use slop_ninja_detect_page::card::Card;
 use slop_ninja_detect_page::codes::{DetState, ExampleSource, Kind, RemovalScope};
 use slop_ninja_detect_page::internal::{ExampleEntry, ExamplesAnswer, MonthlyCount, RemovalEntry, RemovalsAnswer};
@@ -170,6 +173,31 @@ pub async fn preview(
     let receipt = io.receipt(&sealed.result).await;
     let ctx = PageCtx { serving, switches: sw.page(io), now: io.now_ms(), receipt };
     unstored_page(text, &sealed.result, paid_open, &ctx)
+}
+
+/// A public page's poll: any other slug (a secret one's included) is not
+/// found, with no store read. Writes nothing.
+pub async fn state(io: &impl Io, slug: &str) -> Result<StateAnswer, RefusalCode> {
+    if slug_form(slug) != Some(SlugForm::Public) {
+        return Err(RefusalCode::NotFound);
+    }
+    let id = public_id_h(slug);
+    let batch = vec![Stmt::new(SELECT_DET, vec![Val::blob(&id)]), Stmt::new(SELECT_LEASE, vec![Val::blob(&id)])];
+    let done = io.batch(batch).await.map_err(|_| RefusalCode::Unavailable)?;
+    let row = match done.first().and_then(Done::first) {
+        Some(r) => DetRow::from_row(r).map_err(|_| RefusalCode::Internal)?,
+        None => return Err(RefusalCode::NotFound),
+    };
+    if row.kind != Kind::PublicUrl || row.public_slug.as_deref() != Some(slug) {
+        return Err(RefusalCode::NotFound);
+    }
+    let now = io.now_ms();
+    let state = row.state_at(now);
+    Ok(StateAnswer {
+        state,
+        lease_ended: done.get(1).and_then(Done::first).and_then(|r| r.u64("lease_until")).is_none_or(|t| t <= now),
+        code: if state == DetState::Failed { row.refusal } else { None },
+    })
 }
 
 /// The card JSON of a slug: shown pages only; an ended page answers its

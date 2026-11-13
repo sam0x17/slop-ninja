@@ -49,11 +49,7 @@ impl Switches {
         let states = names
             .iter()
             .filter_map(|n| switches::switch(n))
-            .map(|sw| {
-                let v = var(sw.name).unwrap_or_default();
-                let row = rows.and_then(|r| r.iter().find(|r| r.name == sw.name)).map(|r| r.state.as_str());
-                (sw.name, switches::effective(sw, v.trim(), row))
-            })
+            .map(|sw| (sw.name, state_of(sw.name, var(sw.name).as_deref(), rows)))
             .collect();
         Switches { states, d1_failed: rows.is_none() }
     }
@@ -77,6 +73,17 @@ impl Switches {
     pub fn d1_failed(&self) -> bool {
         self.d1_failed
     }
+}
+
+/// The effective state of switch `name` from its var and the rows read
+/// (`None`: they could not be read, so the var decides). The one rule every
+/// reader of the switches uses, the free check's and the store's
+/// ([`crate::lookup::SwitchRows`]). A name the contract does not know reads
+/// as off.
+pub fn state_of(name: &str, var: Option<&str>, rows: Option<&[Row]>) -> &'static str {
+    let Some(sw) = switches::switch(name) else { return "off" };
+    let row = rows.and_then(|r| r.iter().find(|r| r.name == sw.name)).map(|r| r.state.as_str());
+    switches::effective(sw, var.unwrap_or("").trim(), row)
 }
 
 /// A switch's state from its var alone: the hard off, for code that reads no

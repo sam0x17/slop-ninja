@@ -8,11 +8,13 @@ fn src(name: &str) -> String {
 
 const STORE_FILES: &[&str] = &[
     "canon.rs",
+    "cf_routes.rs",
     "cf_store.rs",
     "cron.rs",
     "db.rs",
     "display.rs",
     "doc.rs",
+    "handoff.rs",
     "keys.rs",
     "lookup.rs",
     "manage.rs",
@@ -107,11 +109,14 @@ fn blob_columns_are_read_as_hex() {
 #[test]
 fn the_consumer_takes_one_message_per_invocation() {
     let w = fs::read_to_string(format!("{}/wrangler.toml", env!("CARGO_MANIFEST_DIR"))).unwrap();
-    let consumers: Vec<&str> = w.split("[[env.testnet.queues.consumers]]").skip(1).collect();
-    assert_eq!(consumers.len(), 1);
-    let block = consumers[0].split("\n[").next().unwrap();
-    assert!(block.lines().any(|l| l.trim() == "max_batch_size = 1"), "max_batch_size = 1");
-    assert!(block.contains("dead_letter_queue = "), "a dead-letter queue");
+    for env in ["testnet", "staging"] {
+        let consumers: Vec<&str> = w.split(&format!("[[env.{env}.queues.consumers]]")).skip(1).collect();
+        assert_eq!(consumers.len(), 1, "{env}");
+        let block = consumers[0].split("\n[").next().unwrap();
+        assert!(block.lines().any(|l| l.trim() == "max_batch_size = 1"), "{env}: max_batch_size = 1");
+        assert!(block.contains("dead_letter_queue = "), "{env}: a dead-letter queue");
+        assert_eq!(w.matches(&format!("[[env.{env}.d1_databases]]")).count(), 1, "{env}: one store");
+    }
     // The store's bindings exist, and the D1 id is a placeholder.
     for b in [
         "binding = \"DETECT_STORE\"",
@@ -122,9 +127,7 @@ fn the_consumer_takes_one_message_per_invocation() {
     ] {
         assert!(w.contains(b), "{b}");
     }
-    // One store binding per env, and its id the placeholder the deploy
-    // wrappers replace.
-    assert_eq!(w.matches("[[env.testnet.d1_databases]]").count(), 1);
+    // The store's id is the placeholder the deploy wrappers replace.
     assert!(w.contains("database_id = \"detect-store-id-testnet\""));
 }
 
@@ -136,4 +139,13 @@ fn the_store_names_no_origin() {
         let s = code(&src(f));
         assert!(!s.contains("slop.ninja"), "{f}");
     }
+}
+
+/// Messages go as JSON, the account Worker's encoding (a flattened message
+/// through the typed send would arrive as a JS `Map`, which reads as `{}`).
+#[test]
+fn queue_messages_go_as_json() {
+    let s = code(&src("cf_store.rs"));
+    assert!(s.contains("QueueContentType::Json") && s.contains("send_raw_batch("));
+    assert!(!s.contains("q.send_batch(") && !s.contains("q.send("), "no typed send");
 }

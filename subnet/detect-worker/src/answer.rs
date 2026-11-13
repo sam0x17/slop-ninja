@@ -105,6 +105,9 @@ pub struct Answer {
     pub confidence_text: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub share_text: Option<String>,
+    /// The dial's number: the share as `share_text` prints it.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub share_pct: Option<u8>,
     /// Whitespace words scored (the length bin's count).
     pub words: usize,
     /// Whitespace words of the whole text sent.
@@ -144,6 +147,8 @@ pub struct ResultFull {
     pub confidence_text: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub share_text: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub share_pct: Option<u8>,
     pub words: usize,
     pub total_words: usize,
     pub cut: String,
@@ -167,6 +172,7 @@ impl Answer {
             confidence_tenths: self.confidence_tenths,
             confidence_text: self.confidence_text.clone(),
             share_text: self.share_text.clone(),
+            share_pct: self.share_pct,
             words: self.words,
             total_words: self.total_words,
             cut: self.cut.to_owned(),
@@ -308,6 +314,7 @@ pub fn answer(scored: Scored, length: LengthBin, cut: &Cut<'_>, package: Package
         confidence_tenths: percents.map(|(c, _)| policy::tenths_floor(c)),
         confidence_text: percents.map(|(c, _)| policy::confidence_text(c)),
         share_text: percents.map(|(c, s)| policy::share_text(s, c)),
+        share_pct: percents.map(|(c, s)| policy::share_pct(s, c)),
         words: cut.scored_words,
         total_words: cut.total_words,
         cut: cut.kind.code(),
@@ -322,6 +329,34 @@ pub fn answer(scored: Scored, length: LengthBin, cut: &Cut<'_>, package: Package
         receipt,
         seal: None,
     }
+}
+
+/// Maps the line's offsets (each passage's and the scored part's end),
+/// computed in `canonical` (= `canon_v1(text)`, what the cut and the scorer
+/// read), to UTF-16 offsets into `text`, the string the page sent
+/// (`crate::canon::utf16_to_original`). Passages that do not map are all
+/// dropped (`spans_note: unavailable`); nothing is repaired.
+pub fn to_original(line: &mut Answer, text: &str, canonical: &str) {
+    if text == canonical {
+        return;
+    }
+    let mut offsets: Vec<usize> = line.spans.iter().flatten().flat_map(|s| [s.start, s.end]).collect();
+    offsets.push(line.scored_end);
+    if let Some(mapped) = crate::canon::utf16_to_original(text, canonical, &offsets) {
+        let mut m = mapped.into_iter();
+        for s in line.spans.iter_mut().flatten() {
+            s.start = m.next().unwrap_or(s.start);
+            s.end = m.next().unwrap_or(s.end);
+        }
+        line.scored_end = m.next().unwrap_or(line.scored_end);
+        return;
+    }
+    if line.spans.take().is_some() {
+        line.spans_note = Some(SpansNote::Unavailable);
+    }
+    line.scored_end = crate::canon::utf16_to_original(text, canonical, &[line.scored_end])
+        .and_then(|v| v.first().copied())
+        .unwrap_or_else(|| text.encode_utf16().count());
 }
 
 #[cfg(test)]
@@ -401,6 +436,42 @@ mod tests {
         assert!(serde_json::to_value(&a).unwrap().get("seal").is_none());
     }
 
+    /// The scorer reads the canonical text; the page highlights the string
+    /// it sent.
+    #[test]
+    fn offsets_map_back_to_the_sent_string() {
+        let canonical = format!("caf\u{e9} {}", words(199));
+        let sent = format!("\r\n  cafe\u{301} {}  \r\n", words(199));
+        assert_eq!(&*crate::canon::canon_v1(&sent), canonical.as_str());
+        let sp = json!([span_json(&canonical, 5, 5 + 30 * 5 - 1, 30)]);
+        let sc = scored(read(&reply(99.99, 60.0, sp), PKG, &canonical, true, M));
+        let mut a = answer(sc, M, &whole(&canonical), pkg(), "r".into());
+        assert_eq!((a.spans.as_ref().unwrap()[0].start, a.scored_end), (5, canonical.len() - 1));
+        to_original(&mut a, &sent, &canonical);
+        let s16: Vec<u16> = sent.encode_utf16().collect();
+        let span = &a.spans.as_ref().unwrap()[0];
+        // Four leading units, and the decomposed accent's extra one.
+        assert_eq!((span.start, span.end), (4 + 6, 4 + 6 + 149));
+        assert_eq!(String::from_utf16(&s16[span.start..span.start + 4]).unwrap(), "word");
+        assert_eq!(a.scored_end, sent.trim_end().encode_utf16().count());
+        // A canonical text is left as it is.
+        let before = a.scored_end;
+        to_original(&mut a, &canonical, &canonical);
+        assert_eq!(a.scored_end, before);
+        // Offsets that do not map drop every passage.
+        let mut bad = answer(
+            scored(read(&reply(99.99, 60.0, json!([span_json(&canonical, 5, 154, 30)])), PKG, &canonical, true, M)),
+            M,
+            &whole(&canonical),
+            pkg(),
+            "r".into(),
+        );
+        bad.spans.as_mut().unwrap()[0].end = usize::MAX;
+        to_original(&mut bad, &sent, &canonical);
+        assert_eq!((bad.spans.is_none(), bad.spans_note), (true, Some(SpansNote::Unavailable)));
+        assert_eq!(bad.scored_end, sent.trim_end().encode_utf16().count());
+    }
+
     #[test]
     fn hashes_and_attribution_never_leave() {
         let text = words(200);
@@ -414,6 +485,7 @@ mod tests {
         assert_eq!(a.band, "strong");
         assert_eq!(a.confidence_text.as_deref(), Some("97.3%"));
         assert_eq!(a.share_text.as_deref(), Some("about 34%"));
+        assert_eq!(a.share_pct, Some(34));
     }
 
     #[test]
@@ -493,7 +565,7 @@ mod tests {
         let a = answer(sc, s24, &whole(&text), pkg(), "r".into());
         assert_eq!(a.length, "24_49");
         let s = serde_json::to_value(&a).unwrap();
-        for absent in ["confidence_tenths", "confidence_text", "share_text", "spans_note"] {
+        for absent in ["confidence_tenths", "confidence_text", "share_text", "share_pct", "spans_note"] {
             assert!(s.get(absent).is_none(), "{absent} in {s}");
         }
         assert!(s["spans"][0].get("confidence").is_none());

@@ -51,6 +51,8 @@ impl World {
                 label: "span package d24".into(),
                 published: DIGEST.into(),
                 pending: true,
+                scorer_build: "7030a86f".into(),
+                evidence: "evidence-d24-web-v1".into(),
             },
         }
     }
@@ -823,4 +825,80 @@ fn a_preview_writes_nothing_and_keeps_its_seal() {
         block_on(share(&w.h, w.keys(), &req(TEXT, false, None), Some(s), None)).is_ok(),
         "the seal still makes a link"
     );
+}
+
+#[test]
+fn a_public_page_s_poll_answers_its_state_and_nothing_else() {
+    let w = World::new();
+    public_row(&w, "k7m2xq9", 1, "pending", "web", "ranked", None);
+    public_row(&w, "p4r8tz2", 2, "failed", "web", "ranked", None);
+    w.h.exec("UPDATE detections SET refusal = 'robots' WHERE public_slug = 'p4r8tz2'");
+    let a = block_on(reads::state(&w.h, "k7m2xq9")).unwrap();
+    assert_eq!((a.state, a.lease_ended, a.code), (DetState::Pending, true, None));
+    let a = block_on(reads::state(&w.h, "p4r8tz2")).unwrap();
+    assert_eq!((a.state, a.code), (DetState::Failed, Some(RefusalCode::Robots)));
+    // A secret slug, an unknown one and a malformed one are all not found.
+    let (secret, _) = make_link(&w, "load-new", Expiry::Keep, None);
+    for slug in [secret.as_str(), "z9y8x7w", "nope"] {
+        assert_eq!(block_on(reads::state(&w.h, slug)), Err(RefusalCode::NotFound), "{slug}");
+    }
+}
+
+/// The seam between the free check and the store: a result seal made by the
+/// seal module, as the score route makes it, opens into a link whose page
+/// prints the answer's values, and a seal of another package does not.
+#[test]
+fn a_free_check_s_seal_becomes_a_link() {
+    use slop_ninja_detect_worker::answer::{PackageLine, ResultFull, Span};
+    use slop_ninja_detect_worker::{handoff, seal};
+    let w = World::new();
+    let secret: [u8; 32] = *b"store secret bytes, for tests ok";
+    let now = 1_795_169_040_000;
+    // A short text's line, as the score route writes it: no percentages.
+    let full = ResultFull {
+        band: "strong".into(),
+        confidence_tenths: None,
+        confidence_text: None,
+        share_text: None,
+        share_pct: None,
+        words: 52,
+        total_words: 52,
+        cut: "none".into(),
+        scored_end: TEXT.trim_end().encode_utf16().count(),
+        tokens: 70,
+        length: "50_99".into(),
+        spans: Some(vec![Span { start: 14, end: 200, words: 36, confidence: None }]),
+        spans_note: None,
+        markers: vec![],
+        invisible: false,
+        package: PackageLine { digest: DIGEST.into(), publication_pending: true },
+    };
+    let payload = |load: &str| seal::ResultPayload {
+        day: seal::day_of(now),
+        text_sha256: seal::text_sha256(TEXT),
+        scored_end: full.scored_end,
+        cut: "none".into(),
+        package_load: load.into(),
+        policy_v: seal::POLICY_V.into(),
+        result_full: full.clone(),
+        issued_ms: now,
+    };
+    let make = |load: &str, nonce: u8| {
+        let s = seal::seal(&secret, seal::Purpose::Result, seal::day_of(now), [nonce; 12], &payload(load)).unwrap();
+        handoff::sealed(seal::open_result(&secret, now + 1, &s, TEXT).unwrap(), &w.serving)
+    };
+    assert_eq!(make("load-old", 1).unwrap_err(), RefusalCode::SealInvalid, "another package scored it");
+    let sealed = make("load-new", 2).unwrap();
+    assert_eq!(sealed.text_sha256, canon::text_sha256(TEXT));
+    let a = block_on(share(&w.h, w.keys(), &req(TEXT, false, None), Some(sealed), None)).unwrap();
+    let p = page(&w, &a.slug).unwrap();
+    let run = p.run.as_ref().unwrap();
+    assert_eq!(run.short, Some(slop_ninja_detect_page::codes::ShortResult::Strong));
+    assert_eq!(run.spans.len(), 1);
+    assert_eq!((run.spans[0].start, run.spans[0].end), (14, 200));
+    assert_eq!((run.scorer_build.as_str(), run.evidence.as_str()), ("7030a86f", "evidence-d24-web-v1"));
+    assert_eq!(run.package.label, "span package d24");
+    // The same seal opened again cannot make a second link.
+    let again = make("load-new", 2).unwrap();
+    assert_eq!(block_on(share(&w.h, w.keys(), &req(TEXT, false, None), Some(again), None)), Err(RefusalCode::SealUsed));
 }

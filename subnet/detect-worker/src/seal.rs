@@ -20,9 +20,12 @@
 //!   hours), and its payload must name the day of the key that opened it.
 //! - **Result payload** ([`ResultPayload`]): `{day, text_sha256, scored_end,
 //!   cut, package_load, policy_v, result_full, issued_ms}`. `text_sha256` is
-//!   the SHA-256 of the exact string the free cut ran on (lowercase hex), and
-//!   `scored_end` the scored part's end in UTF-16 units of that string, so a
-//!   holder of the text can check it and find the scored part.
+//!   the SHA-256 of `canon_v1` of the text (lowercase hex; the free cut runs
+//!   on that canonical form, `crate::canon`), and `scored_end` the scored
+//!   part's end in UTF-16 units of the exact string the page sent, so a
+//!   holder of the text can check it and find the scored part. A text that
+//!   differs only by line endings, surrounding whitespace or normalization
+//!   opens the same seal.
 //! - **Single use** for `/share` is the store's: [`seal_nonce_h`],
 //!   `SHA-256("seal_nonce_v1" ‖ nonce)`, is the value its unique column
 //!   keeps. Renders and quotes reuse a seal.
@@ -193,9 +196,9 @@ pub fn seal_nonce_h(nonce: &[u8; NONCE_BYTES]) -> [u8; 32] {
     h.finalize().into()
 }
 
-/// The lowercase hex SHA-256 of `text`'s UTF-8 bytes.
+/// The lowercase hex `SHA-256(canon_v1(text))` (`crate::canon::text_sha256`).
 pub fn text_sha256(text: &str) -> String {
-    hex::encode(Sha256::digest(text.as_bytes()))
+    hex::encode(crate::canon::text_sha256(text))
 }
 
 /// A free check's sealed result.
@@ -203,9 +206,10 @@ pub fn text_sha256(text: &str) -> String {
 #[serde(deny_unknown_fields)]
 pub struct ResultPayload {
     pub day: u64,
-    /// SHA-256 (hex) of the exact string the free cut ran on.
+    /// `SHA-256(canon_v1(text))` (hex): the free cut runs on the canonical
+    /// form.
     pub text_sha256: String,
-    /// The scored part's end, in UTF-16 units of that string.
+    /// The scored part's end, in UTF-16 units of the string the page sent.
     pub scored_end: usize,
     /// How the scored part was chosen (`none`, `first_1000_words`,
     /// `token_limit`).
@@ -263,6 +267,7 @@ mod tests {
             confidence_tenths: Some(973),
             confidence_text: Some("97.3%".into()),
             share_text: Some("about 34%".into()),
+            share_pct: Some(34),
             words: 200,
             total_words: 200,
             cut: "none".into(),
@@ -314,7 +319,11 @@ mod tests {
             open_result(SECRET, T0, &s, "A sealed text of a few words, scored whole!"),
             Err(SealError::TextMismatch)
         );
-        assert_eq!(open_result(SECRET, T0, &s, &format!("{TEXT} ")), Err(SealError::TextMismatch));
+        assert_eq!(open_result(SECRET, T0, &s, &format!("{TEXT}.")), Err(SealError::TextMismatch));
+        assert_eq!(open_result(SECRET, T0, &s, &TEXT.replace(' ', "  ")), Err(SealError::TextMismatch));
+        // The canonical form is bound: line endings, surrounding whitespace
+        // and normalization do not change it.
+        assert!(open_result(SECRET, T0, &s, &format!(" {TEXT}\r\n")).is_ok());
     }
 
     #[test]

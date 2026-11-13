@@ -1,10 +1,10 @@
 //! The store's I/O seam: SQL statements, rows and the [`Io`] trait the
 //! flows run on.
 //!
-//! Every statement the store runs is written once, in [`crate::sql`], and
-//! executed by one of two backends: D1 through its Sessions API in the
-//! Worker (`cf_store`), and an in-memory SQLite in the native tests, on the
-//! same migration with foreign keys on. A flow is an `async fn` over [`Io`],
+//! Every statement the store runs is written once, as a constant beside
+//! the flow that runs it, and executed by one of two backends: D1 through
+//! its Sessions API in the Worker (`cf_store`), and an in-memory SQLite in
+//! the native tests, on the same migration with foreign keys on. A flow is an `async fn` over [`Io`],
 //! so the tests drive the same code the Worker runs.
 //!
 //! - Values are integers, text, blobs and NULL ([`Val`]). Blob columns are

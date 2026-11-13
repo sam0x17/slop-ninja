@@ -92,7 +92,9 @@ impl Band {
     }
 
     pub fn from_code(s: &str) -> Option<Band> {
-        [Band::VeryStrong, Band::Strong, Band::Unclear, Band::Weak, Band::NoStrongSigns].into_iter().find(|b| b.code() == s)
+        [Band::VeryStrong, Band::Strong, Band::Unclear, Band::Weak, Band::NoStrongSigns]
+            .into_iter()
+            .find(|b| b.code() == s)
     }
 
     /// Whether passages may be highlighted in this band.
@@ -241,8 +243,19 @@ pub fn confidence_text(p: f64) -> String {
 /// The share as the page prints it: whole percent, rounded down so the
 /// share never reads above the confidence, "below 1%" under one.
 pub fn share_text(share: f64, confidence: f64) -> String {
-    let s = if share.is_finite() { share.min(confidence).max(0.0) } else { 0.0 };
+    let s = shown_share(share, confidence);
     if s < 1.0 { "below 1%".into() } else { format!("about {}%", s.floor() as u32) }
+}
+
+/// The dial's bare number: the shown share floored (0 when it reads "below
+/// 1%"), the same number [`share_text`] prints.
+pub fn share_pct(share: f64, confidence: f64) -> u8 {
+    shown_share(share, confidence).floor().min(100.0) as u8
+}
+
+/// The share as shown: never above the confidence, never below 0.
+fn shown_share(share: f64, confidence: f64) -> f64 {
+    if share.is_finite() { share.min(confidence).max(0.0) } else { 0.0 }
 }
 
 #[cfg(test)]
@@ -335,6 +348,9 @@ mod tests {
         assert_eq!(share_text(34.7, 97.0), "about 34%");
         assert_eq!(share_text(50.0, 40.0), "about 40%");
         assert_eq!(share_text(0.3, 10.0), "below 1%");
+        // The dial's number is the printed one.
+        assert_eq!((share_pct(34.7, 97.0), share_pct(50.0, 40.0), share_pct(0.3, 10.0)), (34, 40, 0));
+        assert_eq!((share_pct(f64::NAN, 50.0), share_pct(100.0, 100.0), share_pct(-3.0, 50.0)), (0, 100, 0));
         assert_eq!(tenths_floor(100.0), 1000);
     }
 

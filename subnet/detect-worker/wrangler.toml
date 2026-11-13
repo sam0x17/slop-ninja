@@ -24,6 +24,7 @@
 # service bindings:
 #
 #   wrangler secret put DETECT_STORE_SECRET --env testnet       # from stdin
+#   wrangler secret put DETECT_SLUG_PEPPER_V1 --env testnet     # from stdin
 #   WRANGLER_WRITE_LOGS=false WRANGLER_SEND_METRICS=false wrangler deploy \
 #     --env testnet --tag testnet \
 #     --var PACKAGE_SHA256:<files manifest sha256> \
@@ -35,6 +36,11 @@
 # DETECT_STORE_SECRET (32 random bytes as 64 lowercase hex digits; backed
 # up outside Cloudflare) derives the result seal's day keys and the store's
 # other keys. Without it results carry no seal and cannot be shared.
+# DETECT_SLUG_PEPPER_V1 (the same form; later versions V2.. apply to new
+# pages only, and every version stays) derives each secret page's id and
+# document key. CACHE_PURGE_TOKEN (optional secret) with the var
+# CACHE_PURGE_ZONE, both set by the deploy wrappers, lets deletes purge
+# cached pages; without them the cache bound covers the delay.
 #
 # The package vars are the journaled serving pointer: switching the package
 # is a deploy of new values, recorded by the wrapper. The switches are vars
@@ -43,7 +49,8 @@
 # cannot be read the var decides. With DETECT_SPANS off, texts under 150
 # words are refused, since their rule reads passages. SITE_ORIGIN and
 # SECRET_ORIGIN are the two public origins every host check derives from. No
-# account ID belongs here.
+# account ID belongs here. The hourly cron runs the store's expiry sweep,
+# orphan backstop, stale claims and sitemap shards.
 # The top level is a local-only shell with no bindings, triggers or route.
 
 name = "slop-ninja-detect-local-testnet"
@@ -73,7 +80,7 @@ preview_urls = false
 enabled = false
 
 [env.testnet.triggers]
-crons = []
+crons = ["0 * * * *"]
 
 [env.testnet.vars]
 NETWORK = "testnet"
@@ -93,6 +100,11 @@ DETECT_X = "off"
 # The page's version line says "publication pending" until this is
 # "published" (the reference package bucket's public-access go).
 PUBLICATION = "pending"
+# The serving package's name on pages and cards, and the evidence table its
+# rates come from: stored with every result, so they change with the
+# package vars.
+PACKAGE_LABEL = "span package d24"
+EVIDENCE_ID = "evidence-d24-web-v1"
 # Where the copy's files sit: the staged manifest's own bucket label.
 PACKAGE_BUCKET_LABEL = "admission"
 # Scorer build identity: the instance must report these digests (the
@@ -227,7 +239,7 @@ preview_urls = false
 enabled = false
 
 [env.staging.triggers]
-crons = []
+crons = ["0 * * * *"]
 
 [env.staging.vars]
 NETWORK = "testnet"
@@ -239,6 +251,8 @@ DETECT_SPANS = "on"
 DETECT_URLS = "off"
 DETECT_X = "off"
 PUBLICATION = "pending"
+PACKAGE_LABEL = "span package d24"
+EVIDENCE_ID = "evidence-d24-web-v1"
 PACKAGE_BUCKET_LABEL = "admission"
 SCORER_ORT_SHA256 = "fc44112fbe06d7d689c57e11d3862031f64711007e4ee020f8eed5185fd2c1d3"
 SCORER_BINARY_SHA256 = "7030a86f46114b72929d64e71c377b6416d9bdad9ca71d92e9fd467c94e6a74f"
@@ -293,3 +307,25 @@ binding = "DETECT_STORE"
 database_name = "detect-store-staging"
 database_id = "detect-store-id-staging"
 migrations_dir = "migrations"
+
+[[env.staging.r2_buckets]]
+binding = "DETECT_DOCS"
+bucket_name = "detect-docs-bucket-staging"
+
+[[env.staging.queues.producers]]
+binding = "DETECT_JOBS"
+queue = "detect-jobs-queue-staging"
+
+[[env.staging.queues.consumers]]
+queue = "detect-jobs-queue-staging"
+max_batch_size = 1
+dead_letter_queue = "detect-jobs-dlq-staging"
+
+[[env.staging.services]]
+binding = "ACCOUNT"
+service = "slop-ninja-account-staging"
+
+# The production relay: staging sends its legal stream to the same inbox.
+[[env.staging.services]]
+binding = "ALERTS_RELAY"
+service = "slop-ninja-alerts-testnet"

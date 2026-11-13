@@ -4,7 +4,7 @@ version = "0.1.0"
 edition = "2024"
 license = "MIT OR Apache-2.0"
 publish = false
-description = "Worker behind the free slop.ninja detect page: bounded intake, the forwarders' header contract, exact token count, result seals, a tickets-only fair queue with durable hourly counts and one scorer Container"
+description = "Worker behind the free slop.ninja detect page: bounded intake, the forwarders' header contract, exact token count, result seals, a tickets-only fair queue with durable hourly counts, one scorer Container, and the store of secret links and pages"
 
 # Its own workspace, like the other Workers: it links no chain code, no
 # coordinator signing code and nothing of hidden evaluation. It shares only

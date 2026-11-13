@@ -28,13 +28,15 @@
 //!   (`canon_v1`), [`keys`] (hashes, keys and document encryption),
 //!   [`slug`], [`store`] (the state machine), [`doc`] (the stored result and
 //!   documents), [`display`] (the display policy), [`page`] (page JSON),
-//!   [`db`] (the SQL and I/O seam the flows run on), [`lookup`], the flows
+//!   [`db`] (the SQL and I/O seam the flows run on), [`handoff`] (a sealed
+//!   free check's result as the store keeps it), [`lookup`], the flows
 //!   [`share`], [`manage`] (manage, owner and states) and [`rerun`], the
 //!   read routes [`reads`], and the background work [`queue`], [`cron`],
 //!   [`sitemap`] and [`store_ops`];
-//! - `cf`, `cf_gate`, `cf_feedback`, `cf_lane` (wasm32): the export, the
-//!   `DetectGate` object, the `DetectFeedback` object and the `DetectLane`
-//!   object with its Container.
+//! - `cf`, `cf_routes`, `cf_store`, `cf_gate`, `cf_feedback`, `cf_lane`
+//!   (wasm32): the exports (`fetch`, `queue`, `scheduled`), the store's
+//!   routes and its Cloudflare glue, the `DetectGate` object, the
+//!   `DetectFeedback` object and the `DetectLane` object with its Container.
 //!
 //! **Privacy.** The text lives in the request's memory only. Nothing derived
 //! from it is stored, logged, cached or returned beyond the allow-list: no
@@ -42,10 +44,7 @@
 //! replaces the runtime's hook (which would print the panic message, and a
 //! string-slicing panic's message quotes the string) at every entry, and the
 //! crate denies the lints that panic on input.
-#![cfg_attr(
-    not(test),
-    deny(clippy::unwrap_used, clippy::expect_used, clippy::panic, clippy::indexing_slicing)
-)]
+#![cfg_attr(not(test), deny(clippy::unwrap_used, clippy::expect_used, clippy::panic, clippy::indexing_slicing))]
 
 pub mod answer;
 pub mod bound;
@@ -59,6 +58,7 @@ pub mod doc;
 pub mod english;
 pub mod envelope;
 pub mod gate;
+pub mod handoff;
 pub mod keys;
 pub mod lookup;
 pub mod manage;
@@ -91,10 +91,10 @@ mod cf_gate;
 mod cf_io;
 #[cfg(target_arch = "wasm32")]
 mod cf_lane;
-// The store's Cloudflare glue; its routes are wired with the free path's
-// route table.
 #[cfg(target_arch = "wasm32")]
-#[allow(dead_code)]
+mod cf_routes;
+// The store's Cloudflare glue (D1, R2, the queue and the bindings).
+#[cfg(target_arch = "wasm32")]
 mod cf_store;
 
 // Native witness tests on the bounded arena: the arena is the test binary's

@@ -37,11 +37,13 @@ Every route first checks how the request arrived (`routes::forwarded`):
   row of the forwarded route table, and the CSRF check of `auth-core`
   applies (Fetch Metadata and `Origin` against that host's origin).
 - `X-SN-Principal` is accepted only on the routes whose table row takes one,
-  from the site host. None of the routes below does: a free check is the same
-  request for everyone, and a principal on it refuses the request.
+  from the site host. Of the routes served here only `share` does: a free
+  check is the same request for everyone, and a principal on it refuses the
+  request.
 - A request with neither header is a binding call no forwarder made. It is
   served, and its scans are recorded as `uncovered_path`, never counted.
-- An `/internal/` request carrying `X-SN-Route` or `X-SN-Host` is refused.
+- An `/internal/` request carrying `X-SN-Route` or `X-SN-Host` is refused,
+  and only the owner route takes `X-SN-Principal` (and needs it).
 - No header outside the forwarders' allow-list is read, and never a cookie
   (`tests/source.rs`).
 
@@ -73,9 +75,13 @@ counts some codes carry, under the HTTP status of its code
      post's canonical URL (`https://x.com/i/status/<id>`) while `DETECT_URLS`
      and `DETECT_X` are both on, and `x_off` otherwise;
   9. the rest of the reservation (503 "busy");
-  10. the free cut (`cut.rs`, "The free cut" below), with exact token counts
+  10. `canon_v1` (`canon.rs`): CRLF and CR become LF, surrounding whitespace
+      is trimmed and the text is NFC under the scorer's own normalizer, so
+      the scorer's outputs do not change; the seal binds this form, and the
+      answer's offsets are mapped back to the exact string the page sent;
+  11. the free cut (`cut.rs`, "The free cut" below), with exact token counts
       from the scorer's own tokenizer table;
-  11. the scored part's length floor (24 words, or 150 with the span switch
+  12. the scored part's length floor (24 words, or 150 with the span switch
       off) and the English screen on it.
 
   Only the scored part is forwarded to the scorer. Every refusal before a
@@ -129,8 +135,32 @@ secret `DETECT_STORE_SECRET` with info `"seal"` and the UTC day. The payload
 is `{day, text_sha256, scored_end, cut, package_load, policy_v, result_full,
 issued_ms}`, so the answer carries no text-derived value in the clear. A
 seal opens under today's or yesterday's key (24 to 48 hours) and only for
-the text whose SHA-256 it names; its nonce's hash lets a link be made from
-it once. Without the secret a result carries no seal.
+the text whose `canon_v1` form's SHA-256 it names; its nonce's hash lets a
+link be made from it once. Without the secret a result carries no seal.
+`handoff.rs` turns an opened seal's result into the store's record, only
+under the package that scored it.
+
+## The store
+
+Secret links, pages and the background work run as pure flows over one SQL
+and I/O seam (`db.rs`), tested natively on the store's own migration, with
+the Cloudflare glue in `cf_store.rs` and the routes in `cf_routes.rs`:
+
+- `POST /api/detect/v1/share` (Get a link, from the site host, with
+  `X-SN-Principal` when saved), `/manage` (the secret host), `/rerun` (a
+  secret page's re-run: the same cut, ticket class and lane as a paste, and
+  counted like one) and `/state` (a pending public page's poll);
+- the binding-only `/internal/v1/` routes: `page`, `preview`, `card`,
+  `states`, `owner`, `examples`, `example`, `sitemap/<n>` and `removals`;
+- the `detect-jobs` consumer (one message per invocation; purges, owner
+  purges and re-keys, legal notices, sitemap marks) and the hourly cron
+  (expiry, the orphan backstop, stale claims, sitemap shards).
+
+A secret page's text is stored only in R2, encrypted under a key derived
+from its own slug and the slug pepper (`DETECT_SLUG_PEPPER_V1`), so the
+store's rows hold nothing of it. A link or a preview reserves its footprint
+from the scan memory by its declared length, and a document read by the
+document's size.
 
 ## The free cut
 
@@ -258,7 +288,8 @@ the launch gate; they are not abuse thresholds.
 
 - The text stays in the request's memory. Nothing derived from it is stored,
   logged, cached or returned beyond the allow-list in `answer.rs`: no text
-  hash, no output digest, no attribution, no timing.
+  hash, no output digest, no attribution, no timing. Only Get a link stores
+  a text, encrypted, as its secret page (above).
 - The gate holds tickets and client keys in memory, and content-free hourly
   counts in its own storage. A client key is an HMAC of the
   address's network prefix (the first 24 bits of an IPv4 address, the first

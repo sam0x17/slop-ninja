@@ -77,7 +77,37 @@ pub fn canon_v1(text: &str) -> Cow<'_, str> {
 
 /// `SHA-256(canon_v1(text))`, the hash a seal binds.
 pub fn text_sha256(text: &str) -> [u8; 32] {
-    Sha256::digest(canon_v1(text).as_bytes()).into()
+    canonical_sha256(&canon_v1(text))
+}
+
+/// The same hash of a text already in canonical form (`canon_v1` is
+/// idempotent), without a second pass over it.
+pub fn canonical_sha256(canonical: &str) -> [u8; 32] {
+    Sha256::digest(canonical.as_bytes()).into()
+}
+
+/// Maps ascending UTF-16 offsets into `canonical` (= `canon_v1(original)`)
+/// to UTF-16 offsets into `original`, through [`to_original`]. `None` when
+/// an offset is out of order, past the end, or inside a surrogate pair.
+pub fn utf16_to_original(original: &str, canonical: &str, offsets: &[usize]) -> Option<Vec<usize>> {
+    let mut chars = Vec::with_capacity(offsets.len());
+    let mut want = offsets.iter().copied().peekable();
+    let (mut ci, mut u16i) = (0usize, 0usize);
+    let mut it = canonical.chars();
+    while let Some(&w) = want.peek() {
+        if w < u16i {
+            return None;
+        }
+        if w == u16i {
+            chars.push(ci);
+            want.next();
+            continue;
+        }
+        let c = it.next()?;
+        ci += 1;
+        u16i += c.len_utf16();
+    }
+    to_original(original, &chars).map(|v| v.into_iter().map(|x| x as usize).collect())
 }
 
 /// Maps ascending character offsets into `canon_v1(original)` (each at most
@@ -177,6 +207,31 @@ mod tests {
         assert_eq!(mapped[0], 2);
         // The end of the text maps to the end of the last kept character.
         assert_eq!(*mapped.last().unwrap() as usize, original.trim_end().encode_utf16().count());
+    }
+
+    #[test]
+    fn utf16_offsets_map_back_through_the_characters() {
+        let original = "\r\n  caf\u{65}\u{301} \u{1F345} jam\r\nend ";
+        let canon = canon_v1(original);
+        assert_eq!(&*canon, "caf\u{e9} \u{1F345} jam\nend");
+        // "jam" starts after the emoji's surrogate pair: canonical UTF-16 8,
+        // original 13 (the four leading units, and the decomposed accent's
+        // extra unit).
+        let c16 = |s: &str| s.encode_utf16().count();
+        let at_jam = c16("caf\u{e9} \u{1F345} ");
+        assert_eq!(at_jam, 8);
+        let mapped = utf16_to_original(original, &canon, &[0, at_jam, c16(&canon)]).unwrap();
+        let o16: Vec<u16> = original.encode_utf16().collect();
+        assert_eq!(String::from_utf16(&o16[mapped[1]..mapped[1] + 3]).unwrap(), "jam");
+        assert_eq!((mapped[0], mapped[1]), (4, 13));
+        assert_eq!(mapped[2], c16(original.trim_end()));
+        // Inside the surrogate pair, out of order, or past the end.
+        assert_eq!(utf16_to_original(original, &canon, &[c16("caf\u{e9} ") + 1]), None);
+        assert_eq!(utf16_to_original(original, &canon, &[3, 2]), None);
+        assert_eq!(utf16_to_original(original, &canon, &[c16(&canon) + 1]), None);
+        // A canonical text maps to itself.
+        assert_eq!(utf16_to_original("ab c", "ab c", &[0, 2, 4]), Some(vec![0, 2, 4]));
+        assert_eq!(canonical_sha256(&canon), text_sha256(original));
     }
 
     #[test]

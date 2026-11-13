@@ -71,10 +71,18 @@ pub struct StoredResult {
 /// The package serving now (from the deployment's package vars).
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Serving {
+    /// The files manifest digest the scorer loads (`PACKAGE_SHA256`).
     pub load: String,
+    /// "span package d24" (`PACKAGE_LABEL`).
     pub label: String,
+    /// The published package digest (`PUBLISHED_PACKAGE_DIGEST`).
     pub published: String,
     pub pending: bool,
+    /// The scorer build's short digest: the first 8 hex digits of
+    /// `SCORER_BINARY_SHA256`.
+    pub scorer_build: String,
+    /// The evidence table this package's rates come from (`EVIDENCE_ID`).
+    pub evidence: String,
 }
 
 impl Serving {

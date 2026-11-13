@@ -29,6 +29,8 @@ fn serving(p: &Page) -> Serving {
         label: p.serving.package_label.clone(),
         published: digest,
         pending: p.serving.publication_pending,
+        scorer_build: "7030a86f".into(),
+        evidence: "evidence-d24-web-v1".into(),
     }
 }
 

@@ -12,12 +12,12 @@
 //!   was made with.
 
 use slop_ninja_detect_page::slug::{self, PUBLIC_LEN, SECRET_LEN};
-use slop_ninja_detect_page::switches::{self, Switch};
 
 use crate::db::{DbError, Done, Io, Stmt, Val};
 use crate::display::PageSwitches;
 use crate::keys::{Pepper, Peppers, public_id_h};
 use crate::store::{DetRow, SELECT_DET};
+use crate::switches;
 
 /// Every switch row (the table holds one row per switch name).
 pub const SELECT_SWITCHES: &str = "SELECT name, state FROM switches";
@@ -26,27 +26,27 @@ pub const SELECT_SWITCHES: &str = "SELECT name, state FROM switches";
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct SwitchRows {
     /// `None`: the rows could not be read, so each var decides.
-    pub rows: Option<Vec<(String, String)>>,
+    pub rows: Option<Vec<switches::Row>>,
 }
 
 impl SwitchRows {
     pub fn from_done(d: Option<&Done>) -> SwitchRows {
         SwitchRows {
             rows: d.map(|d| {
-                d.rows.iter().filter_map(|r| Some((r.text("name")?.to_owned(), r.text("state")?.to_owned()))).collect()
+                d.rows
+                    .iter()
+                    .filter_map(|r| {
+                        Some(switches::Row { name: r.text("name")?.to_owned(), state: r.text("state")?.to_owned() })
+                    })
+                    .collect()
             }),
         }
     }
 
-    fn row(&self, name: &str) -> Option<&str> {
-        self.rows.as_ref()?.iter().find(|(n, _)| n == name).map(|(_, s)| s.as_str())
-    }
-
-    /// The effective state of `name` (a switch of the table).
+    /// The effective state of `name` (a switch of the table), by the free
+    /// check's own rule ([`switches::state_of`]).
     pub fn state(&self, io: &impl Io, name: &str) -> &'static str {
-        let Some(sw): Option<&Switch> = switches::switch(name) else { return "off" };
-        let var = io.var(name).unwrap_or_default();
-        switches::effective(sw, &var, self.row(name))
+        switches::state_of(name, io.var(name).as_deref(), self.rows.as_deref())
     }
 
     pub fn on(&self, io: &impl Io, name: &str) -> bool {

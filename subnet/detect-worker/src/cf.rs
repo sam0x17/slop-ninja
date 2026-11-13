@@ -1,4 +1,5 @@
-//! The detect Worker on Cloudflare (wasm32 only): its `fetch` export.
+//! The detect Worker on Cloudflare (wasm32 only): its `fetch`, `queue` and
+//! `scheduled` exports.
 //!
 //! Routes (reached only through the public forwarders' service bindings):
 //! - `POST /api/detect/v1/warm`: content-free. Answered from this isolate's
@@ -15,9 +16,11 @@
 //!   (503 unread when busy); the body, read within the body wait (408 past
 //!   it); the strict envelope; rule `x_post_v1` (a lone link to a post on X
 //!   scores nothing and takes no ticket); the rest of the reservation (503
-//!   when busy); the free cut (at most the first 1,000 words, never inside a
-//!   sentence, within the scorer's tokens, counted exactly: `cut.rs`); the
-//!   scored part's length floor and English screen. Only the scored part is
+//!   when busy); `canon_v1` (`canon.rs`: the seal binds the canonical text,
+//!   and the passages are mapped back to the string the page sent); the free
+//!   cut (at most the first 1,000 words, never inside a sentence, within the
+//!   scorer's tokens, counted exactly: `cut.rs`); the scored part's length
+//!   floor and English screen. Only the scored part is
 //!   forwarded. Refusals answer one JSON object with their code's status. An
 //!   accepted text gets an NDJSON stream: queue positions, "starting" on a
 //!   cold instance, then the result with its seal, or a refusal line. Each
@@ -29,14 +32,24 @@
 //!   the wrong shape is refused here; any other goes to the `DetectFeedback`
 //!   object (never the gate), which accepts it once, and is counted as a
 //!   content-free data point.
-//! - `/internal/*`: refused when it carries `X-SN-Route` or `X-SN-Host`;
-//!   otherwise 404 (no internal route is served yet).
+//! - The store's routes (`cf_routes`): `POST /api/detect/v1/share`
+//!   (Get a link, with `X-SN-Principal` from the site host when saved),
+//!   `/manage` (the secret host), `/rerun` (a secret page's re-run: the same
+//!   ticket class, cut and lane as a paste, counted like one) and `/state`;
+//!   and the binding-only `/internal/v1/*` routes (page, preview, card,
+//!   states, owner, examples, example, sitemap shards, removals), refused
+//!   when they carry `X-SN-Route` or `X-SN-Host`, with `X-SN-Principal` on
+//!   the owner route only.
 //! - anything else: 404 (405 for another method on a route).
+//!
+//! The `queue` export consumes `detect-jobs` (one message per invocation),
+//! and `scheduled` runs the store's hourly work.
 //!
 //! Every answer carries `Cache-Control: no-store` and `nosniff`. No answer
 //! echoes input, and nothing here writes a console line.
 
 use crate::answer::{self, Outcome, PackageLine};
+use crate::canon;
 use crate::cf_io::{self, BodyError, Settled, now_ms};
 use crate::counters::{self, Count};
 use crate::cut::{self, Cut, NoCut};
@@ -95,6 +108,10 @@ export function detect_route(req) {
   if (u.pathname === '/api/detect/v1/score') return post ? 1 : 9;
   if (u.pathname === '/api/detect/v1/warm') return post ? 2 : 9;
   if (u.pathname === '/api/detect/v1/feedback') return post ? 3 : 9;
+  if (u.pathname === '/api/detect/v1/share') return post ? 4 : 9;
+  if (u.pathname === '/api/detect/v1/manage') return post ? 6 : 9;
+  if (u.pathname === '/api/detect/v1/rerun') return post ? 7 : 9;
+  if (u.pathname === '/api/detect/v1/state') return post ? 8 : 9;
   return 0;
 }
 export function ndjson_pair() {
@@ -122,8 +139,9 @@ export function random_bytes(n) {
 }
 ")]
 extern "C" {
-    /// 1 score, 2 warm, 3 feedback, 5 an internal path, 9 another method on
-    /// a route, else 0 (read in JS, no Rust allocation).
+    /// 1 score, 2 warm, 3 feedback, 4 share, 5 an internal path, 6 manage,
+    /// 7 rerun, 8 state, 9 another method on a route, else 0 (read in JS,
+    /// no Rust allocation).
     fn detect_route(req: &web_sys::Request) -> u32;
     /// `[readable, writer]` of a fresh TransformStream.
     fn ndjson_pair() -> js_sys::Array;
@@ -138,7 +156,7 @@ extern "C" {
 }
 
 /// A bodiless answer built in JS (no Rust allocation).
-fn status_only(status: u16) -> web_sys::Response {
+pub(crate) fn status_only(status: u16) -> web_sys::Response {
     let init = web_sys::ResponseInit::new();
     init.set_status(status);
     if let Ok(h) = web_sys::Headers::new() {
@@ -149,7 +167,7 @@ fn status_only(status: u16) -> web_sys::Response {
     web_sys::Response::new_with_opt_str_and_init(None, &init).unwrap_or_else(|_| web_sys::Response::error())
 }
 
-fn json_raw(status: u16, body: &[u8], allow: bool) -> web_sys::Response {
+pub(crate) fn json_raw(status: u16, body: &[u8], allow: bool) -> web_sys::Response {
     let res = Response::from_bytes(body.to_vec()).map(|r| r.with_status(status)).and_then(|mut r| {
         let h = r.headers_mut();
         h.set("Content-Type", "application/json; charset=utf-8")?;
@@ -170,11 +188,11 @@ fn json_raw(status: u16, body: &[u8], allow: bool) -> web_sys::Response {
 }
 
 /// A refusal: one JSON object with its code's status.
-fn refusal(r: &ApiRefusal) -> web_sys::Response {
+pub(crate) fn refusal(r: &ApiRefusal) -> web_sys::Response {
     json_raw(r.code.status(), &serde_json::to_vec(r).unwrap_or_default(), r.code == RefusalCode::Method)
 }
 
-fn refuse(code: RefusalCode) -> web_sys::Response {
+pub(crate) fn refuse(code: RefusalCode) -> web_sys::Response {
     refusal(&ApiRefusal::new(code))
 }
 
@@ -199,7 +217,7 @@ fn too_short(c: &Cut<'_>, min_words: usize) -> ApiRefusal {
 }
 
 /// A body read's failure as a refusal.
-fn body_code(e: BodyError) -> RefusalCode {
+pub(crate) fn body_code(e: BodyError) -> RefusalCode {
     match e {
         BodyError::TooLarge | BodyError::Refused(slop_ninja_arena::RefusalKind::Invalid) => RefusalCode::TooLarge,
         BodyError::Timeout | BodyError::Transport => RefusalCode::Body,
@@ -220,6 +238,11 @@ pub fn fetch(req: web_sys::Request, env: Env, _ctx: worker_sys::Context) -> js_s
         1 => (routes::R_SCORE, routes::SCORE_CONTROL_BYTES),
         2 => (routes::R_WARM, routes::WARM_CONTROL_BYTES),
         3 => (routes::R_FEEDBACK, routes::FEEDBACK_CONTROL_BYTES),
+        4 => (routes::R_SHARE, routes::STORE_CONTROL_BYTES),
+        5 => (routes::R_INTERNAL, routes::STORE_CONTROL_BYTES),
+        6 => (routes::R_MANAGE, routes::STORE_CONTROL_BYTES),
+        7 => (routes::R_RERUN, routes::RERUN_CONTROL_BYTES),
+        8 => (routes::R_STATE, routes::STORE_CONTROL_BYTES),
         _ => (routes::R_OTHER, routes::OTHER_CONTROL_BYTES),
     };
     // The score route resolves its answer early (a stream it keeps writing),
@@ -238,7 +261,11 @@ pub fn fetch(req: web_sys::Request, env: Env, _ctx: worker_sys::Context) -> js_s
                 1 => score(req, env, &answer).await,
                 2 => answer.send(warm(&req, &env).await),
                 3 => answer.send(feedback(req, &env).await),
-                5 => answer.send(internal(&req)),
+                4 => answer.send(crate::cf_routes::share(req, &env).await),
+                5 => answer.send(crate::cf_routes::internal(req, &env).await),
+                6 => answer.send(crate::cf_routes::manage(req, &env).await),
+                7 => answer.send(crate::cf_routes::rerun(req, &env).await),
+                8 => answer.send(crate::cf_routes::state(req, &env).await),
                 9 => answer.send(refuse(RefusalCode::Method)),
                 _ => answer.send(refuse(RefusalCode::NotFound)),
             }
@@ -255,6 +282,53 @@ pub fn fetch(req: web_sys::Request, env: Env, _ctx: worker_sys::Context) -> js_s
     outer
 }
 
+/// The `detect-jobs` consumer (one message per invocation): refused (no
+/// ticket, or no scope), the batch is retried and the export resolves; it
+/// never rejects.
+#[wasm_bindgen]
+pub fn queue(batch: worker_sys::MessageBatch, env: Env, _ctx: worker_sys::Context) -> js_sys::Promise {
+    silence_panics();
+    let Ok(ticket) = glue::Ticket::admit() else {
+        let _ = batch.retry_all(JsValue::UNDEFINED);
+        return js_sys::Promise::resolve(&JsValue::UNDEFINED);
+    };
+    let _ = slop_ninja_arena::tick(now_ms());
+    let retry = batch.clone();
+    wasm_bindgen_futures::future_to_promise(async move {
+        let _ticket = ticket;
+        let r = slop_ninja_arena::enter(routes::R_QUEUE, routes::QUEUE_CONTROL_BYTES, move |_scope| async move {
+            crate::cf_routes::consume(batch, env).await;
+        });
+        match r {
+            Ok(e) => {
+                let _ = e.await;
+            }
+            Err(_) => {
+                let _ = retry.retry_all(JsValue::UNDEFINED);
+            }
+        }
+        Ok(JsValue::UNDEFINED)
+    })
+}
+
+/// The hourly cron: refused (no ticket, or no scope), the tick resolves and
+/// the next hour's does the work.
+#[wasm_bindgen]
+pub fn scheduled(_event: worker_sys::ScheduledEvent, env: Env, _ctx: worker_sys::ScheduleContext) -> js_sys::Promise {
+    silence_panics();
+    let Ok(ticket) = glue::Ticket::admit() else { return js_sys::Promise::resolve(&JsValue::UNDEFINED) };
+    let _ = slop_ninja_arena::tick(now_ms());
+    wasm_bindgen_futures::future_to_promise(async move {
+        let _ticket = ticket;
+        if let Ok(e) = slop_ninja_arena::enter(routes::R_CRON, routes::CRON_CONTROL_BYTES, move |_scope| async move {
+            crate::cf_routes::hourly(env).await;
+        }) {
+            let _ = e.await;
+        }
+        Ok(JsValue::UNDEFINED)
+    })
+}
+
 /// The invocation's answer: resolving it more than once has no effect.
 struct Answer {
     resolve: js_sys::Function,
@@ -267,10 +341,10 @@ impl Answer {
 }
 
 /// The isolate's scan reservation, given back when the request ends.
-struct Reserved(usize);
+pub(crate) struct Reserved(usize);
 
 impl Reserved {
-    fn take(bytes: usize) -> std::result::Result<Reserved, NoRoom> {
+    pub(crate) fn take(bytes: usize) -> std::result::Result<Reserved, NoRoom> {
         SCAN_MEMORY.with(|b| b.take(bytes)).map(|()| Reserved(bytes))
     }
 
@@ -353,7 +427,7 @@ pub(crate) fn point(env: &Env, p: ae::Point, fields: &[&str], double: f64) {
 }
 
 /// A refusal before any ticket: an AE `submit` point only.
-fn submitted(env: &Env, route: RouteId, outcome: &str) {
+pub(crate) fn submitted(env: &Env, route: RouteId, outcome: &str) {
     point(env, ae::detect::SUBMIT, &[route.as_str(), outcome], 1.0);
 }
 
@@ -379,7 +453,7 @@ struct Heads {
     fetch_site: Option<String>,
 }
 
-fn header(req: &Request, name: &str) -> Option<String> {
+pub(crate) fn header(req: &Request, name: &str) -> Option<String> {
     req.headers().get(name).ok().flatten()
 }
 
@@ -413,22 +487,24 @@ pub(crate) fn origins(env: &Env) -> Option<Origins> {
 }
 
 /// A forwarded route's admission, before any body is read.
-fn admit(req: &Request, env: &Env, route: RouteId) -> std::result::Result<Admission, RefusalCode> {
+pub(crate) fn admit(req: &Request, env: &Env, route: RouteId) -> std::result::Result<Admission, RefusalCode> {
     let Some(o) = origins(env) else { return Err(RefusalCode::NotConfigured) };
     forwarded::admit(route, &Heads::of(req).arrival(), &o)
 }
 
-fn internal(req: &Request) -> web_sys::Response {
-    match forwarded::admit_internal(&Heads::of(req).arrival()) {
-        Ok(()) => refuse(RefusalCode::NotFound),
-        Err(code) => refuse(code),
-    }
+/// An internal route's admission and its principal (the owner route's
+/// only), before any body is read.
+pub(crate) fn admit_internal(
+    req: &Request,
+    route: slop_ninja_detect_page::sn::InternalRoute,
+) -> std::result::Result<Option<slop_ninja_detect_page::Principal>, RefusalCode> {
+    forwarded::internal_principal(route, &Heads::of(req).arrival())
 }
 
 /// The switches `names`, read from the vars and the store's rows in one
 /// statement within `wait_ms`. The vars decide when the rows cannot be read,
 /// which writes an AE `error {d1}` point.
-async fn read_switches(env: &Env, names: &[&str], wait_ms: u64) -> Switches {
+pub(crate) async fn read_switches(env: &Env, names: &[&str], wait_ms: u64) -> Switches {
     let rows = async {
         let db = env.d1(STORE).ok()?;
         let binds: Vec<JsValue> = names.iter().map(|n| JsValue::from_str(n)).collect();
@@ -729,18 +805,26 @@ async fn lane_score(env: &Env, body: &str, left_ms: u64, hold_ms: u64) -> std::r
 }
 
 /// What the free check knows before its stream starts.
-struct Accepted<'a> {
+pub(crate) struct Accepted<'a> {
     pkg: Package,
     fwd: String,
     cut: Cut<'a>,
     length: LengthBin,
     spans_on: bool,
-    /// The SHA-256 of the string the free cut ran on (the seal binds it).
+    /// `SHA-256(canon_v1(text))` (hex): the free cut runs on the canonical
+    /// text, and the seal binds it.
     text_sha256: String,
     /// `free_text` when the pot may count the scan; `None` on an uncovered
     /// path (recorded as `uncovered_path`).
     channel: Option<Channel>,
     started: u64,
+}
+
+impl Accepted<'_> {
+    /// The files manifest digest the scan runs under.
+    pub(crate) fn load(&self) -> &str {
+        &self.pkg.load
+    }
 }
 
 async fn score(mut req: Request, env: Env, answer: &Answer) {
@@ -804,52 +888,14 @@ async fn score(mut req: Request, env: Env, answer: &Answer) {
     if text.trim().is_empty() {
         return answer.send(refused(RefusalCode::Empty));
     }
-    // The free cut: the part scored (at most the first 1,000 words, never
-    // inside a sentence, within the scorer's tokens), counted exactly. Its
-    // counts allocate within the reservation.
-    let mut fits = |bytes: usize, _align: usize| bytes <= reservation;
-    let cut = match cut::free_cut(text, &mut fits) {
-        Ok(c) => c,
-        Err(NoCut::NoSentenceEnd) => {
-            submitted(&env, route, RefusalCode::NoSentenceEnd.as_str());
-            let r = ApiRefusal {
-                total_words: Some(u32_of(policy::words(text))),
-                ..ApiRefusal::new(RefusalCode::NoSentenceEnd)
-            };
-            return answer.send(refusal(&r));
-        }
-        Err(NoCut::Count(_)) => return answer.send(refused(RefusalCode::Busy)),
-    };
-    // A short text's rule reads passages: with spans off, the span-free
-    // minimum applies.
+    // canon_v1 before the cut: the seal binds the canonical text, and the
+    // answer's offsets are mapped back to the string the page sent.
+    let canonical = canon::canon_v1(text);
     let spans_on = sw.on(switches::SPANS);
-    let length = match policy::length_bin(cut.scored_words) {
-        Ok(l) if spans_on || !l.is_short() => l,
-        _ => {
-            submitted(&env, route, RefusalCode::TooShort.as_str());
-            return answer.send(refusal(&too_short(&cut, policy::min_words(spans_on))));
-        }
-    };
-    if english::english_screen(cut.scored).is_some() {
-        submitted(&env, route, RefusalCode::NotEnglish.as_str());
-        return answer.send(refusal(&of_cut(RefusalCode::NotEnglish, &cut)));
-    }
-    let fwd = Forward { package: &pkg.load, spans: true, docs: [ForwardDoc { id: "d", text: cut.scored }] };
-    let Ok(fwd) = serde_json::to_string(&fwd) else { return answer.send(refused(RefusalCode::Internal)) };
-    if fwd.len() as u64 > bound::SCORER_MAX_BODY {
-        submitted(&env, route, RefusalCode::TooLong.as_str());
-        return answer
-            .send(refusal(&ApiRefusal { tokens: Some(u32_of(cut.tokens)), ..ApiRefusal::new(RefusalCode::TooLong) }));
-    }
-    let accepted = Accepted {
-        pkg,
-        fwd,
-        text_sha256: seal::text_sha256(text),
-        cut,
-        length,
-        spans_on,
-        channel: admission.channel(route),
-        started,
+    let accepted = match prepare(&env, route, &canonical, spans_on, pkg, admission.channel(route), reservation, started)
+    {
+        Ok(a) => a,
+        Err(r) => return answer.send(refusal(&r)),
     };
     // Accepted: from here the answer is a stream.
     let pair = ndjson_pair();
@@ -870,21 +916,83 @@ async fn score(mut req: Request, env: Env, answer: &Answer) {
     }
     submitted(&env, route, "accepted");
     let ip = header(&req, "cf-connecting-ip");
-    run(&env, ip.as_deref(), &mut lines, &w, accepted).await;
+    match run(&env, ip.as_deref(), &mut lines, &w, &accepted).await {
+        Scan::Result(mut line) => {
+            answer::to_original(&mut line, text, &canonical);
+            line.seal = result_seal(&env, &accepted, &line);
+            let _ = lines.line(&line).await;
+        }
+        Scan::Refused(r) => {
+            let _ = lines.line(&r).await;
+        }
+        Scan::Gone => {}
+    }
     lines.close().await;
     drop(held);
 }
 
-/// A refusal line in the stream (its status is already 200).
-async fn refusal_line(lines: &mut Lines, code: RefusalCode) {
-    let _ = lines.line(&ApiRefusal::new(code)).await;
+/// The free check's part before any ticket, on `canonical` (`canon_v1` of
+/// the text), within `reservation`: the free cut (at most the first 1,000
+/// words, never inside a sentence, within the scorer's tokens, counted
+/// exactly), the floor (the span-free minimum with spans off: a short
+/// text's rule reads passages) and the English screen, then the scorer's
+/// body. A refusal is counted as a `submit` point of `route`.
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn prepare<'a>(
+    env: &Env,
+    route: RouteId,
+    canonical: &'a str,
+    spans_on: bool,
+    pkg: Package,
+    channel: Option<Channel>,
+    reservation: usize,
+    started: u64,
+) -> std::result::Result<Accepted<'a>, ApiRefusal> {
+    let refused = |r: ApiRefusal| {
+        submitted(env, route, r.code.as_str());
+        r
+    };
+    // The cut's counts allocate within the reservation.
+    let mut fits = |bytes: usize, _align: usize| bytes <= reservation;
+    let cut = match cut::free_cut(canonical, &mut fits) {
+        Ok(c) => c,
+        Err(NoCut::NoSentenceEnd) => {
+            return Err(refused(ApiRefusal {
+                total_words: Some(u32_of(policy::words(canonical))),
+                ..ApiRefusal::new(RefusalCode::NoSentenceEnd)
+            }));
+        }
+        Err(NoCut::Count(_)) => return Err(ApiRefusal::new(RefusalCode::Busy)),
+    };
+    let length = match policy::length_bin(cut.scored_words) {
+        Ok(l) if spans_on || !l.is_short() => l,
+        _ => return Err(refused(too_short(&cut, policy::min_words(spans_on)))),
+    };
+    if english::english_screen(cut.scored).is_some() {
+        return Err(refused(of_cut(RefusalCode::NotEnglish, &cut)));
+    }
+    let fwd = Forward { package: &pkg.load, spans: true, docs: [ForwardDoc { id: "d", text: cut.scored }] };
+    let Ok(fwd) = serde_json::to_string(&fwd) else { return Err(ApiRefusal::new(RefusalCode::Internal)) };
+    if fwd.len() as u64 > bound::SCORER_MAX_BODY {
+        return Err(refused(ApiRefusal { tokens: Some(u32_of(cut.tokens)), ..ApiRefusal::new(RefusalCode::TooLong) }));
+    }
+    Ok(Accepted {
+        pkg,
+        fwd,
+        text_sha256: hex::encode(canon::canonical_sha256(canonical)),
+        cut,
+        length,
+        spans_on,
+        channel,
+        started,
+    })
 }
 
 /// The seal of a result: `None` when the store secret is not configured or
 /// the seal fails (the result is shown, but cannot be shared or quoted).
+/// `line`'s offsets are already the sent string's.
 fn result_seal(env: &Env, a: &Accepted<'_>, line: &answer::Answer) -> Option<String> {
-    let secret = env.secret(STORE_SECRET).ok().and_then(|s| seal::parse_secret(s.to_string().trim()));
-    let Some(secret) = secret else {
+    let Some(secret) = store_secret(env) else {
         point(env, ae::detect::ERROR, &["seal_not_configured"], 1.0);
         return None;
     };
@@ -892,7 +1000,7 @@ fn result_seal(env: &Env, a: &Accepted<'_>, line: &answer::Answer) -> Option<Str
     let payload = ResultPayload {
         day: seal::day_of(now),
         text_sha256: a.text_sha256.clone(),
-        scored_end: a.cut.scored_end(),
+        scored_end: line.scored_end,
         cut: a.cut.kind.code().to_owned(),
         package_load: a.pkg.load.clone(),
         policy_v: seal::POLICY_V.to_owned(),
@@ -908,7 +1016,59 @@ fn result_seal(env: &Env, a: &Accepted<'_>, line: &answer::Answer) -> Option<Str
     sealed
 }
 
-async fn run(env: &Env, ip: Option<&str>, lines: &mut Lines, w: &Waits, a: Accepted<'_>) {
+/// The store secret's 32 bytes (`DETECT_STORE_SECRET`, 64 hex digits,
+/// trimmed); `None` when unset or of another form.
+pub(crate) fn store_secret(env: &Env) -> Option<[u8; seal::SECRET_BYTES]> {
+    env.secret(STORE_SECRET).ok().and_then(|s| seal::parse_secret(s.to_string().trim()))
+}
+
+/// Where a scan's progress goes: the free check's NDJSON stream, or nowhere
+/// (a re-run answers once, at the end).
+#[allow(async_fn_in_trait)]
+pub(crate) trait Progress {
+    /// Writes one line; `false` when the reader is gone.
+    async fn line<T: Serialize>(&mut self, v: &T) -> bool;
+    /// The reader is still there.
+    fn alive(&mut self) -> bool;
+}
+
+impl Progress for Lines {
+    async fn line<T: Serialize>(&mut self, v: &T) -> bool {
+        Lines::line(self, v).await
+    }
+
+    fn alive(&mut self) -> bool {
+        Lines::alive(self)
+    }
+}
+
+/// No progress lines.
+pub(crate) struct Quiet;
+
+impl Progress for Quiet {
+    async fn line<T: Serialize>(&mut self, _v: &T) -> bool {
+        true
+    }
+
+    fn alive(&mut self) -> bool {
+        true
+    }
+}
+
+/// What a scan came to.
+pub(crate) enum Scan {
+    /// The result line, offsets into the canonical text, without its seal.
+    Result(answer::Answer),
+    /// A refusal for the reader.
+    Refused(ApiRefusal),
+    /// The reader left: nothing to answer.
+    Gone,
+}
+
+/// One scan of an accepted text: a gate ticket (class interactive, keyed by
+/// the address prefix), the lane, the answer's allow-list. The release that
+/// ends it carries its content-free count.
+pub(crate) async fn run(env: &Env, ip: Option<&str>, lines: &mut impl Progress, w: &Waits, a: &Accepted<'_>) -> Scan {
     let (cut, length) = (&a.cut, a.length);
     let hold = w.hold_ms;
     let prefix = ip.and_then(crate::address_prefix).unwrap_or_else(|| "none".into());
@@ -916,7 +1076,7 @@ async fn run(env: &Env, ip: Option<&str>, lines: &mut Lines, w: &Waits, a: Accep
     let enter = EnterReq { client: ClientIn { kind: "prefix", value: &prefix }, class: class.as_str(), hold_ms: hold };
     let Some(mut st) = gate_call::<GateStatus, _>(env, "/enter", Some(&enter), hold).await else {
         point(env, ae::detect::ERROR, &[RefusalCode::Unavailable.as_str()], 1.0);
-        return refusal_line(lines, RefusalCode::Unavailable).await;
+        return Scan::Refused(ApiRefusal::new(RefusalCode::Unavailable));
     };
     let depth = st.position.unwrap_or(0);
     point(env, ae::detect::QUEUE, &[pow2_bucket(depth as u64).as_str()], depth as f64);
@@ -936,6 +1096,7 @@ async fn run(env: &Env, ip: Option<&str>, lines: &mut Lines, w: &Waits, a: Accep
         })
     };
     let done = |served_ms: Option<u64>, count: Option<Count>| DoneReq { ticket, served_ms, count };
+    let refused = |code: RefusalCode| Scan::Refused(ApiRefusal::new(code));
     loop {
         match st.status.as_str() {
             "admitted" => break,
@@ -943,7 +1104,7 @@ async fn run(env: &Env, ip: Option<&str>, lines: &mut Lines, w: &Waits, a: Accep
                 let q = Queued { state: "queued", position: st.position.unwrap_or(1), estimate_ms: st.estimate_ms };
                 if !lines.line(&q).await {
                     let _ = gate_tell(env, "/leave", &done(None, None), hold).await;
-                    return;
+                    return Scan::Gone;
                 }
                 // The gate holds the ask until the ticket is admitted or the
                 // (position-scaled) hold ends.
@@ -953,17 +1114,17 @@ async fn run(env: &Env, ip: Option<&str>, lines: &mut Lines, w: &Waits, a: Accep
                     Some(next) => st = next,
                     None => {
                         point(env, ae::detect::ERROR, &[RefusalCode::Unavailable.as_str()], 1.0);
-                        return refusal_line(lines, RefusalCode::Unavailable).await;
+                        return refused(RefusalCode::Unavailable);
                     }
                 }
             }
             "busy" => {
                 point(env, ae::detect::ERROR, &[RefusalCode::Busy.as_str()], 1.0);
-                return refusal_line(lines, RefusalCode::Busy).await;
+                return refused(RefusalCode::Busy);
             }
             _ => {
                 point(env, ae::detect::ERROR, &[RefusalCode::ExpiredPlace.as_str()], 1.0);
-                return refusal_line(lines, RefusalCode::ExpiredPlace).await;
+                return refused(RefusalCode::ExpiredPlace);
             }
         }
     }
@@ -971,17 +1132,17 @@ async fn run(env: &Env, ip: Option<&str>, lines: &mut Lines, w: &Waits, a: Accep
     let admitted_at = now_ms();
     if !st.tool {
         let _ = gate_tell(env, "/done", &done(None, count(RefusalCode::ToolOff.as_str())), hold).await;
-        return refusal_line(lines, RefusalCode::ToolOff).await;
+        return refused(RefusalCode::ToolOff);
     }
     // A reader that left while its ticket waited costs no scan.
     if !lines.alive() {
         let _ = gate_tell(env, "/done", &done(None, None), hold).await;
-        return;
+        return Scan::Gone;
     }
     let cold = !st.awake;
     if cold && !lines.line(&Phase { state: "starting" }).await {
         let _ = gate_tell(env, "/done", &done(None, None), hold).await;
-        return;
+        return Scan::Gone;
     }
     let t0 = now_ms();
     let scored = match w.lane_left_ms(t0.saturating_sub(admitted_at)) {
@@ -1000,7 +1161,7 @@ async fn run(env: &Env, ip: Option<&str>, lines: &mut Lines, w: &Waits, a: Accep
             };
             let _ = gate_tell(env, "/done", &done(None, count(code.as_str())), hold).await;
             point(env, ae::detect::ERROR, &[code.as_str()], served as f64);
-            return refusal_line(lines, code).await;
+            return refused(code);
         }
     };
     let outcome = answer::read(&reply, &a.pkg.load, cut.scored, a.spans_on, length);
@@ -1018,14 +1179,13 @@ async fn run(env: &Env, ip: Option<&str>, lines: &mut Lines, w: &Waits, a: Accep
             )
             .await;
             let receipt = receipt.and_then(|r| r.receipt).unwrap_or_default();
-            let mut line = answer::answer(
+            let line = answer::answer(
                 scored,
                 length,
                 cut,
                 PackageLine { digest: a.pkg.published.clone(), publication_pending: a.pkg.pending },
                 receipt,
             );
-            line.seal = result_seal(env, &a, &line);
             let ms = now_ms().saturating_sub(a.started);
             point(
                 env,
@@ -1033,22 +1193,22 @@ async fn run(env: &Env, ip: Option<&str>, lines: &mut Lines, w: &Waits, a: Accep
                 &[class.as_str(), length.code(), band.code(), ms_bucket(served).as_str()],
                 ms as f64,
             );
-            let _ = lines.line(&line).await;
+            Scan::Result(line)
         }
         Outcome::ShortWithoutSpans => {
             let _ = gate_tell(env, "/done", &done(Some(served), count(RefusalCode::TooShort.as_str())), hold).await;
             point(env, ae::detect::ERROR, &["short_without_spans"], served as f64);
-            let _ = lines.line(&too_short(cut, bound::MEASURED_MIN_WORDS)).await;
+            Scan::Refused(too_short(cut, bound::MEASURED_MIN_WORDS))
         }
         Outcome::Declined(code) => {
             let code = RefusalCode::parse(code).unwrap_or(RefusalCode::Scorer);
             let _ = gate_tell(env, "/done", &done(Some(served), count(code.as_str())), hold).await;
-            let _ = lines.line(&of_cut(code, cut)).await;
+            Scan::Refused(of_cut(code, cut))
         }
         Outcome::Fault => {
             let _ = gate_tell(env, "/done", &done(None, count(RefusalCode::Scorer.as_str())), hold).await;
             point(env, ae::detect::ERROR, &[RefusalCode::Scorer.as_str()], served as f64);
-            refusal_line(lines, RefusalCode::Scorer).await;
+            refused(RefusalCode::Scorer)
         }
     }
 }

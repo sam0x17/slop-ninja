@@ -156,7 +156,7 @@ fn a_link_stores_the_text_encrypted_and_nothing_of_it_in_d1() {
     assert!(!String::from_utf8_lossy(&doc).contains("tomatoes"));
     let plain = w.peppers.current().doc_key(&slug).open(&doc).unwrap();
     let d = SecretDoc::decode(&plain).unwrap();
-    assert_eq!(d.text, TEXT, "the exact string that was scored");
+    assert_eq!(d.text, canon::canon_v1(TEXT), "the exact string that was scored: the canonical form");
     // No word of the text, no slug and no token anywhere in D1.
     let dump = w.h.dump();
     for word in ["tomatoes", "frost", "barrel", "compost"] {
@@ -176,7 +176,8 @@ fn a_link_stores_the_text_encrypted_and_nothing_of_it_in_d1() {
     assert!(owner.is_none());
     let p = page(&w, &slug).unwrap();
     assert_eq!(p.state, DetState::Live);
-    assert_eq!(p.text.unwrap().body.as_deref(), Some(TEXT));
+    // The page shows the text the scorer read: its canonical form.
+    assert_eq!(p.text.unwrap().body.as_deref(), Some(canon::canon_v1(TEXT).as_ref()));
     assert!(p.source.is_none());
     assert!(!p.serving.differs_from_run);
 }
@@ -196,10 +197,96 @@ fn a_seal_makes_one_link_and_only_for_its_own_text() {
         Err(RefusalCode::SealInvalid)
     );
     let respaced = format!("  {}", TEXT.replace("\r\n", "\n"));
-    assert!(block_on(share(&w.h, w.keys(), &req(&respaced, false, None), Some(s2), None)).is_ok());
+    let a = block_on(share(&w.h, w.keys(), &req(&respaced, false, None), Some(s2), None)).unwrap();
+    // Its page shows the canonical form, as the first link's does
+    // (`an_equal_canonical_text_keeps_its_passages_on_the_same_words`).
+    assert_eq!(page(&w, &a.slug).unwrap().text.unwrap().body.as_deref(), Some(canon::canon_v1(TEXT).as_ref()));
     assert_eq!(block_on(share(&w.h, w.keys(), &req(TEXT, false, None), None, None)), Err(RefusalCode::SealInvalid));
     assert_eq!(w.h.count("SELECT count(*) FROM detections"), 2);
     assert_eq!(w.h.docs.borrow().len(), 2, "a refused share leaves no document");
+}
+
+/// A seal's passages are offsets into the canonical text. A link or a
+/// preview asked for with another string of the same canonical form
+/// (surrounding whitespace, CRLF or a lone CR, NFD accents before and inside
+/// the passage) stores and renders the canonical text, with each passage on
+/// the words the result named, never shifted onto others.
+#[test]
+fn an_equal_canonical_text_keeps_its_passages_on_the_same_words() {
+    use slop_ninja_detect_worker::answer::{PackageLine, ResultFull, Span};
+    use slop_ninja_detect_worker::{handoff, seal};
+    let w = World::new();
+    let secret: [u8; 32] = *b"store secret bytes, for tests ok";
+    let now = 1_795_169_040_000;
+    let para = "The frost hung around until the second week of May, and the rain barrel overflowed twice in June.";
+    let passage = format!(
+        "We moved the caf\u{e9} table under the shed gutter. {para} The r\u{e9}sum\u{e9} of the season is short."
+    );
+    let canonical = format!(
+        "Caf\u{e9} notes \u{1F345}\n\n{para}\n\n{para} {para}\n\n{para}\n\n{passage}\n\n{para}\n\n{para} {para}"
+    );
+    assert_eq!(canon::canon_v1(&canonical), canonical.as_str());
+    let c16 = |s: &str| s.encode_utf16().count();
+    let start = c16(&canonical[..canonical.find(&passage).unwrap()]);
+    let end = start + c16(&passage);
+    let (total, words) = (canonical.split_whitespace().count(), passage.split_whitespace().count() as u64);
+    assert!(total >= 150 && words >= 24);
+    // The line the score route seals: offsets into the canonical text.
+    let full = ResultFull {
+        band: "very_strong".into(),
+        confidence_tenths: Some(999),
+        confidence_text: Some("above 99.9%".into()),
+        share_text: Some("about 30%".into()),
+        share_pct: Some(30),
+        words: total,
+        total_words: total,
+        cut: "none".into(),
+        scored_end: c16(&canonical),
+        tokens: 260,
+        length: "150_450".into(),
+        spans: Some(vec![Span { start, end, words, confidence: Some(98) }]),
+        spans_note: None,
+        markers: vec![],
+        invisible: false,
+        package: PackageLine { digest: DIGEST.into(), publication_pending: true },
+    };
+    let payload = seal::ResultPayload {
+        day: seal::day_of(now),
+        text_sha256: seal::text_sha256(&canonical),
+        scored_end: full.scored_end,
+        cut: "none".into(),
+        package_load: "load-new".into(),
+        policy_v: seal::POLICY_V.into(),
+        result_full: full,
+        issued_ms: now,
+    };
+    let sealed = seal::seal(&secret, seal::Purpose::Result, seal::day_of(now), [9; 12], &payload).unwrap();
+    let open = |text: &str| handoff::sealed(seal::open_result(&secret, now + 1, &sealed, text).unwrap(), &w.serving);
+    // Shifted strings with the same canonical form: every offset after the
+    // leading whitespace, each CRLF and each decomposed accent moves.
+    let nfd = canonical.replace('\u{e9}', "e\u{301}");
+    let shifted = format!("\u{3000} \t{}\r\n \r\n", nfd.replace('\n', "\r\n"));
+    let lone_cr = format!("\n\n  {}  ", nfd.replace('\n', "\r"));
+    for s in [&shifted, &lone_cr] {
+        assert_eq!(canon::canon_v1(s), canonical.as_str());
+        assert_ne!(s.as_str(), canonical.as_str());
+    }
+    let on_the_words = |p: &Page, what: &str| {
+        let body = p.text.as_ref().unwrap().body.as_deref().unwrap();
+        assert_eq!(body, canonical, "{what}: the canonical text");
+        let b16: Vec<u16> = body.encode_utf16().collect();
+        let spans = &p.run.as_ref().unwrap().spans;
+        assert_eq!(spans.len(), 1, "{what}");
+        let drawn = String::from_utf16(&b16[spans[0].start as usize..spans[0].end as usize]).unwrap();
+        assert_eq!(canon::canon_v1(&drawn), passage.as_str(), "{what}: the passage's own words");
+    };
+    // The preview of either string, and a link made from the shifted one.
+    for s in [&shifted, &lone_cr] {
+        let p = block_on(reads::preview(&w.h, &w.serving, s, Some(&open(s).unwrap()))).unwrap();
+        on_the_words(&p, "preview");
+    }
+    let a = block_on(share(&w.h, w.keys(), &req(&shifted, false, None), Some(open(&shifted).unwrap()), None)).unwrap();
+    on_the_words(&page(&w, &a.slug).unwrap(), "link");
 }
 
 #[test]
@@ -222,7 +309,8 @@ fn a_pasted_x_source_is_ordinary_paste() {
     let a = block_on(share(&w.h, w.keys(), &r, Some(sealed(&w, TEXT, "load-new")), None)).unwrap();
     let p = page(&w, &a.slug).unwrap();
     assert_eq!(p.platform.as_str(), "paste");
-    assert_eq!(p.text.as_ref().unwrap().body.as_deref(), Some(TEXT), "the full text is stored and shown");
+    let body = p.text.as_ref().unwrap().body.as_deref();
+    assert_eq!(body, Some(canon::canon_v1(TEXT).as_ref()), "the full text is stored and shown");
     // The plain host line, exactly as the contract's pasted-X fixture.
     assert_eq!(p.source, fixture("19-secret-pasted-x-source").source);
     assert!(!w.h.dump().contains("x.com"), "the source never reaches D1");
@@ -428,7 +516,7 @@ fn a_secret_rerun_per_state_and_kind() {
     assert_eq!(latest, exp, "the copy's expiry is the original's, and its latest allowed one");
     assert!(owner.is_none(), "a copy is owned by nobody");
     let cp = page(&w, &copy).unwrap();
-    assert_eq!(cp.text.as_ref().unwrap().body.as_deref(), Some(TEXT));
+    assert_eq!(cp.text.as_ref().unwrap().body.as_deref(), Some(canon::canon_v1(TEXT).as_ref()));
     assert!(!cp.serving.differs_from_run);
     // A copy offers only the expiry choices that end by its latest allowed one.
     let a = block_on(manage(

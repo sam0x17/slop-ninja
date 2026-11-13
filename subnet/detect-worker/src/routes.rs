@@ -116,10 +116,13 @@ pub const LARGEST_INVOCATION_BYTES: usize = SCORE_CONTROL_BYTES + slop_ninja_are
 pub const BYTES_PER_BODY_BYTE: usize = 1 + 1 + 3 + 12 + 3 + 72 + 6;
 
 /// Bytes a link or a preview can hold per byte of its body, at most: the
-/// body (1), the unescaped text (1), the canonical form and its alignment
-/// table while the seal's hash is checked (3 + 12), and then the document:
-/// its text (1), its JSON (6, as above) and that JSON encrypted (6), or for
-/// a preview the page JSON and its answer bytes (6 + 6).
+/// body (1), the unescaped text (1), its canonical form (3), which the link
+/// stores and the preview renders, with that form's alignment table while
+/// it is built (12, freed before anything below), and then the document:
+/// a copy of the text when it was already canonical (1), the document's
+/// JSON (6, as above) and that JSON encrypted (6), or for a preview the
+/// page's copy of the canonical form (3, within the freed table's 12), the
+/// page JSON and its answer bytes (6 + 6).
 pub const TEXT_BYTES_PER_BODY_BYTE: usize = 1 + 1 + 3 + 12 + 1 + 6 + 6;
 
 /// Bytes a page, card, owner or re-run read can hold per byte of the

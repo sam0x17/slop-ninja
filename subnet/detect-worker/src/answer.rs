@@ -137,6 +137,10 @@ pub struct Answer {
 
 /// The result as a seal carries it (`result_full`): the answer line's
 /// fields without its `state`, `receipt` and `seal`, under the same names.
+/// Its offsets (each passage's and `scored_end`) are UTF-16 offsets into
+/// `canon_v1` of the text, the string the scorer read and the one a link
+/// stores and a preview renders ([`sealed_result`]); the line's own are the
+/// sent string's.
 #[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
 #[serde(deny_unknown_fields)]
 pub struct ResultFull {
@@ -359,6 +363,21 @@ pub fn to_original(line: &mut Answer, text: &str, canonical: &str) {
         .unwrap_or_else(|| text.encode_utf16().count());
 }
 
+/// Splits a scored line computed in `canonical` (= `canon_v1(text)`): the
+/// result a seal carries keeps `canonical`'s offsets, and the line's are
+/// mapped to `text`, the string the page sent ([`to_original`]). Passages
+/// the line drops (they do not map) are dropped from the seal too, so a
+/// link or a preview never draws a passage the result did not show.
+pub fn sealed_result(line: &mut Answer, text: &str, canonical: &str) -> ResultFull {
+    let mut full = line.result_full();
+    to_original(line, text, canonical);
+    if line.spans.is_none() {
+        full.spans = None;
+        full.spans_note = line.spans_note;
+    }
+    full
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -470,6 +489,42 @@ mod tests {
         to_original(&mut bad, &sent, &canonical);
         assert_eq!((bad.spans.is_none(), bad.spans_note), (true, Some(SpansNote::Unavailable)));
         assert_eq!(bad.scored_end, sent.trim_end().encode_utf16().count());
+    }
+
+    /// The seal keeps the canonical text's offsets while the line gets the
+    /// sent string's; a passage the line drops is not in the seal either.
+    #[test]
+    fn the_seal_keeps_the_canonical_offsets() {
+        let canonical = format!("caf\u{e9} {}", words(199));
+        let sent = format!("\r\n  cafe\u{301} {}  \r\n", words(199));
+        let line = || {
+            let sp = json!([span_json(&canonical, 5, 5 + 30 * 5 - 1, 30)]);
+            let sc = scored(read(&reply(99.99, 60.0, sp), PKG, &canonical, true, M));
+            answer(sc, M, &whole(&canonical), pkg(), "r".into())
+        };
+        let mut a = line();
+        let full = sealed_result(&mut a, &sent, &canonical);
+        let c16: Vec<u16> = canonical.encode_utf16().collect();
+        let s16: Vec<u16> = sent.encode_utf16().collect();
+        let (fs, ls) = (&full.spans.as_ref().unwrap()[0], &a.spans.as_ref().unwrap()[0]);
+        assert_eq!((fs.start, fs.end, full.scored_end), (5, 5 + 149, c16.len()));
+        assert_eq!((ls.start, ls.end, a.scored_end), (4 + 6, 4 + 6 + 149, sent.trim_end().encode_utf16().count()));
+        // Both draw the same words, each in its own string.
+        assert_eq!(c16[fs.start..fs.end], s16[ls.start..ls.end]);
+        // Apart from the offsets, the seal is the line.
+        let mut mapped = full.clone();
+        (mapped.spans, mapped.scored_end) = (a.spans.clone(), a.scored_end);
+        assert_eq!(mapped, a.result_full());
+        // A canonical text: the seal is the line.
+        let mut same = line();
+        assert_eq!(sealed_result(&mut same, &canonical, &canonical), same.result_full());
+        // Passages that do not map leave both.
+        let mut bad = line();
+        bad.spans.as_mut().unwrap()[0].end = usize::MAX;
+        let full = sealed_result(&mut bad, &sent, &canonical);
+        assert_eq!((full.spans, full.spans_note), (None, Some(SpansNote::Unavailable)));
+        assert_eq!(bad.spans_note, Some(SpansNote::Unavailable));
+        assert_eq!(full.scored_end, c16.len());
     }
 
     #[test]

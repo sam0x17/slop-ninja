@@ -77,8 +77,9 @@ counts some codes carry, under the HTTP status of its code
   9. the rest of the reservation (503 "busy");
   10. `canon_v1` (`canon.rs`): CRLF and CR become LF, surrounding whitespace
       is trimmed and the text is NFC under the scorer's own normalizer, so
-      the scorer's outputs do not change; the seal binds this form, and the
-      answer's offsets are mapped back to the exact string the page sent;
+      the scorer's outputs do not change; the seal binds this form and keeps
+      its offsets, and the answer's offsets are mapped back to the exact
+      string the page sent;
   11. the free cut (`cut.rs`, "The free cut" below), with exact token counts
       from the scorer's own tokenizer table;
   12. the scored part's length floor (24 words, or 150 with the span switch
@@ -158,7 +159,10 @@ the Cloudflare glue in `cf_store.rs` and the routes in `cf_routes.rs`:
 
 A secret page's text is stored only in R2, encrypted under a key derived
 from its own slug and the slug pepper (`DETECT_SLUG_PEPPER_V1`), so the
-store's rows hold nothing of it. A link or a preview reserves its footprint
+store's rows hold nothing of it. The link stores, and a preview renders, the
+text's `canon_v1` form, the string the scorer read, so the seal's passages
+fall on the words the result named whichever equal-canonical string made
+the request. A link or a preview reserves its footprint
 from the scan memory by its declared length, and a document read by the
 document's size.
 

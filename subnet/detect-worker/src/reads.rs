@@ -157,7 +157,9 @@ async fn public(io: &impl Io, serving: &Serving, slug: &str) -> Result<Page, Ref
     public_page(slug, &row, &ex, doc.as_ref(), &ctx)
 }
 
-/// The unstored result (`kind = unstored`) of an opened seal.
+/// The unstored result (`kind = unstored`) of an opened seal. It renders
+/// `canon_v1(text)`, whose UTF-16 units the seal's passage offsets are in,
+/// as a link stores it.
 pub async fn preview(
     io: &impl Io,
     serving: &Serving,
@@ -165,14 +167,15 @@ pub async fn preview(
     sealed: Option<&Sealed>,
 ) -> Result<Page, RefusalCode> {
     let sealed = sealed.ok_or(RefusalCode::SealInvalid)?;
-    if !crate::keys::ct_eq(&crate::canon::text_sha256(text), &sealed.text_sha256) {
+    let text = crate::canon::canon_v1(text);
+    if !crate::keys::ct_eq(&crate::canon::canonical_sha256(&text), &sealed.text_sha256) {
         return Err(RefusalCode::SealInvalid);
     }
     let sw = crate::lookup::read_switches(io).await;
     let paid_open = sw.on(io, "DETECT_PAID");
     let receipt = io.receipt(&sealed.result).await;
     let ctx = PageCtx { serving, switches: sw.page(io), now: io.now_ms(), receipt };
-    unstored_page(text, &sealed.result, paid_open, &ctx)
+    unstored_page(&text, &sealed.result, paid_open, &ctx)
 }
 
 /// A public page's poll: any other slug (a secret one's included) is not

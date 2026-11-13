@@ -12,7 +12,10 @@
 //!    nothing of it;
 //! 4. the Worker draws the 20-character slug and the 26-character manage
 //!    token, encrypts `{text, result_full, source_check}` under the page's
-//!    key and puts `p/<hex id_h>`;
+//!    key and puts `p/<hex id_h>`. `text` is `canon_v1` of the text sent,
+//!    the string the scorer read, because the seal's passage offsets are
+//!    that string's: any text with the same canonical form makes the same
+//!    page, with its passages on the words the result named;
 //! 5. only then it inserts the detection (`private_text`, `paste`, `live`),
 //!    with `owner_h` and `owner_via = created` when saved: nothing is
 //!    written to D1 before the R2 put succeeds;
@@ -46,6 +49,7 @@ pub struct Sealed {
     pub text_sha256: [u8; 32],
     /// The seal's nonce, whose hash makes the seal single-use for links.
     pub nonce: Vec<u8>,
+    /// The result, its passage offsets in UTF-16 units of `canon_v1(text)`.
     pub result: StoredResult,
 }
 
@@ -168,7 +172,8 @@ pub async fn share(
         return Err(RefusalCode::StoreOff);
     }
     let (Some(sealed), Some(nonce_h)) = (sealed, nonce_h) else { return Err(RefusalCode::SealInvalid) };
-    if !ct_eq(&crate::canon::text_sha256(&req.text), &sealed.text_sha256) {
+    let text = crate::canon::canon_v1(&req.text);
+    if !ct_eq(&crate::canon::canonical_sha256(&text), &sealed.text_sha256) {
         return Err(RefusalCode::SealInvalid);
     }
     if done.get(1).is_some_and(|d| !d.rows.is_empty()) {
@@ -187,7 +192,7 @@ pub async fn share(
     let id_h = pepper.id_h(&slug);
     let doc = SecretDoc {
         v: DOC_V,
-        text: req.text.clone(),
+        text: text.into_owned(),
         result_full: sealed.result.clone(),
         source_check,
         sections: None,

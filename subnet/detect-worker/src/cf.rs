@@ -918,8 +918,10 @@ async fn score(mut req: Request, env: Env, answer: &Answer) {
     let ip = header(&req, "cf-connecting-ip");
     match run(&env, ip.as_deref(), &mut lines, &w, &accepted).await {
         Scan::Result(mut line) => {
-            answer::to_original(&mut line, text, &canonical);
-            line.seal = result_seal(&env, &accepted, &line);
+            // The seal keeps the canonical text's offsets (what a link stores
+            // and a preview renders); the line gets the sent string's.
+            let full = answer::sealed_result(&mut line, text, &canonical);
+            line.seal = result_seal(&env, &accepted, full);
             let _ = lines.line(&line).await;
         }
         Scan::Refused(r) => {
@@ -990,8 +992,8 @@ pub(crate) fn prepare<'a>(
 
 /// The seal of a result: `None` when the store secret is not configured or
 /// the seal fails (the result is shown, but cannot be shared or quoted).
-/// `line`'s offsets are already the sent string's.
-fn result_seal(env: &Env, a: &Accepted<'_>, line: &answer::Answer) -> Option<String> {
+/// `full`'s offsets are the canonical text's (`answer::sealed_result`).
+fn result_seal(env: &Env, a: &Accepted<'_>, full: answer::ResultFull) -> Option<String> {
     let Some(secret) = store_secret(env) else {
         point(env, ae::detect::ERROR, &["seal_not_configured"], 1.0);
         return None;
@@ -1000,11 +1002,11 @@ fn result_seal(env: &Env, a: &Accepted<'_>, line: &answer::Answer) -> Option<Str
     let payload = ResultPayload {
         day: seal::day_of(now),
         text_sha256: a.text_sha256.clone(),
-        scored_end: line.scored_end,
+        scored_end: full.scored_end,
         cut: a.cut.kind.code().to_owned(),
         package_load: a.pkg.load.clone(),
         policy_v: seal::POLICY_V.to_owned(),
-        result_full: line.result_full(),
+        result_full: full,
         issued_ms: now,
     };
     let mut nonce = [0u8; seal::NONCE_BYTES];

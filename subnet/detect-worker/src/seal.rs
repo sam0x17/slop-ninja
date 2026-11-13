@@ -21,11 +21,13 @@
 //! - **Result payload** ([`ResultPayload`]): `{day, text_sha256, scored_end,
 //!   cut, package_load, policy_v, result_full, issued_ms}`. `text_sha256` is
 //!   the SHA-256 of `canon_v1` of the text (lowercase hex; the free cut runs
-//!   on that canonical form, `crate::canon`), and `scored_end` the scored
-//!   part's end in UTF-16 units of the exact string the page sent, so a
-//!   holder of the text can check it and find the scored part. A text that
-//!   differs only by line endings, surrounding whitespace or normalization
-//!   opens the same seal.
+//!   on that canonical form, `crate::canon`), and `scored_end` and every
+//!   passage in `result_full` are UTF-16 offsets into that canonical form,
+//!   so a holder of the text can check it and find the scored part. A text
+//!   that differs only by line endings, surrounding whitespace or
+//!   normalization opens the same seal, and its offsets point at the same
+//!   words of the canonical form whichever of those strings opened it: a
+//!   link stores, and a preview renders, the canonical form.
 //! - **Single use** for `/share` is the store's: [`seal_nonce_h`],
 //!   `SHA-256("seal_nonce_v1" ‖ nonce)`, is the value its unique column
 //!   keeps. Renders and quotes reuse a seal.
@@ -209,7 +211,7 @@ pub struct ResultPayload {
     /// `SHA-256(canon_v1(text))` (hex): the free cut runs on the canonical
     /// form.
     pub text_sha256: String,
-    /// The scored part's end, in UTF-16 units of the string the page sent.
+    /// The scored part's end, in UTF-16 units of the canonical text.
     pub scored_end: usize,
     /// How the scored part was chosen (`none`, `first_1000_words`,
     /// `token_limit`).
@@ -218,7 +220,8 @@ pub struct ResultPayload {
     pub package_load: String,
     /// The result policy ([`POLICY_V`]).
     pub policy_v: String,
-    /// The result as the answer line carried it.
+    /// The result as the answer line carried it, with the canonical text's
+    /// offsets (`crate::answer::sealed_result`).
     pub result_full: ResultFull,
     pub issued_ms: u64,
 }

@@ -8,7 +8,8 @@
 //!   the quoted body of a public run.
 //! - [`SecretDoc`] is a secret page's document, `{text, result_full,
 //!   source_check}`, encrypted under the page's own key at `p/<hex id_h>`.
-//!   `text` is the exact string that was scored.
+//!   `text` is the exact string that was scored: `canon_v1` of the text
+//!   sent, in whose UTF-16 units a seal's passages are.
 //! - [`RunDoc`] is a public run's document at `r/<run_id>` (plain JSON: its
 //!   text is public): the passages and context under the display policy's
 //!   maximum, their anchors, the passages listed by position, and the

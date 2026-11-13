@@ -26,15 +26,22 @@ pub struct Waits {
     pub load_ms: u64,
     /// One score call and its reply finish within this.
     pub score_ms: u64,
-    /// A waiting ticket's ask is held this long (its call gets two), and it
+    /// A waiting ticket's ask is held at least this long (its call gets
+    /// two; the gate scales it with the ticket's place in line), and it
     /// bounds the score path's other internal calls and every line written
     /// to the reader.
     pub hold_ms: u64,
+    /// A score request's body must arrive whole within this of the request's
+    /// start (`BODY_WAIT_MS`). A liveness parameter, to be measured at the
+    /// launch gate, not an abuse threshold: a slow body holds only its intake
+    /// reservation meanwhile.
+    pub body_ms: u64,
 }
 
 impl Waits {
     /// The deployment's values (`wrangler.toml`), used when a var is absent.
-    pub const DEFAULT: Waits = Waits { start_ms: 60_000, load_ms: 180_000, score_ms: 60_000, hold_ms: 20_000 };
+    pub const DEFAULT: Waits =
+        Waits { start_ms: 60_000, load_ms: 180_000, score_ms: 60_000, hold_ms: 20_000, body_ms: 300_000 };
 
     /// The lane's bound for one admitted scan.
     pub const fn lane_ms(&self) -> u64 {

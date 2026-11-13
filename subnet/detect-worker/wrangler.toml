@@ -1,38 +1,49 @@
 # SlopNinja detect Worker: Wrangler configuration (tracked).
 #
-# The service behind the free slop.ninja/detect/ page. The website Worker
-# reaches it only through its service binding (DETECT_TESTNET) and forwards
-# /api/detect/v1/* unchanged; this Worker has no route, no custom domain, no
-# default workers_dev subdomain and no preview URLs. It holds the DetectGate object (one,
-# memory only), the DetectFeedback object (one, memory only) and the
-# DetectLane object with its scorer Container (one at launch). It shares no
-# instance, object, binding or bucket with hidden evaluation.
+# The service behind the free slop.ninja/detect/ page. The website and
+# secret-host Workers reach it only through their service bindings and
+# forward its routes with X-SN-Host and X-SN-Route set (and every incoming
+# x-sn-* header stripped); this Worker has no route, no custom domain, no
+# default workers_dev subdomain and no preview URLs. It holds the DetectGate
+# object (one: tickets in memory, its hourly scan counts in its own SQLite),
+# the DetectFeedback object (one, memory only) and the DetectLane object with
+# its scorer Container (one at launch). It shares no instance, object,
+# binding or bucket with hidden evaluation.
 #
-# Every resource serves the testnet reference package, so every name carries
-# -testnet; each deploys with --tag testnet and carries the vars NETWORK and
-# PRODUCT. Resource names here are placeholders; the operator's private
-# resource-name table holds the real ones. Deploy only through the deploy
-# wrappers. Order: the package bucket and its copy of the reference package
-# (server-side copy, same keys, entity tags checked), the Turnstile widget,
-# then this Worker (with its secret and the site key), then the website
-# deploy that adds the service binding:
+# [env.testnet] is production: every resource serves the testnet reference
+# package, so every name carries -testnet; each deploys with --tag testnet
+# and carries the vars NETWORK and PRODUCT. [env.staging] is the staging
+# copy, with its own store, Container, dataset, rate-limit namespace and
+# origins, and the production package bucket bound read-only. Resource names
+# and the staging origins here are placeholders; the operator's private
+# tables hold the real values, and the deploy wrappers restore them at deploy
+# time. Deploy only through the deploy wrappers, after the D1 migrations
+# step. Order: the package bucket and its copy of the reference package
+# (server-side copy, same keys, entity tags checked), the detect store, then
+# this Worker (with its secret), then the website deploys that add the
+# service bindings:
 #
-#   wrangler r2 bucket create detect-packages-bucket-testnet   # no public access
-#   wrangler secret put TURNSTILE_SECRET --env testnet          # from stdin
+#   wrangler secret put DETECT_STORE_SECRET --env testnet       # from stdin
 #   WRANGLER_WRITE_LOGS=false WRANGLER_SEND_METRICS=false wrangler deploy \
-#     --env testnet --tag testnet --var TURNSTILE_SITE_KEY:<site key> \
+#     --env testnet --tag testnet \
 #     --var PACKAGE_SHA256:<files manifest sha256> \
 #     --var PACKAGE_MANIFEST_KEY:<manifest key> \
 #     --var PACKAGE_SPEC_SHA256:<spec v3 record sha256> \
 #     --var PUBLISHED_PACKAGE_DIGEST:<parts manifest sha256> \
 #     --message "slop-ninja detect testnet <sha8>"
 #
+# DETECT_STORE_SECRET (at least 32 bytes; backed up outside Cloudflare)
+# derives the result seal's day keys. Without it results carry no seal and
+# cannot be shared.
+#
 # The package vars are the journaled serving pointer: switching the package
-# is a deploy of new values, recorded by the wrapper. The switches
-# DETECT_TOOL and DETECT_SPANS ("on" or "off") are the operator's kill
-# switches, flipped and reverted the same way. With DETECT_SPANS off, texts
-# under 150 words are refused, since their rule reads passages. No account
-# ID belongs here.
+# is a deploy of new values, recorded by the wrapper. The switches are vars
+# AND rows of the store's switches table: a var set to its off state is the
+# hard off, and the set_switch op flips the rest at once; when the table
+# cannot be read the var decides. With DETECT_SPANS off, texts under 150
+# words are refused, since their rule reads passages. SITE_ORIGIN and
+# SECRET_ORIGIN are the two public origins every host check derives from. No
+# account ID belongs here.
 # The top level is a local-only shell with no bindings, triggers or route.
 
 name = "slop-ninja-detect-local-testnet"
@@ -67,15 +78,21 @@ crons = []
 [env.testnet.vars]
 NETWORK = "testnet"
 PRODUCT = "detect"
-# Kill switches: "off" turns the tool (a static "temporarily unavailable"
-# state) or the highlighted passages off; anything else is on.
+# The public origins: the X-SN-Host values and the CSRF origins derive
+# from them.
+SITE_ORIGIN = "https://slop.ninja"
+SECRET_ORIGIN = "https://s.slop.ninja"
+# Kill switches (vars are the hard off; see the header): "off" turns the
+# tool (a static "temporarily unavailable" state) or the highlighted
+# passages off. URL checks and X post links stay off until the URL route
+# is deployed; meanwhile a pasted post link answers x_off.
 DETECT_TOOL = "on"
 DETECT_SPANS = "on"
+DETECT_URLS = "off"
+DETECT_X = "off"
 # The page's version line says "publication pending" until this is
 # "published" (the reference package bucket's public-access go).
 PUBLICATION = "pending"
-# siteverify must report this hostname (and the action detect_score).
-TURNSTILE_HOSTNAME = "slop.ninja"
 # Where the copy's files sit: the staged manifest's own bucket label.
 PACKAGE_BUCKET_LABEL = "admission"
 # Scorer build identity: the instance must report these digests (the
@@ -102,6 +119,10 @@ IDLE_MS = "600000"
 # internal calls (an ask's call gets two holds) and every line written to
 # the reader.
 QUEUE_HOLD_MS = "20000"
+# A score body must arrive whole within this; a liveness parameter, to be
+# measured at the launch gate. Meanwhile a slow body holds only its intake
+# reservation (2 bytes per declared byte).
+BODY_WAIT_MS = "300000"
 
 [[env.testnet.durable_objects.bindings]]
 name = "DETECT_GATE"
@@ -150,3 +171,89 @@ simple = { limit = 1, period = 10 }
 [[env.testnet.analytics_engine_datasets]]
 binding = "DETECT_METRICS"
 dataset = "slop_ninja_detect_testnet"
+
+# The detect store: the switches rows, and the hourly scan counts the gate
+# flushes. Read replication off.
+[[env.testnet.d1_databases]]
+binding = "DETECT_STORE"
+database_name = "detect-store-testnet"
+database_id = "detect-store-id-testnet"
+migrations_dir = "migrations"
+
+# ------------------------------------------------------------------ staging
+
+[env.staging]
+name = "slop-ninja-detect-staging"
+workers_dev = false
+preview_urls = false
+
+[env.staging.observability]
+enabled = false
+
+[env.staging.triggers]
+crons = []
+
+[env.staging.vars]
+NETWORK = "testnet"
+PRODUCT = "detect"
+SITE_ORIGIN = "https://staging-site.invalid"
+SECRET_ORIGIN = "https://staging-secret.invalid"
+DETECT_TOOL = "on"
+DETECT_SPANS = "on"
+DETECT_URLS = "off"
+DETECT_X = "off"
+PUBLICATION = "pending"
+PACKAGE_BUCKET_LABEL = "admission"
+SCORER_ORT_SHA256 = "fc44112fbe06d7d689c57e11d3862031f64711007e4ee020f8eed5185fd2c1d3"
+SCORER_BINARY_SHA256 = "7030a86f46114b72929d64e71c377b6416d9bdad9ca71d92e9fd467c94e6a74f"
+SCORER_START_WAIT_MS = "60000"
+LOAD_WAIT_MS = "180000"
+SCORE_WAIT_MS = "60000"
+IDLE_MS = "600000"
+QUEUE_HOLD_MS = "20000"
+BODY_WAIT_MS = "300000"
+
+[[env.staging.durable_objects.bindings]]
+name = "DETECT_GATE"
+class_name = "DetectGate"
+
+[[env.staging.durable_objects.bindings]]
+name = "DETECT_LANE"
+class_name = "DetectLane"
+
+[[env.staging.durable_objects.bindings]]
+name = "DETECT_FEEDBACK"
+class_name = "DetectFeedback"
+
+[[env.staging.migrations]]
+tag = "v1"
+new_sqlite_classes = ["DetectGate", "DetectLane", "DetectFeedback"]
+
+[[env.staging.containers]]
+class_name = "DetectLane"
+name = "a-scorer-detect-staging"
+image = "../../inference/a-container-serve/container/scorer.Dockerfile"
+image_build_context = "../../inference/a-container-serve/container/build"
+instance_type = "standard-3"
+max_instances = 1
+
+# The production package bucket, read only: one copy of the package serves
+# both environments.
+[[env.staging.r2_buckets]]
+binding = "DETECT_PACKAGES_TESTNET"
+bucket_name = "detect-packages-bucket-testnet"
+
+[[env.staging.ratelimits]]
+name = "DETECT_WARM_LIMIT"
+namespace_id = "6011"
+simple = { limit = 1, period = 10 }
+
+[[env.staging.analytics_engine_datasets]]
+binding = "DETECT_METRICS"
+dataset = "slop_ninja_detect_staging"
+
+[[env.staging.d1_databases]]
+binding = "DETECT_STORE"
+database_name = "detect-store-staging"
+database_id = "detect-store-id-staging"
+migrations_dir = "migrations"

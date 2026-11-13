@@ -1,7 +1,10 @@
 //! Source checks for the privacy and deployment rules that no unit test of
 //! a pure function can see: nothing writes to the console, every entry
-//! point silences panics first, the Worker has no way in but the service
-//! binding and no logging sink, and every resource is a testnet resource.
+//! point silences panics first, the Worker reads no header outside the
+//! forwarders' allow-list (never a cookie), it has no way in but the
+//! service bindings and no logging sink, every production resource is a
+//! testnet resource and every staging resource a staging one, and no
+//! challenge token or secret is tracked.
 
 use std::fs;
 
@@ -12,6 +15,7 @@ fn src(name: &str) -> String {
 const SOURCES: &[&str] = &[
     "lib.rs",
     "bound.rs",
+    "counters.rs",
     "cut.rs",
     "english.rs",
     "envelope.rs",
@@ -20,7 +24,10 @@ const SOURCES: &[&str] = &[
     "receipt.rs",
     "gate.rs",
     "routes.rs",
+    "seal.rs",
+    "switches.rs",
     "waits.rs",
+    "xpost.rs",
     "cf.rs",
     "cf_gate.rs",
     "cf_feedback.rs",
@@ -64,7 +71,9 @@ fn every_entry_point_silences_panics_first() {
         assert_eq!(first_statement(&s, "fn new(state: State, env: Env)"), "silence_panics();", "{name} new");
         assert_eq!(first_statement(&s, "async fn fetch("), "silence_panics();", "{name} fetch");
     }
-    assert_eq!(first_statement(&src("cf_lane.rs"), "async fn alarm("), "silence_panics();");
+    for name in ["cf_lane.rs", "cf_gate.rs"] {
+        assert_eq!(first_statement(&src(name), "async fn alarm("), "silence_panics();", "{name} alarm");
+    }
     let lib = src("lib.rs");
     assert!(lib.contains("std::panic::set_hook(Box::new(|_| {}))"), "the hook writes nothing");
 }
@@ -92,7 +101,10 @@ fn feedback_never_reaches_the_admission_gate() {
     // drops a receipt of the wrong shape first, and never calls the gate.
     let cf = src("cf.rs");
     let route = function_body(&cf, "async fn feedback(");
-    assert!(!route.contains("gate_call") && !route.contains("gate_tell") && !route.contains("GATE"), "the feedback route reaches the gate");
+    assert!(
+        !route.contains("gate_call") && !route.contains("gate_tell") && !route.contains("GATE"),
+        "the feedback route reaches the gate"
+    );
     assert!(route.contains("feedback_call::<FeedbackReply, _>(env, \"/vote\""));
     let shape = route.find("receipt::parse(").expect("shape check");
     let call = route.find("feedback_call").expect("feedback call");
@@ -118,7 +130,11 @@ fn the_scan_lease_is_derived_and_every_lane_call_is_bounded() {
     // that calls `port_fetch` (other than its definition) races it with
     // `within(...)`.
     let lane = src("cf_lane.rs");
-    let starts: Vec<usize> = lane.match_indices("fn ").map(|(i, _)| i).filter(|i| lane[..*i].ends_with("async ") || lane[..*i].ends_with("    ") || lane[..*i].ends_with('\n')).collect();
+    let starts: Vec<usize> = lane
+        .match_indices("fn ")
+        .map(|(i, _)| i)
+        .filter(|i| lane[..*i].ends_with("async ") || lane[..*i].ends_with("    ") || lane[..*i].ends_with('\n'))
+        .collect();
     let mut calling = 0;
     for (k, start) in starts.iter().enumerate() {
         let end = starts.get(k + 1).copied().unwrap_or(lane.len());
@@ -145,10 +161,36 @@ fn the_worker_has_no_way_in_but_the_binding_and_no_log_sink() {
     assert!(lines.iter().filter(|l| l.starts_with("enabled")).all(|l| *l == "enabled = false"), "observability off");
 }
 
+/// The non-test part of a source (up to its first `#[cfg(test)]`).
+fn code(s: &str) -> &str {
+    &s[..s.find("#[cfg(test)]").unwrap_or(s.len())]
+}
+
+fn wrangler() -> String {
+    fs::read_to_string(format!("{}/wrangler.toml", env!("CARGO_MANIFEST_DIR"))).expect("wrangler.toml")
+}
+
+/// One env's section of the Wrangler file: from its header to the next env's.
+fn env_section<'a>(w: &'a str, env: &str) -> &'a str {
+    // The header at a line's start (comments may name it too).
+    let head = format!("\n[env.{env}]\n");
+    let at = w.find(&head).unwrap_or_else(|| panic!("no {head}"));
+    let rest = &w[at + head.len()..];
+    // The next `[env.<other>...]` header; `[[env.<env>...]]` tables and
+    // `[env.<env>.*]` subtables belong to this env.
+    let end = rest
+        .match_indices("\n[env.")
+        .map(|(i, _)| i)
+        .find(|i| !rest[i + "\n[env.".len()..].starts_with(env))
+        .unwrap_or(rest.len());
+    &w[at..at + head.len() + end]
+}
+
 #[test]
 fn every_resource_is_a_testnet_resource() {
-    let w = fs::read_to_string(format!("{}/wrangler.toml", env!("CARGO_MANIFEST_DIR"))).expect("wrangler.toml");
-    let testnet = &w[w.find("[env.testnet]").expect("testnet env")..];
+    let w = wrangler();
+    let testnet = env_section(&w, "testnet");
+    assert!(!testnet.contains("[env.staging"), "the testnet section ends before staging");
     for l in testnet.lines().map(str::trim) {
         if let Some(v) = l.strip_prefix("name = \"").or_else(|| l.strip_prefix("bucket_name = \"")) {
             let v = v.trim_end_matches('"');
@@ -167,11 +209,123 @@ fn every_resource_is_a_testnet_resource() {
     assert!(testnet.contains("instance_type = \"standard-3\""));
 }
 
+/// Staging names are staging names, its origins placeholders; the one
+/// production resource it binds is the package bucket, read only.
 #[test]
-fn the_site_key_and_secrets_are_not_tracked() {
-    let w = fs::read_to_string(format!("{}/wrangler.toml", env!("CARGO_MANIFEST_DIR"))).expect("wrangler.toml");
+fn every_staging_resource_is_a_staging_resource() {
+    let w = wrangler();
+    let staging = env_section(&w, "staging");
+    let mut bucket_binding = None;
+    for l in staging.lines().map(str::trim) {
+        if let Some(v) = l.strip_prefix("binding = \"") {
+            bucket_binding = Some(v.trim_end_matches('"').to_owned());
+        }
+        if let Some(v) = l.strip_prefix("name = \"").or_else(|| l.strip_prefix("database_name = \"")) {
+            let v = v.trim_end_matches('"');
+            if v.chars().all(|c| c.is_ascii_uppercase() || c == '_') {
+                continue;
+            }
+            assert!(v.ends_with("-staging"), "{v}");
+        }
+        if let Some(v) = l.strip_prefix("bucket_name = \"") {
+            assert_eq!(bucket_binding.as_deref(), Some("DETECT_PACKAGES_TESTNET"), "only the package bucket is shared");
+            assert_eq!(v.trim_end_matches('"'), "detect-packages-bucket-testnet");
+        }
+        if let Some(v) = l.strip_prefix("dataset = \"") {
+            assert!(v.trim_end_matches('"').ends_with("_staging"), "{v}");
+        }
+        if let Some(v) = l.strip_prefix("database_id = \"") {
+            assert!(v.trim_end_matches('"').ends_with("-staging"), "{v}");
+        }
+        for o in ["SITE_ORIGIN = \"", "SECRET_ORIGIN = \""] {
+            if let Some(v) = l.strip_prefix(o) {
+                assert!(v.trim_end_matches('"').ends_with(".invalid"), "staging origins are placeholders: {v}");
+            }
+        }
+    }
+    let testnet = env_section(&w, "testnet");
+    for v in ["SITE_ORIGIN", "SECRET_ORIGIN", "DETECT_TOOL", "DETECT_SPANS", "DETECT_URLS", "DETECT_X", "BODY_WAIT_MS"]
+    {
+        assert!(testnet.contains(&format!("\n{v} = ")), "testnet sets {v}");
+        assert!(staging.contains(&format!("\n{v} = ")), "staging sets {v}");
+    }
+    for b in ["DETECT_GATE", "DETECT_LANE", "DETECT_FEEDBACK", "DETECT_STORE", "DETECT_METRICS", "DETECT_WARM_LIMIT"] {
+        assert!(testnet.contains(&format!("\"{b}\"")) && staging.contains(&format!("\"{b}\"")), "{b} in both envs");
+    }
+    assert!(staging.contains("max_instances = 1"));
+    assert_ne!(
+        testnet.lines().find(|l| l.starts_with("namespace_id")),
+        staging.lines().find(|l| l.starts_with("namespace_id")),
+        "each env has its own rate-limit namespace"
+    );
+}
+
+/// The Worker reads only the forwarders' allow-listed headers, never a
+/// cookie, and reads `X-SN-*` through the one admission path.
+#[test]
+fn only_allow_listed_headers_are_read() {
+    use slop_ninja_detect_worker::routes::forwarded::READ_HEADERS;
+    let mut seen = Vec::new();
+    for name in SOURCES.iter().filter(|n| n.starts_with("cf")) {
+        let s = src(name);
+        let c = code(&s);
+        assert!(!c.to_ascii_lowercase().contains("\"cookie\""), "{name} names the cookie header");
+        for pat in ["header(req, \"", "header(&req, \"", "headers().get(\""] {
+            for (i, _) in c.match_indices(pat) {
+                let lit = &c[i + pat.len()..];
+                let lit = &lit[..lit.find('"').expect("literal")];
+                assert!(READ_HEADERS.contains(&lit), "{name} reads header {lit}");
+                seen.push(lit.to_owned());
+            }
+        }
+        assert!(
+            !c.contains("headers().get(&") && !c.contains(".headers().entries()"),
+            "{name} reads a computed header name"
+        );
+    }
+    for h in ["x-sn-route", "x-sn-host", "x-sn-principal", "origin", "sec-fetch-site", "content-type", "content-length"]
+    {
+        assert!(seen.iter().any(|s| s == h), "{h} is read");
+    }
+    // Only the admission reads the X-SN headers.
+    let cf = src("cf.rs");
+    let heads = function_body(code(&cf), "impl Heads {");
+    for h in ["x-sn-route", "x-sn-host", "x-sn-principal"] {
+        assert_eq!(code(&cf).matches(&format!("\"{h}\"")).count(), 1, "{h} read once");
+        assert!(heads.contains(&format!("\"{h}\"")), "{h} read by Heads");
+    }
+}
+
+/// A lone X post link is answered before the reservation grows, the cut,
+/// the floor and any ticket.
+#[test]
+fn an_x_post_link_takes_no_ticket() {
+    let cf = src("cf.rs");
+    let score = function_body(code(&cf), "async fn score(");
+    let x = score.find("xpost::x_post_v1(text)").expect("the rule runs in score");
+    for later in ["held.grow(", "cut::free_cut(", "policy::length_bin(", "run(&env"] {
+        let at = score.find(later).unwrap_or_else(|| panic!("{later}"));
+        assert!(x < at, "x_post_v1 runs before {later}");
+    }
+    let env = score.find("envelope::parse(").expect("envelope");
+    assert!(env < x, "on the envelope's text");
+}
+
+/// The in-page challenge is gone (edge rules protect the routes), and the
+/// store secret is a Worker secret, never a var.
+#[test]
+fn no_challenge_token_and_no_secret_is_tracked() {
+    let w = wrangler();
     for l in w.lines().map(str::trim).filter(|l| !l.starts_with('#')) {
-        assert!(!l.starts_with("TURNSTILE_SITE_KEY"), "the site key is passed at deploy time");
-        assert!(!l.starts_with("TURNSTILE_SECRET"), "the secret is a Worker secret");
+        assert!(!l.starts_with("DETECT_STORE_SECRET"), "the store secret is a Worker secret");
+    }
+    let root = env!("CARGO_MANIFEST_DIR");
+    let mut files: Vec<(String, String)> = SOURCES.iter().map(|n| (n.to_string(), code(&src(n)).to_owned())).collect();
+    for f in ["wrangler.toml", "Cargo.toml", "README.md", "memory-model.json"] {
+        files.push((f.into(), fs::read_to_string(format!("{root}/{f}")).expect(f)));
+    }
+    for (name, text) in files {
+        assert!(!text.to_ascii_lowercase().contains("turnstile"), "{name} names the removed challenge");
+        assert!(!text.contains("siteverify") && !text.contains("challenges.cloudflare.com"), "{name}");
     }
 }

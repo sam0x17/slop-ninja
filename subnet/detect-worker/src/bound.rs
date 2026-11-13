@@ -17,10 +17,9 @@
 //!   U+0055 U+0308 U+0304, each written as a `\u` escape: 18 bytes. A test
 //!   recomputes the factor over every code point with the scorer's own NFC
 //!   crate and version (Unicode 9.0 tables).
-//! - **Envelope.** The request is exactly `{"text":"…","turnstile":"…"}`
-//!   (either key order, no insignificant whitespace, no escapes in keys or in
-//!   the Turnstile token), so its fixed bytes and the token's documented
-//!   maximum length complete the bound.
+//! - **Envelope.** The request is exactly `{"text":"…"}` (no insignificant
+//!   whitespace, no other key, no escape in the key), so its fixed bytes
+//!   complete the bound.
 //!
 //! So a body over [`RAW_BODY_BYTES`] cannot hold a text of at most
 //! [`MAX_TOKENS`] tokens (lstrip whitespace aside). With the free cut
@@ -53,13 +52,10 @@ pub const TEXT_BYTES_PER_NFC_BYTE: u64 = 3;
 pub const MAX_TEXT_BYTES: u64 = CONTENT_TOKENS * MAX_TOKEN_TEXT_BYTES * TEXT_BYTES_PER_NFC_BYTE;
 /// The text field's raw bytes, at most: 2,046 × 512 × 9 = 9,427,968.
 pub const TEXT_FIELD_BYTES: u64 = CONTENT_TOKENS * MAX_TOKEN_TEXT_BYTES * NFC_ESCAPE_FACTOR;
-/// A Turnstile response token's documented maximum length (2,048
-/// characters, all ASCII; escapes refused).
-pub const TURNSTILE_TOKEN_BYTES: u64 = 2048;
-/// The envelope's fixed bytes: `{"text":""` + `,"turnstile":""` + `}`.
-pub const ENVELOPE_FIXED_BYTES: u64 = 26;
+/// The envelope's fixed bytes: `{"text":""}`.
+pub const ENVELOPE_FIXED_BYTES: u64 = 11;
 /// The largest request body that can hold a scorable text.
-pub const RAW_BODY_BYTES: u64 = TEXT_FIELD_BYTES + TURNSTILE_TOKEN_BYTES + ENVELOPE_FIXED_BYTES;
+pub const RAW_BODY_BYTES: u64 = TEXT_FIELD_BYTES + ENVELOPE_FIXED_BYTES;
 /// The scorer's own body limit (`limits::MAX_SCORE_BODY`, 8 MiB): the body
 /// forwarded to it is built here and refused above this, never truncated.
 pub const SCORER_MAX_BODY: u64 = 8 << 20;
@@ -87,11 +83,11 @@ pub const FREE_MAX_WORDS: usize = 1000;
 const _: () = assert!(MEASURED_MIN_WORDS <= BAND_TABLE_MAX_WORDS && BAND_TABLE_MAX_WORDS < MEASURED_MAX_WORDS);
 const _: () = assert!(FREE_MAX_WORDS <= MEASURED_MAX_WORDS);
 
-const _: () = assert!(RAW_BODY_BYTES == 9_427_968 + 2048 + 26);
+const _: () = assert!(RAW_BODY_BYTES == 9_427_968 + 11);
 
-/// The exact envelope prefix and separators [`ENVELOPE_FIXED_BYTES`] counts.
+/// The exact envelope prefix, quotes and close [`ENVELOPE_FIXED_BYTES`] counts.
 pub const fn envelope_fixed() -> u64 {
-    (r#"{"text":"#.len() + 2 + r#","turnstile":"#.len() + 2 + "}".len()) as u64
+    (r#"{"text":"#.len() + 2 + "}".len()) as u64
 }
 
 const _: () = assert!(envelope_fixed() == ENVELOPE_FIXED_BYTES);

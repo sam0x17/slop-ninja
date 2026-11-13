@@ -8,23 +8,29 @@
 //!
 //! - [`bound`]: the request bounds, derived from the scorer's token limit,
 //!   the pinned tokenizer and the scorer's NFC tables;
-//! - [`envelope`]: the strict request parser;
+//! - [`envelope`]: the strict request parser (`{"text"}`);
+//! - [`xpost`]: rule `x_post_v1`, a pasted link to a post on X;
+//! - [`switches`]: the kill switches, the var AND the store's row;
 //! - [`english`]: the human pools' English screen, ported;
 //! - [`cut`]: the free check's scored part: at most the first 1,000 words,
 //!   never cut inside a sentence, within the scorer's tokens;
 //! - [`policy`]: length policy, bands, display rules and notices;
 //! - [`answer`]: the response allow-list and UTF-16 offsets;
 //! - [`receipt`]: content-free feedback receipts and their ledger;
-//! - [`gate`]: the tickets-only fair queue and the instance's warmth;
+//! - [`seal`]: the result seal on the answer's final line;
+//! - [`gate`]: the tickets-only fair queue, its classes and the instance's
+//!   warmth;
+//! - [`counters`]: the gate's durable hourly counts and their flush;
 //! - [`waits`]: the liveness waits and the scan lease derived from them;
-//! - [`routes`]: arena routes, footprints and the isolate's scan memory;
+//! - [`routes`]: arena routes, footprints, the isolate's scan memory and the
+//!   admission of forwarded requests (the `X-SN-*` allow-list and CSRF);
 //! - `cf`, `cf_gate`, `cf_feedback`, `cf_lane` (wasm32): the export, the
 //!   `DetectGate` object, the `DetectFeedback` object and the `DetectLane`
 //!   object with its Container.
 //!
 //! **Privacy.** The text lives in the request's memory only. Nothing derived
 //! from it is stored, logged, cached or returned beyond the allow-list: no
-//! hash, no echo in an error. Panics write nothing: [`silence_panics`]
+//! hash in the clear (the seal is encrypted), no echo in an error. Panics write nothing: [`silence_panics`]
 //! replaces the runtime's hook (which would print the panic message, and a
 //! string-slicing panic's message quotes the string) at every entry, and the
 //! crate denies the lints that panic on input.
@@ -35,6 +41,7 @@
 
 pub mod answer;
 pub mod bound;
+pub mod counters;
 pub mod cut;
 pub mod english;
 pub mod envelope;
@@ -42,7 +49,10 @@ pub mod gate;
 pub mod policy;
 pub mod receipt;
 pub mod routes;
+pub mod seal;
+pub mod switches;
 pub mod waits;
+pub mod xpost;
 
 #[cfg(target_arch = "wasm32")]
 mod cf;
@@ -89,13 +99,8 @@ pub const WARM_PATH: &str = "/api/detect/v1/warm";
 pub const SCORE_PATH: &str = "/api/detect/v1/score";
 /// The feedback route.
 pub const FEEDBACK_PATH: &str = "/api/detect/v1/feedback";
-/// The Turnstile action the page's widget names; siteverify must report it.
-pub const TURNSTILE_ACTION: &str = "detect_score";
-/// A Turnstile token's validity: Cloudflare accepts a token within 300 s of
-/// its issue (server-side validation docs). A score body still arriving
-/// after this long carries an expired token, so the Worker's body read
-/// ends here and refuses nothing a reader could have sent.
-pub const TURNSTILE_TOKEN_VALIDITY_MS: u64 = 300_000;
+/// The binding-only routes' prefix.
+pub const INTERNAL_PREFIX: &str = "/internal/";
 
 /// The client key's input: the address's network prefix (IPv4 /24, IPv6
 /// /64, the usual unit a single site or subscriber holds), so one network

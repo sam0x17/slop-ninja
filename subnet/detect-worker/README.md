@@ -1,9 +1,9 @@
 # SlopNinja detect Worker
 
 The service behind the free paste-and-score page at `slop.ninja/detect/`.
-The website Worker forwards `/api/detect/v1/*` here through its service
-binding (`DETECT_TESTNET`). This Worker has no route, no custom domain, no
-default `workers_dev` subdomain and no preview URLs. It scores one pasted text with A's
+The website and secret-host Workers forward its routes here through their
+service bindings (`DETECT_TESTNET`). This Worker has no route, no custom
+domain, no default `workers_dev` subdomain and no preview URLs. It scores one pasted text with A's
 reference span package on one scorer Container and returns an evidence band,
 the two document percentages and, in the strong bands only, highlighted
 passages. A text of 24 to 149 words gets one result instead, "strong signs"
@@ -20,53 +20,117 @@ hidden evaluation, and it never sees evaluation text.
 
 ```
 browser ── website Worker ──service binding──► detect Worker ──receipts──► DetectFeedback
-                                                 │  (text stays here)       (one, memory only)
-                       ticket + client key only  ▼
-                                            DetectGate (one, memory only)
+           (strips x-sn-*, sets X-SN-Host       │  (text stays here)       (one, memory only)
+            and X-SN-Route)                     │
+                 ticket, class and client key ▼     hourly counts (content-free)
+                                            DetectGate ──alarm──► detect store (D1)
                                                  │ admitted
                                                  ▼
                                             DetectLane ──► a-scorer Container
 ```
 
-- `POST /api/detect/v1/warm`: content-free and needs no Turnstile. It is
-  answered from the isolate's awake hint while that holds. Otherwise at most
-  one warm per Cloudflare location per rate-limit period (a constant-keyed
-  rate-limit binding with limit 1) goes on to the gate. The gate starts the
-  instance only when none is awake, and a warm never extends the idle timer;
-  only scans do. The answer also carries the switches, the Turnstile site key
-  and the package line.
-- `POST /api/detect/v1/score` with `{"text","turnstile"}`. The checks run in
-  this order:
-  1. the content type;
-  2. the tool switch;
-  3. a declared length within the body bound, whose full footprint fits the
+Every route first checks how the request arrived (`routes::forwarded`):
+
+- A request carrying `X-SN-Route` is a forwarded browser request. Its route
+  id must be the path's, its `X-SN-Host` one of the two configured hosts'
+  values (from `SITE_ORIGIN` and `SECRET_ORIGIN`) and admitted by the route's
+  row of the forwarded route table, and the CSRF check of `auth-core`
+  applies (Fetch Metadata and `Origin` against that host's origin).
+- `X-SN-Principal` is accepted only on the routes whose table row takes one,
+  from the site host. None of the routes below does: a free check is the same
+  request for everyone, and a principal on it refuses the request.
+- A request with neither header is a binding call no forwarder made. It is
+  served, and its scans are recorded as `uncovered_path`, never counted.
+- An `/internal/` request carrying `X-SN-Route` or `X-SN-Host` is refused.
+- No header outside the forwarders' allow-list is read, and never a cookie
+  (`tests/source.rs`).
+
+Refusals answer one JSON object, `{"state":"refused","code":…}` with the
+counts some codes carry, under the HTTP status of its code
+(`slop-ninja-detect-page`'s refusal table).
+
+- `POST /api/detect/v1/warm`: content-free. It is answered from the
+  isolate's awake hint while that holds. Otherwise at most one warm per
+  Cloudflare location per rate-limit period (a constant-keyed rate-limit
+  binding with limit 1) goes on to the gate. The gate starts the instance
+  only when none is awake, and a warm never extends the idle timer; only
+  scans do. The answer carries `{state, tool, spans, min_words, package}`.
+- `POST /api/detect/v1/score` with `{"text"}`. The checks run in this order:
+  1. how the request arrived (above);
+  2. the content type;
+  3. the switches: each the deploy-time var AND the detect store's
+     `switches` row, read in one statement; when the row cannot be read the
+     var decides and an `error {d1}` point is written, so a store outage never
+     stops free checks;
+  4. a declared length within the body bound, whose full footprint fits the
      isolate's scan memory (413 unread above either, 411 without a length);
-  4. the intake reservation from the scan memory: 2 bytes per declared body
+  5. the intake reservation from the scan memory: 2 bytes per declared body
      byte, for the body and the unescaped text (503 "busy" unread);
-  5. the body, which must arrive within Turnstile's 300 s token validity
-     (408 past it; a later body carries an expired token anyway);
-  6. the strict envelope;
-  7. Turnstile siteverify (single use, hostname and action `detect_score`
-     checked);
-  8. the rest of the reservation (503 "busy");
-  9. the free cut (`cut.rs`, "The free cut" below), with exact token counts
-     from the scorer's own tokenizer table;
-  10. the scored part's length floor (24 words, or 150 with the span switch
+  6. the body, which must arrive within `BODY_WAIT_MS` (408 past it);
+  7. the strict envelope;
+  8. rule `x_post_v1` (`xpost.rs`): a text that is only the link to a post on
+     X scores nothing and takes no ticket. It answers `x_post_link` with the
+     post's canonical URL (`https://x.com/i/status/<id>`) while `DETECT_URLS`
+     and `DETECT_X` are both on, and `x_off` otherwise;
+  9. the rest of the reservation (503 "busy");
+  10. the free cut (`cut.rs`, "The free cut" below), with exact token counts
+      from the scorer's own tokenizer table;
+  11. the scored part's length floor (24 words, or 150 with the span switch
       off) and the English screen on it.
 
-  Only the scored part is forwarded to the scorer.
+  Only the scored part is forwarded to the scorer. Every refusal before a
+  ticket is an AE `submit` point and nothing else.
 
-  A refusal answers one JSON object. An accepted text gets an NDJSON stream
-  of queue positions, then "starting" when the instance is cold, then the
-  result or an error. A line the reader does not accept within one hold
-  (`QUEUE_HOLD_MS`) ends the stream.
-- `POST /api/detect/v1/feedback` with `{"receipt","claim"}`. It needs no
-  challenge, so it never reaches the admission gate. A receipt of the wrong
-  shape is refused in the Worker. Any other goes to the `DetectFeedback`
-  object, which accepts each valid receipt once; it is then counted as a
-  content-free data point (band, length bin, package, button). A flood of
-  junk or replayed receipts loads only that object, and a scan waits at most
-  one hold for its receipt (it answers without one otherwise).
+  An accepted text gets an NDJSON stream of queue positions, then
+  "starting" when the instance is cold, then the result, or a refusal line.
+  A line the reader does not accept within one hold (`QUEUE_HOLD_MS`) ends
+  the stream. The result line carries `seal`: the result encrypted under a
+  day key (below), with which the website can render it again, make a secret
+  link of it, or quote a paid check, without scoring the text again.
+- `POST /api/detect/v1/feedback` with `{"receipt","claim"}`. It never
+  reaches the admission gate. A receipt of the wrong shape is refused in the
+  Worker. Any other goes to the `DetectFeedback` object, which accepts each
+  valid receipt once; it is then counted as a content-free data point (band,
+  length bin, package, button). A flood of junk or replayed receipts loads
+  only that object, and a scan waits at most one hold for its receipt (it
+  answers without one otherwise).
+
+## The admission gate
+
+`DetectGate` admits one scan per slot (one at launch):
+
+- **Classes.** `interactive` (a free paste), `url` (a public URL check),
+  `paid` and `background` (operator re-runs). Admission alternates `paid`
+  and the free group (`interactive` with `url`) while both wait; within a
+  group it goes round-robin across client keys, first in first out per key;
+  `background` goes only when nothing else waits.
+- **Client keys.** An HMAC, under a key held only in the gate's memory and
+  replaced each UTC day, of the address's network prefix (anonymous), the
+  owner hash (signed-in paid) or the API key's hash. A client key with an
+  admitted ticket gets no second admission until the first is done.
+- **Position-scaled hold.** A waiting ticket at position p asks again after
+  `max(QUEUE_HOLD_MS, (p - 1) × the fastest measured scan / slots)`, the
+  earliest it could be admitted, so the gate's request rate grows with the
+  logarithm of the line, not its length. Its admission still wakes it at
+  once.
+- **Hourly counts.** The release that ends a scan carries its channel
+  (`free_text` for the site host's score route), the package it ran under and
+  its outcome (`scored`, `uncovered_path` or a refusal code). The gate adds it
+  to the hour's row in its own SQLite before answering, so an eviction loses
+  no acknowledged count, and an alarm writes the rows to the store's
+  `hour_counters` as absolute values (`counters.rs`): a repeated flush writes
+  the same numbers, and the gate is the table's only writer.
+
+## Result seals
+
+`seal.rs`: `base64url(v ‖ nonce96 ‖ AES-256-GCM(K(day), nonce, json))` with
+AAD `slop_ninja_detect_seal_v1`, where `K(day)` is HKDF-SHA256 of the Worker
+secret `DETECT_STORE_SECRET` with info `"seal"` and the UTC day. The payload
+is `{day, text_sha256, scored_end, cut, package_load, policy_v, result_full,
+issued_ms}`, so the answer carries no text-derived value in the clear. A
+seal opens under today's or yesterday's key (24 to 48 hours) and only for
+the text whose SHA-256 it names; its nonce's hash lets a link be made from
+it once. Without the secret a result carries no seal.
 
 ## The free cut
 
@@ -104,11 +168,12 @@ reaches them.
 | Control | Bound | Source |
 |---|---|---|
 | Tokens | 2,048 with the frame | the scorer's limit, counted here exactly (`slop-ninja-scorer-tokens`) |
-| Body | 2,046 × 512 × 9 + 2,048 + 26 = 9,430,042 bytes | the longest token (512 bytes), the largest escaped-JSON-to-NFC ratio (9, U+01D5), the Turnstile token's documented length and the envelope's fixed bytes; tests recompute 512 from the tokenizer table and 9 from the scorer's NFC crate. With the free cut a longer body could still hold a scorable first 1,000 words, so this is the free route's read budget; the scan memory below admits less |
+| Body | 2,046 × 512 × 9 + 11 = 9,427,979 bytes | the longest token (512 bytes), the largest escaped-JSON-to-NFC ratio (9, U+01D5) and the envelope's fixed bytes; tests recompute 512 from the tokenizer table and 9 from the scorer's NFC crate. With the free cut a longer body could still hold a scorable first 1,000 words, so this is the free route's read budget; the scan memory below admits less |
 | Text | 2,046 × 512 × 3 bytes | a decomposed character is at most 3 times its NFC bytes (recomputed by a test); the free cut never tokenizes a longer prefix |
 | Forwarded body | the scorer's 8 MiB | measured on the body built here; refused, never truncated |
-| Isolate scan memory | the memory model's linear memory less the stack, the glue partition, the objects' memory and warm requests | `routes.rs`; each score request reserves 83 bytes per body byte (body, text, NFC copy, the tokenizer's scratch, the forwarded body) plus the reply bound: 2 of those bytes before it reads anything, the rest once Turnstile passes |
+| Isolate scan memory | the memory model's linear memory less the stack, the glue partition, the objects' memory and warm requests | `routes.rs`; each score request reserves 83 bytes per body byte (body, text, NFC copy, the tokenizer's scratch, the forwarded body) plus the reply bound: 2 of those bytes before it reads anything, the rest once its envelope parses |
 | Gate tickets | the gate's 8 MiB table at 256 bytes per ticket (with its waiting ask's channel) | `routes.rs` |
+| Count flush | 20 rows per statement, 50 statements per alarm | D1's 100 bound parameters per statement (5 per row) and its smallest documented queries per invocation; a longer backlog takes further alarms |
 | Used receipt ids | the feedback object's 1 MiB at 64 bytes per id; past it the object starts a new key, which only loses votes on older receipts | `routes.rs`, `receipt.rs` |
 | Concurrent scans | 1 | one standard-3 instance (`max_instances` 1) with one session; more is a decision |
 
@@ -130,7 +195,8 @@ Every wait is bounded, and nothing needs an operator to recover
 | `SCORER_START_WAIT_MS` | 60 s | a started instance answering its health check |
 | `LOAD_WAIT_MS` | 180 s | the package load, or a wait for one already running |
 | `SCORE_WAIT_MS` | 60 s | one score call and its reply (a 2,048-token scan is about 5 s warm on standard-3) |
-| `QUEUE_HOLD_MS` | 20 s | a waiting ask (its call gets two holds), the score path's other internal calls, each line written to the reader |
+| `QUEUE_HOLD_MS` | 20 s | the shortest waiting ask (its call gets two holds; the gate scales it with the place in line), the score path's other internal calls, each line written to the reader |
+| `BODY_WAIT_MS` | 300 s | a score request's body arriving whole; meanwhile it holds only its intake reservation |
 | scan lease | derived: the three waits plus one hold | an admitted ticket at the gate |
 
 - The lane works within the time the Worker sends: what is left of the
@@ -147,6 +213,8 @@ Every wait is bounded, and nothing needs an operator to recover
 - A waiting ask is answered early only when its ticket is admitted (or
   gone), otherwise at the end of its hold with its current position. A
   queue change therefore wakes one ask, not every waiting one.
+- A reader that left while its ticket waited costs no scan: the stream is
+  checked before the lane is called.
 
 The values are deployment parameters from measured times, re-measured at
 the launch gate; they are not abuse thresholds.
@@ -191,7 +259,8 @@ the launch gate; they are not abuse thresholds.
 - The text stays in the request's memory. Nothing derived from it is stored,
   logged, cached or returned beyond the allow-list in `answer.rs`: no text
   hash, no output digest, no attribution, no timing.
-- The gate holds tickets and client keys only. A client key is an HMAC of the
+- The gate holds tickets and client keys in memory, and content-free hourly
+  counts in its own storage. A client key is an HMAC of the
   address's network prefix (the first 24 bits of an IPv4 address, the first
   64 bits of an IPv6 address) under a key held only in the gate's memory and
   replaced each UTC day. It orders the fair queue and refuses nobody.
@@ -209,8 +278,10 @@ the launch gate; they are not abuse thresholds.
 
 ## Operator switches and the package pointer
 
-`DETECT_TOOL` and `DETECT_SPANS` (`on` or `off`) are the kill switches. The
-package vars (`PACKAGE_SHA256`, `PACKAGE_MANIFEST_KEY`, `PACKAGE_SPEC_SHA256`,
+`DETECT_TOOL`, `DETECT_SPANS`, `DETECT_URLS` (`on` or `off`) and `DETECT_X`
+(`off`, `on` or `purged`) are the kill switches read here. Each is its var
+AND the detect store's `switches` row: a var set to its off state is the hard
+off, and the `set_switch` op flips the row at once. The package vars (`PACKAGE_SHA256`, `PACKAGE_MANIFEST_KEY`, `PACKAGE_SPEC_SHA256`,
 `PUBLISHED_PACKAGE_DIGEST`, `PUBLICATION`) are the serving pointer. Each one
 changes by a deploy through the deploy wrappers, which journal it, and is
 reverted the same way. Nothing switches automatically.
@@ -243,10 +314,13 @@ abuse-path checks. Those include:
 
 - a flood of junk and replayed feedback receipts never reaches the gate, and
   scans keep their admission latency during it;
-- a slow score body holds only its intake reservation, and is cut at the
-  token validity (or the edge is shown to buffer request bodies);
+- a slow score body holds only its intake reservation, and is cut at
+  `BODY_WAIT_MS` (or the edge is shown to buffer request bodies);
 - a hung or failing instance is destroyed and the lane serves again without
   an operator;
-- waiting tickets cost one ask per hold each, whatever the queue's changes.
+- waiting tickets cost one ask per (scaled) hold each, whatever the
+  queue's changes, and a stream left idle for a long hold stays open;
+- the hourly counts survive a restarted gate and a repeated flush (local
+  Workers run; the SQL is tested natively against both schemas).
 
 The resources do not exist yet.

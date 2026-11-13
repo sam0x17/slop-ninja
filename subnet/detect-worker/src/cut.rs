@@ -524,7 +524,7 @@ mod tests {
     #[test]
     fn a_long_document_is_cut_to_its_first_1000_words() {
         let text = sentences(100_000, 10);
-        let body = text.len() as u64 + crate::bound::ENVELOPE_FIXED_BYTES + crate::bound::TURNSTILE_TOKEN_BYTES;
+        let body = text.len() as u64 + crate::bound::ENVELOPE_FIXED_BYTES;
         assert!(body <= crate::bound::RAW_BODY_BYTES);
         assert!(crate::routes::scan_footprint(Some(body)) <= crate::routes::SCAN_MEMORY_BYTES, "body {body}");
         let c = cut(&text).unwrap();

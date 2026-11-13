@@ -4,11 +4,12 @@ version = "0.1.0"
 edition = "2024"
 license = "MIT OR Apache-2.0"
 publish = false
-description = "Worker behind the free slop.ninja detect page: bounded intake, Turnstile, exact token count, a tickets-only fair queue and one scorer Container"
+description = "Worker behind the free slop.ninja detect page: bounded intake, the forwarders' header contract, exact token count, result seals, a tickets-only fair queue with durable hourly counts and one scorer Container"
 
 # Its own workspace, like the other Workers: it links no chain code, no
 # coordinator signing code and nothing of hidden evaluation. It shares only
-# pure crates: the arena, the scorer's token count and the scorer client.
+# pure crates: the arena, the scorer's token count and the scorer client,
+# the page contracts and the CSRF check.
 [workspace]
 members = ["."]
 resolver = "3"
@@ -32,7 +33,20 @@ slop-ninja-scorer-tokens = { path = "../crates/scorer-tokens" }
 slop-ninja-scorer-client = { path = "../crates/scorer-client" }
 # The files manifest v2 the lane loads by.
 slop-ninja-artifact-check = { path = "../crates/artifact-check", default-features = false }
+# The page contracts: refusal codes, the forwarded route table and the
+# X-SN headers, origins from config, the kill switches, ticket classes and
+# counting channels, the AE point schema, X post URLs.
+slop-ninja-detect-page = { path = "../crates/detect-page" }
+# The CSRF check of forwarded browser routes (Fetch Metadata and Origin).
+# Without `wallet`: no chain code.
+slop-ninja-auth-core = { path = "../crates/auth-core" }
+# Result seals: AES-256-GCM under an HKDF-SHA256 day key, base64url. Pure
+# Rust, so the seal rules are tested natively; no getrandom (the Worker
+# passes the platform's random nonce).
+aes-gcm = { version = "0.10", default-features = false, features = ["aes", "alloc"] }
+base64 = "0.22"
 hex = "0.4"
+hkdf = "0.12"
 hmac = "0.12"
 serde = { version = "1", features = ["derive"] }
 # Scorer probabilities parse to the exact f64 the scorer printed, so the
@@ -46,12 +60,15 @@ futures-util = { version = "0.3", default-features = false, features = ["alloc"]
 js-sys = "0.3"
 wasm-bindgen = "0.2"
 wasm-bindgen-futures = "0.4"
-worker = "0.8.7"
+worker = { version = "0.8.7", features = ["d1"] }
 
 [dev-dependencies]
 # The scorer's NFC crate and version: the escape factor test recomputes the
 # body bound from its tables.
 unicode-normalization-alignments = "=0.1.12"
+# The switch read and the hour counts' SQL run against the store's own
+# migration and the gate's table in SQLite (native only).
+rusqlite = { version = "0.37", features = ["bundled"] }
 
 [build-dependencies]
 serde_json = "1"

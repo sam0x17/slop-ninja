@@ -60,7 +60,7 @@ struct ScorerSpan {
 }
 
 /// One highlighted passage as the page receives it.
-#[derive(Serialize, Debug, PartialEq)]
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
 pub struct Span {
     /// UTF-16 offsets into the text the page sent.
     pub start: usize,
@@ -73,7 +73,7 @@ pub struct Span {
 }
 
 /// Why no passage is drawn.
-#[derive(Serialize, Debug, PartialEq, Clone, Copy)]
+#[derive(Serialize, Deserialize, Debug, PartialEq, Clone, Copy)]
 #[serde(rename_all = "snake_case")]
 pub enum SpansNote {
     /// The document is not in a strong band (or a short text has no strong
@@ -86,7 +86,7 @@ pub enum SpansNote {
 }
 
 /// The package line.
-#[derive(Serialize, Debug, PartialEq, Clone)]
+#[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
 pub struct PackageLine {
     /// The published package digest (parts-manifest SHA-256), shown by prefix.
     pub digest: String,
@@ -125,6 +125,61 @@ pub struct Answer {
     pub invisible: bool,
     pub package: PackageLine,
     pub receipt: String,
+    /// The result's seal (`crate::seal`), on this final line only; absent
+    /// when the store secret is not configured, so the result cannot be
+    /// shared or quoted.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub seal: Option<String>,
+}
+
+/// The result as a seal carries it (`result_full`): the answer line's
+/// fields without its `state`, `receipt` and `seal`, under the same names.
+#[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
+#[serde(deny_unknown_fields)]
+pub struct ResultFull {
+    pub band: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub confidence_tenths: Option<u16>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub confidence_text: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub share_text: Option<String>,
+    pub words: usize,
+    pub total_words: usize,
+    pub cut: String,
+    pub scored_end: usize,
+    pub tokens: u64,
+    pub length: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub spans: Option<Vec<Span>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub spans_note: Option<SpansNote>,
+    pub markers: Vec<String>,
+    pub invisible: bool,
+    pub package: PackageLine,
+}
+
+impl Answer {
+    /// The result a seal carries.
+    pub fn result_full(&self) -> ResultFull {
+        ResultFull {
+            band: self.band.to_owned(),
+            confidence_tenths: self.confidence_tenths,
+            confidence_text: self.confidence_text.clone(),
+            share_text: self.share_text.clone(),
+            words: self.words,
+            total_words: self.total_words,
+            cut: self.cut.to_owned(),
+            scored_end: self.scored_end,
+            tokens: self.tokens,
+            length: self.length.to_owned(),
+            spans: self.spans.clone(),
+            spans_note: self.spans_note,
+            markers: self.markers.iter().map(|m| (*m).to_owned()).collect(),
+            invisible: self.invisible,
+            package: self.package.clone(),
+        }
+    }
 }
 
 /// A scored text, as the page may see it.
@@ -265,6 +320,7 @@ pub fn answer(scored: Scored, length: LengthBin, cut: &Cut<'_>, package: Package
         invisible: policy::has_invisible(text),
         package,
         receipt,
+        seal: None,
     }
 }
 
@@ -323,13 +379,36 @@ mod tests {
         Cut { scored: text, kind: crate::cut::Kind::Whole, total_words: n, scored_words: n, tokens: 300 }
     }
 
+    /// `result_full` is the answer line's JSON less `state`, `receipt` and
+    /// `seal`, and reads back as itself.
+    #[test]
+    fn the_sealed_result_is_the_answer_line() {
+        let text = words(200);
+        let s = text.find("word word").unwrap();
+        let sc = scored(read(&reply(97.3, 34.0, json!([span_json(&text, s, s + 150, 30)])), PKG, &text, true, M));
+        let mut a = answer(sc, M, &whole(&text), pkg(), "r".into());
+        a.seal = Some("sealed".into());
+        let mut line = serde_json::to_value(&a).unwrap();
+        let obj = line.as_object_mut().unwrap();
+        assert_eq!(obj.remove("state"), Some(json!("result")));
+        assert_eq!(obj.remove("receipt"), Some(json!("r")));
+        assert_eq!(obj.remove("seal"), Some(json!("sealed")));
+        let full = a.result_full();
+        assert_eq!(serde_json::to_value(&full).unwrap(), line);
+        let back: ResultFull = serde_json::from_value(line).unwrap();
+        assert_eq!(back, full);
+        a.seal = None;
+        assert!(serde_json::to_value(&a).unwrap().get("seal").is_none());
+    }
+
     #[test]
     fn hashes_and_attribution_never_leave() {
         let text = words(200);
         let sc = scored(read(&reply(97.3, 34.0, json!([])), PKG, &text, true, M));
         let a = answer(sc, M, &whole(&text), pkg(), "r".into());
         let s = serde_json::to_string(&a).unwrap();
-        for leak in ["f00d", "beef", "cafe", "text_sha256", "attribution", "origin", "other_ai", "\"ms\"", "sentences"] {
+        for leak in ["f00d", "beef", "cafe", "text_sha256", "attribution", "origin", "other_ai", "\"ms\"", "sentences"]
+        {
             assert!(!s.contains(leak), "{leak} in {s}");
         }
         assert_eq!(a.band, "strong");
@@ -502,7 +581,10 @@ mod tests {
         let text = words(200);
         let sc = scored(read(&reply(20.0, 5.0, json!([])), PKG, &text, true, M));
         let v = serde_json::to_value(answer(sc, M, &whole(&text), pkg(), "r".into())).unwrap();
-        assert_eq!((v["cut"].as_str(), v["words"].as_u64(), v["total_words"].as_u64()), (Some("none"), Some(200), Some(200)));
+        assert_eq!(
+            (v["cut"].as_str(), v["words"].as_u64(), v["total_words"].as_u64()),
+            (Some("none"), Some(200), Some(200))
+        );
         assert_eq!(v["scored_end"].as_u64(), Some(text.len() as u64));
     }
 }

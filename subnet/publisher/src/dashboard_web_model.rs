@@ -272,8 +272,9 @@ pub struct Owner {
 pub struct Artifact {
     /// `published`, `pending` or `withheld`.
     pub state: String,
-    /// A model file on the network's public host: an entrant artifact
-    /// (`v1/artifacts/<sha256>.bin`) or a reference package manifest
+    /// A model file on the network's public host: an entrant artifact's
+    /// header (`artifacts/v2/<sha256>/header`, or the older
+    /// `v1/artifacts/<sha256>.bin`) or a reference package manifest
     /// (`v1/reference/packages/<sha256>/package.json`). Nothing else.
     pub download: Option<String>,
 }
@@ -476,6 +477,14 @@ pub struct Entrant {
     pub gates_passed: bool,
     pub promoted: bool,
     pub artifact: Option<Artifact>,
+    /// Place in reward-v2's rank order (`q` descending, then roster order)
+    /// among the entrants that passed every gate with a released score;
+    /// `None` for every other entrant.
+    pub rank: Option<u32>,
+    /// The published gate bit: `pass`, `fail`, `withheld` or `not_executed`.
+    pub gate: Option<String>,
+    /// The published public-copy bit: `pass` or `fail`.
+    pub copy_gate: Option<String>,
 }
 
 /// The quality cutoff at grid precision, with its rule code.

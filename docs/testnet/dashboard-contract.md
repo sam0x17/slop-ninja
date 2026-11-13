@@ -207,9 +207,15 @@ netuid}`, `generated_at` (unix seconds, floored to the minute) and
   quantization (its summary is `cohort_summary/v2`) keeps every score, band
   edge, cutoff value and `quantization` field `null`, and its quality chart
   shows bands only.
-- **No rank.** Entrants are listed in roster order, which admission fixes
-  before any document is scored. No document carries a rank or any
-  within-band order.
+- **No rank before the close, and none beyond the published values.**
+  Entrants are listed in roster order, which admission fixes before any
+  document is scored. Only a closed cohort's document carries a rank: each
+  entrant's place in reward-v2's rank order (`q` descending, then roster
+  order) among the entrants that passed every gate with a released `q`. It
+  is a function of the scores, gate bits and roster order the same
+  document carries, adds no bit to them, and the publisher refuses any
+  other (`dashboard::check_results`). No document carries a within-band
+  order or any order computed from exact scores.
 - **Never in `dashboard/v1`:** segment membership, segment sums, live draws
   or noise, wall-clock release times, anything per document or per task, receipts,
   outcome classes, task indices, exact work counts other than the
@@ -360,12 +366,31 @@ earliest estimate; an ended cohort has no close), with `tempo_blocks` and
 list and the cohort documents keep their last version. A closed cohort with its summary also carries:
 
 - `entrants[{uid, hotkey, score, band, eligible, row_share_pct,
-  gates_passed, promoted, artifact{state, download}}]` in roster order.
-  `score` is the entrant's `q` (`null` for an entrant withheld by the
-  minimum-success gate or never executed). `band` is reward-v2's `kappa`
-  (1 is the top occupied band). It is set exactly when `eligible` is true.
-  `gates_passed` means every gate, the public-copy gate included, passed;
-  a withheld entrant has `gates_passed` false and no score.
+  gates_passed, promoted, artifact{state, download}, rank, gate,
+  copy_gate}]` in roster order. `score` is the entrant's `q` (`null` for
+  an entrant withheld by the minimum-success gate or never executed).
+  `band` is reward-v2's `kappa` (1 is the top occupied band). It is set
+  exactly when `eligible` is true. `gates_passed` means every gate, the
+  public-copy gate included, passed; a withheld entrant has `gates_passed`
+  false and no score. `gate` and `copy_gate` are the summary's two bits:
+  `gate` is `pass` (every gate, the public-copy gate included), `fail`,
+  `withheld` (the minimum-success gate) or `not_executed`, and `copy_gate`
+  is `pass` or `fail` (`fail`: the same inference content as, or a near
+  copy of, a published model or reference), `null` for a withheld entrant. So
+  `gate: fail` with `copy_gate: pass` is a failed gate other than the
+  public-copy gate; the summary names no finer reason. `rank` is the
+  entrant's place in reward-v2's rank order, 1 for the first, among the
+  entrants with `gates_passed` and a `score` (`q` descending, ties in
+  roster order); `null` for every other entrant. `row_share_pct` is the
+  entrant's share of the cohort's row (65,535 units) in percent with one
+  decimal place, rounded half up, derived from the published `q` values,
+  bands, gate bits and cluster membership under reward-v2's fixed decay
+  and largest-remainder rule (`dashboard::row_units`): `0.0` for an
+  entrant the row pays nothing, and `null` for every entrant of a cohort
+  that set no target (no cutoff: the previous target stays in force) or
+  of one listed before quantization. `artifact.download` is the published
+  artifact's header (`artifacts/v2/<sha256>/header`) on the network's
+  public host; the website links it only once that host is public.
 - `quality{cutoff{q, rule}, bands[{band, lower, upper}]}`: the cutoff on
   the grid with the rule that set it (`margin` or `fallback`), and the
   occupied bands `1..N` with their edges on the grid. Band 1 has no upper
@@ -382,7 +407,7 @@ list and the cohort documents keep their last version. A closed cohort with its 
   cohort row's `quantization` and `best_score`, and the `best` block's
   `latest_score` under its own `quantization`, follow the same grid.
 
-`row_share_pct` is `null`. An ended cohort carries its
+An ended cohort carries its
 phases only. `entrants` and `quality` appear only for `published` and
 `closed` cohorts. The publisher writes `published` documents for the
 current cohort only after it can verify the cohort's records before

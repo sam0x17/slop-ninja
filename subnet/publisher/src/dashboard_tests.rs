@@ -616,7 +616,7 @@ fn artifacts_for(s: &CohortSummary) -> Vec<ArtifactEntry> {
 }
 
 #[test]
-fn a_closed_cohort_document_carries_quantized_scores_bands_and_gates_but_no_rank() {
+fn a_closed_cohort_document_carries_quantized_scores_bands_gates_and_ranks() {
     let c = chain();
     let s = settings(&c);
     let idx = index_with(&[(5, "testnet-r0-c5", None, 1), (6, "testnet-r0-c6", Some(1), 1)]);
@@ -637,8 +637,15 @@ fn a_closed_cohort_document_carries_quantized_scores_bands_and_gates_but_no_rank
         assert_eq!(e.eligible, e.band.is_some());
         // The summary's q, under the summary's quantization block.
         assert_eq!(e.score, s.q);
+        // The summary's bits as published.
+        assert_eq!((e.gate.as_deref(), e.copy_gate.as_deref()), (Some(s.gate.as_str()), s.copy_gate.as_deref()));
+        // This summary's bands carry no cluster, so they are no reward-v2
+        // outcome and no share is derived from them.
         assert_eq!(e.row_share_pct, None);
     }
+    // reward-v2's rank order: q descending, then roster order, over the
+    // entrants that passed every gate; the never-executed entrant has none.
+    assert_eq!(en.iter().map(|e| e.rank).collect::<Vec<_>>(), [Some(1), Some(3), None, Some(2)]);
     assert_eq!(
         d.cohort.quantization,
         Some(Quantization { rule: Some("quant-v1".into()), width: Some("0.02".into()) })
@@ -681,7 +688,7 @@ fn a_closed_cohort_document_carries_quantized_scores_bands_and_gates_but_no_rank
         ]
     );
     let text = serde_json::to_string(&d).unwrap();
-    for leak in ["rank", "hotkey_hex", "cluster", "copy_gate", "\"gate\"", "commitment", "nonce", "sha256", "PRIVATE"] {
+    for leak in ["hotkey_hex", "cluster", "commitment", "nonce", "sha256", "PRIVATE"] {
         assert!(!text.contains(leak), "{leak}");
     }
     // A cohort without its summary: no entrants, no chart, no rule.
@@ -697,7 +704,7 @@ fn a_closed_cohort_document_carries_quantized_scores_bands_and_gates_but_no_rank
 }
 
 #[test]
-fn entrants_never_appear_before_results_and_ranks_never() {
+fn entrants_never_appear_before_results_and_ranks_follow_the_scores() {
     let c = chain();
     let s = settings(&c);
     let idx = index_with(&[(6, "testnet-r0-c6", None, 1)]);
@@ -714,7 +721,23 @@ fn entrants_never_appear_before_results_and_ranks_never() {
         check(&key, &serde_json::to_vec(&v).unwrap()).is_err()
     };
     assert!(refused(&|v| v["cohort"]["state"] = json!("ended")));
-    assert!(refused(&|v| v["entrants"][0]["rank"] = json!(1)));
+    // A rank is the document's own rank order, nothing else.
+    assert_eq!(good["entrants"][0]["rank"], json!(1));
+    assert!(refused(&|v| v["entrants"][0]["rank"] = json!(2)));
+    assert!(refused(&|v| v["entrants"][0]["rank"] = json!(null)));
+    assert!(refused(&|v| v["entrants"][2]["rank"] = json!(4)));
+    assert!(refused(&|v| {
+        v["entrants"][1]["rank"] = json!(2);
+        v["entrants"][3]["rank"] = json!(3);
+    }));
+    // Gate codes from their closed lists, agreeing with gates_passed.
+    assert!(refused(&|v| v["entrants"][0]["gate"] = json!("maybe")));
+    assert!(refused(&|v| v["entrants"][0]["copy_gate"] = json!("fail")));
+    assert!(refused(&|v| v["entrants"][2]["copy_gate"] = json!(null)));
+    // A share is a one-decimal percent.
+    assert!(refused(&|v| v["entrants"][0]["row_share_pct"] = json!("33.33")));
+    assert!(refused(&|v| v["entrants"][0]["row_share_pct"] = json!("100.1")));
+    assert!(!refused(&|v| v["entrants"][0]["row_share_pct"] = json!("100.0")));
     assert!(refused(&|v| v["entrants"][0]["raw"] = json!("846878585280111913")));
     assert!(refused(&|v| v["entrants"][0]["assigned"] = json!(1000)));
     assert!(refused(&|v| v["cohort"]["receipts"] = json!(32)));
@@ -2038,6 +2061,150 @@ fn a_cohort_listed_before_quantization_keeps_entrants_and_bands_without_scores()
     assert!(!bands.is_empty());
     assert!(bands.iter().all(|b| b.lower.is_none() && b.upper.is_none()));
     assert_eq!(d.reference.as_ref().unwrap().score, None);
+}
+
+/// A summary built from reward-v2's own q-only outcome: entrants in roster
+/// order as `(q in grid steps, gated, copy bit, cluster label)`, published
+/// the way the summary module publishes a result.
+fn summary_of_outcome(spec: &[(Option<u64>, bool, &str, Option<u16>)]) -> (CohortSummary, Vec<u16>) {
+    use slop_ninja_protocol::reward_v1::{QEntrant, QInput, q_outcome};
+    use slop_ninja_protocol::{RewardV1Params, SCORE_SCALE};
+    let w = SCORE_SCALE / 50;
+    let params = RewardV1Params::new(SCORE_SCALE / 200, slop_ninja_protocol::fixtures_quant::TESTNET_QUANT);
+    let entrants: Vec<QEntrant> = spec
+        .iter()
+        .map(|&(q, gated, _, cluster)| QEntrant { q: q.map(|k| k * w), gated, cluster })
+        .collect();
+    let out = q_outcome(&QInput {
+        params: &params,
+        width: w,
+        reference_q: 40 * w,
+        predecessor_q: None,
+        entrants: &entrants,
+    })
+    .unwrap();
+    let mut sm = summary_for("testnet-r0-c6", 6, spec.len(), None);
+    sm.references.index = 0;
+    sm.references.current.q = Some(summary::decimal(40 * w, w));
+    sm.references.predecessor = None;
+    sm.quality.cutoff = out.cutoff.map(|c| summary::Cutoff { q: summary::decimal(c, w), mode: "margin".into() });
+    for (i, e) in sm.entrants.iter_mut().enumerate() {
+        let (q, gated, copy, _) = spec[i];
+        e.q = q.map(|k| summary::decimal(k * w, w));
+        e.band = out.band_rank[i].map(|k| k as u32 + 1);
+        e.gate = match (q, gated) {
+            (None, _) => "withheld",
+            (Some(_), true) => "pass",
+            (Some(_), false) => "fail",
+        }
+        .into();
+        e.copy_gate = q.map(|_| copy.into());
+    }
+    let refs: Vec<_> = sm.entrants.iter().map(|e| summary::ClusterRef { uid: e.uid, hotkey: e.hotkey.clone() }).collect();
+    for (i, e) in sm.entrants.iter_mut().enumerate() {
+        e.cluster = spec[i].3.filter(|_| e.band.is_some()).map(|l| refs[usize::from(l)].clone());
+    }
+    (sm, out.units)
+}
+
+/// Row shares are reward-v2's units, derived from the published values
+/// alone: bands, clusters split equally, equal head scores sharing their
+/// positions, and the largest-remainder row in rank order.
+#[test]
+fn row_shares_are_reward_v2s_units_from_the_published_values() {
+    // R_k at 0.80 on a 0.02 grid: the margin cutoff is 0.82 and each band is
+    // one grid step. Roster order: two clusters tie at 0.86 (one of two
+    // members), a copy at 0.88 is out, one entrant passes the gates below
+    // the cutoff and one is withheld.
+    let spec = [
+        (Some(43), true, "pass", Some(0)),
+        (Some(45), true, "pass", Some(1)),
+        (Some(43), true, "pass", Some(0)),
+        (Some(44), false, "fail", None),
+        (Some(42), true, "pass", Some(4)),
+        (Some(43), true, "pass", Some(5)),
+        (Some(40), true, "pass", None),
+        (None, false, "", None),
+        (Some(41), true, "pass", Some(8)),
+    ];
+    let (sm, units) = summary_of_outcome(&spec);
+    assert_eq!(sm.quality.cutoff.as_ref().map(|c| c.q.as_str()), Some("0.82"));
+    assert_eq!(units.iter().map(|&u| u64::from(u)).sum::<u64>(), 65_535);
+    // The two members of one cluster split its credit (largest remainder
+    // may give one of them the odd unit).
+    assert!(units[0] > 0 && units[0].abs_diff(units[2]) <= 1 && units[1] > units[5]);
+    assert_eq!(row_units(&sm), Some(units.clone()));
+    let c = chain();
+    let s = settings(&c);
+    let idx = index_with(&[(6, "testnet-r0-c6", None, 0)]);
+    let rows = listed(&s, &idx, None);
+    let d = cohort_doc(&s, &rows, 0, Some(&sm), &[], 0, time_of(118));
+    let v = checked(&Doc::Cohort("a", "testnet-r0-c6".into()), &d);
+    round_trips::<web_model::CohortDoc>(&v);
+    let en = d.entrants.as_ref().unwrap();
+    for (e, u) in en.iter().zip(&units) {
+        assert_eq!(e.row_share_pct.as_deref(), Some(share_pct(*u).as_str()));
+    }
+    assert_eq!(en[3].row_share_pct.as_deref(), Some("0.0"));
+    assert_eq!(
+        en.iter().map(|e| e.rank).collect::<Vec<_>>(),
+        [Some(2), Some(1), Some(3), None, Some(5), Some(4), Some(7), None, Some(6)]
+    );
+    assert_eq!((share_pct(0), share_pct(65_535), share_pct(32_768)), ("0.0".into(), "100.0".into(), "50.0".into()));
+    // Bands and clusters that are no reward-v2 outcome give no shares.
+    let mut bad = sm.clone();
+    bad.entrants[2].band = Some(1);
+    assert_eq!(row_units(&bad), None);
+    let mut bad = sm.clone();
+    bad.entrants[2].cluster = None;
+    assert_eq!(row_units(&bad), None);
+}
+
+/// A cohort nobody beat (testnet-r1-28's published shape: `R_0` at 0.84
+/// with no predecessor, so neither the margin nor the fallback sets a
+/// target): the two entrants that passed every gate are ranked by their
+/// scores, entrants that failed a gate carry its bits and no rank, and no
+/// row share is derived.
+#[test]
+fn a_cohort_nobody_beat_ranks_its_gated_entrants_and_derives_no_share() {
+    let rows_in: [(u16, &str, &str); 9] = [
+        (7, "0.88", "fail"),
+        (5, "0.88", "fail"),
+        (4, "0.84", "fail"),
+        (6, "0.84", "fail"),
+        (9, "0.78", "fail"),
+        (8, "0.84", "fail"),
+        (11, "0.86", "fail"),
+        (10, "0.82", "pass"),
+        (13, "0.80", "pass"),
+    ];
+    let mut sm = summary_for("testnet-r1-28", 28, rows_in.len(), None);
+    sm.references.index = 0;
+    sm.references.predecessor = None;
+    sm.quality = summary::Quality { cutoff: None, bands: Vec::new() };
+    for (e, &(uid, q, bit)) in sm.entrants.iter_mut().zip(&rows_in) {
+        e.uid = uid;
+        e.q = Some(q.into());
+        e.band = None;
+        e.gate = bit.into();
+        e.copy_gate = Some(bit.into());
+        e.cluster = None;
+    }
+    let c = chain();
+    let s = settings(&c);
+    let idx = index_with(&[(28, "testnet-r1-28", None, 0)]);
+    let rows = listed(&s, &idx, None);
+    let d = cohort_doc(&s, &rows, 0, Some(&sm), &[], 0, time_of(118));
+    let v = checked(&Doc::Cohort("a", "testnet-r1-28".into()), &d);
+    round_trips::<web_model::CohortDoc>(&v);
+    let en = d.entrants.as_ref().unwrap();
+    let rank = |uid: u16| en.iter().find(|e| e.uid == uid).unwrap().rank;
+    assert_eq!((rank(10), rank(13), rank(7), rank(11)), (Some(1), Some(2), None, None));
+    assert!(en.iter().all(|e| e.row_share_pct.is_none() && !e.eligible && e.band.is_none()));
+    let uid7 = &en[0];
+    assert_eq!((uid7.gate.as_deref(), uid7.copy_gate.as_deref(), uid7.gates_passed), (Some("fail"), Some("fail"), false));
+    assert_eq!(d.quality.as_ref().unwrap().cutoff, None);
+    assert_eq!(d.cohort.best_score, None);
 }
 
 #[path = "dashboard_roster_tests.rs"]

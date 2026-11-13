@@ -16,11 +16,16 @@
 //! What the documents never carry (the held-out exposure review): anything
 //! per document or per task, receipts, exact work counts (only a percent on
 //! the grid 0, 10, ..., 90, read at a tempo boundary and kept until the
-//! next), per-kind or per-entrant progress, ranks, exact scores, fault
-//! codes, notes and step errors, spend, model names, hosts and keys. Scores
-//! are the coordinator's quantized `q` (`quant-v1`), shown only under the
-//! quantization block `{rule, width}` of the summary they come from, and
-//! [`check`] refuses any score that is not on that grid ([`grid_check`]).
+//! next), per-kind or per-entrant progress, ranks before the close, exact
+//! scores, fault codes, notes and step errors, spend, model names, hosts and
+//! keys. Scores are the coordinator's quantized `q` (`quant-v1`), shown only
+//! under the quantization block `{rule, width}` of the summary they come
+//! from, and [`check`] refuses any score that is not on that grid
+//! ([`grid_check`]). A closed cohort's entrants also carry the summary's
+//! gate and public-copy bits, their place in reward-v2's rank order and
+//! their row share, each a function of the summary's published values
+//! ([`q_ranks`], [`row_units`]); [`check_results`] refuses a rank the
+//! document's own scores and bits do not give.
 //!
 //! The registry (`registry.json`) and the per-cohort rosters
 //! (`m/a/rosters/<label>.json`) that back the public status API's miner
@@ -55,7 +60,7 @@ pub use roster::*;
 
 /// Bumped whenever a document's derivation changes, so every cohort
 /// document is rebuilt once ([`Memo::cohorts_key`]).
-pub const RULES: &str = "slop_ninja.dashboard.publisher/v3";
+pub const RULES: &str = "slop_ninja.dashboard.publisher/v4";
 
 /// The `cohort/v1` bar stages in order, with their kind (progress-hero
 /// spec, section 2).
@@ -587,10 +592,23 @@ pub struct Entrant {
     pub score: Option<String>,
     pub band: Option<u32>,
     pub eligible: bool,
+    /// The entrant's share of the cohort's row in percent, one decimal
+    /// place, derived from the published values ([`row_units`]); `None`
+    /// when the cohort set no target.
     pub row_share_pct: Option<String>,
     pub gates_passed: bool,
     pub promoted: bool,
     pub artifact: Option<Artifact>,
+    /// The entrant's place in reward-v2's rank order ([`q_ranks`]), 1 for
+    /// the first; `None` for an entrant that did not pass every gate or has
+    /// no released score.
+    pub rank: Option<u32>,
+    /// The summary's gate bit: `pass` (every gate, the public-copy gate
+    /// included), `fail`, `withheld` or `not_executed`.
+    pub gate: Option<String>,
+    /// The summary's public-copy bit, `pass` or `fail`; `None` for a
+    /// withheld entrant.
+    pub copy_gate: Option<String>,
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -806,6 +824,9 @@ const ENTRANT: &[&str] = &[
     "gates_passed",
     "promoted",
     "artifact",
+    "rank",
+    "gate",
+    "copy_gate",
 ];
 
 const COHORT_PATHS: &[&str] = &[
@@ -947,6 +968,70 @@ pub fn scan(v: &Value) -> Result<(), String> {
     walk(v, &mut Vec::new())
 }
 
+/// The gate codes of a cohort document's entrants.
+pub const GATE_CODES: &[&str] = &["pass", "fail", "withheld", "not_executed"];
+/// The public-copy codes.
+pub const COPY_CODES: &[&str] = &["pass", "fail"];
+
+/// A cohort document's per-entrant results: gate codes from their closed
+/// lists that agree with `gates_passed` (a withheld entrant has no copy
+/// bit); a rank exactly where reward-v2's rank order places the entrant,
+/// derived from the document's own scores, `gates_passed` and roster order,
+/// so a rank carries nothing the scores and bits do not; and a row share in
+/// percent with one decimal place, at most 100, only for a cohort with a
+/// cutoff.
+pub fn check_results(v: &Value) -> Result<(), String> {
+    let list = v["entrants"].as_array().map(Vec::as_slice).unwrap_or_default();
+    let w = v["cohort"]["quantization"]["width"].as_str().and_then(width_units);
+    let target = !v["quality"]["cutoff"].is_null();
+    let mut ranked: Vec<(u64, usize)> = Vec::new();
+    for (i, e) in list.iter().enumerate() {
+        let (gate, copy) = (&e["gate"], &e["copy_gate"]);
+        let code = |x: &Value, list: &[&str]| x.is_null() || x.as_str().is_some_and(|s| list.contains(&s));
+        if !code(gate, GATE_CODES) || !code(copy, COPY_CODES) {
+            return Err("a gate code outside its closed list".into());
+        }
+        let passed = e["gates_passed"].as_bool() == Some(true);
+        if !gate.is_null()
+            && (passed != (gate.as_str() == Some("pass") && copy.as_str() == Some("pass"))
+                || (gate.as_str() == Some("withheld")) != copy.is_null())
+        {
+            return Err("gate bits that disagree with gates_passed".into());
+        }
+        let q = w.and_then(|w| e["score"].as_str().and_then(|t| slop_ninja_protocol::quant::parse_grid(t, w).ok()));
+        if let (true, Some(q)) = (passed, q) {
+            ranked.push((q, i));
+        }
+        let share = &e["row_share_pct"];
+        if !share.is_null() {
+            let ok = target
+                && share.as_str().is_some_and(|t| {
+                    let (whole, frac) = t.split_once('.').unwrap_or((t, ""));
+                    frac.len() <= 1
+                        && frac.bytes().all(|b| b.is_ascii_digit())
+                        && !whole.is_empty()
+                        && whole.len() <= 3
+                        && whole.bytes().all(|b| b.is_ascii_digit())
+                        && whole.parse::<u32>().is_ok_and(|x| x < 100 || (x == 100 && frac.bytes().all(|b| b == b'0')))
+                });
+            if !ok {
+                return Err("a row share off its one-decimal percent or without a target".into());
+            }
+        }
+    }
+    ranked.sort_by_key(|&(q, i)| (core::cmp::Reverse(q), i));
+    let mut want: Vec<Option<u64>> = vec![None; list.len()];
+    for (place, &(_, i)) in ranked.iter().enumerate() {
+        want[i] = Some(place as u64 + 1);
+    }
+    for (e, want) in list.iter().zip(want) {
+        if e["rank"].as_u64() != want || (want.is_none() && !e["rank"].is_null()) {
+            return Err("a rank outside reward-v2's rank order".into());
+        }
+    }
+    Ok(())
+}
+
 /// Checks one dashboard write. Content-free errors.
 pub fn check(key: &str, bytes: &[u8]) -> Result<Doc, String> {
     let doc = Doc::parse_key(key).ok_or_else(|| format!("{key}: outside the dashboard grammar"))?;
@@ -1024,6 +1109,7 @@ pub fn check(key: &str, bytes: &[u8]) -> Result<Doc, String> {
         {
             return Err(format!("{key}: a stage after the cohort's end"));
         }
+        check_results(&v).map_err(|why| format!("{key}: {why}"))?;
     }
     // Stage times: the document parses into the contract's types (no field
     // outside them, such as a work commit's own time) and the checks of
@@ -2562,20 +2648,26 @@ pub fn cohort_doc(
     }
     row.leaderboard = results;
     let entrants = summary.map(|sm| {
+        let ranks = q_ranks(sm);
+        let shares = row_units(sm).map(|units| units.into_iter().map(share_pct).collect::<Vec<_>>());
         let mut seen_hotkeys = BTreeSet::new();
         sm.entrants
             .iter()
-            .filter(|en| seen_hotkeys.insert(en.hotkey.clone()))
-            .map(|en| Entrant {
+            .enumerate()
+            .filter(|(_, en)| seen_hotkeys.insert(en.hotkey.clone()))
+            .map(|(i, en)| Entrant {
                 uid: en.uid,
                 hotkey: en.hotkey.clone(),
                 score: en.q.clone(),
                 band: en.band,
                 eligible: en.band.is_some(),
-                row_share_pct: None,
+                row_share_pct: shares.as_ref().and_then(|s| s.get(i).cloned()),
                 gates_passed: en.gate == "pass" && en.copy_gate.as_deref() == Some("pass"),
                 promoted: sm.promoted.as_deref() == Some(en.hotkey.as_str()),
                 artifact: artifacts.iter().find(|a| a.hotkey == en.hotkey).map(artifact_of),
+                rank: ranks.get(i).copied().flatten(),
+                gate: Some(en.gate.clone()),
+                copy_gate: en.copy_gate.clone(),
             })
             .collect::<Vec<_>>()
     });
@@ -2641,6 +2733,167 @@ pub fn cohort_doc(
     };
     clean_cohort(&mut d);
     d
+}
+
+// ---------------------------------------------------------------- results
+//
+// What a closed cohort's leaderboard derives from its summary alone: the
+// rank order, and each entrant's share of the row. Both are functions of the
+// published `q` values, gate bits, bands and cluster membership in roster
+// order (reward-v2, `slop_ninja_protocol::reward_v1`), so they add no bit to
+// what the summary releases.
+
+/// A summary's grid width in score units, when its scores are quantized.
+fn summary_width(sm: &CohortSummary) -> Option<u64> {
+    sm.quantization.as_ref().and_then(|q| width_units(&q.width))
+}
+
+/// Each entrant's `q` on the summary's grid; `None` for one without a
+/// released score. `None` overall when the summary has no grid or a score
+/// is off it.
+fn grid_scores(sm: &CohortSummary) -> Option<Vec<Option<u64>>> {
+    let w = summary_width(sm)?;
+    sm.entrants
+        .iter()
+        .map(|e| match e.q.as_deref() {
+            None => Some(None),
+            Some(t) => slop_ninja_protocol::quant::parse_grid(t, w).ok().map(Some),
+        })
+        .collect()
+}
+
+/// Whether an entrant passed every gate, the public-copy gate included.
+fn passed(e: &crate::summary::Entrant) -> bool {
+    e.gate == "pass" && e.copy_gate.as_deref() == Some("pass")
+}
+
+/// reward-v2's rank order (`reward_v1::q_rank`): the entrants that passed
+/// every gate and carry a `q`, by `q` descending, then roster order. Each
+/// entrant's place in it, 1 for the first, in roster order; `None` outside
+/// it, and for every entrant of a summary without quantized scores.
+pub fn q_ranks(sm: &CohortSummary) -> Vec<Option<u32>> {
+    let mut out = vec![None; sm.entrants.len()];
+    let Some(q) = grid_scores(sm) else { return out };
+    let mut ranked: Vec<(u64, usize)> = sm
+        .entrants
+        .iter()
+        .enumerate()
+        .filter_map(|(i, e)| q[i].filter(|_| passed(e)).map(|v| (v, i)))
+        .collect();
+    ranked.sort_by_key(|&(v, i)| (core::cmp::Reverse(v), i));
+    for (place, &(_, i)) in ranked.iter().enumerate() {
+        out[i] = u32::try_from(place + 1).ok();
+    }
+    out
+}
+
+/// Each entrant's units of the cohort's row (`ROW_TOTAL` in all), in
+/// roster order, as reward-v2 pays them (`reward_v1::q_outcome`, steps 6 to
+/// 9) from the published values: the clusters at or above the cutoff in
+/// head rank order, grouped by their published band, credited
+/// `r^kappa r^mu` with `r` the rule's fixed decay, equal head scores
+/// sharing their positions' credit, each member taking its cluster's credit
+/// over its size, and the row apportioned by largest remainder in rank
+/// order (equal remainders in roster order). `None` for a cohort without a
+/// target (no cutoff), without quantized scores, or whose published bands
+/// and clusters are not a reward-v2 outcome.
+pub fn row_units(sm: &CohortSummary) -> Option<Vec<u16>> {
+    use slop_ninja_protocol::bigint::Fraction;
+    use slop_ninja_protocol::reward_v1::{band_credits, largest_remainder};
+    sm.quality.cutoff.as_ref()?;
+    let q = grid_scores(sm)?;
+    let n = sm.entrants.len();
+    // The eligible entrants, in rank order: exactly those with a band, each
+    // gated with a score and a cluster.
+    let mut eligible: Vec<usize> = (0..n).filter(|&i| sm.entrants[i].band.is_some()).collect();
+    if eligible.is_empty() {
+        return None;
+    }
+    for &i in &eligible {
+        let e = &sm.entrants[i];
+        if !passed(e) || q[i].is_none() || e.cluster.is_none() {
+            return None;
+        }
+    }
+    eligible.sort_by_key(|&i| (core::cmp::Reverse(q[i]), i));
+    // Clusters, named by their first member in roster order, in head rank
+    // order: the walk over the eligible entrants meets each head first.
+    let mut clusters: Vec<(usize, Vec<usize>)> = Vec::new();
+    for &i in &eligible {
+        let c = sm.entrants[i].cluster.as_ref()?;
+        let first = sm.entrants.iter().position(|x| x.hotkey == c.hotkey && x.uid == c.uid)?;
+        if first > i || sm.entrants[first].band.is_none() {
+            return None;
+        }
+        match clusters.iter_mut().find(|(f, _)| *f == first) {
+            Some((_, members)) => members.push(i),
+            None => clusters.push((first, vec![i])),
+        }
+    }
+    // Every member carries its cluster's band; bands run 1..B from the top.
+    let mut runs: Vec<Vec<usize>> = Vec::new();
+    for (c, (_, members)) in clusters.iter().enumerate() {
+        let band = sm.entrants[members[0]].band?;
+        if members.iter().any(|&m| sm.entrants[m].band != Some(band)) {
+            return None;
+        }
+        let kappa = usize::try_from(band).ok()?.checked_sub(1)?;
+        match kappa.cmp(&runs.len()) {
+            core::cmp::Ordering::Less if kappa + 1 == runs.len() => runs[kappa].push(c),
+            core::cmp::Ordering::Equal => runs.push(vec![c]),
+            _ => return None,
+        }
+    }
+    let sizes: Vec<usize> = runs.iter().map(Vec::len).collect();
+    let credits = band_credits(&sizes, slop_ninja_protocol::DECAY_BPS).ok()?;
+    let head_q = |c: usize| q[clusters[c].1[0]];
+    let mut credit_of: Vec<Option<Fraction>> = vec![None; clusters.len()];
+    for (kappa, run) in runs.iter().enumerate() {
+        let mut start = 0;
+        while start < run.len() {
+            let mut end = start;
+            while end + 1 < run.len() && head_q(run[end + 1]) == head_q(run[start]) {
+                end += 1;
+            }
+            let mut sum = credits[kappa][start].clone();
+            for x in &credits[kappa][start + 1..=end] {
+                sum = sum.add(x);
+            }
+            let share = Fraction::new(sum.num, sum.den.mul_u64((end - start + 1) as u64))?.reduced();
+            for &c in &run[start..=end] {
+                credit_of[c] = Some(share.clone());
+            }
+            start = end + 1;
+        }
+    }
+    let mut position = vec![usize::MAX; n];
+    for (p, &i) in eligible.iter().enumerate() {
+        position[i] = p;
+    }
+    let mut members: Vec<(usize, Fraction)> = Vec::new();
+    for (c, (_, list)) in clusters.iter().enumerate() {
+        let credit = credit_of[c].as_ref()?;
+        for &i in list {
+            members.push((i, Fraction::new(credit.num.clone(), credit.den.mul_u64(list.len() as u64))?));
+        }
+    }
+    members.sort_by_key(|(i, _)| position[*i]);
+    let shares: Vec<Fraction> = members.iter().map(|(_, s)| s.clone()).collect();
+    let roster: Vec<usize> = members.iter().map(|(i, _)| *i).collect();
+    let units = largest_remainder(slop_ninja_protocol::ROW_TOTAL, &shares, &roster).ok()?;
+    let mut out = vec![0u16; n];
+    for (&i, u) in roster.iter().zip(units) {
+        out[i] = u;
+    }
+    Some(out)
+}
+
+/// Units of the row as a percent with one decimal place, rounded half up:
+/// `65535` is `"100.0"`, `0` is `"0.0"`.
+pub fn share_pct(units: u16) -> String {
+    let total = u64::from(slop_ninja_protocol::ROW_TOTAL);
+    let tenths = (u64::from(units) * 1000 + total / 2) / total;
+    format!("{}.{}", tenths / 10, tenths % 10)
 }
 
 /// The inputs of every cohort document except the summaries and artifact

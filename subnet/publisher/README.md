@@ -167,6 +167,8 @@ store.
   alone, with ties in `q` sharing credit and leftover units going in roster
   order, so the coordinator's signed row and the weights revealed on chain
   carry no order beyond the q-rank the published values already imply.
+  The dashboard's closed cohort documents state that q-rank, derived from
+  their own published scores and bits and checked to be exactly it.
   The promoted entrant is the first head in q-rank whose exact score meets
   the margin and that passes promotion. Artifacts are published at
   scoring start, before any score exists, so their withholding never
@@ -701,8 +703,13 @@ sequence. Before writing, the builders drop any point that fails the
 contract's checks (a block off the boundary arithmetic, a time off the
 minute, after the document or going backwards, a basis outside the contract,
 wrong tempos), and `dashboard::check` refuses a document those checks would
-still change. Rule `slop_ninja.dashboard.publisher/v2` rebuilds every cohort
-document once.
+still change. A closed cohort's entrants also carry the summary's gate and
+public-copy bits, their place in reward-v2's rank order (`q` descending,
+then roster order, among the entrants that passed every gate) and their
+share of the row, each derived from the summary's published values alone;
+`dashboard::check` refuses a rank that the document's own scores, bits and
+order do not give. Rule `slop_ninja.dashboard.publisher/v4` rebuilds every
+cohort document once.
 
 ## Configuration
 

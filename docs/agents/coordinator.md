@@ -54,8 +54,9 @@ own privacy parameter; both are built, not yet deployed (whitepaper Section 5,
 "Pre-finalized scores"). No
 rank, band, cutoff mode, gate, public-copy, cluster or unit value appears before
 the close, when the quantized result's remaining allow-listed values and the
-openings are published. No rank field is published: any order of entrants
-follows from the published quantized scores and roster order alone. Validators
+openings are published. The result carries no rank field: any order of
+entrants follows from the published quantized scores and roster order alone
+(after the close the dashboard shows that order, derived from them). Validators
 need none of them.
 
 ## Receipts and retention

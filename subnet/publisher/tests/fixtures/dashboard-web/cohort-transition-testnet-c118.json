@@ -257,7 +257,10 @@
    "artifact": {
     "state": "published",
     "download": null
-   }
+   },
+   "rank": 1,
+   "gate": "pass",
+   "copy_gate": "pass"
   },
   {
    "uid": 158,
@@ -271,7 +274,10 @@
    "artifact": {
     "state": "published",
     "download": null
-   }
+   },
+   "rank": 2,
+   "gate": "pass",
+   "copy_gate": "pass"
   },
   {
    "uid": 195,
@@ -285,7 +291,10 @@
    "artifact": {
     "state": "pending",
     "download": null
-   }
+   },
+   "rank": 3,
+   "gate": "pass",
+   "copy_gate": "pass"
   },
   {
    "uid": 232,
@@ -299,7 +308,10 @@
    "artifact": {
     "state": "published",
     "download": null
-   }
+   },
+   "rank": 4,
+   "gate": "pass",
+   "copy_gate": "pass"
   },
   {
    "uid": 13,
@@ -313,7 +325,10 @@
    "artifact": {
     "state": "withheld",
     "download": null
-   }
+   },
+   "rank": null,
+   "gate": "withheld",
+   "copy_gate": null
   }
  ],
  "reference": {

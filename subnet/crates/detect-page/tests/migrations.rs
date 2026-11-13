@@ -314,10 +314,145 @@ fn examples_and_counters() {
     refused(&c, cov, &[], "UNIQUE constraint failed");
 }
 
+// ---------------------------------------------------------------- X posts
+
+const X_SRC: &str = "INSERT INTO sources (source_id, canon_key, canon_url, host, adapter, reputation, rank_list_v, \
+                     fetched_at) VALUES (?, ?, ?, 'x.com', 'x', ?, 'x', 1)";
+const X_RUN: &str = "INSERT INTO runs (run_id, content_key, package_load, package_pub, package_label, policy_v, canon_v, \
+                     extract_v, display_v, evidence_id, band, words, total_words, cut, tokens, scored_at, doc_key, \
+                     doc_bytes) VALUES (?, NULL, 'l', 'p', 'span package d24', 'long-v1', 'canon_v1', 'x_text_v1', \
+                     'display_v1', 'e', 'strong', 300, 300, 'none', 400, 1, ?, 10)";
+const X_DET: &str = "INSERT INTO detections (id_h, public_slug, kind, platform, state, created_at, updated_at, \
+                     source_id, run_id) VALUES (?, ?, 'public_url', 'x', 'live', 1, 1, ?, ?)";
+
+fn count(c: &Connection, sql: &str) -> i64 {
+    c.query_row(sql, [], |r| r.get(0)).unwrap()
+}
+
+/// One live X page: source `id`, run `id`, detection `id`, an alias.
+fn x_page(c: &Connection, id: u8, slug: &str) {
+    let canon = format!("https://x.com/i/status/{}", 100 + id as u64);
+    run(c, X_SRC, &[i(id.into()), b(id), t(&canon), t("ranked")]).unwrap();
+    run(c, X_RUN, &[i(id.into()), t(&format!("r/{id}"))]).unwrap();
+    run(c, X_DET, &[b(id), t(slug), i(id.into()), i(id.into())]).unwrap();
+    run(c, "INSERT INTO source_aliases VALUES (?, ?)", &[b(100 + id), i(id.into())]).unwrap();
+}
+
+/// Item 4's "Deleting" for source `id`, in D1's foreign-key order: the
+/// detections (state, refusal, run and source cleared), the runs, the
+/// aliases, then the source row.
+fn delete_x_source(c: &Connection, id: u8, state: &str, refusal: RefusalCode) -> Result<(), String> {
+    let tx = c.unchecked_transaction().map_err(|e| e.to_string())?;
+    let r = (|| {
+        run(
+            &tx,
+            "UPDATE detections SET state = ?, refusal = ?, run_id = NULL, source_id = NULL, state_v = state_v + 1 \
+             WHERE source_id = ?",
+            &[t(state), t(refusal.as_str()), i(id.into())],
+        )?;
+        run(&tx, "DELETE FROM runs WHERE run_id = ?", &[i(id.into())])?;
+        run(&tx, "DELETE FROM source_aliases WHERE source_id = ?", &[i(id.into())])?;
+        run(&tx, "DELETE FROM sources WHERE source_id = ?", &[i(id.into())])
+    })();
+    match r {
+        Ok(_) => tx.commit().map_err(|e| e.to_string()),
+        Err(e) => Err(e),
+    }
+}
+
 #[test]
-fn x_sources_runs_and_gone_pages() {
+fn canon_url_is_nullable_only_for_x() {
     let c = db();
-    // Pasted text keeps nothing about its source in D1, so there is no
+    // An X source with no canonical URL: a refusal row or a tombstone.
+    run(&c, X_SRC, &[i(1), b(1), NULL, t("ranked")]).unwrap();
+    // Any other adapter needs one.
+    for adapter in ["web", "bluesky"] {
+        refused(
+            &c,
+            "INSERT INTO sources (source_id, canon_key, canon_url, host, adapter, reputation, rank_list_v) \
+             VALUES (2, ?, NULL, 'a.example', ?, 'ranked', 'r1')",
+            &[b(2), t(adapter)],
+            "CHECK constraint failed",
+        );
+    }
+    run(
+        &c,
+        "INSERT INTO sources (source_id, canon_key, canon_url, host, adapter, reputation, rank_list_v) \
+         VALUES (2, ?, 'https://a.example/', 'a.example', 'web', 'ranked', 'r1')",
+        &[b(2)],
+    )
+    .unwrap();
+    refused(&c, "UPDATE sources SET canon_url = NULL WHERE source_id = 2", &[], "CHECK constraint failed");
+    // An X source keeps no X content: no title, site, author, date, language
+    // or validators, and its host is x.com.
+    for col in ["title", "site_name", "author", "lang", "etag", "last_modified"] {
+        refused(&c, &format!("UPDATE sources SET {col} = 'a' WHERE source_id = 1"), &[], "CHECK constraint failed");
+    }
+    refused(&c, "UPDATE sources SET published_at = 1 WHERE source_id = 1", &[], "CHECK constraint failed");
+    refused(&c, "UPDATE sources SET host = 'twitter.com' WHERE source_id = 1", &[], "CHECK constraint failed");
+    // The check columns exist and take times.
+    run(
+        &c,
+        "UPDATE sources SET check_queued_at = 5, gone_candidate_at = 6, edit_check_at = 7, x_mismatch_at = 8 \
+         WHERE source_id = 1",
+        &[],
+    )
+    .unwrap();
+}
+
+#[test]
+fn x_indexes_serve_the_sweep() {
+    let c = db();
+    let has = |name: &str, sql: &str| {
+        let s: String = c
+            .query_row("SELECT sql FROM sqlite_master WHERE type = 'index' AND name = ?", [name], |r| r.get(0))
+            .unwrap_or_else(|_| panic!("no index {name}"));
+        assert!(s.contains(sql), "{name}: {s}");
+    };
+    has("sources_x_fetched", "ON sources(fetched_at) WHERE adapter = 'x' AND canon_url IS NOT NULL");
+    has("sources_x_candidate", "ON sources(gone_candidate_at) WHERE gone_candidate_at IS NOT NULL");
+    has("sources_x_edit", "ON sources(edit_check_at) WHERE edit_check_at IS NOT NULL");
+    // Each due-source read uses its index.
+    for (q, name) in [
+        (
+            "SELECT source_id FROM sources WHERE adapter = 'x' AND canon_url IS NOT NULL AND fetched_at < 9 \
+             ORDER BY fetched_at LIMIT 10",
+            "sources_x_fetched",
+        ),
+        (
+            "SELECT source_id FROM sources WHERE gone_candidate_at IS NOT NULL AND gone_candidate_at < 9 \
+             ORDER BY gone_candidate_at LIMIT 10",
+            "sources_x_candidate",
+        ),
+        (
+            "SELECT source_id FROM sources WHERE edit_check_at IS NOT NULL AND edit_check_at < 9 \
+             ORDER BY edit_check_at LIMIT 10",
+            "sources_x_edit",
+        ),
+    ] {
+        let plan: Vec<String> = c
+            .prepare(&format!("EXPLAIN QUERY PLAN {q}"))
+            .unwrap()
+            .query_map([], |r| r.get(3))
+            .unwrap()
+            .map(Result::unwrap)
+            .collect();
+        assert!(plan.iter().any(|p| p.contains(name)), "{name}: {plan:?}");
+    }
+}
+
+#[test]
+fn an_x_post_is_only_a_public_page() {
+    let c = db();
+    for kind in ["private_text", "private_paid"] {
+        refused(
+            &c,
+            "INSERT INTO detections (id_h, kind, platform, state, created_at, updated_at) VALUES (?, ?, 'x', 'live', 1, 1)",
+            &[b(1), t(kind)],
+            "CHECK constraint failed",
+        );
+    }
+    // Pasted text whose source is an X post is ordinary paste: there is no
     // column for a withheld text.
     let cols: Vec<String> = c
         .prepare("SELECT name FROM pragma_table_info('detections')")
@@ -328,46 +463,90 @@ fn x_sources_runs_and_gone_pages() {
         .collect();
     assert!(cols.contains(&"copy_of".to_owned()) && cols.contains(&"expiry_cap".to_owned()));
     assert!(!cols.iter().any(|c| c.contains("withheld")), "{cols:?}");
-    // An X source: the canonical post URL, rank list `x`, no title or dates.
-    run(
-        &c,
-        "INSERT INTO sources (source_id, canon_key, canon_url, host, adapter, reputation, rank_list_v) \
-         VALUES (1, ?, 'https://x.com/i/status/2', 'x.com', 'x', 'adult', 'x')",
-        &[b(1)],
-    )
-    .unwrap();
-    // An X run: document-only, no content key; NULL keys never collide.
-    let x_run = "INSERT INTO runs (run_id, content_key, package_load, package_pub, package_label, policy_v, canon_v, \
-                 extract_v, display_v, evidence_id, band, words, total_words, cut, tokens, scored_at, doc_key, doc_bytes) \
-                 VALUES (?, NULL, 'l', 'p', 'span package d24', 'long-v1', 'canon_v1', 'x_text_v1', 'display_v1', 'e', \
-                 'strong', 300, 300, 'none', 400, 1, 'r/1', 10)";
-    run(&c, x_run, &[i(1)]).unwrap();
-    run(&c, x_run, &[i(2)]).unwrap();
-    run(
-        &c,
-        "INSERT INTO detections (id_h, public_slug, kind, platform, state, created_at, updated_at, source_id, run_id) \
-         VALUES (?, 'x4m8q2t', 'public_url', 'x', 'live', 1, 1, 1, 1)",
-        &[b(7)],
-    )
-    .unwrap();
-    // The post went: the page is deleted with its reason, the source gone.
-    run(
-        &c,
-        "UPDATE detections SET state = 'deleted', refusal = ?, run_id = NULL WHERE id_h = ?",
-        &[t(RefusalCode::XGone.as_str()), b(7)],
-    )
-    .unwrap();
-    run(&c, "UPDATE sources SET state = 'gone' WHERE source_id = 1", &[]).unwrap();
-    let (state, refusal): (String, String) = c
-        .query_row("SELECT state, refusal FROM detections WHERE public_slug = 'x4m8q2t'", [], |r| {
-            Ok((r.get(0)?, r.get(1)?))
+}
+
+#[test]
+fn deleting_an_x_source_follows_the_foreign_keys() {
+    let c = db();
+    x_page(&c, 1, "x4m8q2t");
+    // A source a detection still references cannot go, nor can its run.
+    refused(&c, "DELETE FROM sources WHERE source_id = 1", &[], "FOREIGN KEY constraint failed");
+    refused(&c, "DELETE FROM runs WHERE run_id = 1", &[], "FOREIGN KEY constraint failed");
+    // Out of order (source before its aliases), the batch fails whole.
+    run(&c, "UPDATE detections SET source_id = NULL, run_id = NULL WHERE source_id = 1", &[]).unwrap();
+    refused(&c, "DELETE FROM sources WHERE source_id = 1", &[], "FOREIGN KEY constraint failed");
+    // Restore and delete in order: a confirmed gone.
+    run(&c, "UPDATE detections SET source_id = 1, run_id = 1 WHERE id_h = ?", &[b(1)]).unwrap();
+    delete_x_source(&c, 1, "deleted", RefusalCode::XGone).unwrap();
+    let (state, refusal, src, run_id): (String, String, Option<i64>, Option<i64>) = c
+        .query_row("SELECT state, refusal, source_id, run_id FROM detections WHERE public_slug = 'x4m8q2t'", [], |r| {
+            Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?))
         })
         .unwrap();
-    assert_eq!((state.as_str(), refusal.as_str()), ("deleted", "x_gone"));
-    // x_purge deletes the class: detections, runs and sources of adapter x.
-    run(&c, "DELETE FROM detections WHERE platform = 'x'", &[]).unwrap();
-    run(&c, "DELETE FROM runs WHERE extract_v = 'x_text_v1'", &[]).unwrap();
-    run(&c, "DELETE FROM sources WHERE adapter = 'x'", &[]).unwrap();
-    let n: i64 = c.query_row("SELECT count(*) FROM sources", [], |r| r.get(0)).unwrap();
-    assert_eq!(n, 0);
+    assert_eq!((state.as_str(), refusal.as_str(), src, run_id), ("deleted", "x_gone", None, None));
+    assert_eq!(count(&c, "SELECT count(*) FROM sources"), 0);
+    assert_eq!(count(&c, "SELECT count(*) FROM runs"), 0);
+    assert_eq!(count(&c, "SELECT count(*) FROM source_aliases"), 0);
+    // The tombstone keeps its slug, so the slug is never drawn again.
+    refused(&c, X_DET, &[b(9), t("x4m8q2t"), NULL, NULL], "detections.public_slug");
+    // An edit removes the report the same way.
+    x_page(&c, 2, "x4m8q2u");
+    delete_x_source(&c, 2, "deleted", RefusalCode::XEdited).unwrap();
+    assert_eq!(count(&c, "SELECT count(*) FROM detections WHERE refusal = 'x_edited' AND run_id IS NULL"), 1);
+}
+
+#[test]
+fn a_removal_keeps_only_the_key_and_a_purge_takes_it() {
+    let c = db();
+    x_page(&c, 1, "x4m8q2t");
+    // Removal at the request of the author or of X: the detection is removed
+    // and keeps its source; the run, its aliases and every X field of the
+    // source go; the source keeps only its key, adapter and opted_out state.
+    let tx = c.unchecked_transaction().unwrap();
+    run(
+        &tx,
+        "UPDATE detections SET state = 'removed', refusal = ?, run_id = NULL WHERE source_id = 1",
+        &[t(RefusalCode::XRemoved.as_str())],
+    )
+    .unwrap();
+    run(&tx, "DELETE FROM runs WHERE run_id = 1", &[]).unwrap();
+    run(&tx, "DELETE FROM source_aliases WHERE source_id = 1", &[]).unwrap();
+    run(
+        &tx,
+        "UPDATE sources SET canon_url = NULL, fetch_outcome = NULL, fetched_at = NULL, fresh_until = NULL, \
+         check_queued_at = NULL, gone_candidate_at = NULL, edit_check_at = NULL, x_mismatch_at = NULL, \
+         latest_det = NULL, state = 'opted_out', reputation = 'unranked' WHERE source_id = 1",
+        &[],
+    )
+    .unwrap();
+    tx.commit().unwrap();
+    let (url, state): (Option<String>, String) = c
+        .query_row("SELECT canon_url, state FROM sources WHERE source_id = 1", [], |r| Ok((r.get(0)?, r.get(1)?)))
+        .unwrap();
+    assert_eq!((url, state.as_str()), (None, "opted_out"));
+    assert_eq!(count(&c, "SELECT count(*) FROM runs"), 0);
+    // The tombstone is referenced, so it cannot go before its detections let
+    // go of it.
+    refused(&c, "DELETE FROM sources WHERE source_id = 1", &[], "FOREIGN KEY constraint failed");
+    // x_purge: the removed detections let go, then the tombstone goes; every
+    // other X source goes as in "Deleting".
+    x_page(&c, 2, "x4m8q2u");
+    let tx = c.unchecked_transaction().unwrap();
+    run(&tx, "UPDATE detections SET source_id = NULL WHERE source_id = 1 AND state = 'removed'", &[]).unwrap();
+    run(&tx, "DELETE FROM sources WHERE source_id = 1", &[]).unwrap();
+    tx.commit().unwrap();
+    delete_x_source(&c, 2, "deleted", RefusalCode::XPurged).unwrap();
+    assert_eq!(count(&c, "SELECT count(*) FROM sources WHERE adapter = 'x'"), 0);
+    assert_eq!(count(&c, "SELECT count(*) FROM runs"), 0);
+    // Both slugs stay as content-free tombstones.
+    let rows: Vec<(String, String)> = c
+        .prepare("SELECT state, refusal FROM detections WHERE platform = 'x' ORDER BY public_slug")
+        .unwrap()
+        .query_map([], |r| Ok((r.get(0)?, r.get(1)?)))
+        .unwrap()
+        .map(Result::unwrap)
+        .collect();
+    let want = [("removed", "x_removed"), ("deleted", "x_purged")].map(|(a, b)| (a.to_owned(), b.to_owned()));
+    assert_eq!(rows, want);
+    assert_eq!(count(&c, "SELECT count(*) FROM detections WHERE source_id IS NOT NULL OR run_id IS NOT NULL"), 0);
 }

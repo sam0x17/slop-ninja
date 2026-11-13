@@ -280,7 +280,7 @@ fn cards_follow_their_page() {
     assert_eq!(card::document_headline(0, 5), "No strong signs of AI involvement in any of the 5 sections.");
     // An X card says "a post on X" and nothing of the post, its host or its
     // author, at every length and however the post is shown.
-    for name in ["29-x-post-short", "30-x-post-long", "31-x-post-adult", "32-x-post-embed-unavailable"] {
+    for name in ["29-x-post-short", "30-x-post-long", "31-x-post-adult"] {
         let c = Card::from_page(&fixture(name), false).unwrap();
         assert_eq!(c.source_label, card::X_LABEL, "{name}");
         assert_eq!(c.link.printed(&test_origins()), "site.example/d/x4m8q2t");
@@ -388,31 +388,89 @@ fn span_offsets_are_utf16() {
 
 // ---------------------------------------------------------------- X posts
 
-const X_FIXTURES: &[&str] =
-    &["29-x-post-short", "30-x-post-long", "31-x-post-adult", "32-x-post-embed-unavailable", "33-x-post-gone"];
+const X_FIXTURES: &[&str] = &[
+    "29-x-post-short",
+    "30-x-post-long",
+    "31-x-post-adult",
+    "32-x-post-removed",
+    "33-x-post-gone",
+    "34-x-post-edited",
+    "35-x-post-purged",
+    "36-x-post-pending",
+    "37-x-post-superseded",
+];
+
+/// Every X-looking URL in `json`: the strings that hold an X host or a
+/// status path.
+fn x_urls(json: &str) -> Vec<String> {
+    let v: serde_json::Value = serde_json::from_str(json).unwrap();
+    fn walk(v: &serde_json::Value, out: &mut Vec<String>) {
+        match v {
+            serde_json::Value::String(s) => {
+                if ["x.com/", "twitter.com", "t.co/", "/status/", "twimg"].iter().any(|n| s.contains(n)) {
+                    out.push(s.clone());
+                }
+            }
+            serde_json::Value::Array(a) => a.iter().for_each(|x| walk(x, out)),
+            serde_json::Value::Object(m) => m.values().for_each(|x| walk(x, out)),
+            _ => {}
+        }
+    }
+    let mut out = Vec::new();
+    walk(&v, &mut out);
+    out
+}
 
 #[test]
 fn x_pages_keep_their_invariants() {
+    let dir = format!("{}/tests/fixtures/pages", env!("CARGO_MANIFEST_DIR"));
     for name in X_FIXTURES {
+        let raw = std::fs::read_to_string(format!("{dir}/{name}.json")).unwrap();
         let p = fixture(name);
         assert!(p.check().is_ok(), "{name}");
         assert!(p.is_x_post(), "{name}");
-        // No text body or anchors, never indexed.
+        // No text body, anchors, quote or embed; never indexed; no ad slot.
         assert!(p.text.is_none() && p.robots == Robots::Noindex, "{name}");
+        assert!(p.ads_forbidden() && p.ad_page_kind() == "x_post", "{name}");
         assert!(p.run.as_ref().is_none_or(|r| r.spans.is_empty() && r.spans_note == Some(SpansNote::XPost)));
+        let keys: Vec<String> =
+            serde_json::from_str::<serde_json::Map<String, serde_json::Value>>(&raw).unwrap().keys().cloned().collect();
+        for k in ["embed", "quote", "parts", "author_name", "handle", "avatar", "media"] {
+            assert!(!keys.contains(&k.to_owned()) && !raw.contains(&format!("\"{k}\"")), "{name}: {k}");
+        }
+        // The only X URL is post_url, on a live page; the source has none.
+        let want: Vec<String> = p.x.map(|x| x.post_url.url()).into_iter().collect();
+        assert_eq!(x_urls(&raw), want, "{name}");
+        assert!(p.source.as_ref().is_none_or(|s| s.url.is_none() && !s.link), "{name}");
     }
-    // How each shows the post, and what it is served with.
-    let short = fixture("29-x-post-short");
-    assert!(matches!(short.x_view(), Some(XView::Quote(_))) && !short.no_store());
-    assert!(matches!(fixture("30-x-post-long").x_view(), Some(XView::Quote(_))));
-    assert_eq!(fixture("31-x-post-adult").x_view(), Some(XView::Adult));
-    let unavailable = fixture("32-x-post-embed-unavailable");
-    assert_eq!(unavailable.x_view(), Some(XView::Unavailable));
-    assert!(unavailable.no_store() && unavailable.http_status() == 200);
-    let gone = fixture("33-x-post-gone");
-    assert_eq!((gone.http_status(), gone.ended.map(|e| e.code)), (410, Some(RefusalCode::XGone)));
-    assert_eq!(gone.x_view(), None);
-    assert_eq!(fixture("01-public-very-strong").x_view(), None);
+    // Live pages link the post; ended pages say why, with their status.
+    assert_eq!(fixture("29-x-post-short").x.unwrap().post_url.url(), "https://x.com/i/status/2");
+    for name in ["29-x-post-short", "30-x-post-long", "31-x-post-adult"] {
+        let p = fixture(name);
+        assert!(p.x.is_some() && p.http_status() == 200 && p.receipt.is_some(), "{name}");
+    }
+    for (name, code, status) in [
+        ("32-x-post-removed", RefusalCode::XRemoved, 451),
+        ("33-x-post-gone", RefusalCode::XGone, 410),
+        ("34-x-post-edited", RefusalCode::XEdited, 410),
+        ("35-x-post-purged", RefusalCode::XPurged, 410),
+    ] {
+        let p = fixture(name);
+        assert_eq!((p.ended.map(|e| e.code), p.http_status()), (Some(code), status), "{name}");
+        assert!(p.x.is_none() && p.run.is_none() && p.source.is_none(), "{name}");
+    }
+    assert!(fixture("32-x-post-removed").removal.is_some_and(|r| r.scope == RemovalScope::Page));
+    let failed = fixture("37-x-post-superseded");
+    assert_eq!(failed.failure.map(|f| f.code), Some(RefusalCode::XPostSuperseded));
+    // Pages that are not X pages never carry x or an ended reason.
+    for name in ["01-public-very-strong", "13-public-removed", "15-secret-text", "21-secret-deleted"] {
+        let p = fixture(name);
+        assert!(p.x.is_none() && p.ended.is_none() && !p.is_x_post(), "{name}");
+    }
+    assert_eq!(fixture("01-public-very-strong").ad_page_kind(), "public_result");
+    assert!(!fixture("01-public-very-strong").ads_forbidden());
+    assert!(fixture("15-secret-text").ads_forbidden() && fixture("24-paid-document").ads_forbidden());
+    assert!(fixture("27-unstored").ads_forbidden() && !fixture("28-example").ads_forbidden());
 }
 
 #[test]
@@ -447,49 +505,78 @@ fn check_refuses_broken_x_pages() {
     let mut p = fixture("30-x-post-long");
     p.run.as_mut().unwrap().spans_note = Some(SpansNote::StrongBandsOnly);
     refused(p, "an X page says why no passage is drawn");
-    let mut p = fixture("31-x-post-adult");
-    p.embed = fixture("29-x-post-short").embed;
-    refused(p, "an adult post has no static quote");
+    // post_url is the only X URL: the source carries none and links nothing.
     let mut p = fixture("29-x-post-short");
-    p.source.as_mut().unwrap().url = Some("https://x.com/fixture_author/status/2".into());
-    refused(p, "an X source is the canonical URL");
+    p.source.as_mut().unwrap().url = Some("https://x.com/i/status/2".into());
+    refused(p, "an X source has no URL, even the canonical one");
+    let mut p = fixture("29-x-post-short");
+    p.source.as_mut().unwrap().link = true;
+    refused(p, "an X source links nothing");
     let mut p = fixture("29-x-post-short");
     p.source.as_mut().unwrap().title = Some("A post".into());
     refused(p, "an X source keeps no title");
     let mut p = fixture("29-x-post-short");
+    p.source.as_mut().unwrap().author = Some("someone".into());
+    refused(p, "an X source keeps no author");
+    let mut p = fixture("29-x-post-short");
     p.source.as_mut().unwrap().via = SourceVia::Web;
     refused(p, "an X source is read through X");
+    // x is exactly on a live X page.
     let mut p = fixture("29-x-post-short");
-    if let Some(XPart::Link { href, .. }) = p.embed.as_mut().unwrap().parts.get_mut(1) {
-        *href = "https://evil.example/".into();
-    }
-    refused(p, "embed links point at X");
-    let mut p = fixture("29-x-post-short");
-    p.embed.as_mut().unwrap().parts.clear();
-    refused(p, "an embed has text");
-    // The embed, the X platform and x_gone belong to X pages only.
+    p.x = None;
+    refused(p, "a live X page links the post");
+    let mut p = fixture("33-x-post-gone");
+    p.x = fixture("29-x-post-short").x;
+    refused(p, "an ended X page has no link");
+    let mut p = fixture("36-x-post-pending");
+    p.x = fixture("29-x-post-short").x;
+    refused(p, "a pending X page has no link");
     let mut p = fixture("01-public-very-strong");
-    p.embed = fixture("29-x-post-short").embed;
-    refused(p, "an embed only on an X page");
+    p.x = fixture("29-x-post-short").x;
+    refused(p, "x only on an X page");
+    let mut p = fixture("29-x-post-short");
+    p.state = DetState::ExcerptWithheld;
+    p.removal = fixture("08-public-excerpt-withheld").removal;
+    p.x = None;
+    refused(p, "an X page has no excerpt to withhold");
     let mut p = fixture("15-secret-text");
     p.platform = Platform::X;
     refused(p, "an X post is a public page");
-    let mut p = fixture("21-secret-deleted");
-    p.ended = Some(page::Ended { code: RefusalCode::XGone });
-    refused(p, "x_gone ends a deleted X page");
+    // Each ended code on its own state, on X pages only, and always present.
+    for (name, code) in [
+        ("33-x-post-gone", RefusalCode::XRemoved),
+        ("32-x-post-removed", RefusalCode::XGone),
+        ("32-x-post-removed", RefusalCode::XPurged),
+        ("33-x-post-gone", RefusalCode::PageGone),
+    ] {
+        let mut p = fixture(name);
+        p.ended = Some(page::Ended { code });
+        refused(p, "each ended code on its own state");
+    }
     let mut p = fixture("33-x-post-gone");
     p.state = DetState::Expired;
     refused(p, "x_gone ends a deleted page");
+    let mut p = fixture("21-secret-deleted");
+    p.ended = Some(page::Ended { code: RefusalCode::XGone });
+    refused(p, "an ended reason only on an X page");
+    let mut p = fixture("13-public-removed");
+    p.ended = Some(page::Ended { code: RefusalCode::XRemoved });
+    refused(p, "x_removed only on an X page");
     let mut p = fixture("29-x-post-short");
     p.ended = Some(page::Ended { code: RefusalCode::XGone });
     refused(p, "an ended reason only on an ended page");
-    let mut p = fixture("33-x-post-gone");
-    p.ended = Some(page::Ended { code: RefusalCode::PageGone });
-    refused(p, "only the listed ended codes");
+    for name in ["33-x-post-gone", "32-x-post-removed"] {
+        let mut p = fixture(name);
+        p.ended = None;
+        refused(p, "an ended X page names why");
+    }
+    let mut p = fixture("32-x-post-removed");
+    p.removal = None;
+    refused(p, "a removed X page names its removal");
 }
 
 #[test]
-fn x_post_urls_and_embeds() {
+fn post_urls_take_only_the_canonical_form() {
     use slop_ninja_detect_page::x::*;
     assert_eq!(x_canonical(1).as_deref(), Some("https://x.com/i/status/1"));
     assert_eq!(x_canonical(0), None);
@@ -497,65 +584,128 @@ fn x_post_urls_and_embeds() {
     assert_eq!(x_canonical(i64::MAX as u64 + 1), None);
     assert_eq!(parse_x_canonical("https://x.com/i/status/1855"), Some(1855));
     assert_eq!(parse_x_canonical("https://x.com/i/status/9223372036854775807"), Some(i64::MAX as u64));
-    for bad in [
+    assert_eq!(x_source_key(1855), "x:status:1855");
+    let bad = [
         "https://x.com/i/status/9223372036854775808",
+        "https://x.com/i/status/0",
         "https://x.com/i/status/01",
         "https://x.com/i/status/",
         "https://x.com/i/status/12/",
         "https://x.com/i/status/12?s=20",
+        "https://x.com/i/status/12#m",
         "https://x.com/a/status/12",
+        "https://x.com/i/web/status/12",
         "https://twitter.com/i/status/12",
+        "https://www.x.com/i/status/12",
+        "https://X.com/i/status/12",
         "http://x.com/i/status/12",
+        "x.com/i/status/12",
         "https://x.com/i/status/+12",
+        "https://x.com/i/status/ 12",
         "https://x.com/i/status/12345678901234567890",
-    ] {
-        assert_eq!(parse_x_canonical(bad), None, "{bad}");
+        "https://x.com/i/status/1\"><script>",
+    ];
+    for b in bad {
+        assert_eq!(parse_x_canonical(b), None, "{b}");
+        // The page's type refuses it at parse time, and so does x_url's.
+        let json = serde_json::to_string(b).unwrap();
+        assert!(serde_json::from_str::<PostUrl>(&json).is_err(), "{b}");
+        assert!(serde_json::from_str::<XPostUrl>(&json).is_err(), "{b}");
+        assert!(serde_json::from_str::<XPost>(&format!("{{\"post_url\":{json}}}")).is_err(), "{b}");
     }
-    for ok in ["https://t.co/abc", "https://x.com", "https://twitter.com/a?ref_src=twsrc%5Etfw&x=1", "https://x.com#f"]
-    {
-        assert!(is_x_href(ok), "{ok}");
-    }
-    for bad in [
-        "http://t.co/abc",
-        "https://t.co.example/abc",
-        "https://www.x.com/a",
-        "https://X.com/a",
-        "https://x.com:443/a",
-        "https://@x.com/a",
-        "javascript:alert(1)",
-        "https://x.com/a\"onmouseover=1",
-        "https://x.com/a b",
-        "https://x.com/<script>",
-        "//x.com/a",
-    ] {
-        assert!(!is_x_href(bad), "{bad}");
-    }
-    assert!(is_handle("fixture_author") && !is_handle("") && !is_handle("sixteen_chars_xx") && !is_handle("a-b"));
-    let e = fixture("29-x-post-short").embed.unwrap();
-    assert_eq!(e.handle(), Some("fixture_author"));
-    assert!(e.check().is_ok());
-    let mut bad = e.clone();
-    bad.author_url = "https://twitter.com/fixture_author/likes".into();
-    assert!(bad.check().is_err(), "the author link names a handle");
-    let mut bad = e.clone();
-    bad.permalink = "https://evil.example/status/2".into();
-    assert!(bad.check().is_err());
-    let mut bad = e.clone();
-    bad.lang = Some("en\"".into());
-    assert!(bad.check().is_err());
-    // The parts' wire shape.
-    assert_eq!(serde_json::to_string(&XPart::Break).unwrap(), r#"{"type":"break"}"#);
-    assert_eq!(
-        serde_json::to_string(&XPart::Link { href: "https://t.co/a".into(), text: "t".into() }).unwrap(),
-        r#"{"type":"link","href":"https://t.co/a","text":"t"}"#
-    );
-    assert!(serde_json::from_str::<XPart>(r#"{"type":"image","src":"https://x.com/a.png"}"#).is_err());
+    let u: PostUrl = serde_json::from_str("\"https://x.com/i/status/1855\"").unwrap();
+    assert_eq!((u.id(), u.url(), u.to_string()), (1855, "https://x.com/i/status/1855".into(), u.url()));
+    assert_eq!(serde_json::to_string(&u).unwrap(), "\"https://x.com/i/status/1855\"");
+    assert_eq!(PostUrl::new(0), None);
+    assert_eq!(serde_json::to_string(&XPost::new(2).unwrap()).unwrap(), r#"{"post_url":"https://x.com/i/status/2"}"#);
+    // A refusal's url is typed the same way.
+    let r = r#"{"state":"refused","code":"x_post_link","url":"https://x.com/a/status/2"}"#;
+    assert!(serde_json::from_str::<ApiRefusal>(r).is_err());
 }
 
 #[test]
-fn the_retired_x_source_rule_is_gone() {
-    // Pasted text is ordinary paste whatever its source: none of the
-    // retired rule's names survive in the contracts, fixtures or schemas.
+fn an_x_url_beside_an_op_is_never_kept() {
+    use slop_ninja_detect_page::api::OpRequest;
+    use slop_ninja_detect_page::x::XPostUrl;
+    use slop_ninja_signed_op as op;
+    // It parses only from the canonical form and prints no digits.
+    let u: XPostUrl = serde_json::from_str("\"https://x.com/i/status/1855\"").unwrap();
+    assert_eq!((u.id(), u.source_key(), u.post_url().id()), (1855, "x:status:1855".to_owned(), 1855));
+    let dbg = format!("{u:?}");
+    assert!(!dbg.bytes().any(|b| b.is_ascii_digit()), "{dbg}");
+    // A restore of an X page: the link travels beside the signed envelope,
+    // outside the signed bytes.
+    let key = op::SigningKey::from_bytes(&[7; 32]);
+    let now = 1_795_169_040_000;
+    let mut args = serde_json::Map::new();
+    args.insert("case_id".into(), "td-8k2m4q7x".into());
+    let signed = op::Op {
+        target: op::Target::Detect,
+        env: op::Env::Staging,
+        issued_ms: now,
+        expires_ms: now + 60_000,
+        nonce: op::Nonce([3; 16]),
+        op: "restore".into(),
+        args,
+    };
+    let wire = op::sign(&signed, &key).unwrap();
+    let verifier = op::Verifier::new(
+        op::OperatorKey::from_verifying_key(key.verifying_key()),
+        op::Env::Staging,
+        &[op::Target::Detect, op::Target::Edge],
+    );
+    let wire_json = serde_json::to_value(&wire).unwrap();
+    for id in [2u64, 1855] {
+        let body = serde_json::json!({"signed": wire_json, "x_url": format!("https://x.com/i/status/{id}")});
+        let req: OpRequest<op::Wire> = serde_json::from_value(body).unwrap();
+        let v = verifier.verify_wire(&req.signed, now + 1).unwrap();
+        // The link is not in the signed bytes or the journal's values.
+        let bytes = v.op.signed_bytes().unwrap();
+        assert!(!String::from_utf8_lossy(&bytes).contains("status"));
+        assert!(!format!("{:?}", v.op.args).contains("status"));
+        assert_eq!(req.x_url.as_ref().map(XPostUrl::id), Some(id));
+        let dbg = format!("{:?}", req.x_url);
+        assert!(!dbg.bytes().any(|b| b.is_ascii_digit()) && !format!("{req:?}").contains("status"), "{dbg}");
+    }
+    // Absent is allowed; a non-canonical link and unknown fields are not.
+    let req: OpRequest<op::Wire> = serde_json::from_value(serde_json::json!({"signed": wire_json})).unwrap();
+    assert!(req.x_url.is_none());
+    for body in [
+        serde_json::json!({"signed": wire_json, "x_url": "https://x.com/a/status/2"}),
+        serde_json::json!({"signed": wire_json, "x_url": "https://x.com/i/status/2", "url": "x"}),
+        serde_json::json!({"signed": wire_json, "note": "x"}),
+    ] {
+        assert!(serde_json::from_value::<OpRequest<op::Wire>>(body).is_err());
+    }
+    // The shape fixture parses as the route's body.
+    let raw =
+        std::fs::read_to_string(format!("{}/tests/fixtures/api/op-request-restore-x.json", env!("CARGO_MANIFEST_DIR")))
+            .unwrap();
+    let req: OpRequest<op::Wire> = serde_json::from_str(&raw).unwrap();
+    assert_eq!((req.signed.op.as_str(), req.x_url.map(|u| u.id())), ("restore", Some(2)));
+}
+
+#[test]
+fn x_post_url_has_no_serialize_or_display() {
+    // The compile-time probe in x.rs refuses both impls; this source test
+    // keeps anyone from adding one by hand under another name either.
+    let src = std::fs::read_to_string(format!("{}/src/x.rs", env!("CARGO_MANIFEST_DIR"))).unwrap();
+    let decl = src.find("pub struct XPostUrl").unwrap();
+    let derive = src[..decl].rfind("#[derive(").unwrap();
+    let derives = &src[derive..decl];
+    assert!(!derives.contains("Serialize") && !derives.contains("Display"), "{derives}");
+    let compact: String = src.split_whitespace().collect::<Vec<_>>().join(" ");
+    for banned in ["Serialize for XPostUrl", "Display for XPostUrl", "fmt::Display for XPostUrl"] {
+        assert!(!compact.contains(banned), "{banned}");
+    }
+}
+
+#[test]
+fn the_retired_x_names_are_gone() {
+    // Pasted text is ordinary paste whatever its source, and an X page shows
+    // no part of the post: none of the retired x.com-source rule's names, and
+    // none of the static quote's, survive in the contracts, fixtures or
+    // schemas.
     let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
     let banned = [
         ["text", "_withheld"].concat(),
@@ -563,6 +713,13 @@ fn the_retired_x_source_rule_is_gone() {
         ["ADV", "16"].concat(),
         ["x_source", "_rule"].concat(),
         ["XSource", "Rule"].concat(),
+        ["X", "Embed"].concat(),
+        ["X", "Part"].concat(),
+        ["X", "View"].concat(),
+        ["x", "embed"].concat(),
+        ["\"em", "bed\""].concat(),
+        ["is_x", "_href"].concat(),
+        ["no", "_store"].concat(),
     ];
     fn walk(dir: &std::path::Path, out: &mut Vec<std::path::PathBuf>) {
         for e in std::fs::read_dir(dir).unwrap() {
@@ -730,16 +887,20 @@ fn refusal_codes() {
         ("x_post_unavailable", 422),
         ("x_busy", 503),
         ("x_unavailable", 503),
+        ("x_post_superseded", 422),
         ("x_removed", 422),
         ("x_gone", 410),
+        ("x_edited", 410),
+        ("x_purged", 410),
     ] {
         let c = RefusalCode::parse(s).unwrap_or_else(|| panic!("{s}"));
         assert_eq!((c.status(), c.group()), (status, refusal::Group::X), "{s}");
         assert_eq!(c.copy_key(), format!("refusal.{s}"));
     }
     let x: Vec<_> = RefusalCode::ALL.iter().filter(|c| c.group() == refusal::Group::X).collect();
-    assert_eq!(x.len(), 8);
-    // x_post_link carries the canonical post URL, and only it carries a url.
+    assert_eq!(x.len(), 11);
+    // x_post_link and x_post_superseded carry the canonical post URL, and
+    // only they carry a url.
     let link = ApiRefusal::x_post_link(1855).unwrap();
     assert_eq!(
         serde_json::to_string(&link).unwrap(),
@@ -748,13 +909,26 @@ fn refusal_codes() {
     assert!(link.check().is_ok());
     assert_eq!(ApiRefusal::x_post_link(0), None);
     assert!(ApiRefusal::new(RefusalCode::XPostLink).check().is_err());
-    let mut bad = link.clone();
-    bad.url = Some("https://x.com/fixture_author/status/1855".into());
-    assert!(bad.check().is_err());
+    let sup = ApiRefusal::x_post_superseded(1856).unwrap();
+    assert_eq!(
+        serde_json::to_string(&sup).unwrap(),
+        r#"{"state":"refused","code":"x_post_superseded","url":"https://x.com/i/status/1856"}"#
+    );
+    assert!(sup.check().is_ok());
+    assert!(ApiRefusal::new(RefusalCode::XPostSuperseded).check().is_err());
+    assert_eq!(refusal::URL_CODES, &[RefusalCode::XPostLink, RefusalCode::XPostSuperseded]);
     let mut bad = ApiRefusal::new(RefusalCode::XOff);
-    bad.url = link.url.clone();
+    bad.url = link.url;
     assert!(bad.check().is_err());
     assert!(ApiRefusal::new(RefusalCode::XGone).check().is_ok());
+    // The ended codes, each on its one state.
+    for c in page::ENDED_CODES {
+        assert_eq!(c.group(), refusal::Group::X);
+        let want = if *c == RefusalCode::XRemoved { DetState::Removed } else { DetState::Deleted };
+        assert_eq!(page::Ended::state_of(*c), Some(want), "{c}");
+    }
+    assert_eq!(page::Ended::state_of(RefusalCode::PageGone), None);
+    assert_eq!(page::ENDED_CODES.len(), 4);
     let r = serde_json::to_string(&ApiRefusal::new(RefusalCode::Busy)).unwrap();
     assert_eq!(r, r#"{"state":"refused","code":"busy"}"#);
     assert!(serde_json::from_str::<ApiRefusal>(r#"{"state":"error","code":"busy"}"#).is_err());
@@ -777,6 +951,8 @@ fn code_sets_parse_only_their_strings() {
     assert_eq!(Band::VeryStrong.number(), 4);
     assert!(NinjaState::Bow < NinjaState::Stoic && NinjaState::Ready < NinjaState::Strike);
     assert_eq!(SpansNote::parse("x_post"), Some(SpansNote::XPost));
+    assert_eq!(XCheckWhy::ALL.iter().map(|w| w.as_str()).collect::<Vec<_>>(), ["sweep", "view", "edit"]);
+    assert_eq!(XCheckWhy::parse("cron"), None);
 }
 
 #[test]
@@ -788,8 +964,11 @@ fn switches_and_their_effective_state() {
         assert!(s.states.contains(&s.off));
         assert_eq!(parse_var(s, ""), Some(s.states[0]));
         for st in s.states {
-            assert_eq!(parse_var(s, st), Some(*st));
+            // A var names any state but a row-only one.
+            let want = (!s.beyond_off.contains(st)).then_some(*st);
+            assert_eq!(parse_var(s, st), want);
         }
+        assert!(s.beyond_off.iter().all(|b| s.states.contains(b) && *b != s.off));
     }
     let tool = switch("DETECT_TOOL").unwrap();
     assert_eq!(effective(tool, "on", Some("off")), "off");
@@ -806,13 +985,25 @@ fn switches_and_their_effective_state() {
     assert_eq!(effective(pages, "OFF", None), "off");
     let paid = switch("DETECT_PAID").unwrap();
     assert_eq!(effective(paid, "", None), "off", "default off");
-    // DETECT_X: off by default, on only by var and row together.
+    // DETECT_X: off by default, on only by var and row together; purged
+    // (the row x_purge writes) holds even under the var's hard off, and a
+    // var cannot name it.
     let x = switch("DETECT_X").unwrap();
-    assert_eq!((x.states, x.off, x.owner), (&["off", "on"][..], "off", Owner::Detect));
+    assert_eq!((x.states, x.off, x.owner), (&["off", "on", "purged"][..], "off", Owner::Detect));
+    let want: Vec<&str> = DetectXState::ALL.iter().map(|s| s.as_str()).collect();
+    assert_eq!(x.states, &want[..]);
     assert_eq!(effective(x, "", None), "off");
     assert_eq!(effective(x, "on", Some("on")), "on");
     assert_eq!(effective(x, "on", Some("off")), "off");
     assert_eq!(effective(x, "off", Some("on")), "off");
+    assert_eq!(effective(x, "on", Some("purged")), "purged");
+    assert_eq!(effective(x, "off", Some("purged")), "purged");
+    assert_eq!(effective(x, "", Some("purged")), "purged");
+    assert_eq!(effective(x, "purged", None), "off");
+    assert_eq!(effective(x, "purged", Some("on")), "off");
+    // set_switch can always move the row back.
+    assert_eq!(effective(x, "on", Some("off")), "off");
+    assert!(SWITCHES.iter().filter(|s| !s.beyond_off.is_empty()).map(|s| s.name).eq(["DETECT_X"]));
     let billing = switch("BILLING").unwrap();
     assert_eq!(effective(billing, "grants", Some("grants")), "grants");
     assert_eq!(effective(billing, "off", Some("grants")), "off");
@@ -841,11 +1032,19 @@ fn metric_points_are_named_once() {
             }
         }
     }
-    // The X points carry an outcome only.
+    // The X points carry an outcome (or a step) only, never a post id.
     assert_eq!(ae::detect::XREAD, ae::Point { name: "xread", blobs: &["outcome"] });
-    assert_eq!(ae::detect::XEMBED, ae::Point { name: "xembed", blobs: &["outcome"] });
-    assert!(ae::detect::XEMBED_OUTCOMES.contains(&"invalid"));
-    for set in [ae::detect::XREAD_OUTCOMES, ae::detect::XEMBED_OUTCOMES] {
+    assert_eq!(ae::detect::XCHECK, ae::Point { name: "xcheck", blobs: &["outcome"] });
+    assert_eq!(ae::detect::XSWEEP, ae::Point { name: "xsweep", blobs: &["step"] });
+    assert!(!ae::detect::ALL.iter().any(|p| p.name.contains("embed")));
+    for want in ["scored", "not_found", "usage_capped", "credits", "token", "invalid", "prefix_mismatch", "budget"] {
+        assert!(ae::detect::XREAD_OUTCOMES.contains(&want), "xread {want}");
+    }
+    assert_eq!(
+        ae::detect::XCHECK_OUTCOMES,
+        &["present", "gone_candidate", "unexpected", "failed", "contradicted", "control"]
+    );
+    for set in [ae::detect::XREAD_OUTCOMES, ae::detect::XCHECK_OUTCOMES, ae::detect::XSWEEP_STEPS] {
         assert_eq!(set.iter().collect::<HashSet<_>>().len(), set.len());
     }
     // Alert names are unique across datasets.
@@ -853,5 +1052,7 @@ fn metric_points_are_named_once() {
     for a in ae::detect::ALERTS.iter().chain(ae::account::ALERTS) {
         assert!(alerts.insert(*a), "{a}");
     }
-    assert!(alerts.contains("x_read_budget"));
+    for want in ["x_read_budget", "x_unavailable", "x_check_unexpected", "x_check_contradicted", "x_sweep_late"] {
+        assert!(ae::detect::ALERTS.contains(&want), "{want}");
+    }
 }

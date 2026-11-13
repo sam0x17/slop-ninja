@@ -49,35 +49,91 @@ pub mod detect {
     pub const OWNER: Point = Point { name: "owner", blobs: &["result"] };
     /// `code` includes `d1` when the store could not be read.
     pub const ERROR: Point = Point { name: "error", blobs: &["code"] };
-    /// One read of a post through X's API (one of [`XREAD_OUTCOMES`]). It
-    /// carries no post id.
+    /// One lookup of a post through X's API (`/x/post`), or one refused
+    /// before it (one of [`XREAD_OUTCOMES`]). It carries no post id.
     pub const XREAD: Point = Point { name: "xread", blobs: &["outcome"] };
-    /// One read of a post's embed markup (one of [`XEMBED_OUTCOMES`]). It
-    /// carries no post id.
-    pub const XEMBED: Point = Point { name: "xembed", blobs: &["outcome"] };
+    /// One existence check of a post through oEmbed (`/x/check`), or one
+    /// message's verdict on it (one of [`XCHECK_OUTCOMES`]). It carries no
+    /// post id.
+    pub const XCHECK: Point = Point { name: "xcheck", blobs: &["outcome"] };
+    /// One page of the X sweep (`step` is `first` for the cron's message and
+    /// `next` for a follow-up). The double is the age in seconds of the
+    /// oldest `fetched_at` among X sources that hold a `canon_url` (0 when
+    /// there is none), from which the poller raises [`X_SWEEP_LATE`].
+    pub const XSWEEP: Point = Point { name: "xsweep", blobs: &["step"] };
     pub const ALL: &[Point] =
-        &[SUBMIT, SCAN, QUEUE, FETCH, EXTRACT, REUSE, STORE, JOB, REMOVAL, MANAGE, OWNER, ERROR, XREAD, XEMBED];
+        &[SUBMIT, SCAN, QUEUE, FETCH, EXTRACT, REUSE, STORE, JOB, REMOVAL, MANAGE, OWNER, ERROR, XREAD, XCHECK, XSWEEP];
     /// `reuse` kinds.
     pub const REUSE_KINDS: &[&str] = &["claim_join", "content", "alias"];
-    /// `xread` outcomes: `post` (X returned the post; each one counts toward
-    /// the month's read limit), `unavailable_post` (not found, protected or
-    /// suspended), `rate_limited` (X asked us to wait), `quota` (X has no
-    /// reads left for the app), `token` (X refused the bearer token),
-    /// `limit` (the month's `X_READ_BUDGET` was reached, so no request was
-    /// made), `bad_answer` (over the bound or out of form) and `failed`
-    /// (transport or timeout).
-    pub const XREAD_OUTCOMES: &[&str] =
-        &["post", "unavailable_post", "rate_limited", "quota", "token", "limit", "bad_answer", "failed"];
-    /// `xembed` outcomes: `ok`, `gone` (X answered that the post is gone:
-    /// the page ends with `x_gone`), `invalid` (markup outside the allowed
-    /// shape or a link off X) and `failed` (transport, timeout or any other
-    /// answer: the page is served `no-store`).
-    pub const XEMBED_OUTCOMES: &[&str] = &["ok", "gone", "invalid", "failed"];
-    /// The month's X reads neared `X_READ_BUDGET` (at the poller's
+    /// `xread` outcomes, read from X's problem `type` first and the HTTP
+    /// status second:
+    /// - `scored`: X returned the post, last in its edit history (it keeps
+    ///   its reserved unit);
+    /// - `superseded`: X returned an earlier version of an edited post
+    ///   (`x_post_superseded`);
+    /// - `not_found`: `resource-not-found` or `not-authorized-for-resource`
+    ///   (`x_post_unavailable`; not billed, so the unit is released);
+    /// - `rate_limited`: `rate-limit-exceeded`, or a 429 with no
+    ///   `usage-capped` type (`x_busy`);
+    /// - `usage_capped`: `usage-capped` at any status (`x_unavailable`,
+    ///   never `x_busy`);
+    /// - `credits`: X refused the read for credits (`x_unavailable`);
+    /// - `token`: 401, or 403 with `client-forbidden` or no type
+    ///   (`x_unavailable`);
+    /// - `failed`: a 5xx, a timeout or a network error (`x_busy`);
+    /// - `invalid`: any other answer, a body past `X_POST_BOUND`, JSON that
+    ///   does not parse, a bad range, history or `editable_until`
+    ///   (`x_unavailable`);
+    /// - `prefix_mismatch`: written beside `scored` when a long-post body
+    ///   does not begin with the leading reply-mention run and is kept whole;
+    /// - `budget`: the billing cycle's `X_READ_BUDGET` was reached, so no
+    ///   request was made (`x_unavailable`).
+    pub const XREAD_OUTCOMES: &[&str] = &[
+        "scored",
+        "superseded",
+        "not_found",
+        "rate_limited",
+        "usage_capped",
+        "credits",
+        "token",
+        "failed",
+        "invalid",
+        "prefix_mismatch",
+        "budget",
+    ];
+    /// `xcheck` outcomes:
+    /// - `present`: HTTP 200 and an oEmbed object of type `rich` with an
+    ///   `html` string (not read);
+    /// - `gone_candidate`: a 404 or 403 whose body is oEmbed's own JSON error;
+    ///   only this can lead to a deletion, once a lookup confirms it;
+    /// - `unexpected`: any other answer (HTML, another status, another JSON
+    ///   shape); it starts the failure hold;
+    /// - `failed`: a timeout, a 5xx or a network error;
+    /// - `contradicted`: a lookup found the post that oEmbed called a
+    ///   candidate (the source is marked and oEmbed distrust starts);
+    /// - `control`: the message's control post did not answer `present` (or
+    ///   `X_CONTROL_ID` is missing), so every answer in it is `unexpected`.
+    pub const XCHECK_OUTCOMES: &[&str] =
+        &["present", "gone_candidate", "unexpected", "failed", "contradicted", "control"];
+    /// `xsweep` steps.
+    pub const XSWEEP_STEPS: &[&str] = &["first", "next"];
+    /// The billing cycle's X reads neared `X_READ_BUDGET` (at the poller's
     /// threshold).
     pub const X_READ_BUDGET: &str = "x_read_budget";
+    /// Checking posts from X is unavailable: `xread` `usage_capped`,
+    /// `credits` or `token`.
+    pub const X_UNAVAILABLE: &str = "x_unavailable";
+    /// Any `xcheck` `unexpected` or `control` point: X may have changed
+    /// oEmbed, which would stop the existence checks.
+    pub const X_CHECK_UNEXPECTED: &str = "x_check_unexpected";
+    /// Any `xcheck` `contradicted` point: oEmbed called a post gone that the
+    /// lookup found (oEmbed distrust holds until `x_oembed_trust`).
+    pub const X_CHECK_CONTRADICTED: &str = "x_check_contradicted";
+    /// The oldest check of an X source holding a `canon_url` is more than 24
+    /// hours old ([`XSWEEP`], `status`).
+    pub const X_SWEEP_LATE: &str = "x_sweep_late";
     /// Alerts the poller raises from this dataset and the `status` op.
-    pub const ALERTS: &[&str] = &[X_READ_BUDGET];
+    pub const ALERTS: &[&str] = &[X_READ_BUDGET, X_UNAVAILABLE, X_CHECK_UNEXPECTED, X_CHECK_CONTRADICTED, X_SWEEP_LATE];
 }
 
 /// The account Worker's dataset (binding `ACCOUNT_METRICS`).

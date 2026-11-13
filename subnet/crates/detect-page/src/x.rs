@@ -1,19 +1,27 @@
-//! Posts on X: the canonical post URL and the static quote a page shows.
+//! Posts on X: the canonical post URL and the two types that carry it.
 //!
-//! A link to an X post is checked as that post: X's API supplies the text
-//! that is scored, the page is a public URL page (`kind = public_url`,
-//! `platform = x`) that keeps no post text, and the post itself is shown
-//! through X's own embed markup. The detect Worker reads that markup once per
-//! page-cache miss (`publish.x.com/oembed`, through the fetch Worker) and
-//! hands the renderer a typed [`XEmbed`]: only text, links and line breaks
-//! survive, and every link points at an X host. The renderer draws it as X's
-//! fallback blockquote; nothing on the page asks X for anything until the
-//! reader chooses "Show this post as X displays it" (`/d/<7>/x`).
+//! A link to an X post is checked as that post. X's API supplies the text
+//! that is scored, and the page is a public URL page (`kind = public_url`,
+//! `platform = x`) that keeps no post text and shows none. The default page
+//! is link-only: our result and "View on X ↗", a plain link to
+//! [`XPost::post_url`]. It carries no quote, handle, author, avatar, media or
+//! X mark, and building it makes no request to X (D1 and R2 alone). X's own
+//! widget loads only on `/d/<7>/x`, after the reader clicks through the
+//! notice on `/d/<7>`, on a sandboxed route.
 //!
-//! What this module does not do: recognise an X post in arbitrary input
-//! (rule `x_post_v1`, crate `detect-url`) or parse X's markup (the fetch
-//! Worker). It fixes the shapes both sides exchange and the checks a
-//! consumer may rely on.
+//! The types:
+//! - [`PostUrl`]: the page's link to the post, in the canonical form
+//!   `https://x.com/i/status/<id>` only. Its `Deserialize` refuses every other
+//!   string, so a renderer that holds one holds a canonical X link.
+//! - [`XPost`]: the page field `x` of a live X page, `{post_url}`.
+//! - [`XPostUrl`]: an X post's link that travels beside a signed op (`x_url`
+//!   of [`crate::api::OpRequest`]) and is never kept. It implements neither
+//!   `Serialize` nor `Display`, and its `Debug` prints no digits, so it cannot
+//!   reach a journal row, a queue message, a log line or an AE point.
+//!
+//! What this module does not do: recognise an X post in arbitrary input (rule
+//! `x_post_v1`, crate `detect-url`, which turns every accepted form into this
+//! canonical one).
 
 use serde::{Deserialize, Serialize};
 
@@ -22,23 +30,27 @@ use serde::{Deserialize, Serialize};
 pub const X_CANONICAL_PREFIX: &str = "https://x.com/i/status/";
 /// The `sources.host` of every X source.
 pub const X_HOST: &str = "x.com";
-/// The hosts an [`XEmbed`] link may point at (`http://t.co` is upgraded to
-/// `https` before the embed is built).
-pub const X_LINK_HOSTS: &[&str] = &["x.com", "twitter.com", "t.co"];
+/// The prefix of an X source's key: `sources.canon_key` is
+/// `H("source_v1" ‖ "x:status:<id>")`.
+pub const X_SOURCE_KEY_PREFIX: &str = "x:status:";
 /// The most digits of a post id (ids are below 2^63).
 pub const MAX_ID_DIGITS: usize = 19;
-/// The longest handle.
-pub const MAX_HANDLE: usize = 15;
+
+/// Whether X can have issued `id`: 1 to 2^63 - 1.
+fn valid_id(id: u64) -> bool {
+    id != 0 && id <= i64::MAX as u64
+}
 
 /// The canonical URL of post `id`, or `None` for 0 and ids of 2^63 and
 /// above, which X never issues.
 pub fn x_canonical(id: u64) -> Option<String> {
-    (id != 0 && id <= i64::MAX as u64).then(|| format!("{X_CANONICAL_PREFIX}{id}"))
+    valid_id(id).then(|| format!("{X_CANONICAL_PREFIX}{id}"))
 }
 
 /// The post id of a canonical URL: exactly [`X_CANONICAL_PREFIX`] and 1 to
 /// 19 digits without a leading zero, below 2^63. Anything else, including a
-/// trailing slash, a query or another host, is `None`.
+/// handle, `twitter.com`, `http`, a trailing slash, a query or a fragment, is
+/// `None`.
 pub fn parse_x_canonical(url: &str) -> Option<u64> {
     let digits = url.strip_prefix(X_CANONICAL_PREFIX)?;
     let ok = !digits.is_empty()
@@ -48,108 +60,151 @@ pub fn parse_x_canonical(url: &str) -> Option<u64> {
     if !ok {
         return None;
     }
-    digits.parse::<u64>().ok().filter(|id| *id <= i64::MAX as u64)
+    digits.parse::<u64>().ok().filter(|id| valid_id(*id))
 }
 
-/// Whether `h` has a handle's form: 1 to 15 of `A-Z`, `a-z`, `0-9` and `_`.
-pub fn is_handle(h: &str) -> bool {
-    !h.is_empty() && h.len() <= MAX_HANDLE && h.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'_')
+/// The source key of post `id`, `x:status:<id>` (hashed into
+/// `sources.canon_key`).
+pub fn x_source_key(id: u64) -> String {
+    format!("{X_SOURCE_KEY_PREFIX}{id}")
 }
 
-/// Whether `href` may appear in an [`XEmbed`]: `https://` on exactly one of
-/// [`X_LINK_HOSTS`] (lowercase, no port, no userinfo), followed by nothing or
-/// by `/`, `?` or `#`, in printable ASCII with no space, quote, angle
-/// bracket, backslash or backtick.
-pub fn is_x_href(href: &str) -> bool {
-    let Some(rest) = href.strip_prefix("https://") else {
-        return false;
-    };
-    let printable = href.bytes().all(|b| (0x21..0x7f).contains(&b) && !b"\"'<>\\`".contains(&b));
-    let host_end = rest.find(['/', '?', '#']).unwrap_or(rest.len());
-    printable && X_LINK_HOSTS.contains(&&rest[..host_end])
-}
-
-crate::code_enum! {
-    /// A text direction, as X's markup gives it (`dir`).
-    pub enum TextDir {
-        Ltr = "ltr",
-        Rtl = "rtl",
-        /// The markup gave none: the browser decides.
-        Auto = "auto",
-    }
-}
-
-/// One piece of a post's quoted text, in order.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(tag = "type", rename_all = "snake_case")]
-pub enum XPart {
-    /// Plain text, exactly as X's markup carries it after entity decoding.
-    /// The renderer escapes it.
-    Text { text: String },
-    /// A link (a mention, a hashtag, a `t.co` link): its target and its text.
-    Link { href: String, text: String },
-    /// A line break (`<br>`).
-    Break,
-}
-
-/// A post as X's own fallback markup shows it: the quoted text, then
-/// "— ‹author_name› (@‹handle›)" and the date linked to the post. The
-/// renderer draws it as `<blockquote class="twitter-tweet" data-dnt="true"
-/// data-conversation="none" data-cards="hidden">` with no avatar and no
-/// media, so the browser requests nothing from X.
+/// A post's link on a page: `https://x.com/i/status/<id>` and nothing else.
 ///
-/// It is never stored: the detect Worker builds it on a page-cache miss and
-/// the rendered page lives in the page cache for at most `PAGE_CACHE_S`.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-pub struct XEmbed {
-    /// The post's language tag (`lang`), when the markup gives one.
-    pub lang: Option<String>,
-    pub dir: TextDir,
-    /// The quoted text. X cuts a long post at about 277 characters and ends
-    /// it with "…"; the embed keeps X's cut.
-    pub parts: Vec<XPart>,
-    /// The author's display name, as the markup prints it.
-    pub author_name: String,
-    /// The author's profile link, `https://twitter.com/<handle>` or
-    /// `https://x.com/<handle>`.
-    pub author_url: String,
-    /// The date as the markup prints it ("November 11, 2026").
-    pub date_text: String,
-    /// The post's link from the markup (its date link); "View on X" uses the
-    /// source's canonical URL.
-    pub permalink: String,
+/// It serializes as that string and deserializes only from it, so the type
+/// itself is the check (DESIGN 18.2's source test relies on it: `post_url` is
+/// the one X URL a page carries, and it can only have this form).
+#[derive(Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub struct PostUrl(u64);
+
+impl PostUrl {
+    /// The link to post `id`; `None` for an id X never issues.
+    pub fn new(id: u64) -> Option<PostUrl> {
+        valid_id(id).then_some(PostUrl(id))
+    }
+
+    /// The link a canonical URL names ([`parse_x_canonical`]).
+    pub fn parse(url: &str) -> Option<PostUrl> {
+        parse_x_canonical(url).map(PostUrl)
+    }
+
+    /// The post id.
+    pub fn id(self) -> u64 {
+        self.0
+    }
+
+    /// The URL, `https://x.com/i/status/<id>`.
+    pub fn url(self) -> String {
+        format!("{X_CANONICAL_PREFIX}{}", self.0)
+    }
 }
 
-/// A broken [`XEmbed`] form.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct EmbedError(pub &'static str);
+impl std::fmt::Debug for PostUrl {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "PostUrl({X_CANONICAL_PREFIX}{})", self.0)
+    }
+}
 
-impl XEmbed {
-    /// The handle in [`XEmbed::author_url`].
-    pub fn handle(&self) -> Option<&str> {
-        let rest = self.author_url.strip_prefix("https://")?;
-        let path = rest.strip_prefix("twitter.com/").or_else(|| rest.strip_prefix("x.com/"))?;
-        is_handle(path).then_some(path)
+impl std::fmt::Display for PostUrl {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{X_CANONICAL_PREFIX}{}", self.0)
+    }
+}
+
+impl Serialize for PostUrl {
+    fn serialize<S: serde::Serializer>(&self, s: S) -> Result<S::Ok, S::Error> {
+        s.collect_str(self)
+    }
+}
+
+impl<'de> Deserialize<'de> for PostUrl {
+    fn deserialize<D: serde::Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
+        let s = String::deserialize(d)?;
+        PostUrl::parse(&s).ok_or_else(|| serde::de::Error::custom("post_url must be https://x.com/i/status/<id>"))
+    }
+}
+
+/// The page field `x` of a live X page.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct XPost {
+    /// "View on X ↗" (new tab, `rel="nofollow ugc noopener"`), the
+    /// click-to-load route's blockquote link and nothing else.
+    pub post_url: PostUrl,
+}
+
+impl XPost {
+    /// The field for post `id`; `None` for an id X never issues.
+    pub fn new(id: u64) -> Option<XPost> {
+        PostUrl::new(id).map(|post_url| XPost { post_url })
+    }
+}
+
+/// An X post's link sent beside a signed op, never kept.
+///
+/// `restore {case_id}` on an X page is a fresh check of the post, and the op
+/// names no post: the operator's CLI sends the link as `x_url` beside the
+/// signed envelope ([`crate::api::OpRequest`]). The Worker accepts it only
+/// when [`XPostUrl::source_key`] hashes to the tombstone's `canon_key`, runs
+/// the lookup, and drops it. It is never journaled, logged, queued or written
+/// to AE: it has no `Serialize` and no `Display`, and its `Debug` prints no
+/// digits. It deserializes only from the canonical form (the CLI canonicalises
+/// the link through `detect-url`'s `x_post_v1` first).
+#[derive(Clone, PartialEq, Eq)]
+pub struct XPostUrl(u64);
+
+impl XPostUrl {
+    /// The link a canonical URL names.
+    pub fn parse(url: &str) -> Option<XPostUrl> {
+        parse_x_canonical(url).map(XPostUrl)
     }
 
-    /// Checks the form a consumer relies on: at least one part; every link,
-    /// the author link and the permalink pass [`is_x_href`]; the author link
-    /// names a handle; `lang` is 1 to 35 of `A-Z`, `a-z`, `0-9` and `-`; the
-    /// author name and date are not empty.
-    pub fn check(&self) -> Result<(), EmbedError> {
-        let need = |ok: bool, what: &'static str| if ok { Ok(()) } else { Err(EmbedError(what)) };
-        need(!self.parts.is_empty(), "an embed has text")?;
-        for p in &self.parts {
-            if let XPart::Link { href, .. } = p {
-                need(is_x_href(href), "links point at X")?;
-            }
-        }
-        need(is_x_href(&self.author_url) && self.handle().is_some(), "author link")?;
-        need(is_x_href(&self.permalink), "permalink")?;
-        if let Some(l) = &self.lang {
-            need(!l.is_empty() && l.len() <= 35 && l.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-'), "lang")?;
-        }
-        need(!self.author_name.is_empty() && !self.date_text.is_empty(), "author and date")?;
-        Ok(())
+    /// The post id, for the lookup.
+    pub fn id(&self) -> u64 {
+        self.0
     }
+
+    /// The source key, `x:status:<id>`, to hash and compare with the
+    /// tombstone's `canon_key`.
+    pub fn source_key(&self) -> String {
+        x_source_key(self.0)
+    }
+
+    /// The page's link to the post, once the fresh check has found it.
+    pub fn post_url(&self) -> PostUrl {
+        PostUrl(self.0)
+    }
+}
+
+impl std::fmt::Debug for XPostUrl {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("XPostUrl(…)")
+    }
+}
+
+impl<'de> Deserialize<'de> for XPostUrl {
+    fn deserialize<D: serde::Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
+        let s = String::deserialize(d)?;
+        XPostUrl::parse(&s).ok_or_else(|| serde::de::Error::custom("x_url must be https://x.com/i/status/<id>"))
+    }
+}
+
+/// Compile-time proof that [`XPostUrl`] implements neither `Serialize` nor
+/// `Display`: if either were implemented, the probe below would match two
+/// impls and fail to compile (the technique of `static_assertions`'
+/// `assert_not_impl_any!`).
+mod not_kept {
+    use super::XPostUrl;
+
+    trait Probe<A> {
+        fn probe() {}
+    }
+    impl<T: ?Sized> Probe<()> for T {}
+    struct IsSerialize;
+    impl<T: ?Sized + serde::Serialize> Probe<IsSerialize> for T {}
+    struct IsDisplay;
+    impl<T: ?Sized + std::fmt::Display> Probe<IsDisplay> for T {}
+
+    const _: fn() = || {
+        let _ = <XPostUrl as Probe<_>>::probe;
+    };
 }

@@ -22,5 +22,6 @@ serde_json = "1"
 # The migration test applies the detect store's schema to an in-memory
 # SQLite and exercises its CHECK and UNIQUE constraints (native only).
 rusqlite = { version = "0.37", features = ["bundled"] }
-# The refusal table covers every op-route refusal.
-slop-ninja-signed-op = { path = "../signed-op" }
+# The refusal table covers every op-route refusal, and the op route's body
+# test signs and verifies a real envelope.
+slop-ninja-signed-op = { path = "../signed-op", features = ["sign"] }

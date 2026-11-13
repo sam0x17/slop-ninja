@@ -162,7 +162,7 @@ code_enum! {
         Web = "web",
         Bluesky = "bluesky",
         /// A post on X checked from its link: a public page that keeps no
-        /// post text and shows the post through X's embed markup
+        /// post text and shows none, only our result and a link to the post
         /// ([`crate::x`]).
         X = "x",
     }
@@ -227,9 +227,10 @@ code_enum! {
         StrongBandsOnly = "strong_bands_only",
         Off = "off",
         Unavailable = "unavailable",
-        /// A post on X: the post is shown as X shows it, so no passage is
-        /// drawn at any length ("Passages aren't highlighted on posts from
-        /// X: the post is shown as X shows it." on 150 words and more).
+        /// A post on X: we keep and show none of the post's text, so no
+        /// passage is drawn at any length ("Passages aren't highlighted on
+        /// posts from X: we don't show the post's text." on 150 words and
+        /// more).
         XPost = "x_post",
     }
 }
@@ -516,5 +517,33 @@ code_enum! {
         Off = "off",
         Grants = "grants",
         Live = "live",
+    }
+}
+
+code_enum! {
+    /// Why an `x_check` message was sent ([`crate::queue::Job::XCheck`]).
+    pub enum XCheckWhy {
+        /// The hourly sweep found the sources due.
+        Sweep = "sweep",
+        /// A page-cache miss on a live X page whose last check is older than
+        /// `X_PAGE_CACHE_S`.
+        View = "view",
+        /// A post decided inside its edit window, sent with the queue's own
+        /// delay to `edit_check_at`.
+        Edit = "edit",
+    }
+}
+
+code_enum! {
+    /// The `DETECT_X` switch's states.
+    pub enum DetectXState {
+        /// The default: post links answer `x_off`; existing X pages are still
+        /// served, checked and deleted.
+        Off = "off",
+        On = "on",
+        /// Set by `x_purge` (and by `set_switch`, so the operator can always
+        /// leave it): every X page answers 410 `x_purged` and every post link
+        /// `x_off`, while the purge pages delete the rows.
+        Purged = "purged",
     }
 }

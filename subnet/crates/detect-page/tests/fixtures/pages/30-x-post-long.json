@@ -47,42 +47,12 @@
   },
   "sections": null,
   "text": null,
-  "embed": {
-    "lang": "en",
-    "dir": "ltr",
-    "parts": [
-      {
-        "type": "text",
-        "text": "In today's fast-paced world, community gardens serve as vibrant hubs that foster connection, promote sustainability, and empower residents to take meaningful ownership of their shared green spaces and local food systems."
-      },
-      {
-        "type": "break"
-      },
-      {
-        "type": "break"
-      },
-      {
-        "type": "text",
-        "text": "Moreover, by leveraging innovative composting strategies and data-driven planting schedules, organizers can unlock…"
-      },
-      {
-        "type": "text",
-        "text": " "
-      },
-      {
-        "type": "link",
-        "href": "https://t.co/fixture01",
-        "text": "https://t.co/fixture01"
-      }
-    ],
-    "author_name": "Fixture Gardener",
-    "author_url": "https://twitter.com/fixture_author",
-    "date_text": "November 18, 2026",
-    "permalink": "https://twitter.com/fixture_author/status/3?ref_src=twsrc%5Etfw"
+  "x": {
+    "post_url": "https://x.com/i/status/3"
   },
   "source": {
     "host": "x.com",
-    "url": "https://x.com/i/status/3",
+    "url": null,
     "title": null,
     "site_name": null,
     "author": null,
@@ -91,7 +61,7 @@
     "via": "x",
     "status": "ok",
     "reputation": "ranked",
-    "link": true,
+    "link": false,
     "checked": true,
     "page_hash": null,
     "stale": false

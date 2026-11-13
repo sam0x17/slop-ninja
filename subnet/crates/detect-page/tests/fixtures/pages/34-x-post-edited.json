@@ -1,0 +1,36 @@
+{
+  "schema": "slop_ninja_detect_page_v2",
+  "slug": "x4m8q2t",
+  "host": "site",
+  "kind": "public_url",
+  "platform": "x",
+  "state": "deleted",
+  "state_v": 3,
+  "created_at": 1795169040000,
+  "expires_at": null,
+  "robots": "noindex",
+  "canonical": null,
+  "superseded_by": null,
+  "supersedes": null,
+  "example_slot": null,
+  "serving": {
+    "package_label": "span package d24",
+    "package_pub_short": "e2536d12",
+    "publication_pending": true,
+    "differs_from_run": false
+  },
+  "run": null,
+  "sections": null,
+  "text": null,
+  "x": null,
+  "source": null,
+  "pending": null,
+  "failure": null,
+  "ended": {
+    "code": "x_edited"
+  },
+  "removal": null,
+  "card": null,
+  "ninja": null,
+  "receipt": null
+}

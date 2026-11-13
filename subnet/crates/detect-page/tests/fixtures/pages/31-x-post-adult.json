@@ -47,10 +47,12 @@
   },
   "sections": null,
   "text": null,
-  "embed": null,
+  "x": {
+    "post_url": "https://x.com/i/status/4"
+  },
   "source": {
     "host": "x.com",
-    "url": "https://x.com/i/status/4",
+    "url": null,
     "title": null,
     "site_name": null,
     "author": null,
@@ -59,7 +61,7 @@
     "via": "x",
     "status": "ok",
     "reputation": "adult",
-    "link": true,
+    "link": false,
     "checked": true,
     "page_hash": null,
     "stale": false

@@ -208,7 +208,32 @@ fn keys_and_codes() {
     }
     assert!(in_catalog(Target::Detect, "set_switch") && in_catalog(Target::Account, "set_switch"));
     assert!(!in_catalog(Target::Edge, "set_switch"));
-    // X's class purge is a detect op only.
-    assert!(in_catalog(Target::Detect, "x_purge"));
-    assert!(!in_catalog(Target::Account, "x_purge") && !in_catalog(Target::Edge, "x_purge"));
+    // X's class purge and the oEmbed trust reset are detect ops only.
+    for o in ["x_purge", "x_oembed_trust"] {
+        assert!(in_catalog(Target::Detect, o), "{o}");
+        assert!(!in_catalog(Target::Account, o) && !in_catalog(Target::Edge, o), "{o}");
+    }
+    // Every entry is listed once.
+    let entries: std::collections::HashSet<_> = CATALOG.iter().collect();
+    assert_eq!(entries.len(), CATALOG.len());
+}
+
+#[test]
+fn a_parsed_envelope_verifies_as_its_bytes_do() {
+    // A route whose body wraps the envelope parses it first and checks it
+    // with verify_wire: the same answers as verify on the bare bytes.
+    let k = key(7);
+    let v = detect(&k, Env::Staging);
+    let o = op(Target::Detect, Env::Staging, "restore", 3);
+    let w = sign(&o, &k).unwrap();
+    let bytes = serde_json::to_vec(&w).unwrap();
+    assert_eq!(v.verify_wire(&w, NOW + 1), v.verify(&bytes, NOW + 1));
+    assert_eq!(v.verify_wire(&w, NOW + 1).unwrap().op, o);
+    let mut bad = w.clone();
+    bad.args = json!({"case_id": "td-other"});
+    assert_eq!(v.verify_wire(&bad, NOW + 1), Err(Refusal::BadSignature));
+    assert_eq!(v.verify_wire(&w, NOW + 60_000), Err(Refusal::Expired));
+    let mut env = w.clone();
+    env.env = "production".into();
+    assert_eq!(v.verify_wire(&env, NOW + 1), Err(Refusal::BadSignature));
 }

@@ -35,10 +35,10 @@
     "confidence_text": null,
     "share_pct": null,
     "share_text": null,
-    "words": 62,
-    "total_words": 62,
+    "words": 60,
+    "total_words": 60,
     "cut": "none",
-    "tokens": 82,
+    "tokens": 80,
     "length": "50_99",
     "spans": [],
     "spans_note": "x_post",
@@ -47,43 +47,12 @@
   },
   "sections": null,
   "text": null,
-  "embed": {
-    "lang": "en",
-    "dir": "ltr",
-    "parts": [
-      {
-        "type": "text",
-        "text": "In today's fast-paced world, community gardens serve as vibrant hubs that foster connection, promote sustainability, and empower residents to take meaningful ownership of their shared green spaces and local food systems. "
-      },
-      {
-        "type": "link",
-        "href": "https://twitter.com/hashtag/gardening?src=hash&ref_src=twsrc%5Etfw",
-        "text": "#gardening"
-      },
-      {
-        "type": "break"
-      },
-      {
-        "type": "break"
-      },
-      {
-        "type": "text",
-        "text": "Moreover, by leveraging innovative composting strategies and data-driven planting schedules, organizers can unlock unprecedented yields while ensuring that every volunteer feels seen, valued, and inspired to keep growing together. "
-      },
-      {
-        "type": "link",
-        "href": "https://twitter.com/fixture_author?ref_src=twsrc%5Etfw",
-        "text": "@fixture_author"
-      }
-    ],
-    "author_name": "Fixture Gardener",
-    "author_url": "https://twitter.com/fixture_author",
-    "date_text": "November 18, 2026",
-    "permalink": "https://twitter.com/fixture_author/status/2?ref_src=twsrc%5Etfw"
+  "x": {
+    "post_url": "https://x.com/i/status/2"
   },
   "source": {
     "host": "x.com",
-    "url": "https://x.com/i/status/2",
+    "url": null,
     "title": null,
     "site_name": null,
     "author": null,
@@ -92,7 +61,7 @@
     "via": "x",
     "status": "ok",
     "reputation": "ranked",
-    "link": true,
+    "link": false,
     "checked": true,
     "page_hash": null,
     "stale": false

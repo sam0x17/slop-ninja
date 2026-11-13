@@ -26,7 +26,11 @@
 //!
 //! The request body is one JSON object ([`Wire`]): the signed fields, plus
 //! `key` (the signer's [`OperatorKey::fingerprint`]) and `sig` (the 64-byte
-//! signature in lowercase hex). Unknown fields are refused.
+//! signature in lowercase hex). Unknown fields are refused. The account
+//! Worker's op route takes this object as its body; the detect Worker's takes
+//! it as the `signed` field of a wrapper that may also carry `x_url`, the
+//! one value sent beside a signature (detect-page's `OpRequest`), and checks
+//! it with [`Verifier::verify_wire`].
 //!
 //! # What a Worker checks ([`Verifier::verify`])
 //!
@@ -132,6 +136,10 @@ pub const CATALOG: &[(Target, &str)] = &[
     // detect: cases and takedowns
     (Target::Detect, "withhold_excerpt"),
     (Target::Detect, "remove"),
+    // `restore {case_id}`. On an X page it is a fresh check of the post, and
+    // the op still names no post: the CLI sends the post's link beside the
+    // envelope as `x_url` (detect-page's `OpRequest`), outside the signed
+    // bytes, and the Worker never journals it.
     (Target::Detect, "restore"),
     (Target::Detect, "reject"),
     (Target::Detect, "close_case"),
@@ -146,9 +154,16 @@ pub const CATALOG: &[(Target, &str)] = &[
     (Target::Detect, "purge"),
     (Target::Detect, "delete_private"),
     (Target::Detect, "index_force"),
-    // `x_purge {reason}`: every X detection, run document and source row,
-    // as a class (when access to X's API ends).
+    // `x_purge {reason, dry_run}`: deletes every X run, run document and
+    // source row as a class, in `x_purge_page` messages, and leaves each X
+    // detection a content-free tombstone (`x_purged`); run at once when X ends
+    // or gives notice to end the agreement. `dry_run: true` answers counts
+    // only and writes nothing but its journal row.
     (Target::Detect, "x_purge"),
+    // `x_oembed_trust {reason}`: ends oEmbed distrust (held after a lookup
+    // contradicted an oEmbed "gone" answer), so the second-candidate fallback
+    // may delete again.
+    (Target::Detect, "x_oembed_trust"),
     (Target::Detect, "set_switch"),
     (Target::Detect, "set_examples"),
     (Target::Detect, "status"),
@@ -437,7 +452,13 @@ impl Verifier {
     /// body's length before reading it, and then enforces the nonce rule.
     pub fn verify(&self, body: &[u8], now_ms: u64) -> Result<Verified, Refusal> {
         let w: Wire = serde_json::from_slice(body).map_err(|_| Refusal::Malformed)?;
-        let (op, sig) = decode(&w)?;
+        self.verify_wire(&w, now_ms)
+    }
+
+    /// Checks an envelope already parsed as [`Wire`] (by a route whose body
+    /// wraps it): the field forms of step 1, then steps 2 to 5.
+    pub fn verify_wire(&self, w: &Wire, now_ms: u64) -> Result<Verified, Refusal> {
+        let (op, sig) = decode(w)?;
         if w.key != self.key.fingerprint() {
             return Err(Refusal::BadSignature);
         }
@@ -461,7 +482,7 @@ impl Verifier {
         if now_ms >= op.expires_ms {
             return Err(Refusal::Expired);
         }
-        Ok(Verified { op, key: w.key, sig })
+        Ok(Verified { op, key: w.key.clone(), sig })
     }
 
     /// [`Verifier::verify`], then the nonce rule against `ledger`.
@@ -572,6 +593,10 @@ fn parse_lower_hex<const N: usize>(s: &str) -> Option<[u8; N]> {
     hex::decode_to_slice(s, &mut out).ok()?;
     Some(out)
 }
+
+/// The signing key type [`sign`] takes (the operator CLI and tests only).
+#[cfg(feature = "sign")]
+pub use ed25519_dalek::SigningKey;
 
 /// Signs `op` and returns its wire body. The operator CLI and tests only.
 #[cfg(feature = "sign")]

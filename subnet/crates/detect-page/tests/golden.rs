@@ -146,7 +146,7 @@ fn base(kind: Kind, slug: Option<&str>, state: DetState) -> Page {
         run: None,
         sections: None,
         text: None,
-        embed: None,
+        x: None,
         source: None,
         pending: None,
         failure: None,
@@ -395,12 +395,12 @@ fn pasted_x_source() -> Page {
 /// The slug of the X fixtures.
 const X_SLUG: &str = "x4m8q2t";
 
-/// An X page's source: the post's canonical URL, read through X, with no
-/// title, site, author, date or hash.
-fn x_source(id: u64, reputation: Reputation) -> Source {
+/// An X page's source: the post on X, read through X's API, with no URL (the
+/// post's link is the page's `x.post_url`), title, site, author, date or hash.
+fn x_source(reputation: Reputation) -> Source {
     Source {
         host: x::X_HOST.into(),
-        url: x::x_canonical(id),
+        url: None,
         title: None,
         site_name: None,
         author: None,
@@ -409,76 +409,60 @@ fn x_source(id: u64, reputation: Reputation) -> Source {
         via: SourceVia::X,
         status: Some(SourceStatus::Ok),
         reputation: Some(reputation),
-        link: true,
+        link: false,
         checked: true,
         page_hash: None,
         stale: false,
     }
 }
 
-/// X's markup of post `id`, made typed.
-fn x_embed(id: u64, parts: Vec<XPart>) -> XEmbed {
-    XEmbed {
-        lang: Some("en".into()),
-        dir: x::TextDir::Ltr,
-        parts,
-        author_name: "Fixture Gardener".into(),
-        author_url: "https://twitter.com/fixture_author".into(),
-        date_text: "November 18, 2026".into(),
-        permalink: format!("https://twitter.com/fixture_author/status/{id}?ref_src=twsrc%5Etfw"),
-    }
-}
-
-fn text_part(s: &str) -> XPart {
-    XPart::Text { text: s.into() }
-}
-
-fn link_part(href: &str, text: &str) -> XPart {
-    XPart::Link { href: href.into(), text: text.into() }
-}
-
-/// A live X page: the run with no passages, the post's source and its
-/// embed, if any.
-fn x_post(id: u64, mut run: Run, reputation: Reputation, embed: Option<XEmbed>) -> Page {
+/// A live X page: the run with no passages, the post's source and its link.
+fn x_post(id: u64, mut run: Run, reputation: Reputation) -> Page {
     let mut p = base(Kind::PublicUrl, Some(X_SLUG), DetState::Live);
     p.platform = Platform::X;
     p.robots = Robots::Noindex;
     run.spans.clear();
     run.spans_note = Some(SpansNote::XPost);
     p.run = Some(run);
-    p.source = Some(x_source(id, reputation));
-    p.embed = embed;
+    p.source = Some(x_source(reputation));
+    p.x = XPost::new(id);
     live(p)
 }
 
-/// A short post (60 words), "Strong signs", shown as X's quote.
+/// A short post (60 words), "Strong signs".
 fn x_post_short() -> Page {
-    let parts = vec![
-        text_part(&format!("{P1} ")),
-        link_part("https://twitter.com/hashtag/gardening?src=hash&ref_src=twsrc%5Etfw", "#gardening"),
-        XPart::Break,
-        XPart::Break,
-        text_part(&format!("{P2} ")),
-        link_part("https://twitter.com/fixture_author?ref_src=twsrc%5Etfw", "@fixture_author"),
-    ];
-    x_post(2, short_run(ShortResult::Strong, words(P1) + words(P2) + 2), Reputation::Ranked, Some(x_embed(2, parts)))
+    x_post(2, short_run(ShortResult::Strong, 60), Reputation::Ranked)
 }
 
-/// A long post (412 words): band and share, no highlighting; X's quote is
-/// cut where X cuts it.
+/// A long post (412 words): band and share, no highlighting.
 fn x_post_long() -> Page {
-    let parts = vec![
-        text_part(P1),
-        XPart::Break,
-        XPart::Break,
-        text_part(
-            "Moreover, by leveraging innovative composting strategies and data-driven planting schedules, organizers can unlock…",
-        ),
-        text_part(" "),
-        link_part("https://t.co/fixture01", "https://t.co/fixture01"),
-    ];
-    let run = banded_run(Band::Strong, 973, "97.3%", 43, 412, 412, CutKind::None);
-    x_post(3, run, Reputation::Ranked, Some(x_embed(3, parts)))
+    x_post(3, banded_run(Band::Strong, 973, "97.3%", 43, 412, 412, CutKind::None), Reputation::Ranked)
+}
+
+/// An X page that ended: no run, no source, no link, and why it ended.
+fn x_ended(state: DetState, code: RefusalCode) -> Page {
+    let mut p = base(Kind::PublicUrl, Some(X_SLUG), state);
+    p.platform = Platform::X;
+    p.robots = Robots::Noindex;
+    p.canonical = None;
+    p.state_v = 3;
+    p.ended = Some(Ended { code });
+    p
+}
+
+/// An X page before or without a result: the domain only.
+fn x_unshown(state: DetState) -> Page {
+    let mut p = base(Kind::PublicUrl, Some(X_SLUG), state);
+    p.platform = Platform::X;
+    p.robots = Robots::Noindex;
+    p.source = Some(Source {
+        fetched_at: None,
+        status: None,
+        reputation: None,
+        checked: false,
+        ..x_source(Reputation::Ranked)
+    });
+    p
 }
 
 fn paid_document() -> Page {
@@ -688,33 +672,44 @@ fn pages() -> Vec<(&'static str, &'static str, Page)> {
     v.push(("28-example", "kind example: synthetic example report, noindex", live(p)));
     v.push((
         "29-x-post-short",
-        "X post under 150 words: short gauge, X's quote, no text body, noindex",
+        "X post under 150 words: short gauge, View on X, no text body, noindex",
         x_post_short(),
     ));
     v.push((
         "30-x-post-long",
-        "X post of 150 words and more: band and share, no highlighting, X's quote",
+        "X post of 150 words and more: band and share, no highlighting, View on X",
         x_post_long(),
     ));
-    let run = short_run(ShortResult::None, 40);
     v.push((
         "31-x-post-adult",
-        "adult X post: no static quote, View on X and the click-to-load link",
-        x_post(4, run, Reputation::Adult, None),
+        "adult X post (possibly_sensitive): shown like any X post",
+        x_post(4, short_run(ShortResult::None, 40), Reputation::Adult),
     ));
-    let run = banded_run(Band::VeryStrong, 999, "above 99.9%", 86, 1000, 1180, CutKind::FirstWords);
+    let mut p = x_ended(DetState::Removed, RefusalCode::XRemoved);
+    p.removal =
+        Some(Removal { scope: RemovalScope::Page, basis: "author".into(), jurisdiction: "US".into(), at: T0 + DAY });
+    v.push(("32-x-post-removed", "X post taken down by its author or X: the removal page (x_removed)", p));
     v.push((
-        "32-x-post-embed-unavailable",
-        "X could not be reached: result, View on X, no-store",
-        x_post(5, run, Reputation::Ranked, None),
+        "33-x-post-gone",
+        "post gone from X: 410, report removed (x_gone)",
+        x_ended(DetState::Deleted, RefusalCode::XGone),
     ));
-    let mut p = base(Kind::PublicUrl, Some(X_SLUG), DetState::Deleted);
-    p.platform = Platform::X;
-    p.robots = Robots::Noindex;
-    p.canonical = None;
-    p.state_v = 3;
-    p.ended = Some(Ended { code: RefusalCode::XGone });
-    v.push(("33-x-post-gone", "post gone from X: 410, report removed (x_gone)", p));
+    v.push((
+        "34-x-post-edited",
+        "post edited on X after the check: 410, report removed (x_edited)",
+        x_ended(DetState::Deleted, RefusalCode::XEdited),
+    ));
+    v.push((
+        "35-x-post-purged",
+        "every X report removed (x_purge): 410 (x_purged)",
+        x_ended(DetState::Deleted, RefusalCode::XPurged),
+    ));
+    let mut p = x_unshown(DetState::Pending);
+    p.pending = Some(Pending { lease_ended: false, job: None });
+    v.push(("36-x-post-pending", "X post being checked: pending, the domain only", p));
+    let mut p = x_unshown(DetState::Failed);
+    p.failure = Some(Failure { code: RefusalCode::XPostSuperseded });
+    v.push(("37-x-post-superseded", "link to an earlier version of an edited post: failed (x_post_superseded)", p));
     v
 }
 
@@ -816,7 +811,7 @@ fn entries() -> Vec<Entry> {
             serde_json::json!({
                 "shows": row,
                 "status": page.http_status(),
-                "no_store": page.no_store(),
+                "ad_page_kind": page.ad_page_kind(),
                 "robots": page.robots.header_value(),
                 "canonical": page.canonical,
             }),
@@ -1033,6 +1028,9 @@ fn entries() -> Vec<Entry> {
         if *code == RefusalCode::XPostLink {
             r = ApiRefusal::x_post_link(2).unwrap();
         }
+        if *code == RefusalCode::XPostSuperseded {
+            r = ApiRefusal::x_post_superseded(5).unwrap();
+        }
         r.check().unwrap_or_else(|err| panic!("{code}: {err:?}"));
         e.push(entry(format!("refusals/{}.json", code.as_str()), r));
     }
@@ -1054,10 +1052,36 @@ fn entries() -> Vec<Entry> {
         ("indexnow", Job::Indexnow { public_slug: PUBLIC.into(), change: IndexChange::Updated }),
         ("rerun-op", Job::RerunOp { source_id: 42 }),
         ("owner-rekey", Job::OwnerRekey { from_user_id: user(7), to_user_id: user(8) }),
+        ("x-sweep", Job::XSweep { after: None }),
+        ("x-sweep-next", Job::XSweep { after: Some(42) }),
+        ("x-check-sweep", Job::XCheck { source_ids: vec![42, 43, 57], why: XCheckWhy::Sweep }),
+        ("x-check-view", Job::XCheck { source_ids: vec![42], why: XCheckWhy::View }),
+        ("x-check-edit", Job::XCheck { source_ids: vec![42], why: XCheckWhy::Edit }),
+        ("x-purge-page", Job::XPurgePage { journal_seq: 118 }),
     ];
     for (name, job) in q {
         e.push(entry(format!("queue/{name}.json"), QueueMessage::new(job)));
     }
+    // The detect op route's body: the signed envelope and, beside it, the X
+    // link of a restore. The key and signature are placeholders: the file
+    // shows the shape (the units test signs and verifies a real one), and
+    // OpRequest has no Serialize, so the JSON is written here by hand.
+    let op = serde_json::json!({
+        "signed": {
+            "v": 1,
+            "target": "detect",
+            "env": "staging",
+            "issued_ms": T0,
+            "expires_ms": T0 + 5 * MIN,
+            "nonce": "0".repeat(32),
+            "op": "restore",
+            "args": { "case_id": "td-8k2m4q7x" },
+            "key": "0".repeat(16),
+            "sig": "0".repeat(128),
+        },
+        "x_url": "https://x.com/i/status/2",
+    });
+    e.push(Entry { path: "api/op-request-restore-x.json".into(), json: pretty(&op) });
     e
 }
 
@@ -1162,19 +1186,34 @@ fn the_page_set_covers_every_plan_step() {
         && p.source.as_ref().is_some_and(|s| s.host == "x.com" && s.via == SourceVia::Submitter && !s.checked)
         && p.text.as_ref().is_some_and(|t| t.shown == Shown::Full && t.body.is_some())
         && p.run.as_ref().is_some_and(|r| r.band.is_some() && !r.spans.is_empty())));
-    // Posts on X: short and long, each way the post is shown, and gone.
+    // Posts on X: short and long, adult, pending, failed, and every way an X
+    // page ends, each with its status.
     assert!(has(&|p| p.is_x_post() && p.run.as_ref().is_some_and(|r| r.short.is_some())));
     assert!(has(&|p| p.is_x_post() && p.run.as_ref().is_some_and(|r| r.band.is_some())));
-    assert!(has(&|p| matches!(p.x_view(), Some(XView::Quote(_)))));
-    assert!(has(&|p| p.x_view() == Some(XView::Adult)));
-    assert!(has(&|p| p.x_view() == Some(XView::Unavailable) && p.no_store()));
-    assert!(has(&|p| p.is_x_post() && p.ended.is_some_and(|e| e.code == RefusalCode::XGone) && p.http_status() == 410));
+    assert!(has(&|p| p.is_x_post()
+        && p.x.is_some()
+        && p.source.as_ref().is_some_and(|s| s.reputation == Some(Reputation::Adult))));
+    assert!(has(&|p| p.is_x_post() && p.state == DetState::Pending));
+    assert!(has(&|p| p.is_x_post() && p.failure.is_some_and(|f| f.code == RefusalCode::XPostSuperseded)));
+    for (code, status) in [
+        (RefusalCode::XGone, 410),
+        (RefusalCode::XEdited, 410),
+        (RefusalCode::XPurged, 410),
+        (RefusalCode::XRemoved, 451),
+    ] {
+        assert!(
+            has(&|p| p.is_x_post() && p.ended.is_some_and(|e| e.code == code) && p.http_status() == status),
+            "{code}"
+        );
+    }
     for (name, _, p) in &pages {
         if p.is_x_post() {
             assert!(p.text.is_none() && p.robots == Robots::Noindex, "{name}");
             assert!(p.run.as_ref().is_none_or(|r| r.spans.is_empty()), "{name}");
+            assert!(p.ads_forbidden() && p.ad_page_kind() == "x_post", "{name}");
+            assert_eq!(p.x.is_some(), p.state == DetState::Live, "{name}");
         } else {
-            assert!(p.embed.is_none() && !p.no_store(), "{name}");
+            assert!(p.x.is_none() && p.ended.is_none(), "{name}");
         }
     }
     assert!(has(&|p| p
@@ -1195,7 +1234,7 @@ fn the_page_set_covers_every_plan_step() {
     assert!(x_cards.iter().any(|(_, c)| c.variant == CardVariant::Band));
     for (name, c) in &x_cards {
         let json = serde_json::to_string(c).unwrap();
-        for banned in ["fixture_author", "x.com", "twitter", "t.co", "Fixture Gardener", "fast-paced"] {
+        for banned in ["x.com", "twitter", "t.co", "/status/", "fast-paced"] {
             assert!(!json.contains(banned), "{name}: {banned}");
         }
     }

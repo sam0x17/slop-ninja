@@ -15,14 +15,25 @@ CREATE TABLE switches (                                                   -- run
 CREATE TABLE sources (
   source_id INTEGER PRIMARY KEY,
   canon_key BLOB NOT NULL UNIQUE,            -- H("source_v1" ‖ "url:<canonical>" | "bsky:<did>/<rkey>" | "x:status:<id>")
-  canon_url TEXT NOT NULL, host TEXT NOT NULL, adapter TEXT NOT NULL CHECK (adapter IN ('web','bluesky','x')),
+  canon_url TEXT,                            -- NULL only on an X source: a refusal row or a removal tombstone
+  host TEXT NOT NULL, adapter TEXT NOT NULL CHECK (adapter IN ('web','bluesky','x')),
   title TEXT, site_name TEXT, author TEXT, published_at INTEGER, lang TEXT,
   latest_det BLOB, fetched_at INTEGER, fresh_until INTEGER, fetch_outcome TEXT,
   etag TEXT, last_modified TEXT,             -- conditional GET for "Check the page again"
   state TEXT NOT NULL DEFAULT 'ok' CHECK (state IN ('ok','gone','opted_out','unlisted')),
   reputation TEXT NOT NULL CHECK (reputation IN ('ranked','unranked','adult')),
-  rank_list_v TEXT NOT NULL);
+  rank_list_v TEXT NOT NULL,
+  check_queued_at INTEGER,                   -- X: an x_check message is out for this source
+  gone_candidate_at INTEGER,                 -- X: oEmbed's first "gone" answer, awaiting confirmation
+  edit_check_at INTEGER,                     -- X: when the post's edit window closes (plus grace)
+  x_mismatch_at INTEGER,                     -- X: a lookup contradicted oEmbed for this source
+  CHECK (canon_url IS NOT NULL OR adapter = 'x'),
+  CHECK (adapter <> 'x' OR (host = 'x.com' AND title IS NULL AND site_name IS NULL AND author IS NULL  -- no X content
+         AND published_at IS NULL AND lang IS NULL AND etag IS NULL AND last_modified IS NULL)));
 CREATE INDEX sources_host ON sources(host);
+CREATE INDEX sources_x_fetched ON sources(fetched_at) WHERE adapter = 'x' AND canon_url IS NOT NULL;   -- the X sweep
+CREATE INDEX sources_x_candidate ON sources(gone_candidate_at) WHERE gone_candidate_at IS NOT NULL;
+CREATE INDEX sources_x_edit ON sources(edit_check_at) WHERE edit_check_at IS NOT NULL;
 
 CREATE TABLE source_aliases (alias_key BLOB PRIMARY KEY, source_id INTEGER NOT NULL REFERENCES sources(source_id));
 
@@ -53,7 +64,8 @@ CREATE TABLE detections (
   sitemap_seq INTEGER UNIQUE, index_force TEXT CHECK (index_force IN ('on','off')),           -- operator override
   copy_of BLOB,                              -- a secret re-run copy's family root, the first original's id_h
   expiry_cap INTEGER,                        -- a copy's latest allowed expires_at, the original's
-  CHECK ((owner_h IS NULL) = (owner_via IS NULL)));
+  CHECK ((owner_h IS NULL) = (owner_via IS NULL)),
+  CHECK (platform <> 'x' OR kind = 'public_url'));                                             -- an X post is a public page
 CREATE INDEX det_expiry ON detections(expires_at) WHERE expires_at IS NOT NULL;
 CREATE INDEX det_copy ON detections(copy_of) WHERE copy_of IS NOT NULL;                      -- copy families
 CREATE INDEX det_source ON detections(source_id);

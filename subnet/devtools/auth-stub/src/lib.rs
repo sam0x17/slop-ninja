@@ -1,21 +1,25 @@
 //! Dev only: the auth stub, a Worker that plays the three OAuth providers
 //! and captures sign-in mail in local dev sessions. Never deployed.
 //!
+//! Every provider endpoint is served on its real host and path, as the
+//! account Worker's dev build calls it: `<stub origin>/<real host><real
+//! path>` ([`routes::Endpoint`]).
+//!
 //! - **Google** (OIDC): discovery, authorize, token (an RS256 ID token from a
 //!   key the stub generates once and keeps) and the key set.
-//! - **GitHub**: authorize, token, `/user` and `/user/emails` under
-//!   `/github/api`.
+//! - **GitHub**: authorize, token, and the API's `/user` and `/user/emails`.
 //! - **X**: authorize, token (codes live 30 seconds), `/2/users/me`, revoke,
-//!   and the avatar images under `/x/pbs/` that the account Worker's dev
-//!   build fetches in place of `pbs.twimg.com`.
+//!   and the avatar images, `https://pbs.twimg.com/<path>` served at
+//!   `/pbs.twimg.com/<path>`.
 //! - **Mail**: `POST /mail` stores one message (`to`, `subject`, `text`, and
 //!   optionally `from`, `html`, `headers`); `GET /mail`, `GET /mail/latest`
 //!   and `POST /mail/clear` read and clear them.
 //! - **Switches**: `POST /__stub/switch` with `{"provider": ..., ...}`,
 //!   `POST /__stub/reset`, `GET /__stub/state` ([`routes`]).
 //!
-//! The browser reaches it on the stubs session's own origin; the account
-//! Worker's dev build calls the token, user and mail routes through the
+//! The browser reaches it on the stubs session's own origin (authorize and
+//! the consent page, `/__stub/consent/<provider>`); the account Worker's dev
+//! build calls the token, user, revoke, avatar and mail routes through the
 //! `AUTH_STUB` service binding.
 
 pub mod routes;

@@ -72,8 +72,8 @@ A Worker joins the site or secret session by defining `[env.dev]` in its Wrangle
   | account | `ACCOUNT_STORE` | `dev-account-store` | `subnet/account-worker/migrations/` |
 - **Stubs, only here and only behind the cargo feature `dev`:**
   - detect: `STUB_SCORER` (service `slop-ninja-dev-stub-scorer`) in place of the scorer Container's port;
-  - account: `AUTH_STUB` (service `slop-ninja-dev-auth-stub`) for the token, user and mail calls, with the browser sent
-    to `STUB_ORIGIN` for authorize;
+  - account: `AUTH_STUB` (service `slop-ninja-dev-auth-stub`) for the token, user, revoke, avatar and mail calls,
+    with the browser sent to `STUB_ORIGIN` for authorize;
   - detect-fetch: `FIXTURE_SITE` (service `slop-ninja-dev-fixture-site`) for hosts under `fixtures.test`.
 
 The values are fixed in one place, `slop_ninja_dev_http::session` (the origins, the subject prefix and the stores). A
@@ -81,13 +81,20 @@ source test (`http/tests/dev_configs.rs`) refuses any `slop-ninja-dev-` name out
 under `subnet/`, parses the dev origins with the page contract's `Origins` (as every Worker parses its origin vars),
 and holds every `[env.dev.vars]`, every `[env.dev]` D1 entry, the session script and the smoke check to these values.
 
-**Provider endpoints in the account Worker's dev build** (stub origin `S`, server calls through `AUTH_STUB`):
+**Provider endpoints in the account Worker's dev build.** The dev build (auth-core's `dev` feature) moves every
+provider URL under the stub origin `S` as `S/<real host><real path and query>`, and the stub serves each endpoint
+there: `https://oauth2.googleapis.com/token` is `S/oauth2.googleapis.com/token`. The browser is sent to the authorize
+URLs; the server calls go through `AUTH_STUB`.
 
-| Provider | Authorize (browser) | Token | User |
+| Provider | Authorize (browser) | Token | User and the rest |
 |---|---|---|---|
-| Google | `S/google/o/oauth2/v2/auth` | `S/google/token` | (ID token claims); key set `S/google/oauth2/v3/certs`, discovery `S/google/.well-known/openid-configuration` |
-| GitHub | `S/github/login/oauth/authorize` | `S/github/login/oauth/access_token` | `S/github/api/user`, `S/github/api/user/emails` |
-| X | `S/x/i/oauth2/authorize` | `S/x/2/oauth2/token` (revoke `S/x/2/oauth2/revoke`) | `S/x/2/users/me`; avatars: `https://pbs.twimg.com/<path>` is fetched as `S/x/pbs/<path>` |
+| Google | `S/accounts.google.com/o/oauth2/v2/auth` | `S/oauth2.googleapis.com/token` | ID token claims; key set `S/www.googleapis.com/oauth2/v3/certs`, discovery `S/accounts.google.com/.well-known/openid-configuration` |
+| GitHub | `S/github.com/login/oauth/authorize` | `S/github.com/login/oauth/access_token` | `S/api.github.com/user`, `S/api.github.com/user/emails` |
+| X | `S/x.com/i/oauth2/authorize` | `S/api.x.com/2/oauth2/token` | `S/api.x.com/2/users/me?user.fields=...`; revoke `S/api.x.com/2/oauth2/revoke`; avatars `https://pbs.twimg.com/<path>` at `S/pbs.twimg.com/<path>` |
+
+The table is `Endpoint` in [`auth-stub/src/routes.rs`](auth-stub/src/routes.rs), and a test drives each provider
+through these URLs. Google's discovery document names the moved endpoints. The stub's own routes are `/`, the consent
+page `/__stub/consent/<provider>`, the mail routes and `/__stub/*`; no provider URL moves onto them.
 
 The dev clients are `dev-<provider>-client-id` with secret `dev-<provider>-client-secret-not-real` and the redirect URI
 `https://slop.localhost:8787/auth/<provider>/callback` (vars `<P>_CLIENT_ID`, `<P>_CLIENT_SECRET`,
@@ -136,7 +143,7 @@ Switches (`POST /__stub/switch` with `{"provider": "google" | "github" | "x", ..
 | `userinfo_status` | the user endpoints answer this status (X: 402 credits, 429 limits) |
 | `email` | `missing`, `unverified`, or (GitHub) `placeholder`, a `users.noreply.github.com` primary address |
 | `id_token` | Google: `iss_bare`, `iss_wrong`, `aud_wrong`, `nonce_wrong`, `nonce_missing`, `expired` |
-| `avatar` | X: `png`, `jpeg`, `gif`, `webp`, `svg`, `html`, `big`, `redirect`, `missing` |
+| `avatar` | X: `png`, `jpeg`, `gif`, `webp`, `svg`, `html`, `big`, `redirect` (a 302 to another avatar under `S`, never the real host), `missing` |
 
 Mail switches use `{"provider": "mail", "error": "<code>", "suppressed": [...], "delay_ms": n}`.
 
@@ -203,9 +210,9 @@ contract's own `/wallet/challenge` fixture issued to the stub's address and carr
   scorer's protocol read through `slop-ninja-scorer-client`, the client the detect Worker's lane uses.
 - Source checks (`http/tests/dev_configs.rs`): local-only stub and store configs, `[env.dev]`-only stub names, the dev
   origins and stores agreed everywhere, and a session script that never logs in, deploys or leaves `--local`.
-- `./dev-session.sh smoke` against a running stubs session: the three OAuth code flows with PKCE (the ID token
-  checked against the stub's key set), mail capture, the slow-exchange switch, the scorer protocol and markers, and
-  the fixture site.
+- `./dev-session.sh smoke` against a running stubs session: the three OAuth code flows with PKCE through the real-host
+  paths above (the ID token checked against the stub's key set; X's avatar and revoke), mail capture, the
+  slow-exchange switch, the scorer protocol and markers, and the fixture site.
 
 First run, 2026-11-13, with Wrangler 4.159.0 and no Cloudflare login: the stubs session served every smoke check over
 `https://auth.slop.localhost:8789`; site and secret sessions with stand-in Workers on `slop.localhost:8787` and

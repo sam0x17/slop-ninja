@@ -1,11 +1,14 @@
 // Smoke check of a running stubs session (dev only): node smoke.mjs <stubs origin>
 //
 // Drives each stub over the session's HTTPS origin: the three OAuth code
-// flows with PKCE (Google's ID token checked against the stub's key set), the
-// mail capture, an X slow-exchange switch, the stub scorer through its door
-// (marker answers and the load protocol) and the fixture site (robots,
-// redirects, a streamed large page and the request log). It calls nothing
-// outside the session. Exit status 0 when every check passes.
+// flows with PKCE, each call sent where the account Worker's dev build sends
+// it (the provider's real URL moved under the stub origin as
+// <stub origin>/<real host><real path>; Google's ID token checked against the
+// stub's key set, X's avatar and revoke), the mail capture, an X
+// slow-exchange switch, the stub scorer through its door (marker answers and
+// the load protocol) and the fixture site (robots, redirects, a streamed
+// large page and the request log). It calls nothing outside the session.
+// Exit status 0 when every check passes.
 
 import { createHash, randomBytes, webcrypto } from "node:crypto";
 
@@ -22,6 +25,30 @@ const post = (path, body, headers = {}) => get(path, { method: "POST", body, hea
 const postJson = (path, v) => post(path, JSON.stringify(v), { "content-type": "application/json" });
 const form = (o) => new URLSearchParams(o).toString();
 const FORM = { "content-type": "application/x-www-form-urlencoded" };
+const UA = { "user-agent": "slop-ninja-smoke" };
+
+// The providers' real URLs. Each is called at its moved path, "/<real host><real path and query>".
+const REAL = {
+  google: {
+    authorize: "https://accounts.google.com/o/oauth2/v2/auth",
+    token: "https://oauth2.googleapis.com/token",
+    keys: "https://www.googleapis.com/oauth2/v3/certs",
+    discovery: "https://accounts.google.com/.well-known/openid-configuration",
+  },
+  github: {
+    authorize: "https://github.com/login/oauth/authorize",
+    token: "https://github.com/login/oauth/access_token",
+    user: "https://api.github.com/user",
+    emails: "https://api.github.com/user/emails",
+  },
+  x: {
+    authorize: "https://x.com/i/oauth2/authorize",
+    token: "https://api.x.com/2/oauth2/token",
+    revoke: "https://api.x.com/2/oauth2/revoke",
+    me: "https://api.x.com/2/users/me?user.fields=confirmed_email,profile_image_url,username,name,verified_type",
+  },
+};
+const moved = (real) => `/${real.replace(/^https:\/\//, "")}`;
 
 const ids = {
   google: "dev-google-client-id",
@@ -29,7 +56,6 @@ const ids = {
   x: "dev-x-client-id",
 };
 const secret = (p) => `dev-${p}-client-secret-not-real`;
-const authorizePath = { google: "/google/o/oauth2/v2/auth", github: "/github/login/oauth/authorize", x: "/x/i/oauth2/authorize" };
 const scope = { google: "openid email profile", github: "", x: "users.read tweet.read users.email" };
 
 async function codeFor(p, verifier, extra = {}) {
@@ -38,7 +64,7 @@ async function codeFor(p, verifier, extra = {}) {
     code_challenge: b64url(createHash("sha256").update(verifier).digest()), code_challenge_method: "S256",
     scope: scope[p], ...(p === "google" ? { nonce: "smoke-nonce" } : {}), ...extra,
   };
-  const r = await get(`${authorizePath[p]}?${form(q)}`);
+  const r = await get(`${moved(REAL[p].authorize)}?${form(q)}`);
   const loc = new URL(r.headers.get("location") || "about:blank");
   check(`${p} authorize redirects to the registered callback`, r.status === 302 && loc.origin + loc.pathname === `${SITE}/auth/${p}/callback` && loc.searchParams.get("state") === "smoke-state");
   return loc.searchParams.get("code");
@@ -47,47 +73,51 @@ async function codeFor(p, verifier, extra = {}) {
 async function google() {
   const verifier = b64url(randomBytes(32));
   const code = await codeFor("google", verifier);
-  const disc = await (await get("/google/.well-known/openid-configuration")).json();
-  check("google discovery names the stub token endpoint", disc.token_endpoint === `${BASE}/google/token`);
-  const t = await post("/google/token", form({ code, client_id: ids.google, client_secret: secret("google"), redirect_uri: `${SITE}/auth/google/callback`, grant_type: "authorization_code", code_verifier: verifier }), FORM);
+  const disc = await (await get(moved(REAL.google.discovery))).json();
+  check("google discovery names the moved endpoints", disc.authorization_endpoint === BASE + moved(REAL.google.authorize) && disc.token_endpoint === BASE + moved(REAL.google.token) && disc.jwks_uri === BASE + moved(REAL.google.keys));
+  const exchange = () => post(moved(REAL.google.token), form({ grant_type: "authorization_code", code, redirect_uri: `${SITE}/auth/google/callback`, code_verifier: verifier, client_id: ids.google, client_secret: secret("google") }), { ...FORM, accept: "application/json", ...UA });
+  const t = await exchange();
   const body = await t.json();
   check("google token answers an ID token", t.status === 200 && typeof body.id_token === "string", JSON.stringify(body));
   const [h, c, s] = body.id_token.split(".");
   const claims = JSON.parse(Buffer.from(c, "base64url"));
   check("google claims", claims.iss === "https://accounts.google.com" && claims.aud === ids.google && claims.nonce === "smoke-nonce" && claims.email === "alice@example.com" && claims.email_verified === true);
-  const jwks = await (await get("/google/oauth2/v3/certs")).json();
+  const jwks = await (await get(moved(REAL.google.keys))).json();
   const header = JSON.parse(Buffer.from(h, "base64url"));
   const jwk = jwks.keys.find((k) => k.kid === header.kid);
   const key = await webcrypto.subtle.importKey("jwk", jwk, { name: "RSASSA-PKCS1-v1_5", hash: "SHA-256" }, false, ["verify"]);
   const ok = await webcrypto.subtle.verify("RSASSA-PKCS1-v1_5", key, Buffer.from(s, "base64url"), Buffer.from(`${h}.${c}`));
   check("google ID token verifies under the stub's key set (RS256)", header.alg === "RS256" && ok);
-  const again = await post("/google/token", form({ code, client_id: ids.google, client_secret: secret("google"), redirect_uri: `${SITE}/auth/google/callback`, grant_type: "authorization_code", code_verifier: verifier }), FORM);
+  const again = await exchange();
   check("google code is single use", again.status === 400);
 }
 
 async function github() {
   const verifier = b64url(randomBytes(32));
   const code = await codeFor("github", verifier);
-  const t = await post("/github/login/oauth/access_token", form({ client_id: ids.github, client_secret: secret("github"), code, redirect_uri: `${SITE}/auth/github/callback`, code_verifier: verifier }), { ...FORM, accept: "application/json" });
+  const t = await post(moved(REAL.github.token), form({ client_id: ids.github, client_secret: secret("github"), code, redirect_uri: `${SITE}/auth/github/callback`, code_verifier: verifier }), { ...FORM, accept: "application/json", ...UA });
   const tok = (await t.json()).access_token;
-  const auth = { authorization: `Bearer ${tok}`, "user-agent": "slop-ninja-smoke" };
-  const user = await (await get("/github/api/user", { headers: auth })).json();
-  const emails = await (await get("/github/api/user/emails", { headers: auth })).json();
+  const auth = { authorization: `Bearer ${tok}`, accept: "application/vnd.github+json", ...UA };
+  const user = await (await get(moved(REAL.github.user), { headers: auth })).json();
+  const emails = await (await get(moved(REAL.github.emails), { headers: auth })).json();
   check("github user and primary verified email", user.id === 9000001 && emails.some((e) => e.primary && e.verified && e.email === "alice@example.com"));
-  const bad = await get("/github/api/user", { headers: { authorization: "Bearer ghu_not_issued", "user-agent": "slop-ninja-smoke" } });
+  const bad = await get(moved(REAL.github.user), { headers: { authorization: "Bearer ghu_not_issued", ...UA } });
   check("github API refuses a token it did not issue", bad.status === 401);
 }
 
 async function x() {
   const verifier = b64url(randomBytes(32));
   const basic = `Basic ${Buffer.from(`${ids.x}:${secret("x")}`).toString("base64")}`;
-  const exchange = async (code) => post("/x/2/oauth2/token", form({ code, grant_type: "authorization_code", redirect_uri: `${SITE}/auth/x/callback`, code_verifier: verifier }), { ...FORM, authorization: basic });
+  const exchange = async (code) => post(moved(REAL.x.token), form({ grant_type: "authorization_code", code, redirect_uri: `${SITE}/auth/x/callback`, code_verifier: verifier }), { ...FORM, authorization: basic, accept: "application/json", ...UA });
   const tok = (await (await exchange(await codeFor("x", verifier))).json()).access_token;
-  const me = await (await get("/x/2/users/me?user.fields=confirmed_email,profile_image_url,username,name,verified_type", { headers: { authorization: `Bearer ${tok}` } })).json();
+  const meCall = () => get(moved(REAL.x.me), { headers: { authorization: `Bearer ${tok}`, ...UA } });
+  const me = await (await meCall()).json();
   check("x users/me with the asked fields", me.data?.id === "1900000000000000001" && me.data?.confirmed_email === "alice@example.com" && me.data?.profile_image_url?.startsWith("https://pbs.twimg.com/"));
-  const path = new URL(me.data.profile_image_url).pathname;
-  const av = Buffer.from(await (await get(`/x/pbs${path}`)).arrayBuffer());
-  check("x avatar is a PNG", av.subarray(0, 8).equals(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a])));
+  const av = Buffer.from(await (await get(moved(me.data.profile_image_url))).arrayBuffer());
+  check("x avatar at its moved URL is a PNG", av.subarray(0, 8).equals(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a])));
+  const revoked = await post(moved(REAL.x.revoke), form({ token: tok, token_type_hint: "access_token" }), { ...FORM, authorization: basic });
+  const after = await meCall();
+  check("x revoke ends the token", revoked.status === 200 && after.status === 401);
   await postJson("/__stub/switch", { provider: "x", token_delay_ms: 1500 });
   const t0 = Date.now();
   const slow = await exchange(await codeFor("x", verifier));

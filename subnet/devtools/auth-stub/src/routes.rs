@@ -7,6 +7,15 @@
 //! Where a provider's own behaviour is the point (GitHub's 200 answer to a
 //! bad code, its `User-Agent` rule, X's 30-second code life, X's fields
 //! returned only when asked), the stub follows the provider.
+//!
+//! Provider endpoints are served on their real host and path
+//! ([`Endpoint`]): the account Worker's dev build sends every provider call
+//! to `<stub origin>/<real host><real path and query>`, so
+//! `https://oauth2.googleapis.com/token` is answered at
+//! `/oauth2.googleapis.com/token` and an X avatar
+//! `https://pbs.twimg.com/<path>` at `/pbs.twimg.com/<path>`. The stub's own
+//! routes (the consent page, mail and switches) are `/__stub/...` and
+//! `/mail...`, which no provider URL can move to.
 
 use crate::users::{self, Avatar, User};
 use base64::Engine as _;
@@ -72,6 +81,119 @@ impl Provider {
             Provider::X => 2 * 3_600_000,
         }
     }
+
+    /// Its authorize endpoint.
+    pub fn authorize(self) -> Endpoint {
+        match self {
+            Provider::Google => Endpoint::GoogleAuthorize,
+            Provider::Github => Endpoint::GithubAuthorize,
+            Provider::X => Endpoint::XAuthorize,
+        }
+    }
+}
+
+/// Google's issuer, in the form its ID tokens carry by default.
+pub const GOOGLE_ISSUER: &str = "https://accounts.google.com";
+
+/// The host of X's avatar images (`profile_image_url`).
+pub const X_AVATAR_HOST: &str = "pbs.twimg.com";
+
+/// A provider endpoint the stub plays, named by the provider's real URL.
+///
+/// The account Worker's dev build moves each provider URL under the stub's
+/// origin as `<stub origin>/<real host><real path and query>`, and the stub
+/// answers it at [`Endpoint::path`]: the real URL without `https:/`. The
+/// real URLs are the ones the sign-in code holds as constants; the query
+/// (X's `user.fields`) travels as it is.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Endpoint {
+    GoogleDiscovery,
+    GoogleAuthorize,
+    GoogleToken,
+    GoogleKeys,
+    GithubAuthorize,
+    GithubToken,
+    GithubUser,
+    GithubEmails,
+    XAuthorize,
+    XToken,
+    XRevoke,
+    XMe,
+}
+
+impl Endpoint {
+    pub const ALL: [Endpoint; 12] = [
+        Endpoint::GoogleDiscovery,
+        Endpoint::GoogleAuthorize,
+        Endpoint::GoogleToken,
+        Endpoint::GoogleKeys,
+        Endpoint::GithubAuthorize,
+        Endpoint::GithubToken,
+        Endpoint::GithubUser,
+        Endpoint::GithubEmails,
+        Endpoint::XAuthorize,
+        Endpoint::XToken,
+        Endpoint::XRevoke,
+        Endpoint::XMe,
+    ];
+
+    /// The provider's real URL (always `https://`, no query).
+    pub const fn url(self) -> &'static str {
+        match self {
+            Endpoint::GoogleDiscovery => "https://accounts.google.com/.well-known/openid-configuration",
+            Endpoint::GoogleAuthorize => "https://accounts.google.com/o/oauth2/v2/auth",
+            Endpoint::GoogleToken => "https://oauth2.googleapis.com/token",
+            Endpoint::GoogleKeys => "https://www.googleapis.com/oauth2/v3/certs",
+            Endpoint::GithubAuthorize => "https://github.com/login/oauth/authorize",
+            Endpoint::GithubToken => "https://github.com/login/oauth/access_token",
+            Endpoint::GithubUser => "https://api.github.com/user",
+            Endpoint::GithubEmails => "https://api.github.com/user/emails",
+            Endpoint::XAuthorize => "https://x.com/i/oauth2/authorize",
+            Endpoint::XToken => "https://api.x.com/2/oauth2/token",
+            Endpoint::XRevoke => "https://api.x.com/2/oauth2/revoke",
+            Endpoint::XMe => "https://api.x.com/2/users/me",
+        }
+    }
+
+    pub const fn method(self) -> &'static str {
+        match self {
+            Endpoint::GoogleToken | Endpoint::GithubToken | Endpoint::XToken | Endpoint::XRevoke => "POST",
+            _ => "GET",
+        }
+    }
+
+    pub const fn provider(self) -> Provider {
+        match self {
+            Endpoint::GoogleDiscovery | Endpoint::GoogleAuthorize | Endpoint::GoogleToken | Endpoint::GoogleKeys => Provider::Google,
+            Endpoint::GithubAuthorize | Endpoint::GithubToken | Endpoint::GithubUser | Endpoint::GithubEmails => Provider::Github,
+            Endpoint::XAuthorize | Endpoint::XToken | Endpoint::XRevoke | Endpoint::XMe => Provider::X,
+        }
+    }
+
+    /// The stub's path for it: `/<real host><real path>`.
+    pub fn path(self) -> &'static str {
+        // Every URL above starts with `https://`; keep the second slash.
+        &self.url()["https:/".len()..]
+    }
+
+    /// The URL the dev build calls: `<stub origin>/<real host><real path>`.
+    pub fn at(self, stub: &Origin) -> String {
+        stub.url(self.path())
+    }
+
+    /// The endpoint a request names, by method and path.
+    pub fn of(method: &str, path: &str) -> Option<Endpoint> {
+        Endpoint::ALL.into_iter().find(|e| e.method() == method && e.path() == path)
+    }
+}
+
+/// The stub's consent page, `/__stub/consent/<provider>`: where the chooser
+/// sends the browser with the authorize query, the user and the decision.
+pub const CONSENT: &str = "/__stub/consent/";
+
+/// The avatar path of a request for `/pbs.twimg.com/<path>`: `<path>`.
+fn avatar_rest(path: &str) -> Option<&str> {
+    path.strip_prefix('/')?.strip_prefix(X_AVATAR_HOST)?.strip_prefix('/')
 }
 
 /// One registered OAuth client.
@@ -369,35 +491,48 @@ impl Stub {
         self.tokens.retain(|t| now_ms.saturating_sub(t.issued_ms) <= t.provider.token_ttl_ms());
     }
 
+    /// A provider endpoint.
+    fn endpoint(&mut self, cfg: &Config, e: Endpoint, call: &Call, now_ms: u64) -> Outcome {
+        match e {
+            Endpoint::GoogleDiscovery => {
+                self.hit("google/discovery");
+                Reply::json(200, &discovery(cfg)).into()
+            }
+            Endpoint::GoogleKeys => {
+                self.hit("google/jwks");
+                Outcome::Jwks
+            }
+            Endpoint::GoogleAuthorize | Endpoint::GithubAuthorize | Endpoint::XAuthorize => {
+                self.authorize(cfg, e.provider(), call, now_ms, None).into()
+            }
+            Endpoint::GoogleToken => self.google_token(cfg, call, now_ms),
+            Endpoint::GithubToken => self.github_token(cfg, call, now_ms).into(),
+            Endpoint::XToken => self.x_token(cfg, call, now_ms).into(),
+            Endpoint::XRevoke => self.x_revoke(cfg, call).into(),
+            Endpoint::GithubUser => self.github_user(call, now_ms, false).into(),
+            Endpoint::GithubEmails => self.github_user(call, now_ms, true).into(),
+            Endpoint::XMe => self.x_me(call, now_ms).into(),
+        }
+    }
+
     /// Every route.
     pub fn handle(&mut self, cfg: &Config, call: &Call, now_ms: u64) -> Outcome {
         self.prune(now_ms);
         let m = call.method.as_str();
         let path = call.path.as_str();
+        if let Some(e) = Endpoint::of(m, path) {
+            return self.endpoint(cfg, e, call, now_ms);
+        }
+        if m == "GET" {
+            if let Some(rest) = avatar_rest(path) {
+                return self.x_avatar(cfg, rest).into();
+            }
+            if let Some(p) = path.strip_prefix(CONSENT).and_then(Provider::parse) {
+                return self.consent(cfg, p, call, now_ms).into();
+            }
+        }
         match (m, path) {
             ("GET", "/") => index(cfg).into(),
-            ("GET", "/google/.well-known/openid-configuration") => {
-                self.hit("google/discovery");
-                Reply::json(200, &discovery(cfg)).into()
-            }
-            ("GET", "/google/oauth2/v3/certs") => {
-                self.hit("google/jwks");
-                Outcome::Jwks
-            }
-            ("GET", "/google/o/oauth2/v2/auth") => self.authorize(cfg, Provider::Google, call, now_ms, None).into(),
-            ("GET", "/github/login/oauth/authorize") => self.authorize(cfg, Provider::Github, call, now_ms, None).into(),
-            ("GET", "/x/i/oauth2/authorize") => self.authorize(cfg, Provider::X, call, now_ms, None).into(),
-            ("GET", "/google/consent") => self.consent(cfg, Provider::Google, call, now_ms).into(),
-            ("GET", "/github/consent") => self.consent(cfg, Provider::Github, call, now_ms).into(),
-            ("GET", "/x/consent") => self.consent(cfg, Provider::X, call, now_ms).into(),
-            ("POST", "/google/token") => self.google_token(cfg, call, now_ms),
-            ("POST", "/github/login/oauth/access_token") => self.github_token(cfg, call, now_ms).into(),
-            ("POST", "/x/2/oauth2/token") => self.x_token(cfg, call, now_ms).into(),
-            ("POST", "/x/2/oauth2/revoke") => self.x_revoke(cfg, call).into(),
-            ("GET", "/github/api/user") => self.github_user(call, now_ms, false).into(),
-            ("GET", "/github/api/user/emails") => self.github_user(call, now_ms, true).into(),
-            ("GET", "/x/2/users/me") => self.x_me(call, now_ms).into(),
-            ("GET", p) if p.starts_with("/x/pbs/") => self.x_avatar(p).into(),
             ("POST", "/mail") => self.mail_post(call, now_ms).into(),
             ("GET", "/mail") => {
                 let msgs: Vec<&Mail> = self.mail.iter().filter(|x| call.q("to").is_none_or(|to| x.to == to)).collect();
@@ -753,7 +888,7 @@ impl Stub {
                     }
                 }
                 "profile_image_url" => {
-                    data["profile_image_url"] = json!(format!("https://pbs.twimg.com/profile_images/{}/{}_normal.png", u.x_id, u.key));
+                    data["profile_image_url"] = json!(format!("https://{X_AVATAR_HOST}/profile_images/{}/{}_normal.png", u.x_id, u.key));
                 }
                 "verified_type" => data["verified_type"] = json!("none"),
                 "created_at" => data["created_at"] = json!("2020-01-01T00:00:00.000Z"),
@@ -763,16 +898,21 @@ impl Stub {
         Reply::json(200, &json!({"data": data}))
     }
 
-    /// `/x/pbs/profile_images/<id>/<key>_normal.<ext>`: what the account
-    /// Worker's dev build fetches for `https://pbs.twimg.com/...`.
-    fn x_avatar(&mut self, path: &str) -> Reply {
+    /// `/pbs.twimg.com/profile_images/<id>/<key>_normal.<ext>` (`rest` is
+    /// the part after the host): what the account Worker's dev build
+    /// fetches for `https://pbs.twimg.com/...`. The redirect switch points
+    /// at another avatar under the stub's own origin, never the real host,
+    /// so a build that wrongly follows it still stays in the session.
+    fn x_avatar(&mut self, cfg: &Config, rest: &str) -> Reply {
         self.hit("x/avatar");
-        let file = path.rsplit('/').next().unwrap_or("");
+        let file = rest.rsplit('/').next().unwrap_or("");
         let key = file.split('_').next().unwrap_or("");
         let Some(u) = users::by_key(key) else { return Reply::new(404) };
         let kind = self.x.avatar.unwrap_or(u.avatar);
         match (kind, users::avatar_bytes(kind)) {
-            (Avatar::Redirect, _) => Reply::redirect(302, &format!("https://pbs.twimg.com/profile_images/{}/other_normal.png", u.x_id)),
+            (Avatar::Redirect, _) => {
+                Reply::redirect(302, &cfg.origin.url(&format!("/{X_AVATAR_HOST}/profile_images/{}/other_normal.png", u.x_id)))
+            }
             (_, Some((bytes, ty))) => Reply::new(200).with_header("content-type", ty).with_body(bytes),
             (_, None) => Reply::new(404),
         }
@@ -819,7 +959,7 @@ fn google_claims(cfg: &Config, sw: &ProviderSwitches, u: &User, code: &Code, now
     let iss = match fault {
         Some(IdTokenFault::IssBare) => "accounts.google.com",
         Some(IdTokenFault::IssWrong) => "https://accounts.example.com",
-        _ => "https://accounts.google.com",
+        _ => GOOGLE_ISSUER,
     };
     let aud = if fault == Some(IdTokenFault::AudWrong) { "another-client.apps.example.com".to_owned() } else { cfg.google.id.clone() };
     let (iat, exp) = if fault == Some(IdTokenFault::Expired) { (iat.saturating_sub(7200), iat.saturating_sub(3600)) } else { (iat, iat + 3600) };
@@ -840,14 +980,15 @@ fn google_claims(cfg: &Config, sw: &ProviderSwitches, u: &User, code: &Code, now
     c
 }
 
-/// Google's discovery document, with the stub's endpoints.
+/// Google's discovery document. Its endpoints are where the dev build calls
+/// them: each real URL moved under the stub's origin.
 pub fn discovery(cfg: &Config) -> Value {
     let o = &cfg.origin;
     json!({
-        "issuer": "https://accounts.google.com",
-        "authorization_endpoint": o.url("/google/o/oauth2/v2/auth"),
-        "token_endpoint": o.url("/google/token"),
-        "jwks_uri": o.url("/google/oauth2/v3/certs"),
+        "issuer": GOOGLE_ISSUER,
+        "authorization_endpoint": Endpoint::GoogleAuthorize.at(o),
+        "token_endpoint": Endpoint::GoogleToken.at(o),
+        "jwks_uri": Endpoint::GoogleKeys.at(o),
         "response_types_supported": ["code"],
         "subject_types_supported": ["public"],
         "id_token_signing_alg_values_supported": ["RS256"],
@@ -873,7 +1014,7 @@ fn chooser(p: Provider, call: &Call) -> Reply {
         200,
         &format!(
             "<!doctype html><title>{p} sign-in (stub)</title><h1>{p} sign-in (dev stub)</h1>\
-             <form method=\"get\" action=\"/{p}/consent\">{hidden}{buttons}\
+             <form method=\"get\" action=\"{CONSENT}{p}\">{hidden}{buttons}\
              <button name=\"decision\" value=\"deny\">Deny</button></form>",
             p = p.name()
         ),
@@ -885,11 +1026,17 @@ fn index(cfg: &Config) -> Reply {
         .iter()
         .map(|u| format!("<li>{} &lt;{}&gt;</li>", escape(u.key), escape(u.email.unwrap_or("no email"))))
         .collect();
+    let endpoints: String = Endpoint::ALL
+        .iter()
+        .map(|e| format!("<li>{} {} <small>({})</small></li>", e.method(), escape(e.path()), escape(e.url())))
+        .collect();
     Reply::html(
         200,
         &format!(
             "<!doctype html><title>auth stub</title><h1>SlopNinja dev auth stub</h1>\
-             <p>Origin {}. Dev only: OAuth for Google, GitHub and X, and the mail capture at /mail.</p><ul>{users}</ul>",
+             <p>Origin {}. Dev only: OAuth for Google, GitHub and X, and the mail capture at /mail.</p><ul>{users}</ul>\
+             <p>Provider endpoints, each on its real host and path (X avatars: GET /{X_AVATAR_HOST}/&lt;path&gt;):</p>\
+             <ul>{endpoints}</ul>",
             escape(cfg.origin.as_str())
         ),
     )

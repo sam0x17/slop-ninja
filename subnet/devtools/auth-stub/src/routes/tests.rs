@@ -26,11 +26,7 @@ fn redirect_uri(p: Provider) -> String {
 }
 
 fn authorize_path(p: Provider) -> &'static str {
-    match p {
-        Provider::Google => "/google/o/oauth2/v2/auth",
-        Provider::Github => "/github/login/oauth/authorize",
-        Provider::X => "/x/i/oauth2/authorize",
-    }
+    p.authorize().path()
 }
 
 fn authorize_call(p: Provider, extra: &[(&str, &str)]) -> Call {
@@ -82,7 +78,7 @@ fn code_of(s: &mut Stub, p: Provider, extra: &[(&str, &str)], now: u64) -> Strin
 fn google_token(s: &mut Stub, code: &str, verifier: &str, now: u64) -> Outcome {
     let c = cfg();
     let ru = redirect_uri(Provider::Google);
-    let call = Call::new("POST", "/google/token").form(&[
+    let call = Call::new("POST", Endpoint::GoogleToken.path()).form(&[
         ("code", code),
         ("client_id", &c.google.id),
         ("client_secret", &c.google.secret),
@@ -131,7 +127,7 @@ fn google_refusals() {
     // Wrong secret.
     let code = code_of(&mut s, Provider::Google, &[], 0);
     let c = cfg();
-    let call = Call::new("POST", "/google/token").form(&[("code", &code), ("client_id", &c.google.id), ("client_secret", "nope"), ("grant_type", "authorization_code")]);
+    let call = Call::new("POST", Endpoint::GoogleToken.path()).form(&[("code", &code), ("client_id", &c.google.id), ("client_secret", "nope"), ("grant_type", "authorization_code")]);
     assert_eq!(reply(s.handle(&c, &call, 1)).status, 401);
     // Unregistered redirect URI and a missing challenge never reach the redirect.
     let r = reply(s.handle(&c, &authorize_call(Provider::Google, &[("redirect_uri", "https://evil.example/cb")]), 0));
@@ -175,7 +171,7 @@ fn google_switches_and_hints() {
     let page = reply(s.handle(&cfg(), &authorize_call(Provider::Google, &[]), 0));
     assert!(page.status == 200 && page.body_text().contains("value=\"dave\""));
     let mut consent = authorize_call(Provider::Google, &[("user", "dave")]);
-    consent.path = "/google/consent".into();
+    consent.path = format!("{CONSENT}google");
     let q = back(&reply(s.handle(&cfg(), &consent, 0)));
     assert!(field(&q, "code").is_some());
     // Unknown switch fields are refused; reset restores every default.
@@ -188,16 +184,19 @@ fn google_switches_and_hints() {
 #[test]
 fn discovery_names_the_stub_endpoints() {
     let mut s = Stub::default();
-    let d = reply(s.handle(&cfg(), &Call::new("GET", "/google/.well-known/openid-configuration"), 0)).body_json();
-    assert_eq!(d["token_endpoint"], format!("{DEV_STUB_ORIGIN}/google/token"));
+    let d = reply(s.handle(&cfg(), &Call::new("GET", Endpoint::GoogleDiscovery.path()), 0)).body_json();
+    assert_eq!(d["issuer"], "https://accounts.google.com");
+    assert_eq!(d["authorization_endpoint"], format!("{DEV_STUB_ORIGIN}/accounts.google.com/o/oauth2/v2/auth"));
+    assert_eq!(d["token_endpoint"], format!("{DEV_STUB_ORIGIN}/oauth2.googleapis.com/token"));
+    assert_eq!(d["jwks_uri"], format!("{DEV_STUB_ORIGIN}/www.googleapis.com/oauth2/v3/certs"));
     assert_eq!(d["code_challenge_methods_supported"], json!(["plain", "S256"]));
-    assert_eq!(s.handle(&cfg(), &Call::new("GET", "/google/oauth2/v3/certs"), 0), Outcome::Jwks);
+    assert_eq!(s.handle(&cfg(), &Call::new("GET", Endpoint::GoogleKeys.path()), 0), Outcome::Jwks);
 }
 
 fn github_exchange(s: &mut Stub, code: &str, json_accept: bool) -> Reply {
     let c = cfg();
     let ru = redirect_uri(Provider::Github);
-    let mut call = Call::new("POST", "/github/login/oauth/access_token").form(&[
+    let mut call = Call::new("POST", Endpoint::GithubToken.path()).form(&[
         ("client_id", &c.github.id),
         ("client_secret", &c.github.secret),
         ("code", code),
@@ -232,11 +231,11 @@ fn github_flow_errors_and_emails() {
     assert_eq!(bad.status, 200);
     assert!(bad.body_text().starts_with("error=bad_verification_code"));
     // The API needs a User-Agent and a live token.
-    assert_eq!(github_get(&mut s, "/github/api/user", &token, false).status, 403);
-    assert_eq!(github_get(&mut s, "/github/api/user", "ghu_nope", true).status, 401);
-    let u = github_get(&mut s, "/github/api/user", &token, true).body_json();
+    assert_eq!(github_get(&mut s, Endpoint::GithubUser.path(), &token, false).status, 403);
+    assert_eq!(github_get(&mut s, Endpoint::GithubUser.path(), "ghu_nope", true).status, 401);
+    let u = github_get(&mut s, Endpoint::GithubUser.path(), &token, true).body_json();
     assert_eq!((u["id"].as_u64(), u["login"].as_str()), (Some(9_000_001), Some("alice-example")));
-    let e = github_get(&mut s, "/github/api/user/emails", &token, true).body_json();
+    let e = github_get(&mut s, Endpoint::GithubEmails.path(), &token, true).body_json();
     assert_eq!(e[0]["primary"], false, "a non-primary verified address comes first");
     assert_eq!((e[1]["email"].as_str(), e[1]["primary"].as_bool(), e[1]["verified"].as_bool()), (Some("alice@example.com"), Some(true), Some(true)));
     for (mode, check) in [
@@ -245,7 +244,7 @@ fn github_flow_errors_and_emails() {
         ("placeholder", json!("9000001+alice-example@users.noreply.github.com")),
     ] {
         switch(&mut s, json!({"provider": "github", "email": mode}));
-        let e = github_get(&mut s, "/github/api/user/emails", &token, true).body_json();
+        let e = github_get(&mut s, Endpoint::GithubEmails.path(), &token, true).body_json();
         match mode {
             "unverified" => assert_eq!(e[1]["verified"], check),
             "missing" => assert_eq!(e, json!([])),
@@ -253,14 +252,14 @@ fn github_flow_errors_and_emails() {
         }
     }
     switch(&mut s, json!({"provider": "github", "userinfo_status": 500}));
-    assert_eq!(github_get(&mut s, "/github/api/user", &token, true).status, 500);
+    assert_eq!(github_get(&mut s, Endpoint::GithubUser.path(), &token, true).status, 500);
 }
 
 fn x_exchange(s: &mut Stub, code: &str, basic_ok: bool, now: u64) -> Reply {
     let c = cfg();
     let ru = redirect_uri(Provider::X);
     let creds = if basic_ok { format!("{}:{}", c.x.id, c.x.secret) } else { format!("{}:wrong", c.x.id) };
-    let call = Call::new("POST", "/x/2/oauth2/token")
+    let call = Call::new("POST", Endpoint::XToken.path())
         .header("authorization", &format!("Basic {}", STANDARD.encode(creds)))
         .form(&[("code", code), ("grant_type", "authorization_code"), ("redirect_uri", &ru), ("code_verifier", VERIFIER)]);
     reply(s.handle(&c, &call, now))
@@ -283,7 +282,7 @@ fn x_flow_thirty_seconds_fields_and_avatars() {
     assert_eq!((ok.status, ok.delay_ms), (200, 31_000));
     let token = ok.body_json()["access_token"].as_str().expect("token").to_owned();
     let me = |s: &mut Stub, fields: &str| {
-        let call = Call::new("GET", &format!("/x/2/users/me?user.fields={fields}")).header("authorization", &format!("Bearer {token}"));
+        let call = Call::new("GET", &format!("{}?user.fields={fields}", Endpoint::XMe.path())).header("authorization", &format!("Bearer {token}"));
         reply(s.handle(&cfg(), &call, 40_000))
     };
     let d = me(&mut s, "").body_json()["data"].clone();
@@ -295,13 +294,19 @@ fn x_flow_thirty_seconds_fields_and_avatars() {
     switch(&mut s, json!({"provider": "x", "userinfo_status": 402}));
     assert_eq!(me(&mut s, "").body_json()["title"], "CreditsDepleted");
     // Avatars by kind.
-    let av = |s: &mut Stub, key: &str| reply(s.handle(&cfg(), &Call::new("GET", &format!("/x/pbs/profile_images/1/{key}_normal.png")), 0));
+    let av = |s: &mut Stub, key: &str| reply(s.handle(&cfg(), &Call::new("GET", &format!("/{X_AVATAR_HOST}/profile_images/1/{key}_normal.png")), 0));
     assert_eq!(av(&mut s, "alice").body.to_vec(), users::PNG_1X1);
     assert_eq!(av(&mut s, "bob").header("content-type"), Some("image/jpeg"));
     assert!(av(&mut s, "carol").body_text().starts_with("<svg"));
     assert!(av(&mut s, "erin").body.len() > 64 * 1024);
     switch(&mut s, json!({"provider": "x", "avatar": "redirect"}));
-    assert_eq!(av(&mut s, "alice").status, 302);
+    let moved = av(&mut s, "alice");
+    assert_eq!(moved.status, 302);
+    // The redirect stays under the stub's own origin, never the real host.
+    assert_eq!(
+        moved.header("location"),
+        Some(format!("{DEV_STUB_ORIGIN}/pbs.twimg.com/profile_images/1900000000000000001/other_normal.png").as_str())
+    );
     switch(&mut s, json!({"provider": "x", "avatar": "missing"}));
     assert_eq!(av(&mut s, "alice").status, 404);
 }
@@ -311,9 +316,9 @@ fn x_email_needs_the_scope_and_a_confirmed_address() {
     let mut s = Stub::default();
     let code = code_of(&mut s, Provider::X, &[("scope", "users.read tweet.read")], 0);
     let token = x_exchange(&mut s, &code, true, 1).body_json()["access_token"].as_str().unwrap_or("").to_owned();
-    let call = Call::new("GET", "/x/2/users/me?user.fields=confirmed_email").header("authorization", &format!("Bearer {token}"));
+    let call = Call::new("GET", &format!("{}?user.fields=confirmed_email", Endpoint::XMe.path())).header("authorization", &format!("Bearer {token}"));
     assert!(reply(s.handle(&cfg(), &call, 2)).body_json()["data"].get("confirmed_email").is_none());
-    let revoke = Call::new("POST", "/x/2/oauth2/revoke")
+    let revoke = Call::new("POST", Endpoint::XRevoke.path())
         .header("authorization", &format!("Basic {}", STANDARD.encode(format!("{}:{}", cfg().x.id, cfg().x.secret))))
         .form(&[("token", &token)]);
     assert_eq!(reply(s.handle(&cfg(), &revoke, 3)).status, 200);
@@ -418,5 +423,187 @@ fn avatar_labels_are_the_stored_types() {
             (None, None) => assert!(matches!(a, Avatar::Redirect | Avatar::Missing)),
             (Some(_), None) => panic!("{a:?}: a stored type needs bytes"),
         }
+    }
+}
+
+/// The provider URLs the sign-in code holds as constants (production).
+const GOOGLE_DISCOVERY: &str = "https://accounts.google.com/.well-known/openid-configuration";
+const GOOGLE_AUTHORIZE: &str = "https://accounts.google.com/o/oauth2/v2/auth";
+const GOOGLE_TOKEN: &str = "https://oauth2.googleapis.com/token";
+const GOOGLE_KEYS: &str = "https://www.googleapis.com/oauth2/v3/certs";
+const GITHUB_AUTHORIZE: &str = "https://github.com/login/oauth/authorize";
+const GITHUB_TOKEN: &str = "https://github.com/login/oauth/access_token";
+const GITHUB_USER: &str = "https://api.github.com/user";
+const GITHUB_EMAILS: &str = "https://api.github.com/user/emails";
+const X_AUTHORIZE: &str = "https://x.com/i/oauth2/authorize";
+const X_TOKEN: &str = "https://api.x.com/2/oauth2/token";
+const X_REVOKE: &str = "https://api.x.com/2/oauth2/revoke";
+const X_ME: &str = "https://api.x.com/2/users/me?user.fields=confirmed_email,profile_image_url,username,name,verified_type";
+
+/// A real provider URL as the dev build sends it: moved under the stub's
+/// origin as `<stub origin>/<real host><real path and query>`.
+fn moved(real: &str) -> String {
+    format!("{DEV_STUB_ORIGIN}/{}", real.strip_prefix("https://").expect("an https URL"))
+}
+
+/// A request for a URL under the stub's origin, as the Worker reads it.
+fn to(method: &str, url: &str) -> Call {
+    let rest = url.strip_prefix(DEV_STUB_ORIGIN).expect("a URL under the stub origin");
+    Call::new(method, rest).host("auth.slop.localhost")
+}
+
+/// The authorize request as the sign-in code builds it, sent to the moved
+/// authorize URL; returns the code from the redirect to the callback.
+fn code_at(s: &mut Stub, real_authorize: &str, p: Provider) -> String {
+    let c = cfg();
+    let ch = challenge();
+    let ru = redirect_uri(p);
+    let mut f: Vec<(&str, &str)> = vec![("response_type", "code"), ("client_id", &c.client(p).id), ("redirect_uri", &ru)];
+    match p {
+        Provider::Google => f.push(("scope", "openid email profile")),
+        Provider::Github => {}
+        Provider::X => f.push(("scope", "users.read tweet.read users.email")),
+    }
+    f.push(("state", "st-real"));
+    if p == Provider::Google {
+        f.push(("nonce", "n-real"));
+    }
+    f.extend([("code_challenge", ch.as_str()), ("code_challenge_method", "S256")]);
+    if p != Provider::X {
+        f.push(("prompt", "select_account"));
+    }
+    let r = reply(s.handle(&c, &to("GET", &format!("{}?{}", moved(real_authorize), encode(&f))), 0));
+    let q = back(&r);
+    let loc = r.header("location").unwrap_or("");
+    assert!(loc.starts_with(&format!("{ru}?")), "{p:?}: back to the registered callback: {loc}");
+    assert_eq!(field(&q, "state"), Some("st-real"), "{p:?}");
+    field(&q, "code").expect("a code").to_owned()
+}
+
+/// Each provider, driven through the URLs the account Worker's dev build
+/// calls: every real endpoint moved under the stub's origin, the X avatar
+/// included.
+#[test]
+fn each_provider_answers_at_its_real_host_and_path() {
+    let c = cfg();
+    let mut s = Stub::default();
+    let ua = "SlopNinja-sign-in";
+
+    // Google: discovery names the moved endpoints; authorize, token, key set.
+    let d = reply(s.handle(&c, &to("GET", &moved(GOOGLE_DISCOVERY)), 0)).body_json();
+    assert_eq!(d["authorization_endpoint"], moved(GOOGLE_AUTHORIZE));
+    assert_eq!(d["token_endpoint"], moved(GOOGLE_TOKEN));
+    assert_eq!(d["jwks_uri"], moved(GOOGLE_KEYS));
+    let code = code_at(&mut s, GOOGLE_AUTHORIZE, Provider::Google);
+    let ru = redirect_uri(Provider::Google);
+    let token = to("POST", &moved(GOOGLE_TOKEN))
+        .form(&[
+            ("grant_type", "authorization_code"),
+            ("code", &code),
+            ("redirect_uri", &ru),
+            ("code_verifier", VERIFIER),
+            ("client_id", &c.google.id),
+            ("client_secret", &c.google.secret),
+        ])
+        .header("accept", "application/json")
+        .header("user-agent", ua);
+    match s.handle(&c, &token, 1) {
+        Outcome::IdToken { claims, body, .. } => {
+            assert_eq!((claims["iss"].as_str(), claims["nonce"].as_str()), (Some("https://accounts.google.com"), Some("n-real")));
+            assert_eq!(claims["email"], "alice@example.com");
+            assert!(body["access_token"].is_string());
+        }
+        other => panic!("google token: {other:?}"),
+    }
+    assert_eq!(s.handle(&c, &to("GET", &moved(GOOGLE_KEYS)), 2), Outcome::Jwks);
+
+    // GitHub: authorize, token, user and emails.
+    let code = code_at(&mut s, GITHUB_AUTHORIZE, Provider::Github);
+    let ru = redirect_uri(Provider::Github);
+    let t = to("POST", &moved(GITHUB_TOKEN))
+        .form(&[("code", &code), ("redirect_uri", &ru), ("code_verifier", VERIFIER), ("client_id", &c.github.id), ("client_secret", &c.github.secret)])
+        .header("accept", "application/json")
+        .header("user-agent", ua);
+    let t = reply(s.handle(&c, &t, 3)).body_json();
+    let gh = t["access_token"].as_str().expect("a GitHub token").to_owned();
+    let api = |url: &str| {
+        to("GET", &moved(url))
+            .header("authorization", &format!("Bearer {gh}"))
+            .header("user-agent", ua)
+            .header("accept", "application/vnd.github+json")
+            .header("x-github-api-version", "2022-11-28")
+    };
+    let u = reply(s.handle(&c, &api(GITHUB_USER), 4)).body_json();
+    assert_eq!((u["id"].as_u64(), u["login"].as_str()), (Some(9_000_001), Some("alice-example")));
+    let e = reply(s.handle(&c, &api(GITHUB_EMAILS), 4)).body_json();
+    let primary = e.as_array().and_then(|a| a.iter().find(|x| x["primary"] == true)).cloned().unwrap_or_default();
+    assert_eq!((primary["email"].as_str(), primary["verified"].as_bool()), (Some("alice@example.com"), Some(true)));
+
+    // X: authorize, token, users/me with the fields asked, the avatar, revoke.
+    let code = code_at(&mut s, X_AUTHORIZE, Provider::X);
+    let ru = redirect_uri(Provider::X);
+    let basic = format!("Basic {}", STANDARD.encode(format!("{}:{}", c.x.id, c.x.secret)));
+    let t = to("POST", &moved(X_TOKEN))
+        .form(&[("grant_type", "authorization_code"), ("code", &code), ("redirect_uri", &ru), ("code_verifier", VERIFIER)])
+        .header("authorization", &basic)
+        .header("accept", "application/json")
+        .header("user-agent", ua);
+    let xt = reply(s.handle(&c, &t, 5)).body_json()["access_token"].as_str().expect("an X token").to_owned();
+    let me = to("GET", &moved(X_ME)).header("authorization", &format!("Bearer {xt}")).header("user-agent", ua);
+    let d = reply(s.handle(&c, &me, 6)).body_json()["data"].clone();
+    assert_eq!((d["id"].as_str(), d["username"].as_str()), (Some("1900000000000000001"), Some("alice_example")));
+    assert_eq!(d["confirmed_email"], "alice@example.com");
+    let avatar = d["profile_image_url"].as_str().expect("an avatar URL").to_owned();
+    assert!(avatar.starts_with("https://pbs.twimg.com/"), "{avatar}");
+    let img = reply(s.handle(&c, &to("GET", &moved(&avatar)), 7));
+    assert_eq!((img.status, img.body.to_vec()), (200, users::PNG_1X1.to_vec()));
+    let revoke = to("POST", &moved(X_REVOKE)).header("authorization", &basic).form(&[("token", &xt), ("token_type_hint", "access_token")]);
+    assert_eq!(reply(s.handle(&c, &revoke, 8)).status, 200);
+    assert_eq!(reply(s.handle(&c, &me, 9)).status, 401, "a revoked token reads nothing");
+
+    // Every route was reached through its real host and path.
+    let hits = &s.hits;
+    for label in [
+        "google/discovery", "google/authorize", "google/token", "google/jwks",
+        "github/authorize", "github/token", "github/user", "github/user/emails",
+        "x/authorize", "x/token", "x/users/me", "x/avatar", "x/revoke",
+    ] {
+        assert!(hits.get(label).is_some_and(|n| *n >= 1), "{label}: {hits:?}");
+    }
+}
+
+/// The endpoint table is the sign-in code's URL list, each served at
+/// `/<real host><real path>`, and no provider route lives anywhere else.
+#[test]
+fn the_endpoint_table_is_the_real_urls() {
+    let real: Vec<&str> = [
+        GOOGLE_DISCOVERY, GOOGLE_AUTHORIZE, GOOGLE_TOKEN, GOOGLE_KEYS,
+        GITHUB_AUTHORIZE, GITHUB_TOKEN, GITHUB_USER, GITHUB_EMAILS,
+        X_AUTHORIZE, X_TOKEN, X_REVOKE, X_ME,
+    ]
+    .iter()
+    .map(|u| u.split_once('?').map_or(*u, |(path, _)| path))
+    .collect();
+    assert_eq!(Endpoint::ALL.map(Endpoint::url).to_vec(), real);
+    let c = cfg();
+    for e in Endpoint::ALL {
+        assert_eq!(e.at(&c.origin), moved(e.url()), "{e:?}");
+        assert_eq!(Endpoint::of(e.method(), e.path()), Some(e), "{e:?}");
+        assert_eq!(e.provider().authorize().provider(), e.provider(), "{e:?}");
+        let other = if e.method() == "GET" { "POST" } else { "GET" };
+        assert_eq!(Endpoint::of(other, e.path()), None, "{e:?}");
+    }
+    let mut s = Stub::default();
+    for (m, path) in [
+        ("POST", "/google/token"),
+        ("GET", "/google/.well-known/openid-configuration"),
+        ("GET", "/github/api/user"),
+        ("POST", "/x/2/oauth2/token"),
+        ("GET", "/x/2/users/me"),
+        ("GET", "/x/pbs/profile_images/1/alice_normal.png"),
+        ("GET", "/twimg.com/profile_images/1/alice_normal.png"),
+        ("GET", "/__stub/consent/bittensor"),
+    ] {
+        assert_eq!(reply(s.handle(&c, &Call::new(m, path), 0)).status, 404, "{m} {path}");
     }
 }

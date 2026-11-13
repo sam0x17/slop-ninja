@@ -841,6 +841,26 @@ mod tests {
     }
 
     #[test]
+    fn fable_5_2_validates_low_to_max_and_refuses_none() {
+        // Claude Fable 5.2: effort low to max, thinking always on, so no
+        // `none` level. Not in the fixture roster; added here as its own entry.
+        let mut m = planned();
+        let mut f = m.model("claude-fable-5-1").unwrap().clone();
+        f.id = "claude-fable-5-2".into();
+        m.models.push(f);
+        m.validate().unwrap();
+        assert_eq!(m.model("claude-fable-5-2").unwrap().effort_levels, [Effort::Low, Effort::Medium, Effort::High, Effort::Xhigh, Effort::Max]);
+        configured(m.clone()).validate().unwrap();
+        measured(m.clone()).validate().unwrap();
+        let mut none = m.clone();
+        none.models.last_mut().unwrap().effort_levels.insert(0, Effort::None);
+        assert_eq!(none.validate().unwrap_err().0, "manifest models (effort levels are the documented set)");
+        let mut short = m;
+        short.models.last_mut().unwrap().effort_levels.pop();
+        assert_eq!(short.validate().unwrap_err().0, "manifest models (effort levels are the documented set)");
+    }
+
+    #[test]
     fn a_measured_manifest_needs_every_cell() {
         let mut m = measured(planned());
         m.models[3].measured.as_mut().unwrap().remove("max");

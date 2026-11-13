@@ -882,7 +882,7 @@ printf 'Authorization: Bearer %s\n' "$(cat $S/eval_operator_token)" |
   curl -sS --header @- -H 'Content-Type: application/json' --data-binary @plan.json \
     $EVAL_URL/eval/plan
 # pre-flight a generator or the scorer path on fixed synthetic text: /eval/probe, /eval/scorer-probe
-# generation v2 (after the gen Worker and the GEN_TESTNET binding are deployed; gen Worker first, then
+# generation v2 (the eval Worker binds GEN_TESTNET, so every eval deploy needs the gen Worker: gen Worker first, then
 #   eval; never roll the gen Worker back below the eval Worker's interface version, now v2): GET /eval/gen/health
 #   ({interface, openai, anthropic, openai_route, anthropic_route}; the gen Worker reaches a vendor only at
 #   its configured endpoint, the endpoint secret GEN_<VENDOR>_ENDPOINT, and is unavailable for it without

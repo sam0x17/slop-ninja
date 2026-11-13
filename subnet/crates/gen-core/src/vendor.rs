@@ -162,8 +162,9 @@ pub enum AnthropicThinking {
     /// other thinking field and no effort (the default, high; between_tools
     /// is a 400 at xhigh and max); `disabled` is a 400.
     BetweenToolsAtNone,
-    /// Opus 5.5 and Fable 5.1: thinking is always on; `thinking` is omitted
-    /// and the effort always sent (Opus's default is medium).
+    /// Opus 5.5, Fable 5.1 and Fable 5.2: thinking is always on; `thinking`
+    /// is omitted and the effort always sent (Opus's default is medium,
+    /// Fable's high).
     AlwaysOn,
 }
 
@@ -203,7 +204,7 @@ pub fn documented_efforts(model: &str) -> Option<&'static [Effort]> {
         "gpt-6-luna" | "gpt-6.1-terra" => OPENAI_NONE_TO_MAX,
         "gpt-6.1-sol" | "gpt-6-astra" => LOW_TO_MAX,
         "claude-haiku-5-5" | "claude-sonnet-5-5" => OPENAI_NONE_TO_MAX,
-        "claude-opus-5-5" | "claude-fable-5-1" => LOW_TO_MAX,
+        "claude-opus-5-5" | "claude-fable-5-1" | "claude-fable-5-2" => LOW_TO_MAX,
         "@cf/openai/gpt-oss-20b" | "@cf/openai/gpt-oss-120b" => GPT_OSS,
         "@cf/deepseek-ai/deepseek-v4.1-flash-1017" => DEEPSEEK_V4,
         "@cf/moonshotai/kimi-k2.6" => KIMI,
@@ -228,7 +229,7 @@ pub fn anthropic_thinking(model: &str) -> Option<AnthropicThinking> {
     Some(match model {
         "claude-haiku-5-5" => AnthropicThinking::DisabledAtNone,
         "claude-sonnet-5-5" => AnthropicThinking::BetweenToolsAtNone,
-        "claude-opus-5-5" | "claude-fable-5-1" => AnthropicThinking::AlwaysOn,
+        "claude-opus-5-5" | "claude-fable-5-1" | "claude-fable-5-2" => AnthropicThinking::AlwaysOn,
         _ => return None,
     })
 }
@@ -244,12 +245,12 @@ mod tests {
     use super::*;
 
     #[test]
-    fn frontier_effort_cells_total_44_and_workers_ai_22() {
+    fn frontier_effort_cells_total_49_and_workers_ai_22() {
         let f = [
             "gpt-6-luna", "gpt-6.1-terra", "gpt-6.1-sol", "gpt-6-astra",
-            "claude-haiku-5-5", "claude-sonnet-5-5", "claude-opus-5-5", "claude-fable-5-1",
+            "claude-haiku-5-5", "claude-sonnet-5-5", "claude-opus-5-5", "claude-fable-5-1", "claude-fable-5-2",
         ];
-        assert_eq!(f.iter().map(|m| documented_efforts(m).unwrap().len()).sum::<usize>(), 44);
+        assert_eq!(f.iter().map(|m| documented_efforts(m).unwrap().len()).sum::<usize>(), 49);
         let w = [
             "@cf/ibm-granite/granite-4.0-h-micro", "@cf/meta/llama-3.2-3b-instruct",
             "@cf/meta/llama-3.1-8b-instruct-fp8-fast", "@cf/meta/llama-3.2-11b-vision-instruct",
@@ -261,8 +262,11 @@ mod tests {
         ];
         assert_eq!(w.iter().map(|m| documented_efforts(m).unwrap().len()).sum::<usize>(), 22);
         // Sol and Astra have no `none`; Opus and Fable cannot turn thinking off.
-        for m in ["gpt-6.1-sol", "gpt-6-astra", "claude-opus-5-5", "claude-fable-5-1"] {
+        for m in ["gpt-6.1-sol", "gpt-6-astra", "claude-opus-5-5", "claude-fable-5-1", "claude-fable-5-2"] {
             assert!(!documented_efforts(m).unwrap().contains(&Effort::None));
+        }
+        for m in ["claude-opus-5-5", "claude-fable-5-1", "claude-fable-5-2"] {
+            assert_eq!(anthropic_thinking(m), Some(AnthropicThinking::AlwaysOn));
         }
         assert!(excluded_workers_ai("@cf/zai-org/glm-4.7-flash") && !excluded_workers_ai(w[0]));
         for e in [D, N, L, M, H, XH, X] {

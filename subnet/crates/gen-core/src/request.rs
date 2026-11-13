@@ -570,6 +570,27 @@ mod tests {
     }
 
     #[test]
+    fn fable_5_2_requests_omit_thinking_and_send_the_effort() {
+        // Claude Fable 5.2 is not in the fixture roster; add it as its own entry.
+        let mut m = planned();
+        let mut f = m.model("claude-fable-5-1").unwrap().clone();
+        f.id = "claude-fable-5-2".into();
+        m.models.push(f);
+        let lib = library();
+        let t = GenTarget::Scratch { domain: "fineweb", topic: "a bicycle", target_words: 200 };
+        for e in documented_efforts("claude-fable-5-2").unwrap() {
+            let r = build(&m, &lib, &assignment("claude-fable-5-2", *e, DocKind::ModelOnly, VoiceChoice::None), &t).unwrap();
+            let b = body(&r);
+            assert_eq!(b["model"], "claude-fable-5-2");
+            assert!(b.get("thinking").is_none(), "{e:?}: thinking omitted (always on)");
+            assert_eq!(b["output_config"], json!({"effort": e.code()}));
+            assert!(!r.body.contains("budget_tokens"));
+        }
+        let a = assignment("claude-fable-5-2", Effort::None, DocKind::Mixed, VoiceChoice::None);
+        assert!(build(&m, &lib, &a, &rewrite()).is_err());
+    }
+
+    #[test]
     fn workers_ai_requests_keep_todays_shape() {
         let m = planned();
         let lib = library();

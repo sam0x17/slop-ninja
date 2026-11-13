@@ -371,11 +371,13 @@ max_retries = 10
 max_concurrency = 1
 
 # Generation v2: the internal generation Worker (subnet/gen-worker,
-# slop-ninja-gen-testnet; no public surface), which holds the two frontier
-# vendor keys. Commented out until that Worker is deployed (its own deploy,
-# then this binding in a separate eval deploy): the eval Worker's
-# /eval/gen/health and /eval/gen/measure answer gen_unavailable without it,
-# and no cohort calls it (plans naming generation v2 are refused).
-# [[env.eval-testnet.services]]
-# binding = "GEN_TESTNET"
-# service = "slop-ninja-gen-testnet"
+# slop-ninja-gen-testnet; no public surface), which makes the frontier model
+# calls through its configured credentials. A service binding to a Worker
+# that does not exist fails the deploy, so that Worker deploys first and
+# must exist for every deploy of this one. The binding changes no cohort:
+# the operator routes /eval/gen/health and /eval/gen/measure call it, and
+# the generation lanes would only for a plan naming generation v2, which
+# this build still refuses.
+[[env.eval-testnet.services]]
+binding = "GEN_TESTNET"
+service = "slop-ninja-gen-testnet"

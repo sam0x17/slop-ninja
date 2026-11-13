@@ -21,6 +21,11 @@
 //!   ([`extract`]: dom_smoothie); Bluesky posts through the public AppView
 //!   ([`bluesky`]).
 //!
+//! Neither route ever requests an X host (`x.com`, `twitter.com`, `t.co`,
+//! `twimg.com` or a subdomain): the submitted URL, every page hop, the
+//! `/robots` origin and every robots.txt hop are refused before any request
+//! (`slop_ninja_detect_url::platform::is_x_host`).
+//!
 //! **Memory** (Δ21). Every invocation runs in its own bounded arena scope
 //! ([`routes`]); the body-dependent work is reserved from the isolate's
 //! fetch memory by its measured footprint ([`bound`], checked by the native

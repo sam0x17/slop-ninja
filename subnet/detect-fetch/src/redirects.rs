@@ -6,10 +6,15 @@
 //! ([`slop_ninja_detect_url::admit`]); for robots.txt, the input checks
 //! ([`slop_ninja_detect_url::check`]; RFC 9309 robots files are never
 //! capability links). An `https` URL that redirects to `http` ends the chain
-//! (the downgrade stop), as do a loop and the hop limit. The caller then
-//! screens the new host and, for a page on a new origin, reads its robots.txt.
+//! (the downgrade stop), as do a loop and the hop limit. A hop to an X host
+//! (`x.com`, `twitter.com`, `t.co`, `twimg.com` or a subdomain;
+//! [`slop_ninja_detect_url::platform::is_x_host`]) ends the chain for both
+//! kinds before the URL rules run, so it is never screened or requested. The
+//! caller then screens the new host and, for a page on a new origin, reads
+//! its robots.txt.
 
 use slop_ninja_detect_fetch_wire::Outcome;
+use slop_ninja_detect_url::platform::is_x_url;
 use slop_ninja_detect_url::{Admitted, Checked, Platform, Policy, Refusal, admit, check};
 use url::Url;
 
@@ -49,10 +54,14 @@ pub fn next(current: &Url, location: Option<&str>, policy: &Policy, kind: Kind, 
     if current.scheme() == "https" && joined.scheme() == "http" {
         return Next::Stop(Outcome::Downgrade);
     }
+    // The web fetcher never requests an X host (a page or a robots.txt).
+    if is_x_url(&joined) {
+        return Next::Stop(Outcome::Unsupported);
+    }
     let (url, host) = match kind {
         Kind::Page => match admit(joined.as_str(), policy) {
             Ok(Admitted::Fetch(t)) if t.platform == Platform::Web => (t.url, t.host),
-            Ok(Admitted::Fetch(_)) | Err(Refusal::PasteOnly) => return Next::Stop(Outcome::Unsupported),
+            Ok(Admitted::Fetch(_)) | Err(Refusal::PasteOnly | Refusal::XNotAPost) => return Next::Stop(Outcome::Unsupported),
             Ok(Admitted::Slug(_)) | Err(_) => return Next::Stop(Outcome::RedirectRefused),
         },
         Kind::Robots => match check(joined.as_str(), policy) {
@@ -122,6 +131,34 @@ mod tests {
             ("http://example.com/plain", Outcome::Downgrade),
         ] {
             assert_eq!(go("https://example.com/a", loc), Next::Stop(want), "{loc}");
+        }
+    }
+
+    #[test]
+    fn hops_to_x_hosts_stop_for_pages_and_robots() {
+        let p = Policy::production();
+        for (from, kind) in [("https://example.com/a", Kind::Page), ("https://example.com/robots.txt", Kind::Robots)] {
+            let cur = Url::parse(from).unwrap();
+            for loc in [
+                "https://t.co/abc123",
+                "//t.co/abc123",
+                "https://T.CO./abc123",
+                "https://t%2Eco/abc123",
+                "https://pbs.twimg.com/media/abc.jpg",
+                "https://abs.twimg.com/robots.txt",
+                "https://x.com/robots.txt",
+                "https://x.com/u/status/1",
+                "https://\u{ff58}.com/someone",
+                "https://www.twitter.com/someone",
+                "https://mobile.twitter.com/robots.txt",
+                "https://publish.x.com/oembed",
+            ] {
+                assert_eq!(next(&cur, Some(loc), &p, kind, 0, 20, &[]), Next::Stop(Outcome::Unsupported), "{kind:?} {loc}");
+            }
+            // Look-alikes on whole labels are ordinary hosts.
+            for loc in ["https://notx.com/robots.txt", "https://t.co.example.com/robots.txt"] {
+                assert!(matches!(next(&cur, Some(loc), &p, kind, 0, 20, &[]), Next::Go { .. }), "{kind:?} {loc}");
+            }
         }
     }
 

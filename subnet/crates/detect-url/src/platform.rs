@@ -5,10 +5,15 @@
 //! - X posts map every URL variant to `x:status:<id>`; they are not read by
 //!   URL until the X adapter exists (phase 2), so the URL-page flow refuses
 //!   them.
+//! - Every other link on an X host ([`X_HOSTS`]: profiles, search, `t.co`
+//!   short links, `twimg.com` media) is not a post. The web fetcher never
+//!   requests an X host ([`is_x_host`]), on the submitted URL, any redirect
+//!   hop or any robots.txt read.
 //! - Reddit, LinkedIn, Facebook, Instagram and Threads are paste-only (risk
 //!   F15): login walls and platform terms rule out fetching them.
 //! - Everything else is a web page.
 
+use crate::check::under;
 use url::Url;
 
 /// Registrable domains whose pages are paste-only (risk F15).
@@ -27,8 +32,24 @@ pub const PASTE_ONLY: &[&str] = &[
     "threads.com",
 ];
 
-/// X's hosts (their registrable domains).
-pub const X_DOMAINS: &[&str] = &["x.com", "twitter.com"];
+/// X's hosts: its two site domains, its link shortener and its media host.
+/// Each covers its subdomains, matched on whole labels.
+pub const X_HOSTS: &[&str] = &["x.com", "twitter.com", "t.co", "twimg.com"];
+
+/// Whether `host` (as the URL parser leaves it: lowercase A-label, an
+/// optional trailing dot) is an X host or a subdomain of one. The web
+/// fetcher refuses every such host before any request; this rule is
+/// separate from the input checks, so X post links still reach the
+/// platform rule.
+pub fn is_x_host(host: &str) -> bool {
+    let host = host.strip_suffix('.').unwrap_or(host);
+    X_HOSTS.iter().any(|x| under(host, x))
+}
+
+/// Whether `url`'s host is an X host ([`is_x_host`]).
+pub fn is_x_url(url: &Url) -> bool {
+    url.host_str().is_some_and(is_x_host)
+}
 
 /// The Bluesky web app's host.
 pub const BSKY_HOST: &str = "bsky.app";
@@ -66,7 +87,7 @@ pub fn platform(url: &Url, registrable: &str) -> Platform {
     if PASTE_ONLY.contains(&registrable) {
         return Platform::PasteOnly;
     }
-    if X_DOMAINS.contains(&registrable) {
+    if is_x_url(url) {
         return match x_status_id(url) {
             Some(id) => Platform::X { status: id.to_owned() },
             None => Platform::PasteOnly,
@@ -165,6 +186,42 @@ mod tests {
         );
         assert_eq!(p("https://bsky.app/profile/someone.bsky.social"), Platform::PasteOnly);
         assert_eq!(p("https://bsky.app/profile/someone.bsky.social/post/../x"), Platform::PasteOnly);
+    }
+
+    #[test]
+    fn x_hosts_match_whole_labels() {
+        for h in [
+            "x.com",
+            "www.x.com",
+            "mobile.x.com",
+            "publish.x.com",
+            "api.x.com",
+            "twitter.com",
+            "www.twitter.com",
+            "mobile.twitter.com",
+            "t.co",
+            "twimg.com",
+            "pbs.twimg.com",
+            "abs.twimg.com",
+            "video.twimg.com",
+            "x.com.",
+            "t.co.",
+        ] {
+            assert!(is_x_host(h), "{h}");
+        }
+        let others = ["notx.com", "x.com.example.com", "nottwitter.com", "at.co", "t.co.example.org", "twimg.com.example.net", "co", ""];
+        for h in others {
+            assert!(!is_x_host(h), "{h}");
+        }
+        // Hosts are compared as the URL parser leaves them.
+        for u in ["https://T.CO./abc123", "https://\u{ff58}.com/a", "https://t%2Eco/abc123", "https://PBS.twimg.com/media/a.jpg"] {
+            assert!(is_x_url(&Url::parse(u).unwrap()), "{u}");
+        }
+        // Every X host maps to the X family: a post or not a post, never a web page.
+        assert_eq!(p("https://t.co/abc123"), Platform::PasteOnly);
+        assert_eq!(p("https://pbs.twimg.com/media/abc.jpg"), Platform::PasteOnly);
+        assert_eq!(p("https://publish.x.com/oembed"), Platform::PasteOnly);
+        assert_eq!(p("https://notx.com/u/status/1"), Platform::Web);
     }
 
     #[test]

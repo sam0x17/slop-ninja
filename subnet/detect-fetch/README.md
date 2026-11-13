@@ -5,7 +5,10 @@ detect Worker reaches it only through its service binding `DETECT_FETCH`; it
 has no route, no binding of its own (outbound Fetch only, never a Tunnel or
 VPC binding) and keeps nothing between requests. The contract is the `wire`
 crate (`slop-ninja-detect-fetch-wire`), which the detect Worker shares by
-path; the URL rules are `subnet/crates/detect-url`.
+path; the URL rules are `subnet/crates/detect-url`. Neither route ever requests an
+X host (`x.com`, `twitter.com`, `t.co`, `twimg.com` or a subdomain): the
+submitted URL, every page hop, the `/robots` origin and every robots.txt hop
+are refused before any request.
 
 | Route | Does |
 |---|---|

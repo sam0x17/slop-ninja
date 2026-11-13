@@ -1,7 +1,10 @@
 //! One page fetch and extraction (DESIGN 7.5 step 6).
 //!
 //! 1. The request's URL passes the URL rules again (the detect Worker
-//!    admitted it; a Bluesky post goes to [`crate::bluesky`]).
+//!    admitted it; a Bluesky post goes to [`crate::bluesky`]). No request
+//!    ever goes to an X host (`x.com`, `twitter.com`, `t.co`, `twimg.com` or
+//!    a subdomain): the URL rules refuse them, and the request loop checks
+//!    every URL again just before its `GET`.
 //! 2. `GET` with no cookies, no `Authorization` and no referrer, the fixed
 //!    `Accept`, the SlopNinjaBot user agent and Web Bot Auth headers (risk
 //!    F5), and the validators of a re-check. One wall-clock budget covers
@@ -37,6 +40,7 @@ use slop_ninja_detect_fetch_wire::robots::Decision;
 use slop_ninja_detect_fetch_wire::{
     ACCEPT, Adapter, FETCH_WIRE_V, FetchAnswer, FetchRequest, MAX_HOPS, Meta, Outcome, PRODUCT_TOKEN, USER_AGENT,
 };
+use slop_ninja_detect_url::platform::is_x_url;
 use slop_ninja_detect_url::{Admitted, Platform, Policy, Refusal, admit};
 use url::Url;
 
@@ -125,7 +129,7 @@ pub async fn fetch<N: Net>(net: &mut N, ctx: &Ctx<'_>, req: &FetchRequest, on_st
     let html_bound = usize::try_from(req.limits.html_bound).unwrap_or(usize::MAX).min(HTML_BOUND);
     let target = match admit(&req.url, ctx.policy) {
         Ok(Admitted::Fetch(t)) => t,
-        Err(Refusal::PasteOnly) => return bare(Outcome::Unsupported, Adapter::Web),
+        Err(Refusal::PasteOnly | Refusal::XNotAPost) => return bare(Outcome::Unsupported, Adapter::Web),
         Ok(Admitted::Slug(_)) | Err(_) => return bare(Outcome::BadUrl, Adapter::Web),
     };
     if let Platform::Bluesky { actor, rkey } = &target.platform {
@@ -138,6 +142,11 @@ pub async fn fetch<N: Net>(net: &mut N, ctx: &Ctx<'_>, req: &FetchRequest, on_st
     let mut hops = 0u32;
     let conditional = req.conditional.as_ref();
     let head = loop {
+        // The web fetcher never requests an X host: checked again here, just
+        // before the request, for the first URL and every hop.
+        if is_x_url(&url) {
+            return web(Outcome::Unsupported, hops);
+        }
         let mut headers = request_headers(net, ctx, &url, ACCEPT);
         if hops == 0
             && let Some(c) = conditional
@@ -551,6 +560,81 @@ mod tests {
         assert_eq!(run(&mut net, "https://slop.ninja/d/abc1234").outcome, Outcome::BadUrl);
         assert_eq!(run(&mut net, "https://x.com/u/status/1").outcome, Outcome::Unsupported);
         assert!(net.requests.is_empty());
+    }
+
+    /// Every X host answer a request would get, so a request that slipped
+    /// through would show as a fetched page rather than a 404.
+    fn x_sites(mut net: FakeNet) -> FakeNet {
+        for u in [
+            "https://t.co/abc123",
+            "https://pbs.twimg.com/media/abc.jpg",
+            "https://abs.twimg.com/",
+            "https://x.com/someone",
+            "https://x.com/u/status/1",
+            "https://twitter.com/someone",
+            "https://www.twitter.com/someone",
+            "https://mobile.twitter.com/someone",
+            "https://publish.x.com/oembed",
+            "https://t.co/robots.txt",
+            "https://x.com/robots.txt",
+            "https://twitter.com/robots.txt",
+            "https://pbs.twimg.com/robots.txt",
+        ] {
+            net = net.site(u, Reply::html(&article(4, 50)));
+        }
+        net
+    }
+
+    const X_URLS: &[&str] = &[
+        "https://t.co/abc123",
+        "http://t.co/abc123",
+        "https://T.CO./abc123",
+        "https://t%2Eco/abc123",
+        "https://pbs.twimg.com/media/abc.jpg",
+        "https://abs.twimg.com/",
+        "https://x.com/someone",
+        "https://\u{ff58}.com/someone",
+        "https://x.com/u/status/1",
+        "https://twitter.com/someone/status/1790000000000000000",
+        "https://www.twitter.com/someone",
+        "https://mobile.twitter.com/someone",
+        "https://publish.x.com/oembed",
+    ];
+
+    #[test]
+    fn a_request_for_an_x_host_makes_no_request() {
+        for u in X_URLS {
+            let mut net = x_sites(FakeNet::new());
+            let a = run(&mut net, u);
+            assert_eq!(a.outcome, Outcome::Unsupported, "{u}");
+            assert!(net.requests.is_empty(), "{u}: {:?}", net.urls());
+        }
+        // Look-alikes on whole labels are fetched as web pages.
+        for u in ["https://notx.com/a", "https://t.co.example.com/a"] {
+            let mut net = FakeNet::new().site(u, Reply::html(&article(4, 50)));
+            assert_eq!(run(&mut net, u).outcome, Outcome::Ok, "{u}");
+            assert_eq!(net.urls(), [u]);
+        }
+    }
+
+    #[test]
+    fn a_page_hop_to_an_x_host_makes_no_request() {
+        for loc in X_URLS.iter().copied().chain(["//t.co/abc123", "/redirect?to=x"]) {
+            // The second hop leads to an X host from a page on the same
+            // origin, so the robots.txt read and the second page both run.
+            let mut net = x_sites(FakeNet::new())
+                .site("https://example.com/a", Reply::redirect(302, loc))
+                .site("https://example.com/robots.txt", Reply::new(404, &[], ""))
+                .site("https://example.com/redirect?to=x", Reply::redirect(302, "https://t.co/abc123"));
+            let a = run(&mut net, "https://example.com/a");
+            assert!(matches!(a.outcome, Outcome::Unsupported | Outcome::Downgrade), "{loc}: {:?}", a.outcome);
+            assert!(
+                net.urls().iter().all(|u| u.starts_with("https://example.com/")),
+                "{loc}: an X host or its screen was requested: {:?}",
+                net.urls()
+            );
+            assert!(a.text.is_none(), "{loc}");
+        }
     }
 
     #[test]

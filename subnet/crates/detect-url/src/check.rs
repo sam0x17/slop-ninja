@@ -50,6 +50,9 @@ pub enum Refusal {
     /// A platform whose posts are paste-only (Reddit, LinkedIn, Facebook,
     /// Instagram, Threads) or not yet read by URL (X).
     PasteOnly,
+    /// A link on an X host that is not a post (a profile, search, a `t.co`
+    /// short link, `twimg.com` media).
+    XNotAPost,
     Capability(Capability),
 }
 
@@ -68,16 +71,19 @@ impl Refusal {
             Refusal::PublicSuffix => "url_public_suffix",
             Refusal::OwnHost => "url_own_host",
             Refusal::PasteOnly => "paste_only",
+            Refusal::XNotAPost => "x_not_a_post",
             Refusal::Capability(c) => c.code(),
         }
     }
 
     /// The refusal code the pages print: `capability_url` for every
-    /// capability rule, `paste_only`, and `bad_url` for the input checks.
+    /// capability rule, `paste_only`, `x_not_a_post`, and `bad_url` for the
+    /// input checks.
     pub fn public_code(self) -> &'static str {
         match self {
             Refusal::Capability(_) => "capability_url",
             Refusal::PasteOnly => "paste_only",
+            Refusal::XNotAPost => "x_not_a_post",
             _ => "bad_url",
         }
     }

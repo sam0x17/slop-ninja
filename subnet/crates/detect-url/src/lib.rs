@@ -21,7 +21,9 @@
 //!    ids exceed the bound.
 //!
 //! [`platform`] maps a canonical URL to its source (web page, Bluesky post,
-//! X post, or a paste-only platform) and its source key. [`psl`] gives the
+//! X post, or a paste-only platform) and its source key, and names X's hosts
+//! ([`platform::X_HOSTS`]: `x.com`, `twitter.com`, `t.co`, `twimg.com` and
+//! their subdomains), which the web fetcher never requests. [`psl`] gives the
 //! registrable domain from the compiled Public Suffix List (no allocation at
 //! run time). [`fixture`] is the staging-only fixture allowance.
 //!
@@ -75,7 +77,8 @@ pub enum Admitted {
 
 /// Every step of the URL-page flow: [`check`], [`canon_url_v1`], the
 /// platform rule (paste-only platforms and X posts are refused until their
-/// adapters exist) and [`capability_url_v1`].
+/// adapters exist, and any other link on an X host is `x_not_a_post`) and
+/// [`capability_url_v1`]. No URL on an X host is ever admitted as a web page.
 pub fn admit(input: &str, policy: &Policy) -> Result<Admitted, Refusal> {
     let checked = match check(input, policy)? {
         Checked::Slug(s) => return Ok(Admitted::Slug(s)),
@@ -85,7 +88,9 @@ pub fn admit(input: &str, policy: &Policy) -> Result<Admitted, Refusal> {
     let platform = platform::platform(&url, &checked.registrable);
     match platform {
         Platform::Web | Platform::Bluesky { .. } => {}
-        Platform::X { .. } | Platform::PasteOnly => return Err(Refusal::PasteOnly),
+        Platform::X { .. } => return Err(Refusal::PasteOnly),
+        Platform::PasteOnly if platform::is_x_host(&checked.host) => return Err(Refusal::XNotAPost),
+        Platform::PasteOnly => return Err(Refusal::PasteOnly),
     }
     let skip = if checked.fixture { policy.fixture().map_or(0, FixturePrefix::path_len) } else { 0 };
     capability::check_from(&url, &checked.host, skip).map_err(Refusal::Capability)?;
@@ -110,6 +115,36 @@ mod tests {
         assert!(matches!(admit("https://example.com/reset/abc", &p), Err(Refusal::Capability(_))));
         let Admitted::Fetch(b) = admit("https://bsky.app/profile/someone.bsky.social/post/3l6oveex3ii2l", &p).unwrap() else { panic!() };
         assert!(matches!(b.platform, Platform::Bluesky { .. }));
+    }
+
+    #[test]
+    fn no_x_host_is_admitted_as_a_web_page() {
+        let p = Policy::production();
+        for u in [
+            "https://t.co/abc123",
+            "http://t.co/abc123",
+            "https://T.CO./abc123",
+            "https://t%2Eco/abc123",
+            "https://pbs.twimg.com/media/abc.jpg",
+            "https://abs.twimg.com/",
+            "https://twimg.com/",
+            "https://x.com/someone",
+            "https://\u{ff58}.com/someone",
+            "https://twitter.com/search?q=a",
+            "https://mobile.twitter.com/someone",
+            "https://publish.x.com/oembed?url=https://twitter.com/i/status/1",
+            "https://api.x.com/2/tweets/1",
+        ] {
+            assert_eq!(admit(u, &p), Err(Refusal::XNotAPost), "{u}");
+        }
+        assert_eq!(Refusal::XNotAPost.public_code(), "x_not_a_post");
+        // X posts are still recognised (refused until the X adapter exists).
+        assert_eq!(admit("https://twitter.com/someone/status/1790000000000000000", &p), Err(Refusal::PasteOnly));
+        // Look-alike hosts on whole labels are web pages.
+        for u in ["https://notx.com/a", "https://t.co.example.com/a", "https://twimg.com.example.net/a"] {
+            let Admitted::Fetch(t) = admit(u, &p).unwrap() else { panic!("{u}") };
+            assert_eq!(t.platform, Platform::Web, "{u}");
+        }
     }
 
     #[test]

@@ -89,7 +89,9 @@ pub struct FetchRequest {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct RobotsRequest {
-    /// `scheme://host` of the origin (no path, port or userinfo).
+    /// `scheme://host` of the origin (no path, port or userinfo). An origin
+    /// on an X host (`x.com`, `twitter.com`, `t.co`, `twimg.com` or a
+    /// subdomain) is refused with 400 and never requested.
     pub origin: String,
     pub wait_ms: u64,
 }
@@ -136,7 +138,9 @@ pub enum Outcome {
     /// so this is a caller defect).
     BadUrl,
     /// A platform the fetch Worker does not read by URL (X before phase 2,
-    /// paste-only platforms).
+    /// paste-only platforms), including a URL or redirect hop on any X host
+    /// (`x.com`, `twitter.com`, `t.co`, `twimg.com` or a subdomain), which
+    /// the web fetcher never requests.
     Unsupported,
 }
 

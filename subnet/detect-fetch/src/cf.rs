@@ -3,7 +3,9 @@
 //!
 //! Routes (reached only through the detect Worker's service binding):
 //! - `POST /fetch` [`FetchRequest`] → [`slop_ninja_detect_fetch_wire::FetchAnswer`];
-//! - `POST /robots` [`RobotsRequest`] → [`slop_ninja_detect_fetch_wire::RobotsAnswer`];
+//! - `POST /robots` [`RobotsRequest`] → [`slop_ninja_detect_fetch_wire::RobotsAnswer`]
+//!   (400 for an origin that fails the URL input checks, names a path, or is
+//!   an X host);
 //! - a request carrying any `x-sn-` header (only the public forwarders set
 //!   them, and they never reach this Worker): 400; another method on a
 //!   route: 405; anything else: 404.
@@ -28,7 +30,7 @@ use js_sys::Uint8Array;
 use serde::Serialize;
 use slop_ninja_arena::{ArenaAlloc, AsyncRoute, PinKind, PoisonCause, Scope, glue, model};
 use slop_ninja_detect_fetch_wire::{FetchRequest, REQUEST_BYTES, RobotsRequest, SLOT_BYTES};
-use slop_ninja_detect_url::{Checked, FixturePrefix, Policy, check};
+use slop_ninja_detect_url::{FixturePrefix, Policy};
 use std::cell::{Cell, RefCell};
 use wasm_bindgen::JsValue;
 use wasm_bindgen::prelude::wasm_bindgen;
@@ -271,17 +273,17 @@ async fn handle_robots(mut req: Request, env: Env) -> web_sys::Response {
     let Ok(rr) = serde_json::from_slice::<RobotsRequest>(&body) else { return status_only(400) };
     drop(body);
     let Some((policy, signer)) = config(&env) else { return status_only(503) };
-    // The origin passes the input checks and names no path.
-    let Ok(Checked::Url(c)) = check(&rr.origin, &policy) else { return status_only(400) };
-    if c.url.path() != "/" || c.url.query().is_some() || c.url.fragment().is_some() || rr.wait_ms == 0 {
+    // The origin passes the input checks, names no path and is not an X host.
+    let Some((origin, host)) = crate::robots::request_origin(&rr.origin, &policy) else { return status_only(400) };
+    if rr.wait_ms == 0 {
         return status_only(400);
     }
     let Some(_held) = Held::take(routes::ROBOTS_WORK_BYTES) else { return status_only(503) };
     let mut net = CfNet::new(&env);
     let ctx = Ctx { policy: &policy, signer: signer.as_ref() };
     let deadline = now_ms().saturating_add(rr.wait_ms.min(MAX_WAIT_MS));
-    let mut screened = vec![c.host];
-    let answer = crate::robots::read(&mut net, &ctx, &c.url, &mut screened, deadline).await;
+    let mut screened = vec![host];
+    let answer = crate::robots::read(&mut net, &ctx, &origin, &mut screened, deadline).await;
     json(&answer)
 }
 

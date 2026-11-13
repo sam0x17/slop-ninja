@@ -1,0 +1,27 @@
+{
+  "page": "signin",
+  "signed_in": false,
+  "methods": [
+    {
+      "method": "google",
+      "state": "on"
+    },
+    {
+      "method": "github",
+      "state": "on"
+    },
+    {
+      "method": "x",
+      "state": "off"
+    },
+    {
+      "method": "bittensor",
+      "state": "on"
+    },
+    {
+      "method": "email",
+      "state": "on"
+    }
+  ],
+  "step_up": null
+}

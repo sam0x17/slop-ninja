@@ -1,0 +1,170 @@
+{
+  "01-public-very-strong": {
+    "canonical": "k7m2xq9",
+    "robots": "index",
+    "shows": "public_url, ranked, band 4",
+    "status": 200
+  },
+  "02-public-strong": {
+    "canonical": "k7m2xq9",
+    "robots": "index",
+    "shows": "public_url, ranked, band 3",
+    "status": 200
+  },
+  "03-public-unclear": {
+    "canonical": "k7m2xq9",
+    "robots": "index",
+    "shows": "band 2 public: title, first sentence, continue link",
+    "status": 200
+  },
+  "04-public-weak": {
+    "canonical": "k7m2xq9",
+    "robots": "index",
+    "shows": "band 1 public: title, first sentence, continue link",
+    "status": 200
+  },
+  "05-public-unranked": {
+    "canonical": "k7m2xq9",
+    "robots": "noindex",
+    "shows": "public_url unranked: no title or excerpt, address unlinked",
+    "status": 200
+  },
+  "06-public-source-gone": {
+    "canonical": "k7m2xq9",
+    "robots": "noindex",
+    "shows": "source gone: score and positions stay, excerpt goes",
+    "status": 200
+  },
+  "07-public-unlisted": {
+    "canonical": "k7m2xq9",
+    "robots": "noindex",
+    "shows": "source unlisted: score and band, domain only",
+    "status": 200
+  },
+  "08-public-excerpt-withheld": {
+    "canonical": "k7m2xq9",
+    "robots": "noindex",
+    "shows": "excerpt_withheld: score, band, source link; generic card",
+    "status": 200
+  },
+  "09-public-superseded": {
+    "canonical": "p4r8tz2",
+    "robots": "index",
+    "shows": "superseded_by: banner and canonical to the newest page",
+    "status": 200
+  },
+  "10-public-older-package": {
+    "canonical": "k7m2xq9",
+    "robots": "index",
+    "shows": "serving.differs_from_run: re-run banner",
+    "status": 200
+  },
+  "11-public-pending": {
+    "canonical": null,
+    "robots": "noindex",
+    "shows": "pending public: domain only, Run it",
+    "status": 200
+  },
+  "12-public-failed": {
+    "canonical": null,
+    "robots": "noindex",
+    "shows": "failed: reason and domain only",
+    "status": 200
+  },
+  "13-public-removed": {
+    "canonical": null,
+    "robots": "noindex",
+    "shows": "removed: 451 with blocked-by",
+    "status": 451
+  },
+  "14-bluesky-post": {
+    "canonical": "k7m2xq9",
+    "robots": "noindex",
+    "shows": "public_url Bluesky post: short text, noindex",
+    "status": 200
+  },
+  "15-secret-text": {
+    "canonical": null,
+    "robots": "noindex, nofollow, noarchive, nosnippet, noimageindex",
+    "shows": "private_text: whole text, secret notice",
+    "status": 200
+  },
+  "16-secret-short-strong": {
+    "canonical": null,
+    "robots": "noindex, nofollow, noarchive, nosnippet, noimageindex",
+    "shows": "run.short strong: short gauge, ready, neutral shade",
+    "status": 200
+  },
+  "17-secret-short-none": {
+    "canonical": null,
+    "robots": "noindex, nofollow, noarchive, nosnippet, noimageindex",
+    "shows": "run.short none: short gauge, stoic",
+    "status": 200
+  },
+  "18-secret-pasted-post": {
+    "canonical": null,
+    "robots": "noindex, nofollow, noarchive, nosnippet, noimageindex",
+    "shows": "pasted post: source given by the submitter, not checked",
+    "status": 200
+  },
+  "19-secret-x-source-rule": {
+    "canonical": null,
+    "robots": "noindex, nofollow, noarchive, nosnippet, noimageindex",
+    "shows": "x.com-source rule: result without the text",
+    "status": 200
+  },
+  "20-secret-free-cut": {
+    "canonical": null,
+    "robots": "noindex, nofollow, noarchive, nosnippet, noimageindex",
+    "shows": "run.cut: first N of M words; re-run link (live private_text, older package)",
+    "status": 200
+  },
+  "21-secret-deleted": {
+    "canonical": null,
+    "robots": "noindex, nofollow, noarchive, nosnippet, noimageindex",
+    "shows": "deleted: 410",
+    "status": 410
+  },
+  "22-secret-expired": {
+    "canonical": null,
+    "robots": "noindex, nofollow, noarchive, nosnippet, noimageindex",
+    "shows": "expired: 410",
+    "status": 410
+  },
+  "23-secret-disabled": {
+    "canonical": null,
+    "robots": "noindex, nofollow, noarchive, nosnippet, noimageindex",
+    "shows": "disabled: 451 while a report is reviewed",
+    "status": 451
+  },
+  "24-paid-document": {
+    "canonical": null,
+    "robots": "noindex, nofollow, noarchive, nosnippet, noimageindex",
+    "shows": "private_paid: section map, neutral dial, no ninja",
+    "status": 200
+  },
+  "25-paid-pending": {
+    "canonical": null,
+    "robots": "noindex, nofollow, noarchive, nosnippet, noimageindex",
+    "shows": "pending paid job: section progress",
+    "status": 200
+  },
+  "26-paid-failed": {
+    "canonical": null,
+    "robots": "noindex, nofollow, noarchive, nosnippet, noimageindex",
+    "shows": "failed paid job: nothing was charged",
+    "status": 200
+  },
+  "27-unstored": {
+    "canonical": null,
+    "robots": "noindex",
+    "shows": "unstored result: not saved, Get a link, free-cut notice",
+    "status": 200
+  },
+  "28-example": {
+    "canonical": null,
+    "robots": "noindex",
+    "shows": "kind example: synthetic example report, noindex",
+    "status": 200
+  }
+}

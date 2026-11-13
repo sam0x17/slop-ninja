@@ -1,0 +1,5 @@
+{
+  "intent": "attach_pending",
+  "address": "kate@host.example",
+  "provider": "google"
+}

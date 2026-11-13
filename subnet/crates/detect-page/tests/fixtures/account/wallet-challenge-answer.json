@@ -1,0 +1,4 @@
+{
+  "challenge_id": "challenge-fixture",
+  "message": "site.example wants you to sign in with your Bittensor account:\n5Fixture000000000000000000000000000000000000000\n\nSign in to SlopNinja. This is not a transaction and costs nothing.\n\nURI: https://site.example/signin/\nVersion: 1\nNonce: 4kq8mz2p7wx3rt9vn6bc1hj5dy\nIssued At: 2026-11-20T10:04:00.000Z\nExpiration Time: 2026-11-20T10:09:00.000Z"
+}

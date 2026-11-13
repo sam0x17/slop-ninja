@@ -1,0 +1,22 @@
+{
+  "page": "sessions",
+  "label": "kate-gardens",
+  "sessions": [
+    {
+      "session_ref": "3b7e0c1d9a8f6e5d",
+      "created_at": 1794909840000,
+      "last_seen_day": "2026-11-20",
+      "ua_family": "Firefox on Linux",
+      "method": "github",
+      "current": true
+    },
+    {
+      "session_ref": "8c4f2a6b1e0d9c7a",
+      "created_at": 1793441040000,
+      "last_seen_day": "2026-11-12",
+      "ua_family": null,
+      "method": "email",
+      "current": false
+    }
+  ]
+}

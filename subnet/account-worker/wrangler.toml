@@ -1,0 +1,161 @@
+# SlopNinja account Worker: Wrangler configuration (tracked).
+#
+# Sign-in (email link, Google, GitHub, X, Bittensor wallet), sessions,
+# identities, linking and merging, saved links, export, deletion, the billing
+# ledger and the signed account ops. The website Worker reaches it only
+# through its service binding (ACCOUNT); this Worker has no route, no custom
+# domain, no default workers_dev subdomain and no preview URLs, and it binds no other
+# Worker: work it starts on detections (account deletion, merges) goes on the
+# detect-jobs queue. Observability is off: no invocation logs, Logpush or Tail
+# Worker.
+#
+# The top level is production. [env.staging] is the staging copy, with its
+# own store, queue, dataset, operator key and origins. Resource names, the
+# sender address and both environments' origins here are placeholders; the
+# operator's private tables hold the real values, and the deploy wrappers
+# restore them at deploy time. Deploy only through the deploy wrappers, after the D1
+# migrations step. No account ID belongs here.
+#
+# Secrets, installed by the operator from private files (never in tracked
+# files):
+#
+#   ACCOUNT_STORE_SECRET   derives the saved-link, address, quota and journal
+#                          keys; backed up outside Cloudflare
+#   GOOGLE_CLIENT_SECRET   the Google OAuth client's secret
+#   GITHUB_CLIENT_SECRET   the GitHub App's client secret
+#   X_CLIENT_SECRET        the X OAuth 2.0 client's secret
+#
+# Vars below: the two public origins (every origin the Worker names derives
+# from them), the mail subject prefix, the kill switches (a var set to its off
+# state is the hard off; the D1 switches row flips the rest at once), the
+# OAuth client ids (public; empty means the method is not configured and its
+# button is absent), the operator's Ed25519 verifying key for signed ops (64
+# hex digits, one key per environment) and the policy versions.
+
+name = "slop-ninja-account"
+main = "build/index.js"
+compatibility_date = "2026-10-20"
+workers_dev = false
+preview_urls = false
+
+[build]
+command = "worker-build --release"
+
+[observability]
+enabled = false
+
+# Every 5 minutes: expired flows, email links, wallet challenges and pending
+# links. Hourly: sessions past either expiry; plan periods past their end.
+[triggers]
+crons = ["*/5 * * * *", "0 * * * *"]
+
+[vars]
+SITE_ORIGIN = "https://site-origin.invalid"
+SECRET_ORIGIN = "https://secret-origin.invalid"
+MAIL_SUBJECT_PREFIX = ""
+OP_ENV = "production"
+DETECT_OP_KEY = ""
+AUTH_POLICY = "auth-policy/v1"
+BILLING_POLICY = "billing-policy/v1"
+ACCOUNTS = "on"
+BILLING = "off"
+"auth.email" = "on"
+"auth.google" = "on"
+"auth.github" = "on"
+"auth.x" = "on"
+"auth.bittensor" = "on"
+GOOGLE_CLIENT_ID = ""
+GITHUB_CLIENT_ID = ""
+X_CLIENT_ID = ""
+
+# Users, identities, sessions, flows, saved links (encrypted), API keys and
+# the ledger. Read replication off; session checks read the primary.
+[[d1_databases]]
+binding = "ACCOUNT_STORE"
+database_name = "account-store"
+database_id = "account-store-id"
+migrations_dir = "migrations"
+
+# Strict per-key quotas (sign-in mail per address, connect mail per address
+# and per account, paid quotes), keyed by an HMAC of the bucket name.
+[[durable_objects.bindings]]
+name = "QUOTA_LIMITER"
+class_name = "QuotaLimiter"
+
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = ["QuotaLimiter"]
+
+# Sign-in mail through Email Sending, from the one sending address only. The
+# address is a placeholder; the deploy wrapper sets the real sender.
+[[send_email]]
+name = "SIGNIN_EMAIL"
+allowed_sender_addresses = ["sender@mail-domain.invalid"]
+
+# Owner purges and re-keys for the detect Worker (content-free messages).
+[[queues.producers]]
+binding = "DETECT_JOBS"
+queue = "detect-jobs-queue-testnet"
+
+# Content-free data points only.
+[[analytics_engine_datasets]]
+binding = "ACCOUNT_METRICS"
+dataset = "slop_ninja_account"
+
+# ------------------------------------------------------------------ staging
+
+[env.staging]
+name = "slop-ninja-account-staging"
+workers_dev = false
+preview_urls = false
+
+[env.staging.observability]
+enabled = false
+
+[env.staging.triggers]
+crons = ["*/5 * * * *", "0 * * * *"]
+
+[env.staging.vars]
+SITE_ORIGIN = "https://staging-site.invalid"
+SECRET_ORIGIN = "https://staging-secret.invalid"
+MAIL_SUBJECT_PREFIX = "[staging] "
+OP_ENV = "staging"
+DETECT_OP_KEY = ""
+AUTH_POLICY = "auth-policy/v1"
+BILLING_POLICY = "billing-policy/v1"
+ACCOUNTS = "on"
+BILLING = "off"
+"auth.email" = "on"
+"auth.google" = "on"
+"auth.github" = "on"
+"auth.x" = "on"
+"auth.bittensor" = "on"
+GOOGLE_CLIENT_ID = ""
+GITHUB_CLIENT_ID = ""
+X_CLIENT_ID = ""
+
+[[env.staging.d1_databases]]
+binding = "ACCOUNT_STORE"
+database_name = "account-store-staging"
+database_id = "account-store-id-staging"
+migrations_dir = "migrations"
+
+[[env.staging.durable_objects.bindings]]
+name = "QUOTA_LIMITER"
+class_name = "QuotaLimiter"
+
+[[env.staging.migrations]]
+tag = "v1"
+new_sqlite_classes = ["QuotaLimiter"]
+
+[[env.staging.send_email]]
+name = "SIGNIN_EMAIL"
+allowed_sender_addresses = ["sender@mail-domain.invalid"]
+
+[[env.staging.queues.producers]]
+binding = "DETECT_JOBS"
+queue = "detect-jobs-queue-staging"
+
+[[env.staging.analytics_engine_datasets]]
+binding = "ACCOUNT_METRICS"
+dataset = "slop_ninja_account_staging"

@@ -1,0 +1,5 @@
+{
+  "intent": "signin",
+  "address": "kate@host.example",
+  "provider": null
+}

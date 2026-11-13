@@ -1,0 +1,55 @@
+{
+  "page": "detections",
+  "label": "kate-gardens",
+  "entries": [
+    {
+      "entry_id": 11,
+      "slug": "7hq2kd9m4xw8rt3vn6pb",
+      "id_h": "0101010101010101010101010101010101010101010101010101010101010101",
+      "is_owner": true,
+      "summary": {
+        "kind": "private_text",
+        "band": "very_strong",
+        "short": null,
+        "strong_sections": null,
+        "total_sections": null,
+        "words": 181,
+        "created_at": 1795169040000,
+        "expires_at": null
+      }
+    },
+    {
+      "entry_id": 12,
+      "slug": "c3jf8kq1zw5ty7hn2mdx",
+      "id_h": "0202020202020202020202020202020202020202020202020202020202020202",
+      "is_owner": true,
+      "summary": {
+        "kind": "private_paid",
+        "band": null,
+        "short": null,
+        "strong_sections": 1,
+        "total_sections": 3,
+        "words": 3214,
+        "created_at": 1795169040000,
+        "expires_at": 1797761040000
+      }
+    },
+    {
+      "entry_id": 13,
+      "slug": "m5tq9w2xk8vr3yn7hd4c",
+      "id_h": "0303030303030303030303030303030303030303030303030303030303030303",
+      "is_owner": false,
+      "summary": {
+        "kind": "private_text",
+        "band": "weak",
+        "short": null,
+        "strong_sections": null,
+        "total_sections": null,
+        "words": 412,
+        "created_at": 1795169040000,
+        "expires_at": null
+      }
+    }
+  ],
+  "read_only": false
+}

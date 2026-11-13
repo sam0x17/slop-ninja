@@ -1,0 +1,25 @@
+{
+  "schema": "slop_ninja_detect_card_v1",
+  "variant": "short",
+  "band": null,
+  "gauge": {
+    "level": null,
+    "band": null,
+    "short": "strong",
+    "document": false
+  },
+  "confidence_text": null,
+  "share_text": null,
+  "headline": "Strong signs of AI involvement.",
+  "source_label": "a post on Bluesky",
+  "date": "2026-11-20",
+  "ninja": "ready",
+  "link": {
+    "kind": "public",
+    "slug": "k7m2xq9"
+  },
+  "model_line": "span package d24 · e2536d12 · publication pending",
+  "free_cut_note": null,
+  "document_note": null,
+  "ladder": []
+}

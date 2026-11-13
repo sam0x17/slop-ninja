@@ -1,0 +1,11 @@
+{
+  "ok": true,
+  "state": "live",
+  "expires_at": 1795773840000,
+  "latest_expiry": 1797761040000,
+  "choices": [
+    "1d",
+    "7d",
+    "30d"
+  ]
+}

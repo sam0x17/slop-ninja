@@ -1,0 +1,38 @@
+{
+  "schema": "slop_ninja_detect_page_v2",
+  "slug": "c3jf8kq1zw5ty7hn2mdx",
+  "host": "secret",
+  "kind": "private_paid",
+  "platform": "paste",
+  "state": "pending",
+  "state_v": 1,
+  "created_at": 1795169040000,
+  "expires_at": null,
+  "robots": "noindex_all",
+  "canonical": null,
+  "superseded_by": null,
+  "supersedes": null,
+  "example_slot": null,
+  "serving": {
+    "package_label": "span package d24",
+    "package_pub_short": "e2536d12",
+    "publication_pending": true,
+    "differs_from_run": false
+  },
+  "run": null,
+  "sections": null,
+  "text": null,
+  "source": null,
+  "pending": {
+    "lease_ended": false,
+    "job": {
+      "sections_done": 2,
+      "sections_total": 5
+    }
+  },
+  "failure": null,
+  "removal": null,
+  "card": null,
+  "ninja": null,
+  "receipt": null
+}

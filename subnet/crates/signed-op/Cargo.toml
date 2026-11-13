@@ -1,0 +1,28 @@
+[package]
+name = "slop-ninja-signed-op"
+version = "0.1.0"
+edition = "2024"
+license = "MIT OR Apache-2.0"
+publish = false
+description = "The signed operator-op envelope of the detect and account Workers: canonical encoding, Ed25519 signatures, and the target, environment, expiry and nonce checks"
+
+# Its own workspace, like the other crates the Workers link. Pure: no I/O and
+# no Workers runtime, so the detect and account Workers (wasm32), the private
+# operator CLI and native tests share one implementation.
+[workspace]
+members = ["."]
+resolver = "3"
+
+[features]
+# Signing. Only the operator CLI and tests sign; the Workers only verify.
+sign = []
+
+[dependencies]
+ed25519-dalek = { version = "2.1", default-features = false, features = ["std", "zeroize"] }
+hex = "0.4"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+sha2 = "0.10"
+
+[dev-dependencies]
+slop-ninja-signed-op = { path = ".", features = ["sign"] }

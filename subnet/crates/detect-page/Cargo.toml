@@ -1,0 +1,26 @@
+[package]
+name = "slop-ninja-detect-page"
+version = "0.1.0"
+edition = "2024"
+license = "MIT OR Apache-2.0"
+publish = false
+description = "Contracts of the SlopNinja detection pages: the page JSON, refusal codes, slugs, the ninja state, cards, origins, the X-SN headers, internal routes, queue messages and metric points"
+
+# Its own workspace, like the other crates the Workers link. Pure and
+# runtime-free: the detect Worker produces these values, the website and
+# secret-host Workers (private web repository, by a Git dependency pinned to
+# a forwarded commit) and the card renderer consume them.
+[workspace]
+members = ["."]
+resolver = "3"
+
+[dependencies]
+serde = { version = "1", features = ["derive"] }
+
+[dev-dependencies]
+serde_json = "1"
+# The migration test applies the detect store's schema to an in-memory
+# SQLite and exercises its CHECK and UNIQUE constraints (native only).
+rusqlite = { version = "0.37", features = ["bundled"] }
+# The refusal table covers every op-route refusal.
+slop-ninja-signed-op = { path = "../signed-op" }

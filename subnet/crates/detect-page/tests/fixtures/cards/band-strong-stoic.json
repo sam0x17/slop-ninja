@@ -1,0 +1,25 @@
+{
+  "schema": "slop_ninja_detect_card_v1",
+  "variant": "band",
+  "band": "strong",
+  "gauge": {
+    "level": 43,
+    "band": "strong",
+    "short": null,
+    "document": false
+  },
+  "confidence_text": "97.3%",
+  "share_text": "about 43%",
+  "headline": "Strong evidence of AI involvement.",
+  "source_label": "garden-diary.example",
+  "date": "2026-11-20",
+  "ninja": "stoic",
+  "link": {
+    "kind": "public",
+    "slug": "k7m2xq9"
+  },
+  "model_line": "span package d24 · e2536d12 · publication pending",
+  "free_cut_note": null,
+  "document_note": null,
+  "ladder": []
+}

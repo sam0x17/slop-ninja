@@ -1,0 +1,10 @@
+{
+  "page": "link_confirm",
+  "label": "kate-gardens",
+  "pending": {
+    "kind": "link",
+    "provider": "x",
+    "label": "@kate_gardens",
+    "merge_blocked": false
+  }
+}

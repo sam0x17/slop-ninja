@@ -1,0 +1,468 @@
+//! Golden JSON fixtures of the account contracts, kept with the other page
+//! fixtures under `subnet/crates/detect-page/tests/fixtures/account/`: every
+//! account page's view, the session and `me` answers, the saved-link and
+//! billing routes and the sign-in API bodies. Built here from typed values,
+//! round-tripped through serde and compared byte for byte. Every address and
+//! handle is synthetic, under the reserved `.example` domain.
+//!
+//! To rewrite the files after a deliberate contract change:
+//! `SLOP_NINJA_BLESS=1 cargo test --test golden`.
+
+use std::collections::BTreeSet;
+use std::fmt::Debug;
+use std::path::{Path, PathBuf};
+
+use serde::Serialize;
+use serde::de::DeserializeOwned;
+use slop_ninja_account_wire::detect_page::internal::Summary;
+use slop_ninja_account_wire::detect_page::{Band, Channel, Kind};
+use slop_ninja_account_wire::*;
+
+/// 2026-11-20T10:04:00Z.
+const T0: u64 = 1_795_169_040_000;
+const DAY: u64 = 86_400_000;
+/// A placeholder in the form of an SS58 address (not a valid one).
+const SS58: &str = "5Fixture000000000000000000000000000000000000000";
+
+fn user() -> UserId {
+    UserId([0x5a; 16])
+}
+
+fn summary(kind: Kind, band: Option<Band>, words: u32) -> Summary {
+    Summary {
+        kind,
+        band,
+        short: None,
+        strong_sections: None,
+        total_sections: None,
+        words,
+        created_at: T0,
+        expires_at: None,
+    }
+}
+
+fn identity(id: u64, provider: Provider, label: &str, current: bool) -> IdentityRow {
+    IdentityRow {
+        identity_id: id,
+        provider,
+        label: label.into(),
+        email_verified: matches!(provider, Provider::Email | Provider::Google | Provider::Github),
+        avatar_ref: (provider == Provider::X).then(|| "6f1c2b9a8e7d4c3b2a1f0e9d8c7b6a59".into()),
+        created_at: T0 - 30 * DAY,
+        last_used_at: T0,
+        current,
+        removable: true,
+    }
+}
+
+fn methods(x: MethodState) -> Vec<MethodRow> {
+    vec![
+        MethodRow { method: Provider::Google, state: MethodState::On },
+        MethodRow { method: Provider::Github, state: MethodState::On },
+        MethodRow { method: Provider::X, state: x },
+        MethodRow { method: Provider::Bittensor, state: MethodState::On },
+        MethodRow { method: Provider::Email, state: MethodState::On },
+    ]
+}
+
+fn entries() -> Vec<(String, String)> {
+    let mut e: Vec<(String, String)> = Vec::new();
+    fn put<T: Serialize + DeserializeOwned + PartialEq + Debug>(e: &mut Vec<(String, String)>, name: &str, v: T) {
+        let mut json = serde_json::to_string_pretty(&v).unwrap();
+        json.push('\n');
+        let back: T = serde_json::from_str(&json).unwrap();
+        assert_eq!(back, v, "{name}");
+        e.push((format!("account/{name}.json"), json));
+    }
+    // Views.
+    put(
+        &mut e,
+        "view-signin",
+        View::Signin(SigninView { signed_in: false, methods: methods(MethodState::Absent), step_up: None }),
+    );
+    put(
+        &mut e,
+        "view-signin-x-off",
+        View::Signin(SigninView { signed_in: false, methods: methods(MethodState::Off), step_up: None }),
+    );
+    put(
+        &mut e,
+        "view-signin-step-up",
+        View::Signin(SigninView {
+            signed_in: true,
+            methods: methods(MethodState::On),
+            step_up: Some(vec![
+                StepUpChoice {
+                    identity_id: 1,
+                    provider: Provider::Email,
+                    label: "kate@host.example".into(),
+                    state: MethodState::On,
+                },
+                StepUpChoice {
+                    identity_id: 2,
+                    provider: Provider::Github,
+                    label: "kate-gardens".into(),
+                    state: MethodState::On,
+                },
+            ]),
+        }),
+    );
+    let mut ids = vec![
+        identity(1, Provider::Email, "kate@host.example", false),
+        identity(2, Provider::Github, "kate-gardens", true),
+        identity(3, Provider::X, "@kate_gardens", false),
+        identity(4, Provider::Bittensor, SS58, false),
+    ];
+    put(
+        &mut e,
+        "view-account",
+        View::Account(AccountView {
+            label: "kate-gardens".into(),
+            signed_in_with: Provider::Github,
+            identities: ids.clone(),
+            connect: vec![MethodRow { method: Provider::Google, state: MethodState::On }],
+            step_up_fresh: false,
+            read_only: false,
+            billing: BillingState::Grants,
+        }),
+    );
+    ids.truncate(1);
+    ids[0].removable = false;
+    ids[0].current = true;
+    put(
+        &mut e,
+        "view-account-one-method",
+        View::Account(AccountView {
+            label: "kate@host.example".into(),
+            signed_in_with: Provider::Email,
+            identities: ids,
+            connect: methods(MethodState::Absent).into_iter().filter(|m| m.method != Provider::Email).collect(),
+            step_up_fresh: true,
+            read_only: true,
+            billing: BillingState::Off,
+        }),
+    );
+    put(
+        &mut e,
+        "view-link-confirm",
+        View::LinkConfirm(LinkConfirmView {
+            label: "kate-gardens".into(),
+            pending: Some(PendingView {
+                kind: PendingKind::Link,
+                provider: Provider::X,
+                label: Some("@kate_gardens".into()),
+                merge_blocked: false,
+            }),
+        }),
+    );
+    put(
+        &mut e,
+        "view-link-confirm-merge",
+        View::LinkConfirm(LinkConfirmView {
+            label: "kate-gardens".into(),
+            pending: Some(PendingView {
+                kind: PendingKind::Merge,
+                provider: Provider::Google,
+                label: Some("kate.other@host.example".into()),
+                merge_blocked: true,
+            }),
+        }),
+    );
+    put(
+        &mut e,
+        "view-link-confirm-nothing",
+        View::LinkConfirm(LinkConfirmView { label: "kate-gardens".into(), pending: None }),
+    );
+    put(
+        &mut e,
+        "view-sessions",
+        View::Sessions(SessionsView {
+            label: "kate-gardens".into(),
+            sessions: vec![
+                SessionRow {
+                    session_ref: "3b7e0c1d9a8f6e5d".into(),
+                    created_at: T0 - 3 * DAY,
+                    last_seen_day: "2026-11-20".into(),
+                    ua_family: Some("Firefox on Linux".into()),
+                    method: Provider::Github,
+                    current: true,
+                },
+                SessionRow {
+                    session_ref: "8c4f2a6b1e0d9c7a".into(),
+                    created_at: T0 - 20 * DAY,
+                    last_seen_day: "2026-11-12".into(),
+                    ua_family: None,
+                    method: Provider::Email,
+                    current: false,
+                },
+            ],
+        }),
+    );
+    let owned = |id: u64, slug: &str, b: u8, is_owner: bool, s: Summary| OwnedEntry {
+        entry_id: id,
+        slug: slug.into(),
+        id_h: IdH([b; 32]),
+        is_owner,
+        summary: s,
+    };
+    let mut paid = summary(Kind::PrivatePaid, None, 3214);
+    paid.strong_sections = Some(1);
+    paid.total_sections = Some(3);
+    paid.expires_at = Some(T0 + 30 * DAY);
+    let detections = vec![
+        owned(11, "7hq2kd9m4xw8rt3vn6pb", 1, true, summary(Kind::PrivateText, Some(Band::VeryStrong), 181)),
+        owned(12, "c3jf8kq1zw5ty7hn2mdx", 2, true, paid),
+        owned(13, "m5tq9w2xk8vr3yn7hd4c", 3, false, summary(Kind::PrivateText, Some(Band::Weak), 412)),
+    ];
+    put(
+        &mut e,
+        "view-detections",
+        View::Detections(DetectionsView {
+            label: "kate-gardens".into(),
+            entries: detections.clone(),
+            read_only: false,
+        }),
+    );
+    put(
+        &mut e,
+        "view-detections-empty",
+        View::Detections(DetectionsView { label: "kate-gardens".into(), entries: Vec::new(), read_only: false }),
+    );
+    put(
+        &mut e,
+        "view-billing",
+        View::Billing(BillingView {
+            label: "kate-gardens".into(),
+            state: BillingState::Grants,
+            credit_tokens: 18_400,
+            plan: Some(PlanView {
+                starts_at: T0 - 10 * DAY,
+                ends_at: T0 + 20 * DAY,
+                tokens: 200_000,
+                tokens_used: 4_310,
+                api_tokens: 40_960,
+                api_tokens_used: 0,
+            }),
+            history: vec![
+                LedgerRow { at: T0, kind: LedgerRowKind::Debit, tokens: 4_310, cash: false },
+                LedgerRow { at: T0 - 10 * DAY, kind: LedgerRowKind::PlanGrant, tokens: 200_000, cash: false },
+                LedgerRow { at: T0 - 12 * DAY, kind: LedgerRowKind::Grant, tokens: 20_000, cash: false },
+            ],
+        }),
+    );
+    put(
+        &mut e,
+        "view-billing-off",
+        View::Billing(BillingView {
+            label: "kate-gardens".into(),
+            state: BillingState::Off,
+            credit_tokens: 0,
+            plan: None,
+            history: Vec::new(),
+        }),
+    );
+    put(
+        &mut e,
+        "view-delete",
+        View::Delete(DeleteView {
+            label: "kate-gardens".into(),
+            credit_tokens: 18_400,
+            has_plan: true,
+            saved_pages: 3,
+            owned_pages: 2,
+            step_up_fresh: false,
+            default_mode: PurgeMode::Delete,
+        }),
+    );
+    put(&mut e, "view-request-account", ViewRequest { page: ViewPage::Account, step_up: false });
+    put(&mut e, "view-request-signin-step-up", ViewRequest { page: ViewPage::Signin, step_up: true });
+    // Session and me.
+    put(&mut e, "session", SessionAnswer { user_id: user(), auth_time: T0 - 5 * 60_000, flags: 1 });
+    put(
+        &mut e,
+        "me-signed-in",
+        MeAnswer { signed_in: true, label: Some("kate-gardens".into()), method: Some(Provider::Github) },
+    );
+    put(&mut e, "me-signed-out", MeAnswer { signed_in: false, label: None, method: None });
+    // Saved links.
+    put(
+        &mut e,
+        "owned-add-request",
+        OwnedAddRequest {
+            user_id: user(),
+            slug: "7hq2kd9m4xw8rt3vn6pb".into(),
+            id_h: IdH([1; 32]),
+            summary: summary(Kind::PrivateText, Some(Band::VeryStrong), 181),
+            is_owner: true,
+        },
+    );
+    put(&mut e, "owned-add-answer", OwnedAddAnswer { entry_id: 11, added: true });
+    put(&mut e, "owned-entry-request", OwnedEntryRequest { user_id: user(), entry_id: 11 });
+    put(&mut e, "owned-entry", detections[0].clone());
+    put(&mut e, "owned-prune-request", OwnedPruneRequest { user_id: user(), entry_ids: vec![12, 13] });
+    put(&mut e, "owned-removed", OwnedRemoved { removed: 2 });
+    // Billing.
+    put(&mut e, "billing-peek-request", PeekRequest { user_id: user() });
+    put(
+        &mut e,
+        "billing-peek-answer",
+        PeekAnswer { plan_left: 195_690, api_left: 40_960, credit_left: 18_400, paid_preview: true },
+    );
+    put(
+        &mut e,
+        "billing-hold-request",
+        HoldRequest { user_id: user(), tokens: 3_020, channel: Channel::PaidPage, idem: "q-4f8c2a91d7e3b605".into() },
+    );
+    put(
+        &mut e,
+        "billing-hold-answer",
+        HoldAnswer {
+            hold_id: "h-2c9e7a1f4b8d3065".into(),
+            parts: vec![
+                HoldPart { src: PartSource::Period, id: 7, tokens: 2_000, cash: false },
+                HoldPart { src: PartSource::Payment, id: 3, tokens: 1_020, cash: false },
+            ],
+        },
+    );
+    put(
+        &mut e,
+        "billing-commit-request",
+        CommitRequest {
+            hold_id: "h-2c9e7a1f4b8d3065".into(),
+            receipt_id: "r-9d1e4c7b2a8f3065".into(),
+            package_pub: "e2536d12".into(),
+        },
+    );
+    put(&mut e, "billing-release-request", ReleaseRequest { hold_id: "h-2c9e7a1f4b8d3065".into() });
+    put(
+        &mut e,
+        "billing-hold-end",
+        HoldEndAnswer { hold_id: "h-2c9e7a1f4b8d3065".into(), ended: HoldEnd::Committed, by_this_call: true },
+    );
+    put(
+        &mut e,
+        "billing-hold-end-earlier",
+        HoldEndAnswer { hold_id: "h-2c9e7a1f4b8d3065".into(), ended: HoldEnd::Committed, by_this_call: false },
+    );
+    // Sign-in APIs.
+    put(
+        &mut e,
+        "email-start",
+        EmailStartRequest {
+            email: Some("Kate@host.example".into()),
+            return_to: Some("/detect/".into()),
+            intent: None,
+            identity_id: None,
+        },
+    );
+    put(
+        &mut e,
+        "email-start-step-up",
+        EmailStartRequest {
+            email: None,
+            return_to: Some("/account/".into()),
+            intent: Some(MailIntent::StepUp),
+            identity_id: Some(1),
+        },
+    );
+    put(&mut e, "email-token", EmailTokenRequest { token: "email-fixture".into() });
+    put(
+        &mut e,
+        "email-peek",
+        EmailPeekAnswer { intent: MailIntent::Signin, address: "kate@host.example".into(), provider: None },
+    );
+    put(
+        &mut e,
+        "email-peek-attach",
+        EmailPeekAnswer {
+            intent: MailIntent::AttachPending,
+            address: "kate@host.example".into(),
+            provider: Some(Provider::Google),
+        },
+    );
+    put(&mut e, "next", NextAnswer { return_to: "/account/link/confirm".into() });
+    put(
+        &mut e,
+        "wallet-challenge-request",
+        WalletChallengeRequest { address: SS58.into(), mode: WalletMode::Extension, intent: Intent::Signin },
+    );
+    put(
+        &mut e,
+        "wallet-challenge-answer",
+        WalletChallengeAnswer {
+            challenge_id: "challenge-fixture".into(),
+            message: format!(
+                "site.example wants you to sign in with your Bittensor account:\n{SS58}\n\nSign in to SlopNinja. This is not a \
+transaction and costs nothing.\n\nURI: https://site.example/signin/\nVersion: 1\nNonce: 4kq8mz2p7wx3rt9vn6bc1hj5dy\n\
+Issued At: 2026-11-20T10:04:00.000Z\nExpiration Time: 2026-11-20T10:09:00.000Z"
+            ),
+        },
+    );
+    put(
+        &mut e,
+        "wallet-verify-request",
+        WalletVerifyRequest { challenge_id: "challenge-fixture".into(), signature: format!("0x{}", "ab".repeat(64)) },
+    );
+    e
+}
+
+fn dir() -> PathBuf {
+    Path::new(env!("CARGO_MANIFEST_DIR")).join("../detect-page/tests/fixtures")
+}
+
+#[test]
+fn account_fixtures_match() {
+    let bless = std::env::var_os("SLOP_NINJA_BLESS").is_some();
+    let mut seen = BTreeSet::new();
+    for (path, json) in entries() {
+        assert!(seen.insert(path.clone()), "duplicate {path}");
+        let p = dir().join(&path);
+        if bless {
+            std::fs::create_dir_all(p.parent().unwrap()).unwrap();
+            std::fs::write(&p, &json).unwrap();
+        } else {
+            let on_disk = std::fs::read_to_string(&p).unwrap_or_else(|_| panic!("missing {path}"));
+            assert_eq!(on_disk, json, "{path} differs (SLOP_NINJA_BLESS=1 rewrites it)");
+        }
+    }
+    for f in std::fs::read_dir(dir().join("account")).unwrap() {
+        let name = format!("account/{}", f.unwrap().file_name().to_string_lossy());
+        assert!(seen.contains(&name), "stray fixture {name}");
+    }
+}
+
+#[test]
+fn every_view_page_has_a_fixture() {
+    let all = entries();
+    for p in ViewPage::ALL {
+        let tag = format!("\"page\": \"{}\"", p.as_str());
+        assert!(all.iter().any(|(path, json)| path.contains("/view-") && json.contains(&tag)), "{}", p.as_str());
+    }
+}
+
+#[test]
+fn mail_draws_on_the_right_buckets() {
+    let u = UserId([9; 16]);
+    let link = mail_buckets(MailIntent::Link, "aa", Some(u));
+    assert_eq!(link.iter().map(Bucket::name).collect::<Vec<_>>(), ["email_link:aa", &format!("link_mail:{}", u.hex())]);
+    for m in [MailIntent::Signin, MailIntent::StepUp, MailIntent::AttachPending, MailIntent::Recover] {
+        let b = mail_buckets(m, "aa", Some(u));
+        assert_eq!(b.iter().map(Bucket::name).collect::<Vec<_>>(), ["email:aa"], "{}", m.as_str());
+    }
+    // No link mail ever draws on the sign-in bucket.
+    assert!(link.iter().all(|b| b.kind != BucketKind::Email));
+    let names: BTreeSet<_> = BucketKind::ALL.iter().map(|k| k.policy_name()).collect();
+    assert_eq!(names.len(), BucketKind::ALL.len());
+    assert_eq!(mail_subject_prefix("[staging] "), Ok("[staging] "));
+    assert_eq!(mail_subject_prefix(""), Ok(""));
+    assert!(mail_subject_prefix("x\r\nBcc: a@b.example").is_err());
+    assert!(mail_subject_prefix(&"x".repeat(MAX_SUBJECT_PREFIX + 1)).is_err());
+}
+
+#[test]
+fn session_answer_becomes_the_principal() {
+    let s = SessionAnswer { user_id: UserId([0xab; 16]), auth_time: 5, flags: 1 };
+    assert_eq!(s.principal().encode(), "v1;abababababababababababababababab;5;1");
+    assert!(Provider::X.is_oauth() && !Provider::Bittensor.is_oauth());
+    assert_eq!(Provider::Bittensor.switch(), "auth.bittensor");
+}

@@ -1,0 +1,9 @@
+{
+  "state": "refused",
+  "code": "too_short",
+  "words": 17,
+  "tokens": 25,
+  "min_words": 24,
+  "total_words": 17,
+  "cut": "none"
+}

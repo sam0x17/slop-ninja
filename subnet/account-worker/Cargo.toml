@@ -1,0 +1,29 @@
+[package]
+name = "slop-ninja-account-worker"
+version = "0.1.0"
+edition = "2024"
+license = "MIT OR Apache-2.0"
+publish = false
+description = "Worker behind SlopNinja sign-in and accounts: email links, Google, GitHub, X and Bittensor wallet sign-in, sessions, linking, saved links, export, deletion and the billing ledger"
+
+# Its own workspace, like the other Workers. It links no chain code and no
+# evaluation code, and it binds no other Worker: work it starts on
+# detections goes on the detect-jobs queue. It shares only pure crates: the
+# page and account contracts and the signed-op envelope.
+[workspace]
+members = ["."]
+resolver = "3"
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+# Added with the Worker itself: the contract crates (slop-ninja-account-wire,
+# slop-ninja-detect-page, slop-ninja-signed-op), auth-core, the arena with this
+# Worker's route table and memory model, serde, and on wasm32 worker 0.8.7
+# with its wasm-bindgen glue.
+
+[profile.release]
+opt-level = "s"
+lto = true
+codegen-units = 1

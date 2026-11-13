@@ -1,0 +1,39 @@
+{
+  "page": "account",
+  "label": "kate@host.example",
+  "signed_in_with": "email",
+  "identities": [
+    {
+      "identity_id": 1,
+      "provider": "email",
+      "label": "kate@host.example",
+      "email_verified": true,
+      "avatar_ref": null,
+      "created_at": 1792577040000,
+      "last_used_at": 1795169040000,
+      "current": true,
+      "removable": false
+    }
+  ],
+  "connect": [
+    {
+      "method": "google",
+      "state": "on"
+    },
+    {
+      "method": "github",
+      "state": "on"
+    },
+    {
+      "method": "x",
+      "state": "absent"
+    },
+    {
+      "method": "bittensor",
+      "state": "on"
+    }
+  ],
+  "step_up_fresh": true,
+  "read_only": true,
+  "billing": "off"
+}

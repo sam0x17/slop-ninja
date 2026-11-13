@@ -1,0 +1,60 @@
+{
+  "page": "account",
+  "label": "kate-gardens",
+  "signed_in_with": "github",
+  "identities": [
+    {
+      "identity_id": 1,
+      "provider": "email",
+      "label": "kate@host.example",
+      "email_verified": true,
+      "avatar_ref": null,
+      "created_at": 1792577040000,
+      "last_used_at": 1795169040000,
+      "current": false,
+      "removable": true
+    },
+    {
+      "identity_id": 2,
+      "provider": "github",
+      "label": "kate-gardens",
+      "email_verified": true,
+      "avatar_ref": null,
+      "created_at": 1792577040000,
+      "last_used_at": 1795169040000,
+      "current": true,
+      "removable": true
+    },
+    {
+      "identity_id": 3,
+      "provider": "x",
+      "label": "@kate_gardens",
+      "email_verified": false,
+      "avatar_ref": "6f1c2b9a8e7d4c3b2a1f0e9d8c7b6a59",
+      "created_at": 1792577040000,
+      "last_used_at": 1795169040000,
+      "current": false,
+      "removable": true
+    },
+    {
+      "identity_id": 4,
+      "provider": "bittensor",
+      "label": "5Fixture000000000000000000000000000000000000000",
+      "email_verified": false,
+      "avatar_ref": null,
+      "created_at": 1792577040000,
+      "last_used_at": 1795169040000,
+      "current": false,
+      "removable": true
+    }
+  ],
+  "connect": [
+    {
+      "method": "google",
+      "state": "on"
+    }
+  ],
+  "step_up_fresh": false,
+  "read_only": false,
+  "billing": "grants"
+}

@@ -1,0 +1,34 @@
+{
+  "page": "billing",
+  "label": "kate-gardens",
+  "state": "grants",
+  "credit_tokens": 18400,
+  "plan": {
+    "starts_at": 1794305040000,
+    "ends_at": 1796897040000,
+    "tokens": 200000,
+    "tokens_used": 4310,
+    "api_tokens": 40960,
+    "api_tokens_used": 0
+  },
+  "history": [
+    {
+      "at": 1795169040000,
+      "kind": "debit",
+      "tokens": 4310,
+      "cash": false
+    },
+    {
+      "at": 1794305040000,
+      "kind": "plan_grant",
+      "tokens": 200000,
+      "cash": false
+    },
+    {
+      "at": 1794132240000,
+      "kind": "grant",
+      "tokens": 20000,
+      "cash": false
+    }
+  ]
+}

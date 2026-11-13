@@ -1,0 +1,28 @@
+{
+  "schema": "slop_ninja_detect_card_v1",
+  "variant": "paid_document",
+  "band": null,
+  "gauge": {
+    "level": 31,
+    "band": null,
+    "short": null,
+    "document": true
+  },
+  "confidence_text": null,
+  "share_text": "about 31%",
+  "headline": "Strong signs of AI involvement in 1 of 3 sections.",
+  "source_label": "Private text · secret link",
+  "date": "2026-11-20",
+  "ninja": null,
+  "link": {
+    "kind": "secret_host"
+  },
+  "model_line": "span package d24 · e2536d12 · publication pending",
+  "free_cut_note": null,
+  "document_note": "Whole document, 3,214 words, 3 sections",
+  "ladder": [
+    "weak",
+    "very_strong",
+    "unclear"
+  ]
+}

@@ -1,0 +1,24 @@
+[package]
+name = "slop-ninja-account-wire"
+version = "0.1.0"
+edition = "2024"
+license = "MIT OR Apache-2.0"
+publish = false
+description = "Contracts of the SlopNinja account Worker: the session answer, the account page views, saved links, the billing ledger's internal routes, sign-in API bodies and the quota buckets"
+
+# Its own workspace, like the other crates the Workers link. Pure: the
+# account Worker produces these values; the website renders the views; the
+# detect Worker calls the saved-link and billing routes.
+[workspace]
+members = ["."]
+resolver = "3"
+
+[dependencies]
+serde = { version = "1", features = ["derive"] }
+slop-ninja-detect-page = { path = "../detect-page" }
+
+[dev-dependencies]
+serde_json = "1"
+# The migration test applies the account store's schema to an in-memory
+# SQLite and exercises its CHECK and UNIQUE constraints (native only).
+rusqlite = { version = "0.37", features = ["bundled"] }

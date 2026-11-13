@@ -102,8 +102,9 @@ bounded edit proposals with ranking and whole-document review. Private rankers
 would run in SlopNinja's runtime, with private adapters served through direct
 Workers AI requests to miners' Cloudflare accounts. Its scoring authority,
 semantic review, privacy qualification, and emissions remain activation work.
-For the intended personal-voice workflow, *B* iteratively proposes and ranks edits
-using continuous author-fit feedback from *A* against the fixed writer profile.
+For the intended target-voice workflow, *B* iteratively proposes and ranks edits
+using continuous author-fit feedback from *A* against a fixed writer profile of
+the target voice.
 The categorical match alone cannot rank improvements. Freeze the profile,
 evaluator, and calibration throughout the job. Editing still requires the source
 prose; trusted preprocessing sees the references, and serving miners receive
@@ -136,7 +137,7 @@ including word-only, grammar-only, and combined inputs. They do not establish
 that the native CFG vector is ready for production, and they do not apply to
 *A*, which reads raw text.
 
-Raw-text decoder baselines remain useful for authorized revision research.
+Raw-text decoder baselines remain useful for revision research.
 Record the checkpoint, tokenizer, license, runtime, decoding settings, and cost
 for each experiment. A proposer is distinct from the proposed learned vector
 ranker; its results cannot validate that ranker without a matched comparison.

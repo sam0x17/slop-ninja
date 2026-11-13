@@ -55,14 +55,14 @@ the reference and took its place); later revenue all buys and burns alpha;
 abandoning mainnet burns its TAO. The distribution changes no score, row or
 emission. Describe the pot operationally, never in terms of price, value to
 holders or returns. The page's Worker is built, not deployed.
-B is the main product objective: authorized writing transformation toward the
-author's intended voice with meaning, readability, and tone preserved. A is a
-supporting detection and attribution mechanism and the initial standalone
-service. The intended A/B training loop is adversarial: B trains against public
-A detectors, and authorized B revisions challenge future A training after
-evaluation retirement. Measure gains on fresh held-out data; customer material
-is not reused by default. Keep the product objective distinct from the A-first
-launch sequence.
+B is the main product objective: writing transformation toward a target voice
+the user chooses (their own or any other), with meaning, readability, and tone
+preserved. A is a supporting detection and attribution mechanism and the
+initial standalone service. The intended A/B training loop is adversarial: B
+trains against public A detectors, and B revisions challenge future A training
+after evaluation retirement. Measure gains on fresh held-out data; customer
+material is not reused by default. Keep the product objective distinct from the
+A-first launch sequence.
 A is one model with a shared learned encoder for origin, AI share, and
 human/model attribution outputs. Report two document-level percentages:
 estimated AI-written/rewritten share and confidence in any AI involvement.
@@ -150,14 +150,15 @@ to supplied references, not identity authentication or proof of authorship.
 Profiles remain request/customer scoped. Documented public or licensed human
 references are also allowed under an enrollment policy recording provenance and
 permitted uses; do not impose a blanket writer-opt-in requirement.
-Later B uses the fixed writer profile and continuous A author-fit feedback to
-guide iterative revision, with separate meaning, readability, and tone checks.
+Later B uses a fixed writer profile of the target voice and continuous A
+author-fit feedback to guide iterative revision, with separate meaning,
+readability, and tone checks.
 Freeze profile, evaluator, and calibration within each comparison. Qualify any
 A-derived mapping to the existing integer style distance/rank; that rank is not
 an authorship probability. Trusted preprocessing still reads samples and editing
 still needs source prose. Samples and profiles stay private, with no miner access,
 automatic public enrollment, or automatic training reuse. Pooling viability and
-the personal revision workflow remain future qualifications.
+the target-voice revision workflow remain future qualifications.
 C credits accepted grammar contributions once. It supports the grammar later B
 uses and activates by its own decision, which may precede B's; B's revised
 mechanism mapping must then also place C's credit. Pilot scoring is coordinator-led.
@@ -393,7 +394,7 @@ readability, human authorship, or performance on unseen sources.
 B must support long multi-paragraph documents, including book-length customer
 jobs. Word, phrase, clause and sentence repairs are edit units; the native
 grammar types them, and the assembled document is the evaluation unit. Test chapter and section boundaries, long-range claim
-and terminology consistency, and author voice across the work. Do not infer
+and terminology consistency, and the target voice across the work. Do not infer
 document success from isolated sentence or section scores. Keep all text covered,
 record model context limits, and distinguish window diagnostics from calibrated
 document scores. Choose an authorized execution host before running long-form experiments.

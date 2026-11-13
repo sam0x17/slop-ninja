@@ -156,9 +156,9 @@ scores cannot certify preservation or author fit. The
 candidate objectives and remaining activation choices without requiring TEE
 execution evidence.
 
-For personal-voice editing, *B* uses the same fixed writer profile and continuous
-*A* author-fit signal to rank successive revisions. Freeze the evaluator,
-profile, and calibration for each comparison. Qualify any mapping to the public
+For target-voice editing, *B* uses a fixed writer profile of the target voice
+and the continuous *A* author-fit signal to rank successive revisions. Freeze
+the evaluator, profile, and calibration for each comparison. Qualify any mapping to the public
 style distance; its calibrated rank is not an authorship probability. Test
 adaptive metric gaming against independent author-fit judgments and separate
 preservation, readability, and tone review. The learned scorer receives the

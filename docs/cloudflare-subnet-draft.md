@@ -7,11 +7,11 @@ neither establishes a deployed or qualified subnet.
 The [implementation plan](subnet-implementation-plan.md) defines the build
 sequence, acceptance criteria, and upstream rtao improvements.
 
-SlopNinja's main objective is *B*: transforming authorized writing to sound
-natural and match the author's intended voice while preserving meaning,
-readability, and tone. *A* supplies supporting detection and attribution signals
-for revision search and evaluation. The intended training is adversarial:
-*B* learns against public *A* detectors, while authorized *B* revisions supply
+SlopNinja's main objective is *B*: transforming writing to sound natural and
+match a target voice the user chooses (their own or any other) while
+preserving meaning, readability, and tone. *A* supplies supporting detection
+and attribution signals for revision search and evaluation. The intended training is adversarial:
+*B* learns against public *A* detectors, while *B* revisions supply
 challenging examples for future *A* training after evaluation retirement.
 Fresh held-out evaluation must establish any improvement in either mechanism.
 *A* launches first as the initial evaluator
@@ -62,7 +62,7 @@ Launch evaluates English documents, with document-level scores and AI span
 localization. Multilingual detection rewards and broader length classes each
 need qualified data and workload profiles. For later *B*, *C* may improve
 parsing of informal English and embedded foreign or technical material. *A*
-reads raw text, so grammar coverage does not change its detection capabilities. The later cleanup product follows an authorized writer's brief
+reads raw text, so grammar coverage does not change its detection capabilities. The later cleanup product follows the customer's brief
 and preserves meaning; a lower detector score never changes production history.
 
 The privacy requirement is that miners cannot retrieve customer prompts or
@@ -3181,12 +3181,13 @@ Every *B* benchmark includes independent target-author references and frozen
 style calibration. Benchmarks retain both the author-fit and detector objectives
 even though customers can purchase ordinary revision without author references.
 
-The main intended author-targeted product uses the customer's private writer
-profile (*A* encoder plus stylometric features under the versioned pooling
-contract). *A* supplies continuous author-fit feedback as *B* proposes,
-reparses, and ranks successive revisions toward that writer's voice. No profile
-tested so far is a validated author-fit signal: every one ranked rewrites toward
-a target near chance, and record kind moved scores more than the target voice.
+The main intended author-targeted product uses a private writer profile of
+the target voice the customer chooses (*A* encoder plus stylometric features
+under the versioned pooling contract). *A* supplies continuous author-fit
+feedback as *B* proposes, reparses, and ranks successive revisions toward that
+voice. No profile tested so far is a validated author-fit signal: every one
+ranked rewrites toward a target near chance, and record kind moved scores more
+than the target voice.
 The feedback waits for the learned matcher's qualification and for rewrites
 conditioned on several of the target's own samples. A qualified mapping from
 *A*'s fit signal to the public style distance can supply the frozen evaluator

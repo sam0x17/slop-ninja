@@ -26,11 +26,11 @@
 ## What it is
 
 SlopNinja is a Bittensor subnet for writing. Its main objective is to
-transform text so it sounds natural and matches the author's intended voice,
-while preserving meaning, readability and tone. Its first mechanism, *A*,
-detects AI involvement: for each document it reports the share of words AI
-wrote or rewrote and the confidence that AI was involved, with conditional
-human and AI attribution. *A* runs first, on testnet subnet 601.
+transform text so it sounds natural and matches a target voice the user
+chooses (their own or any other), while preserving meaning, readability and
+tone. Its first mechanism, *A*, detects AI involvement: for each document it
+reports the share of words AI wrote or rewrote and the confidence that AI was
+involved, with conditional human and AI attribution. *A* runs first, on testnet subnet 601.
 
 ## How it works
 
@@ -46,7 +46,7 @@ an entrant beats it by the required margin, no miner earns and the pool burns.
 | Mechanism | What it does | State |
 | --- | --- | --- |
 | **A**&nbsp;·&nbsp;Detection | Rewards text models that estimate AI share, AI-involvement confidence and human/AI attribution. | Live&nbsp;on testnet |
-| **B**&nbsp;·&nbsp;Transformation | Transforms authorized writing toward the author's voice, keeping meaning, readability and tone. | Planned |
+| **B**&nbsp;·&nbsp;Transformation | Transforms writing toward a target voice the user chooses, keeping meaning, readability and tone. | Planned |
 | **C**&nbsp;·&nbsp;Shared grammar | Credits accepted, reusable contributions to the grammar that *B* uses, once each. | Planned |
 
 *B* and *C* activate separately. *B* is trained adversarially against *A* and

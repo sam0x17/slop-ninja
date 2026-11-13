@@ -13,19 +13,20 @@ they do not qualify this utility for emissions.
 
 ## Frozen numerical inputs
 
-A comparison fixes source `x`, candidate `z`, authorized target-author
-references, a public style evaluator, and a nonempty calibration multiset
+A comparison fixes source `x`, candidate `z`, target-author references, a
+public style evaluator, and a nonempty calibration multiset
 `C = [c_1, ..., c_M]`. The evaluator returns a nonnegative integer distance
 `d_theta(text, references)` or an explicit error. Its artifact binds feature
 meanings, pooling, parameters, runtime, arithmetic, and resource limits.
 Calibration uses development queries and independent same-author reference
 works, separated from fitting and evaluation. Preserve repeated distances.
 
-For the intended personal-voice service, the target is the private writer
-profile that *A* uses: trusted preprocessing represents each of the customer's
-independent writing samples by the *A* encoder's output and stylometric features
-(function-word frequencies and character n-grams), then pools them under a
-qualified, versioned pooling contract. A normalized weighted mean is the
+For the intended target-voice service, the target is a private writer profile
+of the voice the customer chooses, built as *A* builds its profiles: trusted
+preprocessing represents each independent writing sample of that voice by the
+*A* encoder's output and stylometric features (function-word frequencies and
+character n-grams), then pools them under a qualified, versioned pooling
+contract. A normalized weighted mean is the
 starting proposal; the contract fixes feature scaling, per-work weights,
 missing-channel handling, and the encoder, feature, and pooling versions. The
 learned author-fit scorer consumes that profile instead of raw references;

@@ -24,6 +24,14 @@
 //! - [`waits`]: the liveness waits and the scan lease derived from them;
 //! - [`routes`]: arena routes, footprints, the isolate's scan memory and the
 //!   admission of forwarded requests (the `X-SN-*` allow-list and CSRF);
+//! - the store (secret links, pages and background work): [`canon`]
+//!   (`canon_v1`), [`keys`] (hashes, keys and document encryption),
+//!   [`slug`], [`store`] (the state machine), [`doc`] (the stored result and
+//!   documents), [`display`] (the display policy), [`page`] (page JSON),
+//!   [`db`] (the SQL and I/O seam the flows run on), [`lookup`], the flows
+//!   [`share`], [`manage`] (manage, owner and states) and [`rerun`], the
+//!   read routes [`reads`], and the background work [`queue`], [`cron`],
+//!   [`sitemap`] and [`store_ops`];
 //! - `cf`, `cf_gate`, `cf_feedback`, `cf_lane` (wasm32): the export, the
 //!   `DetectGate` object, the `DetectFeedback` object and the `DetectLane`
 //!   object with its Container.
@@ -41,15 +49,32 @@
 
 pub mod answer;
 pub mod bound;
+pub mod canon;
 pub mod counters;
+pub mod cron;
 pub mod cut;
+pub mod db;
+pub mod display;
+pub mod doc;
 pub mod english;
 pub mod envelope;
 pub mod gate;
+pub mod keys;
+pub mod lookup;
+pub mod manage;
+pub mod page;
 pub mod policy;
+pub mod queue;
+pub mod reads;
 pub mod receipt;
+pub mod rerun;
 pub mod routes;
 pub mod seal;
+pub mod share;
+pub mod sitemap;
+pub mod slug;
+pub mod store;
+pub mod store_ops;
 pub mod switches;
 pub mod waits;
 pub mod xpost;
@@ -66,6 +91,11 @@ mod cf_gate;
 mod cf_io;
 #[cfg(target_arch = "wasm32")]
 mod cf_lane;
+// The store's Cloudflare glue; its routes are wired with the free path's
+// route table.
+#[cfg(target_arch = "wasm32")]
+#[allow(dead_code)]
+mod cf_store;
 
 // Native witness tests on the bounded arena: the arena is the test binary's
 // global allocator.

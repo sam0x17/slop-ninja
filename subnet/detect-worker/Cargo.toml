@@ -35,24 +35,31 @@ slop-ninja-scorer-client = { path = "../crates/scorer-client" }
 slop-ninja-artifact-check = { path = "../crates/artifact-check", default-features = false }
 # The page contracts: refusal codes, the forwarded route table and the
 # X-SN headers, origins from config, the kill switches, ticket classes and
-# counting channels, the AE point schema, X post URLs.
+# counting channels, the AE point schema, X post URLs, and the queue and
+# internal-route contracts the store produces and reads.
 slop-ninja-detect-page = { path = "../crates/detect-page" }
 # The CSRF check of forwarded browser routes (Fetch Metadata and Origin).
 # Without `wallet`: no chain code.
 slop-ninja-auth-core = { path = "../crates/auth-core" }
-# Result seals: AES-256-GCM under an HKDF-SHA256 day key, base64url. Pure
-# Rust, so the seal rules are tested natively; no getrandom (the Worker
-# passes the platform's random nonce).
-aes-gcm = { version = "0.10", default-features = false, features = ["aes", "alloc"] }
+# The account Worker's saved-link bodies (owned/add), which the store calls.
+slop-ninja-account-wire = { path = "../crates/account-wire" }
+# Result seals and secret documents: AES-256-GCM under HKDF-SHA256 keys, in
+# pure Rust, the same code natively (tests) and in wasm32 (no WebCrypto glue,
+# no async key import). No getrandom: every nonce comes from the platform's
+# CSPRNG through the Worker's own glue.
+aes-gcm = { version = "0.10.3", default-features = false, features = ["aes", "alloc"] }
 base64 = "0.22"
 hex = "0.4"
-hkdf = "0.12"
+hkdf = "0.12.4"
 hmac = "0.12"
 serde = { version = "1", features = ["derive"] }
 # Scorer probabilities parse to the exact f64 the scorer printed, so the
 # band cut compares the scorer's own value.
 serde_json = { version = "1", features = ["float_roundtrip"] }
 sha2 = "0.10"
+# canon_v1's NFC: the scorer's own normalizer and version (Unicode 9.0
+# tables), so a canonical text tokenizes exactly as the scorer reads it.
+unicode-normalization-alignments = "=0.1.12"
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 futures-channel = { version = "0.3", default-features = false, features = ["alloc"] }
@@ -60,14 +67,12 @@ futures-util = { version = "0.3", default-features = false, features = ["alloc"]
 js-sys = "0.3"
 wasm-bindgen = "0.2"
 wasm-bindgen-futures = "0.4"
-worker = { version = "0.8.7", features = ["d1"] }
+worker = { version = "0.8.7", features = ["d1", "queue"] }
 
 [dev-dependencies]
-# The scorer's NFC crate and version: the escape factor test recomputes the
-# body bound from its tables.
-unicode-normalization-alignments = "=0.1.12"
-# The switch read and the hour counts' SQL run against the store's own
-# migration and the gate's table in SQLite (native only).
+# The store tests, the switch read and the hour counts' SQL run against the
+# store's own migration and the gate's table in an in-memory SQLite (native
+# only), with foreign keys on, as D1 runs them.
 rusqlite = { version = "0.37", features = ["bundled"] }
 
 [build-dependencies]

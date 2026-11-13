@@ -166,19 +166,55 @@ name = "DETECT_WARM_LIMIT"
 namespace_id = "6010"
 simple = { limit = 1, period = 10 }
 
-# Content-free data points only: outcome, band, length and token bins, cold
-# or warm, service time, feedback buttons.
-[[env.testnet.analytics_engine_datasets]]
-binding = "DETECT_METRICS"
-dataset = "slop_ninja_detect_testnet"
-
-# The detect store: the switches rows, and the hourly scan counts the gate
-# flushes. Read replication off.
+# The detect store (D1, its only writer): secret links, public pages,
+# sources, removal cases, the op journal, the switches rows and the hourly
+# scan counts the gate flushes. No text, address or user id. Read
+# replication off. The id is a placeholder; the deploy wrappers restore the
+# real one. Migrations: migrations/, applied by the wrappers' D1 step.
 [[env.testnet.d1_databases]]
 binding = "DETECT_STORE"
 database_name = "detect-store-testnet"
 database_id = "detect-store-id-testnet"
 migrations_dir = "migrations"
+
+# Documents (R2, no public access): encrypted secret documents p/<id_h>,
+# public run documents r/<run_id>, paid job parts j/<id_h>/..., sealed
+# notices c/<case_id>, example reports x/examples/... and sitemap shards.
+[[env.testnet.r2_buckets]]
+binding = "DETECT_DOCS"
+bucket_name = "detect-docs-bucket-testnet"
+
+# Content-free side-effect messages (purges, owner purges and re-keys,
+# legal notices, sitemap marks). The account Worker produces owner purges
+# and re-keys; this Worker consumes, one message per invocation
+# (max_batch_size = 1, which the deploy self-test checks), and a message
+# that runs out of retries reaches the dead-letter queue, which raises an
+# alert.
+[[env.testnet.queues.producers]]
+binding = "DETECT_JOBS"
+queue = "detect-jobs-queue-testnet"
+
+[[env.testnet.queues.consumers]]
+queue = "detect-jobs-queue-testnet"
+max_batch_size = 1
+dead_letter_queue = "detect-jobs-dlq-testnet"
+
+# The account Worker (saved links: owned/add after Get a link with Save).
+# It calls no Worker back.
+[[env.testnet.services]]
+binding = "ACCOUNT"
+service = "slop-ninja-account"
+
+# The alerts relay's legal stream (legal notices from the queue consumer).
+[[env.testnet.services]]
+binding = "ALERTS_RELAY"
+service = "slop-ninja-alerts-testnet"
+
+# Content-free data points only: outcome, band, length and token bins, cold
+# or warm, service time, feedback buttons.
+[[env.testnet.analytics_engine_datasets]]
+binding = "DETECT_METRICS"
+dataset = "slop_ninja_detect_testnet"
 
 # ------------------------------------------------------------------ staging
 

@@ -1,0 +1,15 @@
+[package]
+name = "slop-ninja-detect-fetch-wire"
+version = "0.1.0"
+edition = "2024"
+license = "MIT OR Apache-2.0"
+publish = false
+description = "The contract between the SlopNinja detect Worker and its fetch Worker: requests, answers, outcome codes and RFC 9309 robots rules"
+
+# Shared by path with the detect Worker (its DetectHost object keeps the
+# parsed robots rules and evaluates them per path).
+[dependencies]
+serde = { version = "1", features = ["derive"] }
+
+[dev-dependencies]
+serde_json = "1"

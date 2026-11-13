@@ -1,0 +1,78 @@
+# SlopNinja fetch Worker: Wrangler configuration (tracked).
+#
+# The stateless Worker behind the public URL check (release R2). The detect
+# Worker reaches it only through its service binding (DETECT_FETCH); this
+# Worker has no route, no custom domain, no default workers_dev subdomain and no preview
+# URLs. It has no binding of any kind: outbound Fetch only. It must never get
+# a Tunnel, VPC or other private-network binding (risk F4; tests/source.rs).
+#
+# Resource names here are placeholders; the operator's private resource-name
+# table holds the real ones. Deploy only through the deploy wrappers, which
+# also restore the staging origins (the [env.staging] values below are
+# placeholders). Secrets, installed with `wrangler secret put` from stdin,
+# never in tracked files:
+#   WEB_BOT_AUTH_KEY  the Web Bot Auth Ed25519 private JWK (its own key,
+#                     separate from every other key); without it the Worker
+#                     answers 503 and fetches nothing
+#
+#   WRANGLER_WRITE_LOGS=false WRANGLER_SEND_METRICS=false wrangler deploy \
+#     --env testnet --tag testnet --message "slop-ninja detect-fetch testnet <sha8>"
+#
+# No account ID belongs here. The top level is a local-only shell with no
+# bindings, vars or route.
+
+name = "slop-ninja-detect-fetch-local"
+main = "build/index.js"
+compatibility_date = "2026-10-20"
+workers_dev = false
+preview_urls = false
+
+[build]
+command = "worker-build --release"
+
+[observability]
+enabled = false
+
+# ------------------------------------------------------------------ testnet
+# The production environment (the detect resources keep the -testnet suffix).
+
+[env.testnet]
+name = "slop-ninja-detect-fetch-testnet"
+workers_dev = false
+preview_urls = false
+
+# No logs: the Worker writes none, and no Logpush or Tail Worker is attached.
+[env.testnet.observability]
+enabled = false
+
+[env.testnet.vars]
+NETWORK = "testnet"
+PRODUCT = "detect"
+DEPLOY_ENV = "production"
+# Our own hosts (never fetched), and the signature agent's origin, which
+# publishes the Web Bot Auth key directory.
+SITE_ORIGIN = "https://slop.ninja"
+SECRET_ORIGIN = "https://s.slop.ninja"
+
+# ------------------------------------------------------------------ staging
+# The separate staging stack. Its origins and the fixture prefix are
+# restored by the deploy wrappers from the private configuration.
+
+[env.staging]
+name = "slop-ninja-detect-fetch-staging"
+workers_dev = false
+preview_urls = false
+
+[env.staging.observability]
+enabled = false
+
+[env.staging.vars]
+NETWORK = "testnet"
+PRODUCT = "detect"
+DEPLOY_ENV = "staging"
+SITE_ORIGIN = "<SITE_ORIGIN>"
+SECRET_ORIGIN = "<SECRET_ORIGIN>"
+# Staging only: one https://slop.ninja/preview/<token>/fixtures/ prefix the
+# URL rules admit for the URL-page drill. Read only when DEPLOY_ENV is
+# "staging"; the production environment cannot carry it (tests/source.rs).
+URL_FIXTURE_PREFIX = "<URL_FIXTURE_PREFIX>"

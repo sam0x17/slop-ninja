@@ -1,0 +1,30 @@
+[package]
+name = "slop-ninja-detect-url"
+version = "0.1.0"
+edition = "2024"
+license = "MIT OR Apache-2.0"
+publish = false
+description = "URL rules of the SlopNinja public URL check: input checks, canon_url_v1, capability_url_v1 and the Public Suffix List"
+# The Public Suffix List rules in psl/ keep their own licence (MPL-2.0, see the
+# notice at the top of the file; comments removed, rules unchanged).
+include = ["Cargo.toml", "build.rs", "src/**", "psl/**"]
+
+# Its own workspace, like the arena: a pure crate shared by path by the detect
+# Worker (the URL check before any slug) and the fetch Worker (every redirect
+# hop). It links no Workers or chain code.
+[workspace]
+members = ["."]
+resolver = "3"
+
+[features]
+# Dev builds only: a configured dev host (the local fixture site) passes the
+# checks. Release builds never enable it (detect-fetch's source test).
+dev = []
+
+[dependencies]
+percent-encoding = "2"
+url = "2.5.8"
+
+[build-dependencies]
+idna = "1"
+sha2 = "0.10"

@@ -884,8 +884,9 @@ printf 'Authorization: Bearer %s\n' "$(cat $S/eval_operator_token)" |
 # pre-flight a generator or the scorer path on fixed synthetic text: /eval/probe, /eval/scorer-probe
 # generation v2 (after the gen Worker and the GEN_TESTNET binding are deployed; gen Worker first, then
 #   eval; never roll the gen Worker back below the eval Worker's interface version, now v2): GET /eval/gen/health
-#   ({interface, openai, anthropic, openai_route, anthropic_route}; a vendor at a configured endpoint has its
-#   endpoint secret GEN_<VENDOR>_ENDPOINT on the gen Worker and the manifest's `routes` names it),
+#   ({interface, openai, anthropic, openai_route, anthropic_route}; the gen Worker reaches a vendor only at
+#   its configured endpoint, the endpoint secret GEN_<VENDOR>_ENDPOINT, and is unavailable for it without
+#   one; the manifest's `routes` names configured_endpoint_v1 for each vendor),
 #   POST /eval/gen/measure {"manifest": {key, sha256, bytes}, "model", "effort", "call", "attempt"}
 #   (synthetic set only; each vendor call settles under its own ledger key). Once a plan naming
 #   `generation` has been stored (a later build), rolling the eval Worker back below that build is

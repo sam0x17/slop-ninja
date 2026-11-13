@@ -4,7 +4,8 @@
 //!
 //! - Only the internal signer Worker (`r2-signer`) binds Secrets Store
 //!   secrets (the presign and copy key pairs). The public upload Worker, the
-//!   eval Worker (coordinator) and the publisher bind none.
+//!   eval Worker (coordinator), the publisher and the generation Worker bind
+//!   none.
 //! - Only the eval Worker (minting) and the publisher (the copy route) bind
 //!   the signer Worker; the public upload Worker never does.
 //! - The publisher reads the copy route's token as a secret only, never as a
@@ -36,7 +37,7 @@ const SIGNER_SERVICE: &str = "\"slop-ninja-r2-signer-testnet\"";
 #[test]
 fn only_the_signer_binds_the_r2_credentials() {
     assert!(config("r2-signer/wrangler.toml").contains("secrets_store_secrets"), "the signer binds them");
-    for rel in ["admission-worker/wrangler.toml", "coordinator/wrangler.toml", "publisher/wrangler.toml"] {
+    for rel in ["admission-worker/wrangler.toml", "coordinator/wrangler.toml", "publisher/wrangler.toml", "gen-worker/wrangler.toml"] {
         let c = config(rel);
         assert!(!c.contains("secrets_store_secrets"), "{rel} binds a Secrets Store secret");
         assert!(!c.contains("R2_PRESIGN") && !c.contains("R2_COPY_KEY"), "{rel} names an R2 S3 key");

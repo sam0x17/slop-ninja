@@ -8,9 +8,9 @@
 //! length (refused above [`iface::CALL_BODY_BYTES`] before it is read), its
 //! parse as heap of the body's length, then, before the vendor is
 //! contacted, the call's heap ([`iface::call_heap_bytes`]: the stream
-//! reader's two buffers, the read buffer, the reply at its bound and a Flex
-//! retry's body). A call the isolate cannot hold answers a throttle (no
-//! attempt used, nothing sent) rather than allocate.
+//! reader's two buffers, the read buffer and the reply at its bound). A call
+//! the isolate cannot hold answers a throttle (no attempt used, nothing
+//! sent) rather than allocate.
 
 use slop_ninja_arena::{AsyncRoute, limits};
 use slop_ninja_gen_core::iface;
@@ -43,9 +43,12 @@ pub const CONTROL_BYTES: usize = MIB;
 /// The most one call admits beyond its control footprint: the message
 /// block at the interface bound, its parse (the request body's string and
 /// one page of fields), its vendor's endpoint secret parse
-/// ([`crate::route::HEAP_BYTES`], when the vendor has one), and its heap ([`iface::call_heap_bytes`] at the
-/// interface's bounds: the reader's visible and line buffers with the read
-/// buffer, the reply, and a Flex standard retry's body).
+/// ([`crate::route::HEAP_BYTES`], when the secret is set), and its heap
+/// ([`iface::call_heap_bytes`] at the interface's bounds: the reader's
+/// visible and line buffers with the read buffer, the reply, and the
+/// interface's allowance for a Flex standard retry's body: an over-count
+/// here, since a Flex request is built for the direct route, which this
+/// Worker refuses before admitting anything).
 pub const CALL_ADMISSIONS_MAX: usize = iface::CALL_MESSAGE_BYTES
     + parse_bytes(iface::CALL_BODY_BYTES)
     + crate::route::HEAP_BYTES

@@ -10,24 +10,20 @@
 #     --env testnet --tag testnet --message "slop-ninja testnet gen <sha8> <mode>"
 #
 # No account ID belongs here: Wrangler resolves the account from the
-# operator's existing login. Its two keys live in the account's default
-# Secrets Store (Workers scope), installed by the user, never by a script:
-# SLOP_NINJA_OPENAI_API_KEY_TESTNET and SLOP_NINJA_ANTHROPIC_API_KEY_TESTNET.
-# The store's id is account-specific and stays out of tracked files: the
-# deploy fills SECRETS_STORE_ID below from the private inventory into a
-# temporary copy of this file, and deploys from that copy.
+# operator's existing login, and nothing in this file is account-specific.
 #
-# A vendor may instead be reached at a configured endpoint that speaks its
-# wire format: one Worker secret per vendor, GEN_OPENAI_ENDPOINT and
+# Each vendor is reached only at a configured endpoint that speaks its wire
+# format: one Worker secret per vendor, GEN_OPENAI_ENDPOINT and
 # GEN_ANTHROPIC_ENDPOINT (JSON; see src/route.rs), put from stdin with
 # `wrangler secret put <NAME> --env testnet`. They carry credentials, so they
-# are never written here. Without them the vendors are reached directly with
-# the Secrets Store keys. The route must equal the generator manifest's
-# (`routes`); /health names each vendor's route and plan admission refuses a
+# are never written here. The Worker binds no vendor key and has no other
+# route: a vendor without its secret, or with one that does not validate, is
+# unavailable (/health false, every call key_unavailable). The route is
+# configured_endpoint_v1 and must equal the generator manifest's (`routes`);
+# /health names each vendor's route and plan admission refuses a
 # disagreement.
 #
-# global_fetch_strictly_public: every fetch() takes the public path. The
-# vendors' own endpoints are unaffected.
+# global_fetch_strictly_public: every fetch() takes the public path.
 #
 # The top level is a local-only shell (no vars, bindings, routes or
 # workers.dev name), named with the testnet marker.
@@ -55,13 +51,3 @@ routes = []
 
 [env.testnet.observability]
 enabled = false
-
-[[env.testnet.secrets_store_secrets]]
-binding = "OPENAI_API_KEY"
-store_id = "SECRETS_STORE_ID"
-secret_name = "SLOP_NINJA_OPENAI_API_KEY_TESTNET"
-
-[[env.testnet.secrets_store_secrets]]
-binding = "ANTHROPIC_API_KEY"
-store_id = "SECRETS_STORE_ID"
-secret_name = "SLOP_NINJA_ANTHROPIC_API_KEY_TESTNET"

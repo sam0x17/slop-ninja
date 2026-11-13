@@ -1,6 +1,7 @@
-//! Where a vendor's calls go: the vendor's own API (the default), or a
-//! configured endpoint that speaks the vendor's wire format
-//! ([`Route::ConfiguredEndpointV1`]).
+//! Where a vendor's calls go: its configured endpoint, a URL that speaks
+//! the vendor's wire format ([`Route::ConfiguredEndpointV1`], [`ROUTE`]).
+//! It is this Worker's only route: the Worker binds no vendor key of its
+//! own, and nothing falls back to a vendor's own API.
 //!
 //! A configured endpoint is one Worker secret per vendor ([`OPENAI_SECRET`],
 //! [`ANTHROPIC_SECRET`]), installed from stdin at deploy time and never
@@ -17,14 +18,11 @@
 //!  "unsupported_codes": "<code>,..."}        (ErrorCodes)
 //! ```
 //!
-//! Without the secret the vendor is reached directly: its documented
-//! endpoint ([`Vendor::endpoint`]), its key from the Secrets Store binding,
-//! and its own key header (`authorization: Bearer` for OpenAI, `x-api-key`
-//! for Anthropic). A secret that does not parse or validate makes the
-//! vendor's key unavailable (health false, every call `key_unavailable`,
-//! which pauses the vendor and alerts): a broken configuration is never
-//! replaced by the direct route, since the manifest's request shape is the
-//! route's.
+//! A vendor without its secret, or whose secret does not parse or validate
+//! (a `route` other than [`ROUTE`] included), is unavailable
+//! ([`Configured::Unavailable`]: health false, every call `key_unavailable`,
+//! which pauses the vendor and alerts). Nothing replaces a missing or broken
+//! configuration: there is no other route to fall back to.
 //!
 //! Nothing here is logged or returned: [`RouteConfig`] has no `Debug`, and
 //! its key and header values are zeroed on drop. The endpoint and header
@@ -36,9 +34,23 @@ use slop_ninja_gen_core::sse::ErrorCodes;
 use slop_ninja_gen_core::vendor::{Route, Vendor};
 use zeroize::Zeroizing;
 
-/// The Worker secrets holding each vendor's endpoint (absent: direct).
+/// This Worker's only route: every call it sends goes to a configured
+/// endpoint, and `/health` reports this route for both vendors.
+pub const ROUTE: Route = Route::ConfiguredEndpointV1;
+
+/// The Worker secrets holding each vendor's endpoint (absent: the vendor is
+/// unavailable).
 pub const OPENAI_SECRET: &str = "GEN_OPENAI_ENDPOINT";
 pub const ANTHROPIC_SECRET: &str = "GEN_ANTHROPIC_ENDPOINT";
+
+/// The endpoint secret of `v` (`None` for Workers AI, which never runs here).
+pub fn secret_name(v: Vendor) -> Option<&'static str> {
+    match v {
+        Vendor::Openai => Some(OPENAI_SECRET),
+        Vendor::Anthropic => Some(ANTHROPIC_SECRET),
+        Vendor::WorkersAi => None,
+    }
+}
 
 /// An endpoint secret's value at most: the platform's limit on a Worker
 /// secret's (environment variable's) value, 5 KB, read as 5 KiB.
@@ -77,10 +89,6 @@ pub enum Auth {
 }
 
 impl Auth {
-    /// The vendor's own key header.
-    pub fn direct(v: Vendor) -> Auth {
-        if v == Vendor::Openai { Auth::Bearer } else { Auth::XApiKey }
-    }
     pub fn header(self) -> &'static str {
         match self {
             Auth::Bearer => "authorization",
@@ -96,6 +104,8 @@ pub struct Refused(pub &'static str);
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct Raw {
+    // Must be [`ROUTE`]; kept in the value so the secret names the route
+    // the manifest's requests are built for.
     route: Route,
     endpoint: String,
     auth: Auth,
@@ -109,9 +119,9 @@ struct Raw {
     unsupported_codes: String,
 }
 
-/// A configured endpoint (from its secret). No `Debug`: it holds a key.
+/// A configured endpoint (from its secret), on [`ROUTE`]. No `Debug`: it
+/// holds a key.
 pub struct RouteConfig {
-    pub route: Route,
     pub endpoint: String,
     pub auth: Auth,
     pub key: Zeroizing<String>,
@@ -161,6 +171,9 @@ impl RouteConfig {
         let raw: Raw = serde_json::from_str(value).map_err(|_| Refused("route (json)"))?;
         let key = Zeroizing::new(raw.key);
         let given: Vec<(String, Zeroizing<String>)> = raw.headers.into_iter().map(|(n, v)| (n, Zeroizing::new(v))).collect();
+        if raw.route != ROUTE {
+            return Err(Refused("route (route: configured_endpoint_v1, the only route this Worker serves)"));
+        }
         if !endpoint_ok(&raw.endpoint) {
             return Err(Refused("route (endpoint: an https URL with a host and a path, no credentials, query or fragment)"));
         }
@@ -179,7 +192,6 @@ impl RouteConfig {
             return Err(Refused("route (error codes: comma-separated codes of letters, digits, _ . -)"));
         }
         Ok(RouteConfig {
-            route: raw.route,
             endpoint: raw.endpoint,
             auth: raw.auth,
             key,
@@ -190,11 +202,44 @@ impl RouteConfig {
     }
 }
 
-/// Where one call goes, borrowed for the call: the route it was configured
-/// with, the URL, how the key is sent, the key, any further headers and
-/// error codes.
+/// How a vendor is configured, read for one call or one health answer.
+pub enum Configured {
+    /// Its endpoint secret, valid.
+    Endpoint(RouteConfig),
+    /// No endpoint secret, or one that does not validate: nothing is sent.
+    Unavailable,
+}
+
+impl Configured {
+    /// The configuration from the value of the vendor's endpoint secret
+    /// (`None`: the secret is not set).
+    pub fn from_secret(value: Option<&str>) -> Configured {
+        match value.map(RouteConfig::parse) {
+            Some(Ok(c)) => Configured::Endpoint(c),
+            Some(Err(_)) | None => Configured::Unavailable,
+        }
+    }
+    /// Where a call goes (`None`: the vendor is unavailable).
+    pub fn target(&self) -> Option<Target<'_>> {
+        match self {
+            Configured::Endpoint(c) => Some(Target::of(c)),
+            Configured::Unavailable => None,
+        }
+    }
+    /// The vendor's `/health` entry: whether its key is usable, and the
+    /// route ([`ROUTE`] either way: this Worker serves no other).
+    pub fn health(&self) -> (bool, Route) {
+        match self {
+            Configured::Endpoint(c) => (crate::drive::key_ok(&c.key), ROUTE),
+            Configured::Unavailable => (false, ROUTE),
+        }
+    }
+}
+
+/// Where one call goes, borrowed for the call: the URL, how the key is
+/// sent, the key, any further headers and error codes (always on
+/// [`ROUTE`]).
 pub struct Target<'a> {
-    pub route: Route,
     pub url: &'a str,
     pub auth: Auth,
     pub key: &'a str,
@@ -203,14 +248,8 @@ pub struct Target<'a> {
 }
 
 impl<'a> Target<'a> {
-    /// The vendor's own API with `key` (`None` for Workers AI, which never
-    /// runs here).
-    pub fn direct(v: Vendor, key: &'a str) -> Option<Target<'a>> {
-        Some(Target { route: Route::Direct, url: v.endpoint()?, auth: Auth::direct(v), key, headers: &[], codes: ErrorCodes::NONE })
-    }
     pub fn of(c: &'a RouteConfig) -> Target<'a> {
         Target {
-            route: c.route,
             url: &c.endpoint,
             auth: c.auth,
             key: &c.key,
@@ -233,25 +272,43 @@ mod tests {
     #[test]
     fn an_endpoint_secret_parses_and_validates() {
         let c = RouteConfig::parse(&cfg("https://frontier.example.test/v1/messages", &format!(r#"[["X-Endpoint-Auth","{KEY}"]]"#))).unwrap();
-        assert_eq!((c.route, c.endpoint.as_str(), c.auth == Auth::Bearer), (Route::ConfiguredEndpointV1, "https://frontier.example.test/v1/messages", true));
+        assert_eq!((c.endpoint.as_str(), c.auth == Auth::Bearer), ("https://frontier.example.test/v1/messages", true));
         assert_eq!(c.headers.len(), 1);
         assert_eq!((c.headers[0].0.as_str(), c.headers[0].1.as_str()), ("x-endpoint-auth", KEY));
         let t = Target::of(&c);
-        assert_eq!((t.route, t.url, t.key), (Route::ConfiguredEndpointV1, c.endpoint.as_str(), KEY));
+        assert_eq!((t.url, t.key), (c.endpoint.as_str(), KEY));
         assert_eq!(t.codes, ErrorCodes::NONE, "no further codes unless configured");
-        // Headers and codes are optional; the direct auth styles are the vendors'.
-        assert!(RouteConfig::parse(&format!(r#"{{"route":"direct","endpoint":"https://gw.example.test/v1/responses","auth":"x-api-key","key":"{KEY}"}}"#)).is_ok());
-        assert_eq!(Auth::direct(Vendor::Openai).header(), "authorization");
-        assert_eq!(Auth::direct(Vendor::Anthropic).header(), "x-api-key");
-        assert!(Target::direct(Vendor::WorkersAi, KEY).is_none());
-        let d = Target::direct(Vendor::Anthropic, KEY).unwrap();
-        assert_eq!((d.url, d.codes), ("https://api.anthropic.com/v1/messages", ErrorCodes::NONE));
+        // Headers and codes are optional; both key header styles are accepted.
+        let c = RouteConfig::parse(&format!(r#"{{"route":"configured_endpoint_v1","endpoint":"https://gw.example.test/v1/responses","auth":"x-api-key","key":"{KEY}"}}"#)).unwrap();
+        assert_eq!((c.auth.header(), c.headers.len()), ("x-api-key", 0));
+        assert_eq!(Auth::Bearer.header(), "authorization");
         // Further error codes reach the call's target.
         let c = RouteConfig::parse(&format!(
             r#"{{"route":"configured_endpoint_v1","endpoint":"https://frontier.example.test/v1/responses","auth":"bearer","key":"{KEY}","rate_limit_codes":"test_slow_down,test.try-later","unsupported_codes":"test_not_offered"}}"#
         ))
         .unwrap();
         assert_eq!(Target::of(&c).codes, ErrorCodes { rate_limit: "test_slow_down,test.try-later", unsupported: "test_not_offered" });
+    }
+
+    /// The configured endpoint is the only route: a vendor without its
+    /// secret, or with one that does not validate, is unavailable (health
+    /// false, no target), and a secret naming the direct route is refused.
+    #[test]
+    fn a_vendor_without_a_valid_endpoint_secret_is_unavailable() {
+        assert_eq!((secret_name(Vendor::Openai), secret_name(Vendor::Anthropic)), (Some(OPENAI_SECRET), Some(ANTHROPIC_SECRET)));
+        assert_eq!(secret_name(Vendor::WorkersAi), None);
+        let direct = format!(r#"{{"route":"direct","endpoint":"https://gw.example.test/v1/responses","auth":"bearer","key":"{KEY}"}}"#);
+        assert_eq!(RouteConfig::parse(&direct).err(), Some(Refused("route (route: configured_endpoint_v1, the only route this Worker serves)")));
+        for value in [None, Some(direct.as_str()), Some("not json"), Some(""), Some(r#"{"route":"configured_endpoint_v1"}"#)] {
+            let c = Configured::from_secret(value);
+            assert!(matches!(c, Configured::Unavailable), "{value:?}");
+            assert!(c.target().is_none(), "{value:?}");
+            assert_eq!(c.health(), (false, ROUTE), "{value:?}");
+        }
+        let ok = cfg("https://frontier.example.test/v1/messages", "[]");
+        let c = Configured::from_secret(Some(&ok));
+        assert_eq!(c.health(), (true, Route::ConfiguredEndpointV1));
+        assert_eq!(c.target().map(|t| t.url), Some("https://frontier.example.test/v1/messages"));
     }
 
     #[test]
@@ -292,9 +349,10 @@ mod tests {
         }
         for v in [
             r#"{"route":"elsewhere","endpoint":"https://a.test/v1","auth":"bearer","key":"k"}"#.to_owned(),
-            format!(r#"{{"route":"direct","endpoint":"https://a.test/v1","auth":"basic","key":"{KEY}"}}"#),
-            r#"{"route":"direct","endpoint":"https://a.test/v1","auth":"bearer","key":"has space"}"#.to_owned(),
-            format!(r#"{{"route":"direct","endpoint":"https://a.test/v1","auth":"bearer","key":"{KEY}","extra":1}}"#),
+            format!(r#"{{"route":"direct","endpoint":"https://a.test/v1","auth":"bearer","key":"{KEY}"}}"#),
+            format!(r#"{{"route":"configured_endpoint_v1","endpoint":"https://a.test/v1","auth":"basic","key":"{KEY}"}}"#),
+            r#"{"route":"configured_endpoint_v1","endpoint":"https://a.test/v1","auth":"bearer","key":"has space"}"#.to_owned(),
+            format!(r#"{{"route":"configured_endpoint_v1","endpoint":"https://a.test/v1","auth":"bearer","key":"{KEY}","extra":1}}"#),
             "not json".to_owned(),
             format!("{}{}", cfg("https://a.test/v1", "[]"), " ".repeat(SECRET_BYTES)),
         ] {

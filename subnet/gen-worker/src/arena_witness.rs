@@ -16,7 +16,7 @@ use crate::drive::{self, Body, Fault, Head, Transport};
 use crate::routes;
 use slop_ninja_arena::{Closed, Mode, Scope, admit_current_block, admit_current_heap, set_mode, strict};
 use slop_ninja_gen_core::iface;
-use slop_ninja_gen_core::manifest::fixture::{measured, planned};
+use slop_ninja_gen_core::manifest::fixture::{configured, measured, planned};
 use slop_ninja_gen_core::outcome::{GenCall, OutcomeCode};
 use slop_ninja_gen_core::sse::fixture as sse;
 use slop_ninja_gen_core::vendor::Effort;
@@ -81,11 +81,10 @@ fn witness(message: &[u8], answers: &[(u16, &[u8])]) -> OutcomeCode {
         drop(raw);
         assert!(iface::within(&call.request));
         let mut t = Replay { answers, next: 0 };
-        // drive() admits the call's heap (reader, reply, a Flex retry's
-        // body) before it sends anything.
-        // A vendor endpoint secret's parse, admitted at its bound first (the
-        // generate route reads it when the vendor has one): a secret of
-        // exactly the size limit, padded in one header value.
+        // The vendor's endpoint secret's parse, admitted at its bound first
+        // (the generate route reads it for every call): a secret of exactly
+        // the size limit, padded in one header value. drive() then admits
+        // the call's heap (reader, reply) before it sends anything.
         assert_eq!(admit_current_heap(crate::route::HEAP_BYTES), Ok(true));
         let shape = |pad: &str| {
             format!(
@@ -94,12 +93,11 @@ fn witness(message: &[u8], answers: &[(u16, &[u8])]) -> OutcomeCode {
         };
         let secret = shape(&"p".repeat(crate::route::SECRET_BYTES - shape("").len()));
         assert_eq!(secret.len(), crate::route::SECRET_BYTES);
-        let parsed = crate::route::RouteConfig::parse(&secret).expect("route");
+        let configured = crate::route::Configured::from_secret(Some(secret.as_str()));
         drop(secret);
-        assert_eq!(parsed.headers.len(), 2);
-        drop(parsed);
-        let target = crate::route::Target::direct(call.request.vendor, "sk-WITNESS-KEY");
-        let reply = drive::mock::run(drive::drive(&mut t, &call, target.as_ref()));
+        let target = configured.target().expect("route");
+        assert_eq!(target.headers.len(), 2);
+        let reply = drive::mock::run(drive::drive(&mut t, &call, Some(&target)));
         let json = serde_json::to_string(&reply).expect("reply");
         assert!(json.len() <= iface::reply_bound(&call.request));
         reply.outcome
@@ -119,7 +117,7 @@ fn witness(message: &[u8], answers: &[(u16, &[u8])]) -> OutcomeCode {
 }
 
 fn message(model: &str, effort: Effort, call: u32) -> (Vec<u8>, u32) {
-    let m = measured(planned());
+    let m = measured(configured(planned()));
     let (request, _) = slop_ninja_gen_core::measure::request(&m, &library(), model, effort, call).expect("request");
     let visible = request.visible_bound;
     let c = GenCall { accepted_models: vec![model.to_owned()], request, timeout_ms: 285_000 };
@@ -136,13 +134,14 @@ fn arena_witness_generate_answer() {
 }
 
 #[test]
-fn arena_witness_generate_flex_retry_and_errors() {
+fn arena_witness_generate_openai_and_errors() {
     set_mode(Mode::Enforce);
     let (msg, _) = message("gpt-6.1-terra", Effort::None, 14);
     let text = "A short scratch text about counting moths in a park on warm cloudy nights. ".repeat(3);
     let body = sse::openai("gpt-6.1-terra", text.trim_end(), "response.completed", None, "default");
-    let flex = br#"{"error":{"type":"rate_limit_error","message":"Resource Unavailable"}}"#;
-    assert_eq!(witness(&msg, &[(429, flex), (200, body.as_bytes())]), OutcomeCode::Answer);
+    assert_eq!(witness(&msg, &[(200, body.as_bytes())]), OutcomeCode::Answer);
+    let unavailable = br#"{"error":{"type":"rate_limit_error","message":"Resource Unavailable"}}"#;
+    assert_eq!(witness(&msg, &[(429, unavailable), (200, body.as_bytes())]), OutcomeCode::SpendCap, "one POST, no retry");
     let cap = br#"{"type":"error","error":{"type":"rate_limit_error","details":{"error_code":"enforced_spend_limit_reached"}}}"#;
     let (msg, _) = message("claude-haiku-5-5", Effort::None, 2);
     assert_eq!(witness(&msg, &[(429, cap)]), OutcomeCode::SpendCap);

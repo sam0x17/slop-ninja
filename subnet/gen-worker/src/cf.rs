@@ -10,18 +10,20 @@
 //!   [`iface::CALL_MESSAGE_BYTES`] (a larger declared length is refused
 //!   before it is read) and admitted as one block; its parse is admitted
 //!   before it runs; a request outside the interface's bounds is refused;
-//!   the vendor's key is read from its Secrets Store binding for this call
-//!   only (zeroed on drop); [`drive::drive`] admits the call's heap (reader,
-//!   reply, a Flex retry's body) before anything is sent and runs the call
-//!   over `fetch`, never following a redirect.
+//!   the vendor's endpoint secret is read for this call only (its key
+//!   zeroed on drop); [`drive::drive`] admits the call's heap (reader,
+//!   reply) before anything is sent and runs the call over `fetch`, never
+//!   following a redirect.
 //! - a request on the internal host whose marker names another interface
 //!   version: 409 `interface_version`, before its body is read.
-//! - `health`: whether each key resolves to a non-empty value.
+//! - `health`: whether each vendor's endpoint secret validates with a
+//!   usable key, and the route (always the configured endpoint).
 //!
-//! A vendor with an endpoint secret ([`crate::route`]: `GEN_OPENAI_ENDPOINT`,
-//! `GEN_ANTHROPIC_ENDPOINT`) is reached at that configured endpoint (its URL,
-//! key and headers); without one, directly, with the Secrets Store key. An
-//! endpoint secret that does not validate leaves the vendor unavailable.
+//! A vendor is reached only at its configured endpoint ([`crate::route`]:
+//! the Worker secrets `GEN_OPENAI_ENDPOINT`, `GEN_ANTHROPIC_ENDPOINT`, with
+//! the URL, key and headers). Without its secret, or with one that does not
+//! validate, the vendor is unavailable: this Worker binds no vendor key and
+//! has no other route.
 //!
 //! The key reaches JS once, as the value of the key header (a
 //! configuration's further header values likewise). It is never logged,
@@ -29,14 +31,14 @@
 
 use crate::cf_io::{self, Settled};
 use crate::drive::{self, Body, Fault, Head, Transport};
-use crate::route::{self, RouteConfig, Target};
+use crate::route::{self, Configured};
 use crate::routes;
 use js_sys::{Array, Reflect, Uint8Array};
 use slop_ninja_arena::{ArenaAlloc, AsyncRoute, glue};
 use slop_ninja_gen_core::iface;
 use slop_ninja_gen_core::outcome::GenCall;
 use slop_ninja_gen_core::plan::Health;
-use slop_ninja_gen_core::vendor::{Route, Vendor};
+use slop_ninja_gen_core::vendor::Vendor;
 use wasm_bindgen::prelude::wasm_bindgen;
 use wasm_bindgen::{JsCast, JsValue};
 use worker::worker_sys::{self, web_sys};
@@ -45,10 +47,6 @@ use zeroize::Zeroizing;
 
 #[global_allocator]
 static ALLOC: ArenaAlloc = ArenaAlloc;
-
-/// The Secrets Store bindings of the two keys (`secrets_store_secrets`).
-const OPENAI_KEY: &str = "OPENAI_API_KEY";
-const ANTHROPIC_KEY: &str = "ANTHROPIC_API_KEY";
 
 const NOT_FOUND: &str = r#"{"error":"not_found"}"#;
 const UNAVAILABLE: &str = r#"{"error":"unavailable"}"#;
@@ -146,7 +144,7 @@ pub fn fetch(req: web_sys::Request, env: Env, _ctx: worker_sys::Context) -> js_s
         let res = match slop_ninja_arena::enter(route, routes::CONTROL_BYTES, move |_scope| async move {
             match class {
                 1 => generate(Request::from(req), env).await,
-                2 => health(&env).await,
+                2 => health(&env),
                 4 => js_json(INTERFACE_VERSION, iface::VERSION_MISMATCH_STATUS),
                 _ => js_json(NOT_FOUND, 404),
             }
@@ -158,65 +156,19 @@ pub fn fetch(req: web_sys::Request, env: Env, _ctx: worker_sys::Context) -> js_s
     })
 }
 
-/// A key from its Secrets Store binding; `None` when the binding, the
-/// secret or its value is missing or empty.
-async fn key(env: &Env, binding: &str) -> Option<Zeroizing<String>> {
-    let store = env.secret_store(binding).ok()?;
-    let v = Zeroizing::new(store.get().await.ok()??);
-    (!v.is_empty()).then_some(v)
-}
-
-/// How a vendor is configured for one call.
-enum Configured {
-    /// Its endpoint secret.
-    Route(RouteConfig),
-    /// No endpoint secret: the vendor's own API with the Secrets Store key.
-    Direct(Zeroizing<String>),
-    /// An endpoint secret that does not validate, or no key.
-    Unavailable,
-}
-
-/// The vendor's configuration; `Err` when the endpoint secret's parse
+/// The vendor's configuration, from its endpoint secret (none set, or one
+/// that does not validate: unavailable); `Err` when the secret's parse
 /// cannot be admitted (the isolate is full).
-async fn configured(env: &Env, v: Vendor) -> Result<Configured, ()> {
-    let (secret, binding) = match v {
-        Vendor::Openai => (route::OPENAI_SECRET, OPENAI_KEY),
-        _ => (route::ANTHROPIC_SECRET, ANTHROPIC_KEY),
-    };
-    if let Ok(s) = env.secret(secret) {
-        slop_ninja_arena::admit_current_heap(route::HEAP_BYTES).map_err(|_| ())?;
-        let value = Zeroizing::new(s.to_string());
-        return Ok(match RouteConfig::parse(&value) {
-            Ok(c) => Configured::Route(c),
-            Err(_) => Configured::Unavailable,
-        });
-    }
-    Ok(match key(env, binding).await {
-        Some(k) => Configured::Direct(k),
-        None => Configured::Unavailable,
-    })
+fn configured(env: &Env, v: Vendor) -> Result<Configured, ()> {
+    let Some(name) = route::secret_name(v) else { return Ok(Configured::Unavailable) };
+    let Ok(s) = env.secret(name) else { return Ok(Configured::Unavailable) };
+    slop_ninja_arena::admit_current_heap(route::HEAP_BYTES).map_err(|_| ())?;
+    let value = Zeroizing::new(s.to_string());
+    Ok(Configured::from_secret(Some(value.as_str())))
 }
 
-impl Configured {
-    fn target(&self, v: Vendor) -> Option<Target<'_>> {
-        match self {
-            Configured::Route(c) => Some(Target::of(c)),
-            Configured::Direct(k) => Target::direct(v, k),
-            Configured::Unavailable => None,
-        }
-    }
-    /// The health of this configuration: a usable key, and its route.
-    fn health(&self) -> (bool, Route) {
-        match self {
-            Configured::Route(c) => (drive::key_ok(&c.key), c.route),
-            Configured::Direct(k) => (drive::key_ok(k), Route::Direct),
-            Configured::Unavailable => (false, Route::Direct),
-        }
-    }
-}
-
-async fn health(env: &Env) -> web_sys::Response {
-    let (Ok(o), Ok(a)) = (configured(env, Vendor::Openai).await, configured(env, Vendor::Anthropic).await) else {
+fn health(env: &Env) -> web_sys::Response {
+    let (Ok(o), Ok(a)) = (configured(env, Vendor::Openai), configured(env, Vendor::Anthropic)) else {
         return js_json(UNAVAILABLE, 503);
     };
     let ((openai, openai_route), (anthropic, anthropic_route)) = (o.health(), a.health());
@@ -246,14 +198,14 @@ async fn generate(mut req: Request, env: Env) -> web_sys::Response {
     if call.request.vendor == Vendor::WorkersAi {
         return js_json(BAD_REQUEST, 400);
     }
-    // The call's heap (reader, read buffer, reply, a Flex retry's body) is
-    // admitted inside drive() before the POST; a refusal there answers a
-    // throttle without contacting the vendor.
+    // The call's heap (reader, read buffer, reply) is admitted inside
+    // drive() before the POST; a refusal there answers a throttle without
+    // contacting the vendor.
     let reply = {
-        let Ok(c) = configured(&env, call.request.vendor).await else {
+        let Ok(c) = configured(&env, call.request.vendor) else {
             return js_json(UNAVAILABLE, 503);
         };
-        let target = c.target(call.request.vendor);
+        let target = c.target();
         let mut t = Fetch;
         drive::drive(&mut t, &call, target.as_ref()).await
     };

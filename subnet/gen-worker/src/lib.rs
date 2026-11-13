@@ -4,21 +4,23 @@
 //! It makes the frontier half of generation v2's vendor calls (OpenAI and
 //! Anthropic) for the eval Worker, which reaches it only through a service
 //! binding: it has no route, no `workers.dev` name, no preview URL, no
-//! custom domain, no cron, no Durable Object and no bucket. It holds the two
-//! vendor keys, bound from the account's Secrets Store (or, per vendor, a
-//! configured endpoint with its own key, a Worker secret), and nothing else:
-//! the eval Worker keeps the package and receipt keys and gains no secret.
+//! custom domain, no cron, no Durable Object and no bucket. It holds one
+//! Worker secret per vendor, that vendor's configured endpoint with its
+//! credentials, and nothing else: no vendor key of its own, and no route to
+//! a vendor's API other than the configured endpoint (a vendor without one
+//! is unavailable). The eval Worker keeps the package and receipt keys and
+//! gains no secret.
 //! It is stateless; every durable fact (claims, attempts, vendor pauses,
 //! spend) lives in the eval Worker's cohort object.
 //!
-//! - [`drive`]: one call over a transport: the key header, the Flex
-//!   standard retry, the classification of a non-200 answer, and the
-//!   bounded stream read of a 200 answer.
-//! - [`route`]: where a vendor's calls go: its own API, or a configured
-//!   endpoint from a Worker secret.
+//! - [`drive`]: one call over a transport: the key header, the
+//!   classification of a non-200 answer, and the bounded stream read of a
+//!   200 answer.
+//! - [`route`]: where a vendor's calls go: its configured endpoint, from a
+//!   Worker secret, or nowhere (unavailable).
 //! - [`routes`]: the arena routes and footprints of its `fetch` export.
-//! - `cf` (wasm32): the export, the interface check, the keys, and the
-//!   fetch transport.
+//! - `cf` (wasm32): the export, the interface check, the endpoint secrets,
+//!   and the fetch transport.
 //!
 //! Routes ([`slop_ninja_gen_core::iface`]): `POST /internal/gen/v1/generate`
 //! and `GET /internal/gen/v1/health` on the internal host with the

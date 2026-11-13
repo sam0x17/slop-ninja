@@ -1,5 +1,4 @@
 /.wrangler/
 /.dev.vars
-# The deploy-time overlay with the Secrets Store id filled in (private
-# configuration; USER-KEY-STEPS writes it outside the checkout when it can).
+# A deploy-time config overlay, if the deploy tooling writes one here.
 /wrangler.deploy.toml

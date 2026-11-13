@@ -1,0 +1,14 @@
+[package]
+name = "slop-ninja-detect-og-font-subset"
+version = "0.1.0"
+edition = "2024"
+license = "MIT OR Apache-2.0"
+publish = false
+description = "Builds the card renderer's Inter subset (src/fonts/) from two static Inter instances"
+
+# A native build tool, run by hand when the subset changes; the Worker never
+# links it. Std only, plus sha2 to check the sources and print the outputs'
+# digests.
+
+[dependencies]
+sha2 = "0.10"

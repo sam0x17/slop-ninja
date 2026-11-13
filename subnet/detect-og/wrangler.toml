@@ -1,0 +1,96 @@
+# SlopNinja card Worker: Wrangler configuration (tracked).
+#
+# Renders a detection page's share card (1200 x 630 PNG) from its card JSON.
+# The website and the secret-host Worker reach it only through their service
+# bindings (DETECT_OG_TESTNET) with POST /render; this Worker has no route, no
+# custom domain, no default workers_dev subdomain and no preview URLs. It has
+# no binding and no secret, and makes no outbound request: the fonts and art
+# are compiled in.
+#
+# Resource names here are placeholders; the operator's private resource-name
+# table holds the real ones. Deploy only through the deploy wrappers, which
+# also restore the staging origins (the [env.staging] values below are
+# placeholders):
+#
+#   WRANGLER_WRITE_LOGS=false WRANGLER_SEND_METRICS=false wrangler deploy \
+#     --env testnet --tag testnet --message "slop-ninja detect-og testnet <sha8>"
+#
+# Vars: the two public origins (a card prints the site host and /d/<slug>, or
+# the secret host alone) and GAUGE_ENDS (icons, the default, or letters; this
+# Worker ships no emoji art, so emoji is refused as a configuration error and
+# every render answers 503, and the callers serve the static site card).
+#
+# No account ID belongs here. The top level is a local-only shell with no
+# bindings, vars or route.
+
+name = "slop-ninja-detect-og-local"
+main = "build/index.js"
+compatibility_date = "2026-10-20"
+workers_dev = false
+preview_urls = false
+
+[build]
+command = "worker-build --release"
+
+[observability]
+enabled = false
+
+# ------------------------------------------------------------------ testnet
+# The production environment (the detect resources keep the -testnet suffix).
+
+[env.testnet]
+name = "slop-ninja-detect-og-testnet"
+workers_dev = false
+preview_urls = false
+
+# No logs: the Worker writes none, and no Logpush or Tail Worker is attached.
+[env.testnet.observability]
+enabled = false
+
+[env.testnet.vars]
+NETWORK = "testnet"
+PRODUCT = "detect"
+DEPLOY_ENV = "production"
+SITE_ORIGIN = "https://slop.ninja"
+SECRET_ORIGIN = "https://s.slop.ninja"
+GAUGE_ENDS = "icons"
+
+# ------------------------------------------------------------------ staging
+# The separate staging stack. Its origins are restored by the deploy wrappers
+# from the private configuration.
+
+[env.staging]
+name = "slop-ninja-detect-og-staging"
+workers_dev = false
+preview_urls = false
+
+[env.staging.observability]
+enabled = false
+
+[env.staging.vars]
+NETWORK = "testnet"
+PRODUCT = "detect"
+DEPLOY_ENV = "staging"
+SITE_ORIGIN = "<SITE_ORIGIN>"
+SECRET_ORIGIN = "<SECRET_ORIGIN>"
+GAUGE_ENDS = "icons"
+
+# ------------------------------------------------------------------ dev
+# The local dev session (subnet/devtools): wrangler dev --local only, never
+# deployed; the origins are the session's.
+
+[env.dev]
+name = "slop-ninja-detect-og-dev"
+workers_dev = false
+preview_urls = false
+
+[env.dev.observability]
+enabled = false
+
+[env.dev.vars]
+NETWORK = "testnet"
+PRODUCT = "detect"
+DEPLOY_ENV = "dev"
+SITE_ORIGIN = "https://slop.localhost:8787"
+SECRET_ORIGIN = "https://s.slop.localhost:8788"
+GAUGE_ENDS = "icons"

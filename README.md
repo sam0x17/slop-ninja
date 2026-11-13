@@ -243,6 +243,7 @@ Files, directories and datasets that carry their own licence or notice keep thos
 - `datasets/`: corpus text keeps its source licences. Each snapshot's `README.md`, `NOTICE.md`, `LICENSE.fix-slop` or `LICENSES.md`, `licenses/` copies and per-row rights records state its terms; see [datasets/README.md](datasets/README.md).
 - `baseline/detector/`: `LICENSE` (MIT); `prompts/LICENSE.fix-slop` for the third-party prompts; `releases/v0.6.0/NOTICE.md` for the released weights and their base model.
 - `inference/a-v6-cpu/`: `LICENSE` (MIT) and the third-party licences in `licenses/`.
+- `subnet/detect-og/src/fonts/`: the card renderer's Inter subset, under the SIL Open Font License 1.1 ([`OFL.txt`](subnet/detect-og/src/fonts/OFL.txt)); see [NOTICE](NOTICE).
 - `experiments/shared-pool-gameability/upstream/`: the vendored upstream source in `source/` and the adapted `math_standalone.rs` (its import-path changes are recorded in `manifest.json` and reproduced by `verify.sh`), under the Apache-2.0 licence in `source/LICENSE`.
 - `experiments/shared-pool-gameability/src/native.rs`: the division method bodies of its `compatibility` module, copied unchanged from the vendored `upstream/source/primitives/safe-math/src/lib.rs`, under `upstream/source/LICENSE` (Apache-2.0).
 - `subnet/crates/detect-url/psl/public_suffix_list.dat`: the rules of the Public Suffix List (its comments removed, the rules unchanged), under the Mozilla Public License 2.0 (https://mozilla.org/MPL/2.0/), as the notice at the top of the file states.

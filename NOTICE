@@ -34,6 +34,16 @@ where present, its NOTICE.md, LICENSE.fix-slop or LICENSES.md, licenses/
 copies and per-row rights records. This file lists notices that apply to
 material outside those per-snapshot files, or across several of them.
 
+Inter (card fonts)
+------------------
+
+subnet/detect-og/src/fonts/inter-400.ttf and inter-700.ttf are a subset of
+Inter 4.001, Copyright 2016 The Inter Project Authors
+(https://github.com/rsms/inter), licensed under the SIL Open Font License,
+Version 1.1 (subnet/detect-og/src/fonts/OFL.txt). The subset is a Modified
+Version under that licence and is distributed only under it; its README.md
+records the source files and how the subset is built.
+
 Dataset records
 ---------------
 

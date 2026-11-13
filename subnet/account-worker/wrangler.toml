@@ -26,7 +26,8 @@
 #   X_CLIENT_SECRET        the X OAuth 2.0 client's secret
 #
 # Vars below: the two public origins (every origin the Worker names derives
-# from them), the mail subject prefix, the kill switches (a var set to its off
+# from them), the mail subject prefix and sender (the one address the
+# send_email binding allows; a placeholder here), the kill switches (a var set to its off
 # state is the hard off; the D1 switches row flips the rest at once), the
 # OAuth client ids (public; empty means the method is not configured and its
 # button is absent), the operator's Ed25519 verifying key for signed ops (64
@@ -53,6 +54,7 @@ crons = ["*/5 * * * *", "0 * * * *"]
 SITE_ORIGIN = "https://site-origin.invalid"
 SECRET_ORIGIN = "https://secret-origin.invalid"
 MAIL_SUBJECT_PREFIX = ""
+MAIL_FROM = "sender@mail-domain.invalid"
 OP_ENV = "production"
 DETECT_OP_KEY = ""
 AUTH_POLICY = "auth-policy/v1"
@@ -119,6 +121,7 @@ crons = ["*/5 * * * *", "0 * * * *"]
 SITE_ORIGIN = "https://staging-site.invalid"
 SECRET_ORIGIN = "https://staging-secret.invalid"
 MAIL_SUBJECT_PREFIX = "[staging] "
+MAIL_FROM = "sender@mail-domain.invalid"
 OP_ENV = "staging"
 DETECT_OP_KEY = ""
 AUTH_POLICY = "auth-policy/v1"
@@ -159,3 +162,75 @@ queue = "detect-jobs-queue-staging"
 [[env.staging.analytics_engine_datasets]]
 binding = "ACCOUNT_METRICS"
 dataset = "slop_ninja_account_staging"
+
+# ---------------------------------------------------------------------- dev
+# The local dev session only (subnet/devtools/README.md): never deployed,
+# with local resources only. The dev build (`--features dev`) sends every
+# provider call and every mail to the auth stub through AUTH_STUB, and the
+# browser to STUB_ORIGIN to authorize. The client secrets and the store
+# secret below are the stub's published dev values, not secrets.
+
+[env.dev]
+name = "slop-ninja-account-dev"
+workers_dev = false
+preview_urls = false
+
+[env.dev.build]
+command = "worker-build --release --features dev"
+
+[env.dev.observability]
+enabled = false
+
+[env.dev.triggers]
+crons = ["*/5 * * * *", "0 * * * *"]
+
+[env.dev.vars]
+SITE_ORIGIN = "https://slop.localhost:8787"
+SECRET_ORIGIN = "https://s.slop.localhost:8788"
+STUB_ORIGIN = "https://auth.slop.localhost:8789"
+MAIL_SUBJECT_PREFIX = "[dev] "
+MAIL_FROM = "sender@mail-domain.invalid"
+OP_ENV = "staging"
+DETECT_OP_KEY = ""
+AUTH_POLICY = "auth-policy/v1"
+BILLING_POLICY = "billing-policy/v1"
+ACCOUNTS = "on"
+BILLING = "off"
+"auth.email" = "on"
+"auth.google" = "on"
+"auth.github" = "on"
+"auth.x" = "on"
+"auth.bittensor" = "on"
+GOOGLE_CLIENT_ID = "dev-google-client-id"
+GITHUB_CLIENT_ID = "dev-github-client-id"
+X_CLIENT_ID = "dev-x-client-id"
+GOOGLE_CLIENT_SECRET = "dev-google-client-secret-not-real"
+GITHUB_CLIENT_SECRET = "dev-github-client-secret-not-real"
+X_CLIENT_SECRET = "dev-x-client-secret-not-real"
+ACCOUNT_STORE_SECRET = "dev-account-store-secret-not-real-not-random"
+
+[[env.dev.d1_databases]]
+binding = "ACCOUNT_STORE"
+database_name = "dev-account-store"
+database_id = "dev-account-store"
+migrations_dir = "migrations"
+
+[[env.dev.durable_objects.bindings]]
+name = "QUOTA_LIMITER"
+class_name = "QuotaLimiter"
+
+[[env.dev.migrations]]
+tag = "v1"
+new_sqlite_classes = ["QuotaLimiter"]
+
+[[env.dev.queues.producers]]
+binding = "DETECT_JOBS"
+queue = "dev-detect-jobs"
+
+[[env.dev.analytics_engine_datasets]]
+binding = "ACCOUNT_METRICS"
+dataset = "dev_slop_ninja_account"
+
+[[env.dev.services]]
+binding = "AUTH_STUB"
+service = "slop-ninja-dev-auth-stub"

@@ -1,0 +1,4 @@
+# The memory model the arena (and build.rs) compile into this crate: the
+# account Worker links its own model's linear memory ceiling.
+[env]
+SLOP_NINJA_MEMORY_MODEL = { value = "memory-model.json", relative = true }

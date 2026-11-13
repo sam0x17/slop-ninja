@@ -6,10 +6,11 @@ license = "MIT OR Apache-2.0"
 publish = false
 description = "Worker behind SlopNinja sign-in and accounts: email links, Google, GitHub, X and Bittensor wallet sign-in, sessions, linking, saved links, export, deletion and the billing ledger"
 
-# Its own workspace, like the other Workers. It links no chain code and no
-# evaluation code, and it binds no other Worker: work it starts on
-# detections goes on the detect-jobs queue. It shares only pure crates: the
-# page and account contracts and the signed-op envelope.
+# Its own workspace, like the other Workers. It links no evaluation code, and
+# it binds no other Worker: work it starts on detections goes on the
+# detect-jobs queue. It shares only pure crates: the page and account
+# contracts, the signed-op envelope, auth-core (with wallet sign-in, so
+# rtao's portable core for sr25519 verification) and the arena.
 [workspace]
 members = ["."]
 resolver = "3"
@@ -17,13 +18,67 @@ resolver = "3"
 [lib]
 crate-type = ["cdylib", "rlib"]
 
+[features]
+default = []
+# Local development only (the multi-Worker dev session): provider calls go to
+# the auth stub through the AUTH_STUB service binding, every provider URL is
+# moved under STUB_ORIGIN, and mail is captured by the stub instead of sent.
+# Release builds never enable it (tests/source.rs).
+dev = ["slop-ninja-auth-core/dev"]
+
 [dependencies]
-# Added with the Worker itself: the contract crates (slop-ninja-account-wire,
-# slop-ninja-detect-page, slop-ninja-signed-op), auth-core, the arena with this
-# Worker's route table and memory model, serde, and on wasm32 worker 0.8.7
-# with its wasm-bindgen glue.
+# The global allocator (wasm32): every invocation allocates in its own
+# bounded scope arena, under this crate's memory model
+# (`memory-model.json`). Unmeasured JS reserve and glue on this Worker, so
+# `observe` (migration step 1), as the other new Workers.
+slop-ninja-arena = { path = "../crates/arena", features = ["glue-spill", "unmeasured-model", "observe"] }
+slop-ninja-account-wire = { path = "../crates/account-wire" }
+slop-ninja-auth-core = { path = "../crates/auth-core", features = ["wallet"] }
+slop-ninja-detect-page = { path = "../crates/detect-page" }
+slop-ninja-signed-op = { path = "../crates/signed-op" }
+aes-gcm = { version = "0.10.3", default-features = false, features = ["aes", "alloc"] }
+hex = "0.4"
+hkdf = "0.12"
+hmac = "0.12"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+sha2 = "0.10"
+url = "2.5"
+
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+js-sys = "0.3"
+wasm-bindgen = "0.2"
+wasm-bindgen-futures = "0.4"
+worker = { version = "0.8.7", features = ["queue"] }
+
+[build-dependencies]
+serde_json = "1"
+
+[dev-dependencies]
+# The native flow tests run the Worker's handlers against the account
+# store's own migration in an in-memory SQLite, the auth stub's provider
+# routes (pure functions of a request), signed ops and wallet signatures.
+rusqlite = { version = "0.37", features = ["bundled", "backup"] }
+slop-ninja-dev-auth-stub = { path = "../devtools/auth-stub" }
+slop-ninja-dev-http = { path = "../devtools/http" }
+slop-ninja-signed-op = { path = "../crates/signed-op", features = ["sign"] }
+ed25519-dalek = "2.1"
+rtao-core = { git = "https://github.com/sam0x17/rtao", rev = "fa83052d37b39f002f7a4d3cc5c04f25503e1d11", default-features = false }
 
 [profile.release]
 opt-level = "s"
 lto = true
 codegen-units = 1
+
+# Cargo does not inherit patches from a Git dependency's workspace. Mirror the
+# selected rtao revision's core fixes, as auth-core and the admission Worker
+# do, so the compiled crypto and codec match its pin.
+[patch.crates-io]
+w3f-bls = { git = "https://github.com/RaoFoundation/subtensor.git", tag = "v478" }
+
+[patch."https://github.com/RaoFoundation/subtensor.git"]
+bittensor-core = { git = "https://github.com/sam0x17/subtensor.git", rev = "5f2477f5290f5f4cb467524754cc025626b52974" }
+
+[patch."https://github.com/sam0x17/subtensor.git"]
+w3f-bls = { git = "https://github.com/RaoFoundation/subtensor.git", tag = "v478" }
+subtensor-macros = { git = "https://github.com/RaoFoundation/subtensor.git", tag = "v478" }

@@ -133,7 +133,7 @@ reports go to the **Issues** tab; security problems go to the private contact
 | [`tools/`](tools/) | Dataset storage, artifact and corpus stores, the testnet evaluation manifest and other utilities. |
 | [`experiments/`](experiments/) | Retained experiments, such as the gameability studies. |
 | `site/` | The page template of the public status host. |
-| [`assets/brand/`](assets/brand/README.md) | The approved SlopNinja logo files. |
+| [`assets/brand/`](assets/brand/README.md) | The approved SlopNinja logo files, and the ninja states and gauge ends the detection pages and cards draw. |
 | `python/`, `scripts/` | The spaCy annotation bridge and the platform check. |
 
 ## Development
@@ -229,8 +229,9 @@ terms, in packages that carry synthetic replay cases and no evaluation text; a
 miner artifact that becomes the reference is published with its cohort like
 every admitted artifact.
 
-The SlopNinja logo files in `assets/brand/` are not covered by the code and
-documentation licences above.
+The SlopNinja logo files in `assets/brand/`, and the ninja and gauge art in
+`assets/brand/ninja/` and `assets/brand/gauge/`, are not covered by the code
+and documentation licences above.
 
 <details>
 <summary><b>Files, directories and datasets with their own terms</b></summary>

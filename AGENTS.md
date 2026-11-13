@@ -21,10 +21,11 @@ Keep documentation focused on current behavior. Delete superseded plans and
 experiment diaries; Git retains history. Preserve data and fixtures still used
 by executable checks or current evidence.
 
-The assets in `assets/brand/` are the approved SlopNinja logo, not a proposal.
+The logo files in `assets/brand/` are the approved SlopNinja logo, not a proposal.
 Project code and docs are MIT OR Apache-2.0, except files and datasets with
 their own licence or notice; miner submissions and reference weights are
-CC BY-SA 4.0, and the `assets/brand/` logo is not covered by the code licence.
+CC BY-SA 4.0, and the `assets/brand/` logo and art (`ninja/`, `gauge/`) are not
+covered by the code licence.
 SlopNinja publishes its own references (R0 and later) like any R_k; a public
 reference package carries no evaluation text (synthetic replay cases, never
 Dev-iter ones) and passes a package-corpus scan. Paid A serves a published,

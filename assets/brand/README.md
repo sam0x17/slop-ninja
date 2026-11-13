@@ -21,6 +21,8 @@ master serves every size; keep it as one file rather than a small variant.
 | [Icon](slop-ninja-icon.svg) | Square ninja illustration |
 | [Favicon](slop-ninja-favicon.svg) | Head crop of the icon for favicons from 32 px up: the brow strip is a crimson band and the headband ties are scaled into the crop |
 | [16 px favicon](slop-ninja-favicon-16.svg) | Pixel drawing for the 16 px favicon entry, with a 2 px crimson band and a stepped tie |
+| [Ninja states](ninja/) | The detection pages' and cards' ninja in its four states: `strike`, `ready`, `stoic` and `bow` |
+| [Gauge ends](gauge/) | The slop gauge's two end markers: the human bust (`human.svg`) and the robot bust (`robot.svg`) |
 
 The illustrated full logo and ninja icon may appear only on dark backgrounds.
 The primary wordmark also uses white lettering and belongs on dark backgrounds.
@@ -52,3 +54,20 @@ of Inter font files (it then writes a fontconfig for the render that adds
 them); without Inter the tagline falls back to Arial. All
 social assets have dark backgrounds, and the headers leave room for the profile
 avatar.
+
+## Ninja states and gauge ends
+
+`ninja/` holds the four states of the ninja that a detection page and its
+share card draw beside the result: sword drawn (`strike.svg`), sheathed and
+ready (`ready.svg`), standing stoic (`stoic.svg`) and bowing (`bow.svg`), each
+a 913 x 913 drawing for dark backgrounds. The state follows the estimated AI
+share, clamped to what the evidence band allows
+(`subnet/crates/detect-page/src/ninja.rs`); the art keeps the blade in a high
+guard, away from the text. `gauge/` holds the slop gauge's end markers, a
+human bust at the human end and a robot bust at the slop end, each drawn to be
+clipped to a light disc. The card renderer (`subnet/detect-og`) embeds these
+files at build time, and the website serves byte-identical copies, so a
+change here is copied to the site.
+
+Like the logo, these files are not covered by the code and documentation
+licences.

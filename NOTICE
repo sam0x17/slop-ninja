@@ -8,7 +8,8 @@ notice keep those terms; the Licence section of README.md lists them. Miner
 submissions and the reference model weights are licensed under the Creative
 Commons Attribution-ShareAlike 4.0 International licence (CC BY-SA 4.0,
 https://creativecommons.org/licenses/by-sa/4.0/). The SlopNinja logo files in
-assets/brand/ are not covered by the code and documentation licences.
+assets/brand/ and the ninja and gauge art in assets/brand/ninja/ and
+assets/brand/gauge/ are not covered by the code and documentation licences.
 
 Development moved to this repository on 2026-11-03. Its first commit imports
 the project from a private development repository. Commit ids, branch names

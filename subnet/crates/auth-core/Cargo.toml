@@ -1,0 +1,69 @@
+[package]
+name = "slop-ninja-auth-core"
+version = "0.1.0"
+edition = "2024"
+license = "MIT OR Apache-2.0"
+publish = false
+description = "Pure sign-in pieces for the SlopNinja account Worker: PKCE, state, OIDC claims, provider tables, wallet messages, cookies, CSRF, email addresses, return_to, auth-policy/v1 and the mail seam"
+
+# Its own workspace, like the arena: the Cloudflare mail binding is a
+# wasm32-only dependency, and the account Worker, the website Worker and the
+# detect Worker depend on this crate by path from their own workspaces.
+[workspace]
+members = ["."]
+resolver = "3"
+
+[features]
+default = []
+# Bittensor wallet sign-in (`siws`): sr25519 verification and SS58 through
+# rtao's portable core. Off by default, so a Worker that needs only the CSRF
+# or cookie checks links no chain code.
+wallet = ["dep:rtao-core"]
+# Local development only: provider-URL overrides for the auth stub and the
+# capturing mailer. Release builds never enable it.
+dev = []
+
+[dependencies]
+base64 = "0.22"
+hex = "0.4"
+hmac = "0.12"
+idna = "1"
+percent-encoding = "2.3"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+sha2 = "0.10"
+url = "2.5"
+# rtao's portable core seam (bittensor-core without `host`): sr25519
+# verification and SS58 only; no signing key is ever loaded. The same
+# source, revision and feature line as the admission Worker's.
+rtao-core = { git = "https://github.com/sam0x17/rtao", rev = "fa83052d37b39f002f7a4d3cc5c04f25503e1d11", default-features = false, optional = true }
+
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+js-sys = "0.3"
+wasm-bindgen = "0.2"
+worker = "0.8.7"
+
+[dev-dependencies]
+proptest = "1"
+
+[[test]]
+name = "siws"
+required-features = ["wallet"]
+
+[[test]]
+name = "capture"
+required-features = ["dev"]
+
+# Cargo does not inherit patches from a Git dependency's workspace. Mirror the
+# selected rtao revision's core fixes (as subnet/Cargo.toml and the admission
+# Worker do) so the compiled crypto and codec match its pin. A Worker that
+# depends on this crate carries the same blocks in its own workspace.
+[patch.crates-io]
+w3f-bls = { git = "https://github.com/RaoFoundation/subtensor.git", tag = "v478" }
+
+[patch."https://github.com/RaoFoundation/subtensor.git"]
+bittensor-core = { git = "https://github.com/sam0x17/subtensor.git", rev = "5f2477f5290f5f4cb467524754cc025626b52974" }
+
+[patch."https://github.com/sam0x17/subtensor.git"]
+w3f-bls = { git = "https://github.com/RaoFoundation/subtensor.git", tag = "v478" }
+subtensor-macros = { git = "https://github.com/RaoFoundation/subtensor.git", tag = "v478" }

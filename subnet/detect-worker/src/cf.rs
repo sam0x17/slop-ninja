@@ -883,8 +883,8 @@ async fn refusal_line(lines: &mut Lines, code: RefusalCode) {
 /// The seal of a result: `None` when the store secret is not configured or
 /// the seal fails (the result is shown, but cannot be shared or quoted).
 fn result_seal(env: &Env, a: &Accepted<'_>, line: &answer::Answer) -> Option<String> {
-    let secret = env.secret(STORE_SECRET).ok().map(|s| s.to_string().trim().to_owned());
-    let Some(secret) = secret.filter(|s| s.len() >= seal::SECRET_MIN_BYTES) else {
+    let secret = env.secret(STORE_SECRET).ok().and_then(|s| seal::parse_secret(s.to_string().trim()));
+    let Some(secret) = secret else {
         point(env, ae::detect::ERROR, &["seal_not_configured"], 1.0);
         return None;
     };
@@ -901,7 +901,7 @@ fn result_seal(env: &Env, a: &Accepted<'_>, line: &answer::Answer) -> Option<Str
     };
     let mut nonce = [0u8; seal::NONCE_BYTES];
     random_bytes(seal::NONCE_BYTES as u32).copy_to(&mut nonce);
-    let sealed = seal::seal(secret.as_bytes(), seal::Purpose::Result, payload.day, nonce, &payload).ok();
+    let sealed = seal::seal(&secret, seal::Purpose::Result, payload.day, nonce, &payload).ok();
     if sealed.is_none() {
         point(env, ae::detect::ERROR, &["seal"], 1.0);
     }

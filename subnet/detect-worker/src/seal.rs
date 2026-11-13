@@ -13,9 +13,9 @@
 //!   never opens as the other.
 //! - **Keys:** `K(day) = HKDF-SHA256(ikm = DETECT_STORE_SECRET, salt = none,
 //!   info = "seal" ‖ day as 8 bytes big-endian)`, where `day` is the UTC day
-//!   number (`ms / 86,400,000`). The secret is the Worker secret's bytes,
-//!   trimmed of surrounding whitespace, at least [`SECRET_MIN_BYTES`] of
-//!   them.
+//!   number (`ms / 86,400,000`) and the secret is its 32 bytes, written as 64
+//!   lowercase hex digits ([`parse_secret`]): the store's other keys derive
+//!   from the same bytes under their own `info`.
 //! - **Validity:** a seal opens under today's key or yesterday's (24 to 48
 //!   hours), and its payload must name the day of the key that opened it.
 //! - **Result payload** ([`ResultPayload`]): `{day, text_sha256, scored_end,
@@ -23,8 +23,9 @@
 //!   the SHA-256 of the exact string the free cut ran on (lowercase hex), and
 //!   `scored_end` the scored part's end in UTF-16 units of that string, so a
 //!   holder of the text can check it and find the scored part.
-//! - **Single use** for `/share` is the store's: [`seal_nonce_h`] is the
-//!   value its unique column keeps. Renders and quotes reuse a seal.
+//! - **Single use** for `/share` is the store's: [`seal_nonce_h`],
+//!   `SHA-256("seal_nonce_v1" ‖ nonce)`, is the value its unique column
+//!   keeps. Renders and quotes reuse a seal.
 //!
 //! Nothing here reads a clock or a random source: the caller passes the day,
 //! the time and the nonce, so every rule is tested natively.
@@ -46,8 +47,8 @@ pub const SEAL_V: u8 = 1;
 pub const NONCE_BYTES: usize = 12;
 /// The AES-GCM tag.
 pub const TAG_BYTES: usize = 16;
-/// The shortest store secret accepted (256 bits).
-pub const SECRET_MIN_BYTES: usize = 32;
+/// The store secret: 32 bytes.
+pub const SECRET_BYTES: usize = 32;
 /// One UTC day.
 pub const DAY_MS: u64 = 86_400_000;
 /// The result policy the free check applies (`long-v1`: the free cut, the
@@ -76,8 +77,6 @@ impl Purpose {
 /// `seal_invalid`; none says why.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum SealError {
-    /// The store secret is missing or shorter than [`SECRET_MIN_BYTES`].
-    Secret,
     /// Not base64url, the wrong version, or too short.
     Malformed,
     /// No key of the window opens it (forged, edited, expired, another
@@ -92,30 +91,40 @@ pub const fn day_of(ms: u64) -> u64 {
     ms / DAY_MS
 }
 
-/// `K(day)` from the store secret.
-pub fn day_key(secret: &[u8], day: u64) -> Result<[u8; 32], SealError> {
-    if secret.len() < SECRET_MIN_BYTES {
-        return Err(SealError::Secret);
+/// The store secret's bytes from its 64 lowercase hex digits; `None` for any
+/// other form.
+pub fn parse_secret(hex_digits: &str) -> Option<[u8; SECRET_BYTES]> {
+    if hex_digits.len() != 2 * SECRET_BYTES
+        || !hex_digits.bytes().all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
+    {
+        return None;
     }
-    let mut info = [0u8; 12];
-    info[..4].copy_from_slice(b"seal");
-    info[4..].copy_from_slice(&day.to_be_bytes());
+    let mut out = [0u8; SECRET_BYTES];
+    hex::decode_to_slice(hex_digits, &mut out).ok()?;
+    Some(out)
+}
+
+/// `K(day)` from the store secret.
+pub fn day_key(secret: &[u8; SECRET_BYTES], day: u64) -> [u8; 32] {
+    let d = day.to_be_bytes();
+    let info = [b's', b'e', b'a', b'l', d[0], d[1], d[2], d[3], d[4], d[5], d[6], d[7]];
     let mut key = [0u8; 32];
-    Hkdf::<Sha256>::new(None, secret).expand(&info, &mut key).map_err(|_| SealError::Secret)?;
-    Ok(key)
+    // 32 bytes is far under HKDF's 255 × 32 limit, so expand cannot fail.
+    let _ = Hkdf::<Sha256>::new(None, secret).expand(&info, &mut key);
+    key
 }
 
 /// Seals `payload` under `K(day)` with `nonce`.
 pub fn seal<T: Serialize>(
-    secret: &[u8],
+    secret: &[u8; SECRET_BYTES],
     purpose: Purpose,
     day: u64,
     nonce: [u8; NONCE_BYTES],
     payload: &T,
 ) -> Result<String, SealError> {
-    let key = day_key(secret, day)?;
+    let key = day_key(secret, day);
     let json = serde_json::to_vec(payload).map_err(|_| SealError::Malformed)?;
-    let cipher = Aes256Gcm::new_from_slice(&key).map_err(|_| SealError::Secret)?;
+    let cipher = Aes256Gcm::new_from_slice(&key).map_err(|_| SealError::Malformed)?;
     let ct = cipher
         .encrypt(Nonce::from_slice(&nonce), Payload { msg: &json, aad: purpose.aad() })
         .map_err(|_| SealError::Malformed)?;
@@ -147,14 +156,11 @@ impl<T> Opened<T> {
 
 /// Opens a seal of `purpose` at `now_ms`: today's key, then yesterday's.
 pub fn open<T: DeserializeOwned + Dated>(
-    secret: &[u8],
+    secret: &[u8; SECRET_BYTES],
     purpose: Purpose,
     now_ms: u64,
     sealed: &str,
 ) -> Result<Opened<T>, SealError> {
-    if secret.len() < SECRET_MIN_BYTES {
-        return Err(SealError::Secret);
-    }
     let raw = URL_SAFE_NO_PAD.decode(sealed.as_bytes()).map_err(|_| SealError::Malformed)?;
     if raw.len() < 1 + NONCE_BYTES + TAG_BYTES || raw.first() != Some(&SEAL_V) {
         return Err(SealError::Malformed);
@@ -164,8 +170,8 @@ pub fn open<T: DeserializeOwned + Dated>(
     let nonce: [u8; NONCE_BYTES] = nonce_b.try_into().map_err(|_| SealError::Malformed)?;
     let today = day_of(now_ms);
     for day in [Some(today), today.checked_sub(1)].into_iter().flatten() {
-        let key = day_key(secret, day)?;
-        let cipher = Aes256Gcm::new_from_slice(&key).map_err(|_| SealError::Secret)?;
+        let key = day_key(secret, day);
+        let cipher = Aes256Gcm::new_from_slice(&key).map_err(|_| SealError::Malformed)?;
         let Ok(json) = cipher.decrypt(Nonce::from_slice(&nonce), Payload { msg: ct, aad: purpose.aad() }) else {
             continue;
         };
@@ -178,10 +184,11 @@ pub fn open<T: DeserializeOwned + Dated>(
     Err(SealError::Invalid)
 }
 
-/// `seal_nonce_h`: SHA-256 of a domain tag and the seal's nonce.
+/// `seal_nonce_h = SHA-256("seal_nonce_v1" ‖ nonce)`, in the store's family
+/// of domain-prefixed hashes (`slug_v1`, `manage_v1`).
 pub fn seal_nonce_h(nonce: &[u8; NONCE_BYTES]) -> [u8; 32] {
     let mut h = Sha256::new();
-    h.update(b"slop_ninja_detect_seal_nonce_v1\0");
+    h.update(b"seal_nonce_v1");
     h.update(nonce);
     h.finalize().into()
 }
@@ -219,7 +226,12 @@ impl Dated for ResultPayload {
 }
 
 /// Opens a result seal and checks that it binds `text`.
-pub fn open_result(secret: &[u8], now_ms: u64, sealed: &str, text: &str) -> Result<Opened<ResultPayload>, SealError> {
+pub fn open_result(
+    secret: &[u8; SECRET_BYTES],
+    now_ms: u64,
+    sealed: &str,
+    text: &str,
+) -> Result<Opened<ResultPayload>, SealError> {
     let o = open::<ResultPayload>(secret, Purpose::Result, now_ms, sealed)?;
     if day_of(o.payload.issued_ms) != o.payload.day {
         return Err(SealError::Invalid);
@@ -241,7 +253,7 @@ mod tests {
     use super::*;
     use crate::answer::{PackageLine, Span};
 
-    const SECRET: &[u8] = b"a seal test secret, not a key: thirty-two bytes or more";
+    const SECRET: &[u8; SECRET_BYTES] = b"seal test bytes, not a real key.";
     const T0: u64 = 20_405 * DAY_MS + 3_600_000;
     const TEXT: &str = "A sealed text of a few words, scored whole.";
 
@@ -326,7 +338,7 @@ mod tests {
             assert_eq!(open_result(SECRET, T0, bad, TEXT), Err(SealError::Malformed), "{bad}");
         }
         // Another secret.
-        let other = b"another seal test secret, also over thirty-two bytes";
+        let other = b"other test bytes, not a key too.";
         assert_eq!(open_result(other, T0, &s, TEXT), Err(SealError::Invalid));
     }
 
@@ -373,18 +385,31 @@ mod tests {
     }
 
     #[test]
-    fn keys_differ_by_day_and_need_a_long_secret() {
-        assert_ne!(day_key(SECRET, 1).unwrap(), day_key(SECRET, 2).unwrap());
-        assert_eq!(day_key(&SECRET[..31], 1), Err(SealError::Secret));
-        assert_eq!(seal(&SECRET[..31], Purpose::Result, 1, [0; NONCE_BYTES], &1u8), Err(SealError::Secret));
-        assert_eq!(open::<ResultPayload>(b"short", Purpose::Result, T0, "AQ"), Err(SealError::Secret));
+    fn keys_differ_by_day_and_the_secret_is_64_hex_digits() {
+        assert_ne!(day_key(SECRET, 1), day_key(SECRET, 2));
+        let digits = "3c".repeat(SECRET_BYTES);
+        assert_eq!(parse_secret(&digits), Some([0x3c; SECRET_BYTES]));
+        for bad in [
+            digits[..62].to_owned(),
+            format!("{digits}0"),
+            digits.to_uppercase(),
+            format!(" {}", &digits[1..]),
+            "zz".repeat(32),
+        ] {
+            assert_eq!(parse_secret(&bad), None, "{bad}");
+        }
+        // The nonce hash, written out.
+        let mut want = Sha256::new();
+        want.update(b"seal_nonce_v1");
+        want.update([7u8; NONCE_BYTES]);
+        assert_eq!(seal_nonce_h(&[7; NONCE_BYTES]), <[u8; 32]>::from(want.finalize()));
         // The derivation, written out: HKDF-SHA256, no salt, info "seal" and
         // the day as 8 big-endian bytes.
         let mut want = [0u8; 32];
         let mut info = b"seal".to_vec();
         info.extend_from_slice(&20_405u64.to_be_bytes());
         Hkdf::<Sha256>::new(None, SECRET).expand(&info, &mut want).unwrap();
-        assert_eq!(day_key(SECRET, 20_405).unwrap(), want);
+        assert_eq!(day_key(SECRET, 20_405), want);
     }
 
     #[test]

@@ -32,9 +32,9 @@
 #     --var PUBLISHED_PACKAGE_DIGEST:<parts manifest sha256> \
 #     --message "slop-ninja detect testnet <sha8>"
 #
-# DETECT_STORE_SECRET (at least 32 bytes; backed up outside Cloudflare)
-# derives the result seal's day keys. Without it results carry no seal and
-# cannot be shared.
+# DETECT_STORE_SECRET (32 random bytes as 64 lowercase hex digits; backed
+# up outside Cloudflare) derives the result seal's day keys and the store's
+# other keys. Without it results carry no seal and cannot be shared.
 #
 # The package vars are the journaled serving pointer: switching the package
 # is a deploy of new values, recorded by the wrapper. The switches are vars

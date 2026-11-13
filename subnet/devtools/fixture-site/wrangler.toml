@@ -1,0 +1,24 @@
+# SlopNinja dev fixture site: Wrangler configuration for local dev sessions only.
+#
+# Never deployed: no account, route, custom domain, workers_dev subdomain or
+# preview URL. It runs beside the auth stub in the stubs session
+# (../session/dev-session.sh stubs); the fetch Worker's dev build binds it as
+# FIXTURE_SITE for hosts under fixtures.test. Build it first with
+# `../session/dev-session.sh build`.
+
+name = "slop-ninja-dev-fixture-site"
+main = "build/index.js"
+compatibility_date = "2026-10-20"
+workers_dev = false
+preview_urls = false
+
+[observability]
+enabled = false
+
+[[durable_objects.bindings]]
+name = "FIXTURE_LOG"
+class_name = "FixtureLog"
+
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = ["FixtureLog"]

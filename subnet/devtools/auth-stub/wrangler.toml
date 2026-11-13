@@ -1,0 +1,43 @@
+# SlopNinja dev auth stub: Wrangler configuration for local dev sessions only.
+#
+# Never deployed: no account, route, custom domain, workers_dev subdomain or
+# preview URL. It is the primary Worker of the stubs session
+# (../session/dev-session.sh stubs), served at STUB_ORIGIN over local HTTPS,
+# with the stub scorer and the fixture site beside it. Build it first with
+# `../session/dev-session.sh build` (main is the worker-build output).
+#
+# The OAuth clients default to dev values (routes.rs `Config::from_vars`):
+# per provider P in GOOGLE, GITHUB and X, P_CLIENT_ID, P_CLIENT_SECRET and
+# P_REDIRECT_URIS (comma-separated; default <SITE_ORIGIN>/auth/<p>/callback).
+
+name = "slop-ninja-dev-auth-stub"
+main = "build/index.js"
+compatibility_date = "2026-10-20"
+workers_dev = false
+preview_urls = false
+
+[observability]
+enabled = false
+
+[vars]
+STUB_ORIGIN = "https://auth.slop.localhost:8789"
+SITE_ORIGIN = "https://slop.localhost:8787"
+
+[[durable_objects.bindings]]
+name = "AUTH_STUB_STATE"
+class_name = "AuthStubState"
+
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = ["AuthStubState"]
+
+# The stubs session's door to its other stubs, for test suites and drills:
+# /__scorer/<path> reaches the stub scorer and /__fixture/<host>/<path> the
+# fixture site.
+[[services]]
+binding = "STUB_SCORER"
+service = "slop-ninja-dev-stub-scorer"
+
+[[services]]
+binding = "FIXTURE_SITE"
+service = "slop-ninja-dev-fixture-site"

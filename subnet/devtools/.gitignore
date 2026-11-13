@@ -1,0 +1,3 @@
+# Local dev session state: certificates, local stores, logs.
+/.dev/
+.wrangler/

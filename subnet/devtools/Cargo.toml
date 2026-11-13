@@ -1,0 +1,12 @@
+# Dev-only tools for local dev sessions (never deployed): the stub Workers and
+# the request types they share. The wallet stub is a native tool with its own
+# workspace.
+[workspace]
+members = ["http", "stub-scorer", "auth-stub", "fixture-site"]
+exclude = ["wallet-stub"]
+resolver = "3"
+
+[profile.release]
+opt-level = "s"
+lto = true
+codegen-units = 1

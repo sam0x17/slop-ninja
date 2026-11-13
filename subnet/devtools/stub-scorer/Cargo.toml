@@ -1,0 +1,35 @@
+[package]
+name = "slop-ninja-dev-stub-scorer"
+version = "0.1.0"
+edition = "2024"
+license = "MIT OR Apache-2.0"
+publish = false
+description = "Dev only: a Worker that answers the a-scorer routes with deterministic results keyed by markers in the text, in place of the scorer Container in local dev sessions"
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+hex = "0.4"
+serde = { version = "1", features = ["derive"] }
+serde_json = { version = "1", features = ["float_roundtrip"] }
+sha2 = "0.10"
+slop-ninja-dev-http = { path = "../http" }
+# The scorer's exact token count, so `token_count` and the 2,048-token
+# refusal match the real scorer's.
+slop-ninja-scorer-tokens = { path = "../../crates/scorer-tokens" }
+# The spec ids and digests a real scorer admits loads by, the files manifest
+# v2 and its part size.
+slop-ninja-artifact-check = { path = "../../crates/artifact-check", default-features = false }
+
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+# The Durable Object macro expands to wasm-bindgen paths.
+js-sys = "0.3"
+wasm-bindgen = "0.2"
+worker = "0.8.7"
+futures-util = { version = "0.3", default-features = false, features = ["alloc"] }
+
+[dev-dependencies]
+# The client half the detect Worker's lane and the coordinator read replies
+# with: the stub's load protocol is checked against it.
+slop-ninja-scorer-client = { path = "../../crates/scorer-client" }

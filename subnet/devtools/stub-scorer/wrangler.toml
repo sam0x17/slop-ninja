@@ -1,0 +1,24 @@
+# SlopNinja dev stub scorer: Wrangler configuration for local dev sessions only.
+#
+# Never deployed: no account, route, custom domain, workers_dev subdomain or
+# preview URL. It runs beside the auth stub in the stubs session
+# (../session/dev-session.sh stubs); the detect Worker's dev build binds it
+# as STUB_SCORER in place of its scorer Container. Build it first with
+# `../session/dev-session.sh build`.
+
+name = "slop-ninja-dev-stub-scorer"
+main = "build/index.js"
+compatibility_date = "2026-10-20"
+workers_dev = false
+preview_urls = false
+
+[observability]
+enabled = false
+
+[[durable_objects.bindings]]
+name = "STUB_SCORER_INSTANCE"
+class_name = "StubScorerInstance"
+
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = ["StubScorerInstance"]

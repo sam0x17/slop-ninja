@@ -1,0 +1,44 @@
+[package]
+name = "slop-ninja-dev-wallet-stub"
+version = "0.1.0"
+edition = "2024"
+license = "MIT OR Apache-2.0"
+publish = false
+description = "Dev only: an sr25519 signer over named test seeds for wallet sign-in tests (raw, wrapped, wrong-key and wrong-message signatures)"
+
+# Its own workspace: a native tool, built apart from the Wasm stubs.
+[workspace]
+members = ["."]
+resolver = "3"
+
+[[bin]]
+name = "slop_ninja_wallet_stub"
+path = "src/main.rs"
+
+[dependencies]
+blake2 = "0.10"
+bs58 = "0.5"
+clap = { version = "4", features = ["derive"] }
+hex = "0.4"
+# The version rtao's sr25519 verifier resolves at the fleet's pin.
+rand_core = "0.6"
+schnorrkel = "0.11.5"
+serde_json = "1"
+sha2 = "0.10"
+
+[dev-dependencies]
+# The verifier the account Worker uses (`rtao_core::keys::verify_strict`),
+# at the fleet's pin: every variant is checked against it.
+rtao-core = { git = "https://github.com/sam0x17/rtao", rev = "fa83052d37b39f002f7a4d3cc5c04f25503e1d11", default-features = false }
+
+# Cargo does not inherit patches from a Git dependency's workspace. Mirror the
+# selected rtao revision's core fixes, as the admission Worker does.
+[patch.crates-io]
+w3f-bls = { git = "https://github.com/RaoFoundation/subtensor.git", tag = "v478" }
+
+[patch."https://github.com/RaoFoundation/subtensor.git"]
+bittensor-core = { git = "https://github.com/sam0x17/subtensor.git", rev = "5f2477f5290f5f4cb467524754cc025626b52974" }
+
+[patch."https://github.com/sam0x17/subtensor.git"]
+w3f-bls = { git = "https://github.com/RaoFoundation/subtensor.git", tag = "v478" }
+subtensor-macros = { git = "https://github.com/RaoFoundation/subtensor.git", tag = "v478" }

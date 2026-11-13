@@ -29,9 +29,10 @@ check. Finalized rows are checked afterward. Rewards follow `reward-v2`: the
 scores under `quant-v1`, in daily cohorts scored against a public reference
 model that changes on promotion or by a recorded operator decision. A reads
 raw text and uses no CFG inputs.
-B would later revise text toward an authorized voice with preservation and
-editorial evaluation, using the native grammar for edit units and revision
-guidance; C would credit accepted improvements to that grammar once.
+B would later revise text toward a target voice the user chooses (their own or
+any other), with preservation and editorial evaluation, using the native grammar
+for edit units and revision guidance; C would credit accepted improvements to
+that grammar once.
 
 A artifacts stay private until their cohort's scoring starts, then are
 published and can be self-hosted. The proposed later B path uses

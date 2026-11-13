@@ -2324,10 +2324,8 @@ digests without asserting a measured-loader guarantee.
 3. **Submit and accept.** The customer sends the document and references over
    authenticated encrypted transport to SlopNinja. The runtime validates sizes,
    supported formats, the brief, and the customer output key before acceptance.
-   Bind the authenticated requester, source, references or existing private
-   profile, and declared permission to submit and transform them in the private
-   job record. Retain relevant license or permission records where applicable;
-   a declaration does not prove ownership.
+   Bind the authenticated requester, source, and references or existing private
+   profile in the private job record.
    Unsupported or oversized work is rejected under the quote's refund rule.
 4. **Execute.** An *A* job tokenizes the canonical text with the selected
    published artifact's tokenizer, runs it, and returns its origin, share, span,

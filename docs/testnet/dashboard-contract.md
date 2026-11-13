@@ -387,10 +387,11 @@ list and the cohort documents keep their last version. A closed cohort with its 
   bands, gate bits and cluster membership under reward-v2's fixed decay
   and largest-remainder rule (`dashboard::row_units`): `0.0` for an
   entrant the row pays nothing, and `null` for every entrant of a cohort
-  that set no target (no cutoff: the previous target stays in force) or
-  of one listed before quantization. `artifact.download` is the published
-  artifact's header (`artifacts/v2/<sha256>/header`) on the network's
-  public host; the website links it only once that host is public.
+  that set no target (no cutoff: the previous target stays in force, or
+  the owner burn row when there is none) or of one listed before
+  quantization. `artifact.download` is the published artifact's header
+  (`artifacts/v2/<sha256>/header`) on the network's public host; the
+  website links it only once that host is public.
 - `quality{cutoff{q, rule}, bands[{band, lower, upper}]}`: the cutoff on
   the grid with the rule that set it (`margin` or `fallback`), and the
   occupied bands `1..N` with their edges on the grid. Band 1 has no upper

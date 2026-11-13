@@ -94,5 +94,6 @@
     "Every Pangram observation has zero human fraction; 0% fully AI can mean 100% AI-assisted",
     "Count-vector invariance does not imply invariance of detectors or quality",
     "No held-out result, no trained B model, no attestation, no whitepaper milestone"
-  ]
+  ],
+  "pangram_scores": "Row-level Pangram results are kept privately and not published. The report hashes here bind each external report as first published with those values; the published reports now omit them and list each observation by text hash and request id."
 }

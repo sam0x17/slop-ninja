@@ -15,7 +15,7 @@ qualified. The planned larger-backbone pair is now fitting on the Studio.
 The [saved edit-interaction audit](EDIT_INTERACTION_RESULTS_V1.md) finds large
 interactions in both underlying class-logit contrasts. Single-edit effects
 would predict 72.43% for the three-edit repair; the recorded result is 3.97%.
-That exact finalist remained 100% AI-written on Pangram. This retrospective
+That exact finalist did not meet the joint target on Pangram. This retrospective
 diagnostic supports investigating combinations on permitted new material;
 the private B texts remain excluded from training.
 

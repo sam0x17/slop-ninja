@@ -1,24 +1,29 @@
 # Direct Pangram menu experiments
 
-None of the 53 Pangram observations met B's joint detector target. Several
-revisions reached 0% fully AI-written, but those were 100% AI-assisted. Every
-observation had zero human fraction. The process remains experimental.
+None of the 53 Pangram observations met B's joint detector target, and none
+had any human-classified content. Some revisions moved content from Pangram's
+AI-written class to its AI-assisted class without reducing the flagged total.
+The process remains experimental. Row-level Pangram results are kept privately
+and not published.
 
 These six batches used one familiar synthetic workshop notice, 183 additional
 A scoring requests, and the same two author-reference excerpts as the
 [first menu experiment](RESULTS_MENU_V1.md). All substantive changes came from
 exact word, phrase and clause patches or sentence permutations. No B weights
 were trained. The [aggregate evidence](results/pangram-menus-v1/summary.json)
-links every observation, every returned window and the frozen plan/score hashes.
-Unmeasured menu states remain explicit in each batch report.
+links every observation by text hash and request id, with the frozen plan/score
+hashes. Unmeasured menu states remain explicit in each batch report.
 
-| Revision | A probability | Pangram AI | Pangram assisted | Pangram human |
-| --- | ---: | ---: | ---: | ---: |
-| Original notice | 72.85% | 100% | 0% | 0% |
-| Earlier A-selected revision | 4.14% | 100% | 0% | 0% |
-| Move purpose after practical details | 90.26% | 46.75% | 53.25% | 0% |
-| Also put cancellation request before late-arrival warning | 89.33% | 32.61% | 67.39% | 0% |
-| Also put reservation opening before session duration | 94.85% | 0% | 100% | 0% |
+| Revision | A probability |
+| --- | ---: |
+| Original notice | 72.85% |
+| Earlier A-selected revision | 4.14% |
+| Move purpose after practical details | 90.26% |
+| Also put cancellation request before late-arrival warning | 89.33% |
+| Also put reservation opening before session duration | 94.85% |
+
+None of these revisions met the joint target on Pangram; their Pangram
+fractions are kept privately.
 
 The first two rows are controls from the earlier experiment. The remaining
 rows continue its source-bound walk, including intermediate wording edits.
@@ -43,16 +48,16 @@ between constructions alongside the existing occurrence distributions.
 
 The ranking of wording alternatives changed with context. One opening scored
 better than another when tested alone, but worse when both were paired with a
-change to the trial-purpose clause. Their Pangram window scores went from
-0.9824 versus 0.9925 individually to 0.9542 versus 0.9419 in combination.
-All four observations were still entirely AI-written. Exhaustive combinations
-exposed this reversal; selecting only the best single edit would have missed it.
+change to the trial-purpose clause: their order by Pangram window score
+reversed in combination, and none of the four observations met the target.
+Exhaustive combinations exposed this reversal; selecting only the best single
+edit would have missed it.
 
-Further edits were often worse. On the branch classified entirely AI-assisted,
-adding a more direct cancellation request reintroduced fully AI-labeled
-content. Combining it with the reordered trial explanation produced a 72.40%
-AI fraction. None of these additions increased the human fraction. Keep the
-unchanged option and remeasure effects in their actual context.
+Further edits were often worse. On one branch, adding a more direct
+cancellation request moved content back from Pangram's AI-assisted class to its
+AI-written class, and combining it with the reordered trial explanation moved
+more. None of these additions increased the human fraction. Keep the unchanged
+option and remeasure effects in their actual context.
 
 Pangram also changed its window boundaries. A first-window score can improve
 while a later window remains worse. The new Rust `menu external-report`
@@ -60,8 +65,8 @@ command retains all windows and the three content fractions, checks text echoes
 and the pinned A artifact, and refuses to count a second collection of one
 request as another inference. Its word-weighted window mean is only an
 auxiliary diagnostic. It is neither a content fraction nor a calibrated
-probability. Some repeats matched exactly; others varied, including 0.6140
-versus 0.6081 for the single-window, entirely assisted revision.
+probability. Some repeats matched exactly; others varied in their window
+scores.
 
 ## Writing quality and limits
 

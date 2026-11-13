@@ -209,9 +209,10 @@ The resulting `slop_ninja_pangram_cli_annotation_plan_v1` preserves the complete
 review archive and emits the same Pangram request format as the original
 planner. Each annotation keeps the observed model-only workflow label and its
 generator attribution independently of the returned detector fractions.
-Under the project's publication policy, row-level Pangram results may be
-published as comparator evidence, never as origin labels; these annotations
-stay in ignored storage until a release includes them. The
+Under the project's publication policy, Pangram scores are kept privately and
+not published, and they never become origin labels; Pangram links and ids may be
+published where they serve verification. These annotations stay in private
+storage. The
 [96-text research snapshot](../../datasets/detector-hosted-v1/README.md)
 publishes the generated prose, prompts and source provenance under the same
 policy. It preserves the original capture flags.

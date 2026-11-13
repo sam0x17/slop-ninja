@@ -312,7 +312,7 @@
     "Nonadditive probability effects can include calibration/saturation; they do not identify detector internals.",
     "The 16.56% offline-notes candidate was not selected because it introduced repetition; its repaired alternative is 12.45%.",
     "Raw texts, reference excerpts and B outputs remain ignored; this aggregate is not a detector-training dataset.",
-    "Pangram still reports 100% AI for both final candidates. Window soft scores are separate from content fractions and varied on a repeated source; they require direct, repeated measurement before ranking small effects."
+    "Neither final candidate met the joint detector target on Pangram. Window soft scores are separate from content fractions and varied on a repeated source; they require direct, repeated measurement before ranking small effects."
   ],
   "pangram": {
     "observations": [
@@ -322,19 +322,7 @@
         "returned_text_sha256": "b992b606a3600261a93048e4706114c52d5392ca12a7455063d8214f7816a2ba",
         "echo_match": "whitespace_only",
         "bulk_id": "redacted-239a1986d914c7b1",
-        "version": "4.0",
-        "fraction_ai": 1.0,
-        "fraction_ai_assisted": 0.0,
-        "fraction_human": 0.0,
-        "windows": [
-          {
-            "label": "AI-Generated",
-            "ai_assistance_score": 0.9946033954620361,
-            "humanizer_score": 0.11084530502557755,
-            "word_count": 169,
-            "confidence": "High"
-          }
-        ]
+        "version": "4.0"
       },
       {
         "state": "offline-notes-v1",
@@ -342,19 +330,7 @@
         "returned_text_sha256": "3982caa6fa25ce07c9378ede0e5389ba0b245e7f1c9d89c014079ac9b9f8e3ee",
         "echo_match": "whitespace_only",
         "bulk_id": "redacted-239a1986d914c7b1",
-        "version": "4.0",
-        "fraction_ai": 1.0,
-        "fraction_ai_assisted": 0.0,
-        "fraction_human": 0.0,
-        "windows": [
-          {
-            "label": "AI-Generated",
-            "ai_assistance_score": 0.997644305229187,
-            "humanizer_score": 0.04116588085889816,
-            "word_count": 177,
-            "confidence": "High"
-          }
-        ]
+        "version": "4.0"
       },
       {
         "state": "workshop-v1",
@@ -362,19 +338,7 @@
         "returned_text_sha256": "24390c422eef66dbafde0def48c57795f23e8d903b410ed0a71f4c843f60ab11",
         "echo_match": "whitespace_only",
         "bulk_id": "redacted-239a1986d914c7b1",
-        "version": "4.0",
-        "fraction_ai": 1.0,
-        "fraction_ai_assisted": 0.0,
-        "fraction_human": 0.0,
-        "windows": [
-          {
-            "label": "AI-Generated",
-            "ai_assistance_score": 0.999053955078125,
-            "humanizer_score": 0.02218995802104473,
-            "word_count": 171,
-            "confidence": "High"
-          }
-        ]
+        "version": "4.0"
       },
       {
         "state": "workshop-v2",
@@ -382,19 +346,7 @@
         "returned_text_sha256": "733447869664c9ca3ee129aa06077ab0aaf19a8c4379fd59cd90b1a639911e8e",
         "echo_match": "whitespace_only",
         "bulk_id": "redacted-239a1986d914c7b1",
-        "version": "4.0",
-        "fraction_ai": 1.0,
-        "fraction_ai_assisted": 0.0,
-        "fraction_human": 0.0,
-        "windows": [
-          {
-            "label": "AI-Generated",
-            "ai_assistance_score": 0.9986046552658081,
-            "humanizer_score": 0.03925250098109245,
-            "word_count": 167,
-            "confidence": "High"
-          }
-        ]
+        "version": "4.0"
       },
       {
         "state": "workshop-root",
@@ -402,19 +354,7 @@
         "returned_text_sha256": "8d34b8eef2fd69d1ec58cd811fca2a345b771e0c8e6705e063191093f3fd7c78",
         "echo_match": "whitespace_only",
         "bulk_id": "redacted-239a1986d914c7b1",
-        "version": "4.0",
-        "fraction_ai": 1.0,
-        "fraction_ai_assisted": 0.0,
-        "fraction_human": 0.0,
-        "windows": [
-          {
-            "label": "AI-Generated",
-            "ai_assistance_score": 0.9987776279449463,
-            "humanizer_score": 0.020116113126277924,
-            "word_count": 174,
-            "confidence": "High"
-          }
-        ]
+        "version": "4.0"
       },
       {
         "state": "offline-notes-root",
@@ -422,19 +362,7 @@
         "returned_text_sha256": "f8003c82eb90030488ca013a37eceafa9d67ab883632b955bd4cf7e6e3d2a9aa",
         "echo_match": "whitespace_only",
         "bulk_id": "redacted-239a1986d914c7b1",
-        "version": "4.0",
-        "fraction_ai": 1.0,
-        "fraction_ai_assisted": 0.0,
-        "fraction_human": 0.0,
-        "windows": [
-          {
-            "label": "AI-Generated",
-            "ai_assistance_score": 0.9985639452934265,
-            "humanizer_score": 0.04021129757165909,
-            "word_count": 178,
-            "confidence": "High"
-          }
-        ]
+        "version": "4.0"
       },
       {
         "state": "offline-notes-v2b",
@@ -442,19 +370,7 @@
         "returned_text_sha256": "8d473dfcd07541070749ed4e31c985e5162401e780c705e276aa49daf2aa58cc",
         "echo_match": "whitespace_only",
         "bulk_id": "redacted-239a1986d914c7b1",
-        "version": "4.0",
-        "fraction_ai": 1.0,
-        "fraction_ai_assisted": 0.0,
-        "fraction_human": 0.0,
-        "windows": [
-          {
-            "label": "AI-Generated",
-            "ai_assistance_score": 0.9937418699264526,
-            "humanizer_score": 0.0576210655272007,
-            "word_count": 178,
-            "confidence": "High"
-          }
-        ]
+        "version": "4.0"
       },
       {
         "state": "offline-notes-root",
@@ -462,19 +378,7 @@
         "returned_text_sha256": "f8003c82eb90030488ca013a37eceafa9d67ab883632b955bd4cf7e6e3d2a9aa",
         "echo_match": "whitespace_only",
         "bulk_id": "redacted-78585e9e7aa9212e",
-        "version": "4.0",
-        "fraction_ai": 1.0,
-        "fraction_ai_assisted": 0.0,
-        "fraction_human": 0.0,
-        "windows": [
-          {
-            "label": "AI-Generated",
-            "ai_assistance_score": 0.9980936646461487,
-            "humanizer_score": 0.0423237606883049,
-            "word_count": 178,
-            "confidence": "High"
-          }
-        ]
+        "version": "4.0"
       },
       {
         "state": "offline-notes-v3",
@@ -482,19 +386,7 @@
         "returned_text_sha256": "18b5f2ee6e56bb5b701cebac4aaf5f83ca4ff735959cf21c1fd9555bed12358a",
         "echo_match": "whitespace_only",
         "bulk_id": "redacted-78585e9e7aa9212e",
-        "version": "4.0",
-        "fraction_ai": 1.0,
-        "fraction_ai_assisted": 0.0,
-        "fraction_human": 0.0,
-        "windows": [
-          {
-            "label": "AI-Generated",
-            "ai_assistance_score": 0.9976843595504761,
-            "humanizer_score": 0.10800601541996002,
-            "word_count": 180,
-            "confidence": "High"
-          }
-        ]
+        "version": "4.0"
       }
     ],
     "collection_annotations_sha256": [
@@ -507,5 +399,6 @@
     "echo_resolution": "Every returned text differed only in whitespace; reran GET-only collection with explicit whitespace allowance, preserving both exact hashes and the initial failure. No submission retry."
   },
   "joint_success_count": 0,
-  "reviewed_final_candidates": 2
+  "reviewed_final_candidates": 2,
+  "pangram_scores": "Row-level Pangram results (document fractions, window scores, labels and spans, and the per-text values and outcomes derived from them) are kept privately and not published. Text hashes, request ids and record paths identify each observation for verification."
 }

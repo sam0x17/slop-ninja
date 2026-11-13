@@ -11,33 +11,14 @@
       "choices": [],
       "collected_at": "2026-09-13T21:12:58.752046+00:00",
       "echo_match": "whitespace_only",
-      "flagged_fraction": 1.0,
-      "fraction_ai": 1.0,
-      "fraction_ai_assisted": 0.0,
-      "fraction_human": 0.0,
       "full_word_grammar_distance": 1.1179244614854555,
       "function_grammar_distance": 1.2506739570245948,
       "model_selector": "pangram-4",
-      "observed_joint_detector_target": false,
       "request_id": "032e923b64d0fcb9fb98790530bd2b486822d1e390ab2cd5dbb04f2480c7f0a2:0",
       "returned_text_sha256": "b992b606a3600261a93048e4706114c52d5392ca12a7455063d8214f7816a2ba",
       "returned_version": "4.0",
       "root_control": false,
-      "text_sha256": "032e923b64d0fcb9fb98790530bd2b486822d1e390ab2cd5dbb04f2480c7f0a2",
-      "windows": [
-        {
-          "ai_assistance_score": 0.9946033954620361,
-          "confidence": "High",
-          "end_index": 973,
-          "humanizer_score": 0.11084530502557755,
-          "is_humanized": false,
-          "label": "AI-Generated",
-          "start_index": 0,
-          "token_length": 197,
-          "word_count": 169
-        }
-      ],
-      "word_weighted_window_score": 0.9946033954620361
+      "text_sha256": "032e923b64d0fcb9fb98790530bd2b486822d1e390ab2cd5dbb04f2480c7f0a2"
     },
     {
       "a_probability": 0.08149660892065597,
@@ -47,33 +28,14 @@
       ],
       "collected_at": "2026-09-13T21:12:58.752363+00:00",
       "echo_match": "whitespace_only",
-      "flagged_fraction": 1.0,
-      "fraction_ai": 1.0,
-      "fraction_ai_assisted": 0.0,
-      "fraction_human": 0.0,
       "full_word_grammar_distance": 1.1196874826154617,
       "function_grammar_distance": 1.2546948458487888,
       "model_selector": "pangram-4",
-      "observed_joint_detector_target": false,
       "request_id": "4046acecce9229908fb45054e14b8ddb43524622343b9d106eb08cb979d0bb96:0",
       "returned_text_sha256": "3bc7bcdd1e90f9309ff95f8099ac0799a1f20678f407e01ef3f10b7c21ec722f",
       "returned_version": "4.0",
       "root_control": false,
-      "text_sha256": "4046acecce9229908fb45054e14b8ddb43524622343b9d106eb08cb979d0bb96",
-      "windows": [
-        {
-          "ai_assistance_score": 0.9924996495246887,
-          "confidence": "High",
-          "end_index": 969,
-          "humanizer_score": 0.08563122153282166,
-          "is_humanized": false,
-          "label": "AI-Generated",
-          "start_index": 0,
-          "token_length": 198,
-          "word_count": 170
-        }
-      ],
-      "word_weighted_window_score": 0.9924996495246887
+      "text_sha256": "4046acecce9229908fb45054e14b8ddb43524622343b9d106eb08cb979d0bb96"
     },
     {
       "a_probability": 0.18029095174178666,
@@ -83,33 +45,14 @@
       ],
       "collected_at": "2026-09-13T21:12:58.752666+00:00",
       "echo_match": "whitespace_only",
-      "flagged_fraction": 1.0,
-      "fraction_ai": 1.0,
-      "fraction_ai_assisted": 0.0,
-      "fraction_human": 0.0,
       "full_word_grammar_distance": 1.1200164918911526,
       "function_grammar_distance": 1.2542851641908417,
       "model_selector": "pangram-4",
-      "observed_joint_detector_target": false,
       "request_id": "4d34cc28c4b4c9552140c058703f26314ca1cacd2158bf78ead0f7a6aba84789:0",
       "returned_text_sha256": "906d2c446c7e32f82e60bcd473056f97e33e4d77e286ddc6a448c8eb9f270e81",
       "returned_version": "4.0",
       "root_control": false,
-      "text_sha256": "4d34cc28c4b4c9552140c058703f26314ca1cacd2158bf78ead0f7a6aba84789",
-      "windows": [
-        {
-          "ai_assistance_score": 0.9823877215385437,
-          "confidence": "High",
-          "end_index": 969,
-          "humanizer_score": 0.07047735899686813,
-          "is_humanized": false,
-          "label": "AI-Generated",
-          "start_index": 0,
-          "token_length": 197,
-          "word_count": 170
-        }
-      ],
-      "word_weighted_window_score": 0.9823877215385437
+      "text_sha256": "4d34cc28c4b4c9552140c058703f26314ca1cacd2158bf78ead0f7a6aba84789"
     },
     {
       "a_probability": 0.4299005012393369,
@@ -119,33 +62,14 @@
       ],
       "collected_at": "2026-09-13T21:12:58.752951+00:00",
       "echo_match": "whitespace_only",
-      "flagged_fraction": 1.0,
-      "fraction_ai": 1.0,
-      "fraction_ai_assisted": 0.0,
-      "fraction_human": 0.0,
       "full_word_grammar_distance": 1.1214486398252983,
       "function_grammar_distance": 1.253795865526661,
       "model_selector": "pangram-4",
-      "observed_joint_detector_target": false,
       "request_id": "71ce1f0c3bdd97562a8635c8b03c383680dca825ff01e896561a6269c9908a90:0",
       "returned_text_sha256": "fd00428fdb4a76dddd8627be71f80688dd155dbbb21d0d8569793d557c23872d",
       "returned_version": "4.0",
       "root_control": false,
-      "text_sha256": "71ce1f0c3bdd97562a8635c8b03c383680dca825ff01e896561a6269c9908a90",
-      "windows": [
-        {
-          "ai_assistance_score": 0.9897876977920532,
-          "confidence": "High",
-          "end_index": 973,
-          "humanizer_score": 0.09523510932922363,
-          "is_humanized": false,
-          "label": "AI-Generated",
-          "start_index": 0,
-          "token_length": 194,
-          "word_count": 167
-        }
-      ],
-      "word_weighted_window_score": 0.9897876977920532
+      "text_sha256": "71ce1f0c3bdd97562a8635c8b03c383680dca825ff01e896561a6269c9908a90"
     },
     {
       "a_probability": 0.1337763942638245,
@@ -155,33 +79,14 @@
       ],
       "collected_at": "2026-09-13T21:12:58.753230+00:00",
       "echo_match": "whitespace_only",
-      "flagged_fraction": 1.0,
-      "fraction_ai": 1.0,
-      "fraction_ai_assisted": 0.0,
-      "fraction_human": 0.0,
       "full_word_grammar_distance": 1.1188918515864064,
       "function_grammar_distance": 1.2519872311777545,
       "model_selector": "pangram-4",
-      "observed_joint_detector_target": false,
       "request_id": "8208a4c9cff7cec1b629701f9f9366fa10f1b2abc957be4ad2432cd9a6b8375a:0",
       "returned_text_sha256": "d380cc5413e126fde4a9e5ec273afa907953c804aebfeeff0337898e6952cf69",
       "returned_version": "4.0",
       "root_control": false,
-      "text_sha256": "8208a4c9cff7cec1b629701f9f9366fa10f1b2abc957be4ad2432cd9a6b8375a",
-      "windows": [
-        {
-          "ai_assistance_score": 0.9941070079803467,
-          "confidence": "High",
-          "end_index": 974,
-          "humanizer_score": 0.05825481191277504,
-          "is_humanized": false,
-          "label": "AI-Generated",
-          "start_index": 0,
-          "token_length": 196,
-          "word_count": 168
-        }
-      ],
-      "word_weighted_window_score": 0.9941070079803467
+      "text_sha256": "8208a4c9cff7cec1b629701f9f9366fa10f1b2abc957be4ad2432cd9a6b8375a"
     },
     {
       "a_probability": null,
@@ -189,33 +94,14 @@
       "choices": null,
       "collected_at": "2026-09-13T21:12:58.753664+00:00",
       "echo_match": "whitespace_only",
-      "flagged_fraction": 1.0,
-      "fraction_ai": 1.0,
-      "fraction_ai_assisted": 0.0,
-      "fraction_human": 0.0,
       "full_word_grammar_distance": null,
       "function_grammar_distance": null,
       "model_selector": "pangram-4",
-      "observed_joint_detector_target": false,
       "request_id": "87493afb563821613fc3e6bf80b9ecad5b4ccfc56d5d7a8d9680a7ce07cf1195:0",
       "returned_text_sha256": "8d34b8eef2fd69d1ec58cd811fca2a345b771e0c8e6705e063191093f3fd7c78",
       "returned_version": "4.0",
       "root_control": true,
-      "text_sha256": "87493afb563821613fc3e6bf80b9ecad5b4ccfc56d5d7a8d9680a7ce07cf1195",
-      "windows": [
-        {
-          "ai_assistance_score": 0.9987776279449463,
-          "confidence": "High",
-          "end_index": 1027,
-          "humanizer_score": 0.020116113126277924,
-          "is_humanized": false,
-          "label": "AI-Generated",
-          "start_index": 0,
-          "token_length": 204,
-          "word_count": 174
-        }
-      ],
-      "word_weighted_window_score": 0.9987776279449463
+      "text_sha256": "87493afb563821613fc3e6bf80b9ecad5b4ccfc56d5d7a8d9680a7ce07cf1195"
     },
     {
       "a_probability": 0.015170104736227458,
@@ -225,33 +111,14 @@
       ],
       "collected_at": "2026-09-13T21:12:58.754146+00:00",
       "echo_match": "whitespace_only",
-      "flagged_fraction": 1.0,
-      "fraction_ai": 1.0,
-      "fraction_ai_assisted": 0.0,
-      "fraction_human": 0.0,
       "full_word_grammar_distance": 1.1438090590797303,
       "function_grammar_distance": 1.2920824471224774,
       "model_selector": "pangram-4",
-      "observed_joint_detector_target": false,
       "request_id": "b485ff56ba3117b9a031c584a34e7456bfbbdbc5b1d41a55727544994cd67b7c:0",
       "returned_text_sha256": "236bfe90ff87d15cf6b178989a7d47dca9b8e899abc01e957aa6686b619aad4a",
       "returned_version": "4.0",
       "root_control": false,
-      "text_sha256": "b485ff56ba3117b9a031c584a34e7456bfbbdbc5b1d41a55727544994cd67b7c",
-      "windows": [
-        {
-          "ai_assistance_score": 0.9980889558792114,
-          "confidence": "High",
-          "end_index": 965,
-          "humanizer_score": 0.08825021237134933,
-          "is_humanized": false,
-          "label": "AI-Generated",
-          "start_index": 0,
-          "token_length": 193,
-          "word_count": 166
-        }
-      ],
-      "word_weighted_window_score": 0.9980889558792114
+      "text_sha256": "b485ff56ba3117b9a031c584a34e7456bfbbdbc5b1d41a55727544994cd67b7c"
     },
     {
       "a_probability": 0.3118833424154088,
@@ -261,35 +128,17 @@
       ],
       "collected_at": "2026-09-13T21:12:58.754566+00:00",
       "echo_match": "whitespace_only",
-      "flagged_fraction": 1.0,
-      "fraction_ai": 1.0,
-      "fraction_ai_assisted": 0.0,
-      "fraction_human": 0.0,
       "full_word_grammar_distance": 1.116075396642995,
       "function_grammar_distance": 1.2468790939928123,
       "model_selector": "pangram-4",
-      "observed_joint_detector_target": false,
       "request_id": "cb410de6f82f7edb92ff23a23468fa4070c2741adde51b18caa0e2b921b2446d:0",
       "returned_text_sha256": "3a820fd941cd56587c50f70fb150807880b51dd232974f45d55eb8d60c596c5f",
       "returned_version": "4.0",
       "root_control": false,
-      "text_sha256": "cb410de6f82f7edb92ff23a23468fa4070c2741adde51b18caa0e2b921b2446d",
-      "windows": [
-        {
-          "ai_assistance_score": 0.99579256772995,
-          "confidence": "High",
-          "end_index": 988,
-          "humanizer_score": 0.1764717400074005,
-          "is_humanized": false,
-          "label": "AI-Generated",
-          "start_index": 0,
-          "token_length": 199,
-          "word_count": 170
-        }
-      ],
-      "word_weighted_window_score": 0.99579256772995
+      "text_sha256": "cb410de6f82f7edb92ff23a23468fa4070c2741adde51b18caa0e2b921b2446d"
     }
   ],
+  "pangram_scores": "Row-level Pangram results (document fractions, window scores, labels and spans, and the per-text values and outcomes derived from them) are kept privately and not published. Text hashes, request ids and record paths identify each observation for verification.",
   "plan_sha256": "6c438654adea34b308f7e5d6ffcfd8fc74a7ee3a5c09ed4df1ed368de9e5c9de",
   "research_only": true,
   "schema": "slop_ninja_b_external_report_v1",

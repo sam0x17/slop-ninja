@@ -1,8 +1,8 @@
 # Local word and clause proposal comparison
 
-The model supplied a clause combination that reduced A, but the two reviewed
-repairs both remained 100% AI-written on Pangram. This comparison produced no
-joint detector success. It also exposed failures in instruction following and
+The model supplied a clause combination that reduced A, but neither reviewed
+repair met the joint target on Pangram. This comparison produced no joint
+detector success. It also exposed failures in instruction following and
 meaning preservation that a lower A score would have concealed.
 
 The [protocol](PROTOCOL_PROPOSALS_V1.md) uses the pinned Qwen3-30B-A3B-Instruct-2507
@@ -59,12 +59,14 @@ qualification, requested tone, readability, cleanup and provisional author fit.
 These remain assistant judgments, without independent preservation or author-fit
 validation. The unmodified parent and original source were submitted as controls.
 
-| Text | A probability | Pangram AI-written | AI-assisted | Human |
-|---|---:|---:|---:|---:|
-| Original source | Not rescored in this batch | 100% | 0% | 0% |
-| Current parent | 94.85% | 0% | 100% | 0% |
-| Three repaired edits | 3.97% | 100% | 0% | 0% |
-| Four edits, explicit referent | 7.26% | 100% | 0% | 0% |
+| Text | A probability |
+|---|---:|
+| Original source | Not rescored in this batch |
+| Current parent | 94.85% |
+| Three repaired edits | 3.97% |
+| Four edits, explicit referent | 7.26% |
+
+Their Pangram fractions are kept privately and not published.
 
 Both revised passages improved the original function-word/grammar distance:
 1.25666 for the parent, 1.22600 for three edits and 1.20150 for four. The optional
@@ -72,10 +74,9 @@ factorized order distance worsened from 0.85199 to 0.86360 for both revisions.
 These measurements disagree about direction; neither establishes author identity
 or writing quality. The fixed mixture comparisons are retained.
 
-Pangram returned one segment per text. Its continuous assistance score was
-0.60810 for the parent, 0.74920 for three edits and 0.87515 for four. Those are
-auxiliary observations; the goal uses the returned AI plus AI-assisted fractions,
-which were 100% in all four observations. The returned version was 4.0, and every
+Pangram returned one segment per text. Its continuous assistance score is an
+auxiliary observation; the goal uses the returned AI plus AI-assisted fractions,
+and none of the four observations met it. The returned version was 4.0, and every
 text echo differed only in whitespace. No request was retried.
 
 ## Records and next step

@@ -46,16 +46,8 @@
     "A label change in one uncontrolled pair is an observed difference, not proof that the edit caused it. Only the two selected confirmation pairs have new repeated measurements here."
   ],
   "single_word_summary": {
-    "same_labels_character_reweighting_only": [
-      "a-bvd-word-main",
-      "a-bvd-word-still",
-      "a-ecotourism-word-enough",
-      "a-sierra-word-sufficient"
-    ],
-    "decoded_label_changes": [
-      "a-ecotourism-word-usefulness",
-      "a-sierra-word-remain"
-    ],
+    "same_labels_character_reweighting_only": 4,
+    "decoded_label_changes": 2,
     "interpretation": "Four small word-edit deltas are entirely character-weight effects with unchanged decoded labels. The other two word edits increased assisted labeling on unchanged, remote text. None of the six single-word swaps produced an observed decrease in decoded assisted labeling."
   },
   "candidate_observations": [
@@ -70,41 +62,8 @@
       "candidate_task_id": "redacted-c32abb593ca56899",
       "baseline_record": "data/edit-screen-v1/scores/85565e914a9e2539ad0aa1088cd242a7226c2b5e28333629020caf5be77bcbab.json",
       "candidate_record": "data/edit-screen-v1/scores/a19c90d7b4f34ae92e84bd68c9d9fbe8a0a5655b4a070262bd253429e2960005.json",
-      "baseline_score": 0.564752995967865,
-      "candidate_score": 0.5666443109512329,
-      "delta_percentage_points": 0.189131498336792,
       "baseline_returned_characters": 1498,
       "candidate_returned_characters": 1493,
-      "baseline_nonhuman_label_characters": 846,
-      "candidate_nonhuman_label_characters": 846,
-      "baseline_spans": [
-        {
-          "label": "Human Written",
-          "start": 0,
-          "end": 652,
-          "characters": 652
-        },
-        {
-          "label": "AI-Assisted",
-          "start": 652,
-          "end": 1498,
-          "characters": 846
-        }
-      ],
-      "candidate_spans": [
-        {
-          "label": "Human Written",
-          "start": 0,
-          "end": 647,
-          "characters": 647
-        },
-        {
-          "label": "AI-Assisted",
-          "start": 647,
-          "end": 1493,
-          "characters": 846
-        }
-      ],
       "quality_certified": false,
       "edit": {
         "old": "principal",
@@ -112,24 +71,8 @@
         "baseline_start": 396,
         "baseline_end": 405,
         "candidate_start": 396,
-        "candidate_end": 400,
-        "old_label": "Human Written",
-        "replacement_labels": [
-          "Human Written"
-        ]
-      },
-      "classification": "same_labels_character_reweighting_only",
-      "same_label_counterfactual": {
-        "assumption": "Assign all replacement characters the single baseline label that covered the exact edited span; shift all later baseline labels by edit length.",
-        "nonhuman_characters": 846,
-        "total_characters": 1493,
-        "predicted_score": 0.5666443402545212,
-        "length_reweighting_delta_percentage_points": 0.18913362491806973,
-        "relabeling_residual_percentage_points": 0.0
-      },
-      "candidate_characters_with_changed_labels_against_counterfactual": 0,
-      "aligned_unchanged_characters_relabelled": 0,
-      "unchanged_text_relabelled": []
+        "candidate_end": 400
+      }
     },
     {
       "candidate_id": "a-bvd-word-still",
@@ -142,41 +85,8 @@
       "candidate_task_id": "redacted-a6e2481f718973fb",
       "baseline_record": "data/edit-screen-v1/scores/85565e914a9e2539ad0aa1088cd242a7226c2b5e28333629020caf5be77bcbab.json",
       "candidate_record": "data/edit-screen-v1/scores/1a4e25568bfe587bf544cf1624993988493202c1fe453fc7f2f7d765308a9583.json",
-      "baseline_score": 0.564752995967865,
-      "candidate_score": 0.5627095699310303,
-      "delta_percentage_points": -0.20434260368347168,
       "baseline_returned_characters": 1498,
       "candidate_returned_characters": 1491,
-      "baseline_nonhuman_label_characters": 846,
-      "candidate_nonhuman_label_characters": 839,
-      "baseline_spans": [
-        {
-          "label": "Human Written",
-          "start": 0,
-          "end": 652,
-          "characters": 652
-        },
-        {
-          "label": "AI-Assisted",
-          "start": 652,
-          "end": 1498,
-          "characters": 846
-        }
-      ],
-      "candidate_spans": [
-        {
-          "label": "Human Written",
-          "start": 0,
-          "end": 652,
-          "characters": 652
-        },
-        {
-          "label": "AI-Assisted",
-          "start": 652,
-          "end": 1491,
-          "characters": 839
-        }
-      ],
       "quality_certified": false,
       "edit": {
         "old": "Nevertheless",
@@ -184,24 +94,8 @@
         "baseline_start": 1118,
         "baseline_end": 1130,
         "candidate_start": 1118,
-        "candidate_end": 1123,
-        "old_label": "AI-Assisted",
-        "replacement_labels": [
-          "AI-Assisted"
-        ]
-      },
-      "classification": "same_labels_character_reweighting_only",
-      "same_label_counterfactual": {
-        "assumption": "Assign all replacement characters the single baseline label that covered the exact edited span; shift all later baseline labels by edit length.",
-        "nonhuman_characters": 839,
-        "total_characters": 1491,
-        "predicted_score": 0.562709590878605,
-        "length_reweighting_delta_percentage_points": -0.2043413126735505,
-        "relabeling_residual_percentage_points": 0.0
-      },
-      "candidate_characters_with_changed_labels_against_counterfactual": 0,
-      "aligned_unchanged_characters_relabelled": 0,
-      "unchanged_text_relabelled": []
+        "candidate_end": 1123
+      }
     },
     {
       "candidate_id": "a-bvd-structure-variables",
@@ -214,41 +108,8 @@
       "candidate_task_id": "redacted-3ad7fc34ee25a560",
       "baseline_record": "data/edit-screen-v1/scores/85565e914a9e2539ad0aa1088cd242a7226c2b5e28333629020caf5be77bcbab.json",
       "candidate_record": "data/edit-screen-v1/scores/0179ed9a2a896d8a2a4a1f6d1216926521d0f8a961e743baa909cf70928042bb.json",
-      "baseline_score": 0.564752995967865,
-      "candidate_score": 0.5606361627578735,
-      "delta_percentage_points": -0.4116833209991455,
       "baseline_returned_characters": 1498,
       "candidate_returned_characters": 1509,
-      "baseline_nonhuman_label_characters": 846,
-      "candidate_nonhuman_label_characters": 846,
-      "baseline_spans": [
-        {
-          "label": "Human Written",
-          "start": 0,
-          "end": 652,
-          "characters": 652
-        },
-        {
-          "label": "AI-Assisted",
-          "start": 652,
-          "end": 1498,
-          "characters": 846
-        }
-      ],
-      "candidate_spans": [
-        {
-          "label": "Human Written",
-          "start": 0,
-          "end": 663,
-          "characters": 663
-        },
-        {
-          "label": "AI-Assisted",
-          "start": 663,
-          "end": 1509,
-          "characters": 846
-        }
-      ],
       "quality_certified": false,
       "edit": {
         "old": "Farmer-level variables examined included the specific BVD control measures adopted, livestock disease priorities, reasons for scheme membership, wider knowledge acquisition, biosecurity practices and training course attendance.",
@@ -256,24 +117,8 @@
         "baseline_start": 425,
         "baseline_end": 652,
         "candidate_start": 425,
-        "candidate_end": 663,
-        "old_label": "Human Written",
-        "replacement_labels": [
-          "Human Written"
-        ]
-      },
-      "classification": "same_labels_character_reweighting_only",
-      "same_label_counterfactual": {
-        "assumption": "Assign all replacement characters the single baseline label that covered the exact edited span; shift all later baseline labels by edit length.",
-        "nonhuman_characters": 846,
-        "total_characters": 1509,
-        "predicted_score": 0.5606361829025845,
-        "length_reweighting_delta_percentage_points": -0.41168211027559076,
-        "relabeling_residual_percentage_points": 0.0
-      },
-      "candidate_characters_with_changed_labels_against_counterfactual": 0,
-      "aligned_unchanged_characters_relabelled": 0,
-      "unchanged_text_relabelled": []
+        "candidate_end": 663
+      }
     },
     {
       "candidate_id": "a-bvd-structure-concession",
@@ -286,41 +131,8 @@
       "candidate_task_id": "redacted-40f5dd2c63cdede5",
       "baseline_record": "data/edit-screen-v1/scores/85565e914a9e2539ad0aa1088cd242a7226c2b5e28333629020caf5be77bcbab.json",
       "candidate_record": "data/edit-screen-v1/scores/cfba5b7a5a1dbdde24e7887110d88ad7398eedee370fe6ef003dab2b914dcb17.json",
-      "baseline_score": 0.564752995967865,
-      "candidate_score": 0.5670650601387024,
-      "delta_percentage_points": 0.23120641708374023,
       "baseline_returned_characters": 1498,
       "candidate_returned_characters": 1506,
-      "baseline_nonhuman_label_characters": 846,
-      "candidate_nonhuman_label_characters": 854,
-      "baseline_spans": [
-        {
-          "label": "Human Written",
-          "start": 0,
-          "end": 652,
-          "characters": 652
-        },
-        {
-          "label": "AI-Assisted",
-          "start": 652,
-          "end": 1498,
-          "characters": 846
-        }
-      ],
-      "candidate_spans": [
-        {
-          "label": "Human Written",
-          "start": 0,
-          "end": 652,
-          "characters": 652
-        },
-        {
-          "label": "AI-Assisted",
-          "start": 652,
-          "end": 1506,
-          "characters": 854
-        }
-      ],
       "quality_certified": false,
       "edit": {
         "old": "The findings therefore indicate that disease control efforts, although necessary, are insufficient on their own.",
@@ -328,24 +140,8 @@
         "baseline_start": 1220,
         "baseline_end": 1332,
         "candidate_start": 1220,
-        "candidate_end": 1340,
-        "old_label": "AI-Assisted",
-        "replacement_labels": [
-          "AI-Assisted"
-        ]
-      },
-      "classification": "same_labels_character_reweighting_only",
-      "same_label_counterfactual": {
-        "assumption": "Assign all replacement characters the single baseline label that covered the exact edited span; shift all later baseline labels by edit length.",
-        "nonhuman_characters": 854,
-        "total_characters": 1506,
-        "predicted_score": 0.5670650730411687,
-        "length_reweighting_delta_percentage_points": 0.2312069035828257,
-        "relabeling_residual_percentage_points": 0.0
-      },
-      "candidate_characters_with_changed_labels_against_counterfactual": 0,
-      "aligned_unchanged_characters_relabelled": 0,
-      "unchanged_text_relabelled": []
+        "candidate_end": 1340
+      }
     },
     {
       "candidate_id": "a-ecotourism-word-enough",
@@ -358,77 +154,8 @@
       "candidate_task_id": "redacted-41d6a5409f41093e",
       "baseline_record": "data/edit-screen-v1/scores/3c520643909eafd84dd8ab5a17a429c847f8367175b473a19a52213368dfa18b.json",
       "candidate_record": "data/edit-screen-v1/scores/a8cb90f63704d393d9c60adc0ee0bb68f0775a181440236978fe68bfefb6e037.json",
-      "baseline_score": 0.7231108546257019,
-      "candidate_score": 0.7224985957145691,
-      "delta_percentage_points": -0.06122589111328125,
       "baseline_returned_characters": 1813,
       "candidate_returned_characters": 1809,
-      "baseline_nonhuman_label_characters": 1311,
-      "candidate_nonhuman_label_characters": 1307,
-      "baseline_spans": [
-        {
-          "label": "AI-Assisted",
-          "start": 0,
-          "end": 333,
-          "characters": 333
-        },
-        {
-          "label": "Human Written",
-          "start": 333,
-          "end": 539,
-          "characters": 206
-        },
-        {
-          "label": "AI-Assisted",
-          "start": 539,
-          "end": 1185,
-          "characters": 646
-        },
-        {
-          "label": "Human Written",
-          "start": 1185,
-          "end": 1481,
-          "characters": 296
-        },
-        {
-          "label": "AI-Assisted",
-          "start": 1481,
-          "end": 1813,
-          "characters": 332
-        }
-      ],
-      "candidate_spans": [
-        {
-          "label": "AI-Assisted",
-          "start": 0,
-          "end": 329,
-          "characters": 329
-        },
-        {
-          "label": "Human Written",
-          "start": 329,
-          "end": 535,
-          "characters": 206
-        },
-        {
-          "label": "AI-Assisted",
-          "start": 535,
-          "end": 1181,
-          "characters": 646
-        },
-        {
-          "label": "Human Written",
-          "start": 1181,
-          "end": 1477,
-          "characters": 296
-        },
-        {
-          "label": "AI-Assisted",
-          "start": 1477,
-          "end": 1809,
-          "characters": 332
-        }
-      ],
       "quality_certified": false,
       "edit": {
         "old": "sufficient",
@@ -436,24 +163,8 @@
         "baseline_start": 218,
         "baseline_end": 228,
         "candidate_start": 218,
-        "candidate_end": 224,
-        "old_label": "AI-Assisted",
-        "replacement_labels": [
-          "AI-Assisted"
-        ]
-      },
-      "classification": "same_labels_character_reweighting_only",
-      "same_label_counterfactual": {
-        "assumption": "Assign all replacement characters the single baseline label that covered the exact edited span; shift all later baseline labels by edit length.",
-        "nonhuman_characters": 1307,
-        "total_characters": 1809,
-        "predicted_score": 0.7224986180210061,
-        "length_reweighting_delta_percentage_points": -0.06122479470026532,
-        "relabeling_residual_percentage_points": 0.0
-      },
-      "candidate_characters_with_changed_labels_against_counterfactual": 0,
-      "aligned_unchanged_characters_relabelled": 0,
-      "unchanged_text_relabelled": []
+        "candidate_end": 224
+      }
     },
     {
       "candidate_id": "a-ecotourism-word-usefulness",
@@ -466,65 +177,8 @@
       "candidate_task_id": "redacted-0bec893e829b8349",
       "baseline_record": "data/edit-screen-v1/scores/3c520643909eafd84dd8ab5a17a429c847f8367175b473a19a52213368dfa18b.json",
       "candidate_record": "data/edit-screen-v1/scores/dc3a267fc4c16430908990aed0fcb3286f444cd184138cd5b202111d0824f34b.json",
-      "baseline_score": 0.7231108546257019,
-      "candidate_score": 0.8370044231414795,
-      "delta_percentage_points": 11.389356851577759,
       "baseline_returned_characters": 1813,
       "candidate_returned_characters": 1816,
-      "baseline_nonhuman_label_characters": 1311,
-      "candidate_nonhuman_label_characters": 1520,
-      "baseline_spans": [
-        {
-          "label": "AI-Assisted",
-          "start": 0,
-          "end": 333,
-          "characters": 333
-        },
-        {
-          "label": "Human Written",
-          "start": 333,
-          "end": 539,
-          "characters": 206
-        },
-        {
-          "label": "AI-Assisted",
-          "start": 539,
-          "end": 1185,
-          "characters": 646
-        },
-        {
-          "label": "Human Written",
-          "start": 1185,
-          "end": 1481,
-          "characters": 296
-        },
-        {
-          "label": "AI-Assisted",
-          "start": 1481,
-          "end": 1813,
-          "characters": 332
-        }
-      ],
-      "candidate_spans": [
-        {
-          "label": "AI-Assisted",
-          "start": 0,
-          "end": 1185,
-          "characters": 1185
-        },
-        {
-          "label": "Human Written",
-          "start": 1185,
-          "end": 1481,
-          "characters": 296
-        },
-        {
-          "label": "AI-Assisted",
-          "start": 1481,
-          "end": 1816,
-          "characters": 335
-        }
-      ],
       "quality_certified": false,
       "edit": {
         "old": "utility",
@@ -532,36 +186,8 @@
         "baseline_start": 1755,
         "baseline_end": 1762,
         "candidate_start": 1755,
-        "candidate_end": 1765,
-        "old_label": "AI-Assisted",
-        "replacement_labels": [
-          "AI-Assisted"
-        ]
-      },
-      "classification": "decoded_label_change",
-      "same_label_counterfactual": {
-        "assumption": "Assign all replacement characters the single baseline label that covered the exact edited span; shift all later baseline labels by edit length.",
-        "nonhuman_characters": 1314,
-        "total_characters": 1816,
-        "predicted_score": 0.723568281938326,
-        "length_reweighting_delta_percentage_points": 0.0457415970317232,
-        "relabeling_residual_percentage_points": 11.343612334801756
-      },
-      "candidate_characters_with_changed_labels_against_counterfactual": 206,
-      "aligned_unchanged_characters_relabelled": 206,
-      "unchanged_text_relabelled": [
-        {
-          "baseline_start": 333,
-          "baseline_end": 539,
-          "candidate_start": 333,
-          "candidate_end": 539,
-          "from": "Human Written",
-          "to": "AI-Assisted",
-          "characters": 206,
-          "text": " In Lao PDR, ecotourism revenue has neither been directly linked to nor made dependent on improvements in biodiversity, and there is no evidence that ecotourism enterprises have contributed to conservation.",
-          "outside_exact_edited_span": true
-        }
-      ]
+        "candidate_end": 1765
+      }
     },
     {
       "candidate_id": "a-ecotourism-structure-reduced-relative",
@@ -574,65 +200,8 @@
       "candidate_task_id": "redacted-cf21c4b5753d8e03",
       "baseline_record": "data/edit-screen-v1/scores/3c520643909eafd84dd8ab5a17a429c847f8367175b473a19a52213368dfa18b.json",
       "candidate_record": "data/edit-screen-v1/scores/b7d49300b173904635dde5ecc2ec58645b13c92e5d81b3d328b0dbbe60921b7a.json",
-      "baseline_score": 0.7231108546257019,
-      "candidate_score": 0.3660960793495178,
-      "delta_percentage_points": -35.70147752761841,
       "baseline_returned_characters": 1813,
       "candidate_returned_characters": 1811,
-      "baseline_nonhuman_label_characters": 1311,
-      "candidate_nonhuman_label_characters": 663,
-      "baseline_spans": [
-        {
-          "label": "AI-Assisted",
-          "start": 0,
-          "end": 333,
-          "characters": 333
-        },
-        {
-          "label": "Human Written",
-          "start": 333,
-          "end": 539,
-          "characters": 206
-        },
-        {
-          "label": "AI-Assisted",
-          "start": 539,
-          "end": 1185,
-          "characters": 646
-        },
-        {
-          "label": "Human Written",
-          "start": 1185,
-          "end": 1481,
-          "characters": 296
-        },
-        {
-          "label": "AI-Assisted",
-          "start": 1481,
-          "end": 1813,
-          "characters": 332
-        }
-      ],
-      "candidate_spans": [
-        {
-          "label": "AI-Assisted",
-          "start": 0,
-          "end": 331,
-          "characters": 331
-        },
-        {
-          "label": "Human Written",
-          "start": 331,
-          "end": 1479,
-          "characters": 1148
-        },
-        {
-          "label": "AI-Assisted",
-          "start": 1479,
-          "end": 1811,
-          "characters": 332
-        }
-      ],
       "quality_certified": false,
       "edit": {
         "old": "Projects that adopt this strategy are frequently criticized for failing to provide sufficient evidence that they have reduced threats or improved the status of the biodiversity they seek to protect.",
@@ -640,36 +209,8 @@
         "baseline_start": 135,
         "baseline_end": 333,
         "candidate_start": 135,
-        "candidate_end": 331,
-        "old_label": "AI-Assisted",
-        "replacement_labels": [
-          "AI-Assisted"
-        ]
-      },
-      "classification": "decoded_label_change",
-      "same_label_counterfactual": {
-        "assumption": "Assign all replacement characters the single baseline label that covered the exact edited span; shift all later baseline labels by edit length.",
-        "nonhuman_characters": 1309,
-        "total_characters": 1811,
-        "predicted_score": 0.7228050800662618,
-        "length_reweighting_delta_percentage_points": -0.030578590174701326,
-        "relabeling_residual_percentage_points": -35.67090005521811
-      },
-      "candidate_characters_with_changed_labels_against_counterfactual": 646,
-      "aligned_unchanged_characters_relabelled": 646,
-      "unchanged_text_relabelled": [
-        {
-          "baseline_start": 539,
-          "baseline_end": 1185,
-          "candidate_start": 537,
-          "candidate_end": 1183,
-          "from": "AI-Assisted",
-          "to": "Human Written",
-          "characters": 646,
-          "text": " In other developing countries, direct payments made through explicit contracts in exchange for ecosystem services have been proposed as a more cost-effective way to achieve conservation, although further research is needed to assess their impact. To help address this research need, we tested a new model in the Nam Et-Phou Louey National Protected Area (NPA) in Lao PDR, using direct payments to create incentives through ecotourism for villagers to increase wildlife populations. Over four years, we conducted monitoring guided by a theory of change to evaluate assumptions about the links between intermediate results and biological outcomes.",
-          "outside_exact_edited_span": true
-        }
-      ]
+        "candidate_end": 331
+      }
     },
     {
       "candidate_id": "a-ecotourism-structure-monitoring",
@@ -682,65 +223,8 @@
       "candidate_task_id": "redacted-a07b88b2f5f2adb1",
       "baseline_record": "data/edit-screen-v1/scores/3c520643909eafd84dd8ab5a17a429c847f8367175b473a19a52213368dfa18b.json",
       "candidate_record": "data/edit-screen-v1/scores/bc325b9f012cf7e386eab12f96c5bdde1a8c52a579b3e33deebc59de08374bf2.json",
-      "baseline_score": 0.7231108546257019,
-      "candidate_score": 0.36923930048942566,
-      "delta_percentage_points": -35.387155413627625,
       "baseline_returned_characters": 1813,
       "candidate_returned_characters": 1801,
-      "baseline_nonhuman_label_characters": 1311,
-      "candidate_nonhuman_label_characters": 665,
-      "baseline_spans": [
-        {
-          "label": "AI-Assisted",
-          "start": 0,
-          "end": 333,
-          "characters": 333
-        },
-        {
-          "label": "Human Written",
-          "start": 333,
-          "end": 539,
-          "characters": 206
-        },
-        {
-          "label": "AI-Assisted",
-          "start": 539,
-          "end": 1185,
-          "characters": 646
-        },
-        {
-          "label": "Human Written",
-          "start": 1185,
-          "end": 1481,
-          "characters": 296
-        },
-        {
-          "label": "AI-Assisted",
-          "start": 1481,
-          "end": 1813,
-          "characters": 332
-        }
-      ],
-      "candidate_spans": [
-        {
-          "label": "AI-Assisted",
-          "start": 0,
-          "end": 333,
-          "characters": 333
-        },
-        {
-          "label": "Human Written",
-          "start": 333,
-          "end": 1469,
-          "characters": 1136
-        },
-        {
-          "label": "AI-Assisted",
-          "start": 1469,
-          "end": 1801,
-          "characters": 332
-        }
-      ],
       "quality_certified": false,
       "edit": {
         "old": "Over four years, we conducted monitoring guided by a theory of change to evaluate assumptions about the links between intermediate results and biological outcomes.",
@@ -748,58 +232,8 @@
         "baseline_start": 1022,
         "baseline_end": 1185,
         "candidate_start": 1022,
-        "candidate_end": 1173,
-        "old_label": "AI-Assisted",
-        "replacement_labels": [
-          "Human Written"
-        ]
-      },
-      "classification": "decoded_label_change",
-      "same_label_counterfactual": {
-        "assumption": "Assign all replacement characters the single baseline label that covered the exact edited span; shift all later baseline labels by edit length.",
-        "nonhuman_characters": 1299,
-        "total_characters": 1801,
-        "predicted_score": 0.7212659633536924,
-        "length_reweighting_delta_percentage_points": -0.18449026143163572,
-        "relabeling_residual_percentage_points": -35.20266518600778
-      },
-      "candidate_characters_with_changed_labels_against_counterfactual": 634,
-      "aligned_unchanged_characters_relabelled": 604,
-      "unchanged_text_relabelled": [
-        {
-          "baseline_start": 539,
-          "baseline_end": 1022,
-          "candidate_start": 539,
-          "candidate_end": 1022,
-          "from": "AI-Assisted",
-          "to": "Human Written",
-          "characters": 483,
-          "text": " In other developing countries, direct payments made through explicit contracts in exchange for ecosystem services have been proposed as a more cost-effective way to achieve conservation, although further research is needed to assess their impact. To help address this research need, we tested a new model in the Nam Et-Phou Louey National Protected Area (NPA) in Lao PDR, using direct payments to create incentives through ecotourism for villagers to increase wildlife populations. ",
-          "outside_exact_edited_span": true
-        },
-        {
-          "baseline_start": 1064,
-          "baseline_end": 1091,
-          "candidate_start": 1023,
-          "candidate_end": 1050,
-          "from": "AI-Assisted",
-          "to": "Human Written",
-          "characters": 27,
-          "text": "uided by a theory of change",
-          "outside_exact_edited_span": false
-        },
-        {
-          "baseline_start": 1091,
-          "baseline_end": 1185,
-          "candidate_start": 1079,
-          "candidate_end": 1173,
-          "from": "AI-Assisted",
-          "to": "Human Written",
-          "characters": 94,
-          "text": " to evaluate assumptions about the links between intermediate results and biological outcomes.",
-          "outside_exact_edited_span": false
-        }
-      ]
+        "candidate_end": 1173
+      }
     },
     {
       "candidate_id": "a-sierra-word-remain",
@@ -812,59 +246,8 @@
       "candidate_task_id": "redacted-0b26b67620194bae",
       "baseline_record": "data/edit-screen-v1/scores/a3bf832b1126d489b503560074303b2df20c333ba837c65a1c5f2995191a70f7.json",
       "candidate_record": "data/edit-screen-v1/scores/e1466fa765c35e63dc7ce29b7c44f0c6fa0f718d7469d88c0c24103a9ad0b23b.json",
-      "baseline_score": 0.4754672944545746,
-      "candidate_score": 0.6984219551086426,
-      "delta_percentage_points": 22.2954660654068,
       "baseline_returned_characters": 1712,
       "candidate_returned_characters": 1711,
-      "baseline_nonhuman_label_characters": 814,
-      "candidate_nonhuman_label_characters": 1195,
-      "baseline_spans": [
-        {
-          "label": "AI-Assisted",
-          "start": 0,
-          "end": 420,
-          "characters": 420
-        },
-        {
-          "label": "Human Written",
-          "start": 420,
-          "end": 936,
-          "characters": 516
-        },
-        {
-          "label": "AI-Assisted",
-          "start": 936,
-          "end": 1330,
-          "characters": 394
-        },
-        {
-          "label": "Human Written",
-          "start": 1330,
-          "end": 1712,
-          "characters": 382
-        }
-      ],
-      "candidate_spans": [
-        {
-          "label": "AI-Assisted",
-          "start": 0,
-          "end": 419,
-          "characters": 419
-        },
-        {
-          "label": "Human Written",
-          "start": 419,
-          "end": 935,
-          "characters": 516
-        },
-        {
-          "label": "AI-Assisted",
-          "start": 935,
-          "end": 1711,
-          "characters": 776
-        }
-      ],
       "quality_certified": false,
       "edit": {
         "old": "persist",
@@ -872,36 +255,8 @@
         "baseline_start": 412,
         "baseline_end": 419,
         "candidate_start": 412,
-        "candidate_end": 418,
-        "old_label": "AI-Assisted",
-        "replacement_labels": [
-          "AI-Assisted"
-        ]
-      },
-      "classification": "decoded_label_change",
-      "same_label_counterfactual": {
-        "assumption": "Assign all replacement characters the single baseline label that covered the exact edited span; shift all later baseline labels by edit length.",
-        "nonhuman_characters": 813,
-        "total_characters": 1711,
-        "predicted_score": 0.4751607247223846,
-        "length_reweighting_delta_percentage_points": -0.030656499724157626,
-        "relabeling_residual_percentage_points": 22.32612507305669
-      },
-      "candidate_characters_with_changed_labels_against_counterfactual": 382,
-      "aligned_unchanged_characters_relabelled": 382,
-      "unchanged_text_relabelled": [
-        {
-          "baseline_start": 1330,
-          "baseline_end": 1712,
-          "candidate_start": 1329,
-          "candidate_end": 1711,
-          "from": "Human Written",
-          "to": "AI-Assisted",
-          "characters": 382,
-          "text": "\nPregnant women experience multiple, interacting vulnerabilities that influence their decisions about seeking health care during pregnancy and childbirth. Future initiatives aimed at improving pregnant women’s access to and use of safe health care services need to rest on adequate knowledge of the structural constraints and health inequities affecting women in rural Sierra Leone.",
-          "outside_exact_edited_span": true
-        }
-      ]
+        "candidate_end": 418
+      }
     },
     {
       "candidate_id": "a-sierra-word-sufficient",
@@ -914,65 +269,8 @@
       "candidate_task_id": "redacted-dd280028a80c08f5",
       "baseline_record": "data/edit-screen-v1/scores/a3bf832b1126d489b503560074303b2df20c333ba837c65a1c5f2995191a70f7.json",
       "candidate_record": "data/edit-screen-v1/scores/60161f170ed72046bc9050cdda213645f02d24ff337b42c72043ae648a096cda.json",
-      "baseline_score": 0.4754672944545746,
-      "candidate_score": 0.4749124944210053,
-      "delta_percentage_points": -0.05548000335692804,
       "baseline_returned_characters": 1712,
       "candidate_returned_characters": 1714,
-      "baseline_nonhuman_label_characters": 814,
-      "candidate_nonhuman_label_characters": 814,
-      "baseline_spans": [
-        {
-          "label": "AI-Assisted",
-          "start": 0,
-          "end": 420,
-          "characters": 420
-        },
-        {
-          "label": "Human Written",
-          "start": 420,
-          "end": 936,
-          "characters": 516
-        },
-        {
-          "label": "AI-Assisted",
-          "start": 936,
-          "end": 1330,
-          "characters": 394
-        },
-        {
-          "label": "Human Written",
-          "start": 1330,
-          "end": 1712,
-          "characters": 382
-        }
-      ],
-      "candidate_spans": [
-        {
-          "label": "AI-Assisted",
-          "start": 0,
-          "end": 420,
-          "characters": 420
-        },
-        {
-          "label": "Human Written",
-          "start": 420,
-          "end": 936,
-          "characters": 516
-        },
-        {
-          "label": "AI-Assisted",
-          "start": 936,
-          "end": 1330,
-          "characters": 394
-        },
-        {
-          "label": "Human Written",
-          "start": 1330,
-          "end": 1714,
-          "characters": 384
-        }
-      ],
       "quality_certified": false,
       "edit": {
         "old": "adequate",
@@ -980,24 +278,8 @@
         "baseline_start": 1603,
         "baseline_end": 1611,
         "candidate_start": 1603,
-        "candidate_end": 1613,
-        "old_label": "Human Written",
-        "replacement_labels": [
-          "Human Written"
-        ]
-      },
-      "classification": "same_labels_character_reweighting_only",
-      "same_label_counterfactual": {
-        "assumption": "Assign all replacement characters the single baseline label that covered the exact edited span; shift all later baseline labels by edit length.",
-        "nonhuman_characters": 814,
-        "total_characters": 1714,
-        "predicted_score": 0.4749124854142357,
-        "length_reweighting_delta_percentage_points": -0.0554804305390455,
-        "relabeling_residual_percentage_points": 0.0
-      },
-      "candidate_characters_with_changed_labels_against_counterfactual": 0,
-      "aligned_unchanged_characters_relabelled": 0,
-      "unchanged_text_relabelled": []
+        "candidate_end": 1613
+      }
     },
     {
       "candidate_id": "a-sierra-structure-front-location",
@@ -1010,65 +292,8 @@
       "candidate_task_id": "redacted-86e53022e63eb109",
       "baseline_record": "data/edit-screen-v1/scores/a3bf832b1126d489b503560074303b2df20c333ba837c65a1c5f2995191a70f7.json",
       "candidate_record": "data/edit-screen-v1/scores/870245b85cbaf1b0682e04edbd0382d4b0fc973f5512aeccd2ee6988226342fb.json",
-      "baseline_score": 0.4754672944545746,
-      "candidate_score": 0.4751897156238556,
-      "delta_percentage_points": -0.027757883071899414,
       "baseline_returned_characters": 1712,
       "candidate_returned_characters": 1713,
-      "baseline_nonhuman_label_characters": 814,
-      "candidate_nonhuman_label_characters": 814,
-      "baseline_spans": [
-        {
-          "label": "AI-Assisted",
-          "start": 0,
-          "end": 420,
-          "characters": 420
-        },
-        {
-          "label": "Human Written",
-          "start": 420,
-          "end": 936,
-          "characters": 516
-        },
-        {
-          "label": "AI-Assisted",
-          "start": 936,
-          "end": 1330,
-          "characters": 394
-        },
-        {
-          "label": "Human Written",
-          "start": 1330,
-          "end": 1712,
-          "characters": 382
-        }
-      ],
-      "candidate_spans": [
-        {
-          "label": "AI-Assisted",
-          "start": 0,
-          "end": 420,
-          "characters": 420
-        },
-        {
-          "label": "Human Written",
-          "start": 420,
-          "end": 937,
-          "characters": 517
-        },
-        {
-          "label": "AI-Assisted",
-          "start": 937,
-          "end": 1331,
-          "characters": 394
-        },
-        {
-          "label": "Human Written",
-          "start": 1331,
-          "end": 1713,
-          "characters": 382
-        }
-      ],
       "quality_certified": false,
       "edit": {
         "old": "This study explored the perceptions and decision-making processes of women and their communities during childbirth in rural Sierra Leone.",
@@ -1076,24 +301,8 @@
         "baseline_start": 585,
         "baseline_end": 722,
         "candidate_start": 585,
-        "candidate_end": 723,
-        "old_label": "Human Written",
-        "replacement_labels": [
-          "Human Written"
-        ]
-      },
-      "classification": "same_labels_character_reweighting_only",
-      "same_label_counterfactual": {
-        "assumption": "Assign all replacement characters the single baseline label that covered the exact edited span; shift all later baseline labels by edit length.",
-        "nonhuman_characters": 814,
-        "total_characters": 1713,
-        "predicted_score": 0.475189725627554,
-        "length_reweighting_delta_percentage_points": -0.02775640920721356,
-        "relabeling_residual_percentage_points": 0.0
-      },
-      "candidate_characters_with_changed_labels_against_counterfactual": 0,
-      "aligned_unchanged_characters_relabelled": 0,
-      "unchanged_text_relabelled": []
+        "candidate_end": 723
+      }
     },
     {
       "candidate_id": "a-sierra-structure-social-context",
@@ -1106,53 +315,8 @@
       "candidate_task_id": "redacted-f319363046887391",
       "baseline_record": "data/edit-screen-v1/scores/a3bf832b1126d489b503560074303b2df20c333ba837c65a1c5f2995191a70f7.json",
       "candidate_record": "data/edit-screen-v1/scores/97a257a86984b55e31b838c031983d7e602f8f34f5536f0530e855745c84bdf0.json",
-      "baseline_score": 0.4754672944545746,
-      "candidate_score": 0.24852071702480316,
-      "delta_percentage_points": -22.694657742977142,
       "baseline_returned_characters": 1712,
       "candidate_returned_characters": 1690,
-      "baseline_nonhuman_label_characters": 814,
-      "candidate_nonhuman_label_characters": 420,
-      "baseline_spans": [
-        {
-          "label": "AI-Assisted",
-          "start": 0,
-          "end": 420,
-          "characters": 420
-        },
-        {
-          "label": "Human Written",
-          "start": 420,
-          "end": 936,
-          "characters": 516
-        },
-        {
-          "label": "AI-Assisted",
-          "start": 936,
-          "end": 1330,
-          "characters": 394
-        },
-        {
-          "label": "Human Written",
-          "start": 1330,
-          "end": 1712,
-          "characters": 382
-        }
-      ],
-      "candidate_spans": [
-        {
-          "label": "AI-Assisted",
-          "start": 0,
-          "end": 420,
-          "characters": 420
-        },
-        {
-          "label": "Human Written",
-          "start": 420,
-          "end": 1690,
-          "characters": 1270
-        }
-      ],
       "quality_certified": false,
       "edit": {
         "old": "The findings showed that decisions during childbirth emerge through dynamic, complex processes that must be understood within the wider social context in which they occur.",
@@ -1160,69 +324,8 @@
         "baseline_start": 937,
         "baseline_end": 1108,
         "candidate_start": 937,
-        "candidate_end": 1086,
-        "old_label": "AI-Assisted",
-        "replacement_labels": [
-          "Human Written"
-        ]
-      },
-      "classification": "decoded_label_change",
-      "same_label_counterfactual": {
-        "assumption": "Assign all replacement characters the single baseline label that covered the exact edited span; shift all later baseline labels by edit length.",
-        "nonhuman_characters": 792,
-        "total_characters": 1690,
-        "predicted_score": 0.4686390532544379,
-        "length_reweighting_delta_percentage_points": -0.6828236465188264,
-        "relabeling_residual_percentage_points": -22.01183431952663
-      },
-      "candidate_characters_with_changed_labels_against_counterfactual": 372,
-      "aligned_unchanged_characters_relabelled": 370,
-      "unchanged_text_relabelled": [
-        {
-          "baseline_start": 936,
-          "baseline_end": 1056,
-          "candidate_start": 936,
-          "candidate_end": 1056,
-          "from": "AI-Assisted",
-          "to": "Human Written",
-          "characters": 120,
-          "text": " The findings showed that decisions during childbirth emerge through dynamic, complex processes that must be understood ",
-          "outside_exact_edited_span": false
-        },
-        {
-          "baseline_start": 1060,
-          "baseline_end": 1066,
-          "candidate_start": 1056,
-          "candidate_end": 1062,
-          "from": "AI-Assisted",
-          "to": "Human Written",
-          "characters": 6,
-          "text": "in the",
-          "outside_exact_edited_span": false
-        },
-        {
-          "baseline_start": 1066,
-          "baseline_end": 1087,
-          "candidate_start": 1064,
-          "candidate_end": 1085,
-          "from": "AI-Assisted",
-          "to": "Human Written",
-          "characters": 21,
-          "text": " wider social context",
-          "outside_exact_edited_span": false
-        },
-        {
-          "baseline_start": 1107,
-          "baseline_end": 1330,
-          "candidate_start": 1085,
-          "candidate_end": 1308,
-          "from": "AI-Assisted",
-          "to": "Human Written",
-          "characters": 223,
-          "text": ". Distance and lack of transport, perceived negative behaviour among hospital staff, direct and indirect financial barriers, and women’s position in society interact to shape both how decisions are made and what is decided.",
-          "outside_exact_edited_span": false
-        }
-      ]
+        "candidate_end": 1086
+      }
     },
     {
       "candidate_id": "editor-b-0186133-document-v2",
@@ -1235,37 +338,9 @@
       "candidate_task_id": "redacted-d235432cb827f15a",
       "baseline_record": "data/edit-screen-v1/scores/d9af036bcf167269df975c3f03cddc34263ce8881576b0a92cd5934455761cbf.json",
       "candidate_record": "data/edit-screen-v1/scores/a15c299e2ca0b872af75becfa41274b28582880f5e12d14d4efd5d6e0688d92c.json",
-      "baseline_score": 1.0,
-      "candidate_score": 0.18799546360969543,
-      "delta_percentage_points": -81.20045363903046,
       "baseline_returned_characters": 1929,
       "candidate_returned_characters": 1766,
-      "baseline_nonhuman_label_characters": 1929,
-      "candidate_nonhuman_label_characters": 332,
-      "baseline_spans": [
-        {
-          "label": "AI-Assisted",
-          "start": 0,
-          "end": 1929,
-          "characters": 1929
-        }
-      ],
-      "candidate_spans": [
-        {
-          "label": "Human Written",
-          "start": 0,
-          "end": 1434,
-          "characters": 1434
-        },
-        {
-          "label": "AI-Assisted",
-          "start": 1434,
-          "end": 1766,
-          "characters": 332
-        }
-      ],
       "quality_certified": false,
-      "classification": "document_revision_with_different_label_distribution",
       "counterfactual_not_calculated": "A whole-document rewrite changes many spans; assigning one inherited label to the replacement would not isolate a lexical or structural treatment."
     },
     {
@@ -1279,49 +354,9 @@
       "candidate_task_id": "redacted-ffd8dfc55a8e31df",
       "baseline_record": "data/edit-screen-v1/scores/8adb3e32d14e893fc68496e7e1ea37ea64c83a5301a26472b21066b0a7b78280.json",
       "candidate_record": "data/edit-screen-v1/scores/f168252836e88d5381d5362431e9ee4e5d64243a82cd2553c8bd3678aa67dc5a.json",
-      "baseline_score": 0.8983160853385925,
-      "candidate_score": 0.7889705896377563,
-      "delta_percentage_points": -10.934549570083618,
       "baseline_returned_characters": 1544,
       "candidate_returned_characters": 1360,
-      "baseline_nonhuman_label_characters": 1387,
-      "candidate_nonhuman_label_characters": 1073,
-      "baseline_spans": [
-        {
-          "label": "AI-Assisted",
-          "start": 0,
-          "end": 181,
-          "characters": 181
-        },
-        {
-          "label": "Human Written",
-          "start": 181,
-          "end": 338,
-          "characters": 157
-        },
-        {
-          "label": "AI-Assisted",
-          "start": 338,
-          "end": 1544,
-          "characters": 1206
-        }
-      ],
-      "candidate_spans": [
-        {
-          "label": "Human Written",
-          "start": 0,
-          "end": 287,
-          "characters": 287
-        },
-        {
-          "label": "AI-Assisted",
-          "start": 287,
-          "end": 1360,
-          "characters": 1073
-        }
-      ],
       "quality_certified": false,
-      "classification": "document_revision_with_different_label_distribution",
       "counterfactual_not_calculated": "A whole-document rewrite changes many spans; assigning one inherited label to the replacement would not isolate a lexical or structural treatment."
     },
     {
@@ -1335,31 +370,9 @@
       "candidate_task_id": "redacted-48070584f1d6bde8",
       "baseline_record": "data/edit-screen-v1/scores/ffd0ace65b934e84f26839ac9c85d0d1c5193a074b3529aea11e93b24fa81074.json",
       "candidate_record": "data/edit-screen-v1/scores/fb054f9c2ffda19b56a91879fedce21345961b5abf570777158cc03e1e888da7.json",
-      "baseline_score": 1.0,
-      "candidate_score": 0.0,
-      "delta_percentage_points": -100.0,
       "baseline_returned_characters": 1932,
       "candidate_returned_characters": 1696,
-      "baseline_nonhuman_label_characters": 1932,
-      "candidate_nonhuman_label_characters": 0,
-      "baseline_spans": [
-        {
-          "label": "AI-Assisted",
-          "start": 0,
-          "end": 1932,
-          "characters": 1932
-        }
-      ],
-      "candidate_spans": [
-        {
-          "label": "Human Written",
-          "start": 0,
-          "end": 1696,
-          "characters": 1696
-        }
-      ],
       "quality_certified": false,
-      "classification": "document_revision_with_different_label_distribution",
       "counterfactual_not_calculated": "A whole-document rewrite changes many spans; assigning one inherited label to the replacement would not isolate a lexical or structural treatment."
     }
   ],
@@ -1376,16 +389,6 @@
             "redacted-08195cb4d740400b"
           ],
           "input_sha256": "3c520643909eafd84dd8ab5a17a429c847f8367175b473a19a52213368dfa18b",
-          "combined_scores": [
-            0.7231108546257019,
-            0.7231108546257019,
-            0.7231108546257019
-          ],
-          "percentage_scores": [
-            72.31108546257019,
-            72.31108546257019,
-            72.31108546257019
-          ],
           "all_confirmation_label_spans_match_screen": true,
           "all_confirmation_scores_match_screen": true,
           "total_distinct_tasks_including_screen": 4
@@ -1398,29 +401,12 @@
             "redacted-cd1b826ea950e5f9"
           ],
           "input_sha256": "b7d49300b173904635dde5ecc2ec58645b13c92e5d81b3d328b0dbbe60921b7a",
-          "combined_scores": [
-            0.3660960793495178,
-            0.3660960793495178,
-            0.3660960793495178
-          ],
-          "percentage_scores": [
-            36.60960793495178,
-            36.60960793495178,
-            36.60960793495178
-          ],
           "all_confirmation_label_spans_match_screen": true,
           "all_confirmation_scores_match_screen": true,
           "total_distinct_tasks_including_screen": 4
         }
       },
-      "candidate_all_three_confirmations_below_10_percent": false,
-      "paired_deltas_percentage_points": [
-        -35.70147752761841,
-        -35.70147752761841,
-        -35.70147752761841
-      ],
       "human_quality_review_present": false,
-      "joint_quality_and_detector_success": false,
       "scope_note": "Selected training source, with candidate chosen after screening. This is repeated within-input evidence, not held-out validation."
     },
     {
@@ -1435,16 +421,6 @@
             "redacted-433c5255f17df478"
           ],
           "input_sha256": "ffd0ace65b934e84f26839ac9c85d0d1c5193a074b3529aea11e93b24fa81074",
-          "combined_scores": [
-            1.0,
-            1.0,
-            1.0
-          ],
-          "percentage_scores": [
-            100.0,
-            100.0,
-            100.0
-          ],
           "all_confirmation_label_spans_match_screen": true,
           "all_confirmation_scores_match_screen": true,
           "total_distinct_tasks_including_screen": 4
@@ -1457,29 +433,12 @@
             "redacted-4f77cd110f3dd19e"
           ],
           "input_sha256": "fb054f9c2ffda19b56a91879fedce21345961b5abf570777158cc03e1e888da7",
-          "combined_scores": [
-            0.0,
-            0.0,
-            0.0
-          ],
-          "percentage_scores": [
-            0.0,
-            0.0,
-            0.0
-          ],
           "all_confirmation_label_spans_match_screen": true,
           "all_confirmation_scores_match_screen": true,
           "total_distinct_tasks_including_screen": 4
         }
       },
-      "candidate_all_three_confirmations_below_10_percent": true,
-      "paired_deltas_percentage_points": [
-        -100.0,
-        -100.0,
-        -100.0
-      ],
       "human_quality_review_present": false,
-      "joint_quality_and_detector_success": false,
       "scope_note": "Selected training source, with candidate chosen after screening. This is repeated within-input evidence, not held-out validation."
     }
   ],
@@ -1491,12 +450,6 @@
       "submitted_characters": 1511,
       "returned_characters": 1509,
       "returned_text_differs": true,
-      "ai_plus_assisted": 0.5606361627578735,
-      "label_characters": {
-        "AI-Assisted": 846,
-        "Human Written": 663,
-        "AI-Generated": 0
-      },
       "submitted_sha256": "0179ed9a2a896d8a2a4a1f6d1216926521d0f8a961e743baa909cf70928042bb"
     },
     {
@@ -1506,12 +459,6 @@
       "submitted_characters": 1493,
       "returned_characters": 1491,
       "returned_text_differs": true,
-      "ai_plus_assisted": 0.5627095699310303,
-      "label_characters": {
-        "AI-Assisted": 839,
-        "Human Written": 652,
-        "AI-Generated": 0
-      },
       "submitted_sha256": "1a4e25568bfe587bf544cf1624993988493202c1fe453fc7f2f7d765308a9583"
     },
     {
@@ -1521,12 +468,6 @@
       "submitted_characters": 1813,
       "returned_characters": 1813,
       "returned_text_differs": false,
-      "ai_plus_assisted": 0.7231108546257019,
-      "label_characters": {
-        "AI-Assisted": 1311,
-        "Human Written": 502,
-        "AI-Generated": 0
-      },
       "submitted_sha256": "3c520643909eafd84dd8ab5a17a429c847f8367175b473a19a52213368dfa18b"
     },
     {
@@ -1536,12 +477,6 @@
       "submitted_characters": 1716,
       "returned_characters": 1714,
       "returned_text_differs": true,
-      "ai_plus_assisted": 0.4749124944210053,
-      "label_characters": {
-        "AI-Assisted": 814,
-        "Human Written": 900,
-        "AI-Generated": 0
-      },
       "submitted_sha256": "60161f170ed72046bc9050cdda213645f02d24ff337b42c72043ae648a096cda"
     },
     {
@@ -1551,12 +486,6 @@
       "submitted_characters": 1500,
       "returned_characters": 1498,
       "returned_text_differs": true,
-      "ai_plus_assisted": 0.564752995967865,
-      "label_characters": {
-        "AI-Assisted": 846,
-        "Human Written": 652,
-        "AI-Generated": 0
-      },
       "submitted_sha256": "85565e914a9e2539ad0aa1088cd242a7226c2b5e28333629020caf5be77bcbab"
     },
     {
@@ -1566,12 +495,6 @@
       "submitted_characters": 1715,
       "returned_characters": 1713,
       "returned_text_differs": true,
-      "ai_plus_assisted": 0.4751897156238556,
-      "label_characters": {
-        "AI-Assisted": 814,
-        "Human Written": 899,
-        "AI-Generated": 0
-      },
       "submitted_sha256": "870245b85cbaf1b0682e04edbd0382d4b0fc973f5512aeccd2ee6988226342fb"
     },
     {
@@ -1581,12 +504,6 @@
       "submitted_characters": 1544,
       "returned_characters": 1544,
       "returned_text_differs": false,
-      "ai_plus_assisted": 0.8983160853385925,
-      "label_characters": {
-        "AI-Assisted": 1387,
-        "Human Written": 157,
-        "AI-Generated": 0
-      },
       "submitted_sha256": "8adb3e32d14e893fc68496e7e1ea37ea64c83a5301a26472b21066b0a7b78280"
     },
     {
@@ -1596,12 +513,6 @@
       "submitted_characters": 1692,
       "returned_characters": 1690,
       "returned_text_differs": true,
-      "ai_plus_assisted": 0.24852071702480316,
-      "label_characters": {
-        "AI-Assisted": 420,
-        "Human Written": 1270,
-        "AI-Generated": 0
-      },
       "submitted_sha256": "97a257a86984b55e31b838c031983d7e602f8f34f5536f0530e855745c84bdf0"
     },
     {
@@ -1611,12 +522,6 @@
       "submitted_characters": 1766,
       "returned_characters": 1766,
       "returned_text_differs": false,
-      "ai_plus_assisted": 0.18799546360969543,
-      "label_characters": {
-        "AI-Assisted": 332,
-        "Human Written": 1434,
-        "AI-Generated": 0
-      },
       "submitted_sha256": "a15c299e2ca0b872af75becfa41274b28582880f5e12d14d4efd5d6e0688d92c"
     },
     {
@@ -1626,12 +531,6 @@
       "submitted_characters": 1495,
       "returned_characters": 1493,
       "returned_text_differs": true,
-      "ai_plus_assisted": 0.5666443109512329,
-      "label_characters": {
-        "AI-Assisted": 846,
-        "Human Written": 647,
-        "AI-Generated": 0
-      },
       "submitted_sha256": "a19c90d7b4f34ae92e84bd68c9d9fbe8a0a5655b4a070262bd253429e2960005"
     },
     {
@@ -1641,12 +540,6 @@
       "submitted_characters": 1714,
       "returned_characters": 1712,
       "returned_text_differs": true,
-      "ai_plus_assisted": 0.4754672944545746,
-      "label_characters": {
-        "AI-Assisted": 814,
-        "Human Written": 898,
-        "AI-Generated": 0
-      },
       "submitted_sha256": "a3bf832b1126d489b503560074303b2df20c333ba837c65a1c5f2995191a70f7"
     },
     {
@@ -1656,12 +549,6 @@
       "submitted_characters": 1809,
       "returned_characters": 1809,
       "returned_text_differs": false,
-      "ai_plus_assisted": 0.7224985957145691,
-      "label_characters": {
-        "AI-Assisted": 1307,
-        "Human Written": 502,
-        "AI-Generated": 0
-      },
       "submitted_sha256": "a8cb90f63704d393d9c60adc0ee0bb68f0775a181440236978fe68bfefb6e037"
     },
     {
@@ -1671,12 +558,6 @@
       "submitted_characters": 1811,
       "returned_characters": 1811,
       "returned_text_differs": false,
-      "ai_plus_assisted": 0.3660960793495178,
-      "label_characters": {
-        "AI-Assisted": 663,
-        "Human Written": 1148,
-        "AI-Generated": 0
-      },
       "submitted_sha256": "b7d49300b173904635dde5ecc2ec58645b13c92e5d81b3d328b0dbbe60921b7a"
     },
     {
@@ -1686,12 +567,6 @@
       "submitted_characters": 1801,
       "returned_characters": 1801,
       "returned_text_differs": false,
-      "ai_plus_assisted": 0.36923930048942566,
-      "label_characters": {
-        "AI-Assisted": 665,
-        "Human Written": 1136,
-        "AI-Generated": 0
-      },
       "submitted_sha256": "bc325b9f012cf7e386eab12f96c5bdde1a8c52a579b3e33deebc59de08374bf2"
     },
     {
@@ -1701,12 +576,6 @@
       "submitted_characters": 1508,
       "returned_characters": 1506,
       "returned_text_differs": true,
-      "ai_plus_assisted": 0.5670650601387024,
-      "label_characters": {
-        "AI-Assisted": 854,
-        "Human Written": 652,
-        "AI-Generated": 0
-      },
       "submitted_sha256": "cfba5b7a5a1dbdde24e7887110d88ad7398eedee370fe6ef003dab2b914dcb17"
     },
     {
@@ -1716,12 +585,6 @@
       "submitted_characters": 1929,
       "returned_characters": 1929,
       "returned_text_differs": false,
-      "ai_plus_assisted": 1.0,
-      "label_characters": {
-        "AI-Assisted": 1929,
-        "Human Written": 0,
-        "AI-Generated": 0
-      },
       "submitted_sha256": "d9af036bcf167269df975c3f03cddc34263ce8881576b0a92cd5934455761cbf"
     },
     {
@@ -1731,12 +594,6 @@
       "submitted_characters": 1816,
       "returned_characters": 1816,
       "returned_text_differs": false,
-      "ai_plus_assisted": 0.8370044231414795,
-      "label_characters": {
-        "AI-Assisted": 1520,
-        "Human Written": 296,
-        "AI-Generated": 0
-      },
       "submitted_sha256": "dc3a267fc4c16430908990aed0fcb3286f444cd184138cd5b202111d0824f34b"
     },
     {
@@ -1746,12 +603,6 @@
       "submitted_characters": 1713,
       "returned_characters": 1711,
       "returned_text_differs": true,
-      "ai_plus_assisted": 0.6984219551086426,
-      "label_characters": {
-        "AI-Assisted": 1195,
-        "Human Written": 516,
-        "AI-Generated": 0
-      },
       "submitted_sha256": "e1466fa765c35e63dc7ce29b7c44f0c6fa0f718d7469d88c0c24103a9ad0b23b"
     },
     {
@@ -1761,12 +612,6 @@
       "submitted_characters": 1360,
       "returned_characters": 1360,
       "returned_text_differs": false,
-      "ai_plus_assisted": 0.7889705896377563,
-      "label_characters": {
-        "AI-Assisted": 1073,
-        "Human Written": 287,
-        "AI-Generated": 0
-      },
       "submitted_sha256": "f168252836e88d5381d5362431e9ee4e5d64243a82cd2553c8bd3678aa67dc5a"
     },
     {
@@ -1776,12 +621,6 @@
       "submitted_characters": 1698,
       "returned_characters": 1696,
       "returned_text_differs": true,
-      "ai_plus_assisted": 0.0,
-      "label_characters": {
-        "AI-Assisted": 0,
-        "Human Written": 1696,
-        "AI-Generated": 0
-      },
       "submitted_sha256": "fb054f9c2ffda19b56a91879fedce21345961b5abf570777158cc03e1e888da7"
     },
     {
@@ -1791,12 +630,6 @@
       "submitted_characters": 1934,
       "returned_characters": 1932,
       "returned_text_differs": true,
-      "ai_plus_assisted": 1.0,
-      "label_characters": {
-        "AI-Assisted": 1932,
-        "Human Written": 0,
-        "AI-Generated": 0
-      },
       "submitted_sha256": "ffd0ace65b934e84f26839ac9c85d0d1c5193a074b3529aea11e93b24fa81074"
     },
     {
@@ -1806,12 +639,6 @@
       "submitted_characters": 1813,
       "returned_characters": 1813,
       "returned_text_differs": false,
-      "ai_plus_assisted": 0.7231108546257019,
-      "label_characters": {
-        "AI-Assisted": 1311,
-        "Human Written": 502,
-        "AI-Generated": 0
-      },
       "submitted_sha256": "3c520643909eafd84dd8ab5a17a429c847f8367175b473a19a52213368dfa18b"
     },
     {
@@ -1821,12 +648,6 @@
       "submitted_characters": 1811,
       "returned_characters": 1811,
       "returned_text_differs": false,
-      "ai_plus_assisted": 0.3660960793495178,
-      "label_characters": {
-        "AI-Assisted": 663,
-        "Human Written": 1148,
-        "AI-Generated": 0
-      },
       "submitted_sha256": "b7d49300b173904635dde5ecc2ec58645b13c92e5d81b3d328b0dbbe60921b7a"
     },
     {
@@ -1836,12 +657,6 @@
       "submitted_characters": 1813,
       "returned_characters": 1813,
       "returned_text_differs": false,
-      "ai_plus_assisted": 0.7231108546257019,
-      "label_characters": {
-        "AI-Assisted": 1311,
-        "Human Written": 502,
-        "AI-Generated": 0
-      },
       "submitted_sha256": "3c520643909eafd84dd8ab5a17a429c847f8367175b473a19a52213368dfa18b"
     },
     {
@@ -1851,12 +666,6 @@
       "submitted_characters": 1811,
       "returned_characters": 1811,
       "returned_text_differs": false,
-      "ai_plus_assisted": 0.3660960793495178,
-      "label_characters": {
-        "AI-Assisted": 663,
-        "Human Written": 1148,
-        "AI-Generated": 0
-      },
       "submitted_sha256": "b7d49300b173904635dde5ecc2ec58645b13c92e5d81b3d328b0dbbe60921b7a"
     },
     {
@@ -1866,12 +675,6 @@
       "submitted_characters": 1813,
       "returned_characters": 1813,
       "returned_text_differs": false,
-      "ai_plus_assisted": 0.7231108546257019,
-      "label_characters": {
-        "AI-Assisted": 1311,
-        "Human Written": 502,
-        "AI-Generated": 0
-      },
       "submitted_sha256": "3c520643909eafd84dd8ab5a17a429c847f8367175b473a19a52213368dfa18b"
     },
     {
@@ -1881,12 +684,6 @@
       "submitted_characters": 1811,
       "returned_characters": 1811,
       "returned_text_differs": false,
-      "ai_plus_assisted": 0.3660960793495178,
-      "label_characters": {
-        "AI-Assisted": 663,
-        "Human Written": 1148,
-        "AI-Generated": 0
-      },
       "submitted_sha256": "b7d49300b173904635dde5ecc2ec58645b13c92e5d81b3d328b0dbbe60921b7a"
     },
     {
@@ -1896,12 +693,6 @@
       "submitted_characters": 1934,
       "returned_characters": 1932,
       "returned_text_differs": true,
-      "ai_plus_assisted": 1.0,
-      "label_characters": {
-        "AI-Assisted": 1932,
-        "Human Written": 0,
-        "AI-Generated": 0
-      },
       "submitted_sha256": "ffd0ace65b934e84f26839ac9c85d0d1c5193a074b3529aea11e93b24fa81074"
     },
     {
@@ -1911,12 +702,6 @@
       "submitted_characters": 1698,
       "returned_characters": 1696,
       "returned_text_differs": true,
-      "ai_plus_assisted": 0.0,
-      "label_characters": {
-        "AI-Assisted": 0,
-        "Human Written": 1696,
-        "AI-Generated": 0
-      },
       "submitted_sha256": "fb054f9c2ffda19b56a91879fedce21345961b5abf570777158cc03e1e888da7"
     },
     {
@@ -1926,12 +711,6 @@
       "submitted_characters": 1934,
       "returned_characters": 1932,
       "returned_text_differs": true,
-      "ai_plus_assisted": 1.0,
-      "label_characters": {
-        "AI-Assisted": 1932,
-        "Human Written": 0,
-        "AI-Generated": 0
-      },
       "submitted_sha256": "ffd0ace65b934e84f26839ac9c85d0d1c5193a074b3529aea11e93b24fa81074"
     },
     {
@@ -1941,12 +720,6 @@
       "submitted_characters": 1698,
       "returned_characters": 1696,
       "returned_text_differs": true,
-      "ai_plus_assisted": 0.0,
-      "label_characters": {
-        "AI-Assisted": 0,
-        "Human Written": 1696,
-        "AI-Generated": 0
-      },
       "submitted_sha256": "fb054f9c2ffda19b56a91879fedce21345961b5abf570777158cc03e1e888da7"
     },
     {
@@ -1956,12 +729,6 @@
       "submitted_characters": 1934,
       "returned_characters": 1932,
       "returned_text_differs": true,
-      "ai_plus_assisted": 1.0,
-      "label_characters": {
-        "AI-Assisted": 1932,
-        "Human Written": 0,
-        "AI-Generated": 0
-      },
       "submitted_sha256": "ffd0ace65b934e84f26839ac9c85d0d1c5193a074b3529aea11e93b24fa81074"
     },
     {
@@ -1971,18 +738,13 @@
       "submitted_characters": 1698,
       "returned_characters": 1696,
       "returned_text_differs": true,
-      "ai_plus_assisted": 0.0,
-      "label_characters": {
-        "AI-Assisted": 0,
-        "Human Written": 1696,
-        "AI-Generated": 0
-      },
       "submitted_sha256": "fb054f9c2ffda19b56a91879fedce21345961b5abf570777158cc03e1e888da7"
     }
   ],
   "quality_and_generalization": {
     "human_quality_certified": false,
     "reliability_on_unseen_sources_established": false,
-    "note": "Independent assistant reviews and editor preservation notes do not constitute a human audit. The Sierra candidate has four observed zero combined scores including screening, but no human-gated success or held-out reliability is claimed."
-  }
+    "note": "Independent assistant reviews and editor preservation notes do not constitute a human audit. No human-gated success or held-out reliability is claimed."
+  },
+  "pangram_scores": "Row-level Pangram results (document fractions, window scores, labels and spans, and the per-text values and outcomes derived from them) are kept privately and not published. Text hashes, request ids and record paths identify each observation for verification."
 }

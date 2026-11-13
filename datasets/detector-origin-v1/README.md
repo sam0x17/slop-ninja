@@ -53,9 +53,9 @@ or fresh confirmation. Keep the 57 Development records out of training when
 reproducing the existing comparisons. This snapshot contains no Calibration
 or Test records and must not substitute for the frozen v6 fitting corpus.
 
-Row-level Pangram results may be published as comparator evidence, never as
+Pangram scores are kept privately and not published, and they never become
 origin labels. This snapshot does not include them: individual Pangram
-annotations and raw reports remain in the local archive (see the
+annotations and raw reports remain in private storage (see the
 [annotation policy](../../baseline/detector/STANDARD_CORPUS.md)).
 The [published aggregate](../../baseline/detector/results/pangram-dataset-v2-four-cohorts.json)
 covers all 375 Train texts. The fourth batch's provider echoes now validate

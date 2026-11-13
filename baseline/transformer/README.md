@@ -20,15 +20,16 @@ The [local proposal protocol](PROTOCOL_PROPOSALS_V1.md) uses a pinned model to
 suggest bounded source replacements, with reference examples and an optional
 table of grammar and word-frequency measurements.
 Its [first comparison](RESULTS_PROPOSALS_V1.md) found reviewed clause repairs
-scoring 3.97% and 7.26% on A, but both remained 100% AI-written on Pangram.
+scoring 3.97% and 7.26% on A, but neither met the joint target on Pangram.
 Both lexical batches failed the declared span limit.
 The [first menu results](RESULTS_MENU_V1.md) reached 4.14% and 6.90% on A;
-Pangram still classified both final passages as 100% AI. This remains an
+neither final passage met the joint target on Pangram. This remains an
 experimental search process, with no demonstrated joint success.
 The [direct Pangram experiments](RESULTS_PANGRAM_MENUS_V1.md) show that sentence
 order can change detection while leaving the current count vectors unchanged.
-Some revisions reached 0% fully AI-written but 100% AI-assisted. Both classes
-count as flagged; all 53 new observations still had zero human fraction.
+Some revisions moved content from Pangram's AI-written class to its
+AI-assisted class. Both classes count as flagged; all 53 new observations still
+had zero human fraction.
 The [sentence-order comparison](RESULTS_ORDER_FEATURES_V1.md) adds optional
 position and transition features. Factorizing the sentence patterns changed
 edit rankings, but all nine further Pangram observations still had zero human

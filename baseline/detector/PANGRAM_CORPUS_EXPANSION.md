@@ -81,8 +81,8 @@ comparison intact. Compare future models on identical texts and retain each
 Pangram version and observation date so provider updates remain visible.
 
 Archive every submitted text, receipt, response, version and failed item. Bulk
-results expire 48 hours after completion. Raw annotations stay in ignored
-storage until a release includes them. Under the project's publication policy,
-row-level Pangram results may be published as comparator evidence, never as
-origin labels. Training on them follows the teacher-supervised protocol rule
+results expire 48 hours after completion. Raw annotations stay in private
+storage. Under the project's publication policy, Pangram scores are kept
+privately and not published, and they never become origin labels; Pangram links
+and ids may be published where they serve verification. Training on them follows the teacher-supervised protocol rule
 above.

@@ -50,10 +50,10 @@ the private ledger.
 ## Earlier comparisons
 
 The two [synthetic notices](RESULTS_MENU_V1.md) reached 4.14% and 6.90% on A
-from 72.85% and 85.06%, respectively. Pangram classified both originals and
-both final revisions as 100% AI-written. The later
-[proposal repairs](RESULTS_PROPOSALS_V1.md) reached 3.97% and 7.26% on A while
-remaining 100% AI-written on Pangram. Those repairs reuse the workshop source
+from 72.85% and 85.06%, respectively; neither the originals nor the final
+revisions met the joint target on Pangram. The later
+[proposal repairs](RESULTS_PROPOSALS_V1.md) reached 3.97% and 7.26% on A,
+again without meeting the joint target on Pangram. Those repairs reuse the workshop source
 and must not be counted as additional independent source groups.
 
 These repeated failures establish that transfer cannot be assumed. The small,

@@ -1,7 +1,7 @@
 # Fixed editing process v1: development evaluation
 
-The training screen produced one complete revision repeatedly scoring 0% combined
-AI + assisted text and a replicated effect from one reduced relative clause.
+The training screen produced one complete revision that repeatedly stayed below
+the 10% detector threshold and a replicated effect from one reduced relative clause.
 This next experiment evaluates a fixed editing instruction on previously unused
 development source families. It does not continue tuning those training examples.
 

@@ -1,38 +1,13 @@
 {
   "baseline": {
-    "all_groups_observed_success": false,
     "comparison": "strictly_less_than",
     "duplicate_records_ignored": 0,
     "groups": [
       {
-        "ai_fraction": {
-          "max": 0.0,
-          "mean": 0.0,
-          "median": 0.0,
-          "min": 0.0,
-          "values": [
-            0.0,
-            0.0,
-            0.0
-          ]
-        },
-        "ai_only_observed_success": true,
-        "ai_plus_assisted_fraction": {
-          "max": 0.7231108546257019,
-          "mean": 0.7231108546257019,
-          "median": 0.7231108546257019,
-          "min": 0.7231108546257019,
-          "values": [
-            0.7231108546257019,
-            0.7231108546257019,
-            0.7231108546257019
-          ]
-        },
         "detector": "pangram",
         "full_document": true,
         "model": "pangram-4",
         "normalization_observed": false,
-        "observed_success": false,
         "repeat_count": 3,
         "sha256": "3c520643909eafd84dd8ab5a17a429c847f8367175b473a19a52213368dfa18b",
         "sufficient_repeats": true,
@@ -52,39 +27,14 @@
     "unique_runs": 3
   },
   "candidate": {
-    "all_groups_observed_success": false,
     "comparison": "strictly_less_than",
     "duplicate_records_ignored": 0,
     "groups": [
       {
-        "ai_fraction": {
-          "max": 0.0,
-          "mean": 0.0,
-          "median": 0.0,
-          "min": 0.0,
-          "values": [
-            0.0,
-            0.0,
-            0.0
-          ]
-        },
-        "ai_only_observed_success": true,
-        "ai_plus_assisted_fraction": {
-          "max": 0.3660960793495178,
-          "mean": 0.3660960793495178,
-          "median": 0.3660960793495178,
-          "min": 0.3660960793495178,
-          "values": [
-            0.3660960793495178,
-            0.3660960793495178,
-            0.3660960793495178
-          ]
-        },
         "detector": "pangram",
         "full_document": true,
         "model": "pangram-4",
         "normalization_observed": false,
-        "observed_success": false,
         "repeat_count": 3,
         "sha256": "b7d49300b173904635dde5ecc2ec58645b13c92e5d81b3d328b0dbbe60921b7a",
         "sufficient_repeats": true,
@@ -104,25 +54,7 @@
     "unique_runs": 3
   },
   "interpretation": "Passing this document requires all quality checks and every repeated candidate score below threshold. Estimate general reliability separately on untouched source-group holdouts across domains, generators, and detectors.",
-  "observed_success": false,
-  "paired_deltas": [
-    {
-      "candidate_minus_baseline_ai_plus_assisted": {
-        "max": -0.3570147752761841,
-        "mean": -0.3570147752761841,
-        "median": -0.3570147752761841,
-        "min": -0.3570147752761841,
-        "values": [
-          -0.3570147752761841,
-          -0.3570147752761841,
-          -0.3570147752761841
-        ]
-      },
-      "detector": "pangram",
-      "model": "pangram-4",
-      "version": "4.0"
-    }
-  ],
+  "pangram_scores": "Row-level Pangram results (document fractions, window scores, labels and spans, and the per-text values and outcomes derived from them) are kept privately and not published. Text hashes, request ids and record paths identify each observation for verification.",
   "quality_audit": {},
   "quality_passed": false,
   "reliability_established": false,

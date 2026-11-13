@@ -62,10 +62,7 @@
         "cancel-relative",
         "review-before"
       ],
-      "a_probability": 0.9598657552667931,
-      "fraction_ai": 0.3405349850654602,
-      "fraction_ai_assisted": 0.6594650149345398,
-      "fraction_human": 0.0
+      "a_probability": 0.9598657552667931
     },
     {
       "representation": "joint_v1",
@@ -75,10 +72,7 @@
         "cancel-relative",
         "review-before"
       ],
-      "a_probability": 0.9598657552667931,
-      "fraction_ai": 0.3405349850654602,
-      "fraction_ai_assisted": 0.6594650149345398,
-      "fraction_human": 0.0
+      "a_probability": 0.9598657552667931
     },
     {
       "representation": "joint_v1",
@@ -88,10 +82,7 @@
         "cancel-relative",
         "review-before"
       ],
-      "a_probability": 0.9598657552667931,
-      "fraction_ai": 0.3405349850654602,
-      "fraction_ai_assisted": 0.6594650149345398,
-      "fraction_human": 0.0
+      "a_probability": 0.9598657552667931
     },
     {
       "representation": "joint_v1",
@@ -101,10 +92,7 @@
         "cancel-relative",
         "review-before"
       ],
-      "a_probability": 0.9598657552667931,
-      "fraction_ai": 0.3405349850654602,
-      "fraction_ai_assisted": 0.6594650149345398,
-      "fraction_human": 0.0
+      "a_probability": 0.9598657552667931
     },
     {
       "representation": "factorized_v2",
@@ -114,10 +102,7 @@
         "cancel-relative",
         "review-before"
       ],
-      "a_probability": 0.9598657552667931,
-      "fraction_ai": 0.3405349850654602,
-      "fraction_ai_assisted": 0.6594650149345398,
-      "fraction_human": 0.0
+      "a_probability": 0.9598657552667931
     },
     {
       "representation": "factorized_v2",
@@ -128,10 +113,7 @@
         "cancel-relative",
         "review-before"
       ],
-      "a_probability": 0.9562583292390494,
-      "fraction_ai": 0.3405349850654602,
-      "fraction_ai_assisted": 0.6594650149345398,
-      "fraction_human": 0.0
+      "a_probability": 0.9562583292390494
     },
     {
       "representation": "factorized_v2",
@@ -142,10 +124,7 @@
         "cancel-relative",
         "review-before"
       ],
-      "a_probability": 0.9562583292390494,
-      "fraction_ai": 0.3405349850654602,
-      "fraction_ai_assisted": 0.6594650149345398,
-      "fraction_human": 0.0
+      "a_probability": 0.9562583292390494
     },
     {
       "representation": "factorized_v2",
@@ -156,10 +135,7 @@
         "split-cancellation",
         "cancel-relative"
       ],
-      "a_probability": 0.8722837301737139,
-      "fraction_ai": 0.2842215299606323,
-      "fraction_ai_assisted": 0.7157784700393677,
-      "fraction_human": 0.0
+      "a_probability": 0.8722837301737139
     }
   ],
   "earlier_count_collisions": [
@@ -4921,5 +4897,6 @@
   "review": "Assistant full-passage reviews before new A/Pangram scores; previous adaptive results and profile distances known. All root claims and requested tone checked; no independent preservation or author-fit validation. Neutral probes do not establish editorial improvement.",
   "validation": "39 grammar-core tests and 9 B tests passed, with two new core tests; formatting and clippy passed on Studio. Installed spaCy extraction ran on actual menus, and the joint-v1 refactor reproduced the earlier audit exactly. No Linux rerun or confidential-compute qualification claimed.",
   "execution": "All model inference, extraction, fitting, builds and tests on Studio. Earlier local Python was standard-library JSON bookkeeping only; after the user reminder all project Python bookkeeping moved to Studio too. Lightweight HTTP and the authoritative budget ledger remain local.",
-  "conclusion": "Factorization distinguishes more ranking options, but none of the observed revisions meets the joint detector target. Paragraph variants matched their paired Pangram window results despite different returned text hashes; no undocumented normalization behavior is asserted. No whitepaper milestone."
+  "conclusion": "Factorization distinguishes more ranking options, but none of the observed revisions meets the joint detector target. Paragraph variants matched their paired Pangram window results despite different returned text hashes; no undocumented normalization behavior is asserted. No whitepaper milestone.",
+  "pangram_scores": "Row-level Pangram results (document fractions, window scores, labels and spans, and the per-text values and outcomes derived from them) are kept privately and not published. Text hashes, request ids and record paths identify each observation for verification."
 }

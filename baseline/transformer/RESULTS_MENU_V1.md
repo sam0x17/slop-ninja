@@ -1,13 +1,14 @@
 # Edit-menu development results
 
 Word and clause menus substantially reduced V6 A scores on two synthetic
-notices. Pangram still classified both final revisions as entirely AI-written.
-This experiment has not met B's joint objective.
+notices. Neither final revision met the joint target on Pangram, so this
+experiment has not met B's joint objective. Row-level Pangram results are kept
+privately and not published.
 
-| Notice | Original A | After first menu | Final A | Final Pangram AI fraction |
-| --- | ---: | ---: | ---: | ---: |
-| Workshop bookings | 72.85% | 45.10% | 4.14% | 100% |
-| Offline notes | 85.06% | 76.80% | 6.90% | 100% |
+| Notice | Original A | After first menu | Final A |
+| --- | ---: | ---: | ---: |
+| Workshop bookings | 72.85% | 45.10% | 4.14% |
+| Offline notes | 85.06% | 76.80% | 6.90% |
 
 A's number is its combined model/assistance probability. Pangram's fraction
 measures the share of text assigned to a class. These are different quantities.
@@ -58,17 +59,14 @@ preservation or author resemblance.
 
 Pangram 4.0 returned nine successful observations: the original notices,
 selected checkpoints, final revisions and a repeat of the offline-notes source.
-Every observation had an AI fraction of 1.0 and an AI-assisted fraction of 0.0.
-Pangram normalized paragraph whitespace. The first exact-echo collection failed;
+None met the joint target or had any human-classified content. Pangram normalized paragraph whitespace. The first exact-echo collection failed;
 inspection showed only whitespace changes, and a subsequent GET-only collection
 recorded that explicitly. Both submitted and returned hashes remain bound to
 the evidence. No paid submission was retried.
 
-The percentage concealed smaller changes in the window-level
-`ai_assistance_score`. Workshop's source scored 0.998778 and its final revision
-0.994603. The offline-notes revision at 12.45% on A scored 0.993742 there; the
-later revision at 6.90% on A scored 0.997684. The repeated offline-notes source
-also changed slightly, from 0.998564 to 0.998094. These observations warrant
+The document fractions concealed smaller changes in the window-level
+`ai_assistance_score`, which moved slightly between revisions and between the
+two observations of the repeated offline-notes source. These observations warrant
 measuring Pangram directly, with repeats for effects near observed variability.
 They do not establish a deterministic or calibrated search signal.
 

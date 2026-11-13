@@ -7,8 +7,9 @@ does not demonstrate better author resemblance or a successful B transformation.
 
 The [aggregate measurements](results/order-feature-results-v1/summary.json)
 retain all 93 menu states, the eight weight comparisons and input hashes.
-The [external report](results/order-feature-results-v1/external.json) retains
-all nine Pangram observations and every returned window, without passage text.
+The [external report](results/order-feature-results-v1/external.json) lists
+all nine Pangram observations by text hash and request id, without passage text.
+Row-level Pangram results are kept privately and not published.
 Raw plans, reference excerpts and revisions remain in ignored storage.
 
 ## Representation and selection
@@ -53,26 +54,27 @@ Lower A probability is better. Pangram flagged content includes both its
 AI-written and AI-assisted fractions. Those measures have different meanings;
 A probability is not a percentage of AI-written words.
 
-| Representation | Order weight | Selected edits | A probability | Pangram flagged |
-|---|---:|---|---:|---:|
-| Joint v1 | 0 | Cancellation clause, review clause | 95.99% | 100% |
-| Joint v1 | 0.1 | Same | 95.99% | 100% |
-| Joint v1 | 0.25 | Same | 95.99% | 100% |
-| Joint v1 | 0.5 | Same | 95.99% | 100% |
-| Factorized v2 | 0 | Cancellation clause, review clause | 95.99% | 100% |
-| Factorized v2 | 0.1 | Cancellation paragraph break and clause, review clause | 95.63% | 100% |
-| Factorized v2 | 0.25 | Same | 95.63% | 100% |
-| Factorized v2 | 0.5 | Booking and cancellation paragraph breaks, cancellation clause | 87.23% | 100% |
+| Representation | Order weight | Selected edits | A probability |
+|---|---:|---|---:|
+| Joint v1 | 0 | Cancellation clause, review clause | 95.99% |
+| Joint v1 | 0.1 | Same | 95.99% |
+| Joint v1 | 0.25 | Same | 95.99% |
+| Joint v1 | 0.5 | Same | 95.99% |
+| Factorized v2 | 0 | Cancellation clause, review clause | 95.99% |
+| Factorized v2 | 0.1 | Cancellation paragraph break and clause, review clause | 95.63% |
+| Factorized v2 | 0.25 | Same | 95.63% |
+| Factorized v2 | 0.5 | Booking and cancellation paragraph breaks, cancellation clause | 87.23% |
+
+None of the selected revisions met the joint target on Pangram.
 
 The parent scored 94.85% on A. The factorized 0.5 selection improved on that
 parent and the old feature ranking. The best A score across all 93 states was
 86.98%, but that candidate lacked a pre-score review and was not sent to Pangram.
 Neither result approaches the required A probability below 10%.
 
-For the seven measured revisions, Pangram's fully AI-written fraction ranged
-from 0% to 34.05%; the remainder was AI-assisted. Human fraction was zero in
-every observation. The original source control was 100% fully AI-written.
-Paragraph-only variants matched their corresponding controls in every returned
+For the seven measured revisions, Pangram split the flagged content between
+its AI-written and AI-assisted classes. Human fraction was zero in every
+observation. Paragraph-only variants matched their corresponding controls in every returned
 window field, despite different returned text hashes. A and the style features
 did respond to those paragraph edits. This establishes an observed difference
 between the systems, without establishing Pangram's internal preprocessing.

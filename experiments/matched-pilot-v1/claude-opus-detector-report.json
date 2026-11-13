@@ -4,30 +4,10 @@
   "duplicate_records_ignored": 0,
   "groups": [
     {
-      "ai_fraction": {
-        "max": 1.0,
-        "mean": 1.0,
-        "median": 1.0,
-        "min": 1.0,
-        "values": [
-          1.0
-        ]
-      },
-      "ai_only_observed_success": false,
-      "ai_plus_assisted_fraction": {
-        "max": 1.0,
-        "mean": 1.0,
-        "median": 1.0,
-        "min": 1.0,
-        "values": [
-          1.0
-        ]
-      },
       "detector": "pangram",
       "full_document": false,
       "model": "pangram-4",
       "normalization_observed": false,
-      "observed_success": false,
       "repeat_count": 1,
       "sha256": "01be8bb736e6e2cbba82c462508ce01f74a491db9dbdbdba8072a68aafd3178b",
       "sufficient_repeats": false,
@@ -37,30 +17,10 @@
       "version": "4.0"
     },
     {
-      "ai_fraction": {
-        "max": 0.0,
-        "mean": 0.0,
-        "median": 0.0,
-        "min": 0.0,
-        "values": [
-          0.0
-        ]
-      },
-      "ai_only_observed_success": false,
-      "ai_plus_assisted_fraction": {
-        "max": 0.15681983530521393,
-        "mean": 0.15681983530521393,
-        "median": 0.15681983530521393,
-        "min": 0.15681983530521393,
-        "values": [
-          0.15681983530521393
-        ]
-      },
       "detector": "pangram",
       "full_document": false,
       "model": "pangram-4",
       "normalization_observed": false,
-      "observed_success": false,
       "repeat_count": 1,
       "sha256": "32fc361cc64fd41ccd63bfb431d213af3b03dfb022057d434c253a4cdaf36330",
       "sufficient_repeats": false,
@@ -70,30 +30,10 @@
       "version": "4.0"
     },
     {
-      "ai_fraction": {
-        "max": 0.0,
-        "mean": 0.0,
-        "median": 0.0,
-        "min": 0.0,
-        "values": [
-          0.0
-        ]
-      },
-      "ai_only_observed_success": false,
-      "ai_plus_assisted_fraction": {
-        "max": 0.8983160853385925,
-        "mean": 0.8983160853385925,
-        "median": 0.8983160853385925,
-        "min": 0.8983160853385925,
-        "values": [
-          0.8983160853385925
-        ]
-      },
       "detector": "pangram",
       "full_document": false,
       "model": "pangram-4",
       "normalization_observed": false,
-      "observed_success": false,
       "repeat_count": 1,
       "sha256": "8adb3e32d14e893fc68496e7e1ea37ea64c83a5301a26472b21066b0a7b78280",
       "sufficient_repeats": false,
@@ -103,30 +43,10 @@
       "version": "4.0"
     },
     {
-      "ai_fraction": {
-        "max": 0.0,
-        "mean": 0.0,
-        "median": 0.0,
-        "min": 0.0,
-        "values": [
-          0.0
-        ]
-      },
-      "ai_only_observed_success": false,
-      "ai_plus_assisted_fraction": {
-        "max": 0.8173137903213501,
-        "mean": 0.8173137903213501,
-        "median": 0.8173137903213501,
-        "min": 0.8173137903213501,
-        "values": [
-          0.8173137903213501
-        ]
-      },
       "detector": "pangram",
       "full_document": false,
       "model": "pangram-4",
       "normalization_observed": false,
-      "observed_success": false,
       "repeat_count": 1,
       "sha256": "9f85ef19dbf58c75a450d0bb2fef75e620508b2853fbdf8d5cb806feec7df5a9",
       "sufficient_repeats": false,
@@ -136,30 +56,10 @@
       "version": "4.0"
     },
     {
-      "ai_fraction": {
-        "max": 0.0,
-        "mean": 0.0,
-        "median": 0.0,
-        "min": 0.0,
-        "values": [
-          0.0
-        ]
-      },
-      "ai_only_observed_success": false,
-      "ai_plus_assisted_fraction": {
-        "max": 0.0,
-        "mean": 0.0,
-        "median": 0.0,
-        "min": 0.0,
-        "values": [
-          0.0
-        ]
-      },
       "detector": "pangram",
       "full_document": false,
       "model": "pangram-4",
       "normalization_observed": false,
-      "observed_success": false,
       "repeat_count": 1,
       "sha256": "a4193f650d29e58b440e24239e1d36a994c628801797e5ba0e1a21a7185df7f9",
       "sufficient_repeats": false,
@@ -169,30 +69,10 @@
       "version": "4.0"
     },
     {
-      "ai_fraction": {
-        "max": 0.0,
-        "mean": 0.0,
-        "median": 0.0,
-        "min": 0.0,
-        "values": [
-          0.0
-        ]
-      },
-      "ai_only_observed_success": false,
-      "ai_plus_assisted_fraction": {
-        "max": 1.0,
-        "mean": 1.0,
-        "median": 1.0,
-        "min": 1.0,
-        "values": [
-          1.0
-        ]
-      },
       "detector": "pangram",
       "full_document": false,
       "model": "pangram-4",
       "normalization_observed": false,
-      "observed_success": false,
       "repeat_count": 1,
       "sha256": "d9af036bcf167269df975c3f03cddc34263ce8881576b0a92cd5934455761cbf",
       "sufficient_repeats": false,
@@ -202,30 +82,10 @@
       "version": "4.0"
     },
     {
-      "ai_fraction": {
-        "max": 0.0,
-        "mean": 0.0,
-        "median": 0.0,
-        "min": 0.0,
-        "values": [
-          0.0
-        ]
-      },
-      "ai_only_observed_success": false,
-      "ai_plus_assisted_fraction": {
-        "max": 0.9225181341171264,
-        "mean": 0.9225181341171264,
-        "median": 0.9225181341171264,
-        "min": 0.9225181341171264,
-        "values": [
-          0.9225181341171264
-        ]
-      },
       "detector": "pangram",
       "full_document": false,
       "model": "pangram-4",
       "normalization_observed": false,
-      "observed_success": false,
       "repeat_count": 1,
       "sha256": "e4e0ff38acda48cbcd34b5a42343a5f9d3acab7ff1210674d8a89e4a495e4bb4",
       "sufficient_repeats": false,
@@ -235,30 +95,10 @@
       "version": "4.0"
     },
     {
-      "ai_fraction": {
-        "max": 0.0,
-        "mean": 0.0,
-        "median": 0.0,
-        "min": 0.0,
-        "values": [
-          0.0
-        ]
-      },
-      "ai_only_observed_success": false,
-      "ai_plus_assisted_fraction": {
-        "max": 1.0,
-        "mean": 1.0,
-        "median": 1.0,
-        "min": 1.0,
-        "values": [
-          1.0
-        ]
-      },
       "detector": "pangram",
       "full_document": false,
       "model": "pangram-4",
       "normalization_observed": true,
-      "observed_success": false,
       "repeat_count": 1,
       "sha256": "ffd0ace65b934e84f26839ac9c85d0d1c5193a074b3529aea11e93b24fa81074",
       "sufficient_repeats": false,
@@ -270,6 +110,7 @@
   ],
   "interpretation": "These are repeated observations of particular inputs. They do not establish reliability on unseen documents or determine a text's authorship.",
   "min_repeats": 3,
+  "pangram_scores": "Row-level Pangram results (document fractions, window scores, labels and spans, and the per-text values and outcomes derived from them) are kept privately and not published. Text hashes, request ids and record paths identify each observation for verification.",
   "record_count": 8,
   "reliability_established": false,
   "threshold": 0.1,

@@ -66,6 +66,6 @@ Source captures and working corpora remain under ignored `data/`. The authorized
 [public snapshot](../../datasets/detector-origin-v1/README.md) includes selected
 text with record-level attribution, licenses and original input hashes. Pangram
 annotations fall outside this ShareAlike policy. Under the project's
-publication policy, row-level Pangram results may be published as comparator
-evidence, never as origin labels; they remain local until a release includes
-them.
+publication policy, Pangram scores are kept privately and not published, and
+they never become origin labels; Pangram links and ids may be published where
+they serve verification.

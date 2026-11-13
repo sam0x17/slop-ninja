@@ -828,5 +828,6 @@
   "validation": "Ten B tests, formatting and clippy passed on Studio. One focused proposal guard test added. Real installed spaCy integration and all four recorded local generation calls completed. No Linux rerun or attestation claim.",
   "execution": "All model generation/inference, parsing, tests/builds and Python bookkeeping ran on Studio. Only lightweight HTTP and the authoritative ledger ran on laptop. Owned generator was unloaded after four calls.",
   "next_requirement": "Evaluate assembled long documents including books, with complete coverage, frozen context policy, cross-section preservation and consistent author voice. Current short-source results cannot establish that.",
-  "limits": "No independent fidelity or author-fit validation, trained B weights, demonstrated Pangram success or book-length capability. Measured prompts were worse in this single four-cell comparison, not evidence that measured guidance is generally harmful."
+  "limits": "No independent fidelity or author-fit validation, trained B weights, demonstrated Pangram success or book-length capability. Measured prompts were worse in this single four-cell comparison, not evidence that measured guidance is generally harmful.",
+  "pangram_scores": "Row-level Pangram results are kept privately and not published. The report hashes here bind each external report as first published with those values; the published reports now omit them and list each observation by text hash and request id."
 }

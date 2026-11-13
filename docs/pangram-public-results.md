@@ -11,8 +11,8 @@ The [documented option](https://docs.pangram.com/api-reference/ai-detection)
 produced a synthetic demonstration report at a public history URL
 (`https://www.pangram.com/history/<history id>`; its history id is recorded
 privately as `redacted-c8465873f9c7defd`).
-It scored 100% AI. This experiment tested public retrieval, not successful
-evasion. The additional 126-word submission is two billable units at the list
+Its score is kept privately and not published. This experiment tested public
+retrieval, not successful evasion. The additional 126-word submission is two billable units at the list
 price, an estimate.
 
 The public page's own JavaScript retrieves:

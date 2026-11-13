@@ -36,7 +36,7 @@ editorial judgment.
 
 ## Interpretation and limits
 
-Both finalists still had 100% Pangram AI-written content in the earlier paid
+Neither finalist met the joint target on Pangram in the earlier paid
 comparison. This audit adds no external detector evidence and improves no A
 model. The menu was selected during adaptive B development; it is one known
 failure, without an unseen-source performance estimate. Only the two finalists

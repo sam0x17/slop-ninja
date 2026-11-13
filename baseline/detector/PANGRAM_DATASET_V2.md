@@ -23,8 +23,8 @@ without discarding observations outside the requested range. Report counts
 separately for model-only writing, mixed workflows and human controls.
 
 The cached 57-text Development comparison motivates a pilot: five of its
-19 mixed-origin examples have combined fractions between 72.6% and 88.8%.
-Two model-only drafts score 51.7% and 55.3%. Their independently recorded
+19 mixed-origin examples have intermediate combined fractions, and two
+model-only drafts also score well below 100%. Their independently recorded
 origin labels remain unchanged. Most other nonhuman examples score 100%.
 These are prior observations, not results from this new Train collection.
 
@@ -69,8 +69,9 @@ This adaptive Train collection can identify difficult examples for a later
 declared experiment. It is not an unbiased prevalence estimate or a new
 benchmark. Keep the existing 57-text Development comparison separate, and
 retain the frozen v6 fitting and Test protocol without Pangram supervision
-or feedback. Under the project's publication policy, row-level Pangram
-results may be published as comparator evidence, never as origin labels. Any
+or feedback. Under the project's publication policy, Pangram scores are kept
+privately and not published, and they never become origin labels; Pangram
+links and ids may be published where they serve verification. Any
 teacher-supervised fit needs its own protocol, as in
 [the original collection plan](PANGRAM_CORPUS_EXPANSION.md).
 
@@ -243,11 +244,11 @@ fall between 60% and 100% exclusive, 22 below 60%, and 55 at 100%. All are
 preserved with their recorded model-only workflow labels, including cases
 Pangram describes as AI-assisted or does not flag.
 
-This batch's spend is recorded in the private ledger. Individual Pangram
-annotations may be published as comparator evidence under the project's
-publication policy; they stay in ignored storage until a release includes
-them. The new observations do not alter v6 fitting, selection, calibration or
-Test decisions.
+This batch's spend is recorded in the private ledger. Under the project's
+publication policy, Pangram scores are kept privately and not published, and
+they never become origin labels; Pangram links and ids may be published where
+they serve verification. The new observations do not alter v6 fitting,
+selection, calibration or Test decisions.
 
 After completing that hosted batch, the fifth cohort adds 110 Train texts
 from 22 previously unannotated source families. It uses the existing closed

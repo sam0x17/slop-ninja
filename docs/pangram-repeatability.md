@@ -17,15 +17,16 @@ All three POSTs used one API account, selector `pangram-4`, and the same exact
 input hash. All returned version `4.0` and distinct task IDs. Submission times
 ran from `18:26:40.197185Z` to `18:27:11.370454Z`, about 31 seconds.
 
-| Result field | Fresh request 1 | Fresh request 2 | Fresh request 3 |
-| --- | ---: | ---: | ---: |
-| `fraction_ai` | 1 | 1 | 1 |
-| `fraction_ai_assisted` | 0 | 0 | 0 |
-| `fraction_human` | 0 | 0 | 0 |
-| `windows[0].ai_assistance_score` | 0.9999844431877136 | 0.9999838471412659 | 0.9999838471412659 |
-| `windows[0].humanizer_score` | 0.0033263072837144136 | 0.003090519458055496 | 0.003090519458055496 |
+| Result field | Across the three fresh requests |
+| --- | --- |
+| `fraction_ai` | equal |
+| `fraction_ai_assisted` | equal |
+| `fraction_human` | equal |
+| `windows[0].ai_assistance_score` | request 1 differs; requests 2 and 3 equal |
+| `windows[0].humanizer_score` | request 1 differs; requests 2 and 3 equal |
 
-The absolute differences were `5.960464477539062e-7` for the assistance score
+The scores themselves are kept privately and not published. The absolute
+differences were `5.960464477539062e-7` for the assistance score
 and `0.00023578782565891743` for the humanizer score. Requests 2 and 3 had equal
 complete results as parsed JSON. Each GET recheck matched request 1's complete
 result as parsed JSON; the two saved GET bodies also matched byte for byte.
@@ -37,9 +38,9 @@ through `repeatability-03.json`, `recheck-01.json`, `recheck-02.json`, and
 or a verified TLS transcript. Their hashes establish local identity only.
 
 This probe does not establish cross-account agreement, immutable model weights
-behind version `4.0`, or stability over longer periods. All document fractions
-were at an endpoint, far from the strict `0.10` reward threshold. Their equality
-here cannot establish threshold stability. No numerical audit tolerance is
+behind version `4.0`, or stability over longer periods. Equal document
+fractions for one text cannot establish threshold stability. No numerical audit
+tolerance is
 derived from these three requests. The observed variation alone gives no basis
 for accusing an evaluator of fabrication.
 
@@ -90,16 +91,15 @@ between the texts, from `18:37:49Z` to `18:38:00Z`. All six succeeded once,
 returned distinct task IDs and version `4.0`, and used `pangram-4` through one
 account. No retry or public-dashboard link was requested.
 
-| Source manifest ID | Words | Fresh 1: AI + assisted | Fresh 2 | Fresh 3 | Fresh range, percentage points |
-| --- | ---: | ---: | ---: | ---: | ---: |
-| `molecular-biology-03` | 268 | 14.80225920677185% | 14.80225920677185% | 14.80225920677185% | 0 |
-| `public-health-03` | 251 | 47.54672944545746% | 47.54672944545746% | 47.54672944545746% | 0 |
+| Source manifest ID | Words | Fresh range of AI + assisted, percentage points |
+| --- | ---: | ---: |
+| `molecular-biology-03` | 268 | 0 |
+| `public-health-03` | 251 | 0 |
 
 Each input's older observation, from 2026-09-08 about 22 hours 23 minutes
 earlier, had the same document fractions. Thus both the fresh range and every
-fresh-minus-old difference were zero percentage points. All six AI fractions
-were zero; the table's values were entirely AI-assisted fractions. Every
-observation remained above the strict 10% reward threshold.
+fresh-minus-old difference were zero percentage points. The fractions
+themselves are kept privately and not published.
 
 Complete result payloads varied. Within each text, fresh requests 2 and 3
 matched as parsed JSON, while request 1 differed only in window assistance and
@@ -130,6 +130,5 @@ public-dashboard request is excluded from this probe and estimate.
 
 A two-percentage-point tolerance covers these observed document-fraction
 differences, as does exact equality. Two selected texts and one account do not
-validate that tolerance generally. The nearer input was still 4.80 points
-above 10%; this probe supplies no observation within two points of the reward
-boundary and no cross-account check.
+validate that tolerance generally. This probe supplies no observation within
+two points of the reward boundary and no cross-account check.

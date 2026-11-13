@@ -54,11 +54,13 @@ meanings. Private fitted profiles and weights remain outside Git.
 Ordinary Git stores dataset JSONL, document-level rights, and evidence indexes
 as lossless `.zst` files. The sizes above describe decoded bytes. Split manifests,
 licenses, and existing SHA-256 files remain readable and bind the original,
-decoded bytes. Under the project's publication policy, row-level Pangram results
-may be published as comparator evidence, and hosted OpenAI and Anthropic outputs
-may be published, subject to the providers' terms and third-party rights; each
-text's source licence still decides whether it is redistributed. Individual
-Pangram reports and working invocation logs remain in ignored storage. The
+decoded bytes. Under the project's publication policy, Pangram scores are kept
+privately and not published: no snapshot here carries a Pangram score, and
+Pangram links or ids may be published only where they serve verification.
+Hosted OpenAI and Anthropic outputs may be published, subject to the providers'
+terms and third-party rights; each text's source licence still decides whether
+it is redistributed. Individual Pangram reports and working invocation logs
+remain in private storage. The
 hosted captures are admitted for A training and evaluation by record hash in the
 [hosted admission manifest](../docs/a-hosted-output-admission.json).
 

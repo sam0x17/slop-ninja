@@ -8,9 +8,9 @@ unlabeled web page was written by a human.
 
 The [first public text snapshot](../../datasets/detector-origin-v1/README.md)
 now contains 432 admitted records with their source attribution, exact prompts,
-generator provenance and frozen Train/Development assignments. Individual
-Pangram annotations may be published as comparator evidence, never as origin
-labels; they stay in ignored storage until a release includes them.
+generator provenance and frozen Train/Development assignments. Pangram scores
+are kept privately and not published, and they never become origin labels;
+Pangram links and ids may be published where they serve verification.
 The [hosted research snapshot](../../datasets/detector-hosted-v1/README.md)
 adds 96 GPT/Claude texts with complete prompts and 24 supporting source roots.
 Training admission for these outputs comes from the
@@ -81,10 +81,10 @@ Per-document rounding matters: 301 words require four units. Actual provider
 word counting and account billing must be checked during a small rehearsal.
 [Pricing](https://www.pangram.com/pricing).
 
-Under the project's publication policy, row-level Pangram results may be
-published as comparator evidence. A published result never becomes an origin
-label, and each text's own source licence still decides whether the text itself
-is redistributed. Hosted OpenAI and Anthropic outputs, including those produced
+Under the project's publication policy, Pangram scores are kept privately and
+not published; Pangram links and ids may be published where they serve
+verification. A Pangram result never becomes an origin label, and each text's
+own source licence still decides whether the text itself is redistributed. Hosted OpenAI and Anthropic outputs, including those produced
 through the command-line clients, may also be published, and so may local
 open-weight model outputs, each with its model's licence or terms notice.
 Publication remains subject to the providers' terms and to third-party rights.

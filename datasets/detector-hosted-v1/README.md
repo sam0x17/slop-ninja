@@ -68,9 +68,11 @@ Each output remains subject to its provider's terms and to third-party
 rights. Training admission is recorded separately in the hosted admission
 manifest.
 
-All 96 passages received Pangram 4 annotations. Row-level Pangram results may
-be published as comparator evidence; this snapshot does not include them. Individual
-provider scores, reports and invocation logs remain in ignored storage under the
+All 96 passages received Pangram 4 annotations. Pangram scores are kept
+privately and not published, and they never become origin labels; Pangram
+links and ids may be published where they serve verification. This snapshot
+includes no Pangram score: individual provider scores, reports and invocation
+logs remain in private storage under the
 [annotation policy](../../baseline/detector/STANDARD_CORPUS.md).
 See the [Pangram and v5 aggregate comparison](../../baseline/detector/results/pangram-frontier-v1.json).
 The numeric fractions are detector observations, not ground-truth origin labels.

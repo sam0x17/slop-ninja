@@ -78,9 +78,10 @@ comparisons remain in ignored `data/baseline-detector/pangram-budget-20260911/`
 and `data/baseline-detector/pangram-corpus-v1/`. The
 [aggregate comparison](results/pangram-corpus-development-v1.json) contains no
 raw texts or per-document provider annotations. Under the project's publication
-policy, individual annotations may be published as comparator evidence; they stay
-in ignored storage until a release includes them. Do not train on this
-Development annotation set or relabel its sources with provider predictions.
+policy, Pangram scores are kept privately and not published, and they never
+become origin labels; Pangram links and ids may be published where they serve
+verification. Do not train on this Development annotation set or relabel its
+sources with provider predictions.
 
 The next model work should broaden the admitted source registers, add generator
 families and improve documented mixed-workflow coverage. Further optimization on

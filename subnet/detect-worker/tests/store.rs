@@ -726,11 +726,20 @@ VALUES ('td-abcd1234', x'02', 'copyright', 'received', 5, 5, 'c/td-abcd1234'); \
 INSERT INTO case_targets VALUES ('td-abcd1234', x'01');",
     );
     w.h.db.execute("INSERT INTO case_targets VALUES ('td-abcd1234', ?1)", [id_of(&w, &secret).to_vec()]).unwrap();
+    let notice = slop_ninja_detect_worker::cases::Notice {
+        v: slop_ninja_detect_worker::cases::NOTICE_V,
+        track: slop_ninja_detect_page::codes::CaseKind::Copyright,
+        target: "https://site.example/d/k7m2xq9".into(),
+        secret: false,
+        fields: [("work".to_owned(), "a poem".to_owned())].into_iter().collect(),
+        received_at: 5,
+        signed_in: false,
+    };
     let sealed = keys::seal_with(
         w.store.cases_key(),
         &[5; 12],
         slop_ninja_detect_worker::queue::CASE_AAD,
-        br#"{"work":"a poem"}"#,
+        &serde_json::to_vec(&notice).unwrap(),
     );
     block_on(slop_ninja_detect_worker::db::Io::doc_put(&w.h, "c/td-abcd1234", sealed)).unwrap();
     let m = QueueMessage::new(Job::LegalNotice {
@@ -744,7 +753,7 @@ INSERT INTO case_targets VALUES ('td-abcd1234', x'01');",
         body["targets"].as_array().unwrap().iter().map(|v| v.as_str().unwrap().to_owned()).collect();
     targets.sort();
     assert_eq!(targets, vec!["k7m2xq9".to_owned(), "private detection".to_owned()]);
-    assert_eq!(body["notice"]["work"], "a poem");
+    assert_eq!(body["notice"]["fields"]["work"], "a poem");
     assert!(!String::from_utf8_lossy(&w.h.relay.borrow()[0]).contains(&secret), "no secret slug");
 }
 

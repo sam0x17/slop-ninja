@@ -72,6 +72,8 @@ pub struct Hourly {
     pub shards: u64,
     /// Paid jobs whose hold the sweep sent to `commit_hold`.
     pub holds: usize,
+    /// Quarantined documents of closed or rejected cases deleted.
+    pub quarantine: u64,
 }
 
 fn ids(d: &Done) -> Vec<[u8; 32]> {
@@ -225,6 +227,14 @@ pub async fn hourly(io: &impl Io, origins: &Origins, index_on: bool) -> Result<H
     }
     match crate::sitemap::rebuild(io, origins, index_on).await {
         Ok(n) => h.shards = n,
+        Err(e) => {
+            first_err.get_or_insert(e);
+        }
+    }
+    // The quarantine of closed and rejected cases (`close_case` deletes its
+    // own; this is the backstop).
+    match crate::cases::sweep_quarantine(io).await {
+        Ok(n) => h.quarantine = n,
         Err(e) => {
             first_err.get_or_insert(e);
         }

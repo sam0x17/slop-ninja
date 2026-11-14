@@ -220,6 +220,66 @@ in one invocation. A driver starts a section only while the budget holds one
 more section and the whole end; otherwise it stops cleanly, lets its lease
 go, and the next open resumes.
 
+## Removals and the operator's ops
+
+The removal form and the operator's signed ops run as pure flows too
+(`cases.rs`, `ops.rs`), with their routes in `cf_cases.rs`:
+
+- `POST /api/detect/v1/removal` (the site host, `X-SN-Principal` when the
+  submitter is signed in): `step = review` checks the track's fields and the
+  target page (a slug or a link to one of our pages) and writes nothing;
+  `step = send` makes the case. The notice is encrypted under `K_cases` into
+  R2 `c/<case_id>`; D1 keeps the case's state, its targets by `id_h` and,
+  when signed in, the submitter's owner hash. The answer shows the case id
+  and the status token once; no mail goes to the claimant. The case's
+  `legal_notice` message takes the notice to the alerts relay's legal
+  stream, which keeps it until its digest is mailed: there a secret page is
+  named only `private detection`, its slug masked in every field (the
+  sealed notice keeps the link for `case_show`). A counter-notice against a
+  secret page needs the page's manage token (or the owning account) and
+  never keeps it, nor a copy pasted in another field.
+- Automatic first steps, in the case's batch: a complete copyright notice
+  against a live public page withholds its excerpt at once (pending review:
+  de-indexed, card generic); an illegal-content report against a secret
+  page disables it with its re-run copy family; a wrong-result report on a
+  public page queues a re-check; a report on an X post's page from its
+  author removes every page about the post at once. Everything else waits.
+- `POST /api/detect/v1/removal/status` (both hosts): the case's state and
+  dates, never its notice.
+- `POST /api/detect/v1/op`: one signed op, the bare envelope of
+  `slop-ninja-signed-op` (no CSRF check: the signature is the authority),
+  verified under `DETECT_OP_KEY` for this deployment's `OP_ENV`, inside its
+  validity window, its nonce used once. The op and its journal row apply in
+  one batch; the row is the signed op exactly, so it verifies on its own and
+  a replay after a D1 restore can sign it again (`case_note`,
+  `owner_match` and a `purge` that names a secret page keep a redacted row,
+  so no note, account id or secret slug is journaled). The case ops
+  (`withhold_excerpt`, `remove`, `restore`, `reject`, `close_case`,
+  `case_note`, `case_show`, `review_strike`, `owner_match`), `x_remove` and
+  the store ops (`set_switch`, `index_force`, `delete_private`, `purge`,
+  `set_examples`, `status`) are built here; the URL pipeline's and the edge
+  tooling's ops answer `not_configured` until they land, without spending
+  the nonce.
+
+A removed secret page's encrypted document moves to the case's quarantine
+(`q/<case_id>/<id_h>`, wrapped again under `K_cases`) for a counter-notice,
+and is deleted when the case closes (the hourly cron is the backstop). A
+counter-notice marks the copyright cases holding the page `countered`; once
+its 14-day wait has passed, `status` lists each such case under
+`restores_due` with the counter-notice beside it. `restore` of the listed
+case puts the page back from its quarantine, and `restore` of the
+counter-notice restores the countered cases behind it; either way the
+counter-notice is restored once no countered case is left behind it. A
+withheld excerpt's run document is rewritten without its text when the
+operator accepts the notice, so restoring it fetches the page again. Every
+X removal is one removal: R2 first, then one D1 batch that leaves the
+post's opt-out tombstone with only its key hash, names it in the case, and
+journals `x_remove {reason, canon_key}`; `restore` lifts that tombstone and
+nothing more. Accepted copyright cases against owned pages leave strikes
+(a claimed page's counts after the operator's review), and `owner_match`
+names the account behind a strike to the operator only, reading the
+account Worker's ids page by page.
+
 ## The free cut
 
 The free check scores at most the first 1,000 whitespace words of a text and

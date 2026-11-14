@@ -35,9 +35,14 @@
 //!   driver and how its hold ends) with its [`sections`], the
 //!   read routes [`reads`], and the background work [`queue`], [`cron`],
 //!   [`sitemap`] and [`store_ops`];
-//! - `cf`, `cf_routes`, `cf_store`, `cf_gate`, `cf_feedback`, `cf_lane`
-//!   (wasm32): the exports (`fetch`, `queue`, `scheduled`), the store's
-//!   routes and its Cloudflare glue, the `DetectGate` object, the
+//! - removals and the operator: [`cases`] (the removal form's intake, the
+//!   status page, the automatic first steps, the case states, strikes and
+//!   the X removal) and [`ops`] (the signed op route, its journal and the
+//!   op handlers);
+//! - `cf`, `cf_routes`, `cf_cases`, `cf_store`, `cf_gate`, `cf_feedback`,
+//!   `cf_lane` (wasm32): the exports (`fetch`, `queue`, `scheduled`), the
+//!   store's routes, the removal and op routes and their Cloudflare glue,
+//!   the `DetectGate` object, the
 //!   `DetectFeedback` object and the `DetectLane` object with its Container.
 //!
 //! **Privacy.** The text lives in the request's memory only. Nothing derived
@@ -51,6 +56,7 @@
 pub mod answer;
 pub mod bound;
 pub mod canon;
+pub mod cases;
 pub mod counters;
 pub mod cron;
 pub mod cut;
@@ -64,6 +70,7 @@ pub mod handoff;
 pub mod keys;
 pub mod lookup;
 pub mod manage;
+pub mod ops;
 pub mod page;
 pub mod paid;
 pub mod policy;
@@ -85,6 +92,8 @@ pub mod xpost;
 
 #[cfg(target_arch = "wasm32")]
 mod cf;
+#[cfg(target_arch = "wasm32")]
+mod cf_cases;
 #[cfg(target_arch = "wasm32")]
 mod cf_feedback;
 #[cfg(target_arch = "wasm32")]

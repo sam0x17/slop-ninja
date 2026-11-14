@@ -376,6 +376,18 @@ code_enum! {
         CounterNotice = "counter_notice",
         CourtOrder = "court_order",
         OtherLegal = "other_legal",
+        /// A removal at the request of an X post's author or of X that came
+        /// by mail or on X (op `x_remove`), or an operator `remove` of an X
+        /// page outside a case: content-free, with no notice document and
+        /// no status token. Never a form track: intake refuses it.
+        XRequest = "x_request",
+    }
+}
+
+impl CaseKind {
+    /// Whether the removal form may take this kind as its track.
+    pub fn is_form_track(self) -> bool {
+        self != CaseKind::XRequest
     }
 }
 

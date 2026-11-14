@@ -42,6 +42,9 @@ pub mod id {
     pub const CRON: u8 = 11;
     pub const PAID: u8 = 12;
     pub const JOB: u8 = 13;
+    pub const REMOVAL: u8 = 20;
+    pub const REMOVAL_STATUS: u8 = 21;
+    pub const OP: u8 = 22;
 }
 
 const KIB: usize = 1024;
@@ -65,6 +68,9 @@ pub const R_QUEUE: AsyncRoute = AsyncRoute::new(id::QUEUE, "detect/queue", FETCH
 pub const R_CRON: AsyncRoute = AsyncRoute::new(id::CRON, "detect/cron", FETCH_MS);
 pub const R_PAID: AsyncRoute = AsyncRoute::new(id::PAID, "detect/paid", FETCH_MS);
 pub const R_JOB: AsyncRoute = AsyncRoute::new(id::JOB, "detect/job", FETCH_MS);
+pub const R_REMOVAL: AsyncRoute = AsyncRoute::new(id::REMOVAL, "detect/removal", FETCH_MS);
+pub const R_REMOVAL_STATUS: AsyncRoute = AsyncRoute::new(id::REMOVAL_STATUS, "detect/removal_status", FETCH_MS);
+pub const R_OP: AsyncRoute = AsyncRoute::new(id::OP, "detect/op", FETCH_MS);
 
 /// The scorer's reply for one document, at most: one sentence record per
 /// content token at the most (a sentence holds at least one token) and one
@@ -217,6 +223,30 @@ const _: () = assert!(MAX_SECTION_BYTES >= 64 * KIB, "a section of ordinary pros
 pub fn section_footprint(section_bytes: usize) -> usize {
     section_bytes.saturating_mul(BYTES_PER_BODY_BYTE).saturating_add(SCORE_CONTROL_BYTES)
 }
+
+/// A removal request's body, at most: the notice's JSON bound
+/// ([`crate::cases::NOTICE_JSON_BYTES`]: the website's form bound, each byte
+/// escaped to at most two) and the target and step.
+pub const REMOVAL_BODY_BYTES: u64 = crate::cases::NOTICE_JSON_BYTES as u64 + 4 * KIB as u64;
+/// Bytes a removal request holds per byte of its body, at most: the body
+/// (1), its parsed fields (1), the notice's JSON (1: the fields as they
+/// came, without the manage token) and that JSON encrypted (1), plus the
+/// case's statements, which grow with no field.
+pub const REMOVAL_BYTES_PER_BODY_BYTE: usize = 4;
+
+/// A removal request's reservation for a declared body of `body_bytes`.
+pub fn removal_footprint(body_bytes: u64) -> usize {
+    let n = usize::try_from(body_bytes.min(REMOVAL_BODY_BYTES)).unwrap_or(usize::MAX);
+    n.saturating_mul(REMOVAL_BYTES_PER_BODY_BYTE)
+}
+
+/// An op's fixed part: its envelope and verification, one batch, and a
+/// case's rows. What grows with a notice or a document (`case_show`, a
+/// withheld excerpt's rewrite, a quarantined copy) is reserved by size from
+/// the scan memory when it is read (`cf_store`), and an `owner_match` page
+/// of account ids is read within the binding answer's bound.
+pub const OP_CONTROL_BYTES: usize = STORE_CONTROL_BYTES;
+const _: () = assert!(crate::ops::OP_BODY_MAX + 64 * KIB < OP_CONTROL_BYTES);
 
 /// The detect Worker's internal route at `method` and `path`, with a
 /// sitemap shard's number (`/internal/v1/sitemap/<n>`, `n` in canonical

@@ -114,7 +114,7 @@ impl Addresses {
         })
     }
 
-    fn domain(&self) -> &str {
+    pub(crate) fn domain(&self) -> &str {
         self.from.rsplit('@').next().unwrap_or("invalid")
     }
 }
@@ -533,6 +533,19 @@ pub fn build_drill(addrs: &Addresses, network: &str, drill: &str, now_ms: u64) -
     let subject = drill_subject(network);
     let message_id = drill_message_id(drill, addrs.domain());
     let text = drill_text(network, drill, now_ms);
+    assemble(addrs, network, subject, message_id, text, now_ms)
+}
+
+/// A message of the legal stream ([`crate::legal`]): the same headers and
+/// encoding as an alert's.
+pub(crate) fn assemble_message(
+    addrs: &Addresses,
+    network: &str,
+    subject: String,
+    message_id: String,
+    text: String,
+    now_ms: u64,
+) -> Message {
     assemble(addrs, network, subject, message_id, text, now_ms)
 }
 

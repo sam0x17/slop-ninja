@@ -58,8 +58,8 @@ use crate::{answer, canon, cron, handoff, lookup, manage, queue, reads, rerun, s
 /// The store's keys: `DETECT_STORE_SECRET` and the slug peppers
 /// (`DETECT_SLUG_PEPPER_V1..`), each 64 hex digits, trimmed.
 pub(crate) struct Secrets {
-    store: StoreKeys,
-    peppers: Peppers,
+    pub(crate) store: StoreKeys,
+    pub(crate) peppers: Peppers,
 }
 
 impl Secrets {

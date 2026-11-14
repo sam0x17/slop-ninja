@@ -26,11 +26,12 @@
 //!
 //! The request body is one JSON object ([`Wire`]): the signed fields, plus
 //! `key` (the signer's [`OperatorKey::fingerprint`]) and `sig` (the 64-byte
-//! signature in lowercase hex). Unknown fields are refused. The account
-//! Worker's op route takes this object as its body; the detect Worker's takes
-//! it as the `signed` field of a wrapper that may also carry `x_url`, the
-//! one value sent beside a signature (detect-page's `OpRequest`), and checks
-//! it with [`Verifier::verify_wire`].
+//! signature in lowercase hex). Unknown fields are refused. Both op routes,
+//! the detect Worker's and the account Worker's, take this object alone as
+//! their body: nothing travels beside a signature, so a body that carries any
+//! other field (an `x_url`, say) is refused as malformed. No op names an X
+//! post by its link or id: `x_remove` names one only by the hash its
+//! tombstone keeps (`canon_key`).
 //!
 //! # What a Worker checks ([`Verifier::verify`])
 //!
@@ -136,16 +137,20 @@ pub const CATALOG: &[(Target, &str)] = &[
     // detect: cases and takedowns
     (Target::Detect, "withhold_excerpt"),
     (Target::Detect, "remove"),
-    // `restore {case_id}`. On an X page it is a fresh check of the post, and
-    // the op still names no post: the CLI sends the post's link beside the
-    // envelope as `x_url` (detect-page's `OpRequest`), outside the signed
-    // bytes, and the Worker never journals it.
+    // `restore {case_id}` (or `{slug}` for a public page removed outside a
+    // case). On an X page it lifts the opt-out the removal left, found
+    // through the case's `source_id`, and nothing more: the post can then be
+    // checked again from its link, as a new check under a new slug.
     (Target::Detect, "restore"),
     (Target::Detect, "reject"),
     (Target::Detect, "close_case"),
     (Target::Detect, "case_note"),
     (Target::Detect, "case_show"),
+    // `review_strike {case_id, counts, reason}`: the operator's review of the
+    // strikes a claimed page left (`counts: true` makes them count).
     (Target::Detect, "review_strike"),
+    // `owner_match {case_id, after?}`: the accounts behind the case's strike
+    // owner hashes, answered to the operator only and never journaled.
     (Target::Detect, "owner_match"),
     // detect: sources, pages and the store
     (Target::Detect, "exclude_host"),
@@ -160,10 +165,14 @@ pub const CATALOG: &[(Target, &str)] = &[
     // or gives notice to end the agreement. `dry_run: true` answers counts
     // only and writes nothing but its journal row.
     (Target::Detect, "x_purge"),
-    // `x_oembed_trust {reason}`: ends oEmbed distrust (held after a lookup
-    // contradicted an oEmbed "gone" answer), so the second-candidate fallback
-    // may delete again.
-    (Target::Detect, "x_oembed_trust"),
+    // `x_remove {reason, canon_key}`: a removal at the request of a post's
+    // author or of X (`reason`: `author`, `x` or `other`). It removes every
+    // page about the post whose source key hashes to `canon_key` (64
+    // lowercase hex digits, `H("source_v1" ‖ "x:status:<id>")`), leaves the
+    // opt-out tombstone that holds only that hash, and opens an `x_request`
+    // case. The op names the post only by that hash: the operator's CLI
+    // reads the link from a prompt, stdin or a file and signs the hash alone.
+    (Target::Detect, "x_remove"),
     (Target::Detect, "set_switch"),
     (Target::Detect, "set_examples"),
     (Target::Detect, "status"),

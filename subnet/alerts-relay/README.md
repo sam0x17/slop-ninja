@@ -497,7 +497,50 @@ Relay ticks run one at a time behind a tick lease:
 - The relay's own events go through the same ledger, so an overlapping tick
   delivers nothing twice.
 
-## Bounded memory (`slop_ninja.alerts_relay.arena/v4`)
+## Legal stream (`slop_ninja.detect.legal_notice/v1`)
+
+The detect Worker's removal form makes a case and queues a `legal_notice`
+message; its queue consumer posts the case's notice here
+(`POST /v1/legal`, through its own service binding to this relay):
+
+- **The post.** The schema, the case id (`td-` and 8 characters), the case's
+  kind, when it was received, its targets (public slugs, or `private
+  detection` for each secret page) and the notice as the claimant wrote it,
+  a JSON object kept as its bytes (never parsed into a map). A secret page's
+  link never arrives here: the detect Worker names the page `private
+  detection` in the notice and masks its slug wherever the claimant pasted
+  it (its own sealed copy keeps the link for the operator). Unknown fields,
+  another schema, kind or target form are refused (400). Its bound is the
+  detect Worker's notice bound rounded up to 1 MiB (`legal::LEGAL_BODY_BYTES`;
+  a test checks the detect Worker's constants).
+- **Kept, then sent.** A valid post is kept in the state object
+  (`legal_waiting`) and answered 200; a case id already sent answers 200
+  and keeps nothing. The one-minute tick emails what is waiting as one
+  digest (as many notices as fit `legal::DIGEST_TEXT_BYTES`, oldest first,
+  and always the first), then records each case id as sent (`legal_sent`,
+  30 days) and deletes the notice. A failed send keeps it for the next tick.
+  So a flood of notices is at most one email a minute, and each notice is
+  emailed once.
+- **Recipient.** The secret `LEGAL_EMAIL_TO` alone, from the secret
+  `ALERT_EMAIL_FROM`. The stream does not depend on `ALERT_EMAIL_ENABLED`
+  (it is not an alert). The `send_email` binding names no destination: the
+  relay sends to that secret only, and no tracked file holds an address.
+  The subject starts `[legal]` (the legal mailbox, which the recipient is
+  the forward target of) and names the case, or the count for several.
+- **Off without its recipient.** A post then answers 503, so the detect
+  Worker's retries end in its dead-letter queue, which raises an alert. The
+  case and its notice stay in the detect store either way (the operator's
+  `detect-op case_show` opens it).
+- **Paged when stuck.** Notices waiting longer than a quarter hour
+  (`legal::UNDELIVERED_MS`) withhold the external dead-man ping, and every
+  failed send is logged with its content-free code.
+- **Content.** The email carries the notice, the claimant's name and
+  contact included (the legal mailbox needs them to review and reply), and
+  the operator's command to open the case; never an excerpt of a detection.
+  The feed carries nothing of the legal stream, and the log lines carry
+  counts only.
+
+## Bounded memory (`slop_ninja.alerts_relay.arena/v5`)
 
 The relay applies the publisher's rule:
 
@@ -542,6 +585,11 @@ The relay applies the publisher's rule:
     (`feed::LATEST_BYTES`, its fixed fields plus the firing set within one
     post's events bound) and one delete batch of keys (1,000 keys of
     `feed::KEY_BYTES`). The budget's figure is unchanged.
+  - v5 adds the legal stream: two legal posts, each read within
+    `legal::LEGAL_BODY_BYTES`, and the tick's legal digest (the waiting
+    notices it takes, the one being read, the digest's text and its
+    message), built after the tick's own work, so the tick's slot is the
+    larger of the two.
   - v4 reserves that slot (`feed::STEP_BYTES`) for each feed step before
     the step allocates, and builds what it writes only inside it: an
     object's write (the object, its key and its body), `latest.json` (the
@@ -578,6 +626,7 @@ email off, not a warning; `ALERT_EMAIL_TO` set without
 | `NETWORK` | var, required | must be `testnet` |
 | `ALERT_EMAIL_FROM`, `ALERT_EMAIL_TO` | secrets, optional | one plain mailbox each, checked at every request; email is on only while `ALERT_EMAIL_TO` is set and `ALERT_EMAIL_ENABLED` is `true` (off by default) |
 | `ALERT_EMAIL_ENABLED` | deploy-time var | `true` turns email on while `ALERT_EMAIL_TO` is set (default off) |
+| `LEGAL_EMAIL_TO` | secret, optional | the legal stream's recipient (the forward target of the legal mailbox), one plain mailbox; the stream is on while it is set, from `ALERT_EMAIL_FROM`, whatever `ALERT_EMAIL_ENABLED` says ([Legal stream](#legal-stream-slop_ninjadetectlegal_noticev1)) |
 | `ALERT_EMAIL_RULES` | deploy-time var | the rules email carries, a comma list of rule names (default `commit_gap,watermark_stalled,cohort_fault,signing_backing_off,coordinator_unwatched,publisher_alerts_undelivered`; see [Email policy](#email-policy-slop_ninjaalerts_relayemailv1)) |
 | `ALERT_EMAIL_MIN_INTERVAL_SECS` | deploy-time var | the per-subject minimum interval between episodes emailed (default 21,600); the daily limit follows from it and the list |
 | `WATCHDOG_SILENCE_SECS` | var | fallback for the coordinator's watchdog silence until the first heartbeat carries the publisher's bound (default 300) |
@@ -702,6 +751,10 @@ cargo clippy --manifest-path subnet/alerts-relay/Cargo.toml --target wasm32-unkn
 The publisher's sink tests run with the publisher's own suite, and the
 `no_runtime_gates` lint scans this crate.
 ## Not yet done
+
+- The legal stream's deploy (the `LEGAL_EMAIL_TO` secret, the detect
+  Worker's binding), then a drill: a removal request on staging reaches
+  the legal mailbox once, and a second post of the same case sends nothing.
 
 - The email policy's deploy with email on (the recipient secret, the
   enabling var, the production list and interval), then live checks: one

@@ -213,8 +213,10 @@ fn keys_and_codes() {
     }
     assert!(in_catalog(Target::Detect, "set_switch") && in_catalog(Target::Account, "set_switch"));
     assert!(!in_catalog(Target::Edge, "set_switch"));
-    // X's class purge and the oEmbed trust reset are detect ops only.
-    for o in ["x_purge", "x_oembed_trust"] {
+    // X's class purge and the removal by hash are detect ops only; the
+    // withdrawn oEmbed trust reset is no op at all.
+    assert!(CATALOG.iter().all(|(_, o)| *o != "x_oembed_trust"));
+    for o in ["x_purge", "x_remove"] {
         assert!(in_catalog(Target::Detect, o), "{o}");
         assert!(!in_catalog(Target::Account, o) && !in_catalog(Target::Edge, o), "{o}");
     }

@@ -45,6 +45,11 @@
 //!   `/api/detect/v1/job` (the secret host), whose NDJSON stream drives the
 //!   job's sections through the gate (class `paid`, keyed by the page's
 //!   owner hash) and the lane.
+//! - The removal and op routes (`cf_cases`): `POST /api/detect/v1/removal`
+//!   (the removal form's two steps, with `X-SN-Principal` from the site
+//!   host when the submitter is signed in), `/removal/status` (both hosts)
+//!   and `/op` (a signed operator op: no CSRF check, the signature is the
+//!   authority).
 //! - anything else: 404 (405 for another method on a route).
 //!
 //! The `queue` export consumes `detect-jobs` (one message per invocation),
@@ -120,6 +125,9 @@ export function detect_route(req) {
   if (u.pathname === '/api/detect/v1/paid/quote') return post ? 10 : 9;
   if (u.pathname === '/api/detect/v1/paid/start') return post ? 11 : 9;
   if (u.pathname === '/api/detect/v1/job') return post ? 12 : 9;
+  if (u.pathname === '/api/detect/v1/removal') return post ? 20 : 9;
+  if (u.pathname === '/api/detect/v1/removal/status') return post ? 21 : 9;
+  if (u.pathname === '/api/detect/v1/op') return post ? 22 : 9;
   return 0;
 }
 export function ndjson_pair() {
@@ -253,6 +261,9 @@ pub fn fetch(req: web_sys::Request, env: Env, _ctx: worker_sys::Context) -> js_s
         8 => (routes::R_STATE, routes::STORE_CONTROL_BYTES),
         10 | 11 => (routes::R_PAID, routes::PAID_CONTROL_BYTES),
         12 => (routes::R_JOB, routes::JOB_CONTROL_BYTES),
+        20 => (routes::R_REMOVAL, routes::STORE_CONTROL_BYTES),
+        21 => (routes::R_REMOVAL_STATUS, routes::STORE_CONTROL_BYTES),
+        22 => (routes::R_OP, routes::OP_CONTROL_BYTES),
         _ => (routes::R_OTHER, routes::OTHER_CONTROL_BYTES),
     };
     // The score route resolves its answer early (a stream it keeps writing),
@@ -279,6 +290,9 @@ pub fn fetch(req: web_sys::Request, env: Env, _ctx: worker_sys::Context) -> js_s
                 10 => answer.send(crate::cf_paid::quote(req, &env).await),
                 11 => answer.send(crate::cf_paid::start(req, &env).await),
                 12 => crate::cf_paid::job(req, env, &answer).await,
+                20 => answer.send(crate::cf_cases::removal(req, &env).await),
+                21 => answer.send(crate::cf_cases::removal_status(req, &env).await),
+                22 => answer.send(crate::cf_cases::op(req, &env).await),
                 9 => answer.send(refuse(RefusalCode::Method)),
                 _ => answer.send(refuse(RefusalCode::NotFound)),
             }

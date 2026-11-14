@@ -35,6 +35,9 @@ const SOURCES: &[&str] = &[
     "cf.rs",
     "cf_paid.rs",
     "cf_routes.rs",
+    "cf_cases.rs",
+    "cases.rs",
+    "ops.rs",
     "cf_store.rs",
     "cf_gate.rs",
     "cf_feedback.rs",
@@ -383,4 +386,34 @@ fn no_challenge_token_and_no_secret_is_tracked() {
         assert!(!text.to_ascii_lowercase().contains("turnstile"), "{name} names the removed challenge");
         assert!(!text.contains("siteverify") && !text.contains("challenges.cloudflare.com"), "{name}");
     }
+}
+
+/// The op route takes the bare signed envelope (nothing beside it), never
+/// runs the CSRF check, and its journal keeps the op exactly; no op names an
+/// X post by its link.
+#[test]
+fn the_op_route_takes_the_bare_envelope() {
+    let ops = src("ops.rs");
+    let c = code(&ops);
+    assert!(c.contains(".verify(body, now)"), "the route verifies the body as it came");
+    for banned in ["OpRequest", "x_url", "verify_wire", "XPostUrl", "csrf"] {
+        assert!(!c.contains(banned), "ops.rs names {banned}");
+    }
+    let cases = src("cases.rs");
+    for banned in ["x_url", "XPostUrl", "/status/"] {
+        assert!(!code(&cases).contains(banned), "cases.rs names {banned}");
+    }
+    let spec = slop_ninja_detect_page::RouteId::DetectOp.spec();
+    assert!(!spec.csrf && !spec.principal);
+    // The Worker verifies; only the CLI and tests sign.
+    let cargo = fs::read_to_string(format!("{}/Cargo.toml", env!("CARGO_MANIFEST_DIR"))).unwrap();
+    let deps = &cargo[cargo.find("[dependencies]").unwrap()..cargo.find("[dev-dependencies]").unwrap()];
+    assert!(
+        deps.contains("slop-ninja-signed-op = { path = \"../crates/signed-op\" }"),
+        "no sign feature in the Worker"
+    );
+    // Both deployments name their own op environment.
+    let w = wrangler();
+    assert!(env_section(&w, "testnet").contains("OP_ENV = \"production\""));
+    assert!(env_section(&w, "staging").contains("OP_ENV = \"staging\""));
 }

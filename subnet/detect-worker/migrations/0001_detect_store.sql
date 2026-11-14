@@ -88,14 +88,22 @@ CREATE TABLE jobs (                          -- paid whole-document checks
   hold_ended_at INTEGER);                    -- when the ledger confirmed the hold's end (commit or release)
 
 CREATE TABLE cases (
-  case_id TEXT PRIMARY KEY, status_h BLOB NOT NULL,
+  case_id TEXT PRIMARY KEY,
+  status_h BLOB,                             -- H("case_status_v1" ‖ token); NULL on an x_request case
   kind TEXT NOT NULL CHECK (kind IN ('copyright','author','personal_data','wrong_result','illegal','counter_notice',
-                                     'court_order','other_legal')),
+                                     'court_order','other_legal','x_request')),
   state TEXT NOT NULL CHECK (state IN ('received','incomplete','reviewing','accepted','countered','restored',
                                        'rejected','closed')),
   submitter_h BLOB,                          -- HMAC(K_owner, user_id) when submitted while signed in
-  received_at INTEGER NOT NULL, updated_at INTEGER NOT NULL, due_at INTEGER, notice_key TEXT NOT NULL);
+  received_at INTEGER NOT NULL, updated_at INTEGER NOT NULL, due_at INTEGER,
+  notice_key TEXT,                           -- c/<case_id>; NULL on an x_request case (the request stays in the mail)
+  source_id INTEGER REFERENCES sources(source_id),   -- the X tombstone this case's removal left; NULL once lifted
+  CHECK ((kind = 'x_request') = (notice_key IS NULL)),
+  CHECK ((kind = 'x_request') = (status_h IS NULL)));
+CREATE UNIQUE INDEX cases_status ON cases(status_h) WHERE status_h IS NOT NULL;           -- the status page's lookup
+CREATE INDEX cases_source ON cases(source_id) WHERE source_id IS NOT NULL;
 CREATE TABLE case_targets (case_id TEXT NOT NULL, det_id_h BLOB NOT NULL, PRIMARY KEY (case_id, det_id_h));
+CREATE INDEX case_targets_det ON case_targets(det_id_h);                                  -- a page's cases
 CREATE TABLE strikes (owner_h BLOB NOT NULL, case_id TEXT NOT NULL, at INTEGER NOT NULL,     -- strikes per owner, for repeat notices
   owner_via TEXT NOT NULL CHECK (owner_via IN ('created','paid','claimed')),                 -- copied from the page
   review TEXT CHECK (review IN ('counts','not_counted')),    -- claimed strikes: the operator's review; NULL until then

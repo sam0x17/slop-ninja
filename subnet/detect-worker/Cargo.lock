@@ -957,6 +957,7 @@ dependencies = [
  "slop-ninja-detect-page",
  "slop-ninja-scorer-client",
  "slop-ninja-scorer-tokens",
+ "slop-ninja-signed-op",
  "unicode-normalization-alignments",
  "wasm-bindgen",
  "wasm-bindgen-futures",
@@ -983,6 +984,17 @@ name = "slop-ninja-scorer-tokens"
 version = "0.1.0"
 dependencies = [
  "unicode-normalization-alignments",
+]
+
+[[package]]
+name = "slop-ninja-signed-op"
+version = "0.1.0"
+dependencies = [
+ "ed25519-dalek",
+ "hex",
+ "serde",
+ "serde_json",
+ "sha2",
 ]
 
 [[package]]

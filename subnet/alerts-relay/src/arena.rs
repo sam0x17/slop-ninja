@@ -1,5 +1,8 @@
-//! Bounded memory for the relay's Wasm build (`slop_ninja.alerts_relay.arena/v4`:
-//! v4 reserves that slot for each feed step before the step allocates
+//! Bounded memory for the relay's Wasm build (`slop_ninja.alerts_relay.arena/v5`:
+//! v5 adds the legal stream: two legal posts, each read within its bound
+//! (`crate::legal::LEGAL_BODY_BYTES`), and the tick's legal digest, built
+//! after the tick's other work releases its slot, so the tick's slot is the
+//! larger of the two; v4 reserves that slot for each feed step before the step allocates
 //! (`crate::feed::STEP_BYTES`), so the logged peak covers the feed's
 //! allocations; v3 added the alert feed's object, `latest.json` and delete
 //! batch, each held alone in the slot of one message, which is larger than
@@ -38,7 +41,7 @@ use std::cell::Cell;
 
 use slop_ninja_alerts_wire::{HEARTBEAT_BYTES, MIN_EVENT_BYTES, post_bound};
 
-pub const ARENA_RULE: &str = "slop_ninja.alerts_relay.arena/v4";
+pub const ARENA_RULE: &str = "slop_ninja.alerts_relay.arena/v5";
 
 /// A coordinator Worker's `/status` body: the coordinator answers it inside
 /// one `WORKER_CONTROL_BYTES` scope (1 MiB, `subnet/coordinator/src/
@@ -112,9 +115,35 @@ pub const fn tick_footprint() -> u64 {
     read_footprint(STATUS_BODY_BOUND) + message_footprint(text_bound())
 }
 
+/// One legal post: its body, read within the legal stream's bound.
+pub const fn legal_post_footprint() -> u64 {
+    read_footprint(crate::legal::LEGAL_BODY_BYTES)
+}
+
+/// The tick's legal digest: the waiting posts it takes (at most a digest's
+/// text in all, each kept as its bytes), the one being read, and the
+/// digest's text and message.
+pub const fn legal_tick_footprint() -> u64 {
+    crate::legal::DIGEST_TEXT_BYTES
+        + crate::legal::LEGAL_BODY_BYTES
+        + message_footprint(crate::legal::DIGEST_TEXT_BYTES)
+}
+
+const fn max(a: u64, b: u64) -> u64 {
+    if a > b { a } else { b }
+}
+
+/// The tick's slot: its own work, then the legal digest, one after the
+/// other.
+pub const fn tick_slot() -> u64 {
+    max(tick_footprint(), legal_tick_footprint())
+}
+
 /// What the isolate may hold at once (see the module note).
-pub const READBACK_BUDGET: u64 =
-    tick_footprint() + 2 * post_footprint() + 2 * read_footprint(HEARTBEAT_BYTES as u64);
+pub const READBACK_BUDGET: u64 = tick_slot()
+    + 2 * post_footprint()
+    + 2 * read_footprint(HEARTBEAT_BYTES as u64)
+    + 2 * legal_post_footprint();
 
 /// Wasm page size.
 pub const PAGE: u64 = 64 << 10;
@@ -126,7 +155,8 @@ pub const LINEAR_MEMORY_BYTES: u64 = (RESERVED_BYTES + READBACK_BUDGET).div_ceil
 
 // The working set fits the budget, and the linked memory holds the reserve
 // and the budget in whole pages.
-const _: () = assert!(tick_footprint() + 2 * post_footprint() <= READBACK_BUDGET);
+const _: () =
+    assert!(tick_slot() + 2 * post_footprint() + 2 * legal_post_footprint() <= READBACK_BUDGET);
 const _: () = assert!(LINEAR_MEMORY_BYTES.is_multiple_of(PAGE));
 const _: () = assert!(LINEAR_MEMORY_BYTES >= RESERVED_BYTES + READBACK_BUDGET);
 

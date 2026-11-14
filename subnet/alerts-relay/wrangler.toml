@@ -6,7 +6,8 @@
 # off by default: on only with ALERT_EMAIL_ENABLED = "true" and ALERT_EMAIL_TO
 # set). It has no route, no workers.dev name
 # and no preview URLs: the publisher's service binding (ALERTS_RELAY_TESTNET)
-# is the only way in, and its own cron is the dead-man check on the publisher
+# and the detect Worker's (its legal stream) are the only ways in, and its
+# own cron is the dead-man check on the publisher
 # and the spend tracker; its feed/v1/latest.json, rewritten every tick, is
 # a reader's dead-man on the relay. It never changes Email Routing: there is
 # no `addresses` field (a Worker's `addresses` rewrites the zone's routing
@@ -24,6 +25,12 @@
 #
 #   ALERT_EMAIL_FROM          optional (email only): the sender, an address on
 #                             the zone that has Email Routing enabled
+#   LEGAL_EMAIL_TO            optional: the legal stream's recipient (the
+#                             forward target of the legal mailbox); the
+#                             detect Worker's removal notices are emailed to
+#                             it, and only to it, from ALERT_EMAIL_FROM, at
+#                             most one digest a minute (README, "Legal
+#                             stream"); unset, a legal post answers 503
 #   ALERT_EMAIL_TO            optional: the recipient; email is on only while it
 #                             is set and ALERT_EMAIL_ENABLED is "true" (before a
 #                             sending domain is onboarded,
@@ -118,7 +125,8 @@ TRACKER_PERIOD_SECS = "86400"
 # destination or DNS record is changed). No restriction attribute: the
 # binding sends only to verified destination addresses of the account; the
 # code sends only to ALERT_EMAIL_TO, and only while it is set and
-# ALERT_EMAIL_ENABLED is "true".
+# ALERT_EMAIL_ENABLED is "true", and to LEGAL_EMAIL_TO for the legal stream.
+# No allowed_destination_addresses list: no tracked file names an address.
 [[env.testnet.send_email]]
 name = "ALERT_EMAIL_TESTNET"
 

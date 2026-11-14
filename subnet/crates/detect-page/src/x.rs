@@ -14,10 +14,10 @@
 //!   `https://x.com/i/status/<id>` only. Its `Deserialize` refuses every other
 //!   string, so a renderer that holds one holds a canonical X link.
 //! - [`XPost`]: the page field `x` of a live X page, `{post_url}`.
-//! - [`XPostUrl`]: an X post's link that travels beside a signed op (`x_url`
-//!   of [`crate::api::OpRequest`]) and is never kept. It implements neither
-//!   `Serialize` nor `Display`, and its `Debug` prints no digits, so it cannot
-//!   reach a journal row, a queue message, a log line or an AE point.
+//!
+//! No signed op carries a post's link or id: `x_remove` names a post only by
+//! the hash its tombstone keeps (`sources.canon_key`), which the operator's
+//! CLI computes from the link it reads with `detect-url`'s `x_post_v1`.
 //!
 //! What this module does not do: recognise an X post in arbitrary input (rule
 //! `x_post_v1`, crate `detect-url`, which turns every accepted form into this
@@ -137,74 +137,4 @@ impl XPost {
     pub fn new(id: u64) -> Option<XPost> {
         PostUrl::new(id).map(|post_url| XPost { post_url })
     }
-}
-
-/// An X post's link sent beside a signed op, never kept.
-///
-/// `restore {case_id}` on an X page is a fresh check of the post, and the op
-/// names no post: the operator's CLI sends the link as `x_url` beside the
-/// signed envelope ([`crate::api::OpRequest`]). The Worker accepts it only
-/// when [`XPostUrl::source_key`] hashes to the tombstone's `canon_key`, runs
-/// the lookup, and drops it. It is never journaled, logged, queued or written
-/// to AE: it has no `Serialize` and no `Display`, and its `Debug` prints no
-/// digits. It deserializes only from the canonical form (the CLI canonicalises
-/// the link through `detect-url`'s `x_post_v1` first).
-#[derive(Clone, PartialEq, Eq)]
-pub struct XPostUrl(u64);
-
-impl XPostUrl {
-    /// The link a canonical URL names.
-    pub fn parse(url: &str) -> Option<XPostUrl> {
-        parse_x_canonical(url).map(XPostUrl)
-    }
-
-    /// The post id, for the lookup.
-    pub fn id(&self) -> u64 {
-        self.0
-    }
-
-    /// The source key, `x:status:<id>`, to hash and compare with the
-    /// tombstone's `canon_key`.
-    pub fn source_key(&self) -> String {
-        x_source_key(self.0)
-    }
-
-    /// The page's link to the post, once the fresh check has found it.
-    pub fn post_url(&self) -> PostUrl {
-        PostUrl(self.0)
-    }
-}
-
-impl std::fmt::Debug for XPostUrl {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_str("XPostUrl(…)")
-    }
-}
-
-impl<'de> Deserialize<'de> for XPostUrl {
-    fn deserialize<D: serde::Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
-        let s = String::deserialize(d)?;
-        XPostUrl::parse(&s).ok_or_else(|| serde::de::Error::custom("x_url must be https://x.com/i/status/<id>"))
-    }
-}
-
-/// Compile-time proof that [`XPostUrl`] implements neither `Serialize` nor
-/// `Display`: if either were implemented, the probe below would match two
-/// impls and fail to compile (the technique of `static_assertions`'
-/// `assert_not_impl_any!`).
-mod not_kept {
-    use super::XPostUrl;
-
-    trait Probe<A> {
-        fn probe() {}
-    }
-    impl<T: ?Sized> Probe<()> for T {}
-    struct IsSerialize;
-    impl<T: ?Sized + serde::Serialize> Probe<IsSerialize> for T {}
-    struct IsDisplay;
-    impl<T: ?Sized + std::fmt::Display> Probe<IsDisplay> for T {}
-
-    const _: fn() = || {
-        let _ = <XPostUrl as Probe<_>>::probe;
-    };
 }

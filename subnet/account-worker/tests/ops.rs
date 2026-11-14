@@ -240,3 +240,82 @@ fn x_signin_purge_works_in_pages_and_replays_after_a_restore() {
     assert_eq!(h.count("SELECT COUNT(*) AS n FROM identities WHERE provider = 'x'"), 0);
     assert_eq!(h.count("SELECT COUNT(*) AS n FROM identities WHERE provider = 'email'"), n);
 }
+
+/// An op signed for another Worker, out of its window, or with anything
+/// beside the envelope is refused before it runs (Δ6).
+#[test]
+fn ops_for_another_target_or_window_are_refused() {
+    use slop_ninja_account_worker::host::Host as _;
+    use slop_ninja_signed_op::{Env, Nonce, Op, Target};
+    let h = TestHost::new();
+    let cfg = config(&[]);
+    let signed = |target: Target, issued: u64, expires: u64, name: &str| {
+        let n: [u8; 16] = h.random();
+        let op = Op {
+            target,
+            env: Env::Staging,
+            issued_ms: issued,
+            expires_ms: expires,
+            nonce: Nonce(n),
+            op: name.into(),
+            args: json!({"reason": "r", "name": "auth.email", "state": "off"}).as_object().unwrap().clone(),
+        };
+        serde_json::to_value(slop_ninja_signed_op::sign(&op, &op_key()).unwrap()).unwrap()
+    };
+    let now = h.now.get();
+    let detect = signed(Target::Detect, now, now + 60_000, "set_switch");
+    let (s, a) = send_raw(&h, &cfg, serde_json::to_vec(&detect).unwrap());
+    assert_eq!((s, a["code"].clone()), (403, json!("op_wrong_target")));
+    let edge = signed(Target::Edge, now, now + 60_000, "edge_coverage");
+    assert_eq!(send_raw(&h, &cfg, serde_json::to_vec(&edge).unwrap()).1["code"], json!("op_wrong_target"));
+    let old = signed(Target::Account, now - 120_000, now - 60_000, "set_switch");
+    assert_eq!(send_raw(&h, &cfg, serde_json::to_vec(&old).unwrap()).1["code"], json!("op_expired"));
+    let ahead = signed(Target::Account, now + 600_000, now + 660_000, "set_switch");
+    assert_eq!(send_raw(&h, &cfg, serde_json::to_vec(&ahead).unwrap()).1["code"], json!("op_not_yet_valid"));
+    let mut beside = signed(Target::Account, now, now + 60_000, "set_switch");
+    beside["x_url"] = json!("https://x.com/i/status/2");
+    assert_eq!(send_raw(&h, &cfg, serde_json::to_vec(&beside).unwrap()).1["code"], json!("op_malformed"));
+    assert_eq!(h.count("SELECT COUNT(*) AS n FROM journal"), 0, "nothing ran");
+}
+
+/// The detect Worker's `owner_match` reads every account id, in id order,
+/// a page at a time, through this binding-only route.
+#[test]
+fn the_users_route_pages_every_account_id() {
+    let h = TestHost::new();
+    let cfg = config(&[]);
+    let mut ids = Vec::new();
+    for addr in ["a@example.com", "b@example.com", "c@example.com"] {
+        let mut b = Browser::new();
+        b.email_sign_in(&h, &cfg, addr);
+        ids.push(user_of(&mut b, &h, &cfg));
+    }
+    ids.sort();
+    let (s, _) = op(&h, &cfg, "disable_account", json!({"user_id": ids[1], "reason": "abuse"}));
+    assert_eq!(s, 200);
+    let mut b = Browser::new();
+    let page = |b: &mut Browser, body: Value| {
+        let r = b.internal(&h, &cfg, "/internal/v1/users", body);
+        (r.status, serde_json::from_slice::<Value>(&r.body).unwrap_or(Value::Null))
+    };
+    let (s, a) = page(&mut b, json!({"after": null, "limit": 2}));
+    assert_eq!(s, 200);
+    let got: Vec<&str> = a["users"].as_array().unwrap().iter().map(|u| u["user_id"].as_str().unwrap()).collect();
+    assert_eq!(got, [ids[0].as_str(), ids[1].as_str()]);
+    assert_eq!(a["users"][1]["state"], "locked");
+    assert_eq!(a["next"], json!(ids[1]));
+    let (_, a) = page(&mut b, json!({"after": ids[1], "limit": 2}));
+    assert_eq!((a["users"][0]["user_id"].clone(), a["next"].clone()), (json!(ids[2]), Value::Null));
+    for bad in [json!({"after": null, "limit": 0}), json!({"after": null, "limit": 501}), json!({"limit": 1, "x": 1})] {
+        assert_eq!(page(&mut b, bad).0, 400);
+    }
+    // A forwarded request never reaches it.
+    let req = Req {
+        method: "POST".into(),
+        path: "/internal/v1/users".into(),
+        query: String::new(),
+        headers: vec![("x-sn-route".into(), "me".into()), ("content-type".into(), "application/json".into())],
+        body: br#"{"after":null,"limit":2}"#.to_vec(),
+    };
+    assert_eq!(h.call(&cfg, &req).status, 404);
+}

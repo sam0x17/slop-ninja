@@ -41,8 +41,12 @@ slop-ninja-detect-page = { path = "../crates/detect-page" }
 # The CSRF check of forwarded browser routes (Fetch Metadata and Origin).
 # Without `wallet`: no chain code.
 slop-ninja-auth-core = { path = "../crates/auth-core" }
-# The account Worker's saved-link bodies (owned/add), which the store calls.
+# The account Worker's saved-link bodies (owned/add) and account-id pages
+# (users, for the operator's owner_match), which the store calls.
 slop-ninja-account-wire = { path = "../crates/account-wire" }
+# The signed operator-op envelope the op route verifies (verify only: no
+# `sign` feature in the Worker).
+slop-ninja-signed-op = { path = "../crates/signed-op" }
 # Result seals and secret documents: AES-256-GCM under HKDF-SHA256 keys, in
 # pure Rust, the same code natively (tests) and in wasm32 (no WebCrypto glue,
 # no async key import). No getrandom: every nonce comes from the platform's
@@ -74,6 +78,8 @@ worker = { version = "0.8.7", features = ["d1", "queue"] }
 # store's own migration and the gate's table in an in-memory SQLite (native
 # only), with foreign keys on, as D1 runs them.
 rusqlite = { version = "0.37", features = ["bundled"] }
+# The op tests sign their ops as the operator's CLI does.
+slop-ninja-signed-op = { path = "../crates/signed-op", features = ["sign"] }
 
 [build-dependencies]
 serde_json = "1"

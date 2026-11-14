@@ -702,7 +702,6 @@ fn post_urls_take_only_the_canonical_form() {
         // The page's type refuses it at parse time, and so does x_url's.
         let json = serde_json::to_string(b).unwrap();
         assert!(serde_json::from_str::<PostUrl>(&json).is_err(), "{b}");
-        assert!(serde_json::from_str::<XPostUrl>(&json).is_err(), "{b}");
         assert!(serde_json::from_str::<XPost>(&format!("{{\"post_url\":{json}}}")).is_err(), "{b}");
     }
     let u: PostUrl = serde_json::from_str("\"https://x.com/i/status/1855\"").unwrap();
@@ -716,17 +715,11 @@ fn post_urls_take_only_the_canonical_form() {
 }
 
 #[test]
-fn an_x_url_beside_an_op_is_never_kept() {
-    use slop_ninja_detect_page::api::OpRequest;
-    use slop_ninja_detect_page::x::XPostUrl;
+fn the_op_route_takes_the_bare_envelope() {
+    // Both op routes take the signed envelope alone: a body with anything
+    // beside it (an X link included) does not parse, so no op carries a
+    // post's link outside its signature either.
     use slop_ninja_signed_op as op;
-    // It parses only from the canonical form and prints no digits.
-    let u: XPostUrl = serde_json::from_str("\"https://x.com/i/status/1855\"").unwrap();
-    assert_eq!((u.id(), u.source_key(), u.post_url().id()), (1855, "x:status:1855".to_owned(), 1855));
-    let dbg = format!("{u:?}");
-    assert!(!dbg.bytes().any(|b| b.is_ascii_digit()), "{dbg}");
-    // A restore of an X page: the link travels beside the signed envelope,
-    // outside the signed bytes.
     let key = op::SigningKey::from_bytes(&[7; 32]);
     let now = 1_795_169_040_000;
     let mut args = serde_json::Map::new();
@@ -740,56 +733,23 @@ fn an_x_url_beside_an_op_is_never_kept() {
         op: "restore".into(),
         args,
     };
-    let wire = op::sign(&signed, &key).unwrap();
+    let wire = serde_json::to_value(op::sign(&signed, &key).unwrap()).unwrap();
     let verifier = op::Verifier::new(
         op::OperatorKey::from_verifying_key(key.verifying_key()),
         op::Env::Staging,
         &[op::Target::Detect, op::Target::Edge],
     );
-    let wire_json = serde_json::to_value(&wire).unwrap();
-    for id in [2u64, 1855] {
-        let body = serde_json::json!({"signed": wire_json, "x_url": format!("https://x.com/i/status/{id}")});
-        let req: OpRequest<op::Wire> = serde_json::from_value(body).unwrap();
-        let v = verifier.verify_wire(&req.signed, now + 1).unwrap();
-        // The link is not in the signed bytes or the journal's values.
-        let bytes = v.op.signed_bytes().unwrap();
-        assert!(!String::from_utf8_lossy(&bytes).contains("status"));
-        assert!(!format!("{:?}", v.op.args).contains("status"));
-        assert_eq!(req.x_url.as_ref().map(XPostUrl::id), Some(id));
-        let dbg = format!("{:?}", req.x_url);
-        assert!(!dbg.bytes().any(|b| b.is_ascii_digit()) && !format!("{req:?}").contains("status"), "{dbg}");
+    assert!(verifier.verify(&serde_json::to_vec(&wire).unwrap(), now + 1).is_ok());
+    let mut beside = wire.clone();
+    beside["x_url"] = "https://x.com/i/status/2".into();
+    let wrapped = serde_json::json!({"signed": wire, "x_url": "https://x.com/i/status/2"});
+    for body in [beside, wrapped] {
+        assert_eq!(verifier.verify(&serde_json::to_vec(&body).unwrap(), now + 1), Err(op::Refusal::Malformed));
     }
-    // Absent is allowed; a non-canonical link and unknown fields are not.
-    let req: OpRequest<op::Wire> = serde_json::from_value(serde_json::json!({"signed": wire_json})).unwrap();
-    assert!(req.x_url.is_none());
-    for body in [
-        serde_json::json!({"signed": wire_json, "x_url": "https://x.com/a/status/2"}),
-        serde_json::json!({"signed": wire_json, "x_url": "https://x.com/i/status/2", "url": "x"}),
-        serde_json::json!({"signed": wire_json, "note": "x"}),
-    ] {
-        assert!(serde_json::from_value::<OpRequest<op::Wire>>(body).is_err());
-    }
-    // The shape fixture parses as the route's body.
-    let raw =
-        std::fs::read_to_string(format!("{}/tests/fixtures/api/op-request-restore-x.json", env!("CARGO_MANIFEST_DIR")))
-            .unwrap();
-    let req: OpRequest<op::Wire> = serde_json::from_str(&raw).unwrap();
-    assert_eq!((req.signed.op.as_str(), req.x_url.map(|u| u.id())), ("restore", Some(2)));
-}
-
-#[test]
-fn x_post_url_has_no_serialize_or_display() {
-    // The compile-time probe in x.rs refuses both impls; this source test
-    // keeps anyone from adding one by hand under another name either.
-    let src = std::fs::read_to_string(format!("{}/src/x.rs", env!("CARGO_MANIFEST_DIR"))).unwrap();
-    let decl = src.find("pub struct XPostUrl").unwrap();
-    let derive = src[..decl].rfind("#[derive(").unwrap();
-    let derives = &src[derive..decl];
-    assert!(!derives.contains("Serialize") && !derives.contains("Display"), "{derives}");
-    let compact: String = src.split_whitespace().collect::<Vec<_>>().join(" ");
-    for banned in ["Serialize for XPostUrl", "Display for XPostUrl", "fmt::Display for XPostUrl"] {
-        assert!(!compact.contains(banned), "{banned}");
-    }
+    // The catalog's X ops: the removal by hash, the class purge; never the
+    // withdrawn oEmbed trust reset.
+    assert!(op::in_catalog(op::Target::Detect, "x_remove") && op::in_catalog(op::Target::Detect, "x_purge"));
+    assert!(!op::CATALOG.iter().any(|(_, o)| *o == ["x_oembed", "_trust"].concat()));
 }
 
 #[test]
@@ -812,6 +772,9 @@ fn the_retired_x_names_are_gone() {
         ["\"em", "bed\""].concat(),
         ["is_x", "_href"].concat(),
         ["no", "_store"].concat(),
+        ["XPost", "Url"].concat(),
+        ["Op", "Request"].concat(),
+        ["\"x", "_url\""].concat(),
     ];
     fn walk(dir: &std::path::Path, out: &mut Vec<std::path::PathBuf>) {
         for e in std::fs::read_dir(dir).unwrap() {

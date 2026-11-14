@@ -527,6 +527,41 @@ pub struct OwnedRemoved {
     pub removed: u32,
 }
 
+// ---------------------------------------------------------- account ids
+
+/// The most ids one `users` page answers: each id is 32 hex digits and its
+/// state at most 7 letters, so a full page's JSON (about 60 bytes an entry)
+/// stays well under the 64 KiB a binding answer is read within.
+pub const USERS_PAGE_MAX: u32 = 500;
+
+/// `POST /internal/v1/users`: one page of account ids in id order, after
+/// `after` (from the start when absent), for the detect Worker's operator op
+/// `owner_match`, which derives each id's owner hash itself and answers the
+/// match to the operator only. Every account is listed, deleted ones
+/// included, so a strike left by a deleted account is named as such.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct UsersRequest {
+    pub after: Option<UserId>,
+    /// At most [`USERS_PAGE_MAX`].
+    pub limit: u32,
+}
+
+/// One account of a `users` page.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct UserEntry {
+    pub user_id: UserId,
+    pub state: UserState,
+}
+
+/// A `users` page: `next` is the last id when the page is full (ask again
+/// with `after = next`), `None` at the end.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct UsersPage {
+    pub users: Vec<UserEntry>,
+    pub next: Option<UserId>,
+}
+
 // ------------------------------------------------------------------ billing
 
 /// `POST /internal/v1/billing/peek`.

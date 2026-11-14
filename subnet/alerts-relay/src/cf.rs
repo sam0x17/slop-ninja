@@ -1,9 +1,10 @@
 //! Workers entry points (wasm32 only).
 //!
-//! - `fetch`: the publisher's `POST /alerts` and `POST /heartbeat`, which
-//!   reach this Worker only through the publisher's service binding (the
-//!   Worker has no route and no `workers.dev` name). Each is forwarded,
-//!   body streaming, to the `AlertsRelayState` Durable Object.
+//! - `fetch`: the publisher's `POST /alerts` and `POST /heartbeat`, and the
+//!   detect Worker's `POST /v1/legal` (the legal stream, [`crate::legal`]),
+//!   which reach this Worker only through service bindings (the Worker has
+//!   no route and no `workers.dev` name). Each is forwarded, body
+//!   streaming, to the `AlertsRelayState` Durable Object.
 //! - `scheduled`: the one-minute cron, which asks the object for one tick,
 //!   and pings the external dead-man URL (when enabled) only after a tick
 //!   that finished with its delivery path working.
@@ -36,7 +37,7 @@ use crate::ledger::{Mark, Row, StoreError, Table};
 use crate::mime::Message;
 use crate::relay::{self, Failure, Mailer, SendError, TickHooks, TickReads, TickState};
 use crate::rules::{self, HeartbeatRecord, Intake};
-use crate::{status, tracker};
+use crate::{legal, status, tracker};
 
 const STATE: &str = "ALERTS_RELAY_STATE_TESTNET";
 const BUCKET: &str = "ALERTS_TESTNET";
@@ -154,7 +155,29 @@ fn ensure_schema(sql: &SqlStorage) -> Result<()> {
         "CREATE TABLE IF NOT EXISTS email_limits (k TEXT PRIMARY KEY, n INTEGER NOT NULL, at_ms INTEGER NOT NULL)",
         None,
     )?;
+    // The legal stream (`crate::legal`): notices waiting for the next
+    // digest (deleted once it is sent), and the case ids sent.
+    sql.exec(
+        "CREATE TABLE IF NOT EXISTS legal_waiting (case_id TEXT PRIMARY KEY, body TEXT NOT NULL, at_ms INTEGER NOT NULL)",
+        None,
+    )?;
+    sql.exec(
+        "CREATE TABLE IF NOT EXISTS legal_sent (case_id TEXT PRIMARY KEY, at_ms INTEGER NOT NULL)",
+        None,
+    )?;
     Ok(())
+}
+
+#[derive(Deserialize)]
+struct LegalLenRow {
+    case_id: String,
+    n: i64,
+    at_ms: i64,
+}
+
+#[derive(Deserialize)]
+struct LegalBodyRow {
+    body: String,
 }
 
 #[derive(Deserialize)]
@@ -741,6 +764,142 @@ fn save_intake(sql: &SqlStorage, i: &Intake) {
 }
 
 impl AlertsRelayState {
+    /// `POST /v1/legal`: one notice, kept until the next tick's digest.
+    async fn legal(&self, mut req: Request, sql: &SqlStorage, cfg: &Config) -> Result<Response> {
+        if cfg.legal.is_none() {
+            // Off without its recipient: the detect Worker's retries end in
+            // its dead-letter queue, which raises an alert.
+            return json_response(503, r#"{"error":"legal_off"}"#);
+        }
+        let (body, _hold) = match request_body(&mut req, legal::LEGAL_BODY_BYTES).await {
+            Ok(b) => b,
+            Err(e) => return read_error(e),
+        };
+        let n = match legal::parse(&body) {
+            Ok(n) => n,
+            Err(r) => {
+                console_error!("relay: legal post refused: {}", r.code());
+                return json_response(400, &format!(r#"{{"error":"{}"}}"#, r.code()));
+            }
+        };
+        let Ok(text) = std::str::from_utf8(&body) else {
+            return json_response(400, r#"{"error":"body"}"#);
+        };
+        let sent: Vec<CountRow> = sql
+            .exec(
+                "SELECT COUNT(*) AS n FROM legal_sent WHERE case_id = ?",
+                vec![n.case_id.as_str().into()],
+            )?
+            .to_array()?;
+        if sent.first().is_some_and(|r| r.n > 0) {
+            return json_response(200, r#"{"legal":"sent"}"#);
+        }
+        sql.exec(
+            "INSERT INTO legal_waiting (case_id, body, at_ms) VALUES (?, ?, ?) ON CONFLICT(case_id) DO NOTHING",
+            vec![n.case_id.as_str().into(), text.into(), int(now_ms())],
+        )?;
+        json_response(200, r#"{"legal":"kept"}"#)
+    }
+
+    /// The tick's legal digest: the waiting notices that fit one digest,
+    /// oldest first, emailed to the legal recipient; each is deleted once
+    /// sent. Answers whether the stream is delivering (no notice has waited
+    /// past [`legal::UNDELIVERED_MS`]).
+    async fn legal_tick(&self, sql: &SqlStorage, cfg: &Config, now: u64) -> Result<bool> {
+        sql.exec(
+            "DELETE FROM legal_sent WHERE at_ms < ?",
+            vec![int(now.saturating_sub(legal::SENT_RETAIN_MS))],
+        )?;
+        let waiting: Vec<LegalLenRow> = sql
+            .exec(
+                "SELECT case_id, length(CAST(body AS BLOB)) AS n, at_ms FROM legal_waiting ORDER BY at_ms, case_id",
+                None,
+            )?
+            .to_array()?;
+        if waiting.is_empty() {
+            return Ok(true);
+        }
+        let oldest = waiting
+            .iter()
+            .map(|w| w.at_ms.max(0) as u64)
+            .min()
+            .unwrap_or(now);
+        let delivering = now.saturating_sub(oldest) < legal::UNDELIVERED_MS;
+        let Some(addrs) = &cfg.legal else {
+            console_error!(
+                "relay: legal notices waiting {} with the stream off",
+                waiting.len()
+            );
+            return Ok(delivering);
+        };
+        let lens: Vec<u64> = waiting.iter().map(|w| w.n.max(0) as u64).collect();
+        let take = legal::digest_len(&lens);
+        let Ok(_slot) = budget().reserve(arena::legal_tick_footprint()) else {
+            console_error!("relay: legal digest deferred: budget");
+            return Ok(delivering);
+        };
+        let mut notices = Vec::with_capacity(take);
+        let mut ids = Vec::with_capacity(take);
+        for w in waiting.iter().take(take) {
+            let rows: Vec<LegalBodyRow> = sql
+                .exec(
+                    "SELECT body FROM legal_waiting WHERE case_id = ?",
+                    vec![w.case_id.as_str().into()],
+                )?
+                .to_array()?;
+            let Some(r) = rows.into_iter().next() else {
+                continue;
+            };
+            match legal::parse(r.body.as_bytes()) {
+                Ok(n) => {
+                    notices.push(n);
+                    ids.push(w.case_id.clone());
+                }
+                Err(e) => console_error!("relay: legal notice unreadable: {}", e.code()),
+            }
+        }
+        if notices.is_empty() {
+            return Ok(delivering);
+        }
+        let message = legal::build(addrs, &cfg.network, &notices, now);
+        drop(notices);
+        let mailer = Binding {
+            env: &self.env,
+            answer_by: None,
+        };
+        match mailer.send(&message).await {
+            Ok(()) => {
+                for id in &ids {
+                    sql.exec(
+                        "INSERT INTO legal_sent (case_id, at_ms) VALUES (?, ?) ON CONFLICT(case_id) DO NOTHING",
+                        vec![id.as_str().into(), int(now)],
+                    )?;
+                    sql.exec(
+                        "DELETE FROM legal_waiting WHERE case_id = ?",
+                        vec![id.as_str().into()],
+                    )?;
+                }
+                console_log!(
+                    "relay: legal digest sent {} waiting {}",
+                    ids.len(),
+                    waiting.len() - ids.len()
+                );
+                Ok(waiting.len() == ids.len() || delivering)
+            }
+            Err(SendError::Timeout) => {
+                console_error!(
+                    "relay: legal digest send timed out ({} waiting)",
+                    waiting.len()
+                );
+                Ok(delivering)
+            }
+            Err(SendError::Refused(f)) => {
+                log_failure("legal", &f);
+                Ok(delivering)
+            }
+        }
+    }
+
     async fn alerts(&self, mut req: Request, sql: &SqlStorage, cfg: &Config) -> Result<Response> {
         let started = now_ms();
         let (body, _hold) = match request_body(&mut req, wire::post_bound() as u64).await {
@@ -883,6 +1042,15 @@ impl AlertsRelayState {
         if hooks.held() {
             kv_delete(sql, "tick_lease")?;
         }
+        // The legal stream's digest, after the tick's own work has released
+        // its slot.
+        let legal_ok = match self.legal_tick(sql, cfg, now).await {
+            Ok(ok) => ok,
+            Err(_) => {
+                console_error!("relay: legal digest store error");
+                false
+            }
+        };
         match report {
             Ok(r) => {
                 // The budget's peak: the drill's live reading of the
@@ -926,7 +1094,7 @@ impl AlertsRelayState {
                 }
                 let headers = Headers::new();
                 headers.set("content-type", "application/json")?;
-                if r.delivery_ok {
+                if r.delivery_ok && legal_ok {
                     headers.set(PING_HEADER, "1")?;
                 }
                 let body = format!(
@@ -971,6 +1139,7 @@ impl DurableObject for AlertsRelayState {
         match (req.method(), req.path().as_str()) {
             (Method::Post, wire::ALERTS_PATH) => self.alerts(req, &sql, &cfg).await,
             (Method::Post, wire::HEARTBEAT_PATH) => self.heartbeat(req, &sql, &cfg).await,
+            (Method::Post, legal::LEGAL_PATH) => self.legal(req, &sql, &cfg).await,
             (Method::Post, "/tick") => self.tick(&sql, &cfg).await,
             _ => json_response(404, r#"{"error":"not_found"}"#),
         }
@@ -985,12 +1154,14 @@ fn stub(env: &Env) -> Result<worker::Stub> {
 
 // --------------------------------------------------------------- entries
 
-/// Only the publisher's two routes; the request (and its body stream) goes
-/// to the state object as it is.
+/// Only the publisher's two routes and the legal stream's; the request
+/// (and its body stream) goes to the state object as it is.
 #[event(fetch)]
 async fn fetch(req: Request, env: Env, _ctx: Context) -> Result<Response> {
     let path = req.path();
-    if req.method() != Method::Post || (path != wire::ALERTS_PATH && path != wire::HEARTBEAT_PATH) {
+    let known =
+        path == wire::ALERTS_PATH || path == wire::HEARTBEAT_PATH || path == legal::LEGAL_PATH;
+    if req.method() != Method::Post || !known {
         return json_response(404, r#"{"error":"not_found"}"#);
     }
     stub(&env)?.fetch_with_request(req).await

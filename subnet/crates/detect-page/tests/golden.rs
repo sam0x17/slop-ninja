@@ -1128,26 +1128,6 @@ fn entries() -> Vec<Entry> {
             QueueMessage::new(Job::XDelete { source_id: 42, cause: *cause }),
         ));
     }
-    // The detect op route's body: the signed envelope and, beside it, the X
-    // link of a restore. The key and signature are placeholders: the file
-    // shows the shape (the units test signs and verifies a real one), and
-    // OpRequest has no Serialize, so the JSON is written here by hand.
-    let op = serde_json::json!({
-        "signed": {
-            "v": 1,
-            "target": "detect",
-            "env": "staging",
-            "issued_ms": T0,
-            "expires_ms": T0 + 5 * MIN,
-            "nonce": "0".repeat(32),
-            "op": "restore",
-            "args": { "case_id": "td-8k2m4q7x" },
-            "key": "0".repeat(16),
-            "sig": "0".repeat(128),
-        },
-        "x_url": "https://x.com/i/status/2",
-    });
-    e.push(Entry { path: "api/op-request-restore-x.json".into(), json: pretty(&op) });
     e
 }
 

@@ -259,9 +259,20 @@ fn cases_strikes_and_journal() {
     let c = db();
     let case = "INSERT INTO cases (case_id, status_h, kind, state, received_at, updated_at, notice_key) \
                 VALUES (?, ?, ?, ?, 1, 1, 'c/x')";
-    for k in CaseKind::ALL {
-        run(&c, case, &[t(&format!("td-{k}")), b(1), t(k.as_str()), t("received")]).unwrap();
+    for (n, k) in CaseKind::ALL.iter().filter(|k| k.is_form_track()).enumerate() {
+        run(&c, case, &[t(&format!("td-{k}")), b(10 + n as u8), t(k.as_str()), t("received")]).unwrap();
     }
+    // An x_request case holds no notice and no status token, and only it.
+    let x_case = "INSERT INTO cases (case_id, status_h, kind, state, received_at, updated_at, notice_key, source_id) \
+                  VALUES (?, ?, ?, 'accepted', 1, 1, ?, ?)";
+    run(&c, SRC, &[i(7), b(7), NULL, t("x.com"), t("x"), t("opted_out"), t("unranked"), t("x")]).unwrap();
+    run(&c, x_case, &[t("td-x1"), NULL, t("x_request"), NULL, i(7)]).unwrap();
+    refused(&c, x_case, &[t("td-x2"), b(2), t("x_request"), NULL, NULL], "CHECK constraint failed");
+    refused(&c, x_case, &[t("td-x3"), NULL, t("x_request"), t("c/x"), NULL], "CHECK constraint failed");
+    refused(&c, x_case, &[t("td-x4"), NULL, t("copyright"), NULL, NULL], "CHECK constraint failed");
+    refused(&c, x_case, &[t("td-x5"), NULL, t("x_request"), NULL, i(99)], "FOREIGN KEY constraint failed");
+    // Status tokens are unique.
+    refused(&c, case, &[t("td-dup"), b(10), t("author"), t("received")], "UNIQUE constraint failed: cases.status_h");
     refused(&c, case, &[t("td-a"), b(1), t("spam"), t("received")], "CHECK constraint failed");
     refused(&c, case, &[t("td-b"), b(1), t("copyright"), t("open")], "CHECK constraint failed");
     refused(

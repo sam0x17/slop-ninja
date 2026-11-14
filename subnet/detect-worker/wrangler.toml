@@ -135,6 +135,12 @@ QUEUE_HOLD_MS = "20000"
 # measured at the launch gate. Meanwhile a slow body holds only its intake
 # reservation (2 bytes per declared byte).
 BODY_WAIT_MS = "300000"
+# The signed op route (/api/detect/v1/op): this deployment's environment,
+# and the operator's verifying key for it (64 hex digits, a public key;
+# staging and production never share one). The deploy wrapper passes the
+# key; empty, the op route answers not_configured.
+OP_ENV = "production"
+DETECT_OP_KEY = ""
 
 [[env.testnet.durable_objects.bindings]]
 name = "DETECT_GATE"
@@ -262,6 +268,8 @@ SCORE_WAIT_MS = "60000"
 IDLE_MS = "600000"
 QUEUE_HOLD_MS = "20000"
 BODY_WAIT_MS = "300000"
+OP_ENV = "staging"
+DETECT_OP_KEY = ""
 
 [[env.staging.durable_objects.bindings]]
 name = "DETECT_GATE"

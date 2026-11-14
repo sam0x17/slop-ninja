@@ -26,6 +26,8 @@
 //!   sessions, export, deletion), [`delete`];
 //! - [`ledger`] (holds and how they end, grants, plan periods and the
 //!   internal billing routes, `billing-policy/v1`);
+//! - [`users`]: one page of account ids for the detect Worker's operator
+//!   op `owner_match`;
 //! - [`quota`] (the `QuotaLimiter` object's logic), [`ops`] (signed ops),
 //!   [`sweep`] (the crons), [`journal`], [`metrics`];
 //! - [`host`]: the platform seam the handlers run on; `cf.rs` (wasm32) is
@@ -59,6 +61,7 @@ pub mod sessions;
 pub mod signin;
 pub mod store;
 pub mod sweep;
+pub mod users;
 pub mod views;
 pub mod wallet;
 

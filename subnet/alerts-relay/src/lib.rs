@@ -28,6 +28,11 @@
 //!    tracker's output is older than two of its schedule periods, and one
 //!    when its runs have not priced everything for that long.
 //!
+//! A fourth input, **the legal stream** ([`legal`]), takes the detect
+//! Worker's removal notices to the legal mailbox's forward target
+//! (`LEGAL_EMAIL_TO`), at most one digest a minute; it is independent of the
+//! alert email below and writes nothing to the feed.
+//!
 //! Email, when it is on, follows its own policy ([`email`]): only the rules
 //! the operator lists (the critical ones by default), one email when an
 //! episode fires and one when it resolves, never its reminders, with a
@@ -52,6 +57,7 @@ pub mod config;
 pub mod email;
 pub mod feed;
 pub mod ledger;
+pub mod legal;
 pub mod mime;
 pub mod relay;
 pub mod rules;

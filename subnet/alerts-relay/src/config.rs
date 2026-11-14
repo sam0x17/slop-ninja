@@ -107,6 +107,11 @@ pub struct Config {
     /// per id (subject `SlopNinja <network> alert drill`) and never again
     /// for the same id. Unset (the tracked default) sends none.
     pub drill: Option<String>,
+    /// The legal stream's sender and recipient ([`crate::legal`]): `None`
+    /// (the stream is off, and a legal post answers 503) while the secret
+    /// `LEGAL_EMAIL_TO` is absent. The sender is `ALERT_EMAIL_FROM`. It does
+    /// not depend on `ALERT_EMAIL_ENABLED`: the legal stream is not an alert.
+    pub legal: Option<Addresses>,
     /// Optional settings that did not parse and were ignored (their default
     /// is in force). Names and rules only, never values.
     pub warnings: Vec<ConfigError>,
@@ -234,6 +239,22 @@ fn email(get: &impl Fn(&str) -> Option<String>) -> Result<Option<Addresses>, Con
         .ok_or(ConfigError::Address("ALERT_EMAIL_TO"))
 }
 
+/// The legal stream's addresses: `None` while `LEGAL_EMAIL_TO` is absent or
+/// blank; otherwise it and `ALERT_EMAIL_FROM` must each be one plain
+/// mailbox, or the stream stays off and the bad one is named.
+fn legal(get: &impl Fn(&str) -> Option<String>) -> Result<Option<Addresses>, ConfigError> {
+    let Some(to) = get("LEGAL_EMAIL_TO").filter(|v| !v.trim().is_empty()) else {
+        return Ok(None);
+    };
+    if !crate::mime::valid_address(to.trim()) {
+        return Err(ConfigError::Address("LEGAL_EMAIL_TO"));
+    }
+    let from = get("ALERT_EMAIL_FROM").unwrap_or_default();
+    Addresses::new(&from, &to)
+        .map(Some)
+        .ok_or(ConfigError::Address("ALERT_EMAIL_FROM"))
+}
+
 /// Parses the configuration. `get` returns a var or secret by name. Only a
 /// wrong network refuses it.
 pub fn parse(get: impl Fn(&str) -> Option<String>) -> Result<Config, ConfigError> {
@@ -281,6 +302,7 @@ pub fn parse(get: impl Fn(&str) -> Option<String>) -> Result<Config, ConfigError
         None
     };
     let drill = optional(&mut warnings, drill_id(get("DRILL_ID")), None);
+    let legal = optional(&mut warnings, legal(&get), None);
     Ok(Config {
         network: NETWORK.into(),
         email,
@@ -290,6 +312,7 @@ pub fn parse(get: impl Fn(&str) -> Option<String>) -> Result<Config, ConfigError
         tracker_period_ms,
         heartbeat,
         drill,
+        legal,
         warnings,
     })
 }
@@ -313,6 +336,31 @@ pub(crate) mod tests {
         ("ALERT_EMAIL_FROM", "alerts@example.invalid"),
         ("ALERT_EMAIL_TO", "ops@example.invalid"),
     ];
+
+    #[test]
+    fn the_legal_stream_has_its_own_recipient() {
+        let with = |extra: &[(&'static str, &'static str)]| {
+            let mut p = BASE.to_vec();
+            p.retain(|(n, _)| *n != "ALERT_EMAIL_ENABLED" && *n != "ALERT_EMAIL_TO");
+            p.extend_from_slice(extra);
+            parse(vars(&p)).unwrap()
+        };
+        // Off without its recipient; on with it, whatever alert email does.
+        assert_eq!(with(&[]).legal, None);
+        let c = with(&[("LEGAL_EMAIL_TO", "legal-forward@example.invalid")]);
+        assert_eq!(c.email, None);
+        let a = c.legal.unwrap();
+        assert_eq!(
+            (a.from.as_str(), a.to.as_str()),
+            ("alerts@example.invalid", "legal-forward@example.invalid")
+        );
+        // A bad address keeps it off and is named, never shown.
+        let c = with(&[("LEGAL_EMAIL_TO", "Legal <legal-forward@example.invalid>")]);
+        assert_eq!(
+            (c.legal, c.warnings),
+            (None, vec![ConfigError::Address("LEGAL_EMAIL_TO")])
+        );
+    }
 
     #[test]
     fn parses_and_refuses() {

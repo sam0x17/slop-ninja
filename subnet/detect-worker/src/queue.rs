@@ -18,7 +18,8 @@
 //!   moves `detections`, `jobs` and `strikes` (a case both accounts held
 //!   keeps one strike).
 //! - `legal_notice {case_id, kind}`: the case's notice to the relay's legal
-//!   stream.
+//!   stream, a secret page named only as "private detection" (its slug
+//!   masked in every field; the sealed notice keeps the link).
 //! - `sitemap_dirty {shard}`: marks the shard for the hourly rebuild.
 //! - `indexnow`: not sent before public pages exist; dropped.
 //!
@@ -96,8 +97,10 @@ struct LegalBody<'a> {
     received_at: u64,
     /// Public slugs, or "private detection" for each secret target.
     targets: Vec<String>,
-    /// The notice as the claimant wrote it (JSON), opened from `c/<case_id>`.
-    notice: serde_json::Value,
+    /// The notice as the claimant wrote it, opened from `c/<case_id>`, in
+    /// its legal stream copy: a secret page's link and slug masked
+    /// ([`crate::cases::Notice::for_relay`]).
+    notice: crate::cases::Notice,
 }
 
 /// Handles one message.
@@ -204,14 +207,22 @@ async fn legal_notice(io: &impl Io, keys: &StoreKeys, case_id: &str) -> Result<(
                 .iter()
                 .map(|r| match r.text("public_slug") {
                     Some(s) => s.to_owned(),
-                    None => "private detection".to_owned(),
+                    None => crate::cases::PRIVATE_TARGET.to_owned(),
                 })
                 .collect()
         })
         .unwrap_or_default();
     let sealed = io.doc_get(&format!("c/{case_id}")).await?.ok_or(IoError)?;
     let plain = open_with(keys.cases_key(), CASE_AAD, &sealed).map_err(|_| IoError)?;
-    let notice: serde_json::Value = serde_json::from_slice(&plain).map_err(|_| IoError)?;
+    drop(sealed);
+    let full: crate::cases::Notice = serde_json::from_slice(&plain).map_err(|_| IoError)?;
+    drop(plain);
+    // A secret page's link opens it: the relay keeps the notice until its
+    // digest goes out and mails it to an outside mailbox, so the copy it
+    // gets names the page only as a private detection. A notice that cannot
+    // be masked is not sent (its retries end in the dead-letter alert).
+    let notice = full.for_relay().ok_or(IoError)?;
+    drop(full);
     let body = LegalBody { schema: LEGAL_SCHEMA, case_id, kind: &kind, received_at, targets, notice };
     io.relay_legal(serde_json::to_vec(&body).map_err(|_| IoError)?).await
 }

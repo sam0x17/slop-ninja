@@ -8,7 +8,6 @@ use serde::{Deserialize, Serialize};
 
 use crate::codes::*;
 use crate::refusal::RefusalCode;
-use crate::x::XPostUrl;
 
 crate::code_enum! {
     /// Why a link was not saved to the account.
@@ -203,6 +202,9 @@ crate::code_enum! {
         Disabled = "disabled",
         /// A wrong-text or wrong-result report.
         Recheck = "recheck",
+        /// A report on an X post's page from the post's author: the page
+        /// is removed at once, with every other page about the post.
+        Removed = "removed",
     }
 }
 
@@ -230,25 +232,4 @@ pub struct RemovalStatusAnswer {
     pub received_at: u64,
     pub updated_at: u64,
     pub due_at: Option<u64>,
-}
-
-/// The body of the detect Worker's op route, `POST /api/detect/v1/op`:
-/// `{"signed": <envelope>, "x_url": <link>}`, with `x_url` optional.
-///
-/// `signed` is the signed envelope as `slop-ninja-signed-op` defines it (its
-/// `Wire`, verified as it stands by `Verifier::verify_wire`). `x_url` travels
-/// beside it, outside the signed bytes: the post's link that `restore
-/// {case_id}` needs on an X page, which the Worker accepts only when its
-/// source key hashes to the tombstone's `canon_key`, and then drops. No other
-/// op takes it; a Worker refuses `x_url` on any op but `restore`. Unknown
-/// fields are refused. The account Worker's op route takes the bare envelope.
-///
-/// The type has no `Serialize`, because [`XPostUrl`] has none: a request can
-/// be parsed, never written back out (the operator's CLI builds the JSON).
-#[derive(Debug, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct OpRequest<W> {
-    pub signed: W,
-    #[serde(default)]
-    pub x_url: Option<XPostUrl>,
 }

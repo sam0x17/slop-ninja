@@ -18,8 +18,8 @@
 //! - [`queue`]: the `detect-jobs` queue's messages;
 //! - [`ae`]: the Analytics Engine point schema;
 //! - [`switches`]: the kill switches;
-//! - [`x`]: posts on X: the canonical post URL, the page's link to the post
-//!   ([`PostUrl`]) and the link that travels beside a signed op ([`XPostUrl`]);
+//! - [`x`]: posts on X: the canonical post URL and the page's link to the
+//!   post ([`PostUrl`]);
 //! - [`codes`]: the closed value sets, each with one wire string.
 //!
 //! The crate is pure (no I/O, no runtime) and compiles natively and for
@@ -51,4 +51,4 @@ pub use origins::{Origin, Origins};
 pub use page::{PAGE_SCHEMA, Page};
 pub use refusal::{ApiRefusal, RefusalCode};
 pub use sn::{Principal, RouteId};
-pub use x::{PostUrl, XPost, XPostUrl};
+pub use x::{PostUrl, XPost};

@@ -633,7 +633,17 @@ pub mod forwarded {
             };
             assert_eq!(admit(RouteId::Score, &same_site, &o), Err(RefusalCode::Csrf), "secret host to site");
             let null = Arrival { sec_fetch_site: None, origin: Some("null"), ..forwarded("score", "site.example") };
-            assert_eq!(admit(RouteId::Score, &null, &o), Err(RefusalCode::Csrf));
+            assert_eq!(admit(RouteId::Score, &null, &o), Err(RefusalCode::Csrf), "null without Fetch Metadata");
+            // A form post from a page that sends no referrer: the browser says
+            // same-origin and serializes its Origin as null.
+            let form = Arrival {
+                sec_fetch_site: Some("same-origin"),
+                origin: Some("null"),
+                ..forwarded("score", "site.example")
+            };
+            assert!(admit(RouteId::Score, &form, &o).is_ok(), "same-origin with Origin: null");
+            let none = Arrival { sec_fetch_site: Some("none"), ..forwarded("score", "site.example") };
+            assert_eq!(admit(RouteId::Score, &none, &o), Err(RefusalCode::Csrf), "a user-typed navigation never posts");
             let missing = Arrival { sec_fetch_site: None, origin: None, ..forwarded("score", "site.example") };
             assert_eq!(admit(RouteId::Score, &missing, &o), Err(RefusalCode::Csrf));
             let origin_only = Arrival { sec_fetch_site: None, ..forwarded("score", "site.example") };

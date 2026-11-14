@@ -14,12 +14,15 @@ fn origins() -> Origins {
     Origins::from_vars(SITE, SECRET).unwrap()
 }
 
-/// The rule, stated independently of the implementation.
+/// The rule, stated independently of the implementation: a `POST` passes
+/// with the host's own `Origin`, or with `Origin: null` or none when the
+/// browser says `same-origin`; any other `Sec-Fetch-Site`, another origin,
+/// and neither header are refused.
 fn expected(method: &str, sfs: Option<&str>, origin: Option<&str>, host: &str) -> bool {
     match method {
         "GET" | "HEAD" => true,
         "POST" => match sfs {
-            Some("same-origin") => origin.is_none_or(|o| o == host),
+            Some("same-origin") => matches!(origin, None | Some("null")) || origin == Some(host),
             Some(_) => false,
             None => origin == Some(host),
         },
@@ -114,16 +117,21 @@ fn named_cases() {
         check("POST", Some("same-origin"), Some(SECRET), &o.site),
         Err(CsrfRefusal::Origin)
     );
-    assert_eq!(
-        check("POST", Some("same-origin"), Some("null"), &o.site),
-        Err(CsrfRefusal::Origin)
-    );
-    // The good forms.
+    // The good forms, `Origin: null` under `same-origin` among them (a
+    // form post from a page served with `Referrer-Policy: no-referrer`).
     assert_eq!(
         check("POST", Some("same-origin"), Some(SITE), &o.site),
         Ok(())
     );
     assert_eq!(check("POST", Some("same-origin"), None, &o.site), Ok(()));
+    assert_eq!(
+        check("POST", Some("same-origin"), Some("null"), &o.site),
+        Ok(())
+    );
+    assert_eq!(
+        check("POST", Some("same-origin"), Some("null"), &o.secret),
+        Ok(())
+    );
     assert_eq!(check("POST", None, Some(SITE), &o.site), Ok(()));
     assert_eq!(
         check("POST", Some("same-origin"), Some(SECRET), &o.secret),
@@ -133,6 +141,88 @@ fn named_cases() {
         check("PUT", Some("same-origin"), Some(SITE), &o.site),
         Err(CsrfRefusal::Method)
     );
+}
+
+/// Each case of the rule for state-changing requests, one by one: what a
+/// browser sends for a form post from a page with each referrer policy, and
+/// what other pages and tools send.
+#[test]
+fn state_changing_requests_case_by_case() {
+    let o = origins();
+    let post = |sfs: Option<&str>, origin: Option<&str>| check("POST", sfs, origin, &o.site);
+    // Accepted: the configured origin itself (any referrer policy but
+    // no-referrer, and fetch() posts under no-referrer)...
+    assert_eq!(
+        post(Some("same-origin"), Some(SITE)),
+        Ok(()),
+        "same-origin, own origin"
+    );
+    assert_eq!(
+        post(None, Some(SITE)),
+        Ok(()),
+        "no Fetch Metadata, own origin"
+    );
+    // ...and `null` or no Origin when the browser says same-origin (a form
+    // post from a no-referrer page).
+    assert_eq!(
+        post(Some("same-origin"), Some("null")),
+        Ok(()),
+        "same-origin, Origin: null"
+    );
+    assert_eq!(
+        post(Some("same-origin"), None),
+        Ok(()),
+        "same-origin, no Origin"
+    );
+    // Refused: cross-site, same-site and none, whatever the Origin says.
+    for sfs in ["cross-site", "same-site", "none"] {
+        for origin in [
+            None,
+            Some("null"),
+            Some(SITE),
+            Some(SECRET),
+            Some("https://evil.example"),
+        ] {
+            assert_eq!(
+                post(Some(sfs), origin),
+                Err(CsrfRefusal::FetchSite),
+                "{sfs} {origin:?}"
+            );
+        }
+    }
+    // Refused: same-origin metadata with another origin (the secret host,
+    // another site), and `null`, another origin or nothing without metadata.
+    assert_eq!(
+        post(Some("same-origin"), Some(SECRET)),
+        Err(CsrfRefusal::Origin)
+    );
+    assert_eq!(
+        post(Some("same-origin"), Some("https://evil.example")),
+        Err(CsrfRefusal::Origin)
+    );
+    assert_eq!(
+        post(None, Some("null")),
+        Err(CsrfRefusal::Origin),
+        "null without metadata"
+    );
+    assert_eq!(post(None, Some(SECRET)), Err(CsrfRefusal::Origin));
+    assert_eq!(post(None, None), Err(CsrfRefusal::Origin), "missing both");
+    // The value is exact: no case folding of the metadata or the null.
+    assert_eq!(
+        post(Some("SAME-ORIGIN"), Some("null")),
+        Err(CsrfRefusal::FetchSite)
+    );
+    assert_eq!(
+        post(Some("same-origin"), Some("NULL")),
+        Err(CsrfRefusal::Origin)
+    );
+    assert_eq!(
+        post(Some("same-origin"), Some("")),
+        Err(CsrfRefusal::Origin)
+    );
+    // Every refusal is the route's `csrf` code (403).
+    assert_eq!(CsrfRefusal::FetchSite.code(), RefusalCode::Csrf);
+    assert_eq!(CsrfRefusal::Origin.code(), RefusalCode::Csrf);
 }
 
 #[test]
@@ -173,6 +263,17 @@ fn scope() {
                 assert_eq!(
                     check_route(route, host, &o, "POST", Some("same-origin"), Some(own)),
                     Ok(()),
+                    "{route:?}"
+                );
+                // A form post from a page that sends no referrer.
+                assert_eq!(
+                    check_route(route, host, &o, "POST", Some("same-origin"), Some("null")),
+                    Ok(()),
+                    "{route:?}"
+                );
+                assert_eq!(
+                    check_route(route, host, &o, "POST", None, Some("null")),
+                    Err(CsrfRefusal::Origin),
                     "{route:?}"
                 );
             }

@@ -6,11 +6,23 @@
 //! - `GET` and `HEAD` pass: no state-changing route is a `GET` (an OAuth
 //!   start only sets a flow cookie and redirects; a callback is bound by
 //!   `state` and the flow cookie);
-//! - `POST` must carry `Sec-Fetch-Site: same-origin`; when it does and also
-//!   carries an `Origin`, that origin must be the host's own. Without
-//!   `Sec-Fetch-Site`, `Origin` must equal the host's own origin exactly. A
-//!   missing `Origin` or `Origin: null` is then refused;
+//! - `POST` passes when `Origin` is the host's own origin exactly, or when
+//!   `Origin` is `null` or absent and `Sec-Fetch-Site` is `same-origin`.
+//!   Everything else is refused: a `Sec-Fetch-Site` of `cross-site`,
+//!   `same-site` or `none` (whatever the `Origin`; a browser never pairs
+//!   those with the host's own origin), another origin, and a request
+//!   carrying neither header;
 //! - any other method is refused.
+//!
+//! **Why `Origin: null` with `same-origin` passes.** A page served with
+//! `Referrer-Policy: no-referrer` makes the browser serialize the `Origin` of
+//! its own form posts as `null` (Fetch, "append a request `Origin` header"),
+//! while `Sec-Fetch-Site`, which page script cannot set, still says
+//! `same-origin`. So a real form post from such a page arrives as
+//! `same-origin` with `Origin: null`, and refusing it would refuse every
+//! signed-in form. A cross-origin page cannot produce that pair: its posts
+//! carry `cross-site` or `same-site`. Without Fetch Metadata (an older
+//! browser) only the exact origin passes.
 //!
 //! The host's own origin is `SITE_ORIGIN` or `SECRET_ORIGIN` from config
 //! ([`Origins::of`] the request's [`HostRole`]), never read from `Host`. A
@@ -38,8 +50,8 @@ pub enum CsrfRefusal {
     Method,
     /// `Sec-Fetch-Site` is present and not `same-origin`.
     FetchSite,
-    /// `Origin` is missing (without Fetch Metadata), `null`, or not the
-    /// host's own.
+    /// `Origin` is another origin, or `null` or missing without
+    /// `Sec-Fetch-Site: same-origin`.
     Origin,
 }
 
@@ -73,12 +85,15 @@ pub fn check(
     }
     let own = |o: &str| o == host_origin.as_str();
     match sec_fetch_site {
+        // The browser's own metadata says same-origin: the host's origin, or
+        // the `null` (or absent) origin of a page that sends no referrer.
         Some("same-origin") => match origin {
-            None => Ok(()),
+            None | Some("null") => Ok(()),
             Some(o) if own(o) => Ok(()),
             Some(_) => Err(CsrfRefusal::Origin),
         },
         Some(_) => Err(CsrfRefusal::FetchSite),
+        // No Fetch Metadata: only the exact origin.
         None => match origin {
             Some(o) if own(o) => Ok(()),
             _ => Err(CsrfRefusal::Origin),

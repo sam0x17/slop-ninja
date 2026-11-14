@@ -552,3 +552,55 @@ fn csrf_and_content_type_are_checked_first() {
     assert_eq!(h.call(&cfg, &r).status, 404);
     let _ = h.random::<4>();
 }
+
+/// A form post from a page served with `Referrer-Policy: no-referrer`: the
+/// browser says `Sec-Fetch-Site: same-origin` and serializes its `Origin` as
+/// `null`. The email sign-in form and a signed-in account form both pass;
+/// `null` without Fetch Metadata does not.
+#[test]
+fn a_form_post_from_a_page_that_sends_no_referrer_passes() {
+    let h = TestHost::new();
+    let cfg = config(&[]);
+    let null_origin = |mut r: slop_ninja_account_worker::http::Req, sfs: Option<&str>| {
+        r.headers.retain(|(k, _)| k != "sec-fetch-site" && k != "origin");
+        if let Some(f) = sfs {
+            r.headers.push(("sec-fetch-site".into(), f.into()));
+        }
+        r.headers.push(("origin".into(), "null".into()));
+        r
+    };
+    let form = |b: &Browser, addr: &str| {
+        let body = url::form_urlencoded::Serializer::new(String::new()).append_pair("email", addr).finish();
+        b.req(
+            "email_start",
+            "POST",
+            "/api/account/v1/email/start",
+            Some("application/x-www-form-urlencoded"),
+            body.into_bytes(),
+        )
+    };
+    // Without Fetch Metadata, `Origin: null` is refused and nothing is sent.
+    let mut b = Browser::new();
+    let r = b.send(&h, &cfg, null_origin(form(&b, ALICE), None));
+    assert_eq!(r.status, 403);
+    assert!(h.mails_to(ALICE).is_empty());
+    // With it, the sign-in form is sent and answers its page.
+    let r = b.send(&h, &cfg, null_origin(form(&b, ALICE), Some("same-origin")));
+    assert_eq!(r.status, 303);
+    assert_eq!(r.header("location"), Some("https://slop.localhost:8787/signin/check-email/"));
+    assert_eq!(h.mails_to(ALICE).len(), 1);
+    // A signed-in form (sign out) posted the same way works too.
+    let mut signed = Browser::new();
+    h.advance(61_000);
+    signed.email_sign_in(&h, &cfg, "bob@example.com");
+    assert!(signed.signed_in());
+    let logout = signed.req("logout", "POST", "/auth/logout", Some("application/x-www-form-urlencoded"), vec![]);
+    let r = signed.send(&h, &cfg, null_origin(logout, Some("same-origin")));
+    assert_eq!(r.status, 303);
+    assert!(!signed.signed_in());
+    // Cross-site with `Origin: null` (a sandboxed frame elsewhere) is refused.
+    let mut c = Browser::new();
+    let r = c.send(&h, &cfg, null_origin(form(&c, ALICE), Some("cross-site")));
+    assert_eq!(r.status, 403);
+    assert_eq!(h.mails_to(ALICE).len(), 1);
+}

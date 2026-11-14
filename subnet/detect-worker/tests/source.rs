@@ -309,8 +309,6 @@ fn every_staging_resource_is_a_staging_resource() {
     );
 }
 
-/// The Worker reads only the forwarders' allow-listed headers, never a
-/// cookie, and reads `X-SN-*` through the one admission path.
 /// The URL rules' staging fixture allowance: only the staging env names
 /// `DEPLOY_ENV = "staging"` and the `URL_FIXTURE_PREFIX` placeholder (the
 /// deploy wrapper restores its value), and the Worker reads the prefix in
@@ -343,6 +341,8 @@ fn only_staging_names_the_fixture_prefix() {
     assert!(next.contains("(Some(\"staging\"), Some(f))"), "only the staging arm admits it: {next}");
 }
 
+/// The Worker reads only the forwarders' allow-listed headers, never a
+/// cookie, and reads `X-SN-*` through the one admission path.
 #[test]
 fn only_allow_listed_headers_are_read() {
     use slop_ninja_detect_worker::routes::forwarded::READ_HEADERS;

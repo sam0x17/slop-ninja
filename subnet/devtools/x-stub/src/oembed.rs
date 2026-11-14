@@ -111,11 +111,10 @@ pub enum Route {
 /// The id a well-formed request names: `url=https://twitter.com/i/status/<id>`
 /// with `omit_script=1` and `dnt=true`, GET only.
 pub fn route(call: &Call) -> Route {
-    let path = match call.path.strip_prefix("/publish.x.com") {
-        Some(p) => p,
-        None if call.host == HOST => call.path.as_str(),
-        None => call.path.as_str(),
-    };
+    // A call from a browser or a suite names the host as its path's first
+    // segment (`<stubs origin>/publish.x.com/oembed`); a call through a
+    // service binding names the real host and path.
+    let path = call.path.strip_prefix("/publish.x.com").unwrap_or(call.path.as_str());
     match (call.method.as_str(), path) {
         ("POST", "/__x/switch") => return Route::Switch,
         ("POST", "/__x/reset") => return Route::Reset,

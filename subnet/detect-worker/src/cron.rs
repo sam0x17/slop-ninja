@@ -60,6 +60,10 @@ manage_h = NULL, owner_h = NULL, owner_via = NULL, state_v = state_v + 1, update
 WHERE copy_of = ?1 AND state IN ('live','pending') \
 AND (SELECT r.state FROM detections r WHERE r.id_h = ?1) = 'expired'";
 
+/// Failure holds past the robots cache period.
+pub const DELETE_OLD_HOLDS: &str =
+    "DELETE FROM refusal_marks WHERE det_id_h IN (SELECT id_h FROM detections WHERE updated_at < ?1)";
+
 /// Claims past their lease.
 pub const DELETE_STALE_CLAIMS: &str = "DELETE FROM claims WHERE lease_until < ?1";
 
@@ -224,6 +228,23 @@ pub async fn hourly(io: &impl Io, origins: &Origins, index_on: bool) -> Result<H
         Err(e) => {
             first_err.get_or_insert(e.into());
         }
+    }
+    match io
+        .run(Stmt::new(DELETE_OLD_HOLDS, vec![Val::int(now.saturating_sub(crate::url_flow::REFUSAL_HOLD_MS))]))
+        .await
+    {
+        Ok(_) => {}
+        Err(e) => {
+            first_err.get_or_insert(e.into());
+        }
+    }
+    // The daily existence check of X posts: one message an hour; a sweep
+    // with nothing due makes no call.
+    if let Err(e) = io
+        .enqueue(vec![slop_ninja_detect_page::queue::QueueMessage::new(slop_ninja_detect_page::queue::Job::XSweep {})])
+        .await
+    {
+        first_err.get_or_insert(e);
     }
     match crate::sitemap::rebuild(io, origins, index_on).await {
         Ok(n) => h.shards = n,

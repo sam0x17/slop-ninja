@@ -45,6 +45,7 @@ pub mod id {
     pub const REMOVAL: u8 = 20;
     pub const REMOVAL_STATUS: u8 = 21;
     pub const OP: u8 = 22;
+    pub const URL: u8 = 30;
 }
 
 const KIB: usize = 1024;
@@ -71,6 +72,7 @@ pub const R_JOB: AsyncRoute = AsyncRoute::new(id::JOB, "detect/job", FETCH_MS);
 pub const R_REMOVAL: AsyncRoute = AsyncRoute::new(id::REMOVAL, "detect/removal", FETCH_MS);
 pub const R_REMOVAL_STATUS: AsyncRoute = AsyncRoute::new(id::REMOVAL_STATUS, "detect/removal_status", FETCH_MS);
 pub const R_OP: AsyncRoute = AsyncRoute::new(id::OP, "detect/op", FETCH_MS);
+pub const R_URL: AsyncRoute = AsyncRoute::new(id::URL, "detect/url", FETCH_MS);
 
 /// The scorer's reply for one document, at most: one sentence record per
 /// content token at the most (a sentence holds at least one token) and one
@@ -107,6 +109,11 @@ const _: () = assert!(
     crate::sitemap::SHARD_URLS as usize * (160 + 96) + 64 * KIB <= CRON_CONTROL_BYTES,
     "a shard's rows and XML fit the cron's footprint"
 );
+
+/// The URL check: a score request's fixed part (it holds a scorer reply,
+/// the fetch Worker's answer and the run document it stores; the text is
+/// reserved from the scan memory by its size, as a score body's is).
+pub const URL_CONTROL_BYTES: usize = SCORE_CONTROL_BYTES;
 
 /// A feedback body: `{"receipt":"<32 hex>.<band>.<bin>.<32 hex>","claim":"was_ai"}`.
 pub const FEEDBACK_BODY_BYTES: usize = 256;

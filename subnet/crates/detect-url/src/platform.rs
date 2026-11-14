@@ -36,6 +36,17 @@ pub const PASTE_ONLY: &[&str] = &[
 /// Each covers its subdomains, matched on whole labels.
 pub const X_HOSTS: &[&str] = &["x.com", "twitter.com", "t.co", "twimg.com"];
 
+/// Mirrors of X posts (and their subdomains, whole labels). Their links are
+/// not posts under `x_post_v1` and are never fetched as web pages: the URL
+/// route answers `x_not_a_post`.
+pub const X_MIRRORS: &[&str] = &["fxtwitter.com", "vxtwitter.com", "fixupx.com"];
+
+/// Whether `host` is an X mirror ([`X_MIRRORS`]) or a subdomain of one.
+pub fn is_x_mirror(host: &str) -> bool {
+    let host = host.strip_suffix('.').unwrap_or(host);
+    X_MIRRORS.iter().any(|x| under(host, x))
+}
+
 /// Whether `host` (as the URL parser leaves it: lowercase A-label, an
 /// optional trailing dot) is an X host or a subdomain of one. The web
 /// fetcher refuses every such host before any request; this rule is
@@ -85,6 +96,9 @@ impl Platform {
 /// The platform of a canonical URL whose registrable domain is `registrable`.
 pub fn platform(url: &Url, registrable: &str) -> Platform {
     if PASTE_ONLY.contains(&registrable) {
+        return Platform::PasteOnly;
+    }
+    if url.host_str().is_some_and(is_x_mirror) {
         return Platform::PasteOnly;
     }
     if is_x_url(url) {
@@ -222,6 +236,12 @@ mod tests {
         assert_eq!(p("https://pbs.twimg.com/media/abc.jpg"), Platform::PasteOnly);
         assert_eq!(p("https://publish.x.com/oembed"), Platform::PasteOnly);
         assert_eq!(p("https://notx.com/u/status/1"), Platform::Web);
+        // Mirrors are not posts and never web pages.
+        for u in ["https://fxtwitter.com/a/status/1", "https://d.fxtwitter.com/a/status/1", "https://vxtwitter.com/a", "https://fixupx.com/a/status/2"] {
+            assert_eq!(p(u), Platform::PasteOnly, "{u}");
+            assert!(is_x_mirror(Url::parse(u).unwrap().host_str().unwrap()), "{u}");
+        }
+        assert!(!is_x_mirror("notfxtwitter.com") && !is_x_mirror("fxtwitter.com.example.org"));
     }
 
     #[test]

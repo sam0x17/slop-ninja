@@ -69,7 +69,10 @@ CREATE INDEX det_source ON detections(source_id);
 CREATE INDEX det_owner ON detections(owner_h) WHERE owner_h IS NOT NULL;                     -- owner purge
 CREATE INDEX det_sitemap ON detections(sitemap_seq) WHERE sitemap_seq IS NOT NULL;
 
-CREATE TABLE claims (claim_key BLOB PRIMARY KEY, det_id_h BLOB NOT NULL, lease_until INTEGER NOT NULL, stage TEXT NOT NULL);
+CREATE TABLE claims (claim_key BLOB PRIMARY KEY, det_id_h BLOB NOT NULL, lease_until INTEGER NOT NULL,
+  stage TEXT NOT NULL);                      -- stage: the driving invocation's fencing token
+CREATE TABLE refusal_marks (                 -- a robots or private_source failure answers for its link a while
+  claim_key BLOB PRIMARY KEY, det_id_h BLOB NOT NULL REFERENCES detections(id_h));
 
 CREATE TABLE jobs (                          -- paid whole-document checks
   det_id_h BLOB PRIMARY KEY REFERENCES detections(id_h),

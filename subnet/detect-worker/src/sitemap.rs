@@ -4,9 +4,10 @@
 //! holds the pages with `n × SHARD_URLS <= sitemap_seq < (n + 1) ×
 //! SHARD_URLS`. A shard lists a page only while it is live, newest of its
 //! source (not superseded), a web page (never an X or Bluesky post, never a
-//! secret page), and indexable by the display policy's source rule or the
-//! operator's `index_force = on`; `index_force = off` and `DETECT_INDEX`
-//! off leave it out. Every listed URL is a 7-character public slug under the
+//! secret page), and indexed: it passes the five structural gates
+//! ([`crate::index_gates`], the same rules here in SQL) or the operator set
+//! `index_force = on`; `index_force = off` and `DETECT_INDEX` off leave it
+//! out. Every listed URL is a 7-character public slug under the
 //! site origin. The hourly cron rebuilds dirty shards into R2
 //! (`sitemap/detect-<n>.xml`); the website serves them with its own index.
 
@@ -27,11 +28,15 @@ pub fn shard_key(shard: u32) -> String {
 }
 
 /// The pages of one shard.
+/// `?3` is `DETECT_EXCERPTS` (gate 5: with excerpts off no page carries
+/// the full analysis); gate 1's long form is the run's scored words.
 pub const SELECT_SHARD: &str = "SELECT d.public_slug AS public_slug, d.updated_at AS updated_at \
-FROM detections d LEFT JOIN sources s ON s.source_id = d.source_id \
+FROM detections d LEFT JOIN sources s ON s.source_id = d.source_id LEFT JOIN runs r ON r.run_id = d.run_id \
 WHERE d.sitemap_seq >= ?1 AND d.sitemap_seq < ?2 AND d.kind = 'public_url' AND d.platform = 'web' \
 AND d.state = 'live' AND d.superseded_by IS NULL AND d.public_slug IS NOT NULL \
-AND (d.index_force = 'on' OR (d.index_force IS NULL AND s.state = 'ok' AND s.reputation = 'ranked')) \
+AND (d.index_force = 'on' OR (d.index_force IS NULL AND s.state = 'ok' AND s.reputation = 'ranked' \
+AND r.words >= 150 AND r.band NOT LIKE 'short%' AND ?3 = 1 \
+AND NOT EXISTS (SELECT 1 FROM optouts o WHERE o.host = s.host))) \
 ORDER BY d.sitemap_seq";
 
 /// Dirty shards.
@@ -77,8 +82,12 @@ pub async fn rebuild(io: &impl Io, origins: &Origins, index_on: bool) -> Result<
         let mut entries = Vec::new();
         if index_on {
             let from = shard.saturating_mul(SHARD_URLS);
+            let excerpts = crate::lookup::read_switches(io).await.on(io, "DETECT_EXCERPTS");
             let rows = io
-                .run(Stmt::new(SELECT_SHARD, vec![Val::int(from), Val::int(from.saturating_add(SHARD_URLS))]))
+                .run(Stmt::new(
+                    SELECT_SHARD,
+                    vec![Val::int(from), Val::int(from.saturating_add(SHARD_URLS)), Val::int(u64::from(excerpts))],
+                ))
                 .await?;
             for x in &rows.rows {
                 let (Some(slug_), Some(at)) = (x.text("public_slug"), x.u64("updated_at")) else { continue };

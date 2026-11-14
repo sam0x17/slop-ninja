@@ -167,6 +167,10 @@ refusal_codes! {
     CapabilityUrl = "capability_url", 422, Url;
     /// As `capability_url`.
     PrivateSource = "private_source", 422, Url;
+    /// "Posts on this site can't be checked from their link. Paste the text
+    /// to check it privately." (Reddit, LinkedIn, Facebook, Instagram and
+    /// Threads: login walls and platform terms rule out fetching them.)
+    PasteOnly = "paste_only", 422, Url;
     /// "We don't check pages on sites listed as malware or phishing."
     SecurityRisk = "security_risk", 422, Url;
     /// The site's robots.txt disallows SlopNinjaBot. With every fetch failure

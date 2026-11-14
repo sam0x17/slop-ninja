@@ -352,4 +352,13 @@ impl Io for CfStore<'_> {
         all.extend_from_slice(blobs);
         let _ = worker::AnalyticsEngineDataPointBuilder::new().indexes([point]).blobs(all).write_to(&ds);
     }
+
+    fn metric_n(&self, point: &'static str, blobs: &[&str], double: f64) {
+        let Ok(ds) = self.env.analytics_engine(crate::cf::METRICS) else { return };
+        let mut all: Vec<&str> = Vec::with_capacity(blobs.len() + 1);
+        all.push(point);
+        all.extend_from_slice(blobs);
+        let _ =
+            worker::AnalyticsEngineDataPointBuilder::new().indexes([point]).blobs(all).add_double(double).write_to(&ds);
+    }
 }

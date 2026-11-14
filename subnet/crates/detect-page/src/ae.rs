@@ -65,8 +65,9 @@ pub mod detect {
     /// keeps at most 250 points per invocation; the poller reads the counts.
     /// It carries no post id and no slug.
     pub const XCHECK: Point = Point { name: "xcheck", blobs: &["outcome"] };
-    /// One sweep message (`step` is `first` for the cron's message and
-    /// `next` for a follow-up). The double is the age in seconds of the
+    /// One sweep message (`step` is `claimed` when the message claimed a
+    /// batch and `empty` when nothing was due; the message carries nothing,
+    /// so the cron's first message and a follow-up look alike). The double is the age in seconds of the
     /// oldest `fetched_at` among X sources that hold a `canon_url` (a NULL
     /// read as 0; 0 when there is none), from which the poller raises
     /// [`X_SWEEP_LATE`].
@@ -104,7 +105,7 @@ pub mod detect {
     ///   missing or a placeholder. Nothing is recorded, and the chain stops.
     pub const XCHECK_OUTCOMES: &[&str] = &["present", "gone", "unexpected", "failed", "not_checked", "control"];
     /// `xsweep` steps.
-    pub const XSWEEP_STEPS: &[&str] = &["first", "next"];
+    pub const XSWEEP_STEPS: &[&str] = &["claimed", "empty"];
     /// A count above zero, summed from the doubles of the `xcheck`
     /// `unexpected` and `control` points, or any `xread` `unexpected` point:
     /// X may have changed or cached its embed's answers, the live control may

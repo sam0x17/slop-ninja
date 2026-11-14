@@ -464,7 +464,10 @@ pub(crate) async fn consume(batch: worker_sys::MessageBatch, env: Env) {
                     Err(_) => queue::Ack::Retry(queue::RETRY_S),
                 }
             }
-            (Some(msg), Some(k), Some(io)) => queue::consume(io, &k.store, &msg).await,
+            (Some(msg), Some(k), Some(io)) => match url_jobs(&env, io, k, &msg).await {
+                Some(a) => a,
+                None => queue::consume(io, &k.store, &msg).await,
+            },
             (None, ..) => {
                 point(&env, ae::detect::ERROR, &["queue_message"], 1.0);
                 queue::Ack::Retry(queue::RETRY_S)
@@ -485,6 +488,25 @@ pub(crate) async fn consume(batch: worker_sys::MessageBatch, env: Env) {
             }
         }
     }
+}
+
+/// The URL pipeline's messages (X sweep, X deletion, purge pages, IndexNow);
+/// `None` for any other message, or when their configuration is missing.
+async fn url_jobs(env: &Env, io: &CfStore<'_>, k: &Secrets, msg: &QueueMessage) -> Option<queue::Ack> {
+    let (Some(o), Some(serving)) = (origins(env), serving(env)) else { return None };
+    let fetch = crate::cf_url::CfFetch { env, call_ms: waits(env).hold_ms };
+    let ping = crate::cf_url::CfPinger { wait_ms: waits(env).hold_ms };
+    let key =
+        env.secret(crate::indexnow::KEY_VAR).ok().map(|s| s.to_string().trim().to_owned()).filter(|s| !s.is_empty());
+    let d = queue::UrlDeps {
+        fetch: &fetch,
+        ping: &ping,
+        origins: &o,
+        serving: &serving,
+        keys: k.keys(),
+        indexnow_key: key,
+    };
+    queue::consume_url(io, &d, msg).await
 }
 
 /// The hourly store work (`cron::hourly`): a failure writes an AE

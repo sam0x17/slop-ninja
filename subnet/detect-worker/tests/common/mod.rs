@@ -43,6 +43,8 @@ pub struct Harness {
     pub owned_fails: Cell<bool>,
     pub queue: RefCell<Vec<QueueMessage>>,
     pub metrics: RefCell<Vec<(String, Vec<String>)>>,
+    /// The points written with a double, in order (also in `metrics`).
+    pub doubles: RefCell<Vec<(String, Vec<String>, f64)>>,
     pub relay: RefCell<Vec<Vec<u8>>>,
     pub purged: RefCell<Vec<String>>,
     pub purge_token: Cell<bool>,
@@ -69,6 +71,7 @@ impl Harness {
             owned_fails: Cell::new(false),
             queue: RefCell::new(Vec::new()),
             metrics: RefCell::new(Vec::new()),
+            doubles: RefCell::new(Vec::new()),
             relay: RefCell::new(Vec::new()),
             purged: RefCell::new(Vec::new()),
             purge_token: Cell::new(false),
@@ -305,5 +308,10 @@ impl Io for Harness {
 
     fn metric(&self, point: &'static str, blobs: &[&str]) {
         self.metrics.borrow_mut().push((point.to_owned(), blobs.iter().map(|b| (*b).to_owned()).collect()));
+    }
+
+    fn metric_n(&self, point: &'static str, blobs: &[&str], double: f64) {
+        self.metric(point, blobs);
+        self.doubles.borrow_mut().push((point.to_owned(), blobs.iter().map(|b| (*b).to_owned()).collect(), double));
     }
 }

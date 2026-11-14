@@ -57,6 +57,29 @@ pub struct RerunAnswer {
     pub manage: Option<String>,
 }
 
+/// `POST /api/detect/v1/url`: the link of a public page, or of a post on X.
+/// The answer is an NDJSON stream of [`UrlLine`]s, or of a refusal line
+/// ([`crate::ApiRefusal`]) once the check has a slug; a refusal before any
+/// slug exists is a plain API refusal with its status.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct UrlRequest {
+    pub url: String,
+}
+
+/// One line of the URL check's stream.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "state", rename_all = "snake_case")]
+pub enum UrlLine {
+    /// The check has its page: the browser may open `/d/<slug>`, which polls
+    /// its state while the check runs (another browser that sent the same
+    /// link joins this page).
+    Pending { slug: String },
+    /// The page is ready (a fresh result, or the live page this link already
+    /// had under the serving package).
+    Done { slug: String },
+}
+
 /// `POST /api/detect/v1/state` (a pending public page's poll).
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct StateRequest {

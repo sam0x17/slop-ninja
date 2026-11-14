@@ -160,6 +160,8 @@ pub struct PublicExtras {
     pub removal: Option<Removal>,
     /// Whether the claim on a pending page has run past its lease.
     pub lease_ended: bool,
+    /// Whether the page's host has an opt-out row (index gate 3).
+    pub host_opted_out: bool,
 }
 
 /// A public page (`public_url`: web, Bluesky or X) from its rows and, when
@@ -178,7 +180,7 @@ pub fn public_page(slug: &str, row: &DetRow, ex: &PublicExtras, doc: Option<&Run
     p.created_at = Some(row.created_at);
     p.expires_at = row.expires_at;
     p.serving = ctx.serving.line(row.package_load.as_deref());
-    p.robots = display::public_robots(state, row.platform, ex.source.as_ref(), row.index_force, ctx.switches);
+    let mut full_analysis = false;
     if is_x {
         p.ended = if state.is_ended() { ended } else { None };
         if matches!(state, DetState::Deleted | DetState::Removed) && p.ended.is_none() {
@@ -236,6 +238,7 @@ pub fn public_page(slug: &str, row: &DetRow, ex: &PublicExtras, doc: Option<&Run
                 if !keep_spans {
                     run.spans.clear();
                 }
+                full_analysis = keep_spans;
                 p.text = Some(text);
             }
             if state == DetState::ExcerptWithheld {
@@ -247,6 +250,18 @@ pub fn public_page(slug: &str, row: &DetRow, ex: &PublicExtras, doc: Option<&Run
         }
         _ => {}
     }
+    // The five structural gates (`index-gates/v1`), with the overrides.
+    p.robots = crate::index_gates::robots(&crate::index_gates::GateInput {
+        state,
+        platform: row.platform,
+        words: p.run.as_ref().map(|r| r.words),
+        short: p.run.as_ref().is_some_and(|r| r.short.is_some()),
+        source: ex.source.as_ref().map(|s| (s.state, s.reputation)),
+        host_opted_out: ex.host_opted_out,
+        full_analysis,
+        index_force: row.index_force,
+        index_on: ctx.switches.index,
+    });
     check(p)
 }
 

@@ -843,10 +843,19 @@ VALUES (?1, 'https://a.example/x', 'a.example', 'web', 'ok', ?2, 'v1')",
         )
         .unwrap();
     let source_id = w.h.db.last_insert_rowid();
+    // A long-form run (index gate 1), so the source's own gates decide.
     w.h.db
         .execute(
-            "INSERT INTO detections (id_h, public_slug, kind, platform, state, created_at, updated_at, source_id, sitemap_seq, index_force) \
-VALUES (?1, ?2, 'public_url', ?3, ?4, 1, 1795169040000, ?5, ?6, ?7)",
+            "INSERT INTO runs (run_id, package_load, package_pub, package_label, policy_v, canon_v, display_v, \
+evidence_id, band, words, total_words, cut, tokens, scored_at, doc_key, doc_bytes) VALUES (?1, 'l', 'p', \
+'span package d24', 'long-v1', 'canon_v1', 'display_v1', 'e', 'strong', 300, 300, 'none', 400, 1, 'r/1', 1)",
+            rusqlite::params![seq as i64],
+        )
+        .unwrap();
+    w.h.db
+        .execute(
+            "INSERT INTO detections (id_h, public_slug, kind, platform, state, created_at, updated_at, source_id, sitemap_seq, index_force, run_id) \
+VALUES (?1, ?2, 'public_url', ?3, ?4, 1, 1795169040000, ?5, ?6, ?7, ?6)",
             rusqlite::params![id.to_vec(), slug, platform, state, source_id, seq as i64, force],
         )
         .unwrap();

@@ -15,7 +15,18 @@
 //!   (the URL rules, the security screen, and robots.txt for every new
 //!   origin) by the fetch Worker itself.
 //!
-//! Both answers are content-free except the extracted text, the page's own
+//! - `POST /x/post` [`XPostRequest`] → [`XPostAnswer`]: one check of a post
+//!   on X from its link, through X's free embed (oEmbed): the text of the
+//!   embed's quote when the embed shows the post in full (rule `x_text_v1`),
+//!   or why not. The only X host the fetch Worker ever requests is
+//!   `publish.x.com`, and only through this route and the next.
+//! - `POST /x/check` [`XCheckRequest`] → [`XCheckAnswer`]: the daily
+//!   existence check of a batch of posts, called at most once per sweep
+//!   message: the two control posts first, then each id in the order given,
+//!   at most [`X_CHECK_K`] requests in flight, starting none after the first
+//!   `unexpected` or `failed` answer.
+//!
+//! Every answer is content-free except the extracted text, the page's own
 //! metadata and its final and canonical URLs. A refusal never echoes input.
 //! An HTTP status other than 200 means the call itself failed (400 a
 //! malformed request, 404 an unknown route, 503 busy or not configured):
@@ -34,6 +45,11 @@ pub const FETCH_ORIGIN: &str = "https://detect-fetch.internal";
 pub const FETCH_HOST: &str = "detect-fetch.internal";
 pub const FETCH_PATH: &str = "/fetch";
 pub const ROBOTS_PATH: &str = "/robots";
+pub const X_POST_PATH: &str = "/x/post";
+pub const X_CHECK_PATH: &str = "/x/check";
+/// Workers' limit on simultaneous outgoing connections: the existence check
+/// keeps at most this many oEmbed requests in flight.
+pub const X_CHECK_K: usize = 6;
 
 /// The crawler's product token (robots.txt groups, `X-Robots-Tag`, meta).
 pub const PRODUCT_TOKEN: &str = "SlopNinjaBot";
@@ -295,6 +311,97 @@ pub struct RobotsAnswer {
     pub hops: u32,
 }
 
+/// `/x/post`: one post, by id. `deadline_ms` is the time the request may
+/// take (`X_CALL_MS`, the URL flow's fetch wait); the request aborts past it.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct XPostRequest {
+    pub id: u64,
+    pub deadline_ms: u64,
+}
+
+/// What X's embed showed of one post.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "outcome", rename_all = "snake_case", deny_unknown_fields)]
+pub enum XPostAnswer {
+    /// The embed showed the post in full: the text of its quote (rule
+    /// `x_text_v1`: reply mentions and trailing media links cut, nothing
+    /// after the quote's paragraph read). It never holds the author's name,
+    /// handle or date line.
+    Text { text: String },
+    /// The quote ends in "…": the embed cut the post. No text is returned.
+    Long,
+    /// HTTP 404 or 403 with the embed's own JSON error.
+    Unavailable,
+    /// A 429, a 5xx, the deadline or a network error.
+    Busy,
+    /// Anything else: HTML, another status or JSON shape, a body past the
+    /// bound, or markup the rule does not know.
+    Unexpected,
+}
+
+/// `/x/check`: a batch of posts by id, in the order to ask them.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct XCheckRequest {
+    pub ids: Vec<u64>,
+    /// The time each request may take (`X_CALL_MS`).
+    pub deadline_ms: u64,
+}
+
+/// Which control failed.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum XControl {
+    /// The live control (`X_CONTROL_ID`) did not answer `present`, or its id
+    /// is missing or a placeholder.
+    Live,
+    /// The gone control (`X_GONE_CONTROL_ID`) did not answer `gone`, or its
+    /// id is missing or a placeholder.
+    Gone,
+}
+
+/// How a failed request failed.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum XFailure {
+    Timeout,
+    #[serde(rename = "429")]
+    TooMany,
+    #[serde(rename = "5xx")]
+    Server,
+    Network,
+}
+
+/// One id's answer.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "answer", rename_all = "snake_case", deny_unknown_fields)]
+pub enum XExists {
+    /// HTTP 200, `application/json`, an oEmbed object of type `rich` with an
+    /// `html` string (not read).
+    Present,
+    /// HTTP 404 or 403 whose body is the embed's own JSON error.
+    Gone,
+    /// Any other answer.
+    Unexpected,
+    Failed {
+        why: XFailure,
+    },
+    /// No request was made for it: the route stopped after an `unexpected`
+    /// or `failed` answer.
+    NotChecked,
+}
+
+/// The batch's answer.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "outcome", rename_all = "snake_case", deny_unknown_fields)]
+pub enum XCheckAnswer {
+    /// A control did not answer as it must: no other request was made.
+    ControlsFailed { control: XControl },
+    /// Both controls passed: one answer per id, in the order asked.
+    Checked { answers: Vec<XExists> },
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -342,5 +449,41 @@ mod tests {
             assert_eq!(json, format!("\"{}\"", o.code()));
             assert_eq!(o.refusal().is_none(), matches!(o, Ok | NotModified));
         }
+    }
+
+    #[test]
+    fn the_x_routes_round_trip() {
+        let r = XPostRequest { id: 2, deadline_ms: 7000 };
+        assert_eq!(serde_json::to_string(&r).unwrap(), r#"{"id":2,"deadline_ms":7000}"#);
+        for (a, json) in [
+            (XPostAnswer::Text { text: "a b".into() }, r#"{"outcome":"text","text":"a b"}"#),
+            (XPostAnswer::Long, r#"{"outcome":"long"}"#),
+            (XPostAnswer::Unavailable, r#"{"outcome":"unavailable"}"#),
+            (XPostAnswer::Busy, r#"{"outcome":"busy"}"#),
+            (XPostAnswer::Unexpected, r#"{"outcome":"unexpected"}"#),
+        ] {
+            assert_eq!(serde_json::to_string(&a).unwrap(), json);
+            assert_eq!(serde_json::from_str::<XPostAnswer>(json).unwrap(), a);
+        }
+        let c = XCheckAnswer::Checked {
+            answers: vec![
+                XExists::Present,
+                XExists::Gone,
+                XExists::Unexpected,
+                XExists::Failed { why: XFailure::Server },
+                XExists::Failed { why: XFailure::TooMany },
+                XExists::NotChecked,
+            ],
+        };
+        let json = serde_json::to_string(&c).unwrap();
+        assert_eq!(
+            json,
+            r#"{"outcome":"checked","answers":[{"answer":"present"},{"answer":"gone"},{"answer":"unexpected"},{"answer":"failed","why":"5xx"},{"answer":"failed","why":"429"},{"answer":"not_checked"}]}"#
+        );
+        assert_eq!(serde_json::from_str::<XCheckAnswer>(&json).unwrap(), c);
+        let f = XCheckAnswer::ControlsFailed { control: XControl::Gone };
+        assert_eq!(serde_json::to_string(&f).unwrap(), r#"{"outcome":"controls_failed","control":"gone"}"#);
+        assert!(serde_json::from_str::<XPostAnswer>(r#"{"outcome":"text","text":"a","author":"b"}"#).is_err());
+        assert!(serde_json::from_str::<XCheckRequest>(r#"{"ids":[1],"deadline_ms":1,"url":"x"}"#).is_err());
     }
 }

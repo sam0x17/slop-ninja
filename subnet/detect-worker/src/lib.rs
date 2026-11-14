@@ -39,11 +39,19 @@
 //!   status page, the automatic first steps, the case states, strikes and
 //!   the X removal) and [`ops`] (the signed op route, its journal and the
 //!   op handlers);
-//! - `cf`, `cf_routes`, `cf_cases`, `cf_store`, `cf_gate`, `cf_feedback`,
-//!   `cf_lane` (wasm32): the exports (`fetch`, `queue`, `scheduled`), the
-//!   store's routes, the removal and op routes and their Cloudflare glue,
-//!   the `DetectGate` object, the
-//!   `DetectFeedback` object and the `DetectLane` object with its Container.
+//! - the URL pipeline: [`url_flow`] (the public URL check, web pages,
+//!   Bluesky posts and posts on X), [`claims`] (single flight), [`excerpt`]
+//!   (a public run's document), [`index_gates`] (`index-gates/v1`),
+//!   [`x_flow`] (the daily existence check of X posts, deletion, removals,
+//!   purge), [`host`] (the `DetectHost` object's rules), [`reputation`]
+//!   (the ranking shards and the family screen), [`indexnow`], and [`net`]
+//!   (the fetch Worker and `DetectHost` as traits);
+//! - `cf`, `cf_routes`, `cf_cases`, `cf_store`, `cf_url`, `cf_gate`,
+//!   `cf_feedback`, `cf_host`, `cf_lane` (wasm32): the exports (`fetch`,
+//!   `queue`, `scheduled`), the store's routes, the removal and op routes,
+//!   the URL pipeline's routes and their Cloudflare glue, the `DetectGate`
+//!   object, the `DetectFeedback` object, the `DetectHost` object (one per
+//!   registrable domain) and the `DetectLane` object with its Container.
 //!
 //! **Privacy.** The text lives in the request's memory only. Nothing derived
 //! from it is stored, logged, cached or returned beyond the allow-list: no
@@ -57,6 +65,7 @@ pub mod answer;
 pub mod bound;
 pub mod canon;
 pub mod cases;
+pub mod claims;
 pub mod counters;
 pub mod cron;
 pub mod cut;
@@ -65,11 +74,16 @@ pub mod display;
 pub mod doc;
 pub mod english;
 pub mod envelope;
+pub mod excerpt;
 pub mod gate;
 pub mod handoff;
+pub mod host;
+pub mod index_gates;
+pub mod indexnow;
 pub mod keys;
 pub mod lookup;
 pub mod manage;
+pub mod net;
 pub mod ops;
 pub mod page;
 pub mod paid;
@@ -77,6 +91,7 @@ pub mod policy;
 pub mod queue;
 pub mod reads;
 pub mod receipt;
+pub mod reputation;
 pub mod rerun;
 pub mod routes;
 pub mod seal;
@@ -87,7 +102,9 @@ pub mod slug;
 pub mod store;
 pub mod store_ops;
 pub mod switches;
+pub mod url_flow;
 pub mod waits;
+pub mod x_flow;
 pub mod xpost;
 
 #[cfg(target_arch = "wasm32")]
@@ -98,6 +115,8 @@ mod cf_cases;
 mod cf_feedback;
 #[cfg(target_arch = "wasm32")]
 mod cf_gate;
+#[cfg(target_arch = "wasm32")]
+mod cf_host;
 #[cfg(target_arch = "wasm32")]
 #[allow(dead_code)]
 #[path = "../../coordinator/src/cf_io.rs"]
@@ -112,6 +131,9 @@ mod cf_routes;
 // The store's Cloudflare glue (D1, R2, the queue and the bindings).
 #[cfg(target_arch = "wasm32")]
 mod cf_store;
+// The URL route and the URL pipeline's glue.
+#[cfg(target_arch = "wasm32")]
+mod cf_url;
 
 // Native witness tests on the bounded arena: the arena is the test binary's
 // global allocator.

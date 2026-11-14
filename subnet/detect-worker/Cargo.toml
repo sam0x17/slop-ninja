@@ -47,6 +47,14 @@ slop-ninja-account-wire = { path = "../crates/account-wire" }
 # The signed operator-op envelope the op route verifies (verify only: no
 # `sign` feature in the Worker).
 slop-ninja-signed-op = { path = "../crates/signed-op" }
+# The URL rules (input checks, canon_url_v1, capability_url_v1, the PSL),
+# run before any slug is drawn, as the fetch Worker runs them on every hop.
+slop-ninja-detect-url = { path = "../crates/detect-url" }
+# The fetch Worker's contract (/fetch, /robots, /x/post, /x/check) and the
+# RFC 9309 rules the DetectHost object stores and evaluates.
+slop-ninja-detect-fetch-wire = { path = "../detect-fetch/wire" }
+# URL parsing for the source's canonical forms (the version detect-url pins).
+url = "2.5.8"
 # Result seals and secret documents: AES-256-GCM under HKDF-SHA256 keys, in
 # pure Rust, the same code natively (tests) and in wasm32 (no WebCrypto glue,
 # no async key import). No getrandom: every nonce comes from the platform's

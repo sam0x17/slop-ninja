@@ -21,16 +21,18 @@
 //!   stream, a secret page named only as "private detection" (its slug
 //!   masked in every field; the sealed notice keeps the link).
 //! - `sitemap_dirty {shard}`: marks the shard for the hourly rebuild.
-//! - `indexnow`: not sent before public pages exist; dropped.
-//!
+//! - `indexnow`, `x_sweep`, `x_delete` and `x_purge_page` belong to the URL
+//!   pipeline ([`consume_url`], which the Worker tries first): IndexNow pings
+//!   ([`crate::indexnow`]), the X existence check, the end of a stopped X
+//!   deletion, and one page of `x_purge` ([`crate::x_flow`]).
 //! - `commit_hold {det_id_h}`: ends a paid job's hold as its state asks
 //!   (`paid::end_hold`, which needs the ledger; the Worker's consumer calls
 //!   it before this one). An account's deleted pages cancel their running
 //!   jobs in the delete's own batch, and those holds go back the same way.
 //!
-//! The other messages belong to the URL flows; until those are built the
-//! consumer leaves them to the queue's retries (and the dead-letter queue,
-//! which raises an alert).
+//! The other message, `rerun_op`, is not built yet: the consumer leaves it
+//! to the queue's retries (and the dead-letter queue, which raises an
+//! alert).
 
 use slop_ninja_detect_page::codes::PurgeMode;
 use slop_ninja_detect_page::ids::UserId;
@@ -40,6 +42,66 @@ use crate::db::{Io, IoError, Stmt, Val, delete_docs};
 use crate::keys::{Bytes32, StoreKeys, open_with};
 use crate::manage::{DELETE_BY_OWNER, DELETE_COPIES};
 use crate::store::secret_doc_key;
+
+/// What the URL pipeline's messages need besides the store.
+pub struct UrlDeps<'a, F, P> {
+    pub fetch: &'a F,
+    pub ping: &'a P,
+    pub origins: &'a slop_ninja_detect_page::origins::Origins,
+    pub serving: &'a crate::doc::Serving,
+    pub keys: crate::share::Keys<'a>,
+    /// `INDEXNOW_KEY` (a secret); `None` drops every ping.
+    pub indexnow_key: Option<String>,
+}
+
+/// Handles a URL-pipeline message; `None` for any other type. X failures
+/// are acknowledged (the next hourly sweep is the retry); a store failure
+/// asks for a retry, and `x_delete` that runs out of retries reaches the
+/// dead-letter queue.
+pub async fn consume_url<F: crate::net::FetchApi, P: crate::net::Pinger>(
+    io: &impl Io,
+    d: &UrlDeps<'_, F, P>,
+    msg: &QueueMessage,
+) -> Option<Ack> {
+    use crate::x_flow::{self, XConfig};
+    let r = match &msg.job {
+        Job::XSweep {} => x_flow::sweep(io, d.fetch, d.origins, &XConfig::from_io(io)).await.map(|_| ()),
+        Job::XDelete { source_id, cause } => x_flow::x_delete(io, d.origins, *source_id, *cause).await,
+        Job::XPurgePage { journal_seq } => {
+            x_flow::purge_page(io, d.origins, &XConfig::from_io(io), *journal_seq).await.map(|_| ())
+        }
+        Job::Indexnow { public_slug, change } => {
+            indexnow(io, d, public_slug, *change).await;
+            Ok(())
+        }
+        _ => return None,
+    };
+    Some(match r {
+        Ok(()) => Ack::Done,
+        Err(IoError) => Ack::Retry(RETRY_S),
+    })
+}
+
+async fn indexnow<F, P: crate::net::Pinger>(
+    io: &impl Io,
+    d: &UrlDeps<'_, F, P>,
+    slug: &str,
+    change: slop_ninja_detect_page::codes::IndexChange,
+) {
+    let Some(key) = d.indexnow_key.as_deref() else { return };
+    let robots =
+        crate::reads::page(io, crate::share::Keys { store: d.keys.store, peppers: d.keys.peppers }, d.serving, slug)
+            .await
+            .ok()
+            .map(|p| p.robots);
+    if !crate::indexnow::announce(change, robots) {
+        return;
+    }
+    let Some(body) = crate::indexnow::ping_body(d.origins, key, &[slug]) else { return };
+    if d.ping.indexnow(body).await.is_err() {
+        io.metric("error", &["indexnow"]);
+    }
+}
 
 /// What the consumer does with a message.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

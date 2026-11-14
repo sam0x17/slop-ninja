@@ -101,6 +101,28 @@ fn post_id(id: &str) -> Option<u64> {
     id.parse::<u64>().ok().filter(|v| *v <= i64::MAX as u64)
 }
 
+/// X's time-based post ids count milliseconds from this epoch (2010-11-04).
+pub const X_EPOCH_MS: u64 = 1_288_834_974_657;
+/// X's longest documented edit window (one hour) plus 60 seconds.
+pub const X_EDIT_WINDOW_MS: u64 = 3_600_000 + 60_000;
+
+/// Rule `x_age_v1`: when post `id` was created, read from the id itself
+/// (`(id >> 22) + X_EPOCH_MS`). An id from before X's time-based ids gives a
+/// time at their start, so it counts as old.
+pub fn x_created_ms(id: u64) -> u64 {
+    (id >> 22).saturating_add(X_EPOCH_MS)
+}
+
+/// Rule `x_age_v1`: `Some(after_ms)` when post `id` is still inside its edit
+/// window at `now` (a creation time in the future counts as young), with
+/// the time from which it can be checked; `None` when it can be checked
+/// now. The free embed shows no edit history, so a post is scored only once
+/// it can no longer change.
+pub fn x_too_new(id: u64, now: u64) -> Option<u64> {
+    let after = x_created_ms(id).saturating_add(X_EDIT_WINDOW_MS);
+    (now < after).then_some(after)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -260,5 +282,27 @@ mod tests {
         // The canonical URL the free check answers with.
         let pu = slop_ninja_detect_page::PostUrl::new(ID).unwrap();
         assert_eq!(serde_json::to_value(pu).unwrap(), format!("https://x.com/i/status/{ID}"));
+    }
+
+    #[test]
+    fn x_age_v1_reads_the_time_from_the_id() {
+        // An id created at exactly t: (t - epoch) << 22.
+        let at = |t: u64| (t - X_EPOCH_MS) << 22;
+        let t = 1_795_169_040_000;
+        let id = at(t);
+        assert_eq!(x_created_ms(id), t);
+        // The low 22 bits (worker and sequence) do not move the time.
+        assert_eq!(x_created_ms(id | 0x3f_ffff), t);
+        // Exactly one hour plus 60 seconds after creation it can be checked.
+        assert_eq!(x_too_new(id, t + X_EDIT_WINDOW_MS - 1), Some(t + X_EDIT_WINDOW_MS));
+        assert_eq!(x_too_new(id, t + X_EDIT_WINDOW_MS), None);
+        assert_eq!(x_too_new(id, t), Some(t + X_EDIT_WINDOW_MS));
+        // A creation time in the future counts as young.
+        assert_eq!(x_too_new(at(t + 10_000), t), Some(t + 10_000 + X_EDIT_WINDOW_MS));
+        // A pre-snowflake id (before 2010) reads as the epoch: old.
+        assert_eq!(x_created_ms(20), X_EPOCH_MS);
+        assert_eq!(x_too_new(20, t), None);
+        // The largest id never overflows.
+        assert!(x_too_new(i64::MAX as u64, t).is_some());
     }
 }

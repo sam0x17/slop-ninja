@@ -89,7 +89,7 @@ pub fn admit(input: &str, policy: &Policy) -> Result<Admitted, Refusal> {
     match platform {
         Platform::Web | Platform::Bluesky { .. } => {}
         Platform::X { .. } => return Err(Refusal::PasteOnly),
-        Platform::PasteOnly if platform::is_x_host(&checked.host) => return Err(Refusal::XNotAPost),
+        Platform::PasteOnly if platform::is_x_host(&checked.host) || platform::is_x_mirror(&checked.host) => return Err(Refusal::XNotAPost),
         Platform::PasteOnly => return Err(Refusal::PasteOnly),
     }
     let skip = if checked.fixture { policy.fixture().map_or(0, FixturePrefix::path_len) } else { 0 };
@@ -138,6 +138,10 @@ mod tests {
             assert_eq!(admit(u, &p), Err(Refusal::XNotAPost), "{u}");
         }
         assert_eq!(Refusal::XNotAPost.public_code(), "x_not_a_post");
+        // Mirrors of X posts are not posts either.
+        for u in ["https://fxtwitter.com/a/status/1790000000000000000", "https://vxtwitter.com/a/status/1"] {
+            assert_eq!(admit(u, &p), Err(Refusal::XNotAPost), "{u}");
+        }
         // X posts are still recognised (refused until the X adapter exists).
         assert_eq!(admit("https://twitter.com/someone/status/1790000000000000000", &p), Err(Refusal::PasteOnly));
         // Look-alike hosts on whole labels are web pages.

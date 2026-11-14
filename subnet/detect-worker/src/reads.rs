@@ -43,6 +43,10 @@ pub const SELECT_SUPERSEDES: &str =
 pub const SELECT_REMOVAL: &str =
     "SELECT at, scope, basis, jurisdiction FROM removals WHERE public_slug = ?1 ORDER BY seq DESC LIMIT 1";
 
+/// Whether a public page's host has an opt-out row (index gate 3).
+pub const SELECT_HOST_OPTOUT: &str = "SELECT 1 AS hit FROM optouts o JOIN sources s ON s.host = o.host \
+JOIN detections d ON d.source_id = s.source_id WHERE d.id_h = ?1";
+
 /// A pending page's claim lease.
 pub const SELECT_LEASE: &str = "SELECT max(lease_until) AS lease_until FROM claims WHERE det_id_h = ?1";
 
@@ -120,6 +124,7 @@ async fn public(io: &impl Io, serving: &Serving, slug: &str) -> Result<Page, Ref
         Stmt::new(SELECT_SUPERSEDES, vec![Val::blob(&id)]),
         Stmt::new(SELECT_REMOVAL, vec![Val::text(slug)]),
         Stmt::new(SELECT_LEASE, vec![Val::blob(&id)]),
+        Stmt::new(SELECT_HOST_OPTOUT, vec![Val::blob(&id)]),
     ];
     let done = io.batch(batch).await.map_err(|_| RefusalCode::Unavailable)?;
     let sw = SwitchRows::from_done(done.first()).page(io);
@@ -143,6 +148,7 @@ async fn public(io: &impl Io, serving: &Serving, slug: &str) -> Result<Page, Ref
         supersedes: done.get(3).and_then(Done::first).and_then(|r| r.text("public_slug")).map(str::to_owned),
         removal: removal_of(done.get(4)),
         lease_ended: done.get(5).and_then(Done::first).and_then(|r| r.u64("lease_until")).is_none_or(|t| t <= now),
+        host_opted_out: done.get(6).and_then(Done::first).is_some(),
     };
     let state = row.state_at(now);
     let mut doc = None;

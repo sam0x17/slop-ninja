@@ -128,6 +128,7 @@ export function detect_route(req) {
   if (u.pathname === '/api/detect/v1/removal') return post ? 20 : 9;
   if (u.pathname === '/api/detect/v1/removal/status') return post ? 21 : 9;
   if (u.pathname === '/api/detect/v1/op') return post ? 22 : 9;
+  if (u.pathname === '/api/detect/v1/url') return post ? 30 : 9;
   return 0;
 }
 export function ndjson_pair() {
@@ -156,8 +157,9 @@ export function random_bytes(n) {
 ")]
 extern "C" {
     /// 1 score, 2 warm, 3 feedback, 4 share, 5 an internal path, 6 manage,
-    /// 7 rerun, 8 state, 10 paid quote, 11 paid start, 12 job, 9 another
-    /// method on a route, else 0 (read in JS, no Rust allocation).
+    /// 7 rerun, 8 state, 10 paid quote, 11 paid start, 12 job, 20 removal,
+    /// 21 removal status, 22 op, 30 url, 9 another method on a route, else 0
+    /// (read in JS, no Rust allocation).
     fn detect_route(req: &web_sys::Request) -> u32;
     /// `[readable, writer]` of a fresh TransformStream.
     fn ndjson_pair() -> js_sys::Array;
@@ -264,6 +266,7 @@ pub fn fetch(req: web_sys::Request, env: Env, _ctx: worker_sys::Context) -> js_s
         20 => (routes::R_REMOVAL, routes::STORE_CONTROL_BYTES),
         21 => (routes::R_REMOVAL_STATUS, routes::STORE_CONTROL_BYTES),
         22 => (routes::R_OP, routes::OP_CONTROL_BYTES),
+        30 => (routes::R_URL, routes::URL_CONTROL_BYTES),
         _ => (routes::R_OTHER, routes::OTHER_CONTROL_BYTES),
     };
     // The score route resolves its answer early (a stream it keeps writing),
@@ -293,6 +296,7 @@ pub fn fetch(req: web_sys::Request, env: Env, _ctx: worker_sys::Context) -> js_s
                 20 => answer.send(crate::cf_cases::removal(req, &env).await),
                 21 => answer.send(crate::cf_cases::removal_status(req, &env).await),
                 22 => answer.send(crate::cf_cases::op(req, &env).await),
+                30 => crate::cf_url::url(req, env, &answer).await,
                 9 => answer.send(refuse(RefusalCode::Method)),
                 _ => answer.send(refuse(RefusalCode::NotFound)),
             }
@@ -610,7 +614,7 @@ async fn warm(req: &Request, env: &Env) -> web_sys::Response {
 /// One call to a singleton object (`binding`, named `name`), bounded by
 /// `timeout_ms` (the platform enforces it on the call and its reply).
 /// `None` on any failure; `Some(None)` for a bodiless 2xx.
-async fn object_call<T: serde::de::DeserializeOwned, B: Serialize>(
+pub(crate) async fn object_call<T: serde::de::DeserializeOwned, B: Serialize>(
     env: &Env,
     binding: &str,
     name: &str,
@@ -878,6 +882,11 @@ impl Accepted<'_> {
     /// The files manifest digest the scan runs under.
     pub(crate) fn load(&self) -> &str {
         &self.pkg.load
+    }
+
+    /// The scored part (the free cut of the canonical text).
+    pub(crate) fn scored(&self) -> &str {
+        self.cut.scored
     }
 }
 

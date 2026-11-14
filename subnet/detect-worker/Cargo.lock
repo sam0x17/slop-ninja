@@ -928,10 +928,27 @@ dependencies = [
 ]
 
 [[package]]
+name = "slop-ninja-detect-fetch-wire"
+version = "0.1.0"
+dependencies = [
+ "serde",
+]
+
+[[package]]
 name = "slop-ninja-detect-page"
 version = "0.1.0"
 dependencies = [
  "serde",
+]
+
+[[package]]
+name = "slop-ninja-detect-url"
+version = "0.1.0"
+dependencies = [
+ "idna",
+ "percent-encoding",
+ "sha2",
+ "url",
 ]
 
 [[package]]
@@ -954,11 +971,14 @@ dependencies = [
  "slop-ninja-arena",
  "slop-ninja-artifact-check",
  "slop-ninja-auth-core",
+ "slop-ninja-detect-fetch-wire",
  "slop-ninja-detect-page",
+ "slop-ninja-detect-url",
  "slop-ninja-scorer-client",
  "slop-ninja-scorer-tokens",
  "slop-ninja-signed-op",
  "unicode-normalization-alignments",
+ "url",
  "wasm-bindgen",
  "wasm-bindgen-futures",
  "worker",

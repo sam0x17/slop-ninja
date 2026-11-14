@@ -964,6 +964,9 @@ fn entries() -> Vec<Entry> {
         "api/rerun-answer.json",
         RerunAnswer { slug: SECRET2.into(), manage: Some("9xw3kq8mz2p7rt4vn6bc1hj5dy".into()) },
     ));
+    e.push(entry("api/url-request.json", UrlRequest { url: "https://news.example/a/garden-notes".into() }));
+    e.push(entry("api/url-line-pending.json", UrlLine::Pending { slug: PUBLIC.into() }));
+    e.push(entry("api/url-line-done.json", UrlLine::Done { slug: PUBLIC.into() }));
     e.push(entry("api/state-request.json", StateRequest { slug: PUBLIC.into() }));
     e.push(entry("api/state-answer.json", StateAnswer { state: DetState::Pending, lease_ended: true, code: None }));
     e.push(entry(

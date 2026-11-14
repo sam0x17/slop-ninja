@@ -105,6 +105,27 @@ pub fn public_id_h(slug: &str) -> Bytes32 {
     h(b"slug_v1", slug.as_bytes())
 }
 
+/// The domain prefix of a source's key: `sources.canon_key = H("source_v1" ‖
+/// "url:<canonical>" | "bsky:<did>/<rkey>" | "x:status:<id>")`.
+pub const SOURCE_DOMAIN: &[u8] = b"source_v1";
+/// The domain prefix of a URL form's alias: `source_aliases.alias_key =
+/// H("alias_v1" ‖ "url:<canonical>")`.
+pub const ALIAS_DOMAIN: &[u8] = b"alias_v1";
+/// The domain prefix of a claim: `claims.claim_key = H("claim_v1" ‖ key ‖
+/// 0x00 ‖ package_load)`.
+pub const CLAIM_DOMAIN: &[u8] = b"claim_v1";
+
+/// A source's key from its source key string (`detect-url`'s
+/// `platform::source_key`).
+pub fn source_canon_key(source_key: &str) -> Bytes32 {
+    h(SOURCE_DOMAIN, source_key.as_bytes())
+}
+
+/// A URL form's alias key.
+pub fn alias_key(source_key: &str) -> Bytes32 {
+    h(ALIAS_DOMAIN, source_key.as_bytes())
+}
+
 /// A manage token's hash: `H("manage_v1" ‖ token)`.
 pub fn manage_h(token: &str) -> Bytes32 {
     h(b"manage_v1", token.as_bytes())

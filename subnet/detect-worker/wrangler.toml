@@ -141,6 +141,10 @@ BODY_WAIT_MS = "300000"
 # key; empty, the op route answers not_configured.
 OP_ENV = "production"
 DETECT_OP_KEY = ""
+# The URL flow's fetch wait, and every request to X's embed (X_CALL_MS); a
+# liveness parameter, measured at the launch gate. The sweep's batch
+# (X_CHECK_BATCH) is derived from it (src/x_flow.rs).
+FETCH_WAIT_MS = "10000"
 
 [[env.testnet.durable_objects.bindings]]
 name = "DETECT_GATE"
@@ -156,9 +160,26 @@ class_name = "DetectLane"
 name = "DETECT_FEEDBACK"
 class_name = "DetectFeedback"
 
+# One object per registrable domain: robots.txt, the politeness slot, the
+# security screen and the reputation of the domain (src/host.rs). It never
+# sees a page body.
+[[env.testnet.durable_objects.bindings]]
+name = "DETECT_HOST"
+class_name = "DetectHost"
+
 [[env.testnet.migrations]]
 tag = "v1"
 new_sqlite_classes = ["DetectGate", "DetectLane", "DetectFeedback"]
+
+[[env.testnet.migrations]]
+tag = "v2"
+new_sqlite_classes = ["DetectHost"]
+
+# The fetch Worker: page fetches, robots.txt reads and X's free embed. It
+# keeps nothing and calls no Worker back.
+[[env.testnet.services]]
+binding = "DETECT_FETCH"
+service = "slop-ninja-detect-fetch-testnet"
 
 # The pinned a-scorer image (the same Dockerfile and ignored build context
 # the eval Worker's scorer uses; see the a-container-serve README). One
@@ -270,6 +291,10 @@ QUEUE_HOLD_MS = "20000"
 BODY_WAIT_MS = "300000"
 OP_ENV = "staging"
 DETECT_OP_KEY = ""
+# The URL flow's fetch wait, and every request to X's embed (X_CALL_MS); a
+# liveness parameter, measured at the launch gate. The sweep's batch
+# (X_CHECK_BATCH) is derived from it (src/x_flow.rs).
+FETCH_WAIT_MS = "10000"
 
 [[env.staging.durable_objects.bindings]]
 name = "DETECT_GATE"
@@ -283,9 +308,26 @@ class_name = "DetectLane"
 name = "DETECT_FEEDBACK"
 class_name = "DetectFeedback"
 
+# One object per registrable domain: robots.txt, the politeness slot, the
+# security screen and the reputation of the domain (src/host.rs). It never
+# sees a page body.
+[[env.staging.durable_objects.bindings]]
+name = "DETECT_HOST"
+class_name = "DetectHost"
+
 [[env.staging.migrations]]
 tag = "v1"
 new_sqlite_classes = ["DetectGate", "DetectLane", "DetectFeedback"]
+
+[[env.staging.migrations]]
+tag = "v2"
+new_sqlite_classes = ["DetectHost"]
+
+# The fetch Worker: page fetches, robots.txt reads and X's free embed. It
+# keeps nothing and calls no Worker back.
+[[env.staging.services]]
+binding = "DETECT_FETCH"
+service = "slop-ninja-detect-fetch-staging"
 
 [[env.staging.containers]]
 class_name = "DetectLane"

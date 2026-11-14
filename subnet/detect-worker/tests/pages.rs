@@ -272,6 +272,7 @@ fn public_pages_match_their_fixtures() {
             supersedes: want.supersedes.clone(),
             removal: want.removal.clone(),
             lease_ended: want.pending.as_ref().is_some_and(|p| p.lease_ended),
+            host_opted_out: false,
         };
         let generic =
             want.card.as_ref().is_some_and(|c| c.variant.as_str() == "generic") && want.state == DetState::Live;

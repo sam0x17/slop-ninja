@@ -197,6 +197,13 @@ pub trait Io: Sql {
     /// One content-free Analytics Engine point: the point's name and its
     /// blobs in schema order.
     fn metric(&self, point: &'static str, blobs: &[&str]);
+    /// One point with its double: a count (the X sweep's `xcheck` points)
+    /// or an age in seconds (`xsweep`). A backend that keeps no doubles
+    /// writes the point alone.
+    fn metric_n(&self, point: &'static str, blobs: &[&str], double: f64) {
+        let _ = double;
+        self.metric(point, blobs);
+    }
 }
 
 /// Splits `keys` into R2 delete calls and runs them in order; stops at the

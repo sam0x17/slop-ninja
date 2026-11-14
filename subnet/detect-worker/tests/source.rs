@@ -486,3 +486,43 @@ fn the_stub_scorer_is_dev_only() {
         assert!(dev.contains(b), "[env.dev] binds {b}");
     }
 }
+
+/// The internal calls (the account Worker's `owned/add`, billing and `users`
+/// routes, the relay, the zone purge) set their headers on the request
+/// itself: a request built from a web_sys request is immutable through
+/// `headers_mut`, so a header set there would be dropped and the body would
+/// keep its text/plain type. Checked from each `cf_io::internal_request` to
+/// the call that sends it, in every glue file: no `headers_mut` there, and a
+/// call through a service binding or to the zone API names its JSON type on
+/// the request (a Durable Object call needs none).
+#[test]
+fn internal_calls_set_their_headers_on_the_request() {
+    let mut json_calls: Vec<&str> = Vec::new();
+    for name in SOURCES.iter().copied().filter(|n| n.starts_with("cf")) {
+        let s = src(name);
+        let c = code(&s);
+        for (at, _) in c.match_indices("cf_io::internal_request(") {
+            let rest = &c[at..];
+            let (end, how) = ["fetch_request(", "fetch_with_request(", ".send()"]
+                .iter()
+                .filter_map(|m| rest.find(m).map(|i| (i, *m)))
+                .min()
+                .unwrap_or_else(|| panic!("{name}: an internal request that is never sent"));
+            let call = &rest[..end];
+            assert!(!call.contains("headers_mut("), "{name}: a header set through headers_mut");
+            if how != "fetch_with_request(" {
+                assert!(
+                    call.contains("inner().headers()") && call.contains("\"Content-Type\", \"application/json\""),
+                    "{name}: a JSON call without its Content-Type on the request"
+                );
+                json_calls.push(name);
+            }
+            if how == ".send()" {
+                assert!(call.contains("\"Authorization\""), "{name}: the zone API call without its token");
+            }
+        }
+    }
+    for name in ["cf_store.rs", "cf_cases.rs"] {
+        assert!(json_calls.contains(&name), "{name}: its account Worker calls are checked");
+    }
+}

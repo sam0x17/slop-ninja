@@ -100,9 +100,11 @@ impl<'e> CfStore<'e> {
     async fn post_json<B: Serialize>(&self, binding: &str, url: &str, body: &B) -> Result<(), IoError> {
         let fetcher = self.env.service(binding).map_err(|_| IoError)?;
         let text = serde_json::to_string(body).map_err(|_| IoError)?;
-        let mut req =
-            cf_io::internal_request(url, Method::Post, Some(&text), Some(self.wait_ms)).map_err(|_| IoError)?;
-        let _ = req.headers_mut().map(|h| h.set("Content-Type", "application/json"));
+        let req = cf_io::internal_request(url, Method::Post, Some(&text), Some(self.wait_ms)).map_err(|_| IoError)?;
+        // The request's own headers: a request built from a web_sys request
+        // is immutable through `headers_mut`, which would leave the body's
+        // text/plain type in place and the callee would refuse it.
+        req.inner().headers().set("Content-Type", "application/json").map_err(|_| IoError)?;
         let mut res = fetcher.fetch_request(req).await.map_err(|_| IoError)?;
         let ok = (200..300).contains(&res.status_code());
         cf_io::discard(&mut res);
@@ -164,8 +166,10 @@ impl CfStore<'_> {
         let gone = RefusalCode::Unavailable;
         let fetcher = self.env.service(ACCOUNT).map_err(|_| gone)?;
         let text = serde_json::to_string(body).map_err(|_| RefusalCode::Internal)?;
-        let mut req = cf_io::internal_request(url, Method::Post, Some(&text), Some(self.wait_ms)).map_err(|_| gone)?;
-        let _ = req.headers_mut().map(|h| h.set("Content-Type", "application/json"));
+        let req = cf_io::internal_request(url, Method::Post, Some(&text), Some(self.wait_ms)).map_err(|_| gone)?;
+        // On the request itself, as in `post_json`: the billing routes refuse
+        // a body that is not JSON.
+        req.inner().headers().set("Content-Type", "application/json").map_err(|_| gone)?;
         let mut res = fetcher.fetch_request(req).await.map_err(|_| gone)?;
         let status = res.status_code();
         let bytes = cf_io::response_bytes(&mut res, ANSWER_BYTES).await.map_err(|_| gone)?;
@@ -304,12 +308,10 @@ impl Io for CfStore<'_> {
         let (Ok(token), Some(zone)) = (self.env.secret(PURGE_TOKEN), self.var(PURGE_ZONE)) else { return Ok(false) };
         let url = format!("https://api.cloudflare.com/client/v4/zones/{zone}/purge_cache");
         let text = serde_json::to_string(&PurgeBody { files: urls }).map_err(|_| IoError)?;
-        let mut req =
-            cf_io::internal_request(&url, Method::Post, Some(&text), Some(self.wait_ms)).map_err(|_| IoError)?;
-        if let Ok(h) = req.headers_mut() {
-            let _ = h.set("Content-Type", "application/json");
-            let _ = h.set("Authorization", &format!("Bearer {token}"));
-        }
+        let req = cf_io::internal_request(&url, Method::Post, Some(&text), Some(self.wait_ms)).map_err(|_| IoError)?;
+        let h = req.inner().headers();
+        h.set("Content-Type", "application/json").map_err(|_| IoError)?;
+        h.set("Authorization", &format!("Bearer {token}")).map_err(|_| IoError)?;
         let mut res = worker::Fetch::Request(req).send().await.map_err(|_| IoError)?;
         let ok = (200..300).contains(&res.status_code());
         cf_io::discard(&mut res);

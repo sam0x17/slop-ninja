@@ -136,10 +136,12 @@ impl Accounts for CfAccounts<'_> {
     async fn users_page(&self, after: Option<UserId>, limit: u32) -> Result<UsersPage, IoError> {
         let fetcher = self.env.service(ACCOUNT).map_err(|_| IoError)?;
         let text = serde_json::to_string(&UsersRequest { after, limit }).map_err(|_| IoError)?;
-        let mut req =
+        let req =
             cf_io::internal_request("https://account/internal/v1/users", Method::Post, Some(&text), Some(self.wait_ms))
                 .map_err(|_| IoError)?;
-        let _ = req.headers_mut().map(|h| h.set("Content-Type", "application/json"));
+        // On the request itself: a request built from a web_sys request is
+        // immutable through `headers_mut`, and the route refuses text/plain.
+        req.inner().headers().set("Content-Type", "application/json").map_err(|_| IoError)?;
         let mut res = fetcher.fetch_request(req).await.map_err(|_| IoError)?;
         if res.status_code() != 200 {
             cf_io::discard(&mut res);

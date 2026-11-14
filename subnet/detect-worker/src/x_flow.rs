@@ -41,11 +41,23 @@
 //! 2. the run documents `r/<run_id>` are deleted from R2 (at most 1,000 keys
 //!    a call; a missing key is not an error, so the step repeats safely);
 //! 3. only after R2 confirms, the D1 batch in foreign-key order: the
-//!    detections (run cleared; source cleared unless the cause keeps a
-//!    tombstone; state by the cause), the cases that name a source about to
-//!    go, the runs, the aliases, then the source rows (deleted, or reduced to
-//!    the `opted_out` tombstone that keeps only `canon_key`);
+//!    detections (state by the cause; for a gone post or the purge, source
+//!    cleared), the runs step 1 read cleared from their pages, the cases
+//!    that name a source about to go, those runs, the aliases, then the
+//!    source rows (deleted, or reduced to the `opted_out` tombstone that
+//!    keeps only `canon_key`);
 //! 4. the page URLs are purged when a purge token exists.
+//!
+//! A check of the post can store between step 1 and step 3. The batch then
+//! never orphans its run: a page whose run step 1 did not read keeps that
+//! run, and its source, so every run row and document stays reachable from
+//! a page. A removal leaves no such window: it writes the tombstone first,
+//! in its own batch, and the store's fence (`url_flow::X_BLOCKED`) ends
+//! every later check of the post `failed` (`x_removed`) keeping nothing;
+//! what stored before is in the set it reads, and a last read after its
+//! batch deletes anything else. A gone post's newer page stays for the next
+//! sweep. A gone deletion never takes a source that has become a tombstone
+//! meanwhile, so a removal that lands while the sweep asks X still holds.
 //!
 //! When step 2 or 3 fails the source rows keep their `canon_url`, and the
 //! caller sends `x_delete {source_id, cause}` for each of them (gone and
@@ -403,41 +415,100 @@ impl Cause {
     }
 }
 
-/// The set's run documents and page slugs (one D1 call, two reads).
-pub const SELECT_SET_RUNS: &str = "SELECT DISTINCT run_id FROM detections \
-WHERE source_id IN (SELECT value FROM json_each(?1)) AND run_id IS NOT NULL";
-pub const SELECT_SET_SLUGS: &str = "SELECT public_slug FROM detections \
-WHERE source_id IN (SELECT value FROM json_each(?1)) AND public_slug IS NOT NULL AND platform = 'x'";
+/// The source ids a deletion by `cause` takes from the JSON array `?1`. A
+/// gone deletion takes only sources that still hold their `canon_url`, so a
+/// removal's tombstone, written after the sweep claimed the source, stays.
+pub fn set_of(cause: Cause) -> &'static str {
+    match cause {
+        Cause::Gone => {
+            "SELECT source_id FROM sources WHERE source_id IN (SELECT value FROM json_each(?1)) AND adapter = 'x' \
+AND canon_url IS NOT NULL"
+        }
+        Cause::Removed | Cause::Purged => "SELECT value FROM json_each(?1)",
+    }
+}
 
-/// Detections of the set whose source row goes: run and source cleared,
-/// ended by the cause (pages already ended or removed keep their state).
-pub const END_DETECTIONS: &str = "UPDATE detections SET \
+/// The set's run documents (step 1).
+pub fn select_set_runs(cause: Cause) -> String {
+    format!("SELECT DISTINCT run_id FROM detections WHERE source_id IN ({}) AND run_id IS NOT NULL", set_of(cause))
+}
+
+/// The set's page slugs (step 1).
+pub fn select_set_slugs(cause: Cause) -> String {
+    format!(
+        "SELECT public_slug FROM detections WHERE source_id IN ({}) AND public_slug IS NOT NULL AND platform = 'x'",
+        set_of(cause)
+    )
+}
+
+/// Detections of the set whose source row goes (`?1` the set, `?2` the
+/// code, `?3` the time, `?4` the runs step 1 read): run and source cleared,
+/// ended by the cause (pages already ended or removed keep their state). A
+/// page holding a run step 1 did not read (a check stored after the read)
+/// is left whole, and keeps its source.
+pub fn end_detections(cause: Cause) -> String {
+    format!(
+        "UPDATE detections SET \
 state = CASE WHEN state IN ('deleted','expired','removed') THEN state ELSE 'deleted' END, \
 refusal = CASE WHEN state IN ('deleted','expired','removed') THEN refusal ELSE ?2 END, \
 run_id = NULL, source_id = NULL, state_v = state_v + 1, updated_at = ?3 \
-WHERE source_id IN (SELECT value FROM json_each(?1))";
+WHERE source_id IN ({}) AND (run_id IS NULL OR run_id IN (SELECT value FROM json_each(?4)))",
+        set_of(cause)
+    )
+}
 
-/// Detections of the set whose source stays as a tombstone: `removed`
-/// (pages already ended or removed hold no run and stay as they are).
-pub const REMOVE_DETECTIONS: &str = "UPDATE detections SET state = 'removed', refusal = 'x_removed', \
-run_id = NULL, state_v = state_v + 1, updated_at = ?2 \
-WHERE source_id IN (SELECT value FROM json_each(?1)) AND state NOT IN ('deleted','expired','removed')";
+/// The sources of the set that go: those no page names any more, after
+/// [`end_detections`].
+fn going(cause: Cause) -> String {
+    format!(
+        "SELECT s.source_id FROM sources s WHERE s.source_id IN ({}) \
+AND NOT EXISTS (SELECT 1 FROM detections d WHERE d.source_id = s.source_id)",
+        set_of(cause)
+    )
+}
 
 /// Cases that name a source about to go.
-pub const UNLINK_CASES: &str = "UPDATE cases SET source_id = NULL WHERE source_id IN (SELECT value FROM json_each(?1))";
-/// The set's runs.
+pub fn unlink_cases(cause: Cause) -> String {
+    format!("UPDATE cases SET source_id = NULL WHERE source_id IN ({})", going(cause))
+}
+
+/// The aliases of the sources about to go.
+pub fn delete_going_aliases(cause: Cause) -> String {
+    format!("DELETE FROM source_aliases WHERE source_id IN ({})", going(cause))
+}
+
+/// The source rows about to go.
+pub fn delete_sources(cause: Cause) -> String {
+    format!("DELETE FROM sources WHERE source_id IN ({}) AND adapter = 'x'", going(cause))
+}
+
+/// Detections of the set whose source stays as a tombstone: `removed`
+/// (pages already ended or removed stay as they are). Their runs go with
+/// [`CLEAR_RUNS`].
+pub const REMOVE_DETECTIONS: &str = "UPDATE detections SET state = 'removed', refusal = 'x_removed', \
+state_v = state_v + 1, updated_at = ?2 \
+WHERE source_id IN (SELECT value FROM json_each(?1)) AND state NOT IN ('deleted','expired','removed')";
+
+/// The runs step 1 read (`?2`), cleared from the set's pages (`?1`). A run
+/// it did not read stays on its page, for the removal's last read.
+pub const CLEAR_RUNS: &str = "UPDATE detections SET run_id = NULL \
+WHERE source_id IN (SELECT value FROM json_each(?1)) AND run_id IN (SELECT value FROM json_each(?2))";
+
+/// The runs step 1 read.
 pub const DELETE_RUNS: &str = "DELETE FROM runs WHERE run_id IN (SELECT value FROM json_each(?1))";
-/// The set's aliases.
+/// The set's aliases (a removal).
 pub const DELETE_ALIASES: &str = "DELETE FROM source_aliases WHERE source_id IN (SELECT value FROM json_each(?1))";
-/// The set's source rows.
-pub const DELETE_SOURCES: &str =
-    "DELETE FROM sources WHERE source_id IN (SELECT value FROM json_each(?1)) AND adapter = 'x'";
 /// The set's sources reduced to tombstones: `canon_key`, `adapter = 'x'`,
 /// `host = 'x.com'`, `rank_list_v = 'x'`, `state = 'opted_out'` and
 /// `reputation = 'unranked'`, nothing else.
 pub const TOMBSTONE_SOURCES: &str = "UPDATE sources SET canon_url = NULL, fetch_outcome = NULL, fetched_at = NULL, \
 fresh_until = NULL, check_queued_at = NULL, latest_det = NULL, state = 'opted_out', reputation = 'unranked', \
 rank_list_v = 'x' WHERE source_id IN (SELECT value FROM json_each(?1)) AND adapter = 'x'";
+
+/// What a removal may have left on its tombstone (`?1`): a page still live,
+/// or a page holding a run.
+pub const SELECT_LEFT: &str = "SELECT count(*) AS n FROM detections WHERE source_id = ?1 \
+AND (run_id IS NOT NULL OR state = 'live')";
 
 /// What a deletion took.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
@@ -457,26 +528,34 @@ pub fn delete_stmts(ids: &[u64], runs: &[u64], cause: Cause, now: u64) -> Vec<St
     match cause {
         Cause::Removed => {
             v.push(Stmt::new(REMOVE_DETECTIONS, vec![set.clone(), Val::int(now)]));
+            v.push(Stmt::new(CLEAR_RUNS, vec![set.clone(), runs.clone()]));
             v.push(Stmt::new(DELETE_RUNS, vec![runs]));
             v.push(Stmt::new(DELETE_ALIASES, vec![set.clone()]));
             v.push(Stmt::new(TOMBSTONE_SOURCES, vec![set]));
         }
         Cause::Gone | Cause::Purged => {
-            v.push(Stmt::new(END_DETECTIONS, vec![set.clone(), Val::text(cause.code().as_str()), Val::int(now)]));
-            v.push(Stmt::new(UNLINK_CASES, vec![set.clone()]));
+            v.push(Stmt::owned(
+                end_detections(cause),
+                vec![set.clone(), Val::text(cause.code().as_str()), Val::int(now), runs.clone()],
+            ));
+            v.push(Stmt::owned(unlink_cases(cause), vec![set.clone()]));
             v.push(Stmt::new(DELETE_RUNS, vec![runs]));
-            v.push(Stmt::new(DELETE_ALIASES, vec![set.clone()]));
-            v.push(Stmt::new(DELETE_SOURCES, vec![set]));
+            v.push(Stmt::owned(delete_going_aliases(cause), vec![set.clone()]));
+            v.push(Stmt::owned(delete_sources(cause), vec![set]));
         }
     }
     v
 }
 
 /// Reads the set's run documents and slugs (step 1).
-pub async fn read_set(io: &impl Io, ids: &[u64]) -> Result<(Vec<u64>, Vec<String>), IoError> {
+pub async fn read_set(io: &impl Io, ids: &[u64], cause: Cause) -> Result<(Vec<u64>, Vec<String>), IoError> {
     let set = Val::text(json_ids(ids));
-    let d =
-        io.batch(vec![Stmt::new(SELECT_SET_RUNS, vec![set.clone()]), Stmt::new(SELECT_SET_SLUGS, vec![set])]).await?;
+    let d = io
+        .batch(vec![
+            Stmt::owned(select_set_runs(cause), vec![set.clone()]),
+            Stmt::owned(select_set_slugs(cause), vec![set]),
+        ])
+        .await?;
     let runs = d.first().map(|d| d.rows.iter().filter_map(|r| r.u64("run_id")).collect()).unwrap_or_default();
     let slugs = d
         .get(1)
@@ -512,7 +591,7 @@ pub async fn delete_set_with(
     before: Vec<Stmt>,
     after: Vec<Stmt>,
 ) -> Result<(Deleted, Vec<Done>), IoError> {
-    let (runs, slugs) = read_set(io, ids).await?;
+    let (runs, slugs) = read_set(io, ids, cause).await?;
     let keys: Vec<String> = runs.iter().map(|r| run_doc_key(*r)).collect();
     delete_docs(io, &keys).await?;
     let mut batch = before;
@@ -538,8 +617,9 @@ pub async fn delete_set(
 }
 
 /// The `x_delete {source_id, cause}` consumer: repeats the deletion for one
-/// source whose deletion stopped. A source that is already gone (or, for a
-/// removal, already a tombstone) is done.
+/// source whose deletion stopped. A source that is already gone is done.
+/// For a removal the tombstone comes first, as in [`remove_post`]; a
+/// tombstone with no live page and no run left is done.
 pub async fn x_delete(io: &impl Io, origins: &Origins, source_id: u64, cause: XDeleteCause) -> Result<(), IoError> {
     let d = io
         .run(Stmt::new(
@@ -547,11 +627,17 @@ pub async fn x_delete(io: &impl Io, origins: &Origins, source_id: u64, cause: XD
             vec![Val::int(source_id)],
         ))
         .await?;
-    let Some(r) = d.first() else { return Ok(()) };
-    if cause == XDeleteCause::XRemoved && r.text("canon_url").is_none() {
-        // The tombstone exists; only its pages' runs may be left.
-        let (runs, _) = read_set(io, &[source_id]).await?;
-        if runs.is_empty() {
+    if d.first().is_none() {
+        return Ok(());
+    }
+    if cause == XDeleteCause::XRemoved {
+        let d = io
+            .batch(vec![
+                Stmt::new(TOMBSTONE_SOURCES, vec![Val::text(json_ids(&[source_id]))]),
+                Stmt::new(SELECT_LEFT, vec![Val::int(source_id)]),
+            ])
+            .await?;
+        if d.get(1).and_then(Done::first).and_then(|r| r.u64("n")).unwrap_or(0) == 0 {
             return Ok(());
         }
     }
@@ -696,14 +782,29 @@ pub const SELECT_BY_KEY: &str = "SELECT source_id, canon_url FROM sources WHERE 
 /// `opted_out` tombstone, so no new check of it can start; whether or not
 /// we held any page. `journal` is the op route's own journal row (empty for
 /// the form, which writes its case first). The case names the tombstone and
-/// targets the removed detections. On an R2 failure nothing in D1 changes
-/// and `x_delete` is sent, so the deletion completes; the caller retries for
-/// the case and journal.
+/// targets the removed detections.
+///
+/// 1. The tombstone first, in its own batch with the read of its id. From
+///    here the store's fence (`url_flow::X_BLOCKED`) ends every check of
+///    the post that has not stored yet `failed` (`x_removed`) and keeps
+///    nothing of it; a check that stored before is in the set read next.
+/// 2. The deletion ([`delete_set_with`], cause [`Cause::Removed`]) with the
+///    journal row, the case, its targets and the removal records in its D1
+///    batch.
+/// 3. A last read of the tombstone: a live page or a run still on it (none
+///    is expected) is deleted the same way, and failing that `x_delete`
+///    finishes it.
+///
+/// On an R2 or D1 failure in step 2 nothing of that batch is written and
+/// `x_delete` is sent, so the deletion completes; the caller retries for the
+/// case and journal (the tombstone stays meanwhile).
 pub async fn remove_post(io: &impl Io, origins: &Origins, r: &Removal, journal: Vec<Stmt>) -> Result<Removed, IoError> {
     let now = io.now_ms();
-    let found = io.run(Stmt::new(SELECT_BY_KEY, vec![Val::blob(&r.canon_key)])).await?;
-    let source = found.first().and_then(|x| x.u64("source_id"));
     let key = Val::blob(&r.canon_key);
+    let found = io
+        .batch(vec![Stmt::new(UPSERT_TOMBSTONE, vec![key.clone()]), Stmt::new(SELECT_BY_KEY, vec![key.clone()])])
+        .await?;
+    let source = found.get(1).and_then(Done::first).and_then(|x| x.u64("source_id"));
     let case_id = match &r.case {
         CaseRef::Existing(c) | CaseRef::New(c) => c.clone(),
     };
@@ -731,8 +832,35 @@ pub async fn remove_post(io: &impl Io, origins: &Origins, r: &Removal, journal: 
     };
     // The first deletion statement moved the pages to `removed`.
     let removed = if source.is_some() { done.get(n_pre).map_or(0, |d| d.changes) } else { 0 };
+    if let Some(s) = source {
+        settle(io, origins, s, now).await;
+    }
     io.metric("removal", &["x", "removed"]);
     Ok(Removed { case_id, removed })
+}
+
+/// Whether the tombstone `source_id` still holds a live page or a run.
+async fn left_on(io: &impl Io, source_id: u64) -> Result<bool, IoError> {
+    let d = io.run(Stmt::new(SELECT_LEFT, vec![Val::int(source_id)])).await?;
+    Ok(d.first().and_then(|r| r.u64("n")).unwrap_or(0) > 0)
+}
+
+/// A removal's last read (step 3): anything still on the tombstone is
+/// deleted with one more pass; a failure, or anything left after it, goes
+/// to `x_delete`. The removal itself is already written, so this never
+/// fails it.
+async fn settle(io: &impl Io, origins: &Origins, source_id: u64, now: u64) {
+    let settled = match left_on(io, source_id).await {
+        Ok(false) => true,
+        Ok(true) => {
+            delete_set(io, origins, &[source_id], Cause::Removed, now).await.is_ok()
+                && matches!(left_on(io, source_id).await, Ok(false))
+        }
+        Err(IoError) => false,
+    };
+    if !settled {
+        let _ = send_x_delete(io, &[source_id], XDeleteCause::XRemoved).await;
+    }
 }
 
 /// `restore {case_id}` on an X case: lifts the opt-out and nothing more.

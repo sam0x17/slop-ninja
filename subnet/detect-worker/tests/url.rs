@@ -630,3 +630,156 @@ fn a_declared_canonical_joins_a_live_page_of_it() {
     let ec = w.check(c).unwrap();
     assert_eq!(w.page(&ec.slug).unwrap().source.unwrap().url.as_deref(), Some(c));
 }
+
+#[test]
+fn a_legal_state_blocks_although_an_alias_page_of_it_is_live() {
+    // A short link to the page, checked a minute after it, made an alias
+    // page of it (live, superseded_by the page, created after it). The
+    // alias page never lifts the block a legal state on the page sets.
+    for state in ["excerpt_withheld", "removed"] {
+        let w = World::new();
+        w.fetch.page(URL, &article(14));
+        let first = w.check(URL).unwrap();
+        assert_eq!(first.failed, None);
+        w.h.advance(60_000);
+        let short = "https://example.com/s/abc";
+        let alias = w.check_with_final(short, URL);
+        assert_ne!(alias, first.slug);
+        let (st, _, _, sup) = w.state_of(&alias);
+        assert_eq!((st.as_str(), sup.is_some()), ("live", true), "{state}");
+        w.legal(&first.slug, state);
+        w.h.advance(60_000);
+        let before = (w.fetch.fetch_calls.get(), w.scorer.calls.get(), w.rows("detections"), w.rows("claims"));
+        for u in [URL, short] {
+            assert_eq!(w.admit(u).unwrap(), Admitted::Done(first.slug.clone()), "{state} {u}");
+            assert_eq!(w.check(u).unwrap(), Ended { slug: first.slug.clone(), failed: None }, "{state} {u}");
+        }
+        assert_eq!(
+            (w.fetch.fetch_calls.get(), w.scorer.calls.get(), w.rows("detections"), w.rows("claims")),
+            before,
+            "{state}: no fetch, scan, page or claim"
+        );
+        assert_eq!(
+            w.h.count("SELECT count(*) FROM detections WHERE state = 'live'"),
+            1,
+            "{state}: the alias page only"
+        );
+        assert_eq!(w.state_of(&first.slug).0, state);
+    }
+}
+
+#[test]
+fn a_legal_state_blocks_although_a_newer_page_of_its_source_is_live() {
+    // The page under an older package, and the newer page that superseded
+    // it; then a legal state on the older one.
+    let mut w = World::new();
+    w.fetch.page(URL, &article(14));
+    let old = w.check(URL).unwrap();
+    w.h.advance(60_000);
+    w.serving.load = "load-next".into();
+    let newer = w.check(URL).unwrap();
+    assert_ne!(newer.slug, old.slug);
+    assert!(w.state_of(&old.slug).3.is_some(), "superseded by the newer page");
+    w.legal(&old.slug, "removed");
+    w.h.advance(60_000);
+    let before = (w.fetch.fetch_calls.get(), w.scorer.calls.get(), w.rows("detections"), w.rows("claims"));
+    // Under the newer page's package the link answers that page, which
+    // already existed; under another package, the removed one. Neither
+    // fetches or makes a page.
+    assert_eq!(w.admit(URL).unwrap(), Admitted::Done(newer.slug.clone()));
+    w.serving.load = "load-later".into();
+    assert_eq!(w.admit(URL).unwrap(), Admitted::Done(old.slug.clone()));
+    assert_eq!(w.check(URL).unwrap(), Ended { slug: old.slug.clone(), failed: None });
+    assert_eq!((w.fetch.fetch_calls.get(), w.scorer.calls.get(), w.rows("detections"), w.rows("claims")), before);
+}
+
+// ------------------------------------------------- redirects to other sites
+
+fn host_of(u: &str) -> String {
+    url::Url::parse(u).unwrap().host_str().unwrap().to_owned()
+}
+
+#[test]
+fn a_redirect_to_another_site_is_judged_by_that_site() {
+    // example.com is ranked. Its links redirect to an unranked site and to
+    // an adult one: each page names the site the text came from, and shows
+    // no title or excerpt and stays out of the index, as a page of that site.
+    let w = World::new();
+    w.host.adult.borrow_mut().insert("example.net".into());
+    for (link, fin) in [
+        ("https://example.com/go/1", "https://www.example.org/story"),
+        ("https://example.com/go/2", "https://example.net/story"),
+    ] {
+        let slug = w.check_with_final(link, fin);
+        let p = w.page(&slug).unwrap();
+        let src = p.source.as_ref().unwrap();
+        assert_eq!((src.host.as_str(), src.title.as_deref()), (host_of(fin).as_str(), None), "{fin}");
+        assert!(p.text.as_ref().unwrap().body.is_none(), "{fin}: no excerpt");
+        assert_eq!(p.robots, Robots::Noindex, "{fin}");
+        let card = slop_ninja_detect_page::card::Card::from_page(&p, false).unwrap();
+        assert_eq!(card.source_label, host_of(fin), "{fin}");
+    }
+    assert_eq!(block_on(sitemap::rebuild(&w.h, &w.origins, true)).unwrap(), 1);
+    let xml = String::from_utf8(w.h.doc(&sitemap::shard_key(0)).unwrap()).unwrap();
+    assert!(!xml.contains("<url>"), "{xml}");
+    // The other way round: an unranked site's link to a ranked site's page
+    // is that site's page.
+    let slug = w.check_with_final("https://example.org/go/3", "https://example.com/story/3");
+    let p = w.page(&slug).unwrap();
+    let src = p.source.as_ref().unwrap();
+    assert_eq!((src.host.as_str(), src.title.as_deref()), ("example.com", Some("Garden notes")));
+    assert_eq!(p.robots, Robots::Index);
+}
+
+#[test]
+fn a_redirect_into_an_opted_out_host_keeps_nothing() {
+    let w = World::new();
+    w.h.exec("INSERT INTO optouts (host, at, journal_seq) VALUES ('www.example.org', 1, 1)");
+    let (link, fin) = ("https://example.com/go/4", "https://www.example.org/story/4");
+    let mut a = ok_page(fin, &article(14));
+    a.final_url = Some(fin.into());
+    w.fetch.pages.borrow_mut().insert(link.into(), a);
+    let e = w.check(link).unwrap();
+    assert_eq!(e.failed, Some(RefusalCode::PrivateSource));
+    assert_eq!(w.scorer.calls.get(), 0, "no scan");
+    let p = w.page(&e.slug).unwrap();
+    assert_eq!((p.state, p.failure.map(|f| f.code)), (DetState::Failed, Some(RefusalCode::PrivateSource)));
+    let src = p.source.unwrap();
+    assert_eq!((src.host.as_str(), src.url, src.title), ("example.com", None, None));
+    // Nothing of the page or its site is kept.
+    assert_eq!((w.rows("runs"), w.run_docs(), w.rows("claims")), (0, 0, 0));
+    assert_eq!(w.h.count("SELECT count(*) FROM sources WHERE host = 'www.example.org'"), 0);
+    let dump = w.h.dump();
+    assert!(!dump.contains("/story/4") && !dump.contains("tomatoes"));
+    // The failure answers for the link, with no fetch, for the robots cache
+    // period.
+    let calls = w.fetch.fetch_calls.get();
+    assert_eq!(w.admit(link).unwrap(), Admitted::Done(e.slug.clone()));
+    assert_eq!(w.fetch.fetch_calls.get(), calls);
+}
+
+#[test]
+fn a_declared_canonical_must_be_on_the_site_the_text_came_from() {
+    // B on example.com has a live page. A link on example.com redirects to
+    // a page on example.org that declares B its canonical: B is not on the
+    // text's site, so the page is its own and B's page is untouched.
+    let w = World::new();
+    let b = "https://example.com/story/9";
+    w.fetch.page(b, &article(14));
+    let eb = w.check(b).unwrap();
+    let (link, fin) = ("https://example.com/go/9", "https://example.org/copy/9");
+    let mut a = ok_page(fin, &vec![HUMAN; 14].join(" "));
+    a.final_url = Some(fin.into());
+    a.canonical = Some(b.into());
+    w.fetch.pages.borrow_mut().insert(link.into(), a);
+    let s = w.scorer.calls.get();
+    let e = w.check(link).unwrap();
+    assert_eq!(e.failed, None);
+    assert_ne!(e.slug, eb.slug);
+    assert_eq!(w.scorer.calls.get(), s + 1, "scored as its own page");
+    let p = w.page(&e.slug).unwrap();
+    assert_eq!(p.source.as_ref().unwrap().host, "example.org");
+    assert_eq!(p.canonical.as_deref(), Some(e.slug.as_str()));
+    assert_eq!(w.admit(b).unwrap(), Admitted::Done(eb.slug.clone()));
+    assert_eq!(w.admit(link).unwrap(), Admitted::Done(e.slug.clone()));
+}

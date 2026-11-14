@@ -5,7 +5,7 @@
 mod common;
 mod stubs;
 
-use common::{Harness, block_on};
+use common::{AT_DOC_DELETE, Harness, block_on, interleave};
 use slop_ninja_detect_fetch_wire::{XControl, XExists, XFailure, XPostAnswer};
 use slop_ninja_detect_page::codes::{DetState, XDeleteCause};
 use slop_ninja_detect_page::origins::Origins;
@@ -124,6 +124,36 @@ impl World {
 
     fn points(&self, name: &str) -> Vec<(String, f64)> {
         self.h.doubles.borrow().iter().filter(|(p, _, _)| p == name).map(|(_, b, d)| (b[0].clone(), *d)).collect()
+    }
+
+    /// No run row that no page names, no run document without its row, and
+    /// no run row without its document.
+    fn nothing_orphaned(&self, tag: &str) {
+        let unnamed = self.h.count(
+            "SELECT count(*) FROM runs r WHERE NOT EXISTS (SELECT 1 FROM detections d WHERE d.run_id = r.run_id)",
+        );
+        assert_eq!(unnamed, 0, "{tag}: a run no page names");
+        let mut rows: Vec<String> = self
+            .h
+            .db
+            .prepare("SELECT doc_key FROM runs")
+            .unwrap()
+            .query_map([], |r| r.get(0))
+            .unwrap()
+            .map(Result::unwrap)
+            .collect();
+        rows.sort();
+        let docs: Vec<String> = self.h.docs.borrow().keys().filter(|k| k.starts_with("r/")).cloned().collect();
+        assert_eq!(docs, rows, "{tag}: run documents and run rows");
+    }
+
+    fn state_of(&self, slug: &str) -> (String, Option<String>) {
+        self.h
+            .db
+            .query_row("SELECT state, refusal FROM detections WHERE public_slug = ?1", [slug], |r| {
+                Ok((r.get(0)?, r.get(1)?))
+            })
+            .unwrap()
     }
 
     fn reset_counts(&self) {
@@ -580,4 +610,213 @@ fn a_removal_during_a_check_leaves_nothing_of_the_post() {
         assert_eq!(w.fetch.post_calls.get(), calls);
         assert!(!w.h.dump().contains("/status/"));
     }
+}
+
+// ------------------------------------------------- removals racing checks
+
+/// The gaps of a removal a check's store can land in, by name and the
+/// pause's needle: before its tombstone, before its read of the post's
+/// pages and runs, before its R2 delete and before its D1 batch.
+const REMOVAL_GAPS: [(&str, &str); 4] = [
+    ("tombstone", x_flow::UPSERT_TOMBSTONE),
+    ("read", "SELECT DISTINCT run_id FROM detections"),
+    ("r2", AT_DOC_DELETE),
+    ("batch", "SET state = 'removed', refusal = 'x_removed'"),
+];
+
+#[test]
+fn a_check_that_races_a_removal_leaves_nothing_of_the_post() {
+    // The post's first check, and a check under a newer package of a post
+    // that has a page: the check runs to its end in each gap of the removal
+    // (a concurrent invocation), and nothing of the post may be left.
+    for recheck in [false, true] {
+        for (gap, needle) in REMOVAL_GAPS {
+            // A first check holds no run when the removal reads: no R2 delete.
+            if !recheck && gap == "r2" {
+                continue;
+            }
+            let tag = format!("recheck {recheck}, gap {gap}");
+            let mut w = World::new(10);
+            let id = post_id(w.h.now.get(), 2 * 3_600_000, 1);
+            w.fetch.posts.borrow_mut().insert(id, XPostAnswer::Text { text: format!("{AI1} {HUMAN}") });
+            let first = recheck.then(|| w.post(1).1);
+            w.serving.load = "load-next".into();
+            let Admitted::Drive(d) =
+                block_on(admit(&w.h, &w.host, &w.ctx(), &format!("https://x.com/i/status/{id}"))).unwrap()
+            else {
+                panic!("{tag}")
+            };
+            w.h.pause_at(needle);
+            let r = Removal {
+                canon_key: x_canon_key(id),
+                reason: XReason::Author,
+                case: CaseRef::New("td-x0000010".into()),
+                auto_journal: false,
+            };
+            let (removed, ended) = interleave(
+                x_flow::remove_post(&w.h, &w.origins, &r, Vec::new()),
+                drive(&w.h, &w.host, &w.fetch, &w.scorer, &w.ctx(), &d),
+            );
+            let removed = removed.unwrap();
+            assert!(w.h.pauses.borrow().is_empty(), "{tag}: the removal paused there");
+            assert_eq!(w.scorer.calls.get(), 1 + u32::from(recheck), "{tag}: the check ran to its store");
+            // The check stored before the tombstone, and the removal took its
+            // page; or it ended x_removed, keeping nothing.
+            let (state, refusal) = w.state_of(&ended.slug);
+            if gap == "tombstone" {
+                assert_eq!((state.as_str(), ended.failed), ("removed", None), "{tag}");
+            } else {
+                assert_eq!((state.as_str(), ended.failed), ("failed", Some(RefusalCode::XRemoved)), "{tag}");
+            }
+            assert_eq!(refusal.as_deref(), Some("x_removed"), "{tag}");
+            let took = u64::from(recheck) + u64::from(state == "removed");
+            assert_eq!(removed.removed, took, "{tag}");
+            if let Some(s) = &first {
+                let p = w.page(s).unwrap();
+                assert_eq!((p.state, p.http_status()), (DetState::Removed, 451), "{tag}");
+            }
+            // No live page, run row, run document or claim; only the
+            // tombstone, which the case names.
+            assert_eq!(w.h.count("SELECT count(*) FROM detections WHERE state = 'live'"), 0, "{tag}");
+            assert_eq!(w.h.count("SELECT count(*) FROM runs"), 0, "{tag}");
+            assert_eq!(w.h.docs.borrow().keys().filter(|k| k.starts_with("r/")).count(), 0, "{tag}");
+            assert_eq!(w.h.count("SELECT count(*) FROM claims"), 0, "{tag}");
+            let (url, st): (Option<String>, String) =
+                w.h.db.query_row("SELECT canon_url, state FROM sources", [], |r| Ok((r.get(0)?, r.get(1)?))).unwrap();
+            assert_eq!((url, st.as_str()), (None, "opted_out"), "{tag}");
+            assert_eq!(w.h.count("SELECT count(*) FROM cases WHERE source_id IS NOT NULL"), 1, "{tag}");
+            assert!(w.h.queue.borrow().iter().all(|m| !matches!(m.job, Job::XDelete { .. })), "{tag}");
+            // A later check answers x_removed with no request; the sweep has
+            // nothing to ask; the purge's dry run counts no run.
+            let calls = w.fetch.post_calls.get();
+            let a = block_on(admit(&w.h, &w.host, &w.ctx(), &format!("https://x.com/a/status/{id}"))).unwrap_err();
+            assert_eq!((a.code, w.fetch.post_calls.get()), (RefusalCode::XRemoved, calls), "{tag}");
+            w.h.advance(X_CHECK_EVERY_MS + 1);
+            let checks = w.fetch.check_calls.get();
+            let _ = w.sweep();
+            assert_eq!(w.fetch.check_calls.get(), checks, "{tag}");
+            let c = block_on(x_flow::purge_counts(&w.h)).unwrap();
+            assert_eq!((c.runs, c.run_docs), (0, 0), "{tag}");
+            assert!(!w.h.dump().contains("/status/"), "{tag}");
+        }
+    }
+}
+
+#[test]
+fn a_run_the_removal_did_not_read_is_deleted_by_its_last_read() {
+    // A page and its run reach the post's source inside the removal's own
+    // batch, past the store's fence. No flow can do this (the test writes
+    // the rows itself, the document first, as a store would); the removal's
+    // last read finds them and deletes them the same way.
+    let w = World::new(10);
+    let (id, s1) = w.post(1);
+    let sid = w.sid(id);
+    w.h.docs.borrow_mut().insert("r/4242".into(), (b"run".to_vec(), 0));
+    w.h.before("SET state = 'removed', refusal = 'x_removed'", move |db| {
+        db.execute(
+            "INSERT INTO runs (run_id, content_key, package_load, package_pub, package_label, policy_v, canon_v, \
+             extract_v, display_v, evidence_id, band, words, total_words, cut, tokens, scored_at, doc_key, doc_bytes) \
+             SELECT 4242, NULL, package_load, package_pub, package_label, policy_v, canon_v, extract_v, display_v, \
+             evidence_id, band, words, total_words, cut, tokens, scored_at, 'r/4242', doc_bytes FROM runs LIMIT 1",
+            [],
+        )
+        .unwrap();
+        db.execute(
+            "INSERT INTO detections (id_h, public_slug, kind, platform, state, created_at, updated_at, source_id, \
+             run_id, package_load) VALUES (x'42', 'zz42zz4', 'public_url', 'x', 'live', 1, 1, ?1, 4242, 'load-next')",
+            [sid as i64],
+        )
+        .unwrap();
+    });
+    let r = remove(&w, id, CaseRef::New("td-x0000011".into()), false);
+    assert_eq!(r.removed, 2, "both pages");
+    assert_eq!(w.page(&s1).unwrap().state, DetState::Removed);
+    assert_eq!(w.h.count("SELECT count(*) FROM detections WHERE state = 'live'"), 0);
+    assert_eq!(w.h.count("SELECT count(*) FROM detections WHERE run_id IS NOT NULL"), 0);
+    assert_eq!(w.h.count("SELECT count(*) FROM runs"), 0);
+    assert_eq!(w.h.docs.borrow().keys().filter(|k| k.starts_with("r/")).count(), 0);
+    assert!(w.h.queue.borrow().iter().all(|m| !matches!(m.job, Job::XDelete { .. })));
+    w.nothing_orphaned("last read");
+}
+
+#[test]
+fn a_check_that_stores_during_a_gone_deletion_orphans_nothing() {
+    // The sweep found the post gone at X; a check of it under a newer
+    // package runs to its end in each gap of the deletion.
+    for gap in ["SELECT DISTINCT run_id FROM detections", AT_DOC_DELETE, "THEN state ELSE 'deleted' END"] {
+        let mut w = World::new(10);
+        let (id, s1) = w.post(1);
+        w.h.advance(X_CHECK_EVERY_MS + 1);
+        w.fetch.exists.borrow_mut().insert(id, XExists::Gone);
+        w.serving.load = "load-next".into();
+        let Admitted::Drive(d) =
+            block_on(admit(&w.h, &w.host, &w.ctx(), &format!("https://x.com/i/status/{id}"))).unwrap()
+        else {
+            panic!("{gap}")
+        };
+        w.h.pause_at(gap);
+        let (rep, ended) = interleave(
+            x_flow::sweep(&w.h, &w.fetch, &w.origins, &w.cfg),
+            drive(&w.h, &w.host, &w.fetch, &w.scorer, &w.ctx(), &d),
+        );
+        assert_eq!(rep.unwrap().gone.len(), 1, "{gap}");
+        assert!(w.h.pauses.borrow().is_empty(), "{gap}: the deletion paused there");
+        assert_eq!(ended.failed, None, "{gap}: the check stored");
+        w.nothing_orphaned(gap);
+        let p1 = w.page(&s1).unwrap();
+        assert_eq!((p1.state, p1.ended.map(|e| e.code)), (DetState::Deleted, Some(RefusalCode::XGone)), "{gap}");
+        if gap == "SELECT DISTINCT run_id FROM detections" {
+            // It stored before the read: the deletion took its page too.
+            assert_eq!(w.page(&ended.slug).unwrap().state, DetState::Deleted, "{gap}");
+        } else {
+            // It stored after the read: its page stays whole, with its run,
+            // document and source, until the next sweep finds the post gone.
+            assert_eq!(w.page(&ended.slug).unwrap().state, DetState::Live, "{gap}");
+            assert_eq!(w.h.count("SELECT count(*) FROM sources WHERE canon_url IS NOT NULL"), 1, "{gap}");
+            w.h.advance(X_CHECK_EVERY_MS + 1);
+            assert_eq!(w.sweep().gone.len(), 1, "{gap}");
+            assert_eq!(w.page(&ended.slug).unwrap().state, DetState::Deleted, "{gap}");
+        }
+        assert_eq!(w.h.count("SELECT count(*) FROM sources") + w.h.count("SELECT count(*) FROM runs"), 0, "{gap}");
+        assert_eq!(w.h.docs.borrow().keys().filter(|k| k.starts_with("r/")).count(), 0, "{gap}");
+    }
+}
+
+#[test]
+fn a_gone_deletion_keeps_a_removal_that_landed_while_x_was_asked() {
+    // The sweep claimed the post and X answered gone; before the deletion
+    // reads, a removal of the post runs to its end.
+    let w = World::new(10);
+    let (id, s1) = w.post(1);
+    w.h.advance(X_CHECK_EVERY_MS + 1);
+    w.fetch.exists.borrow_mut().insert(id, XExists::Gone);
+    w.h.pause_at("SELECT DISTINCT run_id FROM detections");
+    let r = Removal {
+        canon_key: x_canon_key(id),
+        reason: XReason::Author,
+        case: CaseRef::New("td-x0000012".into()),
+        auto_journal: false,
+    };
+    let (rep, removed) = interleave(
+        x_flow::sweep(&w.h, &w.fetch, &w.origins, &w.cfg),
+        x_flow::remove_post(&w.h, &w.origins, &r, Vec::new()),
+    );
+    rep.unwrap();
+    assert_eq!(removed.unwrap().removed, 1);
+    assert!(w.h.pauses.borrow().is_empty());
+    // The tombstone, the case's link to it and the removed page stay.
+    let (url, st): (Option<String>, String) =
+        w.h.db.query_row("SELECT canon_url, state FROM sources", [], |r| Ok((r.get(0)?, r.get(1)?))).unwrap();
+    assert_eq!((url, st.as_str()), (None, "opted_out"));
+    assert_eq!(w.h.count("SELECT count(*) FROM cases WHERE source_id IS NOT NULL"), 1);
+    let p = w.page(&s1).unwrap();
+    assert_eq!((p.state, p.http_status()), (DetState::Removed, 451));
+    let calls = w.fetch.post_calls.get();
+    let a = block_on(admit(&w.h, &w.host, &w.ctx(), &format!("https://x.com/a/status/{id}"))).unwrap_err();
+    assert_eq!((a.code, w.fetch.post_calls.get()), (RefusalCode::XRemoved, calls));
+    w.nothing_orphaned("gone after removal");
+    assert_eq!(w.h.count("SELECT count(*) FROM runs"), 0);
+    // restore still lifts it.
+    assert!(block_on(x_flow::restore_x(&w.h, "td-x0000012", Vec::new())).unwrap());
+    assert_eq!(w.h.count("SELECT count(*) FROM sources"), 0);
 }

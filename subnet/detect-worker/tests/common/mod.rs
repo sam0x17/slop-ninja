@@ -2,14 +2,15 @@
 //! (the detect store's own migration, foreign keys on, as D1 runs it), a
 //! map for R2, and recorders for the account Worker, the queue, the relay
 //! and the metric points. Every future the store returns is ready at once,
-//! so a no-op waker drives it.
+//! so a no-op waker drives it, except at a pause a test sets
+//! ([`Harness::pause_at`]), where [`interleave`] runs another flow.
 
 #![allow(dead_code)]
 
 use std::cell::{Cell, RefCell};
 use std::collections::BTreeMap;
 use std::future::Future;
-use std::pin::pin;
+use std::pin::{Pin, pin};
 use std::task::{Context, Poll, Waker};
 
 use rusqlite::types::{Value, ValueRef};
@@ -26,6 +27,41 @@ pub fn block_on<F: Future>(f: F) -> F::Output {
     loop {
         if let Poll::Ready(v) = f.as_mut().poll(&mut cx) {
             return v;
+        }
+    }
+}
+
+/// Runs `a` until its first pause ([`Harness::pause_at`]), then `b` to its
+/// end, then the rest of `a`: `b` lands in the gap, as a concurrent
+/// invocation would.
+pub fn interleave<A: Future, B: Future>(a: A, b: B) -> (A::Output, B::Output) {
+    let mut a = pin!(a);
+    let mut cx = Context::from_waker(Waker::noop());
+    let first = a.as_mut().poll(&mut cx);
+    let rb = block_on(b);
+    let ra = match first {
+        Poll::Ready(v) => v,
+        Poll::Pending => block_on(a),
+    };
+    (ra, rb)
+}
+
+/// The needle of a pause before an R2 delete.
+pub const AT_DOC_DELETE: &str = "<r2 delete>";
+
+/// One `Poll::Pending`, then ready.
+struct Pause(bool);
+
+impl Future for Pause {
+    type Output = ();
+
+    fn poll(self: Pin<&mut Self>, _: &mut Context<'_>) -> Poll<()> {
+        let this = self.get_mut();
+        if this.0 {
+            Poll::Ready(())
+        } else {
+            this.0 = true;
+            Poll::Pending
         }
     }
 }
@@ -53,6 +89,8 @@ pub struct Harness {
     pub fail_doc_put: Cell<bool>,
     pub fail_doc_delete: Cell<bool>,
     pub hooks: RefCell<Vec<(String, Hook)>>,
+    /// Needles of the pauses still to come ([`Harness::pause_at`]).
+    pub pauses: RefCell<Vec<String>>,
     pub list_page: Cell<usize>,
 }
 
@@ -80,6 +118,7 @@ impl Harness {
             fail_doc_put: Cell::new(false),
             fail_doc_delete: Cell::new(false),
             hooks: RefCell::new(Vec::new()),
+            pauses: RefCell::new(Vec::new()),
             list_page: Cell::new(1000),
         }
     }
@@ -91,6 +130,31 @@ impl Harness {
     /// Runs `hook` once, before the first statement containing `needle`.
     pub fn before(&self, needle: &str, hook: impl FnMut(&rusqlite::Connection) + 'static) {
         self.hooks.borrow_mut().push((needle.to_owned(), Box::new(hook)));
+    }
+
+    /// Pauses once (one `Poll::Pending`) before the first call whose
+    /// statement text contains `needle` (a `run`, or anywhere in a `batch`,
+    /// before its transaction begins), or before the first R2 delete with
+    /// [`AT_DOC_DELETE`].
+    pub fn pause_at(&self, needle: &str) {
+        self.pauses.borrow_mut().push(needle.to_owned());
+    }
+
+    async fn pause_if<'a>(&self, texts: impl IntoIterator<Item = &'a str>) {
+        let texts: Vec<&str> = texts.into_iter().collect();
+        let hit = {
+            let mut p = self.pauses.borrow_mut();
+            match p.iter().position(|n| texts.iter().any(|t| t.contains(n.as_str()))) {
+                Some(i) => {
+                    p.remove(i);
+                    true
+                }
+                None => false,
+            }
+        };
+        if hit {
+            Pause(false).await;
+        }
     }
 
     fn run_hooks(&self, sql: &str) {
@@ -198,10 +262,12 @@ impl Harness {
 
 impl Sql for Harness {
     async fn run(&self, s: Stmt) -> Result<Done, DbError> {
+        self.pause_if([&*s.sql]).await;
         self.one(&s)
     }
 
     async fn batch(&self, v: Vec<Stmt>) -> Result<Vec<Done>, DbError> {
+        self.pause_if(v.iter().map(|s| &*s.sql)).await;
         self.db.execute_batch("BEGIN").unwrap();
         let mut out = Vec::new();
         for s in &v {
@@ -253,6 +319,7 @@ impl Io for Harness {
 
     async fn doc_delete(&self, keys: &[String]) -> Result<(), IoError> {
         assert!(keys.len() <= 1000);
+        self.pause_if([AT_DOC_DELETE]).await;
         if self.fail_doc_delete.get() {
             return Err(IoError);
         }

@@ -13,12 +13,15 @@
 //! 2. `DETECT_TOOL` and `DETECT_URLS`; the host's opt-out row;
 //! 3. the security screen through `DetectHost` (`security_risk`);
 //! 4. the link's source under its alias: a live page under the serving
-//!    package answers its slug (no fetch, no scan); a page of the source
-//!    under a legal state that no later live page replaced (`removed`,
-//!    `excerpt_withheld`, `disabled`, under any package) answers its slug,
-//!    and an `opted_out` source answers `rerun_blocked`, so sending the link
-//!    again never undoes a removal; a recent `robots` or `private_source`
-//!    failure answers its failed page for the robots cache period;
+//!    package answers its slug (no fetch, no scan); else a page of the
+//!    source under a legal state (`removed`, `excerpt_withheld`, `disabled`,
+//!    under any package) answers its slug, and an `opted_out` source answers
+//!    `rerun_blocked`, so sending the link again never undoes a removal. A
+//!    legal state blocks new pages of its source until it is lifted
+//!    (`restore`) or its page is deleted; a page that already existed (an
+//!    alias, a page under another package) never lifts it. A recent `robots`
+//!    or `private_source` failure answers its failed page for the robots
+//!    cache period;
 //! 5. the claim ([`crate::claims`]): the winner draws the slug;
 //! 6. (`drive`) a politeness slot from `DetectHost` (robots.txt first when
 //!    stale; `robots` when it disallows), then `DETECT_FETCH /fetch` (once
@@ -26,11 +29,15 @@
 //! 7. a failed fetch ends the page `failed` with the fetch's code, keeping no
 //!    text; a source that asks not to be indexed marks a known source
 //!    `unlisted`, and a 404 or 410 marks it `gone` (an `opted_out` source
-//!    stays so);
-//! 8. reputation (ranking shards and the family screen);
+//!    stays so). The text's site is the final URL's (a redirect may lead to
+//!    another site; the fetch Worker screened it and read its robots.txt):
+//!    when its host is not the submitted one, its opt-out row ends the page
+//!    `failed` (`private_source`), keeping no text;
+//! 8. reputation (ranking shards and the family screen) of that site, which
+//!    is also the host the page and its card name;
 //! 9. the source is the final URL's (else the submitted link's), and the
 //!    link's forms are its aliases. Canonical dedupe: when that source, or
-//!    the declared `rel=canonical` on the same registrable domain, already
+//!    the declared `rel=canonical` on the text's registrable domain, already
 //!    has a live page under this package, this page becomes an alias of
 //!    that one (same run, `rel=canonical` to it) and answers its slug. The
 //!    declared canonical only ever joins such a page: it never keys, names
@@ -70,7 +77,10 @@
 //!    (the form, `remove` or `x_remove`) that left the tombstone while the
 //!    check ran makes the same batch end the page `failed` (`x_removed`)
 //!    with no source and delete its new run, and the run document goes
-//!    after it. Nothing of the post outlives the removal.
+//!    after it. A removal writes the tombstone before it reads the post's
+//!    pages and runs (`x_flow::remove_post`), so a check either stored
+//!    before that write, and the removal deletes it, or is fenced off here.
+//!    Nothing of the post outlives the removal.
 
 use slop_ninja_detect_fetch_wire::{FetchAnswer, FetchRequest, Limits, MAX_HOPS, Outcome, XPostAnswer, XPostRequest};
 use slop_ninja_detect_page::codes::{DetectXState, Platform, Reputation};
@@ -182,12 +192,14 @@ pub fn url_refusal(r: Refusal) -> RefusalCode {
 
 /// The condition on a page `b` of source `s` that stops any new public page
 /// of the source: a legal state (`removed`, `excerpt_withheld`,
-/// `disabled`), under any package, that no later live page replaced.
+/// `disabled`), under any package. It holds until the state is lifted or
+/// the page deleted; no other page of the source lifts it (an alias page or
+/// a page under another package is older than the block, since the block
+/// stops every new one).
 macro_rules! blocking_page {
     () => {
         "b.source_id = s.source_id AND b.kind = 'public_url' \
-AND b.state IN ('removed','excerpt_withheld','disabled') AND NOT EXISTS (SELECT 1 FROM detections l \
-WHERE l.source_id = s.source_id AND l.state = 'live' AND l.created_at > b.created_at)"
+AND b.state IN ('removed','excerpt_withheld','disabled')"
     };
 }
 
@@ -213,7 +225,7 @@ OR s.source_id = (SELECT a.source_id FROM source_aliases a WHERE a.alias_key = ?
 struct Known {
     /// A live page under the serving package.
     live: Option<String>,
-    /// A page under a legal state that no later live page replaced.
+    /// A page under a legal state ([`BLOCKING_PAGE`]).
     blocked: Option<String>,
     /// A source that is `opted_out`.
     opted_out: bool,
@@ -542,11 +554,23 @@ async fn drive_page(
         let code = answer.outcome.refusal().and_then(RefusalCode::parse).unwrap_or(RefusalCode::FetchFailed);
         return Err(code.into());
     }
+    // The site the text came from. A redirect to another host is judged by
+    // that host: its opt-out ends the check as the submitted host's would.
+    let site = FetchedSite::of(ctx.policy, target, &answer).ok_or(RefusalCode::FetchFailed)?;
+    if site.host != target.host {
+        let optout = io
+            .run(Stmt::new(SELECT_OPTOUT, vec![Val::text(&site.host)]))
+            .await
+            .map_err(|_| RefusalCode::Unavailable)?;
+        if optout.first().is_some() {
+            return Err(RefusalCode::PrivateSource.into());
+        }
+    }
     let text = answer.text.as_deref().ok_or(RefusalCode::FetchFailed)?;
     let canonical = crate::canon::canon_v1(text).into_owned();
     // The source: the final URL, or the submitted one; every form of the
     // link is an alias. The declared canonical is only a dedupe candidate.
-    let page = SourcePage::of(target, submitted_key, &answer);
+    let page = SourcePage::of(target, submitted_key, &answer, &site.registrable);
     // Canonical dedupe: another live page of this source, or of the
     // declared canonical's, under this package.
     let mut q = vec![Known::stmt(&page.key, &ctx.serving.load)];
@@ -569,7 +593,7 @@ async fn drive_page(
     }
     let (reputation, rank_v) = match target.platform {
         platform::Platform::Bluesky { .. } => (Reputation::Ranked, "bsky".to_owned()),
-        _ => host.reputation(&target.registrable).await.map_err(|_| RefusalCode::Unavailable)?,
+        _ => host.reputation(&site.registrable).await.map_err(|_| RefusalCode::Unavailable)?,
     };
     let kind = if matches!(target.platform, platform::Platform::Bluesky { .. }) {
         SourceKind::SocialPost
@@ -602,7 +626,7 @@ async fn drive_page(
     let src = SourceWrite {
         key: page.key.clone(),
         url: page.url.clone(),
-        host: target.host.clone(),
+        host: site.host.clone(),
         adapter: if kind == SourceKind::SocialPost { "bluesky" } else { "web" },
         meta: answer.meta.clone().unwrap_or_default(),
         reputation,
@@ -657,6 +681,40 @@ fn adapter_of(target: &slop_ninja_detect_url::Target) -> &'static str {
     if matches!(target.platform, platform::Platform::Bluesky { .. }) { "bluesky" } else { "web" }
 }
 
+/// The site a fetched text came from: the final URL's host and registrable
+/// domain, else the submitted link's. A redirect may lead to another site,
+/// and every host-level rule reads this one: the host's opt-out, the
+/// reputation and family screen, the host the page and its card name
+/// (`sources.host`, which the index gates read too), and the site a
+/// declared canonical must be on.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct FetchedSite {
+    /// The host, A-label form, as [`slop_ninja_detect_url::Target::host`].
+    pub host: String,
+    /// Its registrable domain (the `DetectHost` key).
+    pub registrable: String,
+}
+
+impl FetchedSite {
+    /// The final URL read with the same URL rules as a submitted link; a
+    /// Bluesky post is its own link's. `None` when the final URL does not
+    /// pass them as a web page (the fetch Worker checks every hop with these
+    /// rules, so only a mismatch of the two Workers' rules gets here).
+    pub fn of(policy: &Policy, target: &slop_ninja_detect_url::Target, a: &FetchAnswer) -> Option<FetchedSite> {
+        let own = || FetchedSite { host: target.host.clone(), registrable: target.registrable.clone() };
+        if matches!(target.platform, platform::Platform::Bluesky { .. }) {
+            return Some(own());
+        }
+        let Some(f) = a.final_url.as_deref() else { return Some(own()) };
+        match slop_ninja_detect_url::admit(f, policy) {
+            Ok(UrlAdmitted::Fetch(t)) if t.platform == platform::Platform::Web => {
+                Some(FetchedSite { host: t.host, registrable: t.registrable })
+            }
+            _ => None,
+        }
+    }
+}
+
 /// The source a fetch found, the URL forms that name it, and the declared
 /// canonical it may join.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -667,16 +725,23 @@ pub struct SourcePage {
     pub url: String,
     /// The link's other forms (the submitted and final URLs).
     pub aliases: Vec<String>,
-    /// The declared `rel=canonical` on the same registrable domain, as a
-    /// source key, when it differs from `key`. It is only looked up: this
-    /// page joins it when it already has a live page under the serving
-    /// package, and it never keys, names or aliases a source, since the page
-    /// that declares it need not be its author's.
+    /// The declared `rel=canonical` on the text's registrable domain
+    /// ([`FetchedSite::registrable`]), as a source key, when it differs from
+    /// `key`. It is only looked up: this page joins it when it already has a
+    /// live page under the serving package, and it never keys, names or
+    /// aliases a source, since the page that declares it need not be its
+    /// author's.
     pub declared: Option<String>,
 }
 
 impl SourcePage {
-    pub fn of(target: &slop_ninja_detect_url::Target, submitted_key: &str, a: &FetchAnswer) -> SourcePage {
+    /// `registrable`: the registrable domain of the site the text came from.
+    pub fn of(
+        target: &slop_ninja_detect_url::Target,
+        submitted_key: &str,
+        a: &FetchAnswer,
+        registrable: &str,
+    ) -> SourcePage {
         if let (platform::Platform::Bluesky { rkey, .. }, Some(did)) =
             (&target.platform, a.meta.as_ref().and_then(|m| m.did.as_deref()))
         {
@@ -689,7 +754,7 @@ impl SourcePage {
             url::Url::parse(u)
                 .ok()
                 .and_then(|u| u.host_str().and_then(slop_ninja_detect_url::psl::registrable_domain).map(str::to_owned))
-                .is_some_and(|r| r == target.registrable)
+                .is_some_and(|r| r == registrable)
         };
         let chosen = a.final_url.as_deref().unwrap_or(target.url.as_str()).to_owned();
         let key = format!("url:{chosen}");

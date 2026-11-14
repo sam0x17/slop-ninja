@@ -180,7 +180,9 @@ the `ACCOUNT` binding; at launch only operator grants back it.
   the account, the free seal and the hold's idempotency key.
 - `POST /api/detect/v1/paid/start`: the hold, then the job text and section
   1's result in R2 (under the page's own key, with the job AAD), then one
-  batch inserts the pending page and its job. A seal starts one check.
+  batch inserts the pending page and its job. A seal starts one check. A
+  start that fails after its hold gives the hold back, and the ledger then
+  refuses that quote (`quote_invalid`): the reader quotes again.
 - `POST /api/detect/v1/job` (the secret host): an NDJSON stream of job lines
   while one driver at a time scores the sections, fenced by a lease token
   (CLAIM, RENEW, ADVANCE, SCORED). Each section takes a gate ticket of class

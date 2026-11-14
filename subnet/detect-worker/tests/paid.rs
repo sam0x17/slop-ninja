@@ -2,9 +2,10 @@
 //! quote, the start, the fenced job driver end to end, two drivers on one
 //! job (side by side, and one whose lease lapsed), a cancel mid-job, a
 //! section refused for good, a failed commit, the pause, the subrequest
-//! calls of a long job, and the sweep. The ledger is a fake with the
-//! account Worker's semantics (a hold per idempotency key, one end per
-//! hold); the account Worker's own suite runs the real ledger.
+//! calls of a long job, the sweep, and a quote whose hold was given back.
+//! The ledger is a fake with the account Worker's semantics (a hold per
+//! idempotency key until it ends, one end per hold); the account Worker's
+//! own suite runs the real ledger.
 
 mod common;
 
@@ -219,6 +220,10 @@ impl Ledger for FakeLedger {
         }
         let part = |t| vec![HoldPart { src: PartSource::Payment, id: 1, tokens: t, cash: self.cash.get() }];
         if let Some(h) = self.holds.borrow().iter().find(|h| h.0 == req.idem) {
+            // An ended hold never backs another check.
+            if h.3.is_some() {
+                return Err(RefusalCode::QuoteInvalid);
+            }
             return Ok(HoldAnswer { hold_id: h.1.clone(), parts: part(h.2) });
         }
         if req.tokens > self.credit.get() {
@@ -651,6 +656,65 @@ fn a_start_needs_this_account_s_quote_for_this_text() {
     let used = w.h.count("SELECT count(*) FROM detections WHERE seal_nonce_h IS NOT NULL");
     assert_eq!(used, 1);
     let _ = a;
+}
+
+#[test]
+fn a_quote_whose_hold_was_given_back_starts_nothing() {
+    // A start fails after its hold: at the job text's put, or at the insert
+    // batch. Nothing is inserted, so the free seal stays unused and the
+    // quote seal stays valid, and the hold goes back. The same confirm sent
+    // again (back and resubmit, or a replay) must not run on that hold.
+    for at_batch in [false, true] {
+        let w = World::new();
+        let l = FakeLedger::with(100_000);
+        let text = prose(2_500);
+        let seal = w.free_seal(&text, 1);
+        let q = quote(&w, &l, &text, &seal, Some(reader(false))).unwrap();
+        if at_batch {
+            w.h.before("INSERT INTO jobs", |db| {
+                db.execute_batch(
+                    "CREATE TEMP TRIGGER no_job BEFORE INSERT ON jobs BEGIN SELECT RAISE(ABORT, 'down'); END;",
+                )
+                .unwrap();
+            });
+        } else {
+            w.h.fail_doc_put.set(true);
+        }
+        assert_eq!(
+            start(&w, &l, &text, &seal, &q.quote_seal, Some(reader(false))).unwrap_err(),
+            RefusalCode::SaveUnavailable,
+            "at_batch {at_batch}"
+        );
+        w.h.fail_doc_put.set(false);
+        w.h.exec("DROP TRIGGER IF EXISTS temp.no_job");
+        assert_eq!((l.holds.borrow().len(), l.releases.get(), l.commits.get()), (1, 1, 0));
+        assert_eq!(l.credit.get(), 100_000, "the hold went back");
+        assert_eq!(w.h.count("SELECT count(*) FROM detections"), 0);
+        assert_eq!(w.docs_under("j/"), 0);
+
+        // The same quote again: refused, and nothing is placed or written.
+        assert_eq!(
+            start(&w, &l, &text, &seal, &q.quote_seal, Some(reader(false))).unwrap_err(),
+            RefusalCode::QuoteInvalid,
+            "at_batch {at_batch}"
+        );
+        assert_eq!(l.holds.borrow().len(), 1, "no second hold");
+        assert_eq!((l.releases.get(), l.commits.get()), (1, 0));
+        assert_eq!(l.credit.get(), 100_000);
+        assert_eq!(w.h.count("SELECT count(*) FROM detections"), 0);
+        assert_eq!(w.h.count("SELECT count(*) FROM jobs"), 0);
+        assert_eq!(w.docs_under("j/"), 0);
+        assert_eq!(w.h.metric_count("job", "started"), 0);
+
+        // A fresh quote of the same scan starts the check, which commits once.
+        let q2 = quote(&w, &l, &text, &seal, Some(reader(false))).unwrap();
+        let a = start(&w, &l, &text, &seal, &q2.quote_seal, Some(reader(false))).unwrap();
+        let (end, _) = drive(&w, &l, &FakeScorer::default(), &a.slug);
+        assert_eq!(end, JobEnd::Done);
+        assert_eq!((l.holds.borrow().len(), l.releases.get(), l.commits.get()), (2, 1, 1));
+        assert_eq!(l.credit.get(), 100_000 - u64::from(q2.paid_tokens));
+        assert_eq!((job_state(&w), det_state(&w)), ("committed".into(), "live".into()));
+    }
 }
 
 #[test]

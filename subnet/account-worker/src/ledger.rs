@@ -13,8 +13,9 @@
 //! one transaction: a read inside it cannot shape the later statements, and
 //! an `UPDATE` that matches no row is not an error. So:
 //! 1. **read** (outside any batch): a hold with this `idem` (answered as it
-//!    is), then the active plan period and the active payments in FIFO
-//!    order;
+//!    is while it has not ended; an ended one answers `quote_invalid`, so
+//!    one `idem` never backs a second check), then the active plan period
+//!    and the active payments in FIFO order;
 //! 2. **plan** the parts here ([`plan`]); a shortfall answers 402
 //!    `not_enough_credit` and writes nothing;
 //! 3. **one batch**: a guard that each source still belongs to the account
@@ -26,7 +27,8 @@
 //!    included; a duplicate `idem` fails it on `holds.idem UNIQUE`;
 //! 4. **on a rollback** it reads and plans once more and runs the batch
 //!    again; a second failure, or a shortfall, answers 402 with nothing
-//!    changed, and a duplicate `idem` answers the existing hold.
+//!    changed, and a duplicate `idem` answers the existing hold under the
+//!    same rule as the first read.
 //!
 //! So no hold exists whose parts were not all deducted, and concurrent holds
 //! never draw more than the balance.
@@ -441,16 +443,25 @@ pub async fn hold<H: Host>(host: &H, req: &Req, sw: &Switches) -> Resp {
 }
 
 /// The hold of `req` (the route's logic, for the tests too).
+///
+/// An `idem` backs one check. Its hold is answered again only while it has
+/// not ended (a confirm sent twice); once it has ended, the `idem` answers
+/// `quote_invalid` and places nothing, so the reader quotes again. A
+/// released hold answered again would back a new job whose tokens are
+/// already back in the balance, and a committed one a second job on one
+/// debit.
 pub async fn place<H: Host>(host: &H, sw: &Switches, req: &HoldRequest) -> Result<HoldAnswer, RefusalCode> {
     if !key_ok(&req.idem) || !credit::holds_on(req.channel) || req.tokens == 0 || req.tokens > MAX_HOLD_TOKENS {
         return Err(RefusalCode::MalformedRequest);
     }
     billing_open(sw.billing())?;
     let existing = |h: HoldRow| {
-        if h.user_id == req.user_id {
-            Ok(HoldAnswer { hold_id: h.hold_id, parts: h.parts })
-        } else {
+        if h.user_id != req.user_id {
             Err(RefusalCode::MalformedRequest)
+        } else if h.ended.is_some() {
+            Err(RefusalCode::QuoteInvalid)
+        } else {
+            Ok(HoldAnswer { hold_id: h.hold_id, parts: h.parts })
         }
     };
     if let Some(h) = read_hold(host, SELECT_HOLD_BY_IDEM, &req.idem).await? {

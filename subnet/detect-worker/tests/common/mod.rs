@@ -48,6 +48,7 @@ pub struct Harness {
     pub purge_token: Cell<bool>,
     pub statements: Cell<u64>,
     pub doc_reads: Cell<u64>,
+    pub fail_doc_put: Cell<bool>,
     pub fail_doc_delete: Cell<bool>,
     pub hooks: RefCell<Vec<(String, Hook)>>,
     pub list_page: Cell<usize>,
@@ -73,6 +74,7 @@ impl Harness {
             purge_token: Cell::new(false),
             statements: Cell::new(0),
             doc_reads: Cell::new(0),
+            fail_doc_put: Cell::new(false),
             fail_doc_delete: Cell::new(false),
             hooks: RefCell::new(Vec::new()),
             list_page: Cell::new(1000),
@@ -234,6 +236,9 @@ impl Io for Harness {
     }
 
     async fn doc_put(&self, key: &str, bytes: Vec<u8>) -> Result<(), IoError> {
+        if self.fail_doc_put.get() {
+            return Err(IoError);
+        }
         self.docs.borrow_mut().insert(key.to_owned(), (bytes, self.now.get()));
         Ok(())
     }

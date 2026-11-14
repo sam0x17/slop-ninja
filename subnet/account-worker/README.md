@@ -38,8 +38,9 @@ plan periods, served to the detect Worker through the internal billing routes.
 - **No hold without its deductions, and no overdraw.** A hold reads its sources, plans its parts, then runs one batch of
   unguarded decrements and the hold row: a concurrent hold, a void or a period end since the read breaks a balance
   CHECK and rolls the whole batch back, and the hold reads and plans once more before it answers 402. A hold is
-  idempotent by its quote's nonce, and it ends once: commit and release each begin with the `hold_ends` row, whose
-  key refuses a second end. A release returns nothing into a voided grant or a closed period.
+  idempotent by its quote's nonce until it ends, and it ends once: commit and release each begin with the `hold_ends`
+  row, whose key refuses a second end. Once a hold has ended, its nonce answers `quote_invalid` and places nothing, so
+  one quote never backs a second check. A release returns nothing into a voided grant or a closed period.
 - **The `BILLING` switch** (`off`, `grants`, `live`) gates new quotes and holds only; holds placed before a flip still
   end. `grants` runs paid checks end to end on operator grants (non-cash, never counted for the pot); `live` waits for
   the payment processor and answers `not_configured`.

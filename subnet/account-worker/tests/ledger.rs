@@ -1,7 +1,8 @@
 //! The billing ledger on the account store's own migration: operator grants
-//! and plans, holds, their one end (commit or release), the `BILLING`
-//! switch, the quote quota, and the races that matter (holds raced against
-//! a balance, one `idem` raced, a commit raced against a release).
+//! and plans, holds, their one end (commit or release), an ended hold's
+//! `idem` refused, the `BILLING` switch, the quote quota, and the races that
+//! matter (holds raced against a balance, one `idem` raced, a commit raced
+//! against a release).
 //!
 //! The race tests drive the ledger's own futures through a host that yields
 //! before every store call and a round-robin executor, so every interleaving
@@ -199,6 +200,49 @@ fn a_release_returns_the_parts_and_ends_the_hold_once() {
     let (s, a) = hold(&h, &cfg, &u, 2_001, "q-three");
     assert_eq!((s, a["code"].clone()), (402, json!("not_enough_credit")));
     assert_eq!(h.count("SELECT count(*) AS n FROM holds"), 1);
+}
+
+#[test]
+fn an_ended_hold_s_idem_places_nothing_again() {
+    let h = TestHost::new();
+    let cfg = grants();
+    let u = account(&h, &cfg, "reader@example.com");
+    op(&h, &cfg, "grant_credit", json!({"user_id": u, "tokens": 5_000, "reason": "r"}));
+    // Released (a start that failed after its hold gave it back): the quote
+    // is spent, and a second confirm of it places nothing.
+    let (_, a) = hold(&h, &cfg, &u, 1_000, "q-back");
+    let id = a["hold_id"].as_str().unwrap().to_owned();
+    assert_eq!(release(&h, &cfg, &id).1["ended"], json!("released"));
+    assert_eq!(credit_left(&h), 5_000);
+    let (s, r) = hold(&h, &cfg, &u, 1_000, "q-back");
+    assert_eq!((s, r["code"].clone()), (409, json!("quote_invalid")));
+    assert_eq!(credit_left(&h), 5_000);
+    assert_eq!(h.count("SELECT count(*) AS n FROM holds"), 1);
+    // Committed: the same, with the one debit on record.
+    let (_, a) = hold(&h, &cfg, &u, 1_000, "q-done");
+    let id = a["hold_id"].as_str().unwrap().to_owned();
+    assert_eq!(commit(&h, &cfg, &id).1["ended"], json!("committed"));
+    let (s, r) = hold(&h, &cfg, &u, 1_000, "q-done");
+    assert_eq!((s, r["code"].clone()), (409, json!("quote_invalid")));
+    assert_eq!(credit_left(&h), 4_000);
+    assert_eq!(h.count("SELECT count(*) AS n FROM holds"), 2);
+    assert_eq!(h.count("SELECT count(*) AS n FROM debits"), 1);
+    // Another account naming that idem is still malformed.
+    let v = account(&h, &cfg, "other@example.com");
+    assert_eq!(hold(&h, &cfg, &v, 1_000, "q-done").1["code"], json!("malformed_request"));
+    // A new quote's idem places as before.
+    assert_eq!(hold(&h, &cfg, &u, 1_000, "q-new").0, 200);
+    assert_eq!(credit_left(&h), 3_000);
+
+    // The rollback path: between this request's read and its batch, another
+    // request places this idem's hold and it is released. The batch fails on
+    // the idem, and the re-read finds an ended hold: refused, not answered.
+    let sw = block_on(Switches::load(cfg.as_ref().unwrap(), &h));
+    let late = EndsFirst { h: &h, sw: &sw, req: req(&u, 1_000, "q-late"), done: Cell::new(false) };
+    assert_eq!(block_on(ledger::place(&late, &sw, &late.req)), Err(RefusalCode::QuoteInvalid));
+    assert!(late.done.get());
+    assert_eq!(h.count("SELECT count(*) AS n FROM holds WHERE idem = 'q-late'"), 1);
+    assert_eq!(credit_left(&h), 3_000, "nothing taken by the refused request");
 }
 
 #[test]
@@ -461,6 +505,53 @@ fn race<T>(futs: Vec<Racer<'_, T>>) -> Vec<T> {
         }
     }
     out.into_iter().map(Option::unwrap).collect()
+}
+
+/// The test host, on which another request places `req`'s hold and
+/// releases it just before this request's own hold batch runs.
+struct EndsFirst<'a> {
+    h: &'a TestHost,
+    sw: &'a Switches,
+    req: HoldRequest,
+    done: Cell<bool>,
+}
+
+impl Host for EndsFirst<'_> {
+    async fn all(&self, stmt: Stmt) -> Result<Vec<Row>, DbError> {
+        self.h.all(stmt).await
+    }
+    async fn batch(&self, stmts: Vec<Stmt>) -> Result<Vec<Vec<Row>>, DbError> {
+        if !self.done.get() && stmts.iter().any(|s| s.sql.starts_with("INSERT INTO holds")) {
+            self.done.set(true);
+            let other = ledger::place(self.h, self.sw, &self.req).await.unwrap();
+            ledger::end_hold(self.h, &other.hold_id, End::Release).await.unwrap();
+        }
+        self.h.batch(stmts).await
+    }
+    async fn quota_take(&self, name: &str, size: TokenBucket) -> Result<QuotaTake, QuotaUnavailable> {
+        self.h.quota_take(name, size).await
+    }
+    async fn quota_reset(&self, name: &str) -> Result<(), QuotaUnavailable> {
+        self.h.quota_reset(name).await
+    }
+    async fn send_mail(&self, m: &Message) -> Result<(), SendFailure> {
+        self.h.send_mail(m).await
+    }
+    async fn http(&self, req: &OutRequest) -> Result<OutReply, NetError> {
+        self.h.http(req).await
+    }
+    async fn enqueue(&self, msg: &QueueMessage) -> Result<(), QueueUnavailable> {
+        self.h.enqueue(msg).await
+    }
+    fn point(&self, point: &Point, blobs: &[&str]) {
+        self.h.point(point, blobs)
+    }
+    fn fill(&self, buf: &mut [u8]) {
+        self.h.fill(buf)
+    }
+    fn now_ms(&self) -> u64 {
+        self.h.now_ms()
+    }
 }
 
 fn req(u: &str, tokens: u64, idem: &str) -> HoldRequest {

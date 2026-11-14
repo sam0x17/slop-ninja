@@ -544,8 +544,9 @@ pub struct PeekAnswer {
     pub paid_preview: bool,
 }
 
-/// `POST /internal/v1/billing/hold`: idempotent by `idem` (the quote nonce).
-/// 402 `not_enough_credit` writes nothing.
+/// `POST /internal/v1/billing/hold`: idempotent by `idem` (the quote nonce)
+/// until the hold ends; an ended hold's `idem` answers `quote_invalid` and
+/// places nothing. 402 `not_enough_credit` writes nothing.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct HoldRequest {
     pub user_id: UserId,

@@ -30,11 +30,13 @@
 //!   page counts only after `review_strike` says so.
 //! - **The X removal** ([`x_removal`]): every page about one X post goes, as
 //!   one removal, whether from the form, from `remove` or from `x_remove`:
-//!   the run documents are deleted from R2 first, then one D1 batch removes
-//!   the detections (they stay as content-free `x_removed` tombstones), deletes
-//!   their runs and the source's aliases, turns the source row into the
-//!   opt-out tombstone that keeps only `canon_key`, names it in the case's
-//!   `source_id`, and journals `x_remove {reason, canon_key}`.
+//!   the opt-out tombstone that keeps only `canon_key` is written first, in
+//!   its own batch, so no check of the post can store after it; then the run
+//!   documents are deleted from R2, and one D1 batch removes the detections
+//!   (they stay as content-free `x_removed` tombstones), deletes the runs it
+//!   read and the source's aliases, names the tombstone in the case's
+//!   `source_id`, and journals `x_remove {reason, canon_key}`; a last read
+//!   of the tombstone deletes anything a check stored meanwhile.
 //! - **Secret pages** removed by a case keep their encrypted document in
 //!   quarantine (`q/<case_id>/<id_h>`, wrapped again under `K_cases`) for a
 //!   counter-notice, until the case closes. Once a counter-notice's wait has
@@ -71,6 +73,7 @@ use crate::queue::CASE_AAD;
 use crate::share::Keys;
 use crate::sitemap::SHARD_URLS;
 use crate::store::{DET_COLUMNS, DetRow, run_doc_key, secret_doc_key};
+use crate::x_flow;
 
 const DAY: u64 = 86_400_000;
 
@@ -465,9 +468,10 @@ pub fn quarantine_key(case_id: &str, id_h: &Bytes32) -> String {
     format!("q/{case_id}/{}", hex::encode(id_h))
 }
 
-/// An X source's `canon_key`: `H("source_v1" ‖ "x:status:<id>")`.
+/// An X source's `canon_key`: `H("source_v1" ‖ "x:status:<id>")`, the
+/// URL check's own key of the post ([`crate::x_flow::x_canon_key`]).
 pub fn x_canon_key(id: u64) -> Bytes32 {
-    h(SOURCE_DOMAIN, slop_ninja_detect_page::x::x_source_key(id).as_bytes())
+    crate::x_flow::x_canon_key(id)
 }
 
 /// Whether `s` has a case id's exact form.
@@ -835,14 +839,46 @@ pub fn canonical(v: &Value) -> String {
     slop_ninja_signed_op::canonical_json(v).unwrap_or_default()
 }
 
+/// The removal records of the pages this removal moved to `removed` (`?1`
+/// its time, `?2` the post's `canon_key`, `?3` the basis, `?4` the
+/// jurisdiction).
+const X_RECORD_REMOVALS: &str = "INSERT INTO removals (at, public_slug, scope, basis, jurisdiction) \
+SELECT ?1, d.public_slug, 'page', ?3, ?4 FROM detections d \
+WHERE d.source_id = (SELECT source_id FROM sources WHERE canon_key = ?2 AND adapter = 'x') AND d.state = 'removed' \
+AND d.refusal = 'x_removed' AND d.updated_at = ?1 AND d.public_slug IS NOT NULL";
+/// The case's targets: every X page of the post (`?1` the case, `?2` the
+/// post's `canon_key`).
+const X_CASE_TARGETS: &str = "INSERT OR IGNORE INTO case_targets (case_id, det_id_h) SELECT ?1, d.id_h \
+FROM detections d WHERE d.source_id = (SELECT source_id FROM sources WHERE canon_key = ?2 AND adapter = 'x') \
+AND d.platform = 'x'";
+
 /// Every page about the post whose source key hashes to `canon_key` goes,
-/// as one removal: R2 first (the run documents), then one D1 batch in
-/// foreign-key order (the case and its targets, the detections, their
-/// removal records, the runs, the source's aliases, the tombstone, the
-/// case's `source_id`, then `journal`). A post we never held still gets its
-/// tombstone, so no new check of it can start. When the R2 delete or the
-/// batch fails, an `x_delete` message finishes the deletion and the caller
-/// answers `unavailable` (the operator's retry is safe: each step repeats).
+/// as one removal, whether from the form, from `remove` or from `x_remove`.
+/// A post we never held still gets its tombstone, so no new check of it can
+/// start.
+///
+/// 1. The tombstone first, in its own batch with the read of its id
+///    ([`x_flow::UPSERT_TOMBSTONE`], [`x_flow::SELECT_BY_KEY`]). From here
+///    the URL check's store fence (`url_flow::X_BLOCKED`) ends every check
+///    of the post that has not stored yet `failed` (`x_removed`), keeping
+///    nothing of it; a check that stored before is in the set read next.
+/// 2. The deletion ([`x_flow::delete_set_with`], cause
+///    [`x_flow::Cause::Removed`]): the run documents and page slugs are
+///    read, the documents deleted from R2, then one D1 batch: the signed
+///    op's journal row first (so its seq is the batch's journal row), the
+///    case's own insert statements, the detections (`removed`, content-free
+///    `x_removed` tombstones), only the runs it read, the source's aliases,
+///    the source reduced to the opt-out tombstone that keeps only
+///    `canon_key`, the removal records of the pages it moved, the case's
+///    targets, its `source_id` and state, then the rest of `journal`.
+/// 3. A last read of the tombstone ([`x_flow::settle`]): a live page or a
+///    run still on it (none is expected) is deleted the same way, and
+///    failing that `x_delete` finishes it.
+///
+/// When the R2 delete or the batch of step 2 fails, nothing of that batch is
+/// written, an `x_delete` message finishes the deletion and the caller
+/// answers `unavailable` (the tombstone stays; the operator's retry is safe:
+/// each step repeats).
 pub async fn x_removal(
     io: &impl Io,
     origins: &Origins,
@@ -852,51 +888,18 @@ pub async fn x_removal(
     journal: Vec<Stmt>,
 ) -> Result<XRemoved, RefusalCode> {
     let now = io.now_ms();
-    let done = io
+    let key = Val::blob(canon_key);
+    let found = io
         .batch(vec![
-            Stmt::new(
-                "SELECT source_id FROM sources WHERE canon_key = ?1 AND adapter = 'x'",
-                vec![Val::blob(canon_key)],
-            ),
-            Stmt::new(
-                "SELECT hex(d.id_h) AS id_h, d.public_slug AS public_slug, d.run_id AS run_id, d.state AS state \
-FROM detections d JOIN sources s ON s.source_id = d.source_id WHERE s.canon_key = ?1 AND d.platform = 'x'",
-                vec![Val::blob(canon_key)],
-            ),
+            Stmt::new(x_flow::UPSERT_TOMBSTONE, vec![key.clone()]),
+            Stmt::new(x_flow::SELECT_BY_KEY, vec![key.clone()]),
         ])
         .await
         .map_err(|_| RefusalCode::Unavailable)?;
-    let source_id = done.first().and_then(Done::first).and_then(|r| r.u64("source_id"));
-    let rows = done.get(1).map(|d| d.rows.clone()).unwrap_or_default();
-    let mut doc_keys = Vec::new();
-    let mut run_ids = Vec::new();
-    let mut gone_now = Vec::new();
-    for r in &rows {
-        if let Some(run) = r.u64("run_id") {
-            run_ids.push(run);
-            doc_keys.push(run_doc_key(run));
-        }
-        let ended = r.text("state").and_then(DetState::parse).is_none_or(|s| s.is_ended());
-        if let (Some(id), Some(slug)) = (r.hex32("id_h"), r.text("public_slug"))
-            && !ended
-        {
-            gone_now.push((id, slug.to_owned()));
-        }
-    }
-    let x_delete = |sid: Option<u64>| async move {
-        if let Some(source_id) = sid {
-            let msg = QueueMessage::new(Job::XDelete {
-                source_id,
-                cause: slop_ninja_detect_page::codes::XDeleteCause::XRemoved,
-            });
-            let _ = io.enqueue(vec![msg]).await;
-        }
-    };
-    if delete_docs(io, &doc_keys).await.is_err() {
-        x_delete(source_id).await;
+    let Some(source_id) = found.get(1).and_then(Done::first).and_then(|r| r.u64("source_id")) else {
         return Err(RefusalCode::Unavailable);
-    }
-    let (case_id, mut batch) = match case {
+    };
+    let (case_id, insert) = match case {
         XCase::New => {
             let id = draw_case_id(io);
             let insert = Stmt::new(
@@ -908,67 +911,47 @@ VALUES (?1, NULL, 'x_request', 'accepted', ?2, ?2, NULL)",
         }
         XCase::Existing { case_id, insert } => (case_id.to_owned(), insert),
     };
-    // The signed op's own row first, so its seq is the batch's journal row.
     let mut journal = journal.into_iter();
-    if let Some(first) = journal.next() {
-        batch.insert(0, first);
-    }
-    for id in rows.iter().filter_map(|r| r.hex32("id_h")) {
-        batch.push(Stmt::new(
-            "INSERT OR IGNORE INTO case_targets (case_id, det_id_h) VALUES (?1, ?2)",
-            vec![Val::text(&case_id), Val::blob(&id)],
-        ));
-    }
-    if let Some(sid) = source_id {
-        batch.push(Stmt::new(
-            "UPDATE detections SET state = 'removed', refusal = 'x_removed', run_id = NULL, state_v = state_v + 1, \
-updated_at = ?2 WHERE source_id = ?1 AND platform = 'x' AND state NOT IN ('removed','deleted','expired')",
-            vec![Val::int(sid), Val::int(now)],
-        ));
-        batch.push(Stmt::new(
-            "UPDATE detections SET run_id = NULL WHERE source_id = ?1 AND platform = 'x'",
-            vec![Val::int(sid)],
-        ));
-    }
-    for (_, slug) in &gone_now {
-        batch.push(removal_row(Some(slug), "page", reason.as_str(), DEFAULT_JURISDICTION, now));
-    }
-    let runs_json = Value::Array(run_ids.iter().map(|r| Value::from(*r)).collect()).to_string();
-    batch.push(Stmt::new(
-        "DELETE FROM runs WHERE run_id IN (SELECT value FROM json_each(?1)) \
-AND NOT EXISTS (SELECT 1 FROM detections d WHERE d.run_id = runs.run_id)",
-        vec![Val::text(&runs_json)],
-    ));
-    if let Some(sid) = source_id {
-        batch.push(Stmt::new("DELETE FROM source_aliases WHERE source_id = ?1", vec![Val::int(sid)]));
-    }
-    batch.push(Stmt::new(
-        "INSERT INTO sources (canon_key, canon_url, host, adapter, state, reputation, rank_list_v) \
-VALUES (?1, NULL, 'x.com', 'x', 'opted_out', 'unranked', 'x') ON CONFLICT (canon_key) DO UPDATE SET \
-canon_url = NULL, state = 'opted_out', reputation = 'unranked', rank_list_v = 'x', latest_det = NULL, \
-fetched_at = NULL, fresh_until = NULL, fetch_outcome = NULL, check_queued_at = NULL",
-        vec![Val::blob(canon_key)],
-    ));
-    batch.push(Stmt::new(
-        "UPDATE cases SET source_id = (SELECT source_id FROM sources WHERE canon_key = ?2), updated_at = ?3 \
-WHERE case_id = ?1",
-        vec![Val::text(&case_id), Val::blob(canon_key), Val::int(now)],
-    ));
-    batch.push(Stmt::owned(
-        format!(
-            "UPDATE cases SET state = 'accepted' WHERE case_id = ?1 AND state IN {}",
-            from_states(CaseState::Accepted)
+    let mut pre: Vec<Stmt> = journal.next().into_iter().collect();
+    pre.extend(insert);
+    let n_pre = pre.len();
+    let mut post = vec![
+        Stmt::new(
+            X_RECORD_REMOVALS,
+            vec![Val::int(now), key.clone(), Val::text(reason.as_str()), Val::text(DEFAULT_JURISDICTION)],
         ),
-        vec![Val::text(&case_id)],
-    ));
-    batch.extend(journal);
-    if io.batch(batch).await.is_err() {
-        x_delete(source_id).await;
-        return Err(RefusalCode::Unavailable);
-    }
-    let slugs: Vec<String> = rows.iter().filter_map(|r| r.text("public_slug").map(str::to_owned)).collect();
-    queue_purges(io, origins, &slugs).await;
-    Ok(XRemoved { case_id, removed: gone_now.len() as u64 })
+        Stmt::new(X_CASE_TARGETS, vec![Val::text(&case_id), key.clone()]),
+        Stmt::new(
+            "UPDATE cases SET source_id = (SELECT source_id FROM sources WHERE canon_key = ?2), updated_at = ?3 \
+WHERE case_id = ?1",
+            vec![Val::text(&case_id), key.clone(), Val::int(now)],
+        ),
+        Stmt::owned(
+            format!(
+                "UPDATE cases SET state = 'accepted' WHERE case_id = ?1 AND state IN {}",
+                from_states(CaseState::Accepted)
+            ),
+            vec![Val::text(&case_id)],
+        ),
+    ];
+    post.extend(journal);
+    let ids = [source_id];
+    let (deleted, done) = match x_flow::delete_set_with(io, &ids, x_flow::Cause::Removed, now, pre, post).await {
+        Ok(r) => r,
+        Err(IoError) => {
+            let msg = QueueMessage::new(Job::XDelete {
+                source_id,
+                cause: slop_ninja_detect_page::codes::XDeleteCause::XRemoved,
+            });
+            let _ = io.enqueue(vec![msg]).await;
+            return Err(RefusalCode::Unavailable);
+        }
+    };
+    // The deletion's first statement moved the pages to `removed`.
+    let removed = done.get(n_pre).map_or(0, |d| d.changes);
+    queue_purges(io, origins, &deleted.slugs).await;
+    x_flow::settle(io, origins, source_id, now).await;
+    Ok(XRemoved { case_id, removed })
 }
 
 /// `restore` of an X case: the opt-out tombstone its removal left is

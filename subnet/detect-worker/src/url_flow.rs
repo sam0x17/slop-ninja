@@ -78,7 +78,7 @@
 //!    check ran makes the same batch end the page `failed` (`x_removed`)
 //!    with no source and delete its new run, and the run document goes
 //!    after it. A removal writes the tombstone before it reads the post's
-//!    pages and runs (`x_flow::remove_post`), so a check either stored
+//!    pages and runs (`cases::x_removal`), so a check either stored
 //!    before that write, and the removal deletes it, or is fenced off here.
 //!    Nothing of the post outlives the removal.
 

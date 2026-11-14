@@ -1,7 +1,9 @@
 //! Pages about posts on X after they are made: the daily existence check
-//! (`x_sweep`), deleting a set of X sources, removals (`x_remove`, the
-//! removal form, `remove` on an X page) and their reversal (`restore`), the
-//! `x_purge` pages and their dry run, and the `status` op's X lines.
+//! (`x_sweep`), deleting a set of X sources (a gone post, the `x_purge`
+//! pages, and the deletion step of the X removal, `crate::cases::x_removal`,
+//! which the removal form, `remove` on an X page and `x_remove` all take),
+//! the `x_delete` consumer, the purge's dry run, and the `status` op's X
+//! lines.
 //!
 //! We hold only posts that X's free embed showed in full. Each live X page
 //! keeps the post's id (its `canon_url`) and our document-level result,
@@ -46,7 +48,8 @@
 //!    that name a source about to go, those runs, the aliases, then the
 //!    source rows (deleted, or reduced to the `opted_out` tombstone that
 //!    keeps only `canon_key`);
-//! 4. the page URLs are purged when a purge token exists.
+//! 4. the page URLs are purged when a purge token exists (the X removal
+//!    queues its purges instead).
 //!
 //! A check of the post can store between step 1 and step 3. The batch then
 //! never orphans its run: a page whose run step 1 did not read keeps that
@@ -65,7 +68,7 @@
 
 use serde::Serialize;
 use slop_ninja_detect_fetch_wire::{XCheckAnswer, XCheckRequest, XExists};
-use slop_ninja_detect_page::codes::{CaseKind, HostRole, XDeleteCause};
+use slop_ninja_detect_page::codes::{HostRole, XDeleteCause};
 use slop_ninja_detect_page::origins::Origins;
 use slop_ninja_detect_page::queue::{Job, QueueMessage};
 use slop_ninja_detect_page::refusal::RefusalCode;
@@ -577,14 +580,14 @@ pub fn page_urls(origins: &Origins, slugs: &[String]) -> Vec<String> {
     v
 }
 
-/// Deletes the set `ids` by `cause` at `now`: R2, then one D1 batch, then
-/// the page purge. `before` statements run first in the same batch (an
-/// op's journal row), `after` ones last (a case, its targets). An `Err`
+/// Deletes the set `ids` by `cause` at `now`: R2, then one D1 batch; the
+/// caller purges the pages (`Deleted::slugs`). `before` statements run
+/// first in the same batch (an op's journal row, a case's insert), `after`
+/// ones last (the case's link, its targets, the removal records). An `Err`
 /// leaves D1 as it was (R2 may already be done, which a repeat tolerates).
 /// The returned results are the batch's, `before` first.
 pub async fn delete_set_with(
     io: &impl Io,
-    origins: &Origins,
     ids: &[u64],
     cause: Cause,
     now: u64,
@@ -598,14 +601,10 @@ pub async fn delete_set_with(
     batch.extend(delete_stmts(ids, &runs, cause, now));
     batch.extend(after);
     let done = io.batch(batch).await?;
-    if !slugs.is_empty() {
-        // Without a purge token the cache bound (X_PAGE_CACHE_S) covers it.
-        let _ = io.cache_purge(&page_urls(origins, &slugs)).await;
-    }
     Ok((Deleted { slugs, docs: keys.len() }, done))
 }
 
-/// Deletes the set `ids` by `cause` at `now`.
+/// Deletes the set `ids` by `cause` at `now`, then purges its pages.
 pub async fn delete_set(
     io: &impl Io,
     origins: &Origins,
@@ -613,12 +612,17 @@ pub async fn delete_set(
     cause: Cause,
     now: u64,
 ) -> Result<Deleted, IoError> {
-    delete_set_with(io, origins, ids, cause, now, Vec::new(), Vec::new()).await.map(|(d, _)| d)
+    let (d, _) = delete_set_with(io, ids, cause, now, Vec::new(), Vec::new()).await?;
+    if !d.slugs.is_empty() {
+        // Without a purge token the cache bound (X_PAGE_CACHE_S) covers it.
+        let _ = io.cache_purge(&page_urls(origins, &d.slugs)).await;
+    }
+    Ok(d)
 }
 
 /// The `x_delete {source_id, cause}` consumer: repeats the deletion for one
 /// source whose deletion stopped. A source that is already gone is done.
-/// For a removal the tombstone comes first, as in [`remove_post`]; a
+/// For a removal the tombstone comes first, as in `cases::x_removal`; a
 /// tombstone with no live page and no run left is done.
 pub async fn x_delete(io: &impl Io, origins: &Origins, source_id: u64, cause: XDeleteCause) -> Result<(), IoError> {
     let d = io
@@ -646,198 +650,16 @@ pub async fn x_delete(io: &impl Io, origins: &Origins, source_id: u64, cause: XD
 
 // --------------------------------------------------------------- removals
 
-/// Where a removal's case comes from.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub enum CaseRef {
-    /// The case the removal form opened (its own row): the removal names the
-    /// tombstone in it.
-    Existing(String),
-    /// A new `x_request` case: `x_remove`, or `remove` acting outside a
-    /// case. No notice document, no status token.
-    New(String),
-}
-
-/// The reason a removal journals (`x_remove {reason, canon_key}`).
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
-#[serde(rename_all = "snake_case")]
-pub enum XReason {
-    Author,
-    X,
-    Other,
-}
-
-impl XReason {
-    pub fn as_str(self) -> &'static str {
-        match self {
-            XReason::Author => "author",
-            XReason::X => "x",
-            XReason::Other => "other",
-        }
-    }
-
-    pub fn parse(s: &str) -> Option<XReason> {
-        Some(match s {
-            "author" => XReason::Author,
-            "x" => XReason::X,
-            "other" => XReason::Other,
-            _ => return None,
-        })
-    }
-
-    /// The removal form's track as a reason: `author`, or `x` when the
-    /// report says it comes from X.
-    pub fn of_track(kind: CaseKind, from_x: bool) -> XReason {
-        if from_x {
-            XReason::X
-        } else if kind == CaseKind::Author {
-            XReason::Author
-        } else {
-            XReason::Other
-        }
-    }
-}
-
-/// The journal actor of the second, unsigned row the form and `remove`
-/// write beside their own, so `replay` re-applies the removal.
-pub const AUTO_TOMBSTONE_ACTOR: &str = "auto:x_tombstone";
-
-/// The journal's `op` value of an `x_remove`: `{"op":"x_remove","args":
-/// {"reason":…,"canon_key":…}}`. It names the post only by the hash the
-/// tombstone keeps; `x_purge` strips `args.canon_key`.
-pub fn x_remove_op_json(reason: XReason, canon_key: &Bytes32) -> String {
-    serde_json::json!({ "op": "x_remove", "args": { "reason": reason.as_str(), "canon_key": hex::encode(canon_key) } })
-        .to_string()
-}
-
-/// The `auto:x_tombstone` journal row.
-pub fn auto_journal_row(reason: XReason, canon_key: &Bytes32, now: u64) -> Stmt {
-    Stmt::new(
-        "INSERT INTO op_journal (at, actor, op, signature, nonce_h) VALUES (?1, ?2, ?3, NULL, NULL)",
-        vec![Val::int(now), Val::text(AUTO_TOMBSTONE_ACTOR), Val::text(x_remove_op_json(reason, canon_key))],
-    )
-}
-
-/// Writes (or keeps) the tombstone: a post no new check may start on.
+/// Writes (or keeps) the tombstone of the post `?1` (its `canon_key`): a
+/// post no new check may start on. The X removal's first step
+/// (`cases::x_removal`), in its own batch with [`SELECT_BY_KEY`].
 pub const UPSERT_TOMBSTONE: &str = "INSERT INTO sources (canon_key, canon_url, host, adapter, state, reputation, \
 rank_list_v) VALUES (?1, NULL, 'x.com', 'x', 'opted_out', 'unranked', 'x') ON CONFLICT (canon_key) DO UPDATE SET \
 canon_url = NULL, fetch_outcome = NULL, fetched_at = NULL, fresh_until = NULL, check_queued_at = NULL, \
 latest_det = NULL, state = 'opted_out', reputation = 'unranked', rank_list_v = 'x' WHERE sources.adapter = 'x'";
 
-/// The new `x_request` case (accepted at once: deleting is the compliant
-/// direction, and `restore` reverses the opt-out).
-pub const INSERT_X_CASE: &str = "INSERT INTO cases (case_id, status_h, kind, state, received_at, updated_at, \
-due_at, notice_key, source_id) VALUES (?1, NULL, 'x_request', 'accepted', ?2, ?2, NULL, NULL, \
-(SELECT source_id FROM sources WHERE canon_key = ?3))";
-
-/// The form's case names the tombstone.
-pub const LINK_CASE: &str = "UPDATE cases SET source_id = (SELECT source_id FROM sources WHERE canon_key = ?2), updated_at = ?3 \
-WHERE case_id = ?1";
-
-/// The case's targets: the removed detections, by `id_h`.
-pub const CASE_TARGETS: &str = "INSERT INTO case_targets (case_id, det_id_h) SELECT ?1, d.id_h FROM detections d \
-WHERE d.source_id = (SELECT source_id FROM sources WHERE canon_key = ?2) AND d.state = 'removed' \
-ON CONFLICT DO NOTHING";
-
-/// The public removal record of each page this removal took (the pages it
-/// moved to `removed` at `?1`).
-pub const RECORD_REMOVALS: &str = "INSERT INTO removals (at, public_slug, scope, basis, jurisdiction) \
-SELECT ?1, d.public_slug, 'page', ?3, 'none' FROM detections d \
-WHERE d.source_id = (SELECT source_id FROM sources WHERE canon_key = ?2) AND d.state = 'removed' \
-AND d.refusal = 'x_removed' AND d.updated_at = ?1 AND d.public_slug IS NOT NULL";
-
-/// The removals record's `basis` of an X removal.
-pub fn removal_basis(reason: XReason) -> &'static str {
-    match reason {
-        XReason::Author => "x_author_request",
-        XReason::X => "x_request",
-        XReason::Other => "x_other_request",
-    }
-}
-
-/// One X removal, the same for the form, `remove` on an X page and
-/// `x_remove`.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct Removal {
-    /// The post's source key hash (the tombstone's `canon_key`).
-    pub canon_key: Bytes32,
-    pub reason: XReason,
-    pub case: CaseRef,
-    /// Write the `auto:x_tombstone` journal row (the form and `remove`);
-    /// `x_remove`'s own signed row is the op route's.
-    pub auto_journal: bool,
-}
-
-/// What a removal answers.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
-pub struct Removed {
-    pub case_id: String,
-    /// Detections removed.
-    pub removed: u64,
-}
-
 /// The source of a post by its `canon_key`.
 pub const SELECT_BY_KEY: &str = "SELECT source_id, canon_url FROM sources WHERE canon_key = ?1 AND adapter = 'x'";
-
-/// Removes every page about the post `r.canon_key` and leaves (or keeps) its
-/// `opted_out` tombstone, so no new check of it can start; whether or not
-/// we held any page. `journal` is the op route's own journal row (empty for
-/// the form, which writes its case first). The case names the tombstone and
-/// targets the removed detections.
-///
-/// 1. The tombstone first, in its own batch with the read of its id. From
-///    here the store's fence (`url_flow::X_BLOCKED`) ends every check of
-///    the post that has not stored yet `failed` (`x_removed`) and keeps
-///    nothing of it; a check that stored before is in the set read next.
-/// 2. The deletion ([`delete_set_with`], cause [`Cause::Removed`]) with the
-///    journal row, the case, its targets and the removal records in its D1
-///    batch.
-/// 3. A last read of the tombstone: a live page or a run still on it (none
-///    is expected) is deleted the same way, and failing that `x_delete`
-///    finishes it.
-///
-/// On an R2 or D1 failure in step 2 nothing of that batch is written and
-/// `x_delete` is sent, so the deletion completes; the caller retries for the
-/// case and journal (the tombstone stays meanwhile).
-pub async fn remove_post(io: &impl Io, origins: &Origins, r: &Removal, journal: Vec<Stmt>) -> Result<Removed, IoError> {
-    let now = io.now_ms();
-    let key = Val::blob(&r.canon_key);
-    let found = io
-        .batch(vec![Stmt::new(UPSERT_TOMBSTONE, vec![key.clone()]), Stmt::new(SELECT_BY_KEY, vec![key.clone()])])
-        .await?;
-    let source = found.get(1).and_then(Done::first).and_then(|x| x.u64("source_id"));
-    let case_id = match &r.case {
-        CaseRef::Existing(c) | CaseRef::New(c) => c.clone(),
-    };
-    let mut pre = journal;
-    if r.auto_journal {
-        pre.push(auto_journal_row(r.reason, &r.canon_key, now));
-    }
-    let mut post = vec![Stmt::new(UPSERT_TOMBSTONE, vec![key.clone()])];
-    match &r.case {
-        CaseRef::New(c) => post.push(Stmt::new(INSERT_X_CASE, vec![Val::text(c), Val::int(now), key.clone()])),
-        CaseRef::Existing(c) => post.push(Stmt::new(LINK_CASE, vec![Val::text(c), key.clone(), Val::int(now)])),
-    }
-    post.push(Stmt::new(CASE_TARGETS, vec![Val::text(&case_id), key.clone()]));
-    post.push(Stmt::new(RECORD_REMOVALS, vec![Val::int(now), key.clone(), Val::text(removal_basis(r.reason))]));
-    let n_pre = pre.len();
-    let ids: Vec<u64> = source.into_iter().collect();
-    let done = match delete_set_with(io, origins, &ids, Cause::Removed, now, pre, post).await {
-        Ok((_, done)) => done,
-        Err(e) => {
-            if let Some(s) = source {
-                let _ = send_x_delete(io, &[s], XDeleteCause::XRemoved).await;
-            }
-            return Err(e);
-        }
-    };
-    // The first deletion statement moved the pages to `removed`.
-    let removed = if source.is_some() { done.get(n_pre).map_or(0, |d| d.changes) } else { 0 };
-    if let Some(s) = source {
-        settle(io, origins, s, now).await;
-    }
-    io.metric("removal", &["x", "removed"]);
-    Ok(Removed { case_id, removed })
-}
 
 /// Whether the tombstone `source_id` still holds a live page or a run.
 async fn left_on(io: &impl Io, source_id: u64) -> Result<bool, IoError> {
@@ -845,11 +667,11 @@ async fn left_on(io: &impl Io, source_id: u64) -> Result<bool, IoError> {
     Ok(d.first().and_then(|r| r.u64("n")).unwrap_or(0) > 0)
 }
 
-/// A removal's last read (step 3): anything still on the tombstone is
-/// deleted with one more pass; a failure, or anything left after it, goes
-/// to `x_delete`. The removal itself is already written, so this never
-/// fails it.
-async fn settle(io: &impl Io, origins: &Origins, source_id: u64, now: u64) {
+/// A removal's last read (its third step): anything still on the tombstone
+/// `source_id` is deleted with one more pass; a failure, or anything left
+/// after it, goes to `x_delete`. The removal itself is already written, so
+/// this never fails it.
+pub async fn settle(io: &impl Io, origins: &Origins, source_id: u64, now: u64) {
     let settled = match left_on(io, source_id).await {
         Ok(false) => true,
         Ok(true) => {
@@ -861,31 +683,6 @@ async fn settle(io: &impl Io, origins: &Origins, source_id: u64, now: u64) {
     if !settled {
         let _ = send_x_delete(io, &[source_id], XDeleteCause::XRemoved).await;
     }
-}
-
-/// `restore {case_id}` on an X case: lifts the opt-out and nothing more.
-/// One D1 batch in foreign-key order: the tombstone's detections let go of
-/// it (they stay `removed`), every case that names it lets go (this one
-/// `restored`), then the tombstone is deleted. `journal` is the op route's
-/// row. `Ok(false)`: the case's tombstone is already gone (purged or
-/// restored through another case), and nothing changed.
-pub async fn restore_x(io: &impl Io, case_id: &str, journal: Vec<Stmt>) -> Result<bool, IoError> {
-    let d = io.run(Stmt::new("SELECT source_id FROM cases WHERE case_id = ?1", vec![Val::text(case_id)])).await?;
-    let Some(source_id) = d.first().and_then(|r| r.u64("source_id")) else { return Ok(false) };
-    let now = io.now_ms();
-    let mut batch = journal;
-    batch.push(Stmt::new("UPDATE detections SET source_id = NULL WHERE source_id = ?1", vec![Val::int(source_id)]));
-    batch.push(Stmt::new(
-        "UPDATE cases SET state = CASE WHEN case_id = ?2 THEN 'restored' ELSE state END, source_id = NULL, \
-updated_at = ?3 WHERE source_id = ?1",
-        vec![Val::int(source_id), Val::text(case_id), Val::int(now)],
-    ));
-    batch.push(Stmt::new(
-        "DELETE FROM sources WHERE source_id = ?1 AND adapter = 'x' AND state = 'opted_out' AND canon_url IS NULL",
-        vec![Val::int(source_id)],
-    ));
-    io.batch(batch).await?;
-    Ok(true)
 }
 
 // ------------------------------------------------------------------ purge
@@ -1126,15 +923,10 @@ mod tests {
     }
 
     #[test]
-    fn x_remove_names_the_post_by_its_hash_only() {
+    fn a_post_is_keyed_by_its_hash_alone() {
         let key = x_canon_key(1855);
         assert_eq!(key, crate::keys::h(crate::keys::SOURCE_DOMAIN, b"x:status:1855"));
-        let j = x_remove_op_json(XReason::Author, &key);
-        assert!(j.contains(&hex::encode(key)) && !j.contains("1855") && !j.contains("status"));
-        assert_eq!(XReason::parse("x"), Some(XReason::X));
-        assert_eq!(XReason::parse("X"), None);
-        assert_eq!(XReason::of_track(CaseKind::Author, false), XReason::Author);
-        assert_eq!(XReason::of_track(CaseKind::Copyright, true), XReason::X);
+        assert_eq!(key, crate::cases::x_canon_key(1855), "the removal and the URL check key a post alike");
     }
 
     #[test]

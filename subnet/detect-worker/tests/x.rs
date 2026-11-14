@@ -1,6 +1,8 @@
 //! Pages about posts on X after they are made: the daily existence check,
-//! deletion (R2 first, then D1, in foreign-key order), removals, restore
-//! and the purge, on the store's own migration with foreign keys on.
+//! deletion (R2 first, then D1, in foreign-key order), removals (through
+//! `cases::x_removal`, the one path the form, `remove` and `x_remove`
+//! take), restore and the purge, on the store's own migration with foreign
+//! keys on.
 
 mod common;
 mod stubs;
@@ -12,13 +14,13 @@ use slop_ninja_detect_page::origins::Origins;
 use slop_ninja_detect_page::queue::Job;
 use slop_ninja_detect_page::refusal::RefusalCode;
 use slop_ninja_detect_url::Policy;
+use slop_ninja_detect_worker::cases::{self, XCase, XReason};
+use slop_ninja_detect_worker::db::Stmt;
 use slop_ninja_detect_worker::doc::Serving;
 use slop_ninja_detect_worker::keys::{Pepper, Peppers, StoreKeys};
 use slop_ninja_detect_worker::share::Keys;
 use slop_ninja_detect_worker::url_flow::{Admitted, UrlCtx, admit, drive};
-use slop_ninja_detect_worker::x_flow::{
-    self, CaseRef, Removal, X_CHECK_EVERY_MS, X_LATE_MS, X_REQUEUE_MS, XConfig, XReason, x_canon_key,
-};
+use slop_ninja_detect_worker::x_flow::{self, X_CHECK_EVERY_MS, X_LATE_MS, X_REQUEUE_MS, XConfig, x_canon_key};
 use slop_ninja_detect_worker::{queue, reads};
 use stubs::*;
 
@@ -387,9 +389,28 @@ fn a_page_whose_document_went_answers_503_until_its_rows_go() {
     assert_eq!(w.page(&sa), Err(RefusalCode::ReportUnavailable));
 }
 
-fn remove(w: &World, id: u64, case: CaseRef, auto: bool) -> x_flow::Removed {
-    let r = Removal { canon_key: x_canon_key(id), reason: XReason::Author, case, auto_journal: auto };
-    block_on(x_flow::remove_post(&w.h, &w.origins, &r, Vec::new())).unwrap()
+/// The X removal of post `id` as the routes run it: `x_remove` (no journal
+/// row here: the op route writes its own) or, with `auto`, the form and
+/// `remove`, which journal `auto:x_tombstone`.
+async fn removal(w: &World, id: u64, case: XCase<'_>, auto: bool) -> Result<cases::XRemoved, RefusalCode> {
+    let key = x_canon_key(id);
+    let journal = if auto { vec![cases::auto_x_journal(&key, XReason::Author, w.h.now.get())] } else { Vec::new() };
+    cases::x_removal(&w.h, &w.origins, &key, XReason::Author, case, journal).await
+}
+
+fn remove(w: &World, id: u64, case: XCase<'_>, auto: bool) -> cases::XRemoved {
+    block_on(removal(w, id, case, auto)).unwrap()
+}
+
+/// `restore {case_id}` as the op route runs it; the pages whose tombstone
+/// it lifted (0 or 1).
+fn restore(w: &World, case_id: &str) -> u64 {
+    let case = block_on(cases::read_case(&w.h, case_id)).unwrap();
+    let journal = Stmt::new(
+        "INSERT INTO op_journal (at, actor, op, signature, nonce_h) VALUES (1, 'operator:00', '{\"op\":\"restore\"}', NULL, NULL)",
+        vec![],
+    );
+    block_on(cases::restore_case(&w.h, &w.store, &w.origins, &case, journal)).unwrap().pages
 }
 
 #[test]
@@ -404,8 +425,8 @@ fn removals_leave_the_tombstone_and_restore_lifts_it() {
         panic!()
     };
     let s2 = block_on(drive(&w.h, &w.host, &w.fetch, &w.scorer, &w.ctx(), &d)).slug;
-    let r = remove(&w, id, CaseRef::New("td-x0000001".into()), false);
-    assert_eq!((r.case_id.as_str(), r.removed), ("td-x0000001", 2));
+    let r = remove(&w, id, XCase::New, false);
+    assert_eq!(r.removed, 2);
     for s in [&s1, &s2] {
         let p = w.page(s).unwrap();
         assert_eq!((p.state, p.http_status()), (DetState::Removed, 451));
@@ -429,12 +450,12 @@ fn removals_leave_the_tombstone_and_restore_lifts_it() {
     assert!(!w.h.dump().contains(&id.to_string()) && !w.h.dump().contains("/status/"));
     // restore lifts the opt-out: the detections stay removed, the tombstone
     // goes, and a new check scores under a new slug.
-    assert!(block_on(x_flow::restore_x(&w.h, "td-x0000001", Vec::new())).unwrap());
+    assert_eq!(restore(&w, &r.case_id), 1);
     assert_eq!(w.h.count("SELECT count(*) FROM sources"), 0);
     assert_eq!(w.page(&s1).unwrap().state, DetState::Removed);
     let st: String = w.h.db.query_row("SELECT state FROM cases", [], |r| r.get(0)).unwrap();
     assert_eq!(st, "restored");
-    assert!(!block_on(x_flow::restore_x(&w.h, "td-x0000001", Vec::new())).unwrap(), "already restored");
+    assert_eq!(restore(&w, &r.case_id), 0, "already restored");
     let Admitted::Drive(d) = block_on(admit(&w.h, &w.host, &w.ctx(), &format!("https://x.com/i/status/{id}"))).unwrap()
     else {
         panic!()
@@ -443,7 +464,7 @@ fn removals_leave_the_tombstone_and_restore_lifts_it() {
     assert!(s3 != s1 && s3 != s2);
     // x_remove of a post with no page writes its tombstone.
     let never = post_id(w.h.now.get(), 3 * 3_600_000, 9);
-    let r = remove(&w, never, CaseRef::New("td-x0000002".into()), false);
+    let r = remove(&w, never, XCase::New, false);
     assert_eq!(r.removed, 0);
     assert_eq!(
         block_on(admit(&w.h, &w.host, &w.ctx(), &format!("https://x.com/i/status/{never}"))).unwrap_err().code,
@@ -459,11 +480,11 @@ fn the_form_removal_uses_its_case_and_journals_the_hash() {
         "INSERT INTO cases (case_id, status_h, kind, state, received_at, updated_at, notice_key) \
          VALUES ('td-form0001', x'01', 'author', 'received', 1, 1, 'c/td-form0001')",
     );
-    let r = remove(&w, id, CaseRef::Existing("td-form0001".into()), true);
-    assert_eq!(r.removed, 1);
+    let r = remove(&w, id, XCase::Existing { case_id: "td-form0001", insert: Vec::new() }, true);
+    assert_eq!((r.case_id.as_str(), r.removed), ("td-form0001", 1));
     let (actor, op): (String, String) =
         w.h.db.query_row("SELECT actor, op FROM op_journal", [], |r| Ok((r.get(0)?, r.get(1)?))).unwrap();
-    assert_eq!(actor, x_flow::AUTO_TOMBSTONE_ACTOR);
+    assert_eq!(actor, "auto:x_tombstone");
     assert!(op.contains(&hex::encode(x_canon_key(id))) && !op.contains(&id.to_string()));
     let src: Option<i64> = w.h.db.query_row("SELECT source_id FROM cases", [], |r| r.get(0)).unwrap();
     assert!(src.is_some());
@@ -478,7 +499,7 @@ fn the_purge_deletes_every_x_row_and_strips_the_journal() {
     }
     // One post removed (its tombstone named by a case and a journal row).
     let id = post_id(w.h.now.get(), 2 * 3_600_000, 1);
-    remove(&w, id, CaseRef::New("td-x0000003".into()), true);
+    remove(&w, id, XCase::New, true);
     let c = block_on(x_flow::purge_counts(&w.h)).unwrap();
     assert!(!c.is_zero());
     assert_eq!((c.runs, c.cases, c.journal), (4, 1, 1));
@@ -576,7 +597,7 @@ fn a_removal_during_a_check_leaves_nothing_of_the_post() {
                 db.execute(x_flow::UPSERT_TOMBSTONE, [&key]).unwrap();
             });
         } else {
-            let r = remove(&w, id, CaseRef::New("td-x0000005".into()), false);
+            let r = remove(&w, id, XCase::New, false);
             assert_eq!(r.removed, 0, "the pending page is not the removal's");
         }
         let e = block_on(drive(&w.h, &w.host, &w.fetch, &w.scorer, &w.ctx(), &d));
@@ -647,16 +668,8 @@ fn a_check_that_races_a_removal_leaves_nothing_of_the_post() {
                 panic!("{tag}")
             };
             w.h.pause_at(needle);
-            let r = Removal {
-                canon_key: x_canon_key(id),
-                reason: XReason::Author,
-                case: CaseRef::New("td-x0000010".into()),
-                auto_journal: false,
-            };
-            let (removed, ended) = interleave(
-                x_flow::remove_post(&w.h, &w.origins, &r, Vec::new()),
-                drive(&w.h, &w.host, &w.fetch, &w.scorer, &w.ctx(), &d),
-            );
+            let (removed, ended) =
+                interleave(removal(&w, id, XCase::New, false), drive(&w.h, &w.host, &w.fetch, &w.scorer, &w.ctx(), &d));
             let removed = removed.unwrap();
             assert!(w.h.pauses.borrow().is_empty(), "{tag}: the removal paused there");
             assert_eq!(w.scorer.calls.get(), 1 + u32::from(recheck), "{tag}: the check ran to its store");
@@ -728,7 +741,7 @@ fn a_run_the_removal_did_not_read_is_deleted_by_its_last_read() {
         )
         .unwrap();
     });
-    let r = remove(&w, id, CaseRef::New("td-x0000011".into()), false);
+    let r = remove(&w, id, XCase::New, false);
     assert_eq!(r.removed, 2, "both pages");
     assert_eq!(w.page(&s1).unwrap().state, DetState::Removed);
     assert_eq!(w.h.count("SELECT count(*) FROM detections WHERE state = 'live'"), 0);
@@ -791,18 +804,11 @@ fn a_gone_deletion_keeps_a_removal_that_landed_while_x_was_asked() {
     w.h.advance(X_CHECK_EVERY_MS + 1);
     w.fetch.exists.borrow_mut().insert(id, XExists::Gone);
     w.h.pause_at("SELECT DISTINCT run_id FROM detections");
-    let r = Removal {
-        canon_key: x_canon_key(id),
-        reason: XReason::Author,
-        case: CaseRef::New("td-x0000012".into()),
-        auto_journal: false,
-    };
-    let (rep, removed) = interleave(
-        x_flow::sweep(&w.h, &w.fetch, &w.origins, &w.cfg),
-        x_flow::remove_post(&w.h, &w.origins, &r, Vec::new()),
-    );
+    let (rep, removed) =
+        interleave(x_flow::sweep(&w.h, &w.fetch, &w.origins, &w.cfg), removal(&w, id, XCase::New, false));
     rep.unwrap();
-    assert_eq!(removed.unwrap().removed, 1);
+    let removed = removed.unwrap();
+    assert_eq!(removed.removed, 1);
     assert!(w.h.pauses.borrow().is_empty());
     // The tombstone, the case's link to it and the removed page stay.
     let (url, st): (Option<String>, String) =
@@ -817,6 +823,6 @@ fn a_gone_deletion_keeps_a_removal_that_landed_while_x_was_asked() {
     w.nothing_orphaned("gone after removal");
     assert_eq!(w.h.count("SELECT count(*) FROM runs"), 0);
     // restore still lifts it.
-    assert!(block_on(x_flow::restore_x(&w.h, "td-x0000012", Vec::new())).unwrap());
+    assert_eq!(restore(&w, &removed.case_id), 1);
     assert_eq!(w.h.count("SELECT count(*) FROM sources"), 0);
 }

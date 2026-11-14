@@ -102,7 +102,8 @@ impl SourceRow {
         })
     }
 
-    fn via(&self) -> SourceVia {
+    /// The adapter the source was read through, as the page names it.
+    pub fn via(&self) -> SourceVia {
         match self.adapter {
             Adapter::Web => SourceVia::Web,
             Adapter::Bluesky => SourceVia::Bluesky,

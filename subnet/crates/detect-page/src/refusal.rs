@@ -254,6 +254,13 @@ refusal_codes! {
     ManageInvalid = "manage_invalid", 403, Page;
     /// "Saving is unavailable right now." (the account side failed).
     SaveUnavailable = "save_unavailable", 503, Page;
+    /// "This page was taken down, and its result was not kept. Check the
+    /// link again for a new result, or paste its text to check it
+    /// privately." A public page that a review returns (`restore` or
+    /// `reject`) after its report went: it comes back `failed` with this
+    /// code, never live without a document, and its link can be checked
+    /// again.
+    ReportGone = "report_gone", 410, Page;
 
     // ------------------------------------------------------------------- paid
     /// Paid checks are off (`DETECT_PAID` or `BILLING`).
@@ -275,6 +282,14 @@ refusal_codes! {
     /// Check the text again for a result." (a paid page whose job never
     /// scored, back from a review).
     JobStopped = "job_stopped", 409, Paid;
+    /// "Other checks are starting right now, so this one couldn't start.
+    /// Nothing was charged; confirm again in a moment." A paid quote or
+    /// start that found the room it needs taken by other requests at once:
+    /// nothing was held or written, and the same quote can be confirmed
+    /// again. Contention on a paid route answers in the 402 class of the
+    /// paid refusals, never 503: this code when the room is taken,
+    /// `not_enough_credit` when other starts drew the balance down.
+    PaidBusy = "paid_busy", 402, Paid;
 
     // ---------------------------------------------------------------- removal
     /// A required field of the track is missing.

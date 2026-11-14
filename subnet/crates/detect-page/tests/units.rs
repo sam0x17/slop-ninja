@@ -908,6 +908,16 @@ fn refusal_codes() {
     }
     assert_eq!(RefusalCode::RerunGone.status(), 410);
     assert_eq!(RefusalCode::RerunBlocked.status(), 451);
+    // Contention on a paid route answers in the class of the balance
+    // refusal, never 503; a public page back from a review with no report
+    // says so on its failed page.
+    for (c, status, group) in [
+        (RefusalCode::PaidBusy, 402, refusal::Group::Paid),
+        (RefusalCode::NotEnoughCredit, 402, refusal::Group::Paid),
+        (RefusalCode::ReportGone, 410, refusal::Group::Page),
+    ] {
+        assert_eq!((c.status(), c.group()), (status, group), "{c}");
+    }
     // Every op-route refusal is a refusal code with the same status.
     for r in slop_ninja_signed_op::Refusal::ALL {
         let c = RefusalCode::parse(r.code()).unwrap_or_else(|| panic!("{} missing", r.code()));

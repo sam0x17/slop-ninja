@@ -22,7 +22,9 @@
 //!    alias, a page under another package) never lifts it. A recent `robots`
 //!    or `private_source` failure answers its failed page for the robots
 //!    cache period;
-//! 5. the claim ([`crate::claims`]): the winner draws the slug;
+//! 5. the claim ([`crate::claims`]): the winner draws the slug, and its
+//!    pending page names the submitted link's domain (its domain-only
+//!    source, the row a failure keeps too);
 //! 6. (`drive`) a politeness slot from `DetectHost` (robots.txt first when
 //!    stale; `robots` when it disallows), then `DETECT_FETCH /fetch` (once
 //!    more when the call itself fails), every hop re-checked there;
@@ -335,6 +337,15 @@ pub async fn admit(io: &impl Io, host: &impl HostApi, ctx: &UrlCtx<'_>, url: &st
     claim_or_join(io, ctx, &ckey, platform, Link::Page { target, submitted_key }).await
 }
 
+/// The domain a link's pending page names: the submitted link's host (a
+/// redirect's final site is known only after the fetch).
+fn domain_of(link: &Link) -> Option<claims::Domain<'_>> {
+    match link {
+        Link::Page { target, .. } => Some(claims::Domain { host: &target.host, adapter: adapter_of(target) }),
+        Link::XPost { .. } => None,
+    }
+}
+
 fn xish(url: &str) -> bool {
     url::Url::parse(url.trim())
         .or_else(|_| url::Url::parse(&format!("https://{}", url.trim())))
@@ -383,7 +394,8 @@ async fn claim_or_join(
     platform: Platform,
     link: Link,
 ) -> Result<Admitted, ApiRefusal> {
-    match claims::claim(io, ckey, platform, &ctx.serving.load, ctx.lease_ms).await {
+    let claimed = claims::claim(io, ckey, platform, domain_of(&link), &ctx.serving.load, ctx.lease_ms).await;
+    match claimed {
         Ok(Claim::Drive(held)) => Ok(Admitted::Drive(Box::new(Drive { held, link }))),
         Ok(Claim::Joined { slug }) => {
             io.metric("reuse", &["claim_join"]);

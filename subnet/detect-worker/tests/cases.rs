@@ -466,13 +466,50 @@ fn accepting_withholds_every_page_of_the_run_and_rewrites_its_document() {
     assert!(cases::is_withheld_doc(&doc) && doc.result_full.band.is_some(), "the text goes, the result stays");
     assert!(w.page("k7m2xq9").is_ok() && w.page("b4n8r2t").is_ok());
     assert_eq!(w.text(&format!("SELECT state FROM cases WHERE case_id = '{case_id}'")), "accepted");
-    // A restore cannot bring the withheld text back: the page is fetched
-    // again, and stays as it is until that check supersedes it.
+    // A restore cannot bring the withheld text back: the case's page
+    // returns failed (`report_gone`), saying to check the link again or
+    // paste the text; no fetch is queued behind the reader's back.
+    w.h.exec(&format!("UPDATE runs SET content_key = x'0102' WHERE run_id = {run}"));
     let r = w.op("restore", json!({"case_id": case_id, "reason": "counter evidence"})).unwrap();
-    assert_eq!((r["pages"].clone(), r["refetch"].clone()), (json!(0), json!(1)));
-    assert_eq!(queued(&w, |j| matches!(j, Job::RerunOp { .. })), 1);
-    assert_eq!(state(&w, "k7m2xq9", false), "excerpt_withheld");
+    assert_eq!((r["pages"].clone(), r["report_gone"].clone(), r.get("refetch")), (json!(1), json!(1), None), "{r}");
+    assert_eq!(queued(&w, |j| matches!(j, Job::RerunOp { .. })), 0);
+    let p = w.page("k7m2xq9").unwrap();
+    p.check().unwrap();
+    assert_eq!((p.state.as_str(), p.failure.map(|f| f.code)), ("failed", Some(RefusalCode::ReportGone)));
+    assert_eq!(p.source.as_ref().unwrap().host, "garden-diary.example", "its domain");
+    assert!(p.run.is_none() && p.text.is_none());
+    assert!(queued(&w, |j| matches!(j, Job::Purge { urls } if urls.iter().any(|u| u.contains("k7m2xq9")))) >= 1);
+    // The other page of the run (withheld by the acceptance, not a target
+    // of the case) keeps its state, and with it the run and its text-less
+    // document; the run's reuse key is gone, so the same text is scored
+    // afresh.
+    assert_eq!(state(&w, "b4n8r2t", false), "excerpt_withheld");
+    assert_eq!(w.h.count(&format!("SELECT count(*) FROM runs WHERE run_id = {run} AND content_key IS NULL")), 1);
+    assert!(w.h.doc(&format!("r/{run}")).is_some());
     assert_eq!(w.text(&format!("SELECT state FROM cases WHERE case_id = '{case_id}'")), "restored");
+}
+
+/// A wrong-result report re-checks a shown result only: a live page queues
+/// its source's re-check, while a pending or failed page (which names only
+/// its domain-only source, no page to fetch) gets no automatic step.
+#[test]
+fn a_wrong_result_report_rechecks_a_shown_result_only() {
+    let w = World::new();
+    web_page(&w, "k7m2xq9", None);
+    web_page(&w, "b4n8r2t", None);
+    w.h.exec(
+        "UPDATE detections SET state = 'failed', refusal = 'fetch_failed', run_id = NULL WHERE public_slug = 'b4n8r2t'",
+    );
+    let what = [("what", "the score is wrong")];
+    let (_, _, auto) = w.send(CaseKind::WrongResult, "k7m2xq9", &what, None);
+    assert_eq!(auto, Some(AutoStep::Recheck));
+    assert_eq!(queued(&w, |j| matches!(j, Job::RerunOp { .. })), 1);
+    for st in ["failed", "pending"] {
+        w.h.exec(&format!("UPDATE detections SET state = '{st}' WHERE public_slug = 'b4n8r2t'"));
+        let (_, _, auto) = w.send(CaseKind::WrongResult, "b4n8r2t", &what, None);
+        assert_eq!(auto, None, "{st}");
+    }
+    assert_eq!(queued(&w, |j| matches!(j, Job::RerunOp { .. })), 1);
 }
 
 #[test]
@@ -493,9 +530,28 @@ fn a_removed_public_page_answers_451_and_returns_while_its_document_is_kept() {
         w.h.db.query_row("SELECT basis, jurisdiction FROM removals", [], |r| Ok((r.get(0)?, r.get(1)?))).unwrap();
     assert_eq!((basis.as_str(), j.as_str()), ("personal_data", "EU"));
     assert!(w.h.doc(&format!("r/{run}")).is_none(), "no other page reads the document");
-    // Restored: the document is gone, so it is fetched again.
+    // Restored with its document gone: failed (`report_gone`), never live
+    // with no document and never a silent fetch; the link can be checked
+    // again.
     let r = w.op("restore", json!({"case_id": case_id, "reason": "mistake"})).unwrap();
-    assert_eq!(r["refetch"], 1);
+    assert_eq!((r["pages"].clone(), r["report_gone"].clone()), (json!(1), json!(1)), "{r}");
+    assert_eq!(queued(&w, |j| matches!(j, Job::RerunOp { .. })), 0);
+    let p = w.page("k7m2xq9").unwrap();
+    p.check().unwrap();
+    assert_eq!((p.state.as_str(), p.failure.map(|f| f.code)), ("failed", Some(RefusalCode::ReportGone)));
+    assert_eq!(w.h.count(&format!("SELECT count(*) FROM runs WHERE run_id = {run}")), 0, "the run goes");
+    assert_eq!(w.h.count("SELECT count(*) FROM detections WHERE state = 'live' AND run_id IS NULL"), 0);
+    // A restore outside a case of a page whose document went: failed too.
+    let (_, run3) = web_page(&w, "d6q8t4w", None);
+    assert_eq!(w.op("remove", json!({"slug": "d6q8t4w", "reason": "abuse"})).unwrap()["pages"], 1);
+    assert!(w.h.doc(&format!("r/{run3}")).is_none());
+    let r = w.op("restore", json!({"slug": "d6q8t4w", "reason": "lifted"})).unwrap();
+    assert_eq!((r["pages"].clone(), r["report_gone"].clone()), (json!(1), json!(1)), "{r}");
+    assert_eq!(state(&w, "d6q8t4w", false), "failed");
+    assert_eq!(w.text("SELECT refusal FROM detections WHERE public_slug = 'd6q8t4w'"), "report_gone");
+    assert_eq!(w.h.count(&format!("SELECT count(*) FROM runs WHERE run_id = {run3}")), 0);
+    // Restoring it again changes nothing.
+    assert_eq!(w.op("restore", json!({"slug": "d6q8t4w", "reason": "again"})).unwrap()["pages"], 0);
     // A page removed outside a case, with its document kept, returns at once.
     let (_, run2) = web_page(&w, "b4n8r2t", None);
     web_page(&w, "c5p9s3v", Some(run2));

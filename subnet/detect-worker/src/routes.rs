@@ -364,6 +364,18 @@ pub enum NoRoom {
     TooLarge,
 }
 
+/// A paid quote's or start's refusal when its reservation is not granted.
+/// Others holding the room is contention, which the paid routes answer in
+/// the 402 class of the paid refusals: `paid_busy` (nothing was held or
+/// written, and the same quote can be confirmed again), never the free
+/// check's 503 `busy`. A body that would not fit even alone is `too_large`.
+pub const fn paid_no_room(e: NoRoom) -> slop_ninja_detect_page::RefusalCode {
+    match e {
+        NoRoom::Busy => slop_ninja_detect_page::RefusalCode::PaidBusy,
+        NoRoom::TooLarge => slop_ninja_detect_page::RefusalCode::TooLarge,
+    }
+}
+
 impl ScanMemory {
     pub const fn new() -> ScanMemory {
         ScanMemory { held: std::cell::Cell::new(0) }
@@ -837,5 +849,28 @@ mod tests {
         b.give_back(big);
         assert_eq!(b.held(), 0);
         assert!(b.take(big).is_ok());
+    }
+
+    /// A paid quote or start that finds the room taken (contention) answers
+    /// `paid_busy`, in the 402 class of the paid refusals, never 503.
+    #[test]
+    fn paid_contention_answers_paid_busy_not_503() {
+        use slop_ninja_detect_page::RefusalCode;
+        use slop_ninja_detect_page::refusal::Group;
+        let b = ScanMemory::new();
+        // Starts at once on one isolate: those past the room are refused by
+        // contention, with the paid code.
+        let one = paid_footprint(64 * KIB as u64);
+        let fit = SCAN_MEMORY_BYTES / one;
+        assert!(fit >= 2, "{fit}");
+        for _ in 0..fit {
+            b.take(one).unwrap();
+        }
+        let e = b.take(one).unwrap_err();
+        assert_eq!(e, NoRoom::Busy);
+        let code = paid_no_room(e);
+        assert_eq!((code, code.status(), code.group()), (RefusalCode::PaidBusy, 402, Group::Paid));
+        assert_eq!(code.status(), RefusalCode::NotEnoughCredit.status(), "the class of the balance refusal");
+        assert_eq!(paid_no_room(NoRoom::TooLarge), RefusalCode::TooLarge);
     }
 }

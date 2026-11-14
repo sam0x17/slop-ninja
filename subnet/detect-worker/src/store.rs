@@ -37,12 +37,12 @@ pub fn edge(kind: Kind, from: DetState, to: DetState) -> bool {
         (Pending, Live | Failed | Deleted | Expired | Removed | Disabled) => true,
         (Live, ExcerptWithheld | Removed | Disabled | Deleted | Expired) => true,
         (Failed, Deleted | Expired | Removed) => true,
-        (ExcerptWithheld, Live | Removed | Deleted) => true,
-        // A secret page back from a review returns failed when it never had
-        // a document (a paid job the review stopped).
+        // A page back from a review returns failed when it has no result to
+        // show: a secret page that never had a document (a paid job the
+        // review stopped), a public page whose report is no longer kept.
+        (ExcerptWithheld, Live | Failed | Removed | Deleted) => true,
         (Disabled, Live | Failed | Removed | Deleted) => true,
-        (Removed, Failed) => secret,
-        (Removed, Live | ExcerptWithheld | Deleted) => true,
+        (Removed, Live | Failed | ExcerptWithheld | Deleted) => true,
         _ => false,
     }
 }
@@ -310,9 +310,11 @@ mod tests {
             (Failed, Deleted),
             (Failed, Removed),
             (ExcerptWithheld, Live),
+            (ExcerptWithheld, Failed),
             (ExcerptWithheld, Removed),
             (ExcerptWithheld, Deleted),
             (Removed, Live),
+            (Removed, Failed),
             (Removed, ExcerptWithheld),
             (Removed, Deleted),
         ];

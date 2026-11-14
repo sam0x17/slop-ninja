@@ -551,7 +551,16 @@ fn auto_step(req: &RemovalRequest, t: &Target) -> Option<AutoStep> {
         CaseKind::Illegal if !t.is_public() && matches!(state, DetState::Live | DetState::Pending) => {
             Some(AutoStep::Disabled)
         }
-        CaseKind::WrongResult if t.is_public() && !t.is_x() && t.row.source_id.is_some() => Some(AutoStep::Recheck),
+        // A result to re-check: a shown page (a pending or failed page names
+        // only its domain-only source, which is no page to fetch).
+        CaseKind::WrongResult
+            if t.is_public()
+                && !t.is_x()
+                && matches!(state, DetState::Live | DetState::ExcerptWithheld)
+                && t.row.source_id.is_some() =>
+        {
+            Some(AutoStep::Recheck)
+        }
         CaseKind::Author if t.is_x() && !state.is_ended() => Some(AutoStep::Removed),
         _ => None,
     }
@@ -781,6 +790,46 @@ AND kind IN ('private_text','private_paid') AND state = '{from}'"
         ),
         vec![Val::blob(id_h), Val::int(now)],
     )
+}
+
+/// A public page a review returns with no report to show (its run document
+/// is gone, or no longer keeps its text): `failed` with `report_gone` (a
+/// page that had failed before its removal keeps its own reason), never
+/// live without a document, and no fetch is queued behind the reader's back.
+/// Its run leaves the page; the run's `content_key` is cleared, so checking
+/// the link (or the same text) again scores afresh instead of reusing the
+/// run, and the run row goes once no page names it. The run document goes
+/// after the batch ([`delete_unread_run_doc`]). Since `failed` is not a
+/// legal state, the page no longer blocks new checks of its source.
+fn return_public_failed(id_h: &Bytes32, run_id: Option<u64>, now: u64) -> Vec<Stmt> {
+    let mut v = Vec::with_capacity(4);
+    if let Some(r) = run_id {
+        v.push(Stmt::new("UPDATE runs SET content_key = NULL WHERE run_id = ?1", vec![Val::int(r)]));
+    }
+    v.push(Stmt::new(
+        "UPDATE detections SET state = 'failed', refusal = COALESCE(refusal, 'report_gone'), run_id = NULL, \
+state_v = state_v + 1, updated_at = ?2 WHERE id_h = ?1 AND kind = 'public_url' AND platform <> 'x' \
+AND state IN ('excerpt_withheld','removed')",
+        vec![Val::blob(id_h), Val::int(now)],
+    ));
+    if let Some(r) = run_id {
+        v.push(Stmt::new(
+            "DELETE FROM runs WHERE run_id = ?1 AND NOT EXISTS (SELECT 1 FROM detections WHERE run_id = ?1)",
+            vec![Val::int(r)],
+        ));
+    }
+    v.push(shard_dirty(id_h));
+    v
+}
+
+/// Whether a public page's run document can show it again: present, and
+/// still holding its text.
+async fn report_kept(io: &impl Io, run_id: Option<u64>) -> Result<bool, RefusalCode> {
+    let Some(r) = run_id else { return Ok(false) };
+    match io.doc_get(&run_doc_key(r)).await.map_err(|_| RefusalCode::Unavailable)? {
+        Some(b) => Ok(RunDoc::decode(&b).is_ok_and(|d| !is_withheld_doc(&d))),
+        None => Ok(false),
+    }
 }
 
 /// The source key of an X page's source, from its row.
@@ -1135,10 +1184,10 @@ fn strike_stmts(case: &CaseRow, targets: &[DetRow], now: u64) -> Vec<Stmt> {
 pub struct Effect {
     /// Pages whose state changed.
     pub pages: u64,
-    /// Public pages queued for a fresh fetch (a restore of a page whose
-    /// excerpt is no longer kept).
+    /// Public pages a restore returned `failed` (`report_gone`) because their
+    /// report was no longer kept; their links can be checked again.
     #[serde(skip_serializing_if = "is_zero")]
-    pub refetch: u64,
+    pub report_gone: u64,
     /// Documents an R2 step left for a retry of the same op.
     #[serde(skip_serializing_if = "is_zero")]
     pub docs_pending: u64,
@@ -1501,9 +1550,11 @@ async fn unquarantine(io: &impl Io, keys: &StoreKeys, case_id: &str, id_h: &Byte
 /// otherwise each target returns: a disabled secret page (with its family)
 /// and a removed one whose quarantined document is put back are live again;
 /// a public page whose run document still holds its text is live again, and
-/// one whose excerpt is no longer kept is queued for a fresh fetch (it stays
-/// as it is until that check supersedes it). The case is restored, and so is
-/// each counter-notice on its pages that no countered case is left behind.
+/// one whose report is no longer kept (its document deleted at the removal,
+/// or rewritten without its text) returns `failed` with `report_gone`
+/// (`return_public_failed`), so its page says to check the link again or
+/// paste the text. The case is restored, and so is each counter-notice on
+/// its pages that no countered case is left behind.
 ///
 /// A counter-notice holds no removal of its own: its `restore` restores the
 /// countered copyright cases on its targets (the cases whose removal and
@@ -1542,7 +1593,8 @@ pub async fn restore_case(
     let mut slugs = Vec::new();
     // Each quarantined copy put back, under the case that held it.
     let mut put_back: Vec<(String, Bytes32)> = Vec::new();
-    let mut refetch = BTreeSet::new();
+    // The runs of public pages returned failed, whose documents go after.
+    let mut gone_runs = BTreeSet::new();
     // Pages already returned by an earlier case of this op.
     let mut returned = BTreeSet::new();
     for c in &restoring {
@@ -1556,26 +1608,21 @@ pub async fn restore_case(
                 {
                     continue;
                 }
-                let kept = match t.run_id {
-                    Some(r) => match io.doc_get(&run_doc_key(r)).await.map_err(|_| RefusalCode::Unavailable)? {
-                        Some(b) => RunDoc::decode(&b).is_ok_and(|d| !is_withheld_doc(&d)),
-                        None => false,
-                    },
-                    None => false,
-                };
-                if kept {
+                if report_kept(io, t.run_id).await? {
                     batch.push(Stmt::new(
                         "UPDATE detections SET state = 'live', state_v = state_v + 1, updated_at = ?2 WHERE id_h = ?1 \
 AND kind = 'public_url' AND state IN ('excerpt_withheld','removed')",
                         vec![Val::blob(&t.id_h), Val::int(now)],
                     ));
                     batch.push(shard_dirty(&t.id_h));
-                    slugs.push(t.public_slug.clone().unwrap_or_default());
-                    returned.insert(t.id_h);
-                    effect.pages += 1;
-                } else if let Some(s) = t.source_id {
-                    refetch.insert(s);
+                } else {
+                    batch.extend(return_public_failed(&t.id_h, t.run_id, now));
+                    gone_runs.extend(t.run_id);
+                    effect.report_gone += 1;
                 }
+                slugs.push(t.public_slug.clone().unwrap_or_default());
+                returned.insert(t.id_h);
+                effect.pages += 1;
             } else {
                 for m in family(io, t).await? {
                     // A family is read once per case, whichever of its pages
@@ -1627,11 +1674,10 @@ WHERE id_h = ?1 AND kind IN ('private_text','private_paid') AND state = 'removed
     }
     let q: Vec<String> = put_back.iter().map(|(c, id)| quarantine_key(c, id)).collect();
     let _ = delete_docs(io, &q).await;
-    effect.refetch = refetch.len() as u64;
-    let msgs: Vec<QueueMessage> =
-        refetch.into_iter().map(|source_id| QueueMessage::new(Job::RerunOp { source_id })).collect();
-    if io.enqueue(msgs).await.is_err() {
-        io.metric("error", &["refetch_enqueue"]);
+    for r in gone_runs {
+        if delete_unread_run_doc(io, r).await.is_err() {
+            effect.docs_pending += 1;
+        }
     }
     queue_purges(io, origins, &slugs).await;
     io.metric("removal", &[case.kind.as_str(), "restored"]);
@@ -1639,33 +1685,38 @@ WHERE id_h = ?1 AND kind IN ('private_text','private_paid') AND state = 'removed
 }
 
 /// `restore {slug}`: a public page removed outside a case returns, as a
-/// case's target would.
+/// case's target would: live while its report is kept, else `failed` with
+/// `report_gone` (`return_public_failed`).
 pub async fn restore_slug(io: &impl Io, origins: &Origins, slug: &str, journal: Stmt) -> Result<Effect, RefusalCode> {
     let now = io.now_ms();
     let (row, _) = public_lookup(io, slug).await.map_err(|_| RefusalCode::Unavailable)?;
     let row = row.filter(|r| r.platform != Platform::X).ok_or(RefusalCode::NotFound)?;
-    let kept = match row.run_id {
-        Some(r) => match io.doc_get(&run_doc_key(r)).await.map_err(|_| RefusalCode::Unavailable)? {
-            Some(b) => RunDoc::decode(&b).is_ok_and(|d| !is_withheld_doc(&d)),
-            None => false,
-        },
-        None => false,
-    };
+    let kept = report_kept(io, row.run_id).await?;
     let mut batch = vec![journal];
-    if kept {
+    // The state change is the batch's second statement either way.
+    let at = if kept {
         batch.push(Stmt::new(
             "UPDATE detections SET state = 'live', state_v = state_v + 1, updated_at = ?2 WHERE id_h = ?1 \
 AND kind = 'public_url' AND state IN ('excerpt_withheld','removed')",
             vec![Val::blob(&row.id_h), Val::int(now)],
         ));
         batch.push(shard_dirty(&row.id_h));
-    }
+        1
+    } else {
+        let back = return_public_failed(&row.id_h, row.run_id, now);
+        let at = 1 + usize::from(row.run_id.is_some());
+        batch.extend(back);
+        at
+    };
     let done = io.batch(batch).await.map_err(|_| RefusalCode::Unavailable)?;
-    let mut effect = Effect { pages: done.get(1).map_or(0, |d| d.changes), ..Effect::default() };
-    if !kept && let Some(source_id) = row.source_id {
-        effect.refetch = 1;
-        if io.enqueue(vec![QueueMessage::new(Job::RerunOp { source_id })]).await.is_err() {
-            io.metric("error", &["refetch_enqueue"]);
+    let pages = done.get(at).map_or(0, |d| d.changes);
+    let mut effect = Effect { pages, ..Effect::default() };
+    if !kept && pages > 0 {
+        effect.report_gone = pages;
+        if let Some(r) = row.run_id
+            && delete_unread_run_doc(io, r).await.is_err()
+        {
+            effect.docs_pending += 1;
         }
     }
     queue_purges(io, origins, &[slug.to_owned()]).await;

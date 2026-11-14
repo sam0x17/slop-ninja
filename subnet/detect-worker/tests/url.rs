@@ -7,7 +7,7 @@ mod stubs;
 
 use common::{Harness, block_on};
 use slop_ninja_detect_fetch_wire::{Outcome, XPostAnswer};
-use slop_ninja_detect_page::codes::{DetState, Platform, Robots};
+use slop_ninja_detect_page::codes::{DetState, Platform, Robots, SourceVia};
 use slop_ninja_detect_page::origins::Origins;
 use slop_ninja_detect_page::queue::Job;
 use slop_ninja_detect_page::refusal::RefusalCode;
@@ -166,6 +166,49 @@ fn a_second_browser_joins_the_claim_and_a_dead_driver_is_taken_over() {
     assert_eq!(e.failed, None);
     assert_eq!(w.page(&e.slug).unwrap().state, DetState::Live);
     assert_eq!(w.rows("detections"), 1);
+}
+
+/// A pending page names the submitted link's domain and nothing else of
+/// it: a web page's and a Bluesky post's from the domain-only source the
+/// claim writes in its own batch (only the winner writes it), an X post's
+/// `x.com`. The page that goes live shows its own source.
+#[test]
+fn a_pending_page_names_the_submitted_domain() {
+    let w = World::new();
+    w.fetch.page(URL, &article(14));
+    let bsky = "https://bsky.app/profile/did:plc:z72i7hdynmk6r22z27h6tvur/post/3l6oveex3ii2l";
+    let id = post_id(w.h.now.get(), 2 * 3_600_000, 1);
+    w.fetch.posts.borrow_mut().insert(id, XPostAnswer::Text { text: x_text() });
+    let xlink = format!("https://x.com/someone/status/{id}");
+    let mut drives = Vec::new();
+    for (link, host, via, platform) in [
+        (URL, "example.com", SourceVia::Web, Platform::Web),
+        (bsky, "bsky.app", SourceVia::Bluesky, Platform::Bluesky),
+        (xlink.as_str(), "x.com", SourceVia::X, Platform::X),
+    ] {
+        let Admitted::Drive(d) = w.admit(link).unwrap() else { panic!("{link}") };
+        let p = w.page(&d.held.slug).unwrap();
+        assert_eq!((p.state, p.platform), (DetState::Pending, platform), "{link}");
+        let src = p.source.as_ref().unwrap();
+        assert_eq!((src.host.as_str(), src.via), (host, via), "{link}");
+        assert!(src.url.is_none() && src.title.is_none() && src.page_hash.is_none(), "{link}: the domain only");
+        // A second submitter joins the same pending page; no second row.
+        assert_eq!(w.admit(link).unwrap(), Admitted::Joined(d.held.slug.clone()), "{link}");
+        drives.push(d);
+    }
+    // One domain-only row for each of the two sites, none for the post;
+    // nothing of either link's path.
+    assert_eq!(w.rows("sources"), 2);
+    assert_eq!(w.h.count("SELECT count(*) FROM detections WHERE source_id IS NULL"), 1, "the X page has none");
+    let dump = w.h.dump();
+    assert!(!dump.contains("/garden") && !dump.contains("3l6oveex3ii2l") && !dump.contains("someone"));
+    // The web check goes live with its own source, not the domain-only row.
+    let e = block_on(drive(&w.h, &w.host, &w.fetch, &w.scorer, &w.ctx(), &drives[0]));
+    assert_eq!(e.failed, None);
+    let p = w.page(&e.slug).unwrap();
+    assert_eq!(p.state, DetState::Live);
+    let src = p.source.unwrap();
+    assert!(src.host == "example.com" && src.url.is_some(), "the page's own source");
 }
 
 #[test]
@@ -472,6 +515,40 @@ fn sending_the_link_of_a_removed_or_withheld_page_again_changes_nothing() {
             assert!(p.text.unwrap().body.is_none());
         }
     }
+}
+
+/// A removed page restored after its run document went comes back failed
+/// (`report_gone`), not live and not refetched behind the reader's back;
+/// `failed` is no legal state, so the reader's "check the link again" makes
+/// a fresh check, scored again (the dead run is not reused).
+#[test]
+fn a_page_restored_without_its_report_lets_its_link_be_checked_again() {
+    let w = World::new();
+    let url = "https://example.com/a";
+    w.fetch.page(url, &article(14));
+    let e = w.check(url).unwrap();
+    assert_eq!(e.failed, None);
+    let (_, _, run, _) = w.state_of(&e.slug);
+    let run = run.unwrap();
+    // The removal, and its run document gone with it.
+    w.legal(&e.slug, "removed");
+    block_on(slop_ninja_detect_worker::db::Io::doc_delete(&w.h, &[format!("r/{run}")])).unwrap();
+    let journal = slop_ninja_detect_worker::db::Stmt::new("SELECT 1", Vec::new());
+    let r = block_on(slop_ninja_detect_worker::cases::restore_slug(&w.h, &w.origins, &e.slug, journal)).unwrap();
+    assert_eq!((r.pages, r.report_gone), (1, 1));
+    let p = w.page(&e.slug).unwrap();
+    assert_eq!((p.state, p.failure.map(|f| f.code)), (DetState::Failed, Some(RefusalCode::ReportGone)));
+    assert_eq!(p.source.unwrap().host, "example.com");
+    assert!(!w.h.queue.borrow().iter().any(|m| matches!(m.job, Job::RerunOp { .. })), "no silent fetch");
+    // Checking the link again fetches and scores it afresh.
+    let (f, sc) = (w.fetch.fetch_calls.get(), w.scorer.calls.get());
+    let again = w.check(url).unwrap();
+    assert_eq!(again.failed, None);
+    assert_ne!(again.slug, e.slug);
+    assert_eq!((w.fetch.fetch_calls.get(), w.scorer.calls.get()), (f + 1, sc + 1));
+    let p = w.page(&again.slug).unwrap();
+    assert_eq!(p.state, DetState::Live);
+    assert!(p.text.unwrap().body.is_some());
 }
 
 #[test]

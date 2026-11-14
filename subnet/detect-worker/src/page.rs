@@ -197,14 +197,16 @@ pub fn public_page(slug: &str, row: &DetRow, ex: &PublicExtras, doc: Option<&Run
                 Some(ex.removal.clone().filter(|r| r.scope == RemovalScope::Page).ok_or(RefusalCode::Internal)?);
         }
         DetState::Pending | DetState::Failed => {
-            let host =
-                ex.source.as_ref().map_or_else(|| slop_ninja_detect_page::x::X_HOST.to_owned(), |s| s.host.clone());
-            let via = ex.source.as_ref().map_or(slop_ninja_detect_page::codes::SourceVia::X, |s| match s.adapter {
-                slop_ninja_detect_page::codes::Adapter::Web => slop_ninja_detect_page::codes::SourceVia::Web,
-                slop_ninja_detect_page::codes::Adapter::Bluesky => slop_ninja_detect_page::codes::SourceVia::Bluesky,
-                slop_ninja_detect_page::codes::Adapter::X => slop_ninja_detect_page::codes::SourceVia::X,
-            });
-            p.source = Some(display::domain_only(&host, via, None));
+            // The domain only: a web or Bluesky page's source row (its
+            // domain-only row from the claim, or a failure's, or its live
+            // source's), an X page's host. A web or Bluesky page with no
+            // source row has no domain to name.
+            let (host, via) = match ex.source.as_ref() {
+                Some(s) => (s.host.as_str(), s.via()),
+                None if is_x => (slop_ninja_detect_page::x::X_HOST, slop_ninja_detect_page::codes::SourceVia::X),
+                None => return Err(RefusalCode::ReportUnavailable),
+            };
+            p.source = Some(display::domain_only(host, via, None));
             if state == DetState::Pending {
                 p.pending = Some(Pending { lease_ended: ex.lease_ended, job: None });
                 if is_x {

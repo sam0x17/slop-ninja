@@ -7,7 +7,9 @@
 //! only where the claim names it lets exactly one submitter win:
 //!
 //! - the winner draws a 7-character slug, inserts the pending page and
-//!   drives the check;
+//!   drives the check; a web or Bluesky page gets its domain-only source in
+//!   the same batch (the submitted link's host and adapter, nothing of its
+//!   path), so its pending page names that domain;
 //! - everyone else gets the winner's slug at once and waits on the pending
 //!   page, which polls its state;
 //! - a claim whose lease has ended (the driver left or died) is taken over
@@ -24,7 +26,7 @@ use slop_ninja_detect_page::codes::Platform;
 use slop_ninja_detect_page::slug;
 
 use crate::db::{Done, Io, IoError, Stmt, Val};
-use crate::keys::{Bytes32, CLAIM_DOMAIN, h, public_id_h};
+use crate::keys::{Bytes32, CLAIM_DOMAIN, h, public_id_h, source_canon_key};
 
 /// The claim key of `key` under `package_load`.
 pub fn claim_key(key: &Bytes32, package_load: &str) -> Bytes32 {
@@ -43,9 +45,18 @@ pub const SLUG_DRAWS: u32 = 4;
 pub const INSERT_CLAIM: &str = "INSERT INTO claims (claim_key, det_id_h, lease_until, stage) \
 VALUES (?1, ?2, ?3, ?4) ON CONFLICT (claim_key) DO NOTHING";
 
-/// The pending page, inserted only where the claim names it.
+/// A web or Bluesky page's domain-only source (`?3` its key, `?4` the
+/// origin, `?5` the host, `?6` the adapter: the row a failed check of the
+/// link keeps too), inserted only where the claim names this call's page.
+pub const INSERT_DOMAIN_SOURCE: &str = "INSERT INTO sources (canon_key, canon_url, host, adapter, state, reputation, \
+rank_list_v) SELECT ?3, ?4, ?5, ?6, 'ok', 'unranked', 'none' \
+WHERE EXISTS (SELECT 1 FROM claims WHERE claim_key = ?1 AND det_id_h = ?2) ON CONFLICT (canon_key) DO NOTHING";
+
+/// The pending page, inserted only where the claim names it, with the
+/// domain-only source of `?7` (none for an X post: `?7` is NULL).
 pub const INSERT_PENDING: &str = "INSERT INTO detections (id_h, public_slug, kind, platform, state, state_v, \
-created_at, updated_at, package_load) SELECT ?2, ?3, 'public_url', ?4, 'pending', 1, ?5, ?5, ?6 \
+created_at, updated_at, package_load, source_id) SELECT ?2, ?3, 'public_url', ?4, 'pending', 1, ?5, ?5, ?6, \
+(SELECT source_id FROM sources WHERE canon_key = ?7) \
 WHERE EXISTS (SELECT 1 FROM claims WHERE claim_key = ?1 AND det_id_h = ?2)";
 
 /// The claim as it stands, with its page.
@@ -94,46 +105,78 @@ fn token(io: &impl Io) -> String {
     hex::encode(b)
 }
 
+/// The domain a pending web or Bluesky page names: the submitted link's
+/// host and its source adapter (`web` or `bluesky`).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Domain<'a> {
+    pub host: &'a str,
+    pub adapter: &'a str,
+}
+
+impl Domain<'_> {
+    /// The key of its domain-only source row.
+    pub fn source_key(&self) -> Bytes32 {
+        source_canon_key(&crate::url_flow::domain_key(self.host))
+    }
+}
+
 /// Claims `ckey` for a new pending page on `platform`, or joins (or takes
-/// over) the check that holds it.
+/// over) the check that holds it. A web or Bluesky page (`domain`) gets its
+/// domain-only source in the claim's batch; an X post (`None`) gets none.
 pub async fn claim(
     io: &impl Io,
     ckey: &Bytes32,
     platform: Platform,
+    domain: Option<Domain<'_>>,
     package_load: &str,
     lease_ms: u64,
 ) -> Result<Claim, IoError> {
+    let dkey = domain.map(|d| d.source_key());
     for _ in 0..SLUG_DRAWS {
         let now = io.now_ms();
         let mut fill = |b: &mut [u8]| io.fill(b);
         let Ok(slug_) = slug::draw_public(&mut fill) else { return Err(IoError) };
         let id = public_id_h(&slug_);
         let tok = token(io);
-        let r = io
-            .batch(vec![
-                Stmt::new(DROP_ENDED, vec![Val::blob(ckey)]),
-                Stmt::new(
-                    INSERT_CLAIM,
-                    vec![Val::blob(ckey), Val::blob(&id), Val::int(now.saturating_add(lease_ms)), Val::text(&tok)],
-                ),
-                Stmt::new(
-                    INSERT_PENDING,
-                    vec![
-                        Val::blob(ckey),
-                        Val::blob(&id),
-                        Val::text(&slug_),
-                        Val::text(platform.as_str()),
-                        Val::int(now),
-                        Val::text(package_load),
-                    ],
-                ),
-                Stmt::new(SELECT_CLAIM, vec![Val::blob(ckey)]),
-            ])
-            .await;
+        let mut batch = vec![
+            Stmt::new(DROP_ENDED, vec![Val::blob(ckey)]),
+            Stmt::new(
+                INSERT_CLAIM,
+                vec![Val::blob(ckey), Val::blob(&id), Val::int(now.saturating_add(lease_ms)), Val::text(&tok)],
+            ),
+        ];
+        if let (Some(d), Some(k)) = (domain, dkey.as_ref()) {
+            batch.push(Stmt::new(
+                INSERT_DOMAIN_SOURCE,
+                vec![
+                    Val::blob(ckey),
+                    Val::blob(&id),
+                    Val::blob(k),
+                    Val::text(format!("https://{}/", d.host)),
+                    Val::text(d.host),
+                    Val::text(d.adapter),
+                ],
+            ));
+        }
+        batch.push(Stmt::new(
+            INSERT_PENDING,
+            vec![
+                Val::blob(ckey),
+                Val::blob(&id),
+                Val::text(&slug_),
+                Val::text(platform.as_str()),
+                Val::int(now),
+                Val::text(package_load),
+                Val::opt_blob(dkey.as_ref().map(|k| &k[..])),
+            ],
+        ));
+        batch.push(Stmt::new(SELECT_CLAIM, vec![Val::blob(ckey)]));
+        let last = batch.len() - 1;
+        let r = io.batch(batch).await;
         // A slug that collides with an existing page refuses the batch:
         // draw again.
         let Ok(done) = r else { continue };
-        let Some(row) = done.get(3).and_then(Done::first) else { return Err(IoError) };
+        let Some(row) = done.get(last).and_then(Done::first) else { return Err(IoError) };
         let holder = row.hex32("det_id_h").ok_or(IoError)?;
         if holder == id {
             return Ok(Claim::Drive(Held { claim_key: *ckey, token: tok, id_h: id, slug: slug_ }));

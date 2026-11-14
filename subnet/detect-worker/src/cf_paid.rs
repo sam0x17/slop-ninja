@@ -39,13 +39,14 @@ use crate::routes::forwarded::Admission;
 use crate::{answer, routes, switches};
 
 /// A quote's or start's body: its declared length within the paid bound,
-/// its footprint reserved before a byte is read.
+/// its footprint reserved before a byte is read. Room taken by other
+/// requests answers `paid_busy` (`routes::paid_no_room`), not 503.
 async fn paid_body<T: serde::de::DeserializeOwned>(req: &mut Request, env: &Env) -> Result<(T, Reserved), RefusalCode> {
     let n = declared(req).ok_or(RefusalCode::LengthRequired)?;
     if n > routes::PAID_BODY_BYTES {
         return Err(RefusalCode::TooLarge);
     }
-    let held = Reserved::take(routes::paid_footprint(n)).map_err(no_room)?;
+    let held = Reserved::take(routes::paid_footprint(n)).map_err(routes::paid_no_room)?;
     let bound = usize::try_from(n).map_err(|_| RefusalCode::TooLarge)?;
     Ok((json_body(req, env, bound).await?, held))
 }

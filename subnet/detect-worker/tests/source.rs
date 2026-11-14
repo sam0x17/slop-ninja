@@ -661,3 +661,18 @@ fn a_bound_divisor_is_cast_to_integer() {
     }
     assert!(checked >= 3, "the shard divisors are cast ({checked})");
 }
+
+/// Contention on a paid quote or start (other requests hold the room its
+/// body needs) answers `paid_busy`, never the free check's 503 `busy`: the
+/// paid body's reservation maps through `routes::paid_no_room`, and both
+/// routes read their body there.
+#[test]
+fn paid_contention_is_never_a_503() {
+    let s = src("cf_paid.rs");
+    let body = function_body(&s, "async fn paid_body");
+    assert!(body.contains(".map_err(routes::paid_no_room)"), "paid_body maps contention to paid_busy");
+    assert!(!body.contains("map_err(no_room)") && !body.contains("RefusalCode::Busy"), "paid_body answers no 503");
+    for route in ["pub(crate) async fn quote(", "pub(crate) async fn start("] {
+        assert!(function_body(&s, route).contains("paid_body::<"), "{route} reads its body through paid_body");
+    }
+}

@@ -90,8 +90,10 @@ CREATE TABLE jobs (                          -- paid whole-document checks
 CREATE TABLE hold_starts (                   -- a paid start between its hold and its job (the quote nonce, the
   idem TEXT PRIMARY KEY,                     -- hold's idempotency key): a start's job is inserted only while its
   state TEXT NOT NULL CHECK (state IN ('open','given_back')),  -- row is open, and the batch that inserts it
-  at INTEGER NOT NULL);                      -- deletes the row; a give-back or the sweep sets given_back first,
-CREATE INDEX hold_starts_at ON hold_starts(at);  -- so a row left behind names a hold no job holds
+  at INTEGER NOT NULL);                      -- deletes the row; a start opens or renews its row only while no page
+                                             -- holds its free seal, so a row never comes back beside its quote's
+                                             -- job; a give-back or the sweep sets given_back first, and the sweep
+CREATE INDEX hold_starts_at ON hold_starts(at);  -- expires a hold only for a row still there and given_back
 
 CREATE TABLE cases (
   case_id TEXT PRIMARY KEY,

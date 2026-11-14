@@ -130,8 +130,9 @@ pub mod detect {
     /// hours old ([`XSWEEP`], `status`).
     pub const X_SWEEP_LATE: &str = "x_sweep_late";
     /// A `job {commit_found_released}` point: a paid page was served on a
-    /// hold that had been released, with no debit. The start's fence makes
-    /// this unreachable, so any one is a fault to look into.
+    /// hold that had been released, with no debit. The start's fence and the
+    /// sweep's (which expires a hold only for a start row no job can sit
+    /// beside) make this unreachable, so any one is a fault to look into.
     pub const COMMIT_FOUND_RELEASED: &str = "commit_found_released";
     /// Alerts the poller raises from this dataset and the `status` op.
     pub const ALERTS: &[&str] = &[X_CHECK_UNEXPECTED, X_SWEEP_LATE, COMMIT_FOUND_RELEASED];

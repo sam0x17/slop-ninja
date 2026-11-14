@@ -31,11 +31,21 @@
 //! batch sets the row `given_back` and reads whether a job holds the hold,
 //! and the hold is released only when none does. After the fence no start
 //! of that quote can insert a job, so a concurrent start either made its
-//! job first (and the read sees it) or makes none; no job ever runs on a
-//! released hold. A row left behind (the hold's answer was lost, the start
-//! stopped, or the release failed) names a hold no job holds: the hourly
-//! sweep ([`sweep_starts`]) fences it and expires its hold through the
-//! ledger after [`START_GRACE_MS`].
+//! job first (and the read sees it) or makes none.
+//!
+//! **A start's row never sits beside a job of its quote.** The batch that
+//! inserts the job deletes the row, and a start opens or renews its row
+//! only while no page holds the free seal, in one batch with the seal's
+//! check ([`UPSERT_START`]; otherwise `seal_used`, or `quote_invalid` for a
+//! fenced row), so once the job's page exists no later start of that quote
+//! brings a row back. A row left behind (the hold's answer was lost, the
+//! start stopped, or the release failed) therefore names a hold no job
+//! holds. The hourly sweep ([`sweep_starts`]) fences each row untouched for
+//! [`START_GRACE_MS`] and reads it back in the same batch: only a row still
+//! there and `given_back` has its hold expired through the ledger. A row a
+//! job's batch took meanwhile, or another sweep ended, is gone, and one a
+//! confirm sent again renewed stays open for that start. So no job ever
+//! runs on a hold a give-back or the sweep released.
 //!
 //! **The job** (`/api/detect/v1/job {slug}` on the secret host, streamed as
 //! [`JobLine`]s): one driver at a time, by a fencing token.
@@ -550,10 +560,16 @@ WHERE EXISTS (SELECT 1 FROM detections WHERE id_h = ?1) ON CONFLICT DO NOTHING";
 /// Whether a job holds `hold_ref`.
 pub const JOB_OF_HOLD: &str = "SELECT 1 AS n FROM jobs WHERE hold_ref = ?1";
 
-/// A start's row before its hold: open, or (a confirm sent again) its time
-/// renewed while it is still open.
-pub const UPSERT_START: &str = "INSERT INTO hold_starts (idem, state, at) VALUES (?1, 'open', ?2) \
-ON CONFLICT (idem) DO UPDATE SET at = excluded.at WHERE hold_starts.state = 'open'";
+/// A start's row before its hold: opened, or (a confirm sent again) its
+/// time renewed while it is still open; either only while no page holds the
+/// free seal (`?3`, the seal's nonce hash). The batch that inserts a job
+/// inserts its page with that seal and deletes the row, so once a job of
+/// this quote exists no start brings its row back: a row never sits beside
+/// a job of its quote. `RETURNING` answers whether this call opened or
+/// renewed the row (nothing when the seal is used or the row is fenced).
+pub const UPSERT_START: &str = "INSERT INTO hold_starts (idem, state, at) SELECT ?1, 'open', ?2 \
+WHERE NOT EXISTS (SELECT 1 FROM detections WHERE seal_nonce_h = ?3) \
+ON CONFLICT (idem) DO UPDATE SET at = excluded.at WHERE hold_starts.state = 'open' RETURNING 1 AS n";
 /// The start's row goes in the batch that inserted its job.
 pub const DELETE_START: &str = "DELETE FROM hold_starts WHERE idem = ?1 AND state = 'open' \
 AND EXISTS (SELECT 1 FROM jobs WHERE hold_ref = ?2)";
@@ -563,6 +579,13 @@ pub const FENCE_START: &str = "UPDATE hold_starts SET state = 'given_back' WHERE
 RETURNING 1 AS n";
 /// Starts left behind, oldest first.
 pub const SELECT_LEFT_STARTS: &str = "SELECT idem FROM hold_starts WHERE at <= ?1 ORDER BY at, idem LIMIT ?2";
+/// The sweep's fence: a row still open and still due (`at` at or before
+/// the cutoff `?2`, so one a confirm sent again renewed since the sweep
+/// read it is left to that start).
+pub const FENCE_LEFT_START: &str = "UPDATE hold_starts SET state = 'given_back' WHERE idem = ?1 \
+AND state = 'open' AND at <= ?2";
+/// A start's row as it stands (read in the sweep's fence batch).
+pub const START_STATE: &str = "SELECT state FROM hold_starts WHERE idem = ?1";
 /// A start's row, once its hold has ended.
 pub const DELETE_LEFT_START: &str = "DELETE FROM hold_starts WHERE idem = ?1 AND state = 'given_back'";
 /// How long a start's row stays before the sweep ends its hold: an hour, far
@@ -609,16 +632,26 @@ pub async fn start(
     {
         return Err(RefusalCode::QuoteInvalid);
     }
-    let used = io.run(Stmt::new(crate::share::SEAL_USED, vec![Val::blob(&free_nonce_h)])).await;
-    if used.map_err(|_| RefusalCode::SaveUnavailable)?.first().is_some() {
-        return Err(RefusalCode::SealUsed);
-    }
     // The start's row first: whatever happens to the hold's answer, the
-    // sweep can end a hold no job came to hold.
+    // sweep can end a hold no job came to hold. It opens (or renews) only
+    // while the seal is unused, in one batch with the seal's check, so it
+    // never comes back beside a job this quote already made.
     let idem = q.quote_nonce.clone();
-    io.run(Stmt::new(UPSERT_START, vec![Val::text(idem.clone()), Val::int(now)]))
+    let opened = io
+        .batch(vec![
+            Stmt::new(crate::share::SEAL_USED, vec![Val::blob(&free_nonce_h)]),
+            Stmt::new(UPSERT_START, vec![Val::text(idem.clone()), Val::int(now), Val::blob(&free_nonce_h)]),
+        ])
         .await
         .map_err(|_| RefusalCode::SaveUnavailable)?;
+    if opened.first().is_some_and(|d| d.first().is_some()) {
+        return Err(RefusalCode::SealUsed);
+    }
+    if !opened.get(1).is_some_and(|d| d.first().is_some()) {
+        // The row is fenced (a give-back of this quote, or the sweep): its
+        // hold was or will be released, and the reader quotes again.
+        return Err(RefusalCode::QuoteInvalid);
+    }
     let hold = ledger
         .hold(&HoldRequest { user_id: p.user_id, tokens, channel: Channel::PaidPage, idem: idem.clone() })
         .await?;
@@ -680,8 +713,9 @@ pub async fn start(
     };
     if !inserted {
         // Another start of this quote made its page first (its job holds
-        // the hold), a link used this seal, or the start was fenced (a
-        // give-back of this quote, or the sweep) and its hold has ended.
+        // the hold), a link or another quote of this scan used the seal, or
+        // the start was fenced (a give-back of this quote, or the sweep) and
+        // its hold has ended.
         return Err(match give_back(io, ledger, &idem, &hold.hold_id, &keys).await {
             GaveBack::Fenced | GaveBack::Unknown => RefusalCode::QuoteInvalid,
             GaveBack::JobHolds | GaveBack::Released => RefusalCode::SealUsed,
@@ -754,21 +788,38 @@ async fn give_back(io: &impl Io, ledger: &impl Ledger, idem: &str, hold_id: &str
     found
 }
 
-/// The hourly sweep's part for starts left behind: each start row older
-/// than [`START_GRACE_MS`] names a hold no job holds (the batch that inserts
-/// a job deletes its row). Fence it, ask the ledger to expire its hold, then
-/// delete the row; a failed call keeps the row for the next hour. Answers
-/// how many holds this run released.
+/// The hourly sweep's part for starts left behind: each start row untouched
+/// for [`START_GRACE_MS`]. One batch fences the row while it is still open
+/// and due, then reads what is left of it; only a row still there and
+/// `given_back` has its hold expired through the ledger, and the row goes
+/// after. A row no longer there was taken by its job's batch (a confirm sent
+/// again since the sweep read it made the job) or ended by another sweep; a
+/// row still open was renewed by a confirm sent again, whose start goes on.
+/// Neither is expired. A `given_back` row names a hold no job holds: a
+/// job's batch needs the row open and deletes it, and no start opens a row
+/// once a page holds its free seal ([`UPSERT_START`]). A failed call keeps
+/// the row for the next hour. Answers how many holds this run released.
 pub async fn sweep_starts(io: &impl Io, ledger: &impl Ledger) -> Result<u64, crate::db::IoError> {
     let now = io.now_ms();
-    let due = io
-        .run(Stmt::new(SELECT_LEFT_STARTS, vec![Val::int(now.saturating_sub(START_GRACE_MS)), Val::int(SWEEP_JOBS)]))
-        .await?;
+    let cutoff = now.saturating_sub(START_GRACE_MS);
+    let due = io.run(Stmt::new(SELECT_LEFT_STARTS, vec![Val::int(cutoff), Val::int(SWEEP_JOBS)])).await?;
     let mut released = 0u64;
     let mut first_err = None;
     for idem in due.rows.iter().filter_map(|r| r.text("idem")).map(str::to_owned) {
-        if let Err(e) = io.run(Stmt::new(FENCE_START, vec![Val::text(idem.clone())])).await {
-            first_err.get_or_insert(e.into());
+        let fenced = io
+            .batch(vec![
+                Stmt::new(FENCE_LEFT_START, vec![Val::text(idem.clone()), Val::int(cutoff)]),
+                Stmt::new(START_STATE, vec![Val::text(idem.clone())]),
+            ])
+            .await;
+        let given_back = match fenced {
+            Ok(d) => d.get(1).and_then(Done::first).and_then(|r| r.text("state")) == Some("given_back"),
+            Err(e) => {
+                first_err.get_or_insert(e.into());
+                continue;
+            }
+        };
+        if !given_back {
             continue;
         }
         match ledger.expire(&ExpireRequest { idem: idem.clone() }).await {
@@ -1455,8 +1506,9 @@ pub async fn end_hold(io: &impl Io, ledger: &impl Ledger, id: &Bytes32) -> Resul
             }
             io.batch(batch).await.map_err(|_| EndLater)?;
             if found_released {
-                // The fence makes this unreachable; if it happens anyway the
-                // page stays (the reader has it) and the operator is told.
+                // The fences (the give-back's and the sweep's) make this
+                // unreachable; if it happens anyway the page stays (the
+                // reader has it) and the operator is told.
                 io.metric_n("job", &["commit_found_released"], 1.0);
             }
             io.metric("job", &["committed"]);

@@ -2,7 +2,9 @@
 //! quote, the start, the fenced job driver end to end, two drivers on one
 //! job (side by side, and one whose lease lapsed), a cancel mid-job, a
 //! section refused for good, a failed commit, the pause, the subrequest
-//! calls of a long job, the sweep, and a quote whose hold was given back.
+//! calls of a long job, the sweep, a quote whose hold was given back, and
+//! the hourly sweep of starts left behind racing a confirm sent again, a
+//! second start of one quote and another sweep.
 //! The ledger is a fake with the account Worker's semantics (a hold per
 //! idempotency key until it ends, one end per hold); the account Worker's
 //! own suite runs the real ledger.
@@ -11,7 +13,7 @@ mod common;
 
 use std::cell::{Cell, RefCell};
 use std::future::Future;
-use std::pin::Pin;
+use std::pin::{Pin, pin};
 use std::task::{Context, Poll, Waker};
 
 use common::{Harness, block_on};
@@ -1063,17 +1065,25 @@ fn the_paid_page_s_figures_follow_its_sections() {
 
 /// The harness with some calls rigged: the job text's put fails (a start
 /// that fails after its hold), a hook runs before the first put of a page
-/// document (`p/`), and the driver's LOST read fails.
+/// document (`p/`), the driver's LOST read fails, and a start's insert
+/// batch fails.
 struct Rigged<'a> {
     h: &'a Harness,
     fail_job_put: bool,
     on_doc_put: RefCell<Option<Box<dyn FnMut() + 'a>>>,
     fail_lost_read: Cell<bool>,
+    fail_insert_batch: Cell<bool>,
 }
 
 impl<'a> Rigged<'a> {
     fn new(h: &'a Harness) -> Rigged<'a> {
-        Rigged { h, fail_job_put: false, on_doc_put: RefCell::new(None), fail_lost_read: Cell::new(false) }
+        Rigged {
+            h,
+            fail_job_put: false,
+            on_doc_put: RefCell::new(None),
+            fail_lost_read: Cell::new(false),
+            fail_insert_batch: Cell::new(false),
+        }
     }
 }
 
@@ -1083,6 +1093,9 @@ impl Sql for Rigged<'_> {
     }
     async fn batch(&self, v: Vec<Stmt>) -> Result<Vec<Done>, slop_ninja_detect_worker::db::DbError> {
         if self.fail_lost_read.get() && v.first().is_some_and(|s| s.sql == paid::SELECT_JOB_ROW) {
+            return Err(slop_ninja_detect_worker::db::DbError::Failed);
+        }
+        if self.fail_insert_batch.get() && v.first().is_some_and(|s| s.sql == paid::INSERT_PAID) {
             return Err(slop_ninja_detect_worker::db::DbError::Failed);
         }
         self.h.batch(v).await
@@ -1274,6 +1287,203 @@ fn a_hold_whose_answer_was_lost_is_released_by_the_sweep() {
     assert_eq!(block_on(paid::sweep_starts(&w.h, &l)).unwrap(), 1);
     assert_eq!((l.releases.get(), l.credit.get()), (1, 100_000));
     assert_eq!(w.h.count("SELECT count(*) FROM hold_starts"), 0);
+}
+
+/// How a quote's first start left its row behind.
+#[derive(Clone, Copy, Debug)]
+enum LeftBy {
+    /// The hold was placed and its answer lost.
+    LostAnswer,
+    /// The hold was refused for want of credit (no hold exists).
+    NotEnoughCredit,
+}
+
+/// A start left its row behind. More than an hour later, while the hourly
+/// sweep runs, the reader sends the same confirm again (the quote seal is
+/// still good): either the whole start lands between the sweep's read of
+/// the rows due and its fence, or only its renewal and its hold do and its
+/// job's batch lands after the fence. Either way the sweep leaves the hold
+/// the new job holds, asks the ledger nothing, and the job's commit debits.
+#[test]
+fn the_sweep_leaves_a_hold_a_confirm_sent_again_took() {
+    for left_by in [LeftBy::LostAnswer, LeftBy::NotEnoughCredit] {
+        for whole_start in [true, false] {
+            let at = format!("{left_by:?}, whole start {whole_start}");
+            let w = World::new();
+            let l = FakeLedger::with(100_000);
+            let text = prose(2_500);
+            let seal = w.free_seal(&text, 1);
+            let q = quote(&w, &l, &text, &seal, Some(reader(false))).unwrap();
+            match left_by {
+                LeftBy::LostAnswer => {
+                    l.lose_answer.set(true);
+                    let e = start(&w, &l, &text, &seal, &q.quote_seal, Some(reader(false))).unwrap_err();
+                    assert_eq!(e, RefusalCode::Unavailable, "{at}");
+                }
+                LeftBy::NotEnoughCredit => {
+                    l.credit.set(u64::from(q.paid_tokens) - 1);
+                    let e = start(&w, &l, &text, &seal, &q.quote_seal, Some(reader(false))).unwrap_err();
+                    assert_eq!(e, RefusalCode::NotEnoughCredit, "{at}");
+                    l.credit.set(100_000);
+                }
+            }
+            assert_eq!(w.h.count("SELECT count(*) FROM hold_starts WHERE state = 'open'"), 1, "{at}");
+            w.h.advance(paid::START_GRACE_MS + 1);
+
+            let req = StartRequest {
+                text: text.clone(),
+                seal: seal.clone(),
+                quote_seal: q.quote_seal.clone(),
+                expiry: Expiry::Keep,
+            };
+            let cx = w.cx();
+            let mut admit = |b: usize, _: usize| b <= 8 << 20;
+            let sweep = paid::sweep_starts(&w.h, &l);
+            let resend = paid::start(&w.h, &l, &cx, Some(reader(false)), &req, &mut admit);
+            // The sweep stops before its fence, after reading the rows due.
+            w.h.pause_at("UPDATE hold_starts SET state = 'given_back'");
+            let (swept, sent) = if whole_start {
+                common::interleave(sweep, resend)
+            } else {
+                // The confirm renews its row and takes its hold, then stops
+                // before its job's batch; the sweep goes on, then the batch.
+                w.h.pause_at("INSERT INTO detections");
+                let (mut sweep, mut resend) = (pin!(sweep), pin!(resend));
+                let mut tcx = Context::from_waker(Waker::noop());
+                assert!(sweep.as_mut().poll(&mut tcx).is_pending(), "{at}");
+                assert!(resend.as_mut().poll(&mut tcx).is_pending(), "{at}");
+                let swept = block_on(sweep);
+                (swept, block_on(resend))
+            };
+            let a = sent.unwrap_or_else(|e| panic!("{at}: {e:?}"));
+            assert_eq!(swept.unwrap(), 0, "{at}");
+            assert_eq!((l.expires.get(), l.releases.get()), (0, 0), "{at}: the sweep asked the ledger nothing");
+            assert_eq!(l.holds.borrow().len(), 1, "{at}");
+            assert_eq!(w.h.count("SELECT count(*) FROM hold_starts"), 0, "{at}: the job's batch took the row");
+
+            let (end, _) = drive(&w, &l, &FakeScorer::default(), &a.slug);
+            assert_eq!(end, JobEnd::Done, "{at}");
+            assert_eq!((l.releases.get(), l.commits.get()), (0, 1), "{at}");
+            assert_eq!(l.credit.get(), 100_000 - u64::from(q.paid_tokens), "{at}: the commit debits");
+            assert_eq!(w.h.metric_count("job", "commit_found_released"), 0, "{at}");
+            assert_eq!(w.h.count("SELECT count(*) FROM jobs WHERE state = 'committed' AND failure IS NULL"), 1);
+            assert_eq!(det_state(&w), "live");
+            // A later sweep finds nothing.
+            w.h.advance(paid::START_GRACE_MS + 1);
+            assert_eq!(block_on(paid::sweep_starts(&w.h, &l)).unwrap(), 0, "{at}");
+            assert_eq!(l.expires.get(), 0, "{at}");
+        }
+    }
+}
+
+/// Where a second start of one quote stops.
+#[derive(Clone, Copy, Debug)]
+enum FailAt {
+    /// Its hold call fails.
+    Hold,
+    /// Its job text's put fails (it gives the hold back).
+    Put,
+    /// Its insert batch fails (it gives the hold back).
+    Batch,
+}
+
+/// The fake ledger, with every hold call failing when `fail` is set (the
+/// account Worker unreachable for one start).
+struct HoldFails<'a> {
+    l: &'a FakeLedger,
+    fail: bool,
+}
+
+impl Ledger for HoldFails<'_> {
+    async fn peek(&self, req: &PeekRequest) -> Result<PeekAnswer, RefusalCode> {
+        self.l.peek(req).await
+    }
+    async fn hold(&self, req: &HoldRequest) -> Result<HoldAnswer, RefusalCode> {
+        if self.fail {
+            return Err(RefusalCode::Unavailable);
+        }
+        self.l.hold(req).await
+    }
+    async fn commit(&self, req: &CommitRequest) -> Result<HoldEndAnswer, RefusalCode> {
+        self.l.commit(req).await
+    }
+    async fn release(&self, req: &ReleaseRequest) -> Result<HoldEndAnswer, RefusalCode> {
+        self.l.release(req).await
+    }
+    async fn expire(&self, req: &ExpireRequest) -> Result<ExpireAnswer, RefusalCode> {
+        self.l.expire(req).await
+    }
+}
+
+/// Two starts of one quote: the second passes its quote checks before the
+/// first's job batch and reaches its row after it. It must not bring the
+/// row back beside the first's job, or, stopping at its hold call, its job
+/// text's put or its own batch, it would leave a row whose hold (the first
+/// job's) the hourly sweep then expires. It answers `seal_used` and leaves
+/// no row; after the sweep the first job's commit debits.
+#[test]
+fn a_second_start_after_its_quote_s_job_leaves_no_row() {
+    for fail_at in [FailAt::Hold, FailAt::Put, FailAt::Batch] {
+        let w = World::new();
+        let l = FakeLedger::with(100_000);
+        let text = prose(2_500);
+        let seal = w.free_seal(&text, 1);
+        let q = quote(&w, &l, &text, &seal, Some(reader(false))).unwrap();
+        let req = StartRequest {
+            text: text.clone(),
+            seal: seal.clone(),
+            quote_seal: q.quote_seal.clone(),
+            expiry: Expiry::Keep,
+        };
+        let mut rigged = Rigged::new(&w.h);
+        rigged.fail_job_put = matches!(fail_at, FailAt::Put);
+        rigged.fail_insert_batch.set(matches!(fail_at, FailAt::Batch));
+        let second_ledger = HoldFails { l: &l, fail: matches!(fail_at, FailAt::Hold) };
+        let cx = w.cx();
+        let (mut adm_first, mut adm_second) = (|b: usize, _: usize| b <= 8 << 20, |b: usize, _: usize| b <= 8 << 20);
+        // The second start stops just before its row; the first runs whole
+        // in the gap, making its job and deleting the row.
+        w.h.pause_at("INSERT INTO hold_starts");
+        let second = paid::start(&rigged, &second_ledger, &cx, Some(reader(false)), &req, &mut adm_second);
+        let first = paid::start(&w.h, &l, &cx, Some(reader(false)), &req, &mut adm_first);
+        let (second_end, first_end) = common::interleave(second, first);
+        let a = first_end.unwrap();
+        assert_eq!(second_end.unwrap_err(), RefusalCode::SealUsed, "{fail_at:?}");
+        assert_eq!(w.h.count("SELECT count(*) FROM hold_starts"), 0, "{fail_at:?}: no row beside the job");
+        assert_eq!(l.holds.borrow().len(), 1, "{fail_at:?}");
+        assert_eq!((l.releases.get(), l.commits.get()), (0, 0), "{fail_at:?}");
+        assert_eq!(w.h.count("SELECT count(*) FROM detections"), 1, "{fail_at:?}");
+
+        w.h.advance(paid::START_GRACE_MS + 1);
+        assert_eq!(block_on(paid::sweep_starts(&w.h, &l)).unwrap(), 0, "{fail_at:?}");
+        assert_eq!(l.expires.get(), 0, "{fail_at:?}");
+        let (end, _) = drive(&w, &l, &FakeScorer::default(), &a.slug);
+        assert_eq!(end, JobEnd::Done, "{fail_at:?}");
+        assert_eq!((l.releases.get(), l.commits.get()), (0, 1), "{fail_at:?}");
+        assert_eq!(l.credit.get(), 100_000 - u64::from(q.paid_tokens), "{fail_at:?}: the commit debits");
+        assert_eq!(w.h.metric_count("job", "commit_found_released"), 0, "{fail_at:?}");
+        assert_eq!(w.h.count("SELECT count(*) FROM jobs WHERE state = 'committed' AND failure IS NULL"), 1);
+    }
+}
+
+/// Two sweeps over one row left behind: the first to fence it expires its
+/// hold and deletes it; the other finds it gone and asks the ledger nothing.
+#[test]
+fn a_row_another_sweep_ended_is_not_expired_again() {
+    let w = World::new();
+    let l = FakeLedger::with(100_000);
+    let text = prose(2_500);
+    let seal = w.free_seal(&text, 1);
+    let q = quote(&w, &l, &text, &seal, Some(reader(false))).unwrap();
+    l.lose_answer.set(true);
+    assert_eq!(start(&w, &l, &text, &seal, &q.quote_seal, Some(reader(false))).unwrap_err(), RefusalCode::Unavailable);
+    w.h.advance(paid::START_GRACE_MS + 1);
+    w.h.pause_at("UPDATE hold_starts SET state = 'given_back'");
+    let (one, two) = common::interleave(paid::sweep_starts(&w.h, &l), paid::sweep_starts(&w.h, &l));
+    assert_eq!((one.unwrap(), two.unwrap()), (0, 1));
+    assert_eq!((l.expires.get(), l.releases.get(), l.credit.get()), (1, 1, 100_000));
+    assert_eq!(w.h.count("SELECT count(*) FROM hold_starts"), 0);
+    assert_eq!(w.h.doubles_of("job", "hold_expired"), vec![1.0]);
 }
 
 /// A driver whose lease lapsed during its assembly loses to the next, which

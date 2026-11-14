@@ -187,11 +187,17 @@ the `ACCOUNT` binding; at launch only operator grants back it.
   the row. A seal starts one check. A start that fails after its hold gives
   the hold back behind a fence: one batch marks the row `given_back` and
   reads whether a job holds the hold, and only then is it released, so no
-  job of that quote can follow and none ever runs on a released hold; the
-  ledger then refuses that quote (`quote_invalid`): the reader quotes again.
-  A row left behind (a hold whose answer was lost, a start that stopped, a
-  release that failed) is fenced by the hourly sweep after an hour, and its
-  hold expires through the ledger's `/billing/expire`.
+  job of that quote can follow; the ledger then refuses that quote
+  (`quote_invalid`): the reader quotes again. A start opens or renews its
+  row only while no page holds the free seal, in one batch with the seal's
+  check (`seal_used`; `quote_invalid` for a fenced row), so a row never
+  comes back beside a job its quote made. A row left behind (a hold whose
+  answer was lost, a start that stopped, a release that failed) is fenced
+  by the hourly sweep after an hour; the same batch reads the row back, and
+  only a row still there and `given_back` has its hold expired through the
+  ledger's `/billing/expire` (a row a job's batch took, or another sweep
+  ended, is gone; one a confirm sent again renewed stays open for it). No
+  job runs on a hold a give-back or the sweep released.
 - `POST /api/detect/v1/job` (the secret host): an NDJSON stream of job lines
   while one driver at a time scores the sections, fenced by a lease token
   (CLAIM, RENEW, ADVANCE, SCORED). Each section takes a gate ticket of class

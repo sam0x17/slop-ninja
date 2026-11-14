@@ -533,20 +533,6 @@ code_enum! {
 }
 
 code_enum! {
-    /// Why an `x_check` message was sent ([`crate::queue::Job::XCheck`]).
-    pub enum XCheckWhy {
-        /// The hourly sweep found the sources due.
-        Sweep = "sweep",
-        /// A page-cache miss on a live X page whose last check is older than
-        /// `X_PAGE_CACHE_S`.
-        View = "view",
-        /// A post decided inside its edit window, sent with the queue's own
-        /// delay to `edit_check_at`.
-        Edit = "edit",
-    }
-}
-
-code_enum! {
     /// The `DETECT_X` switch's states.
     pub enum DetectXState {
         /// The default: post links answer `x_off`; existing X pages are still
@@ -566,13 +552,9 @@ code_enum! {
     /// its R2 delete and its D1 batch. Each cause is the refusal code its
     /// detections end with ([`XDeleteCause::code`]).
     pub enum XDeleteCause {
-        /// A confirmed gone: the post is no longer available on X.
+        /// X's embed no longer shows the post (one `gone` answer of the
+        /// daily existence check, after both controls passed).
         XGone = "x_gone",
-        /// The post was edited on X after it was checked.
-        XEdited = "x_edited",
-        /// A compliance lookup did not fit the read budget, or a
-        /// contradiction under `X_MARKED = delete`.
-        XUnchecked = "x_unchecked",
         /// A removal at the request of the post's author or of X: the
         /// detections are removed and the source keeps only its key.
         XRemoved = "x_removed",
@@ -586,8 +568,6 @@ impl XDeleteCause {
         use crate::refusal::RefusalCode as R;
         match self {
             XDeleteCause::XGone => R::XGone,
-            XDeleteCause::XEdited => R::XEdited,
-            XDeleteCause::XUnchecked => R::XUnchecked,
             XDeleteCause::XRemoved => R::XRemoved,
         }
     }

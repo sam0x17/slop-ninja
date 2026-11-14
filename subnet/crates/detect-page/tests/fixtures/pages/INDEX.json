@@ -202,20 +202,6 @@
     "shows": "X post under 150 words: short gauge, View on X, no text body, noindex",
     "status": 200
   },
-  "30-x-post-long": {
-    "ad_page_kind": "x_post",
-    "canonical": "x4m8q2t",
-    "robots": "noindex",
-    "shows": "X post of 150 words and more: band and share, no highlighting, View on X",
-    "status": 200
-  },
-  "31-x-post-adult": {
-    "ad_page_kind": "x_post",
-    "canonical": "x4m8q2t",
-    "robots": "noindex",
-    "shows": "adult X post (possibly_sensitive): shown like any X post",
-    "status": 200
-  },
   "32-x-post-removed": {
     "ad_page_kind": "x_post",
     "canonical": null,
@@ -228,13 +214,6 @@
     "canonical": null,
     "robots": "noindex",
     "shows": "post gone from X: 410, report removed (x_gone)",
-    "status": 410
-  },
-  "34-x-post-edited": {
-    "ad_page_kind": "x_post",
-    "canonical": null,
-    "robots": "noindex",
-    "shows": "post edited on X after the check: 410, report removed (x_edited)",
     "status": 410
   },
   "35-x-post-purged": {
@@ -250,20 +229,6 @@
     "robots": "noindex",
     "shows": "X post being checked: pending, the domain only",
     "status": 200
-  },
-  "37-x-post-superseded": {
-    "ad_page_kind": "x_post",
-    "canonical": "x4m8q2t",
-    "robots": "noindex",
-    "shows": "link to an earlier version of an edited post: failed (x_post_superseded)",
-    "status": 200
-  },
-  "38-x-post-unchecked": {
-    "ad_page_kind": "x_post",
-    "canonical": null,
-    "robots": "noindex",
-    "shows": "post that could not be checked again: 410, report removed (x_unchecked)",
-    "status": 410
   },
   "39-unstored-paid-open": {
     "ad_page_kind": "unstored_result",

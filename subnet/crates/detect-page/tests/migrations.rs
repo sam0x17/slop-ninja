@@ -401,14 +401,19 @@ fn canon_url_is_nullable_only_for_x() {
     }
     refused(&c, "UPDATE sources SET published_at = 1 WHERE source_id = 1", &[], "CHECK constraint failed");
     refused(&c, "UPDATE sources SET host = 'twitter.com' WHERE source_id = 1", &[], "CHECK constraint failed");
-    // The check columns exist and take times.
-    run(
-        &c,
-        "UPDATE sources SET check_queued_at = 5, gone_candidate_at = 6, edit_check_at = 7, x_mismatch_at = 8 \
-         WHERE source_id = 1",
-        &[],
-    )
-    .unwrap();
+    // The sweep's claim column exists and takes a time; the paid-read
+    // design's columns are gone.
+    run(&c, "UPDATE sources SET check_queued_at = 5 WHERE source_id = 1", &[]).unwrap();
+    let cols: Vec<String> = c
+        .prepare("SELECT name FROM pragma_table_info('sources')")
+        .unwrap()
+        .query_map([], |r| r.get(0))
+        .unwrap()
+        .map(Result::unwrap)
+        .collect();
+    for gone in [["gone_candidate", "_at"].concat(), ["edit_check", "_at"].concat(), ["x_mismatch", "_at"].concat()] {
+        assert!(!cols.contains(&gone), "{gone}");
+    }
 }
 
 #[test]
@@ -421,40 +426,30 @@ fn x_indexes_serve_the_sweep() {
         assert!(s.contains(sql), "{name}: {s}");
     };
     has("sources_x_fetched", "ON sources(fetched_at) WHERE adapter = 'x' AND canon_url IS NOT NULL");
-    has("sources_x_candidate", "ON sources(gone_candidate_at) WHERE gone_candidate_at IS NOT NULL");
-    has("sources_x_edit", "ON sources(edit_check_at) WHERE edit_check_at IS NOT NULL");
-    has("sources_x_marked", "ON sources(x_mismatch_at) WHERE x_mismatch_at IS NOT NULL");
-    // The compliance reserve's count of marked sources reads the partial
-    // index alone, and counts only marked sources.
-    for (id, mark) in [(1u8, Some(5i64)), (2, None), (3, Some(6))] {
+    has("sources_x_due", "ON sources(check_queued_at, fetched_at)");
+    has("sources_x_due", "WHERE adapter = 'x' AND canon_url IS NOT NULL");
+    let n: i64 = c
+        .query_row("SELECT count(*) FROM sqlite_master WHERE type = 'index' AND name LIKE 'sources_x_%'", [], |r| {
+            r.get(0)
+        })
+        .unwrap();
+    assert_eq!(n, 2, "only the lateness and the claim indexes");
+    for id in 1u8..=3 {
         let canon = format!("https://x.com/i/status/{id}");
         run(&c, X_SRC, &[i(id.into()), b(id), t(&canon), t("ranked")]).unwrap();
-        if let Some(m) = mark {
-            run(&c, "UPDATE sources SET x_mismatch_at = ? WHERE source_id = ?", &[i(m), i(id.into())]).unwrap();
-        }
     }
-    assert_eq!(count(&c, "SELECT count(*) FROM sources WHERE x_mismatch_at IS NOT NULL"), 2);
-    // Each due-source read, and the reserve's count, uses its index.
+    // The claim's ordered read and the lateness point each use their index.
     for (q, name) in [
         (
-            "SELECT source_id FROM sources WHERE adapter = 'x' AND canon_url IS NOT NULL AND fetched_at < 9 \
-             ORDER BY fetched_at LIMIT 10",
-            "sources_x_fetched",
+            "SELECT source_id FROM sources WHERE adapter = 'x' AND canon_url IS NOT NULL \
+             AND coalesce(fetched_at, 0) < 9 AND (check_queued_at IS NULL OR check_queued_at < 9) \
+             ORDER BY check_queued_at, fetched_at, source_id LIMIT 10",
+            "sources_x_due",
         ),
         (
-            "SELECT source_id FROM sources WHERE gone_candidate_at IS NOT NULL AND gone_candidate_at < 9 \
-             ORDER BY gone_candidate_at LIMIT 10",
-            "sources_x_candidate",
+            "SELECT min(coalesce(fetched_at, 0)) FROM sources WHERE adapter = 'x' AND canon_url IS NOT NULL",
+            "sources_x_",
         ),
-        (
-            "SELECT source_id FROM sources WHERE edit_check_at IS NOT NULL AND edit_check_at < 9 \
-             ORDER BY edit_check_at LIMIT 10",
-            "sources_x_edit",
-        ),
-        ("SELECT count(*) FROM sources WHERE x_mismatch_at IS NOT NULL", "sources_x_marked"),
-        // Under X_EXISTENCE = lookup the count is every X source that holds
-        // canon_url.
-        ("SELECT count(*) FROM sources WHERE adapter = 'x' AND canon_url IS NOT NULL", "sources_x_fetched"),
     ] {
         let plan: Vec<String> = c
             .prepare(&format!("EXPLAIN QUERY PLAN {q}"))
@@ -464,6 +459,7 @@ fn x_indexes_serve_the_sweep() {
             .map(Result::unwrap)
             .collect();
         assert!(plan.iter().any(|p| p.contains(name)), "{name}: {plan:?}");
+        assert!(!plan.iter().any(|p| p.contains("TEMP B-TREE")), "{name} sorts in the index: {plan:?}");
     }
 }
 
@@ -515,17 +511,6 @@ fn deleting_an_x_source_follows_the_foreign_keys() {
     assert_eq!(count(&c, "SELECT count(*) FROM source_aliases"), 0);
     // The tombstone keeps its slug, so the slug is never drawn again.
     refused(&c, X_DET, &[b(9), t("x4m8q2t"), NULL, NULL], "detections.public_slug");
-    // An edit removes the report the same way.
-    x_page(&c, 2, "x4m8q2u");
-    delete_x_source(&c, 2, "deleted", RefusalCode::XEdited).unwrap();
-    assert_eq!(count(&c, "SELECT count(*) FROM detections WHERE refusal = 'x_edited' AND run_id IS NULL"), 1);
-    // So does a marked source whose compliance lookup did not fit the
-    // budget; its mark goes with the row.
-    x_page(&c, 3, "x4m8q2v");
-    run(&c, "UPDATE sources SET x_mismatch_at = 7 WHERE source_id = 3", &[]).unwrap();
-    delete_x_source(&c, 3, "deleted", RefusalCode::XUnchecked).unwrap();
-    assert_eq!(count(&c, "SELECT count(*) FROM detections WHERE refusal = 'x_unchecked' AND source_id IS NULL"), 1);
-    assert_eq!(count(&c, "SELECT count(*) FROM sources WHERE x_mismatch_at IS NOT NULL"), 0);
 }
 
 #[test]
@@ -547,8 +532,7 @@ fn a_removal_keeps_only_the_key_and_a_purge_takes_it() {
     run(
         &tx,
         "UPDATE sources SET canon_url = NULL, fetch_outcome = NULL, fetched_at = NULL, fresh_until = NULL, \
-         check_queued_at = NULL, gone_candidate_at = NULL, edit_check_at = NULL, x_mismatch_at = NULL, \
-         latest_det = NULL, state = 'opted_out', reputation = 'unranked' WHERE source_id = 1",
+         check_queued_at = NULL, latest_det = NULL, state = 'opted_out', reputation = 'unranked' WHERE source_id = 1",
         &[],
     )
     .unwrap();
@@ -582,4 +566,52 @@ fn a_removal_keeps_only_the_key_and_a_purge_takes_it() {
     let want = [("removed", "x_removed"), ("deleted", "x_purged")].map(|(a, b)| (a.to_owned(), b.to_owned()));
     assert_eq!(rows, want);
     assert_eq!(count(&c, "SELECT count(*) FROM detections WHERE source_id IS NOT NULL OR run_id IS NOT NULL"), 0);
+}
+
+const X_CASE: &str = "INSERT INTO cases (case_id, status_h, kind, state, received_at, updated_at, notice_key, source_id) \
+                      VALUES (?, ?, ?, 'accepted', 1, 1, ?, ?)";
+
+#[test]
+fn an_x_request_case_names_its_tombstone() {
+    let c = db();
+    x_page(&c, 1, "x4m8q2t");
+    // The removal: the detection is removed and keeps the tombstone.
+    run(&c, "UPDATE detections SET state = 'removed', refusal = 'x_removed', run_id = NULL WHERE source_id = 1", &[])
+        .unwrap();
+    run(&c, "DELETE FROM runs WHERE run_id = 1", &[]).unwrap();
+    run(&c, "DELETE FROM source_aliases WHERE source_id = 1", &[]).unwrap();
+    run(
+        &c,
+        "UPDATE sources SET canon_url = NULL, state = 'opted_out', reputation = 'unranked' WHERE source_id = 1",
+        &[],
+    )
+    .unwrap();
+    // An x_request case: no notice document and no status token, and the
+    // tombstone it left.
+    run(&c, X_CASE, &[t("td-x1"), NULL, t("x_request"), NULL, i(1)]).unwrap();
+    // An x_request case with a notice document or a status token is refused,
+    // and so is any other kind without them.
+    refused(&c, X_CASE, &[t("td-x2"), NULL, t("x_request"), t("c/td-x2"), i(1)], "CHECK constraint failed");
+    refused(&c, X_CASE, &[t("td-x3"), b(3), t("x_request"), NULL, i(1)], "CHECK constraint failed");
+    refused(&c, X_CASE, &[t("td-x4"), b(4), t("author"), NULL, i(1)], "CHECK constraint failed");
+    refused(&c, X_CASE, &[t("td-x5"), NULL, t("author"), t("c/td-x5"), i(1)], "CHECK constraint failed");
+    // A form case may name the tombstone its removal left too.
+    run(&c, X_CASE, &[t("td-x6"), b(6), t("author"), t("c/td-x6"), i(1)]).unwrap();
+    // A case can name only an existing source.
+    refused(&c, X_CASE, &[t("td-x7"), NULL, t("x_request"), NULL, i(99)], "FOREIGN KEY constraint failed");
+    // The tombstone cannot go while a case or a detection names it.
+    refused(&c, "DELETE FROM sources WHERE source_id = 1", &[], "FOREIGN KEY constraint failed");
+    run(&c, "UPDATE cases SET source_id = NULL WHERE source_id = 1", &[]).unwrap();
+    refused(&c, "DELETE FROM sources WHERE source_id = 1", &[], "FOREIGN KEY constraint failed");
+    run(&c, "UPDATE detections SET source_id = NULL WHERE source_id = 1", &[]).unwrap();
+    run(&c, "DELETE FROM sources WHERE source_id = 1", &[]).unwrap();
+    // The index serves "the cases that name this source".
+    let plan: Vec<String> = c
+        .prepare("EXPLAIN QUERY PLAN SELECT case_id FROM cases WHERE source_id = 1")
+        .unwrap()
+        .query_map([], |r| r.get(3))
+        .unwrap()
+        .map(Result::unwrap)
+        .collect();
+    assert!(plan.iter().any(|p| p.contains("cases_source")), "{plan:?}");
 }

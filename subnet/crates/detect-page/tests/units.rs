@@ -287,12 +287,10 @@ fn cards_follow_their_page() {
     assert_eq!(card::document_headline(0, 5), "No strong signs of AI involvement in any of the 5 sections.");
     // An X card says "a post on X" and nothing of the post, its host or its
     // author, at every length and however the post is shown.
-    for name in ["29-x-post-short", "30-x-post-long", "31-x-post-adult"] {
-        let c = Card::from_page(&fixture(name), false).unwrap();
-        assert_eq!(c.source_label, card::X_LABEL, "{name}");
-        assert_eq!(c.link.printed(&test_origins()), "site.example/d/x4m8q2t");
-        assert!(c.check().is_ok());
-    }
+    let c = Card::from_page(&fixture("29-x-post-short"), false).unwrap();
+    assert_eq!(c.source_label, card::X_LABEL);
+    assert_eq!(c.link.printed(&test_origins()), "site.example/d/x4m8q2t");
+    assert!(c.check().is_ok());
     assert_eq!(Card::from_page(&fixture("33-x-post-gone"), false), Err(card::NoCard::NotShown));
     // A paste whose source is an X post is a secret card like any other.
     let c = Card::from_page(&fixture("19-secret-pasted-x-source"), false).unwrap();
@@ -395,18 +393,8 @@ fn span_offsets_are_utf16() {
 
 // ---------------------------------------------------------------- X posts
 
-const X_FIXTURES: &[&str] = &[
-    "29-x-post-short",
-    "30-x-post-long",
-    "31-x-post-adult",
-    "32-x-post-removed",
-    "33-x-post-gone",
-    "34-x-post-edited",
-    "35-x-post-purged",
-    "36-x-post-pending",
-    "37-x-post-superseded",
-    "38-x-post-unchecked",
-];
+const X_FIXTURES: &[&str] =
+    &["29-x-post-short", "32-x-post-removed", "33-x-post-gone", "35-x-post-purged", "36-x-post-pending"];
 
 /// Every X-looking URL in `json`: the strings that hold an X host or a
 /// status path.
@@ -453,24 +441,18 @@ fn x_pages_keep_their_invariants() {
     }
     // Live pages link the post; ended pages say why, with their status.
     assert_eq!(fixture("29-x-post-short").x.unwrap().post_url.url(), "https://x.com/i/status/2");
-    for name in ["29-x-post-short", "30-x-post-long", "31-x-post-adult"] {
-        let p = fixture(name);
-        assert!(p.x.is_some() && p.http_status() == 200 && p.receipt.is_some(), "{name}");
-    }
+    let p = fixture("29-x-post-short");
+    assert!(p.x.is_some() && p.http_status() == 200 && p.receipt.is_some());
     for (name, code, status) in [
         ("32-x-post-removed", RefusalCode::XRemoved, 451),
         ("33-x-post-gone", RefusalCode::XGone, 410),
-        ("34-x-post-edited", RefusalCode::XEdited, 410),
         ("35-x-post-purged", RefusalCode::XPurged, 410),
-        ("38-x-post-unchecked", RefusalCode::XUnchecked, 410),
     ] {
         let p = fixture(name);
         assert_eq!((p.ended.map(|e| e.code), p.http_status()), (Some(code), status), "{name}");
         assert!(p.x.is_none() && p.run.is_none() && p.source.is_none(), "{name}");
     }
     assert!(fixture("32-x-post-removed").removal.is_some_and(|r| r.scope == RemovalScope::Page));
-    let failed = fixture("37-x-post-superseded");
-    assert_eq!(failed.failure.map(|f| f.code), Some(RefusalCode::XPostSuperseded));
     // Pages that are not X pages never carry x or an ended reason.
     for name in ["01-public-very-strong", "13-public-removed", "15-secret-text", "21-secret-deleted"] {
         let p = fixture(name);
@@ -488,7 +470,7 @@ fn check_refuses_broken_x_pages() {
     let mut p = fixture("29-x-post-short");
     p.text = fixture("16-secret-short-strong").text;
     refused(p, "an X page has no text body");
-    let mut p = fixture("30-x-post-long");
+    let mut p = fixture("29-x-post-short");
     p.text = Some(page::Text {
         body: None,
         shown: Shown::Withheld,
@@ -508,10 +490,10 @@ fn check_refuses_broken_x_pages() {
     let mut p = fixture("29-x-post-short");
     p.robots = Robots::Index;
     refused(p, "an X page is noindex");
-    let mut p = fixture("30-x-post-long");
-    p.run.as_mut().unwrap().spans = vec![Span { start: 0, end: 10, words: 30, confidence: Some(90) }];
+    let mut p = fixture("29-x-post-short");
+    p.run.as_mut().unwrap().spans = vec![Span { start: 0, end: 10, words: 30, confidence: None }];
     refused(p, "an X page draws no passage");
-    let mut p = fixture("30-x-post-long");
+    let mut p = fixture("29-x-post-short");
     p.run.as_mut().unwrap().spans_note = Some(SpansNote::StrongBandsOnly);
     refused(p, "an X page says why no passage is drawn");
     // post_url is the only X URL: the source carries none and links nothing.
@@ -556,8 +538,7 @@ fn check_refuses_broken_x_pages() {
         ("33-x-post-gone", RefusalCode::XRemoved),
         ("32-x-post-removed", RefusalCode::XGone),
         ("32-x-post-removed", RefusalCode::XPurged),
-        ("32-x-post-removed", RefusalCode::XUnchecked),
-        ("38-x-post-unchecked", RefusalCode::XRemoved),
+        ("35-x-post-purged", RefusalCode::XRemoved),
         ("33-x-post-gone", RefusalCode::PageGone),
     ] {
         let mut p = fixture(name);
@@ -601,10 +582,10 @@ fn x_delete_holds_only_a_source_id_and_its_cause() {
             _ => None,
         }
     }
-    // The causes are exactly these four, each a refusal code its detections
+    // The causes are exactly these two, each a refusal code its detections
     // end with, on its own state.
     let causes: Vec<&str> = XDeleteCause::ALL.iter().map(|c| c.as_str()).collect();
-    assert_eq!(causes, ["x_gone", "x_edited", "x_unchecked", "x_removed"]);
+    assert_eq!(causes, ["x_gone", "x_removed"]);
     for c in XDeleteCause::ALL {
         assert_eq!(c.code().as_str(), c.as_str());
         assert!(page::ENDED_CODES.contains(&c.code()), "{c}");
@@ -699,7 +680,7 @@ fn post_urls_take_only_the_canonical_form() {
     ];
     for b in bad {
         assert_eq!(parse_x_canonical(b), None, "{b}");
-        // The page's type refuses it at parse time, and so does x_url's.
+        // The page's type refuses it at parse time.
         let json = serde_json::to_string(b).unwrap();
         assert!(serde_json::from_str::<PostUrl>(&json).is_err(), "{b}");
         assert!(serde_json::from_str::<XPost>(&format!("{{\"post_url\":{json}}}")).is_err(), "{b}");
@@ -775,6 +756,21 @@ fn the_retired_x_names_are_gone() {
         ["XPost", "Url"].concat(),
         ["Op", "Request"].concat(),
         ["\"x", "_url\""].concat(),
+        // The paid-read design of X posts (replaced by the free embed): no
+        // API read, budget, distrust, candidate or edit tracking, and no
+        // post link beside a signed op.
+        ["x_oembed", "_trust"].concat(),
+        ["X_READ", "_BUDGET"].concat(),
+        ["X_BEARER", "_TOKEN"].concat(),
+        ["X_MAR", "KED"].concat(),
+        ["X_EXIS", "TENCE"].concat(),
+        ["edit_check", "_at"].concat(),
+        ["gone_candidate", "_at"].concat(),
+        ["x_mismatch", "_at"].concat(),
+        ["x_post", "_superseded"].concat(),
+        ["x_", "edited"].concat(),
+        ["x_un", "checked"].concat(),
+        ["XCheck", "Why"].concat(),
     ];
     fn walk(dir: &std::path::Path, out: &mut Vec<std::path::PathBuf>) {
         for e in std::fs::read_dir(dir).unwrap() {
@@ -788,6 +784,7 @@ fn the_retired_x_names_are_gone() {
     walk(&root.join("../account-wire/src"), &mut files);
     walk(&root.join("../../detect-worker/migrations"), &mut files);
     walk(&root.join("../../account-worker/migrations"), &mut files);
+    walk(&root.join("../signed-op/src"), &mut files);
     assert!(files.len() > 100);
     for f in files {
         let s = std::fs::read_to_string(&f).unwrap();
@@ -940,13 +937,12 @@ fn refusal_codes() {
         ("x_off", 503),
         ("x_not_a_post", 422),
         ("x_post_unavailable", 422),
+        ("x_post_long", 422),
+        ("x_post_too_new", 422),
         ("x_busy", 503),
         ("x_unavailable", 503),
-        ("x_post_superseded", 422),
         ("x_removed", 422),
         ("x_gone", 410),
-        ("x_edited", 410),
-        ("x_unchecked", 410),
         ("x_purged", 410),
     ] {
         let c = RefusalCode::parse(s).unwrap_or_else(|| panic!("{s}"));
@@ -954,9 +950,8 @@ fn refusal_codes() {
         assert_eq!(c.copy_key(), format!("refusal.{s}"));
     }
     let x: Vec<_> = RefusalCode::ALL.iter().filter(|c| c.group() == refusal::Group::X).collect();
-    assert_eq!(x.len(), 12);
-    // x_post_link and x_post_superseded carry the canonical post URL, and
-    // only they carry a url.
+    assert_eq!(x.len(), 11);
+    // x_post_link carries the canonical post URL, and only it carries a url.
     let link = ApiRefusal::x_post_link(1855).unwrap();
     assert_eq!(
         serde_json::to_string(&link).unwrap(),
@@ -965,14 +960,18 @@ fn refusal_codes() {
     assert!(link.check().is_ok());
     assert_eq!(ApiRefusal::x_post_link(0), None);
     assert!(ApiRefusal::new(RefusalCode::XPostLink).check().is_err());
-    let sup = ApiRefusal::x_post_superseded(1856).unwrap();
+    assert_eq!(refusal::URL_CODES, &[RefusalCode::XPostLink]);
+    // x_post_too_new carries when the post can be checked, and only it does.
+    let young = ApiRefusal::x_post_too_new(1_795_172_700_000);
     assert_eq!(
-        serde_json::to_string(&sup).unwrap(),
-        r#"{"state":"refused","code":"x_post_superseded","url":"https://x.com/i/status/1856"}"#
+        serde_json::to_string(&young).unwrap(),
+        r#"{"state":"refused","code":"x_post_too_new","after_ms":1795172700000}"#
     );
-    assert!(sup.check().is_ok());
-    assert!(ApiRefusal::new(RefusalCode::XPostSuperseded).check().is_err());
-    assert_eq!(refusal::URL_CODES, &[RefusalCode::XPostLink, RefusalCode::XPostSuperseded]);
+    assert!(young.check().is_ok());
+    assert!(ApiRefusal::new(RefusalCode::XPostTooNew).check().is_err());
+    let mut bad = ApiRefusal::new(RefusalCode::XPostLong);
+    bad.after_ms = Some(1);
+    assert!(bad.check().is_err());
     let mut bad = ApiRefusal::new(RefusalCode::XOff);
     bad.url = link.url;
     assert!(bad.check().is_err());
@@ -984,7 +983,7 @@ fn refusal_codes() {
         assert_eq!(page::Ended::state_of(*c), Some(want), "{c}");
     }
     assert_eq!(page::Ended::state_of(RefusalCode::PageGone), None);
-    assert_eq!(page::ENDED_CODES.len(), 5);
+    assert_eq!(page::ENDED_CODES.len(), 3);
     // A live page whose run document is missing: 503, not an X code.
     let ru = RefusalCode::parse("report_unavailable").unwrap();
     assert_eq!((ru.status(), ru.group(), ru.copy_key()), (503, refusal::Group::Page, "refusal.report_unavailable"));
@@ -1011,8 +1010,9 @@ fn code_sets_parse_only_their_strings() {
     assert_eq!(Band::VeryStrong.number(), 4);
     assert!(NinjaState::Bow < NinjaState::Stoic && NinjaState::Ready < NinjaState::Strike);
     assert_eq!(SpansNote::parse("x_post"), Some(SpansNote::XPost));
-    assert_eq!(XCheckWhy::ALL.iter().map(|w| w.as_str()).collect::<Vec<_>>(), ["sweep", "view", "edit"]);
-    assert_eq!(XCheckWhy::parse("cron"), None);
+    assert_eq!(XDeleteCause::ALL.iter().map(|c| c.as_str()).collect::<Vec<_>>(), ["x_gone", "x_removed"]);
+    assert_eq!(XDeleteCause::parse("x_edited"), None);
+    assert!(CaseKind::ALL.iter().filter(|k| !k.is_form_track()).eq([CaseKind::XRequest].iter()));
 }
 
 #[test]
@@ -1097,13 +1097,8 @@ fn metric_points_are_named_once() {
     assert_eq!(ae::detect::XCHECK, ae::Point { name: "xcheck", blobs: &["outcome"] });
     assert_eq!(ae::detect::XSWEEP, ae::Point { name: "xsweep", blobs: &["step"] });
     assert!(!ae::detect::ALL.iter().any(|p| p.name.contains("embed")));
-    for want in ["scored", "not_found", "usage_capped", "credits", "token", "invalid", "prefix_mismatch", "budget"] {
-        assert!(ae::detect::XREAD_OUTCOMES.contains(&want), "xread {want}");
-    }
-    assert_eq!(
-        ae::detect::XCHECK_OUTCOMES,
-        &["present", "gone_candidate", "unexpected", "failed", "contradicted", "control"]
-    );
+    assert_eq!(ae::detect::XREAD_OUTCOMES, &["text", "long", "too_new", "unavailable", "busy", "unexpected"]);
+    assert_eq!(ae::detect::XCHECK_OUTCOMES, &["present", "gone", "unexpected", "failed", "not_checked", "control"]);
     for set in [ae::detect::XREAD_OUTCOMES, ae::detect::XCHECK_OUTCOMES, ae::detect::XSWEEP_STEPS] {
         assert_eq!(set.iter().collect::<HashSet<_>>().len(), set.len());
     }
@@ -1112,7 +1107,5 @@ fn metric_points_are_named_once() {
     for a in ae::detect::ALERTS.iter().chain(ae::account::ALERTS) {
         assert!(alerts.insert(*a), "{a}");
     }
-    for want in ["x_read_budget", "x_unavailable", "x_check_unexpected", "x_check_contradicted", "x_sweep_late"] {
-        assert!(ae::detect::ALERTS.contains(&want), "{want}");
-    }
+    assert_eq!(ae::detect::ALERTS, &["x_check_unexpected", "x_sweep_late"]);
 }

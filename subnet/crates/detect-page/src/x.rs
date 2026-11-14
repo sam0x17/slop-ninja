@@ -1,7 +1,8 @@
 //! Posts on X: the canonical post URL and the two types that carry it.
 //!
-//! A link to an X post is checked as that post. X's API supplies the text
-//! that is scored, and the page is a public URL page (`kind = public_url`,
+//! A link to an X post is checked as that post. X's free embed (oEmbed)
+//! supplies the text that is scored, and only a post the embed shows in full
+//! is checked. The page is a public URL page (`kind = public_url`,
 //! `platform = x`) that keeps no post text and shows none. The default page
 //! is link-only: our result and "View on X ↗", a plain link to
 //! [`XPost::post_url`]. It carries no quote, handle, author, avatar, media or

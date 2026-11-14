@@ -454,7 +454,9 @@ fn x_post_short() -> Page {
     x_post(2, short_run(ShortResult::Strong, 60), Reputation::Ranked)
 }
 
-/// A long post (412 words): band and share, no highlighting.
+/// A banded X result, for the card renderer's "a post on X" band variant
+/// only: every post the free embed shows in full is under 150 words, so no
+/// page fixture is banded.
 fn x_post_long() -> Page {
     x_post(3, banded_run(Band::Strong, 973, "97.3%", 43, 412, 412, CutKind::None), Reputation::Ranked)
 }
@@ -722,16 +724,6 @@ fn pages() -> Vec<(&'static str, &'static str, Page)> {
         "X post under 150 words: short gauge, View on X, no text body, noindex",
         x_post_short(),
     ));
-    v.push((
-        "30-x-post-long",
-        "X post of 150 words and more: band and share, no highlighting, View on X",
-        x_post_long(),
-    ));
-    v.push((
-        "31-x-post-adult",
-        "adult X post (possibly_sensitive): shown like any X post",
-        x_post(4, short_run(ShortResult::None, 40), Reputation::Adult),
-    ));
     let mut p = x_ended(DetState::Removed, RefusalCode::XRemoved);
     p.removal =
         Some(Removal { scope: RemovalScope::Page, basis: "author".into(), jurisdiction: "US".into(), at: T0 + DAY });
@@ -742,11 +734,6 @@ fn pages() -> Vec<(&'static str, &'static str, Page)> {
         x_ended(DetState::Deleted, RefusalCode::XGone),
     ));
     v.push((
-        "34-x-post-edited",
-        "post edited on X after the check: 410, report removed (x_edited)",
-        x_ended(DetState::Deleted, RefusalCode::XEdited),
-    ));
-    v.push((
         "35-x-post-purged",
         "every X report removed (x_purge): 410 (x_purged)",
         x_ended(DetState::Deleted, RefusalCode::XPurged),
@@ -754,14 +741,6 @@ fn pages() -> Vec<(&'static str, &'static str, Page)> {
     let mut p = x_unshown(DetState::Pending);
     p.pending = Some(Pending { lease_ended: false, job: None });
     v.push(("36-x-post-pending", "X post being checked: pending, the domain only", p));
-    let mut p = x_unshown(DetState::Failed);
-    p.failure = Some(Failure { code: RefusalCode::XPostSuperseded });
-    v.push(("37-x-post-superseded", "link to an earlier version of an edited post: failed (x_post_superseded)", p));
-    v.push((
-        "38-x-post-unchecked",
-        "post that could not be checked again: 410, report removed (x_unchecked)",
-        x_ended(DetState::Deleted, RefusalCode::XUnchecked),
-    ));
     v.push((
         "39-unstored-paid-open",
         "unstored result while paid checks are open (DETECT_PAID on): Check all N words when signed in",
@@ -1086,8 +1065,8 @@ fn entries() -> Vec<Entry> {
         if *code == RefusalCode::XPostLink {
             r = ApiRefusal::x_post_link(2).unwrap();
         }
-        if *code == RefusalCode::XPostSuperseded {
-            r = ApiRefusal::x_post_superseded(5).unwrap();
+        if *code == RefusalCode::XPostTooNew {
+            r = ApiRefusal::x_post_too_new(T0 + 60 * MIN);
         }
         r.check().unwrap_or_else(|err| panic!("{code}: {err:?}"));
         e.push(entry(format!("refusals/{}.json", code.as_str()), r));
@@ -1110,11 +1089,7 @@ fn entries() -> Vec<Entry> {
         ("indexnow", Job::Indexnow { public_slug: PUBLIC.into(), change: IndexChange::Updated }),
         ("rerun-op", Job::RerunOp { source_id: 42 }),
         ("owner-rekey", Job::OwnerRekey { from_user_id: user(7), to_user_id: user(8) }),
-        ("x-sweep", Job::XSweep { after: None }),
-        ("x-sweep-next", Job::XSweep { after: Some(42) }),
-        ("x-check-sweep", Job::XCheck { source_ids: vec![42, 43, 57], why: XCheckWhy::Sweep }),
-        ("x-check-view", Job::XCheck { source_ids: vec![42], why: XCheckWhy::View }),
-        ("x-check-edit", Job::XCheck { source_ids: vec![42], why: XCheckWhy::Edit }),
+        ("x-sweep", Job::XSweep {}),
         ("x-purge-page", Job::XPurgePage { journal_seq: 118 }),
     ];
     for (name, job) in q {
@@ -1253,22 +1228,13 @@ fn the_page_set_covers_every_plan_step() {
         && p.source.as_ref().is_some_and(|s| s.host == "x.com" && s.via == SourceVia::Submitter && !s.checked)
         && p.text.as_ref().is_some_and(|t| t.shown == Shown::Full && t.body.is_some())
         && p.run.as_ref().is_some_and(|r| r.band.is_some() && !r.spans.is_empty())));
-    // Posts on X: short and long, adult, pending, failed, and every way an X
-    // page ends, each with its status.
+    // Posts on X: short (every post the free embed shows in full is under
+    // 150 words), pending, and every way an X page ends, each with its
+    // status.
     assert!(has(&|p| p.is_x_post() && p.run.as_ref().is_some_and(|r| r.short.is_some())));
-    assert!(has(&|p| p.is_x_post() && p.run.as_ref().is_some_and(|r| r.band.is_some())));
-    assert!(has(&|p| p.is_x_post()
-        && p.x.is_some()
-        && p.source.as_ref().is_some_and(|s| s.reputation == Some(Reputation::Adult))));
+    assert!(!has(&|p| p.is_x_post() && p.run.as_ref().is_some_and(|r| r.band.is_some())));
     assert!(has(&|p| p.is_x_post() && p.state == DetState::Pending));
-    assert!(has(&|p| p.is_x_post() && p.failure.is_some_and(|f| f.code == RefusalCode::XPostSuperseded)));
-    for (code, status) in [
-        (RefusalCode::XGone, 410),
-        (RefusalCode::XEdited, 410),
-        (RefusalCode::XUnchecked, 410),
-        (RefusalCode::XPurged, 410),
-        (RefusalCode::XRemoved, 451),
-    ] {
+    for (code, status) in [(RefusalCode::XGone, 410), (RefusalCode::XPurged, 410), (RefusalCode::XRemoved, 451)] {
         assert!(
             has(&|p| p.is_x_post() && p.ended.is_some_and(|e| e.code == code) && p.http_status() == status),
             "{code}"

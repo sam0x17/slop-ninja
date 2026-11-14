@@ -23,18 +23,14 @@ CREATE TABLE sources (
   state TEXT NOT NULL DEFAULT 'ok' CHECK (state IN ('ok','gone','opted_out','unlisted')),
   reputation TEXT NOT NULL CHECK (reputation IN ('ranked','unranked','adult')),
   rank_list_v TEXT NOT NULL,
-  check_queued_at INTEGER,                   -- X: an x_check message is out for this source
-  gone_candidate_at INTEGER,                 -- X: oEmbed's first "gone" answer, awaiting confirmation
-  edit_check_at INTEGER,                     -- X: when the post's edit window closes (plus grace)
-  x_mismatch_at INTEGER,                     -- X: a lookup contradicted oEmbed for this source
+  check_queued_at INTEGER,                   -- X: an unfinished claim of the existence sweep
   CHECK (canon_url IS NOT NULL OR adapter = 'x'),
   CHECK (adapter <> 'x' OR (host = 'x.com' AND title IS NULL AND site_name IS NULL AND author IS NULL  -- no X content
          AND published_at IS NULL AND lang IS NULL AND etag IS NULL AND last_modified IS NULL)));
 CREATE INDEX sources_host ON sources(host);
-CREATE INDEX sources_x_fetched ON sources(fetched_at) WHERE adapter = 'x' AND canon_url IS NOT NULL;   -- the X sweep
-CREATE INDEX sources_x_candidate ON sources(gone_candidate_at) WHERE gone_candidate_at IS NOT NULL;
-CREATE INDEX sources_x_edit ON sources(edit_check_at) WHERE edit_check_at IS NOT NULL;
-CREATE INDEX sources_x_marked ON sources(x_mismatch_at) WHERE x_mismatch_at IS NOT NULL;     -- the count of marked sources
+CREATE INDEX sources_x_fetched ON sources(fetched_at) WHERE adapter = 'x' AND canon_url IS NOT NULL;   -- the lateness point
+CREATE INDEX sources_x_due ON sources(check_queued_at, fetched_at)                       -- the sweep's claim, in order
+  WHERE adapter = 'x' AND canon_url IS NOT NULL;
 
 CREATE TABLE source_aliases (alias_key BLOB PRIMARY KEY, source_id INTEGER NOT NULL REFERENCES sources(source_id));
 

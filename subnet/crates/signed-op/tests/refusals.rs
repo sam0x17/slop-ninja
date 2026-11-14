@@ -220,6 +220,9 @@ fn keys_and_codes() {
         assert!(in_catalog(Target::Detect, o), "{o}");
         assert!(!in_catalog(Target::Account, o) && !in_catalog(Target::Edge, o), "{o}");
     }
+    for t in [Target::Detect, Target::Account, Target::Edge] {
+        assert!(!in_catalog(t, "x_oembed_trust"));
+    }
     // The X sign-in purge is an account op only: the account Worker holds
     // the identities it deletes.
     assert!(in_catalog(Target::Account, "x_signin_purge"));

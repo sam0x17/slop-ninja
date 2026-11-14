@@ -192,43 +192,38 @@ refusal_codes! {
     /// A link on an X host that is not a post (a profile, a search, a list),
     /// a `t.co` link or a mirror's link, sent to the URL check.
     XNotAPost = "x_not_a_post", 422, X;
-    /// "We can't read this post on X. It may be deleted, protected or from a
-    /// suspended account." (Kept on a refusal row for 24 hours.)
+    /// "X's embed doesn't show this post, so we can't check it from its
+    /// link. It may be deleted, protected, marked sensitive or withheld.
+    /// Paste the post's text to check it." The embed answered with its own
+    /// JSON error (404 or 403). Nothing about the post is kept.
     XPostUnavailable = "x_post_unavailable", 422, X;
-    /// The link names an earlier version of an edited post: nothing is
-    /// scored or kept for it. Carries `url`, the canonical link of the
-    /// post's current version ([`ApiRefusal::x_post_superseded`]), which the
-    /// tool page posts once to the URL check. If that answer is superseded
-    /// again: "This post was edited on X. Open it on X and check the link to
-    /// its current version." A pending page drawn for the earlier link fails
-    /// with this code.
-    XPostSuperseded = "x_post_superseded", 422, X;
-    /// X is rate-limiting our reads, or failed (a 5xx, a timeout): the reset
-    /// time or a backoff is held until it passes.
+    /// "This post is longer than X's embed shows, so we can't check it from
+    /// its link. Paste the post's full text to check it." The embed's quote
+    /// ends in "…" (rule `x_text_v1`): no text is returned or kept.
+    XPostLong = "x_post_long", 422, X;
+    /// "Posts on X can be edited for an hour after they're posted, so we
+    /// check them after that. Check this one again after ‹time›, or paste its
+    /// text to check it now." (rule `x_age_v1`, before any request and
+    /// before the claim). Carries `after_ms`, the time from which the post
+    /// can be checked ([`ApiRefusal::x_post_too_new`]).
+    XPostTooNew = "x_post_too_new", 422, X;
+    /// "X didn't answer. Try again in a few minutes, or paste the post's text
+    /// to check it." (a 429, a 5xx, a timeout or a network error from X's
+    /// embed).
     XBusy = "x_busy", 503, X;
-    /// "Checking posts from X is unavailable right now. Paste the post's text
-    /// to check it." (X capped our usage, has no credits for us or refused
-    /// our token; the billing cycle's `X_READ_BUDGET` is reached; or X's
-    /// answer was invalid.)
+    /// "Checking posts from X isn't available right now. Paste the post's
+    /// text to check it." X's embed answered something unexpected (HTML,
+    /// another status or JSON shape, a body past the bound, or markup rule
+    /// `x_text_v1` does not know).
     XUnavailable = "x_unavailable", 503, X;
     /// The post's page was taken down at the request of its author or of X.
     /// A later check of that post answers it with no read; a removed X page
     /// carries it as its [`crate::page::Ended`] reason (the removal page,
     /// 451).
     XRemoved = "x_removed", 422, X;
-    /// "This post is no longer available on X, so its report was removed."
-    /// A deleted X page carries it as its [`crate::page::Ended`] reason.
+    /// "X no longer shows this post, so its report was removed." A deleted
+    /// X page carries it as its [`crate::page::Ended`] reason.
     XGone = "x_gone", 410, X;
-    /// "This post was edited on X after we checked it, so its report was
-    /// removed. Check the post again from its link on X." A deleted X page
-    /// carries it as its [`crate::page::Ended`] reason.
-    XEdited = "x_edited", 410, X;
-    /// "We couldn't keep checking that this post is still on X, so its report
-    /// was removed." The source's compliance lookup did not fit the billing
-    /// cycle's `X_READ_BUDGET`, or `X_MARKED = delete` deleted a source that
-    /// oEmbed cannot see: a report is never kept up unchecked. A deleted X
-    /// page carries it as its [`crate::page::Ended`] reason.
-    XUnchecked = "x_unchecked", 410, X;
     /// "Reports on posts from X were removed." Every X page answers it once
     /// `x_purge` runs (`DETECT_X = purged`), as its
     /// [`crate::page::Ended`] reason.
@@ -380,15 +375,19 @@ pub struct ApiRefusal {
     pub total_words: Option<u32>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub cut: Option<CutKind>,
-    /// With `x_post_link` and `x_post_superseded` only: the post's canonical
-    /// URL (`https://x.com/i/status/<id>`, typed: nothing else parses), which
-    /// the tool page posts to the URL check.
+    /// With `x_post_link` only: the post's canonical URL
+    /// (`https://x.com/i/status/<id>`, typed: nothing else parses), which the
+    /// tool page posts to the URL check.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub url: Option<PostUrl>,
+    /// With `x_post_too_new` only: when the post's edit window has passed
+    /// (ms UTC), so the page can say when to check it again.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub after_ms: Option<u64>,
 }
 
 /// The codes that carry `url`.
-pub const URL_CODES: &[RefusalCode] = &[RefusalCode::XPostLink, RefusalCode::XPostSuperseded];
+pub const URL_CODES: &[RefusalCode] = &[RefusalCode::XPostLink];
 
 /// A broken [`ApiRefusal`] form.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -405,6 +404,7 @@ impl ApiRefusal {
             total_words: None,
             cut: None,
             url: None,
+            after_ms: None,
         }
     }
 
@@ -413,19 +413,24 @@ impl ApiRefusal {
         Some(ApiRefusal { url: Some(PostUrl::new(id)?), ..ApiRefusal::new(RefusalCode::XPostLink) })
     }
 
-    /// `x_post_superseded`, naming `current`, the id of the post's current
-    /// version; `None` for an id X never issues.
-    pub fn x_post_superseded(current: u64) -> Option<ApiRefusal> {
-        Some(ApiRefusal { url: Some(PostUrl::new(current)?), ..ApiRefusal::new(RefusalCode::XPostSuperseded) })
+    /// `x_post_too_new`: the post can be checked from `after_ms` on.
+    pub fn x_post_too_new(after_ms: u64) -> ApiRefusal {
+        ApiRefusal { after_ms: Some(after_ms), ..ApiRefusal::new(RefusalCode::XPostTooNew) }
     }
 
     /// Checks the form: `url` is present exactly on the [`URL_CODES`] (its
-    /// type already holds it to the canonical form).
+    /// type already holds it to the canonical form), and `after_ms` exactly
+    /// on `x_post_too_new`.
     pub fn check(&self) -> Result<(), RefusalError> {
         match (self.url.is_some(), URL_CODES.contains(&self.code)) {
+            (true, true) | (false, false) => {}
+            (false, true) => return Err(RefusalError("x_post_link carries its url")),
+            (true, false) => return Err(RefusalError("only x_post_link carries a url")),
+        }
+        match (self.after_ms.is_some(), self.code == RefusalCode::XPostTooNew) {
             (true, true) | (false, false) => Ok(()),
-            (false, true) => Err(RefusalError("x_post_link and x_post_superseded carry their url")),
-            (true, false) => Err(RefusalError("only x_post_link and x_post_superseded carry a url")),
+            (false, true) => Err(RefusalError("x_post_too_new carries after_ms")),
+            (true, false) => Err(RefusalError("only x_post_too_new carries after_ms")),
         }
     }
 }

@@ -17,6 +17,11 @@ pub struct Point {
 /// The website and secret host's dataset (binding `WEB_METRICS`).
 pub mod web {
     use super::Point;
+    /// A page view. A public page's slug may be its index; the `view` point
+    /// of a page about a post on X (`Page::is_x_post`, on `/d/<7>` or
+    /// `/d/<7>/x`) carries no slug, in any blob or as its index, and its band
+    /// stays only as a count with no key, because AE points cannot be
+    /// deleted and would outlive the page's removal.
     pub const VIEW: Point =
         Point { name: "view", blobs: &["route_class", "kind", "state", "band", "cache", "referrer_class", "status"] };
     pub const CARD: Point = Point { name: "card", blobs: &["variant", "unfurler_family"] };
@@ -49,98 +54,68 @@ pub mod detect {
     pub const OWNER: Point = Point { name: "owner", blobs: &["result"] };
     /// `code` includes `d1` when the store could not be read.
     pub const ERROR: Point = Point { name: "error", blobs: &["code"] };
-    /// One lookup of a post through X's API (`/x/post`), or one refused
-    /// before it (one of [`XREAD_OUTCOMES`]). It carries no post id.
+    /// One check of a post from its link through X's free embed
+    /// (`/x/post`), or one refused before any request (one of
+    /// [`XREAD_OUTCOMES`]). It carries no post id and no slug.
     pub const XREAD: Point = Point { name: "xread", blobs: &["outcome"] };
-    /// One existence check of a post through oEmbed (`/x/check`), or one
-    /// message's verdict on it (one of [`XCHECK_OUTCOMES`]). It carries no
-    /// post id.
+    /// The existence check's answers in one sweep message: one point per
+    /// outcome that occurred (one of [`XCHECK_OUTCOMES`]), whose double is
+    /// the number of ids with that outcome (1 for `control`). A message
+    /// writes at most five, whatever its batch size, because Analytics Engine
+    /// keeps at most 250 points per invocation; the poller reads the counts.
+    /// It carries no post id and no slug.
     pub const XCHECK: Point = Point { name: "xcheck", blobs: &["outcome"] };
-    /// One page of the X sweep (`step` is `first` for the cron's message and
+    /// One sweep message (`step` is `first` for the cron's message and
     /// `next` for a follow-up). The double is the age in seconds of the
-    /// oldest `fetched_at` among X sources that hold a `canon_url` (0 when
-    /// there is none), from which the poller raises [`X_SWEEP_LATE`].
+    /// oldest `fetched_at` among X sources that hold a `canon_url` (a NULL
+    /// read as 0; 0 when there is none), from which the poller raises
+    /// [`X_SWEEP_LATE`].
     pub const XSWEEP: Point = Point { name: "xsweep", blobs: &["step"] };
     pub const ALL: &[Point] =
         &[SUBMIT, SCAN, QUEUE, FETCH, EXTRACT, REUSE, STORE, JOB, REMOVAL, MANAGE, OWNER, ERROR, XREAD, XCHECK, XSWEEP];
     /// `reuse` kinds.
     pub const REUSE_KINDS: &[&str] = &["claim_join", "content", "alias"];
-    /// `xread` outcomes, read from X's problem `type` first and the HTTP
-    /// status second:
-    /// - `scored`: X returned the post, last in its edit history (it keeps
-    ///   its reserved unit);
-    /// - `superseded`: X returned an earlier version of an edited post
-    ///   (`x_post_superseded`);
-    /// - `not_found`: `resource-not-found` or `not-authorized-for-resource`
-    ///   (`x_post_unavailable`; not billed, so the unit is released);
-    /// - `rate_limited`: `rate-limit-exceeded`, or a 429 with no
-    ///   `usage-capped` type (`x_busy`);
-    /// - `usage_capped`: `usage-capped` at any status (`x_unavailable`,
-    ///   never `x_busy`);
-    /// - `credits`: X refused the read for credits (`x_unavailable`);
-    /// - `token`: 401, or 403 with `client-forbidden` or no type
-    ///   (`x_unavailable`);
-    /// - `failed`: a 5xx, a timeout or a network error (`x_busy`);
-    /// - `invalid`: any other answer, a body past `X_POST_BOUND`, JSON that
-    ///   does not parse, a bad range, history or `editable_until`
-    ///   (`x_unavailable`);
-    /// - `prefix_mismatch`: written beside `scored` when a long-post body
-    ///   does not begin with the leading reply-mention run and is kept whole;
-    /// - `budget`: the lookup did not fit the billing cycle's `X_READ_BUDGET`,
-    ///   so no request was made (a new read answers `x_unavailable`; a
-    ///   compliance lookup deletes its source with `x_unchecked`).
-    pub const XREAD_OUTCOMES: &[&str] = &[
-        "scored",
-        "superseded",
-        "not_found",
-        "rate_limited",
-        "usage_capped",
-        "credits",
-        "token",
-        "failed",
-        "invalid",
-        "prefix_mismatch",
-        "budget",
-    ];
+    /// `xread` outcomes:
+    /// - `text`: the embed showed the post in full and its text was scored
+    ///   (or refused by the floor or the English screen);
+    /// - `long`: the embed cut the post (`x_post_long`);
+    /// - `too_new`: refused before any request, inside the edit window
+    ///   (`x_post_too_new`);
+    /// - `unavailable`: the embed's own JSON error, 404 or 403
+    ///   (`x_post_unavailable`);
+    /// - `busy`: a 429, a 5xx, a timeout or a network error (`x_busy`);
+    /// - `unexpected`: any other answer (`x_unavailable`); raises
+    ///   [`X_CHECK_UNEXPECTED`].
+    pub const XREAD_OUTCOMES: &[&str] = &["text", "long", "too_new", "unavailable", "busy", "unexpected"];
     /// `xcheck` outcomes:
     /// - `present`: HTTP 200 and an oEmbed object of type `rich` with an
-    ///   `html` string (not read);
-    /// - `gone_candidate`: a 404 or 403 whose body is oEmbed's own JSON error;
-    ///   only this can lead to a deletion, once a lookup confirms it;
-    /// - `unexpected`: any other answer (HTML, another status, another JSON
-    ///   shape); it starts the failure hold;
-    /// - `failed`: a timeout, a 5xx or a network error;
-    /// - `contradicted`: a lookup found the post that oEmbed called a
-    ///   candidate, on a source that was not marked (the source is marked and
-    ///   oEmbed distrust starts; a marked source's candidate is expected and
-    ///   writes no `contradicted` point);
+    ///   `html` string (not read): `fetched_at` moves;
+    /// - `gone`: a 404 or 403 whose body is oEmbed's own JSON error: the
+    ///   source is deleted (`x_gone`);
+    /// - `unexpected`: any other answer (HTML, another status or JSON shape,
+    ///   a body past the bound): the source keeps its claim;
+    /// - `failed`: a timeout, a 429, a 5xx or a network error: the source
+    ///   keeps its claim;
+    /// - `not_checked`: no request was made for it (the route stopped after an
+    ///   `unexpected` or `failed` answer): its claim is cleared;
     /// - `control`: one of the message's two controls failed: the live
     ///   control (`X_CONTROL_ID`) did not answer `present`, or the gone
-    ///   control (`X_GONE_CONTROL_ID`) did not answer `gone_candidate`, or
-    ///   either id is missing or a placeholder. Every answer in that message
-    ///   then counts as `unexpected`, and nothing is recorded.
-    pub const XCHECK_OUTCOMES: &[&str] =
-        &["present", "gone_candidate", "unexpected", "failed", "contradicted", "control"];
+    ///   control (`X_GONE_CONTROL_ID`) did not answer `gone`, or either id is
+    ///   missing or a placeholder. Nothing is recorded, and the chain stops.
+    pub const XCHECK_OUTCOMES: &[&str] = &["present", "gone", "unexpected", "failed", "not_checked", "control"];
     /// `xsweep` steps.
     pub const XSWEEP_STEPS: &[&str] = &["first", "next"];
-    /// The billing cycle's X reads, plus the compliance reserve the marked
-    /// sources hold, neared `X_READ_BUDGET` (at the poller's threshold).
-    pub const X_READ_BUDGET: &str = "x_read_budget";
-    /// Checking posts from X is unavailable: `xread` `usage_capped`,
-    /// `credits` or `token`.
-    pub const X_UNAVAILABLE: &str = "x_unavailable";
-    /// Any `xcheck` `unexpected` or `control` point: X may have changed or
-    /// cached oEmbed's answers, the live control may be gone, or the gone
-    /// control answers `present`; any of these stops the existence checks.
+    /// A count above zero, summed from the doubles of the `xcheck`
+    /// `unexpected` and `control` points, or any `xread` `unexpected` point:
+    /// X may have changed or cached its embed's answers, the live control may
+    /// be gone, or the gone control answers `present`; the existence checks
+    /// stop until it is fixed.
     pub const X_CHECK_UNEXPECTED: &str = "x_check_unexpected";
-    /// Any `xcheck` `contradicted` point: oEmbed called a post gone that the
-    /// lookup found (oEmbed distrust holds until `x_oembed_trust`).
-    pub const X_CHECK_CONTRADICTED: &str = "x_check_contradicted";
     /// The oldest check of an X source holding a `canon_url` is more than 24
     /// hours old ([`XSWEEP`], `status`).
     pub const X_SWEEP_LATE: &str = "x_sweep_late";
     /// Alerts the poller raises from this dataset and the `status` op.
-    pub const ALERTS: &[&str] = &[X_READ_BUDGET, X_UNAVAILABLE, X_CHECK_UNEXPECTED, X_CHECK_CONTRADICTED, X_SWEEP_LATE];
+    pub const ALERTS: &[&str] = &[X_CHECK_UNEXPECTED, X_SWEEP_LATE];
 }
 
 /// The account Worker's dataset (binding `ACCOUNT_METRICS`).

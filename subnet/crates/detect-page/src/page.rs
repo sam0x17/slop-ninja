@@ -362,26 +362,19 @@ pub struct Ended {
 }
 
 /// The codes an [`Ended`] may carry, each on one state:
-/// - `x_gone` (deleted, 410): the post is no longer available on X;
-/// - `x_edited` (deleted, 410): the post was edited on X after the check;
-/// - `x_unchecked` (deleted, 410): the post could not be checked again
-///   within the read budget (or `X_MARKED = delete` deleted it), so its
-///   report was removed rather than kept up unchecked;
+/// - `x_gone` (deleted, 410): X's embed no longer shows the post;
 /// - `x_purged` (deleted, 410): every report on posts from X was removed
 ///   (`x_purge`, or `DETECT_X = purged` while its pages run);
 /// - `x_removed` (removed, 451): the page was taken down at the request of
 ///   the post's author or of X; the page names its removal.
-pub const ENDED_CODES: &[RefusalCode] =
-    &[RefusalCode::XGone, RefusalCode::XEdited, RefusalCode::XUnchecked, RefusalCode::XPurged, RefusalCode::XRemoved];
+pub const ENDED_CODES: &[RefusalCode] = &[RefusalCode::XGone, RefusalCode::XPurged, RefusalCode::XRemoved];
 
 impl Ended {
     /// The one state a code ends a page in; `None` for a code that is not
     /// in [`ENDED_CODES`].
     pub fn state_of(code: RefusalCode) -> Option<DetState> {
         match code {
-            RefusalCode::XGone | RefusalCode::XEdited | RefusalCode::XUnchecked | RefusalCode::XPurged => {
-                Some(DetState::Deleted)
-            }
+            RefusalCode::XGone | RefusalCode::XPurged => Some(DetState::Deleted),
             RefusalCode::XRemoved => Some(DetState::Removed),
             _ => None,
         }

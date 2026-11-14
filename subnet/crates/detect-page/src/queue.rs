@@ -7,13 +7,13 @@
 //! `id_h`, an X post id or an X URL; the one exception is the `purge` URL of a
 //! deleted page, which then answers 410. `owner_purge` and `owner_rekey` carry
 //! user ids, which only the detect Worker turns into owner hashes; the X
-//! messages carry D1 row ids (`sources.source_id`), a journal sequence and
-//! code values (`why`, `cause`).
+//! messages carry a D1 row id (`sources.source_id`), a journal sequence and
+//! a code value (`cause`), or nothing at all (`x_sweep`).
 //! Consumer payloads are never logged.
 
 use serde::{Deserialize, Serialize};
 
-use crate::codes::{CaseKind, IndexChange, PurgeMode, XCheckWhy, XDeleteCause};
+use crate::codes::{CaseKind, IndexChange, PurgeMode, XDeleteCause};
 use crate::ids::{IdH, UserId};
 
 /// The message schema version (`v`).
@@ -57,28 +57,15 @@ pub enum Job {
     /// Accounts merged: move detections, jobs and strikes from one owner
     /// hash to the other.
     OwnerRekey { from_user_id: UserId, to_user_id: UserId },
-    /// One page of the X sweep. The hourly cron sends `{"after": null}`; the
-    /// consumer reads one page of due X sources (oldest first, through the
-    /// `sources_x_fetched`, `sources_x_candidate` and `sources_x_edit`
-    /// indexes), marks them queued, sends their `x_check` messages in batches
-    /// of `X_CHECK_BATCH`, deletes up to `X_CHECK_BATCH` expired
-    /// `x_post_unavailable` rows, and sends the next `x_sweep` when the page
-    /// was full. `after` is the position the previous page ended at, a
-    /// `sources.source_id` (the consumer fixes the order it reads in); it is
-    /// never a post id.
-    XSweep { after: Option<u64> },
-    /// Check these X sources (`sources.source_id`, at most `X_CHECK_BATCH`).
-    /// The consumer picks each source's check from its row: the edit lookup
-    /// when its `edit_check_at` has passed; otherwise the oEmbed existence
-    /// check, after the message's two controls, with a candidate confirmed
-    /// by a compliance lookup; and for a marked source (`x_mismatch_at`
-    /// set), whose oEmbed candidate is expected, that day's compliance
-    /// lookup. Under `X_EXISTENCE = lookup` every source gets a compliance
-    /// lookup alone, with no oEmbed call and no controls. `why = edit` is
-    /// sent with the queue's own delay (up to 12 hours) to `edit_check_at`;
-    /// an edit message skips a source whose `edit_check_at` is empty or still
-    /// ahead.
-    XCheck { source_ids: Vec<u64>, why: XCheckWhy },
+    /// One message of the daily existence check of X posts. The hourly
+    /// cron sends it, and so does a message whose batch was full. The
+    /// consumer reads up to `X_CHECK_BATCH` due X sources in order with a
+    /// SELECT (`check_queued_at` first, NULL first, then `fetched_at`, then
+    /// `source_id`), claims them with a guarded UPDATE, keeps the SELECT's
+    /// order in code, and makes at most one `DETECT_FETCH /x/check` call for
+    /// the batch, which asks the two control posts first. An empty claim
+    /// makes no call. It carries nothing: no position, post id or slug.
+    XSweep {},
     /// One page of `x_purge`: delete up to `X_CHECK_BATCH` X sources and
     /// everything they hold, then send the next page until none is left.
     /// `journal_seq` is the purge's `op_journal` row.

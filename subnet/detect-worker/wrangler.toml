@@ -303,6 +303,12 @@ DETECT_OP_KEY = ""
 # liveness parameter, measured at the launch gate. The sweep's batch
 # (X_CHECK_BATCH) is derived from it (src/x_flow.rs).
 FETCH_WAIT_MS = "10000"
+# Staging only, as in the fetch Worker's staging env: one
+# https://slop.ninja/preview/<token>/fixtures/ prefix the URL rules admit for
+# the URL-page drill, read only when DEPLOY_ENV is "staging". The deploy
+# wrapper restores the value; no other env carries either (tests/source.rs).
+DEPLOY_ENV = "staging"
+URL_FIXTURE_PREFIX = "<URL_FIXTURE_PREFIX>"
 
 [[env.staging.durable_objects.bindings]]
 name = "DETECT_GATE"

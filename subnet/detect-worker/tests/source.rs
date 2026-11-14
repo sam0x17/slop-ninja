@@ -3,9 +3,10 @@
 //! point silences panics first, the Worker reads no header outside the
 //! forwarders' allow-list (never a cookie), it has no way in but the
 //! service bindings and no logging sink, every production resource is a
-//! testnet resource and every staging resource a staging one, no
-//! challenge token or secret is tracked, and the dev build's stub scorer
-//! is reachable only from the dev build under `[env.dev]`.
+//! testnet resource and every staging resource a staging one, only
+//! staging names the URL rules' fixture prefix, no challenge token or
+//! secret is tracked, and the dev build's stub scorer is reachable only
+//! from the dev build under `[env.dev]`.
 
 use std::fs;
 
@@ -310,6 +311,38 @@ fn every_staging_resource_is_a_staging_resource() {
 
 /// The Worker reads only the forwarders' allow-listed headers, never a
 /// cookie, and reads `X-SN-*` through the one admission path.
+/// The URL rules' staging fixture allowance: only the staging env names
+/// `DEPLOY_ENV = "staging"` and the `URL_FIXTURE_PREFIX` placeholder (the
+/// deploy wrapper restores its value), and the Worker reads the prefix in
+/// one place, only under that env.
+#[test]
+fn only_staging_names_the_fixture_prefix() {
+    let w = wrangler();
+    let mut section = String::new();
+    let mut deploy_env = Vec::new();
+    for l in w.lines().map(str::trim) {
+        if l.starts_with('[') {
+            section = l.trim_matches(|c| c == '[' || c == ']').to_owned();
+            continue;
+        }
+        if l.starts_with("URL_FIXTURE_PREFIX") {
+            assert_eq!(section, "env.staging.vars", "URL_FIXTURE_PREFIX outside the staging vars");
+            assert_eq!(l, "URL_FIXTURE_PREFIX = \"<URL_FIXTURE_PREFIX>\"", "a placeholder only");
+        }
+        if l.starts_with("DEPLOY_ENV") {
+            deploy_env.push((section.clone(), l.to_owned()));
+        }
+    }
+    assert_eq!(deploy_env, vec![("env.staging.vars".to_owned(), "DEPLOY_ENV = \"staging\"".to_owned())]);
+    let cf = src("cf_url.rs");
+    let reads: Vec<usize> = cf.match_indices("\"URL_FIXTURE_PREFIX\"").map(|(i, _)| i).collect();
+    assert_eq!(reads.len(), 1, "the prefix is read in one place");
+    let line = cf[..reads[0]].rsplit('\n').next().unwrap_or("");
+    assert!(line.contains("var(env, \"DEPLOY_ENV\")"), "read beside DEPLOY_ENV: {line}");
+    let next: String = cf[reads[0]..].chars().take(200).collect();
+    assert!(next.contains("(Some(\"staging\"), Some(f))"), "only the staging arm admits it: {next}");
+}
+
 #[test]
 fn only_allow_listed_headers_are_read() {
     use slop_ninja_detect_worker::routes::forwarded::READ_HEADERS;

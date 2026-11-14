@@ -90,10 +90,14 @@ fn the_worker_has_no_route_binding_secret_or_sink() {
         "env.staging.observability",
         "env.staging.vars",
         "env.dev",
+        "env.dev.build",
         "env.dev.observability",
         "env.dev.vars",
+        // Local dev sessions only; deploys ignore it.
+        "dev",
     ];
-    let allowed_keys = ["name", "main", "compatibility_date", "workers_dev", "preview_urls", "command", "enabled"];
+    let allowed_keys =
+        ["name", "main", "compatibility_date", "workers_dev", "preview_urls", "command", "enabled", "upstream_protocol"];
     let allowed_vars = ["NETWORK", "PRODUCT", "DEPLOY_ENV", "SITE_ORIGIN", "SECRET_ORIGIN", "GAUGE_ENDS"];
     for (section, line) in toml_lines(&w) {
         assert!(allowed_sections.contains(&section.as_str()), "[{section}]: no binding, route or sink of any kind");
@@ -105,6 +109,9 @@ fn the_worker_has_no_route_binding_secret_or_sink() {
         }
         if key == "workers_dev" || key == "preview_urls" || key == "enabled" {
             assert!(line.ends_with("false"), "[{section}] {line}");
+        }
+        if section == "dev" {
+            assert_eq!(line, "upstream_protocol = \"https\"", "[dev] holds only the session's upstream protocol");
         }
     }
     // Every environment states its own no-subdomain, no-preview and no-logs

@@ -42,6 +42,14 @@ preview_urls = false
 [build]
 command = "worker-build --release"
 
+# Local dev sessions only (subnet/devtools): Wrangler's local proxy hands a
+# request on to the Worker under the upstream protocol of whichever joined
+# Worker it last loaded, and rewrites Origin and Referer to match; every
+# joined Worker names HTTPS, so the session's https origins reach each Worker
+# as the browser sent them. Deploys ignore this table.
+[dev]
+upstream_protocol = "https"
+
 [observability]
 enabled = false
 
@@ -175,8 +183,12 @@ name = "slop-ninja-account-dev"
 workers_dev = false
 preview_urls = false
 
+# No build here: `wrangler dev` runs a config's build command in its own
+# working directory, which a multi-Worker session does not share, so the
+# session builds every joined Worker beforehand (`dev-session.sh build`,
+# with `--features dev`).
 [env.dev.build]
-command = "worker-build --release --features dev"
+command = ""
 
 [env.dev.observability]
 enabled = false

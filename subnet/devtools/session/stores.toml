@@ -28,3 +28,9 @@ binding = "ACCOUNT_STORE"
 database_name = "account-store-dev"
 database_id = "dev-account-store"
 migrations_dir = "../../account-worker/migrations"
+
+# The detect Worker's dev package bucket ([env.dev] DETECT_PACKAGES_TESTNET):
+# `dev-session.sh migrate` puts dev-package/ into it, locally.
+[[r2_buckets]]
+binding = "DETECT_PACKAGES_TESTNET"
+bucket_name = "dev-detect-packages"

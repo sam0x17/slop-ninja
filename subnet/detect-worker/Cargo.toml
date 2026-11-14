@@ -20,6 +20,10 @@ crate-type = ["cdylib", "rlib"]
 [features]
 # Native witness tests: the arena is the test binary's global allocator.
 arena-witness = ["slop-ninja-arena/knobs"]
+# Local dev sessions only (`[env.dev]`, subnet/devtools): the lane's instance
+# is the stub scorer Worker, bound as STUB_SCORER, in place of the Container.
+# Release builds (testnet, staging) never enable it.
+dev = []
 
 [dependencies]
 # The global allocator (wasm32): every invocation allocates in its own

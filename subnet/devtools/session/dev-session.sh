@@ -2,22 +2,28 @@
 # SlopNinja local dev session (dev only; nothing here deploys or logs in).
 #
 #   dev-session.sh cert       make the local TLS certificate (once)
-#   dev-session.sh build      build the three stub Workers (worker-build --release)
-#   dev-session.sh migrate    apply both D1 stores' migrations (stores.toml) to the site session's local state
+#   dev-session.sh build      build every session Worker: the stubs, the joined subnet Workers (their dev
+#                             feature) and, with WEB_REPO, the website and secret-host Workers
+#   dev-session.sh secrets    write the detect Worker's local dev secrets (.dev.vars.dev, untracked)
+#   dev-session.sh migrate    apply both D1 stores' migrations (stores.toml) and put the dev package
+#                             (dev-package/) into the local package bucket, in the site session's state
 #   dev-session.sh stores     list the tables of each local store
 #   dev-session.sh stubs      run the stubs session      (https://auth.slop.localhost:8789)
 #   dev-session.sh site       run the site session       (https://slop.localhost:8787)
 #   dev-session.sh secret     run the secret-host session (https://s.slop.localhost:8788)
 #   dev-session.sh smoke      check a running stubs session (node smoke.mjs)
+#   dev-session.sh run CMD... run all three sessions, wait until each answers, run CMD, stop them
 #
 # Each session command runs one `wrangler dev --local` in the foreground; run
-# each in its own terminal (or unit). The sessions find each other through
-# one dev registry under $DEV_STATE, so service bindings cross them.
+# each in its own terminal (or unit), or all three under `run`. The sessions
+# find each other through one dev registry under $DEV_STATE, so service
+# bindings cross them.
 #
 # Environment:
 #   DEV_STATE   state directory (default: subnet/devtools/.dev, ignored by Git)
 #   WEB_REPO    checkout of the website repository (for site and secret)
 #   SITE_PORT, SECRET_PORT, STUBS_PORT   (default 8787, 8788, 8789)
+#   READY_S     how long `run` waits for the sessions to answer (default 900: the first start builds every Worker)
 set -euo pipefail
 
 HERE=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
@@ -34,7 +40,13 @@ export WRANGLER_SEND_METRICS=false WRANGLER_SEND_ERROR_REPORTS=false WRANGLER_WR
 export WRANGLER_HIDE_BANNER=true CLOUDFLARE_CF_FETCH_ENABLED=false
 export WRANGLER_REGISTRY_PATH=$STATE/registry
 
+READY_S=${READY_S:-900}
+
 STUBS=(auth-stub stub-scorer fixture-site)
+# The subnet Workers that join the site session once they define [env.dev].
+JOINED=(detect-worker account-worker detect-og detect-fetch)
+# The detect Worker's dev package bucket (its [env.dev] DETECT_PACKAGES_TESTNET).
+PACKAGES_BUCKET=dev-detect-packages
 
 die() { echo "dev-session: $*" >&2; exit 2; }
 
@@ -50,65 +62,163 @@ cert() {
   echo "dev-session: certificate $STATE/cert.pem (trust it in the test browser, or NODE_EXTRA_CA_CERTS for node)"
 }
 
+# Every Worker of the three sessions. `wrangler dev` would run each config's
+# build command in its own working directory, which a multi-Worker session
+# does not share, so the joined Workers' [env.dev] configs build nothing and
+# this step builds each in its own directory: the stubs, the subnet Workers
+# that joined (their dev feature where they have one), and with WEB_REPO the
+# website and the secret-host Worker.
 build() {
+  local wb=${WORKER_BUILD:-worker-build} s w
   for s in "${STUBS[@]}"; do
-    (cd "$DEVTOOLS/$s" && "${WORKER_BUILD:-worker-build}" --release)
+    (cd "$DEVTOOLS/$s" && "$wb" --release)
   done
+  for w in "${JOINED[@]}"; do
+    local cfg=$SUBNET/$w/wrangler.toml
+    [[ -f $cfg ]] && grep -Eq '^\[{1,2}env\.dev[].]' "$cfg" || continue
+    if grep -Eq '^dev = ' "$SUBNET/$w/Cargo.toml"; then
+      (cd "$SUBNET/$w" && "$wb" --release --features dev)
+    else
+      (cd "$SUBNET/$w" && "$wb" --release)
+    fi
+  done
+  if [[ -n ${WEB_REPO:-} ]]; then
+    (cd "$WEB_REPO" && npm run build && npm run build:secret)
+  fi
 }
 
-# The site session's configs: the website first (the session's primary),
-# then each subnet Worker whose config defines [env.dev] (README); one
-# without it has not joined the dev session yet and is skipped.
+# The detect Worker's store secret and slug pepper for the dev session:
+# random once per state directory, kept there, and copied to the Worker's
+# untracked .dev.vars.dev (its .gitignore), which `wrangler dev --env dev`
+# reads. They never enter a tracked file.
+secrets() {
+  mkdir -p "$STATE"
+  local vars=$STATE/detect.dev.vars
+  if [[ ! -s $vars ]]; then
+    ( umask 077
+      printf 'DETECT_STORE_SECRET=%s\nDETECT_SLUG_PEPPER_V1=%s\n' "$(openssl rand -hex 32)" "$(openssl rand -hex 32)" > "$vars" )
+  fi
+  install -m 600 "$vars" "$SUBNET/detect-worker/.dev.vars.dev"
+}
+
+# The site session's configs: the website's dev config first (the
+# session's primary; the website is its repository's root package), then
+# each subnet Worker whose config defines [env.dev] (README); one without it
+# has not joined the dev session yet and is skipped.
 site_configs() {
   [[ -n ${WEB_REPO:-} ]] || die "set WEB_REPO to the website repository checkout"
-  local primary=$WEB_REPO/web/wrangler.jsonc
+  local primary=$WEB_REPO/wrangler.dev.jsonc
   [[ -f $primary ]] || die "no $primary"
   local out=("-c" "$primary")
-  for w in detect-worker account-worker detect-og detect-fetch; do
+  for w in "${JOINED[@]}"; do
     local cfg=$SUBNET/$w/wrangler.toml
     if [[ -f $cfg ]] && grep -Eq '^\[{1,2}env\.dev[].]' "$cfg"; then out+=("-c" "$cfg"); else echo "dev-session: $w has no [env.dev] yet, skipped" >&2; fi
   done
   printf '%s\n' "${out[@]}"
 }
 
-serve() { # <port> <persist dir> <wrangler args...>
-  local port=${1} persist=${2}; shift 2
+# The Worker sees the session's own origin (`--local-upstream`, over HTTPS):
+# Wrangler's local proxy rewrites URL-bearing request headers (Origin,
+# Referer) from the origin the browser used to the upstream's, so the two
+# must be the same or every Origin check would see another origin.
+serve() { # <host> <port> <persist dir> <wrangler args...>
+  local host=${1} port=${2}; shift 2
+  local persist=${1}; shift
   cert
   exec wrangler dev "$@" --local --ip 127.0.0.1 --port "$port" --inspector-port $((port + 1000)) \
     --local-protocol https --https-key-path "$STATE/key.pem" --https-cert-path "$STATE/cert.pem" \
+    --local-upstream "$host:$port" --upstream-protocol https \
     --infer-origin-from-routes=false --persist-to "$persist" --show-interactive-dev-session=false
+}
+
+# The dev package (dev-package/), into the site session's local package
+# bucket under the keys its manifest names; local R2 tags each object with
+# the MD5 of its bytes, which the manifest pins (a test checks both).
+package() {
+  local f
+  for f in "$HERE"/dev-package/*; do
+    wrangler r2 object put "$PACKAGES_BUCKET/dev-package/$(basename "$f")" --file "$f" --local \
+      -c "$HERE/stores.toml" --persist-to "$STATE/site" >/dev/null
+  done
+  echo "dev-session: dev package in the local bucket $PACKAGES_BUCKET"
+}
+
+# Waits until an origin answers over the session's certificate, at most
+# READY_S seconds (curl's own bounded retry).
+ready() { # <origin> <path>
+  local url=${1}${2}
+  curl -s -o /dev/null --cacert "$STATE/cert.pem" --retry "$READY_S" --retry-delay 1 --retry-all-errors \
+    --retry-max-time "$READY_S" --max-time "$READY_S" "$url"
+}
+
+# Stops the sessions `run` started: an interrupt (Wrangler's own clean
+# stop, as Ctrl-C), then a kill for any that has not stopped within 20 s.
+stop_all() {
+  local p
+  for p in "${pids[@]}"; do kill -INT "$p" 2>/dev/null || true; done
+  for p in "${pids[@]}"; do
+    timeout 20 tail --pid="$p" -f /dev/null 2>/dev/null || kill -KILL "$p" 2>/dev/null || true
+  done
+}
+
+# All three sessions as children of this script, each logging to
+# $STATE/logs/<session>.log; CMD runs once every origin answers, and the
+# sessions stop when it ends (or when this script is stopped).
+run_all() {
+  (( $# )) || die "run: name a command"
+  [[ -n ${WEB_REPO:-} ]] || die "set WEB_REPO to the website repository checkout"
+  cert
+  mkdir -p "$STATE/logs"
+  local s rc=0
+  pids=()
+  trap stop_all EXIT
+  for s in stubs site secret; do
+    "$HERE/dev-session.sh" "$s" > "$STATE/logs/$s.log" 2>&1 &
+    pids+=($!)
+    # The registry must hold the stubs before the site session binds them.
+    if [[ $s == stubs ]]; then ready "https://auth.slop.localhost:$STUBS_PORT" / || die "stubs session did not answer (logs/stubs.log)"; fi
+    if [[ $s == site ]]; then ready "https://slop.localhost:$SITE_PORT" /health || die "site session did not answer (logs/site.log)"; fi
+  done
+  ready "https://s.slop.localhost:$SECRET_PORT" /robots.txt || die "secret session did not answer (logs/secret.log)"
+  NODE_EXTRA_CA_CERTS=$STATE/cert.pem DEV_STATE=$STATE DEV_SUBNET=$SUBNET "$@" || rc=$?
+  return "$rc"
 }
 
 case ${1:-} in
   cert) cert ;;
   build) build ;;
+  secrets) secrets ;;
+  run) shift; run_all "$@" ;;
   migrate|stores)
     # The site session's D1 stores (stores.toml): migrate applies each
-    # Worker's own migrations/ to the session's local state; stores lists
-    # each store's tables.
-    for db in $(sed -n 's/^binding *= *"\([^"]*\)".*/\1/p' "$HERE/stores.toml"); do
+    # Worker's own migrations/ to the session's local state and puts the
+    # dev package into the local package bucket; stores lists each store's
+    # tables.
+    for db in $(sed -n '/^\[\[d1_databases\]\]/,/^$/s/^binding *= *"\([^"]*\)".*/\1/p' "$HERE/stores.toml"); do
       if [[ ${1:-} == migrate ]]; then
         wrangler d1 migrations apply "$db" --local -c "$HERE/stores.toml" --persist-to "$STATE/site"
       else
         wrangler d1 execute "$db" --local -c "$HERE/stores.toml" --persist-to "$STATE/site" \
           --command "SELECT name FROM sqlite_master WHERE type = 'table' ORDER BY name"
       fi
-    done ;;
+    done
+    if [[ ${1:-} == migrate ]]; then package; fi ;;
   stubs)
     args=()
     for s in "${STUBS[@]}"; do
       [[ -f $DEVTOOLS/$s/build/index.js ]] || die "$s is not built: run dev-session.sh build"
       args+=(-c "$DEVTOOLS/$s/wrangler.toml")
     done
-    serve "$STUBS_PORT" "$STATE/stubs" "${args[@]}" ;;
+    serve auth.slop.localhost "$STUBS_PORT" "$STATE/stubs" "${args[@]}" ;;
   site)
+    secrets
     mapfile -t args < <(site_configs)
-    serve "$SITE_PORT" "$STATE/site" "${args[@]}" --env dev ;;
+    serve slop.localhost "$SITE_PORT" "$STATE/site" "${args[@]}" --env dev ;;
   secret)
     [[ -n ${WEB_REPO:-} ]] || die "set WEB_REPO to the website repository checkout"
-    serve "$SECRET_PORT" "$STATE/secret" -c "$WEB_REPO/web-secret/wrangler.jsonc" --env dev ;;
+    serve s.slop.localhost "$SECRET_PORT" "$STATE/secret" -c "$WEB_REPO/web-secret/wrangler.dev.jsonc" ;;
   smoke)
     cert
     NODE_EXTRA_CA_CERTS=$STATE/cert.pem exec node "$HERE/smoke.mjs" "https://auth.slop.localhost:$STUBS_PORT" ;;
-  *) sed -n '2,21p' "${BASH_SOURCE[0]}"; exit 2 ;;
+  *) sed -n '2,26p' "${BASH_SOURCE[0]}"; exit 2 ;;
 esac

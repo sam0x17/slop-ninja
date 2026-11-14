@@ -35,3 +35,6 @@ futures-util = { version = "0.3", default-features = false, features = ["alloc"]
 # The client half the detect Worker's lane and the coordinator read replies
 # with: the stub's load protocol is checked against it.
 slop-ninja-scorer-client = { path = "../../crates/scorer-client" }
+# The dev package's entity tags: local R2 tags a single-part object with the
+# MD5 of its bytes, as R2 does.
+md-5 = "0.10"

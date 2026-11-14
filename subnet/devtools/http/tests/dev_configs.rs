@@ -156,6 +156,17 @@ fn the_session_script_stays_local() {
     for l in s.lines().filter(|l| l.contains("wrangler d1 ")) {
         assert!(l.contains(" --local ") && l.contains("-c \"$HERE/stores.toml\""), "dev-session.sh: {l}");
     }
+    // The dev package goes into the local package bucket only (the line
+    // continues with the stores config and the site session's state).
+    let r2: Vec<(usize, &str)> = s.lines().enumerate().filter(|(_, l)| l.contains("wrangler r2 ")).collect();
+    assert_eq!(r2.len(), 1, "dev-session.sh: one R2 command, the dev package");
+    let next = s.lines().nth(r2[0].0 + 1).unwrap_or("");
+    assert!(r2[0].1.contains("object put") && r2[0].1.contains(" --local "), "dev-session.sh: {}", r2[0].1);
+    assert!(next.contains("-c \"$HERE/stores.toml\"") && next.contains("--persist-to \"$STATE/site\""), "dev-session.sh: {next}");
+    // The secrets file is untracked and never printed.
+    assert!(s.contains("install -m 600 \"$vars\" \"$SUBNET/detect-worker/.dev.vars.dev\""));
+    let ignore = read(&subnet().join("detect-worker/.gitignore"));
+    assert!(ignore.lines().any(|l| l == "/.dev.vars*"), "detect-worker/.gitignore keeps the dev secrets out");
     for off in ["WRANGLER_SEND_METRICS=false", "WRANGLER_HIDE_BANNER=true", "CLOUDFLARE_CF_FETCH_ENABLED=false", "WRANGLER_WRITE_LOGS=false"] {
         assert!(s.contains(off), "dev-session.sh: {off}");
     }
@@ -242,4 +253,64 @@ fn the_session_stores_take_the_workers_own_migrations() {
             assert_eq!(e.get("migrations_dir").map(String::as_str), Some("migrations"), "{}", cfg.display());
         }
     }
+}
+
+/// A joined Worker's `[env.dev]` runs no build of its own (`wrangler dev`
+/// would run it in the session's working directory, not the Worker's):
+/// `dev-session.sh build` builds each joined Worker in its own directory,
+/// with its `dev` feature where it has one.
+#[test]
+fn the_session_builds_every_joined_worker() {
+    let script = read(&devtools().join("session/dev-session.sh"));
+    assert!(script.contains("JOINED=(detect-worker account-worker detect-og detect-fetch)"));
+    assert!(script.contains("(cd \"$SUBNET/$w\" && \"$wb\" --release --features dev)"));
+    let mut joined = 0;
+    for (worker, cfg, src) in subnet_configs() {
+        let lines = lines_by_table(&src);
+        if !lines.iter().any(|(t, _)| t == "env.dev") {
+            continue;
+        }
+        joined += 1;
+        let joins = script.lines().find(|l| l.starts_with("JOINED=(")).is_some_and(|l| {
+            l.trim_start_matches("JOINED=(").trim_end_matches(')').split(' ').any(|w| w == worker)
+        });
+        assert!(joins, "{}: dev-session.sh joins {worker}", cfg.display());
+        let builds: Vec<&String> = lines.iter().filter(|(t, l)| t == "env.dev.build" && l.starts_with("command")).map(|(_, l)| l).collect();
+        assert_eq!(builds, vec!["command = \"\""], "{}: [env.dev.build] runs nothing", cfg.display());
+        // Wrangler's local proxy hands requests on under the upstream
+        // protocol of the joined Worker it loaded last, rewriting Origin to
+        // match: every joined Worker names HTTPS.
+        let dev: Vec<&String> = lines.iter().filter(|(t, _)| t == "dev").map(|(_, l)| l).filter(|l| !l.starts_with('[')).collect();
+        assert_eq!(dev, vec!["upstream_protocol = \"https\""], "{}: [dev] upstream_protocol", cfg.display());
+    }
+    assert!(joined >= 3, "detect, account and detect-og join the session ({joined})");
+}
+
+/// The account Worker's dev build produces owner purges and re-keys on the
+/// queue the detect Worker's dev build consumes, one message per
+/// invocation, and the detect dev build binds the dev package bucket that
+/// `dev-session.sh migrate` fills (session/stores.toml).
+#[test]
+fn the_dev_queue_and_package_bucket_join_the_workers() {
+    let account = read(&subnet().join("account-worker/wrangler.toml"));
+    let detect = read(&subnet().join("detect-worker/wrangler.toml"));
+    let produced: Vec<String> = entries(&account, "env.dev.queues.producers").iter().filter_map(|e| e.get("queue").cloned()).collect();
+    let consumed = entries(&detect, "env.dev.queues.consumers");
+    assert_eq!(consumed.len(), 1, "detect consumes one dev queue");
+    let q = consumed[0].get("queue").expect("a queue");
+    assert_eq!(produced, vec![q.clone()], "the account dev build produces onto detect's dev queue");
+    let detect_produced: Vec<String> = entries(&detect, "env.dev.queues.producers").iter().filter_map(|e| e.get("queue").cloned()).collect();
+    assert_eq!(detect_produced, vec![q.clone()], "detect produces onto its own dev queue");
+    assert!(lines_by_table(&detect).iter().any(|(t, l)| t == "env.dev.queues.consumers" && l == "max_batch_size = 1"));
+
+    let stores = read(&devtools().join("session/stores.toml"));
+    let bucket = |src: &str, table: &str| {
+        entries(src, table)
+            .into_iter()
+            .find(|e| e.get("binding").map(String::as_str) == Some("DETECT_PACKAGES_TESTNET"))
+            .and_then(|e| e.get("bucket_name").cloned())
+    };
+    let b = bucket(&detect, "env.dev.r2_buckets").expect("detect [env.dev] binds the package bucket");
+    assert_eq!(bucket(&stores, "r2_buckets").as_ref(), Some(&b), "session/stores.toml names the same bucket");
+    assert!(read(&devtools().join("session/dev-session.sh")).contains(&format!("PACKAGES_BUCKET={b}\n")));
 }

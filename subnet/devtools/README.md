@@ -19,7 +19,7 @@ registry so that service bindings cross them:
 
 | Session | Origin | Primary Worker | Other Workers |
 |---|---|---|---|
-| site | `https://slop.localhost:8787` | the website | detect, account, detect-og, detect-fetch (each once it has `[env.dev]`) |
+| site | `https://slop.localhost:8787` | the website (`wrangler.dev.jsonc` of the website repository) | detect, account, detect-og, detect-fetch (each once it has `[env.dev]`) |
 | secret | `https://s.slop.localhost:8788` | the secret-host Worker | none |
 | stubs | `https://auth.slop.localhost:8789` | `auth-stub` | `stub-scorer`, `fixture-site` |
 
@@ -37,14 +37,24 @@ from dev vars, so `__Host-` cookies and the Origin checks behave as in productio
 ```sh
 cd subnet/devtools/session
 ./dev-session.sh cert       # once: a local certificate for *.slop.localhost (trust it in the test browser)
-./dev-session.sh build      # the three stub Workers (worker-build 0.8.x; WORKER_BUILD names another binary)
-./dev-session.sh migrate    # both D1 stores' migrations (session/stores.toml), into the site session's local state
+WEB_REPO=<website checkout> ./dev-session.sh build   # every session Worker (worker-build 0.8.x; WORKER_BUILD names another binary)
+./dev-session.sh migrate    # both D1 stores' migrations, and the dev package into the local package bucket
 ./dev-session.sh stores     # each local store's tables
 ./dev-session.sh stubs      # terminal 1
 WEB_REPO=<website checkout> ./dev-session.sh site      # terminal 2
 WEB_REPO=<website checkout> ./dev-session.sh secret    # terminal 3
 ./dev-session.sh smoke      # checks a running stubs session
+WEB_REPO=<website checkout> ./dev-session.sh run <command>   # all three sessions around one command (the suites)
 ```
+
+`build` builds each Worker in its own directory: the stubs, every subnet Worker that has joined (with its `dev`
+feature where it has one) and, with `WEB_REPO`, the website and the secret-host Worker (`npm run build`,
+`npm run build:secret`). A joined Worker's `[env.dev.build]` runs nothing: `wrangler dev` runs a build command in
+the session's working directory, not the Worker's, so a session never builds through Wrangler. `run` starts the
+three sessions as its children (logs in `$DEV_STATE/logs/`), waits until each origin answers (at most `READY_S`
+seconds), runs the command with `DEV_STATE`, `DEV_SUBNET` and `NODE_EXTRA_CA_CERTS` set, and stops the sessions
+when it ends; its exit status is the command's. The website repository's `scripts/it/` and `scripts/e2e/` suites
+run this way.
 
 State (the certificate, the dev registry and each session's local stores) lives in `subnet/devtools/.dev/`, or in
 `DEV_STATE`. The script turns off Wrangler's telemetry, update check, `Request.cf` download and log files, and passes
@@ -70,8 +80,20 @@ A Worker joins the site or secret session by defining `[env.dev]` in its Wrangle
   |---|---|---|---|
   | detect | `DETECT_STORE` | `dev-detect-store` | `subnet/detect-worker/migrations/` |
   | account | `ACCOUNT_STORE` | `dev-account-store` | `subnet/account-worker/migrations/` |
+- **No build of its own:** `[env.dev.build]` sets `command = ""`; `dev-session.sh build` builds it.
+- **HTTPS upstream:** a top-level `[dev]` table with `upstream_protocol = "https"` (deploys ignore it). Wrangler's
+  local proxy hands each request to the Worker under the upstream protocol of the joined Worker it loaded last and
+  rewrites `Origin` and `Referer` to match; with every joined Worker on HTTPS the Worker sees the origin the
+  browser sent, so the Origin checks run as in production.
+- **Secrets** come from the Worker's untracked `.dev.vars.dev` (its `.gitignore`), which `dev-session.sh secrets`
+  (run by `site`) writes from random values kept in `$DEV_STATE`; no secret value is tracked.
 - **Stubs, only here and only behind the cargo feature `dev`:**
-  - detect: `STUB_SCORER` (service `slop-ninja-dev-stub-scorer`) in place of the scorer Container's port;
+  - detect: `STUB_SCORER` (service `slop-ninja-dev-stub-scorer`) in place of the scorer Container's port. The
+    stub is always running; the lane loads the dev package ([`session/dev-package/`](session/dev-package/): a
+    files manifest v2 and six placeholder files, no model) from the local package bucket `dev-detect-packages`
+    through the real load protocol, pinned to each object's MD5 entity tag. A test
+    (`stub-scorer/tests/dev_package.rs`) holds the manifest, the files and the detect Worker's `[env.dev.vars]`
+    (`PACKAGE_SHA256`, `PACKAGE_SPEC_SHA256`, the bucket label and the stub's build identity) to each other;
   - account: `AUTH_STUB` (service `slop-ninja-dev-auth-stub`) for the token, user, revoke, avatar and mail calls,
     with the browser sent to `STUB_ORIGIN` for authorize;
   - detect-fetch: `FIXTURE_SITE` (service `slop-ninja-dev-fixture-site`) for hosts under `fixtures.test`.
@@ -93,7 +115,8 @@ URLs; the server calls go through `AUTH_STUB`.
 | X | `S/x.com/i/oauth2/authorize` | `S/api.x.com/2/oauth2/token` | `S/api.x.com/2/users/me?user.fields=...`; revoke `S/api.x.com/2/oauth2/revoke`; avatars `https://pbs.twimg.com/<path>` at `S/pbs.twimg.com/<path>` |
 
 The table is `Endpoint` in [`auth-stub/src/routes.rs`](auth-stub/src/routes.rs), and a test drives each provider
-through these URLs. Google's discovery document names the moved endpoints. The stub's own routes are `/`, the consent
+through these URLs; another (`auth-stub/tests/providers.rs`) holds the table to the account Worker's own
+constants in `slop-ninja-auth-core` and to its dev `endpoints_at` form. Google's discovery document names the moved endpoints. The stub's own routes are `/`, the consent
 page `/__stub/consent/<provider>`, the mail routes and `/__stub/*`; no provider URL moves onto them.
 
 The dev clients are `dev-<provider>-client-id` with secret `dev-<provider>-client-secret-not-real` and the redirect URI
@@ -222,5 +245,8 @@ locally; and a `__Host-` cookie set on the site host was not sent to the secret 
 the detect and account stores' first migrations landed: `migrate` applied both (`0001_detect_store.sql`, 31
 statements; `0001_account_store.sql`, 28) to the site session's local state and a second `migrate` found nothing to
 apply; a stand-in Worker in the site session, bound to both stores under the session's ids from its own config, read
-every table, saw foreign keys on, and had its CHECK and NOT NULL violations refused. The site session has not yet run
-with the real Workers, which join as each gains its `[env.dev]`.
+every table, saw foreign keys on, and had its CHECK and NOT NULL violations refused. Third run, the same day, with
+the real Workers (Wrangler 4.160.1): the website and the secret-host Worker with the detect, account and card
+Workers in the site session and the three stubs, under `run`; the free check loaded the dev package through the
+stub scorer and answered with its seal, Get a link, the secret page, its card and the manage delete worked end
+to end, and the website repository's HTTP suites and browser flows ran against it.

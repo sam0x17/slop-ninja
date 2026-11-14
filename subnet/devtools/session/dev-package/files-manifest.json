@@ -1,0 +1,62 @@
+{
+  "schema": "slop_ninja_a_artifact_files_v2",
+  "profile_id": "slop-ninja-dev-package",
+  "contract": "slop_ninja_full_a_contract_v2",
+  "graph": "a-fp32band.onnx",
+  "files": [
+    {
+      "name": "a-fp32band.onnx",
+      "role": "encoder_graph",
+      "bytes": 115,
+      "sha256": "4e8ad5d5c77d2803485cc60359f1348037b9b934e0edb08525d706471eceacc4",
+      "bucket": "dev",
+      "key": "dev-package/a-fp32band.onnx",
+      "etag": "62cd2d6559648d25b16ac285f1591f9e"
+    },
+    {
+      "name": "heads.json",
+      "role": "heads",
+      "bytes": 111,
+      "sha256": "a01201d3c580dc5e703b3e8a6326f64fa29cf787031908f8c7fc0005b4101099",
+      "bucket": "dev",
+      "key": "dev-package/heads.json",
+      "etag": "8f89275f20f9caf7d89a49ed7599ba2d"
+    },
+    {
+      "name": "contract.json",
+      "role": "contract",
+      "bytes": 114,
+      "sha256": "8a189e727195d2215f8ec566d178db8c32a212e5399822550f1bf6a4a1ececc9",
+      "bucket": "dev",
+      "key": "dev-package/contract.json",
+      "etag": "ce61d6aa223470b842bc3675a68a2fd1"
+    },
+    {
+      "name": "calibration.json",
+      "role": "calibration",
+      "bytes": 117,
+      "sha256": "5f0fc79e4441c5e697aa560e2bd3262ecf7fd294f91f35e51e41dfd6d0e5fb48",
+      "bucket": "dev",
+      "key": "dev-package/calibration.json",
+      "etag": "00a4042a24df983d97fda37c18662b85"
+    },
+    {
+      "name": "manifest.json",
+      "role": "export_manifest",
+      "bytes": 121,
+      "sha256": "b6a4eda16d3380b85ffca330ca2ee4e9bee80f6844fe926c90b7d8a578eded61",
+      "bucket": "dev",
+      "key": "dev-package/manifest.json",
+      "etag": "76b2bed8e68a41caf18342255e97e380"
+    },
+    {
+      "name": "tokenizer.json",
+      "role": "tokenizer",
+      "bytes": 115,
+      "sha256": "6a75ffdaf99cccb43cf454a574b35b7c65cc020d6dc416759358beb791232945",
+      "bucket": "dev",
+      "key": "dev-package/tokenizer.json",
+      "etag": "a744b67ea6e44f4177f2ed9e26a224b7"
+    }
+  ]
+}

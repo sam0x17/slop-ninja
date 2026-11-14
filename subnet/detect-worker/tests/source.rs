@@ -3,8 +3,9 @@
 //! point silences panics first, the Worker reads no header outside the
 //! forwarders' allow-list (never a cookie), it has no way in but the
 //! service bindings and no logging sink, every production resource is a
-//! testnet resource and every staging resource a staging one, and no
-//! challenge token or secret is tracked.
+//! testnet resource and every staging resource a staging one, no
+//! challenge token or secret is tracked, and the dev build's stub scorer
+//! is reachable only from the dev build under `[env.dev]`.
 
 use std::fs;
 
@@ -416,4 +417,72 @@ fn the_op_route_takes_the_bare_envelope() {
     let w = wrangler();
     assert!(env_section(&w, "testnet").contains("OP_ENV = \"production\""));
     assert!(env_section(&w, "staging").contains("OP_ENV = \"staging\""));
+}
+
+/// The stub scorer (local dev sessions) is reachable only from the dev
+/// build, and only `[env.dev]` binds it: every line of the lane that names
+/// the stub sits under `#[cfg(feature = "dev")]`, the feature is off by
+/// default, no other env's build passes `--features`, and `[env.dev]` runs
+/// no build of its own (the dev session builds the dev feature).
+#[test]
+fn the_stub_scorer_is_dev_only() {
+    let lane = src("cf_lane.rs");
+    let lines: Vec<&str> = lane.lines().collect();
+    let mut guarded = 0;
+    for (i, l) in lines.iter().enumerate() {
+        let t = l.trim_start();
+        if t.starts_with("//") || !(l.contains("STUB_SCORER") || l.contains("self.stub()") || l.contains("fn stub(")) {
+            continue;
+        }
+        // The nearest attribute or statement above: a cfg(feature = "dev")
+        // attribute, or (for the uses) the guarded `if` it opens.
+        let above = lines[..i].iter().rev().map(|l| l.trim()).find(|l| !l.is_empty() && !l.starts_with("///"));
+        let ok = above == Some("#[cfg(feature = \"dev\")]")
+            || t.starts_with("Self::stub")
+            || l.contains("self.env.service(STUB_SCORER)");
+        assert!(ok, "cf_lane.rs line {}: the stub outside the dev build: {t}", i + 1);
+        guarded += 1;
+    }
+    assert!(guarded >= 6, "the stub's const, accessor and uses are each guarded ({guarded})");
+    let other: Vec<&str> = SOURCES.iter().copied().filter(|n| *n != "cf_lane.rs").collect();
+    for n in other {
+        assert!(
+            !code(&src(n)).contains("STUB_SCORER") && !code(&src(n)).contains("feature = \"dev\""),
+            "{n}: dev-only code"
+        );
+    }
+
+    let cargo = fs::read_to_string(format!("{}/Cargo.toml", env!("CARGO_MANIFEST_DIR"))).expect("Cargo.toml");
+    assert!(cargo.lines().any(|l| l.trim() == "dev = []"), "the dev feature enables nothing else");
+    assert!(!cargo.lines().any(|l| l.trim_start().starts_with("default")), "no default features");
+
+    let w = wrangler();
+    let mut table = String::new();
+    for l in w.lines().map(str::trim).filter(|l| !l.is_empty() && !l.starts_with('#')) {
+        if l.starts_with('[') {
+            table = l.trim_matches(|c| c == '[' || c == ']').to_owned();
+            continue;
+        }
+        let dev = table == "env.dev" || table.starts_with("env.dev.");
+        if l.contains("STUB_SCORER") || l.contains("slop-ninja-dev-") || l.contains("--features") {
+            assert!(dev, "[{table}] {l}: dev only");
+        }
+        if l.starts_with("command = ") {
+            // The dev session builds the dev feature itself (its `build`).
+            let want = if dev { "command = \"\"" } else { "command = \"worker-build --release\"" };
+            assert_eq!(l, want, "[{table}]");
+        }
+        if dev {
+            for banned in ["DETECT_STORE_SECRET", "DETECT_SLUG_PEPPER", "containers", "CACHE_PURGE"] {
+                assert!(!l.contains(banned), "[{table}] {l}: not in the dev env");
+            }
+        }
+    }
+    let dev = env_section(&w, "dev");
+    assert!(!dev.contains("[[env.dev.containers]]"), "the dev env runs no Container");
+    for b in
+        ["\"STUB_SCORER\"", "\"DETECT_PACKAGES_TESTNET\"", "\"DETECT_STORE\"", "\"DETECT_DOCS\"", "\"DETECT_JOBS\""]
+    {
+        assert!(dev.contains(b), "[env.dev] binds {b}");
+    }
 }

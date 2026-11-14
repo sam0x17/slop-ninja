@@ -21,6 +21,11 @@ slop-ninja-dev-http = { path = "../http" }
 slop-ninja-account-wire = { path = "../../crates/account-wire" }
 slop-ninja-detect-page = { path = "../../crates/detect-page" }
 
+[dev-dependencies]
+# The account Worker's provider constants and its dev endpoint form: the stub's
+# table is checked against them (tests/providers.rs).
+slop-ninja-auth-core = { path = "../../crates/auth-core", features = ["dev"] }
+
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 js-sys = "0.3"
 wasm-bindgen = "0.2"

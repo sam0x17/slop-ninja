@@ -62,6 +62,14 @@ preview_urls = false
 [build]
 command = "worker-build --release"
 
+# Local dev sessions only (subnet/devtools): Wrangler's local proxy hands a
+# request on to the Worker under the upstream protocol of whichever joined
+# Worker it last loaded, and rewrites Origin and Referer to match; every
+# joined Worker names HTTPS, so the session's https origins reach each Worker
+# as the browser sent them. Deploys ignore this table.
+[dev]
+upstream_protocol = "https"
+
 [observability]
 enabled = false
 
@@ -379,3 +387,116 @@ service = "slop-ninja-account-staging"
 [[env.staging.services]]
 binding = "ALERTS_RELAY"
 service = "slop-ninja-alerts-testnet"
+
+# ---------------------------------------------------------------------- dev
+# The local dev session only (subnet/devtools/README.md): never deployed,
+# with local resources only. The dev build (`--features dev`, built by
+# `dev-session.sh build`) reaches the
+# stub scorer through STUB_SCORER in place of the Container; the lane loads
+# the synthetic dev package (subnet/devtools/session/dev-package, which
+# `dev-session.sh migrate` puts into the local package bucket) through the
+# same protocol. The digests below are the dev package's and the stub's own,
+# not a real build's. DETECT_STORE_SECRET and DETECT_SLUG_PEPPER_V1 come from
+# the session's untracked .dev.vars.dev (`dev-session.sh secrets`), never from
+# this file. No relay is bound: a legal notice retries into the local
+# dead-letter queue.
+
+[env.dev]
+name = "slop-ninja-detect-dev"
+workers_dev = false
+preview_urls = false
+
+# No build here: `wrangler dev` runs a config's build command in its own
+# working directory, which a multi-Worker session does not share, so the
+# session builds every joined Worker beforehand (`dev-session.sh build`,
+# with `--features dev`).
+[env.dev.build]
+command = ""
+
+[env.dev.observability]
+enabled = false
+
+[env.dev.triggers]
+crons = ["0 * * * *"]
+
+[env.dev.vars]
+NETWORK = "testnet"
+PRODUCT = "detect"
+SITE_ORIGIN = "https://slop.localhost:8787"
+SECRET_ORIGIN = "https://s.slop.localhost:8788"
+DETECT_TOOL = "on"
+DETECT_SPANS = "on"
+DETECT_URLS = "off"
+DETECT_X = "off"
+PUBLICATION = "pending"
+PACKAGE_LABEL = "span package d24"
+EVIDENCE_ID = "evidence-d24-web-v1"
+PACKAGE_BUCKET_LABEL = "dev"
+PACKAGE_MANIFEST_KEY = "dev-package/files-manifest.json"
+PACKAGE_SHA256 = "db9397d929a050b388f871a0e6aece65e39a84f561aed6f493db7c44768c8919"
+PACKAGE_SPEC_SHA256 = "7d5a105aa23968bcbc67eb1cbe18a89e3a4d3d272b69845e7bdedcda46b97ae8"
+PUBLISHED_PACKAGE_DIGEST = "0290801880c50982080b59aca74d52219a4b6141fbd82cd352049285bf71be41"
+SCORER_ORT_SHA256 = "85eb103773fb94effc8e09c6436574c758417696d461388cd8aa795818bb772c"
+SCORER_BINARY_SHA256 = "3ffbc438d30b0210277cc731ebd171399193bdc792e8b1f68bb34c4862a94eea"
+SCORER_START_WAIT_MS = "10000"
+LOAD_WAIT_MS = "20000"
+SCORE_WAIT_MS = "20000"
+IDLE_MS = "600000"
+QUEUE_HOLD_MS = "20000"
+BODY_WAIT_MS = "60000"
+
+[[env.dev.durable_objects.bindings]]
+name = "DETECT_GATE"
+class_name = "DetectGate"
+
+[[env.dev.durable_objects.bindings]]
+name = "DETECT_LANE"
+class_name = "DetectLane"
+
+[[env.dev.durable_objects.bindings]]
+name = "DETECT_FEEDBACK"
+class_name = "DetectFeedback"
+
+[[env.dev.migrations]]
+tag = "v1"
+new_sqlite_classes = ["DetectGate", "DetectLane", "DetectFeedback"]
+
+[[env.dev.r2_buckets]]
+binding = "DETECT_PACKAGES_TESTNET"
+bucket_name = "dev-detect-packages"
+
+[[env.dev.ratelimits]]
+name = "DETECT_WARM_LIMIT"
+namespace_id = "6019"
+simple = { limit = 1, period = 10 }
+
+[[env.dev.d1_databases]]
+binding = "DETECT_STORE"
+database_name = "dev-detect-store"
+database_id = "dev-detect-store"
+migrations_dir = "migrations"
+
+[[env.dev.r2_buckets]]
+binding = "DETECT_DOCS"
+bucket_name = "dev-detect-docs"
+
+[[env.dev.queues.producers]]
+binding = "DETECT_JOBS"
+queue = "dev-detect-jobs"
+
+[[env.dev.queues.consumers]]
+queue = "dev-detect-jobs"
+max_batch_size = 1
+dead_letter_queue = "dev-detect-jobs-dlq"
+
+[[env.dev.services]]
+binding = "ACCOUNT"
+service = "slop-ninja-account-dev"
+
+[[env.dev.services]]
+binding = "STUB_SCORER"
+service = "slop-ninja-dev-stub-scorer"
+
+[[env.dev.analytics_engine_datasets]]
+binding = "DETECT_METRICS"
+dataset = "dev_slop_ninja_detect"

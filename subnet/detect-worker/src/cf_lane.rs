@@ -35,6 +35,14 @@
 //! fails destroys the instance; new starts then wait `SCORER_START_WAIT_MS`
 //! doubled per consecutive failure, never longer than the idle timeout. Nothing
 //! needs an operator to recover, and nothing here logs.
+//!
+//! **The dev build** (cargo feature `dev`, local dev sessions only): the
+//! instance is the stub scorer Worker (`subnet/devtools/stub-scorer`), bound
+//! as `STUB_SCORER` in `[env.dev]` only, in place of the Container's port.
+//! It is always running; a destroy empties its slot, as a destroyed
+//! Container comes back empty, and the next call loads the dev package from
+//! the local package bucket through the same protocol. Release builds have
+//! no such binding.
 
 use crate::cf::{ms_var, waits};
 use crate::cf_io::{self, now_ms};
@@ -65,6 +73,9 @@ const THREADS: &str = "2";
 const CHUNK_BYTES: u64 = slop_ninja_artifact_check::spec::PART_BYTES;
 /// How often a waiting start or load asks the instance again.
 const POLL_MS: u64 = 250;
+/// The dev build's instance (`[env.dev]` only): the stub scorer Worker.
+#[cfg(feature = "dev")]
+const STUB_SCORER: &str = "STUB_SCORER";
 
 fn container_call(raw: &JsValue, name: &str, arg: &JsValue) -> std::result::Result<JsValue, &'static str> {
     let f: Function = Reflect::get(raw, &JsValue::from_str(name))
@@ -179,6 +190,39 @@ impl Drop for Flag<'_> {
 }
 
 impl DetectLane {
+    /// The dev build's stub scorer, when the dev session binds it.
+    #[cfg(feature = "dev")]
+    fn stub(&self) -> Option<Fetcher> {
+        self.env.service(STUB_SCORER).ok()
+    }
+
+    /// Whether an instance runs (the dev stub always does).
+    fn running(&self) -> bool {
+        #[cfg(feature = "dev")]
+        if self.stub().is_some() {
+            return true;
+        }
+        self.state.container().is_some_and(|c| c.running())
+    }
+
+    /// The instance's port: the Container's, or the dev build's stub.
+    fn port(&self) -> Option<Fetcher> {
+        #[cfg(feature = "dev")]
+        if let Some(stub) = self.stub() {
+            return Some(stub);
+        }
+        self.state.container()?.get_tcp_port(PORT).ok()
+    }
+
+    /// Whether this deployment has an instance binding at all.
+    fn bound(&self) -> bool {
+        #[cfg(feature = "dev")]
+        if self.stub().is_some() {
+            return true;
+        }
+        self.state.container().is_some()
+    }
+
     fn may_start(&self) -> bool {
         now_ms() >= self.retry_at.get()
     }
@@ -191,6 +235,15 @@ impl DetectLane {
     }
 
     async fn destroy(&self) {
+        #[cfg(feature = "dev")]
+        if let Some(stub) = self.stub() {
+            let until = now_ms().saturating_add(POLL_MS * 4);
+            let call = port_fetch(&stub, Method::Post, "/__stub/destroy", None, None);
+            if let Some(Ok(mut r)) = within(until, call).await {
+                cf_io::discard(&mut r);
+            }
+            return;
+        }
         if let Some(c) = self.state.container()
             && c.running()
         {
@@ -199,6 +252,10 @@ impl DetectLane {
     }
 
     async fn set_inactivity(&self, ms: u64) {
+        #[cfg(feature = "dev")]
+        if self.stub().is_some() {
+            return;
+        }
         if let Some(c) = self.state.container()
             && let Ok(v) = container_call(c.as_ref(), "setInactivityTimeout", &JsValue::from_f64(ms as f64))
             && let Ok(p) = v.dyn_into::<js_sys::Promise>()
@@ -210,10 +267,10 @@ impl DetectLane {
     /// Starts the instance if none runs (Internet off, one session, two
     /// threads). `false`: no binding, or a start is not allowed yet.
     async fn start(&self, plan: &Plan) -> bool {
-        let Some(c) = self.state.container() else { return false };
-        if c.running() {
+        if self.running() {
             return true;
         }
+        let Some(c) = self.state.container() else { return false };
         if !self.may_start() {
             return false;
         }
@@ -239,12 +296,14 @@ impl DetectLane {
     /// needed: the start within `SCORER_START_WAIT_MS`, the load within
     /// `LOAD_WAIT_MS`, both cut at `deadline`.
     async fn prepare(&self, plan: &Plan, deadline: u64) -> std::result::Result<Fetcher, &'static str> {
-        let c = self.state.container().ok_or("no container binding")?;
+        if !self.bound() {
+            return Err("no container binding");
+        }
         let w = plan.waits;
-        if c.running() {
-            let h = match c.get_tcp_port(PORT) {
-                Ok(port) => healthz(&port, Waits::stage_until(now_ms(), w.start_ms, deadline)).await,
-                Err(_) => None,
+        if self.running() {
+            let h = match self.port() {
+                Some(port) => healthz(&port, Waits::stage_until(now_ms(), w.start_ms, deadline)).await,
+                None => None,
             };
             if !matches!(sc::entry(h.as_ref(), &plan.package, None, Some(&plan.spec)), Entry::Keep) && h.is_some() {
                 self.destroy().await;
@@ -253,7 +312,7 @@ impl DetectLane {
         if !self.start(plan).await {
             return Err("start");
         }
-        let port = c.get_tcp_port(PORT).map_err(|_| "container port")?;
+        let port = self.port().ok_or("container port")?;
         let until = Waits::stage_until(now_ms(), w.start_ms, deadline);
         let h = loop {
             if let Some(h) = healthz(&port, until).await {
@@ -497,7 +556,7 @@ impl DurableObject for DetectLane {
         if self.busy.get() || self.loading.get() {
             return Response::empty();
         }
-        if self.state.container().is_some_and(|c| c.running()) {
+        if self.running() {
             self.loading.set(true);
             let _loading = Flag(&self.loading);
             let w = plan.waits;

@@ -21,9 +21,11 @@ crate-type = ["cdylib", "rlib"]
 # Native witness tests: the arena is the test binary's global allocator.
 arena-witness = ["slop-ninja-arena/knobs"]
 # Local dev sessions only (`[env.dev]`, subnet/devtools): the lane's instance
-# is the stub scorer Worker, bound as STUB_SCORER, in place of the Container.
-# Release builds (testnet, staging) never enable it.
-dev = []
+# is the stub scorer Worker, bound as STUB_SCORER, in place of the Container;
+# the URL rules admit the local fixture site's hosts (DEV_FIXTURE_HOST); the
+# host screens' DoH queries and IndexNow go through DEV_NET (the fixture
+# site) when it is bound. Release builds (testnet, staging) never enable it.
+dev = ["slop-ninja-detect-url/dev"]
 
 [dependencies]
 # The global allocator (wasm32): every invocation allocates in its own

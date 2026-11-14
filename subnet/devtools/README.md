@@ -8,8 +8,10 @@ pages, accounts and the URL check can be exercised end to end on one machine wit
 |---|---|---|
 | [`stub-scorer`](stub-scorer/) | Worker | the scorer Container: its load protocol and `/v1/score`, answers keyed by markers in the text |
 | [`auth-stub`](auth-stub/) | Worker | Google, GitHub and X sign-in, X avatars, and sign-in mail (captured at `/mail`), with failure switches |
-| [`fixture-site`](fixture-site/) | Worker | websites: robots variants, `noindex`, redirect chains, deep nesting, large pages, charsets, walls |
+| [`fixture-site`](fixture-site/) | Worker | websites: robots variants, `noindex`, redirect chains, deep nesting, large pages, charsets, walls; and the outside services the detect Worker's host screens and IndexNow call (DoH resolvers, IndexNow) |
+| [`x-stub`](x-stub/) | Worker | X's free embed (oEmbed): per-post answers, failure switches, the two control posts, call counters |
 | [`wallet-stub`](wallet-stub/) | native CLI | a Bittensor wallet: sr25519 signatures in raw, wrapped, wrong-key and wrong-message variants |
+| [`op-stub`](op-stub/) | native CLI | the operator's CLI, for the local Workers: ops signed with the session's throwaway operator key |
 | [`session/`](session/) | scripts | the dev session ([`dev-session.sh`](session/dev-session.sh)) and a smoke check of the stubs |
 
 ## The dev session
@@ -19,14 +21,14 @@ registry so that service bindings cross them:
 
 | Session | Origin | Primary Worker | Other Workers |
 |---|---|---|---|
-| site | `https://slop.localhost:8787` | the website (`wrangler.dev.jsonc` of the website repository) | detect, account, detect-og, detect-fetch (each once it has `[env.dev]`) |
+| site | `https://slop.localhost:8787` | the website (`wrangler.dev.jsonc` of the website repository) | detect, account, detect-og, detect-fetch |
 | secret | `https://s.slop.localhost:8788` | the secret-host Worker | none |
-| stubs | `https://auth.slop.localhost:8789` | `auth-stub` | `stub-scorer`, `fixture-site` |
+| stubs | `https://auth.slop.localhost:8789` | `auth-stub` | `stub-scorer`, `fixture-site`, `x-stub` |
 
 Only a session's primary Worker listens for HTTP, so each public host gets its own session, and the stubs get a third:
 the browser must reach the sign-in stubs' authorize pages, and test suites read captured mail and flip switches.
-`auth-stub` is the stubs session's door to its two neighbours: `/__scorer/<path>` reaches the stub scorer and
-`/__fixture/<host>/<path>` the fixture site.
+`auth-stub` is the stubs session's door to its neighbours: `/__scorer/<path>` reaches the stub scorer,
+`/__fixture/<host>/<path>` the fixture site and `/__xstub/<path>` the X stub.
 
 Local D1, R2, Durable Objects and queues all run inside the site session. Its two D1 stores, the detect store and the
 account store, are named in [`session/stores.toml`](session/stores.toml), and `migrate` applies each Worker's own
@@ -52,7 +54,7 @@ feature where it has one) and, with `WEB_REPO`, the website and the secret-host 
 `npm run build:secret`). A joined Worker's `[env.dev.build]` runs nothing: `wrangler dev` runs a build command in
 the session's working directory, not the Worker's, so a session never builds through Wrangler. `run` starts the
 three sessions as its children (logs in `$DEV_STATE/logs/`), waits until each origin answers (at most `READY_S`
-seconds), runs the command with `DEV_STATE`, `DEV_SUBNET` and `NODE_EXTRA_CA_CERTS` set, and stops the sessions
+seconds), runs the command with `DEV_STATE`, `DEV_SUBNET`, `DEV_OP_SEED` and `NODE_EXTRA_CA_CERTS` set, and stops the sessions
 when it ends; its exit status is the command's. The website repository's `scripts/it/` and `scripts/e2e/` suites
 run this way.
 
@@ -92,7 +94,9 @@ A Worker joins the site or secret session by defining `[env.dev]` in its Wrangle
   operator CLI's key file format. The public key goes to the detect and account Workers' `.dev.vars.dev` as
   `DETECT_OP_KEY`, over the empty placeholder of their `[env.dev.vars]` (where `OP_ENV` is `staging`), so the dev
   session's op routes (`/api/detect/v1/op`, `/api/account/v1/op`) verify ops signed with that seed for target
-  `detect` or `account` and env `staging`. No deployed environment trusts it.
+  `detect` or `account` and env `staging`. No deployed environment trusts it. `run` passes the seed file to its
+  command as `DEV_OP_SEED`; the suites sign ops with [`op-stub`](op-stub/) and post them to the site's op routes, as
+  the operator's CLI does against a deployed stack. No tracked config holds a key (a source test).
 - **Stubs, only here and only behind the cargo feature `dev`:**
   - detect: `STUB_SCORER` (service `slop-ninja-dev-stub-scorer`) in place of the scorer Container's port. The
     stub is always running; the lane loads the dev package ([`session/dev-package/`](session/dev-package/): a
@@ -102,7 +106,16 @@ A Worker joins the site or secret session by defining `[env.dev]` in its Wrangle
     (`PACKAGE_SHA256`, `PACKAGE_SPEC_SHA256`, the bucket label and the stub's build identity) to each other;
   - account: `AUTH_STUB` (service `slop-ninja-dev-auth-stub`) for the token, user, revoke, avatar and mail calls,
     with the browser sent to `STUB_ORIGIN` for authorize;
-  - detect-fetch: `FIXTURE_SITE` (service `slop-ninja-dev-fixture-site`) for hosts under `fixtures.test`.
+  - detect: `DETECT_FETCH` (service `slop-ninja-detect-fetch-dev`), `DETECT_HOST` (its v2 migration) and
+    `FETCH_WAIT_MS`, as in the deployed envs, with `DETECT_URLS` and `DETECT_X` on in the vars so the suites' switch
+    rows turn them off; the dev build's URL rules admit `DEV_FIXTURE_HOST` (`fixtures.test`) and every host under it,
+    each its own domain; and its outside calls (the host screens' DoH queries to `security.cloudflare-dns.com` and
+    `family.cloudflare-dns.com`, and IndexNow) go through `DEV_NET` (service `slop-ninja-dev-fixture-site`), so a
+    session asks no third party;
+  - detect-fetch: its own `wrangler.toml` declares no binding of any kind, so its dev build joins through
+    [`session/detect-fetch.dev.toml`](session/detect-fetch.dev.toml): `FIXTURE_SITE` (service
+    `slop-ninja-dev-fixture-site`) for `fixtures.test` and every host under it (unscreened, fetched unsigned), and
+    `X_STUB` (service `slop-ninja-dev-x-stub`) for X's embed.
 
 The values are fixed in one place, `slop_ninja_dev_http::session` (the origins, the subject prefix and the stores). A
 source test (`http/tests/dev_configs.rs`) refuses any `slop-ninja-dev-` name outside `[env.dev]` in a Worker config
@@ -212,6 +225,41 @@ resolves nowhere): `plain`, `robots-disallow`, `robots-agent`, `robots-wildcards
 Every request is logged with the headers a test checks (agent, Web Bot Auth, cookie, referrer):
 `GET /__fixture/log` and `POST /__fixture/log/clear` on any fixture host.
 
+The detect Worker's dev build sends its outside calls here through `DEV_NET`, on their real hosts and paths:
+`security.cloudflare-dns.com` and `family.cloudflare-dns.com` answer `GET /dns-query?name=<host>&type=A` (JSON,
+`Accept: application/dns-json` only) with `0.0.0.0` for the `malware` and `phishing` fixture hosts (and, on the family
+resolver, `adult`) and a TEST-NET address for every other name; `api.indexnow.org` answers `POST /indexnow` with 200.
+The log keeps each call, so a suite sees which screens and pings ran.
+
+## `x-stub`
+
+X's free embed on its real host and path: `GET /publish.x.com/oembed?url=https://twitter.com/i/status/<id>&omit_script=1&dnt=true`
+on the stubs origin, or `https://publish.x.com/oembed?...` through a service binding. A request without
+`omit_script=1` and `dnt=true`, with a handle in the URL, or carrying a cookie, key or referrer answers 400. Every
+post is synthetic (the test names the id; the text, name and handle are the stub's own), and the success body follows
+X's documented oEmbed shape: a `rich` object whose `html` is a `blockquote.twitter-tweet` with the text in its first
+`<p>`. Answers per post (`POST /__x/switch {"id", "answer"}`, `{"all": ...}` for every id, `{"id", "gone_at_ms"}`,
+`{"slow_ms"}`; `POST /__x/reset`; `GET /__x/state`): `plain`, `reply` (leading mentions), `media` (a trailing
+`pic.x.com` link), `quote` (a trailing link), `long` (cut, ending in "…"), `short`, `gone` (JSON 404), `forbidden`
+(JSON 403), `html403`, `busy` (429), `error` (503), `slow`, `oversize` and `changed` (a `<span>` in the `<p>`). The
+two control posts (vars `LIVE_CONTROL`, `GONE_CONTROL`, synthetic ids) answer present and JSON 404. The state route
+counts calls per id, every call, and the most calls in flight at once. The catalogue is in
+[`x-stub/src/oembed.rs`](x-stub/src/oembed.rs).
+
+## `op-stub`
+
+```sh
+cargo run --manifest-path subnet/devtools/op-stub/Cargo.toml -- pub --seed-file "$DEV_OP_SEED"
+cargo run --manifest-path subnet/devtools/op-stub/Cargo.toml -- sign --seed-file "$DEV_OP_SEED" \
+  --target detect --env staging --op set_switch --args '{"name":"DETECT_URLS","state":"off","reason":"dev"}'
+```
+
+`sign` prints the op route's body (`slop-ninja-signed-op` `Wire`), signed by that crate's own `sign` with the
+session's key: the local Workers verify it exactly as a deployed Worker verifies the operator's CLI. `--issued-ms`,
+`--valid-ms` and `--nonce` give the variants a test of the op rules needs (an expired op, a reused nonce), and
+`--env` and `--target` the refused ones. A test checks each against `Verifier`. Local sessions only: the key is a
+throwaway pair made per state directory.
+
 ## `wallet-stub`
 
 ```sh
@@ -235,7 +283,7 @@ contract's own `/wallet/challenge` fixture issued to the stub's address and carr
 
 ## Checks
 
-- Native unit tests: `cargo test --workspace` here, and `cargo test` in `wallet-stub/`. They include the stub
+- Native unit tests: `cargo test --workspace` here, and `cargo test` in `wallet-stub/` and `op-stub/`. They include the stub
   scorer's protocol read through `slop-ninja-scorer-client`, the client the detect Worker's lane uses.
 - Source checks (`http/tests/dev_configs.rs`): local-only stub and store configs, `[env.dev]`-only stub names, the dev
   origins and stores agreed everywhere, and a session script that never logs in, deploys or leaves `--local`.

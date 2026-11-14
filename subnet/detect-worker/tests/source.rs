@@ -43,6 +43,8 @@ const SOURCES: &[&str] = &[
     "cf_gate.rs",
     "cf_feedback.rs",
     "cf_lane.rs",
+    "cf_host.rs",
+    "cf_url.rs",
 ];
 
 #[test]
@@ -444,16 +446,45 @@ fn the_stub_scorer_is_dev_only() {
         guarded += 1;
     }
     assert!(guarded >= 6, "the stub's const, accessor and uses are each guarded ({guarded})");
-    let other: Vec<&str> = SOURCES.iter().copied().filter(|n| *n != "cf_lane.rs").collect();
+    // The URL glue's dev parts: the fixture site's hosts in the URL rules and
+    // the outside services through DEV_NET, each behind the dev feature.
+    let url = src("cf_url.rs");
+    let ulines: Vec<&str> = url.lines().collect();
+    let mut dev_uses = 0;
+    let mut guarded_at: Option<usize> = None;
+    for (i, l) in ulines.iter().enumerate() {
+        let t = l.trim_start();
+        if t.starts_with("//")
+            || !(l.contains("DEV_NET") || l.contains("DEV_FIXTURE_HOST") || l.contains("with_dev_host"))
+        {
+            continue;
+        }
+        // The nearest line above: the cfg attribute, or the guarded `if`
+        // this line's block opens under.
+        let above = ulines[..i].iter().enumerate().rev().find(|(_, l)| {
+            let l = l.trim();
+            !l.is_empty() && !l.starts_with("///")
+        });
+        let ok = above.is_some_and(|(j, l)| l.trim() == "#[cfg(feature = \"dev\")]" || guarded_at == Some(j));
+        assert!(ok, "cf_url.rs line {}: dev-only code outside the dev build: {t}", i + 1);
+        guarded_at = Some(i);
+        dev_uses += 1;
+    }
+    assert!(dev_uses >= 3, "the dev host and DEV_NET are each guarded ({dev_uses})");
+    let other: Vec<&str> = SOURCES.iter().copied().filter(|n| !["cf_lane.rs", "cf_url.rs"].contains(n)).collect();
     for n in other {
-        assert!(
-            !code(&src(n)).contains("STUB_SCORER") && !code(&src(n)).contains("feature = \"dev\""),
-            "{n}: dev-only code"
-        );
+        let s = src(n);
+        let c = code(&s);
+        for banned in ["STUB_SCORER", "feature = \"dev\"", "DEV_NET", "DEV_FIXTURE_HOST"] {
+            assert!(!c.contains(banned), "{n}: dev-only code ({banned})");
+        }
     }
 
     let cargo = fs::read_to_string(format!("{}/Cargo.toml", env!("CARGO_MANIFEST_DIR"))).expect("Cargo.toml");
-    assert!(cargo.lines().any(|l| l.trim() == "dev = []"), "the dev feature enables nothing else");
+    assert!(
+        cargo.lines().any(|l| l.trim() == "dev = [\"slop-ninja-detect-url/dev\"]"),
+        "the dev feature enables only the URL rules' dev host"
+    );
     assert!(!cargo.lines().any(|l| l.trim_start().starts_with("default")), "no default features");
 
     let w = wrangler();
@@ -464,7 +495,13 @@ fn the_stub_scorer_is_dev_only() {
             continue;
         }
         let dev = table == "env.dev" || table.starts_with("env.dev.");
-        if l.contains("STUB_SCORER") || l.contains("slop-ninja-dev-") || l.contains("--features") {
+        if l.contains("STUB_SCORER")
+            || l.contains("slop-ninja-dev-")
+            || l.contains("--features")
+            || l.contains("DEV_NET")
+            || l.contains("DEV_FIXTURE_HOST")
+            || l.contains("-dev\"")
+        {
             assert!(dev, "[{table}] {l}: dev only");
         }
         if l.starts_with("command = ") {
@@ -480,9 +517,16 @@ fn the_stub_scorer_is_dev_only() {
     }
     let dev = env_section(&w, "dev");
     assert!(!dev.contains("[[env.dev.containers]]"), "the dev env runs no Container");
-    for b in
-        ["\"STUB_SCORER\"", "\"DETECT_PACKAGES_TESTNET\"", "\"DETECT_STORE\"", "\"DETECT_DOCS\"", "\"DETECT_JOBS\""]
-    {
+    for b in [
+        "\"STUB_SCORER\"",
+        "\"DETECT_PACKAGES_TESTNET\"",
+        "\"DETECT_STORE\"",
+        "\"DETECT_DOCS\"",
+        "\"DETECT_JOBS\"",
+        "\"DETECT_HOST\"",
+        "\"DETECT_FETCH\"",
+        "\"DEV_NET\"",
+    ] {
         assert!(dev.contains(b), "[env.dev] binds {b}");
     }
 }
@@ -492,37 +536,67 @@ fn the_stub_scorer_is_dev_only() {
 /// itself: a request built from a web_sys request is immutable through
 /// `headers_mut`, so a header set there would be dropped and the body would
 /// keep its text/plain type. Checked from each `cf_io::internal_request` to
-/// the call that sends it, in every glue file: no `headers_mut` there, and a
+/// the call that sends it, in every glue file: no `headers_mut` there; a
 /// call through a service binding or to the zone API names its JSON type on
-/// the request (a Durable Object call needs none).
+/// the request (a Durable Object call needs none), and the zone API call its
+/// token; a call to an outside service (`cf_url::external`: the DoH
+/// resolvers and IndexNow) names its own type on the request and carries no
+/// token.
 #[test]
 fn internal_calls_set_their_headers_on_the_request() {
     let mut json_calls: Vec<&str> = Vec::new();
+    let mut outside: Vec<String> = Vec::new();
     for name in SOURCES.iter().copied().filter(|n| n.starts_with("cf")) {
         let s = src(name);
         let c = code(&s);
         for (at, _) in c.match_indices("cf_io::internal_request(") {
             let rest = &c[at..];
-            let (end, how) = ["fetch_request(", "fetch_with_request(", ".send()"]
+            let (end, how) = ["fetch_request(", "fetch_with_request(", ".send()", "external("]
                 .iter()
                 .filter_map(|m| rest.find(m).map(|i| (i, *m)))
                 .min()
                 .unwrap_or_else(|| panic!("{name}: an internal request that is never sent"));
             let call = &rest[..end];
             assert!(!call.contains("headers_mut("), "{name}: a header set through headers_mut");
-            if how != "fetch_with_request(" {
-                assert!(
-                    call.contains("inner().headers()") && call.contains("\"Content-Type\", \"application/json\""),
-                    "{name}: a JSON call without its Content-Type on the request"
-                );
-                json_calls.push(name);
-            }
-            if how == ".send()" {
-                assert!(call.contains("\"Authorization\""), "{name}: the zone API call without its token");
+            match how {
+                "fetch_with_request(" => {}
+                "external(" => {
+                    assert!(!call.contains("\"Authorization\""), "{name}: a token sent to an outside service");
+                    let kind = if call.contains("\"Accept\", \"application/dns-json\"") {
+                        "doh"
+                    } else if call.contains("\"Content-Type\", \"application/json; charset=utf-8\"") {
+                        "indexnow"
+                    } else {
+                        panic!("{name}: an outside call without its type on the request")
+                    };
+                    assert!(call.contains("inner().headers()"), "{name}: the outside call's type is on the request");
+                    outside.push(format!("{name} {kind}"));
+                }
+                _ => {
+                    assert!(
+                        call.contains("inner().headers()") && call.contains("\"Content-Type\", \"application/json\""),
+                        "{name}: a JSON call without its Content-Type on the request"
+                    );
+                    json_calls.push(name);
+                    if how == ".send()" {
+                        assert!(call.contains("\"Authorization\""), "{name}: the zone API call without its token");
+                    }
+                }
             }
         }
     }
-    for name in ["cf_store.rs", "cf_cases.rs"] {
-        assert!(json_calls.contains(&name), "{name}: its account Worker calls are checked");
+    for name in ["cf_store.rs", "cf_cases.rs", "cf_url.rs", "cf_host.rs"] {
+        assert!(json_calls.contains(&name), "{name}: its service binding calls are checked");
+    }
+    for want in ["cf_host.rs doh", "cf_url.rs indexnow"] {
+        assert!(outside.iter().any(|o| o == want), "{want}: the outside call is checked ({outside:?})");
+    }
+    // Only the one helper sends to the outside: it is the dev session's door.
+    for name in SOURCES.iter().copied().filter(|n| n.starts_with("cf") && *n != "cf_store.rs") {
+        let s = src(name);
+        let c = code(&s);
+        let sends = c.matches("Fetch::Request(").count();
+        let allowed = usize::from(name == "cf_url.rs");
+        assert_eq!(sends, allowed, "{name}: a platform Fetch outside cf_url::external");
     }
 }

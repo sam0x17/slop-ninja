@@ -32,8 +32,8 @@ tag = "v1"
 new_sqlite_classes = ["AuthStubState"]
 
 # The stubs session's door to its other stubs, for test suites and drills:
-# /__scorer/<path> reaches the stub scorer and /__fixture/<host>/<path> the
-# fixture site.
+# /__scorer/<path> reaches the stub scorer, /__fixture/<host>/<path> the
+# fixture site and /__xstub/<path> the X stub.
 [[services]]
 binding = "STUB_SCORER"
 service = "slop-ninja-dev-stub-scorer"
@@ -41,3 +41,7 @@ service = "slop-ninja-dev-stub-scorer"
 [[services]]
 binding = "FIXTURE_SITE"
 service = "slop-ninja-dev-fixture-site"
+
+[[services]]
+binding = "X_STUB"
+service = "slop-ninja-dev-x-stub"

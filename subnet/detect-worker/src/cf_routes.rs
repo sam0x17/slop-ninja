@@ -495,7 +495,7 @@ pub(crate) async fn consume(batch: worker_sys::MessageBatch, env: Env) {
 async fn url_jobs(env: &Env, io: &CfStore<'_>, k: &Secrets, msg: &QueueMessage) -> Option<queue::Ack> {
     let (Some(o), Some(serving)) = (origins(env), serving(env)) else { return None };
     let fetch = crate::cf_url::CfFetch { env, call_ms: waits(env).hold_ms };
-    let ping = crate::cf_url::CfPinger { wait_ms: waits(env).hold_ms };
+    let ping = crate::cf_url::CfPinger { env, wait_ms: waits(env).hold_ms };
     let key =
         env.secret(crate::indexnow::KEY_VAR).ok().map(|s| s.to_string().trim().to_owned()).filter(|s| !s.is_empty());
     let d = queue::UrlDeps {

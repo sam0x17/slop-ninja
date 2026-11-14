@@ -1,0 +1,21 @@
+[package]
+name = "slop-ninja-dev-x-stub"
+version = "0.1.0"
+edition = "2024"
+license = "MIT OR Apache-2.0"
+publish = false
+description = "Dev only: a Worker that plays X's free embed (oEmbed) for X post checks in local dev sessions, with per-post answers, switches, call counters and the two control posts"
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+slop-ninja-dev-http = { path = "../http" }
+
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+# The Durable Object macro expands to wasm-bindgen paths.
+js-sys = "0.3"
+wasm-bindgen = "0.2"
+worker = "0.8.7"

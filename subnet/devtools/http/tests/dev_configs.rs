@@ -11,7 +11,13 @@
 //!   config, the script and the smoke check use the same ones;
 //! - the session's D1 stores take exactly the detect and account Workers'
 //!   own migrations, and a Worker's `[env.dev]` D1 entry names the store
-//!   that `dev-session.sh migrate` fills.
+//!   that `dev-session.sh migrate` fills;
+//! - the fetch Worker joins through the session's own dev config
+//!   (`session/detect-fetch.dev.toml`; its own config binds nothing), and the
+//!   detect Worker's dev env reaches it, the fixture site and no outside
+//!   service;
+//! - the session's operator key stays in the state directory: no tracked
+//!   config holds a verifying key.
 
 use slop_ninja_detect_page::{Origin, Origins};
 use slop_ninja_dev_http::session::{MAIL_SUBJECT_PREFIX, SECRET_ORIGIN, SITE_ORIGIN, STORES, STUB_ORIGIN};
@@ -31,7 +37,10 @@ fn read(p: &Path) -> String {
     fs::read_to_string(p).unwrap_or_else(|e| panic!("{}: {e}", p.display()))
 }
 
-const STUBS: &[&str] = &["auth-stub", "stub-scorer", "fixture-site"];
+const STUBS: &[&str] = &["auth-stub", "stub-scorer", "fixture-site", "x-stub"];
+
+/// The fetch Worker's dev config, kept with the session.
+const FETCH_DEV: &str = "session/detect-fetch.dev.toml";
 
 /// `(table header, line)` for every non-comment line.
 fn lines_by_table(src: &str) -> Vec<(String, String)> {
@@ -175,6 +184,12 @@ fn the_session_script_stays_local() {
     assert!(s.contains("openssl genpkey -algorithm ed25519"));
     assert_eq!(s.matches("printf 'DETECT_OP_KEY=%s\\n' \"$pub\"").count(), 2, "dev-session.sh: both Workers' key");
     assert!(!s.contains("echo \"$pub\"") && !s.contains("cat \"$STATE/dev_op_key\"\n"), "the key is never printed");
+    // `run` hands the seed file to its command (the suites' op signer);
+    // no line that prints names the seed.
+    assert!(s.contains("DEV_OP_SEED=$STATE/dev_op_key \"$@\""), "dev-session.sh: run passes the seed file");
+    for l in s.lines().filter(|l| l.contains("echo") || l.contains("printf")) {
+        assert!(!l.contains("dev_op_key") && !l.contains("\"$key\""), "dev-session.sh prints no seed: {l}");
+    }
     for off in ["WRANGLER_SEND_METRICS=false", "WRANGLER_HIDE_BANNER=true", "CLOUDFLARE_CF_FETCH_ENABLED=false", "WRANGLER_WRITE_LOGS=false"] {
         assert!(s.contains(off), "dev-session.sh: {off}");
     }
@@ -212,7 +227,8 @@ fn the_dev_origins_parse_and_agree_everywhere() {
     assert_eq!(vars.get("SITE_ORIGIN"), Some(&SITE_ORIGIN));
 
     // Every Worker that joins the session sets the same values.
-    for (_, cfg, src) in subnet_configs() {
+    let fetch_dev = (String::from("detect-fetch"), devtools().join(FETCH_DEV), read(&devtools().join(FETCH_DEV)));
+    for (_, cfg, src) in subnet_configs().into_iter().chain([fetch_dev]) {
         for (t, l) in lines_by_table(&src) {
             let Some((k, v)) = kv(&l).filter(|_| t == "env.dev.vars") else { continue };
             let want = match k {
@@ -230,7 +246,8 @@ fn the_dev_origins_parse_and_agree_everywhere() {
 /// The op routes join the dev session: detect and account both name the
 /// `staging` op env and leave `DETECT_OP_KEY` an empty placeholder in their
 /// `[env.dev.vars]`, which the session's own key replaces from the untracked
-/// `.dev.vars.dev`; no tracked config holds a key.
+/// `.dev.vars.dev`; no tracked config under `subnet/` (the fetch Worker's
+/// session config included) holds a key.
 #[test]
 fn the_dev_op_routes_take_the_session_s_key() {
     for w in ["detect-worker", "account-worker"] {
@@ -242,10 +259,14 @@ fn the_dev_op_routes_take_the_session_s_key() {
             .collect();
         assert_eq!(dev.get("OP_ENV").map(String::as_str), Some("staging"), "{w}: [env.dev.vars] OP_ENV");
         assert_eq!(dev.get("DETECT_OP_KEY").map(String::as_str), Some(""), "{w}: [env.dev.vars] DETECT_OP_KEY");
-        // Every env's key in the tracked config is the empty placeholder.
+    }
+    // Every env's key in every tracked config (the fetch Worker's session
+    // config too) is the empty placeholder.
+    let fetch_dev = (String::from("detect-fetch"), devtools().join(FETCH_DEV), read(&devtools().join(FETCH_DEV)));
+    for (_, cfg, src) in subnet_configs().into_iter().chain([fetch_dev]) {
         for (t, l) in lines_by_table(&src) {
             if let Some((k, v)) = kv(&l).filter(|(k, _)| *k == "DETECT_OP_KEY") {
-                assert_eq!(v, "", "{w}: [{t}] {k}");
+                assert_eq!(v, "", "{}: [{t}] {k}", cfg.display());
             }
         }
     }
@@ -316,6 +337,69 @@ fn the_session_builds_every_joined_worker() {
         assert_eq!(dev, vec!["upstream_protocol = \"https\""], "{}: [dev] upstream_protocol", cfg.display());
     }
     assert!(joined >= 3, "detect, account and detect-og join the session ({joined})");
+}
+
+/// The fetch Worker's own config declares no binding (its source test), so
+/// it joins through the session's dev config: a local-only top level, one
+/// `[env.dev]` whose only bindings are the fixture site and the X stub, its
+/// build's output as `main`, no build of its own and HTTPS upstream. The
+/// detect Worker's dev env binds it, and its outside services (DEV_NET) go
+/// to the fixture site.
+#[test]
+fn the_fetch_worker_joins_through_the_session_config() {
+    let src = read(&devtools().join(FETCH_DEV));
+    let lines = lines_by_table(&src);
+    let top = |k: &str| lines.iter().find(|(t, l)| t.is_empty() && l.starts_with(&format!("{k} "))).map(|(_, l)| l.as_str());
+    assert_eq!(top("main"), Some("main = \"../../detect-fetch/build/index.js\""));
+    assert!(devtools().join("session").join("../../detect-fetch/Cargo.toml").exists(), "main names the fetch Worker's build");
+    for (k, v) in [("workers_dev", "false"), ("preview_urls", "false")] {
+        assert_eq!(top(k), Some(format!("{k} = {v}").as_str()), "top level");
+        assert!(lines.iter().any(|(t, l)| t == "env.dev" && *l == format!("{k} = {v}")), "[env.dev] {k}");
+    }
+    assert!(lines.iter().any(|(t, l)| t == "env.dev" && l == "name = \"slop-ninja-detect-fetch-dev\""));
+    for t in ["observability", "env.dev.observability"] {
+        assert!(lines.iter().any(|(x, l)| x == t && l == "enabled = false"), "[{t}]");
+    }
+    assert!(lines.iter().any(|(t, l)| t == "env.dev.build" && l == "command = \"\""));
+    assert!(lines.iter().any(|(t, l)| t == "dev" && l == "upstream_protocol = \"https\""));
+    for (t, l) in &lines {
+        let known = ["", "observability", "dev", "env.dev", "env.dev.build", "env.dev.observability", "env.dev.vars", "env.dev.services"];
+        assert!(known.contains(&t.as_str()), "{FETCH_DEV}: [{t}] {l}");
+        for banned in ["account_id", "route", "custom_domain", "WEB_BOT_AUTH_KEY", "URL_FIXTURE_PREFIX"] {
+            assert!(!l.contains(banned), "{FETCH_DEV}: {l}");
+        }
+    }
+    let services: Vec<(String, String)> = entries(&src, "env.dev.services")
+        .into_iter()
+        .map(|e| (e.get("binding").cloned().unwrap_or_default(), e.get("service").cloned().unwrap_or_default()))
+        .collect();
+    assert_eq!(
+        services,
+        vec![
+            ("FIXTURE_SITE".to_owned(), "slop-ninja-dev-fixture-site".to_owned()),
+            ("X_STUB".to_owned(), "slop-ninja-dev-x-stub".to_owned())
+        ]
+    );
+    let detect = read(&subnet().join("detect-worker/wrangler.toml"));
+    let detect_services: BTreeMap<String, String> = entries(&detect, "env.dev.services")
+        .into_iter()
+        .filter_map(|e| Some((e.get("binding")?.clone(), e.get("service")?.clone())))
+        .collect();
+    assert_eq!(detect_services.get("DETECT_FETCH").map(String::as_str), Some("slop-ninja-detect-fetch-dev"));
+    assert_eq!(detect_services.get("DEV_NET").map(String::as_str), Some("slop-ninja-dev-fixture-site"));
+    // Both dev builds admit the same fixture domain, the fixture site's.
+    let host = |src: &str| {
+        lines_by_table(src)
+            .into_iter()
+            .find(|(t, l)| t == "env.dev.vars" && l.starts_with("DEV_FIXTURE_HOST"))
+            .and_then(|(_, l)| kv(&l).map(|(_, v)| v.to_owned()))
+    };
+    assert_eq!(host(&src).as_deref(), Some("fixtures.test"));
+    assert_eq!(host(&detect).as_deref(), Some("fixtures.test"));
+    let pages = read(&devtools().join("fixture-site/src/pages.rs"));
+    assert!(pages.contains("pub const DOMAIN: &str = \"fixtures.test\";"));
+    let script = read(&devtools().join("session/dev-session.sh"));
+    assert!(script.contains("if [[ $w == detect-fetch ]]; then cfg=$HERE/detect-fetch.dev.toml;"));
 }
 
 /// The account Worker's dev build produces owner purges and re-keys on the

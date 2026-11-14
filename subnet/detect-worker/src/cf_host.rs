@@ -159,7 +159,7 @@ impl DetectHost {
         // On the request itself (as above): without it the resolver does not
         // answer JSON, and the family screen would count every domain adult.
         req.inner().headers().set("Accept", "application/dns-json").ok()?;
-        let mut res = worker::Fetch::Request(req).send().await.ok()?;
+        let mut res = crate::cf_url::external(&self.env, req).await.ok()?;
         if res.status_code() != 200 {
             cf_io::discard(&mut res);
             return None;

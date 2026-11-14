@@ -1,0 +1,33 @@
+# SlopNinja dev X stub: Wrangler configuration for local dev sessions only.
+#
+# Never deployed: no account, route, custom domain, workers_dev subdomain or
+# preview URL. It runs beside the auth stub in the stubs session
+# (../session/dev-session.sh stubs) and plays X's free embed (oEmbed) on its
+# real host and path: `GET /publish.x.com/oembed?url=...` on the stubs
+# origin, or `https://publish.x.com/oembed?...` through a service binding
+# (the fetch Worker's dev config binds it as X_STUB). Every post id, text,
+# name and handle it answers is synthetic. Build it first with
+# `../session/dev-session.sh build`.
+
+name = "slop-ninja-dev-x-stub"
+main = "build/index.js"
+compatibility_date = "2026-10-20"
+workers_dev = false
+preview_urls = false
+
+[observability]
+enabled = false
+
+# The two control posts (synthetic ids): the live one answers present, the
+# gone one answers oEmbed's JSON 404.
+[vars]
+LIVE_CONTROL = "1000000000000000001"
+GONE_CONTROL = "1000000000000000002"
+
+[[durable_objects.bindings]]
+name = "X_STUB_STATE"
+class_name = "XStubState"
+
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = ["XStubState"]

@@ -25,6 +25,16 @@
 //! `unclear`, `strong`, `very_strong`: the stub scorer's band marker in the
 //! first paragraph; `none`: no marker), `/article/short` (40 words) and
 //! `/canonical` (an article whose canonical link names `plain`'s).
+//!
+//! The outside services the detect Worker's dev build calls through its
+//! `DEV_NET` binding are answered here too ([`outside`]), on their real
+//! hosts and paths, so a local session asks no third party:
+//!
+//! | Host | What it answers |
+//! |---|---|
+//! | `security.cloudflare-dns.com` | `/dns-query?name=<host>&type=A`: blocked (`0.0.0.0`) for the `malware` and `phishing` fixture hosts, else one TEST-NET address |
+//! | `family.cloudflare-dns.com` | the same, blocked for the `adult` fixture host (and the two above) |
+//! | `api.indexnow.org` | `POST /indexnow`: 200 (the log keeps each ping) |
 
 use slop_ninja_detect_page::Band;
 use slop_ninja_dev_http::{Body, Call, Reply};
@@ -133,8 +143,52 @@ fn latin1(s: &str) -> Vec<u8> {
 
 const LATIN1_TEXT: &str = "Caf\u{e9} cr\u{e8}me and the na\u{ef}ve fa\u{e7}ade of the old station were all part of the plan that the council agreed on.";
 
+/// The security resolver's host (the host screens' DoH queries).
+pub const SECURITY_DOH_HOST: &str = "security.cloudflare-dns.com";
+/// The family resolver's host (the reputation's family screen).
+pub const FAMILY_DOH_HOST: &str = "family.cloudflare-dns.com";
+/// IndexNow's host.
+pub const INDEXNOW_HOST: &str = "api.indexnow.org";
+
+/// Fixture hosts each resolver blocks.
+const SECURITY_BLOCKED: &[&str] = &["malware", "phishing"];
+const FAMILY_BLOCKED: &[&str] = &["adult", "malware", "phishing"];
+
+/// The answer of an outside service the dev build reaches through
+/// `DEV_NET`, or `None` for any other host.
+pub fn outside(call: &Call) -> Option<Reply> {
+    let blocked = match call.host.as_str() {
+        SECURITY_DOH_HOST => SECURITY_BLOCKED,
+        FAMILY_DOH_HOST => FAMILY_BLOCKED,
+        INDEXNOW_HOST => {
+            return Some(match (call.method.as_str(), call.path.as_str()) {
+                ("POST", "/indexnow") => Reply::text(200, ""),
+                _ => Reply::text(404, "no such IndexNow route"),
+            });
+        }
+        _ => return None,
+    };
+    if call.method != "GET" || call.path != "/dns-query" || call.h("accept") != Some("application/dns-json") {
+        return Some(Reply::text(400, "a DoH JSON query only"));
+    }
+    let Some(name) = call.q("name").map(|n| n.trim_end_matches('.').to_ascii_lowercase()) else {
+        return Some(Reply::text(400, "no name"));
+    };
+    let hit = label(&name).is_some_and(|l| blocked.contains(&l));
+    let data = if hit { "0.0.0.0" } else { "192.0.2.1" };
+    let body = serde_json::json!({
+        "Status": 0,
+        "Question": [{"name": name, "type": 1}],
+        "Answer": [{"name": name, "type": 1, "TTL": 300, "data": data}],
+    });
+    Some(Reply::new(200).with_header("content-type", "application/dns-json").with_body(serde_json::to_vec(&body).unwrap_or_default()))
+}
+
 /// The answer for a call.
 pub fn page(call: &Call) -> Reply {
+    if let Some(r) = outside(call) {
+        return r;
+    }
     let Some(label) = label(&call.host) else {
         return Reply::text(421, "not a fixture host");
     };
@@ -317,6 +371,30 @@ mod tests {
 
     fn h(label: &str) -> String {
         format!("{label}.{DOMAIN}")
+    }
+
+    #[test]
+    fn the_outside_services_answer_on_their_own_hosts() {
+        let doh = |host: &str, name: &str| {
+            page(&Call::new("GET", &format!("/dns-query?name={name}&type=A")).host(host).header("Accept", "application/dns-json"))
+        };
+        let data = |r: &Reply| {
+            r.body_json()["Answer"][0]["data"].as_str().unwrap_or("").to_owned()
+        };
+        let r = doh(SECURITY_DOH_HOST, &h("malware"));
+        assert_eq!(r.status, 200);
+        assert_eq!(r.header("content-type"), Some("application/dns-json"));
+        assert_eq!(data(&r), "0.0.0.0");
+        assert_eq!(data(&doh(SECURITY_DOH_HOST, &h("plain"))), "192.0.2.1");
+        assert_eq!(data(&doh(SECURITY_DOH_HOST, &h("adult"))), "192.0.2.1");
+        assert_eq!(data(&doh(FAMILY_DOH_HOST, &h("adult"))), "0.0.0.0");
+        assert_eq!(data(&doh(FAMILY_DOH_HOST, &h("plain"))), "192.0.2.1");
+        // Only the JSON form, and only GET.
+        assert_eq!(page(&Call::new("GET", "/dns-query?name=a.test&type=A").host(SECURITY_DOH_HOST)).status, 400);
+        assert_eq!(page(&Call::new("POST", "/dns-query").host(FAMILY_DOH_HOST).header("Accept", "application/dns-json")).status, 400);
+        assert_eq!(page(&Call::new("POST", "/indexnow").host(INDEXNOW_HOST).body(b"{}".to_vec())).status, 200);
+        assert_eq!(page(&Call::new("GET", "/indexnow").host(INDEXNOW_HOST)).status, 404);
+        assert!(outside(&Call::new("GET", "/").host("example.com")).is_none());
     }
 
     #[test]

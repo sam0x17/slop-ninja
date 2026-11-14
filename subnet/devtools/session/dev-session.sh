@@ -42,13 +42,23 @@ export WRANGLER_REGISTRY_PATH=$STATE/registry
 
 READY_S=${READY_S:-900}
 
-STUBS=(auth-stub stub-scorer fixture-site)
+STUBS=(auth-stub stub-scorer fixture-site x-stub)
 # The subnet Workers that join the site session once they define [env.dev].
 JOINED=(detect-worker account-worker detect-og detect-fetch)
 # The detect Worker's dev package bucket (its [env.dev] DETECT_PACKAGES_TESTNET).
 PACKAGES_BUCKET=dev-detect-packages
 
 die() { echo "dev-session: $*" >&2; exit 2; }
+
+# A joined Worker's dev config: its own wrangler.toml when that defines
+# [env.dev]; the fetch Worker's is this directory's detect-fetch.dev.toml
+# (its own config declares no binding of any kind). Empty when the Worker has
+# not joined yet.
+dev_config() { # <worker>
+  local w=${1} cfg
+  if [[ $w == detect-fetch ]]; then cfg=$HERE/detect-fetch.dev.toml; else cfg=$SUBNET/$w/wrangler.toml; fi
+  if [[ -f $cfg ]] && grep -Eq '^\[{1,2}env\.dev[].]' "$cfg"; then echo "$cfg"; fi
+}
 
 cert() {
   mkdir -p "$STATE"
@@ -74,8 +84,7 @@ build() {
     (cd "$DEVTOOLS/$s" && "$wb" --release)
   done
   for w in "${JOINED[@]}"; do
-    local cfg=$SUBNET/$w/wrangler.toml
-    [[ -f $cfg ]] && grep -Eq '^\[{1,2}env\.dev[].]' "$cfg" || continue
+    [[ -n $(dev_config "$w") ]] || continue
     if grep -Eq '^dev = ' "$SUBNET/$w/Cargo.toml"; then
       (cd "$SUBNET/$w" && "$wb" --release --features dev)
     else
@@ -119,7 +128,13 @@ secrets() {
   fi
   op_key
   pub=$(cat "$STATE/dev_op_key.pub")
-  if ! grep -q '^DETECT_OP_KEY=' "$vars"; then printf 'DETECT_OP_KEY=%s\n' "$pub" >> "$vars"; fi
+  # A key made again (its files removed from the state directory) replaces
+  # the line an earlier key wrote, so both Workers trust the same key.
+  if ! grep -qx "DETECT_OP_KEY=$pub" "$vars"; then
+    ( umask 077
+      { grep -v '^DETECT_OP_KEY=' "$vars" || true; printf 'DETECT_OP_KEY=%s\n' "$pub"; } > "$vars.new" )
+    mv "$vars.new" "$vars"
+  fi
   ( umask 077; printf 'DETECT_OP_KEY=%s\n' "$pub" > "$acct" )
   install -m 600 "$vars" "$SUBNET/detect-worker/.dev.vars.dev"
   install -m 600 "$acct" "$SUBNET/account-worker/.dev.vars.dev"
@@ -133,10 +148,10 @@ site_configs() {
   [[ -n ${WEB_REPO:-} ]] || die "set WEB_REPO to the website repository checkout"
   local primary=$WEB_REPO/wrangler.dev.jsonc
   [[ -f $primary ]] || die "no $primary"
-  local out=("-c" "$primary")
+  local out=("-c" "$primary") w cfg
   for w in "${JOINED[@]}"; do
-    local cfg=$SUBNET/$w/wrangler.toml
-    if [[ -f $cfg ]] && grep -Eq '^\[{1,2}env\.dev[].]' "$cfg"; then out+=("-c" "$cfg"); else echo "dev-session: $w has no [env.dev] yet, skipped" >&2; fi
+    cfg=$(dev_config "$w")
+    if [[ -n $cfg ]]; then out+=("-c" "$cfg"); else echo "dev-session: $w has no [env.dev] yet, skipped" >&2; fi
   done
   printf '%s\n' "${out[@]}"
 }
@@ -204,7 +219,7 @@ run_all() {
     if [[ $s == site ]]; then ready "https://slop.localhost:$SITE_PORT" /health || die "site session did not answer (logs/site.log)"; fi
   done
   ready "https://s.slop.localhost:$SECRET_PORT" /robots.txt || die "secret session did not answer (logs/secret.log)"
-  NODE_EXTRA_CA_CERTS=$STATE/cert.pem DEV_STATE=$STATE DEV_SUBNET=$SUBNET "$@" || rc=$?
+  NODE_EXTRA_CA_CERTS=$STATE/cert.pem DEV_STATE=$STATE DEV_SUBNET=$SUBNET DEV_OP_SEED=$STATE/dev_op_key "$@" || rc=$?
   return "$rc"
 }
 

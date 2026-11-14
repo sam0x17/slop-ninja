@@ -135,8 +135,9 @@ impl Policy {
         self.fixture.as_ref()
     }
 
-    /// Dev builds only: URLs on `host` (the local fixture site) pass the
-    /// checks, any port and either scheme.
+    /// Dev builds only: URLs on `host` or any host under it (the local
+    /// fixture site, one host per scenario) pass the checks, any port and
+    /// either scheme. Each such host is its own registrable domain.
     #[cfg(feature = "dev")]
     pub fn with_dev_host(mut self, host: &str) -> Policy {
         self.dev_host = Some(host.trim().trim_end_matches('.').to_ascii_lowercase());
@@ -215,7 +216,7 @@ pub fn check(input: &str, policy: &Policy) -> Result<Checked, Refusal> {
     };
     let host = host.strip_suffix('.').unwrap_or(host).to_owned();
     #[cfg(feature = "dev")]
-    if policy.dev_host.as_deref() == Some(host.as_str()) {
+    if policy.dev_host.as_deref().is_some_and(|d| under(&host, d)) {
         return Ok(Checked::Url(CheckedUrl { url, registrable: host.clone(), host, fixture: false }));
     }
     if url.port().is_some() {
@@ -445,6 +446,29 @@ mod tests {
         }
         // Surrounding whitespace is trimmed, as the parser does.
         assert_eq!(passes("  https://example.com/ \n").host, "example.com");
+    }
+
+    #[cfg(feature = "dev")]
+    #[test]
+    fn the_dev_host_admits_its_own_hosts_only() {
+        let p = Policy::production().with_dev_host("Fixtures.Test.");
+        for (u, host) in [
+            ("https://plain.fixtures.test/article/strong", "plain.fixtures.test"),
+            ("http://robots-agent.fixtures.test:8443/robots.txt", "robots-agent.fixtures.test"),
+            ("https://fixtures.test/", "fixtures.test"),
+        ] {
+            match check(u, &p) {
+                Ok(Checked::Url(c)) => {
+                    assert_eq!(c.host, host, "{u}");
+                    assert_eq!(c.registrable, host, "{u}: each fixture host is its own domain");
+                }
+                other => panic!("{u}: {other:?}"),
+            }
+        }
+        for u in ["https://notfixtures.test/", "https://fixtures.test.example/"] {
+            assert!(!matches!(check(u, &p), Ok(Checked::Url(_))), "{u}");
+        }
+        assert_eq!(check("https://plain.fixtures.test/", &Policy::production()), Err(Refusal::Reserved));
     }
 
     #[test]

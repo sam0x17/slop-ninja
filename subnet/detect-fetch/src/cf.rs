@@ -15,7 +15,8 @@
 //! hosts, and the signature agent's origin), `URL_FIXTURE_PREFIX` (read only
 //! when `DEPLOY_ENV` is `staging`), and the secret `WEB_BOT_AUTH_KEY`, without
 //! which a release build answers 503 and fetches nothing. Dev builds also
-//! read `DEV_FIXTURE_HOST` and the `FIXTURE_SITE` service binding.
+//! read `DEV_FIXTURE_HOST` (the fixture site's domain: it and every host
+//! under it) and the `FIXTURE_SITE` service binding.
 //!
 //! Every answer carries `Cache-Control: no-store`; nothing writes a console
 //! line.
@@ -307,12 +308,16 @@ impl CfNet {
         }
     }
 
-    /// The service binding a URL goes through (dev builds: the fixture site).
+    /// The service binding a URL goes through (dev builds: the fixture site,
+    /// for its host and every host under it).
     fn binding(&self, url: &str) -> JsValue {
         let _ = url;
         #[cfg(feature = "dev")]
         if let Some((host, b)) = &self.dev
-            && url::Url::parse(url).ok().and_then(|u| u.host_str().map(str::to_owned)).as_deref() == Some(host.as_str())
+            && url::Url::parse(url)
+                .ok()
+                .and_then(|u| u.host_str().map(str::to_owned))
+                .is_some_and(|h| slop_ninja_detect_url::check::under(&h, host))
         {
             return b.clone();
         }
@@ -425,7 +430,7 @@ impl Net for CfNet {
     fn screen_exempt(&self, host: &str) -> bool {
         #[cfg(feature = "dev")]
         {
-            self.dev.as_ref().is_some_and(|(h, _)| h == host)
+            self.dev.as_ref().is_some_and(|(h, _)| slop_ninja_detect_url::check::under(host, h))
         }
         #[cfg(not(feature = "dev"))]
         {

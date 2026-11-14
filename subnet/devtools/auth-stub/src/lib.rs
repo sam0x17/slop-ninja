@@ -16,6 +16,9 @@
 //!   and `POST /mail/clear` read and clear them.
 //! - **Switches**: `POST /__stub/switch` with `{"provider": ..., ...}`,
 //!   `POST /__stub/reset`, `GET /__stub/state` ([`routes`]).
+//! - **Doors to the other stubs** (suites and drills): `/__scorer/<path>`
+//!   (the stub scorer), `/__fixture/<host>/<path>` (the fixture site) and
+//!   `/__xstub/<path>` (the X stub, as `https://publish.x.com/<path>`).
 //!
 //! The browser reaches it on the stubs session's own origin (authorize and
 //! the consent page, `/__stub/consent/<provider>`); the account Worker's dev
@@ -49,6 +52,10 @@ mod cf {
         if let Some(rest) = url.path().strip_prefix("/__scorer/") {
             let to = format!("https://stub-scorer.internal/{rest}{query}");
             return env.service("STUB_SCORER")?.fetch_request(Request::new_with_init(&to, &forwarded(req).await?)?).await;
+        }
+        if let Some(rest) = url.path().strip_prefix("/__xstub/") {
+            let to = format!("https://publish.x.com/{rest}{query}");
+            return env.service("X_STUB")?.fetch_request(Request::new_with_init(&to, &forwarded(req).await?)?).await;
         }
         if let Some(rest) = url.path().strip_prefix("/__fixture/") {
             let (host, path) = rest.split_once('/').unwrap_or((rest, ""));

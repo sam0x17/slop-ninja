@@ -1,0 +1,24 @@
+[package]
+name = "slop-ninja-dev-op-stub"
+version = "0.1.0"
+edition = "2024"
+license = "MIT OR Apache-2.0"
+publish = false
+description = "Dev only: signs operator ops for the local dev session's detect and account Workers with the session's throwaway key"
+
+# Its own workspace: a native tool, built apart from the Wasm stubs.
+[workspace]
+members = ["."]
+resolver = "3"
+
+[[bin]]
+name = "slop_ninja_op_stub"
+path = "src/main.rs"
+
+[dependencies]
+clap = { version = "4", features = ["derive"] }
+hex = "0.4"
+serde_json = "1"
+# The envelope the Workers verify, with its signing half: the same encoder
+# and signature the operator's own CLI uses.
+slop-ninja-signed-op = { path = "../../crates/signed-op", features = ["sign"] }

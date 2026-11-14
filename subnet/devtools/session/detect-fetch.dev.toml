@@ -1,0 +1,51 @@
+# SlopNinja fetch Worker: its local dev session configuration (dev only;
+# never deployed, with local resources only).
+#
+# The fetch Worker's own wrangler.toml declares no binding of any kind (risk
+# F4: its tests/source.rs), so its dev build joins the site session through
+# this file instead. `dev-session.sh build` builds it (`--features dev`) in
+# subnet/detect-fetch; `main` is that build's output. The dev build admits
+# DEV_FIXTURE_HOST and every host under it through the URL rules and reaches
+# them through FIXTURE_SITE (the local fixture site), screens none of them,
+# and fetches unsigned (no WEB_BOT_AUTH_KEY in a local session). X_STUB is
+# the local stand-in for X's free embed (subnet/devtools/x-stub, whose two
+# synthetic control posts the fetch Worker's X routes name in a session).
+
+name = "slop-ninja-detect-fetch-local"
+main = "../../detect-fetch/build/index.js"
+compatibility_date = "2026-10-20"
+workers_dev = false
+preview_urls = false
+
+[observability]
+enabled = false
+
+# As every joined Worker: the local proxy hands requests on over HTTPS.
+[dev]
+upstream_protocol = "https"
+
+[env.dev]
+name = "slop-ninja-detect-fetch-dev"
+workers_dev = false
+preview_urls = false
+
+# No build here: the session builds every joined Worker beforehand.
+[env.dev.build]
+command = ""
+
+[env.dev.observability]
+enabled = false
+
+[env.dev.vars]
+DEPLOY_ENV = "dev"
+SITE_ORIGIN = "https://slop.localhost:8787"
+SECRET_ORIGIN = "https://s.slop.localhost:8788"
+DEV_FIXTURE_HOST = "fixtures.test"
+
+[[env.dev.services]]
+binding = "FIXTURE_SITE"
+service = "slop-ninja-dev-fixture-site"
+
+[[env.dev.services]]
+binding = "X_STUB"
+service = "slop-ninja-dev-x-stub"

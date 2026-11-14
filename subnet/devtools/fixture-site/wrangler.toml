@@ -3,7 +3,9 @@
 # Never deployed: no account, route, custom domain, workers_dev subdomain or
 # preview URL. It runs beside the auth stub in the stubs session
 # (../session/dev-session.sh stubs); the fetch Worker's dev build binds it as
-# FIXTURE_SITE for hosts under fixtures.test. Build it first with
+# FIXTURE_SITE for hosts under fixtures.test, and the detect Worker's dev
+# build as DEV_NET for the outside services its host screens and IndexNow
+# call (src/pages.rs `outside`). Build it first with
 # `../session/dev-session.sh build`.
 
 name = "slop-ninja-dev-fixture-site"

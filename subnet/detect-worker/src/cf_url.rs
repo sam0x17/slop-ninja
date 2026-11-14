@@ -252,35 +252,60 @@ impl UrlScorer for CfUrlScorer<'_> {
 }
 
 /// IndexNow over the platform's fetch.
-pub(crate) struct CfPinger {
+pub(crate) struct CfPinger<'a> {
+    pub(crate) env: &'a Env,
     pub(crate) wait_ms: u64,
 }
 
-impl Pinger for CfPinger {
+impl Pinger for CfPinger<'_> {
     async fn indexnow(&self, body: Vec<u8>) -> Result<(), IoError> {
         let text = String::from_utf8(body).map_err(|_| IoError)?;
         let req = cf_io::internal_request(crate::indexnow::ENDPOINT, Method::Post, Some(&text), Some(self.wait_ms))
             .map_err(|_| IoError)?;
         // On the request itself, as in `CfFetch::call`.
         req.inner().headers().set("Content-Type", "application/json; charset=utf-8").map_err(|_| IoError)?;
-        let mut res = worker::Fetch::Request(req).send().await.map_err(|_| IoError)?;
+        let mut res = external(self.env, req).await.map_err(|_| IoError)?;
         let ok = (200..300).contains(&res.status_code());
         cf_io::discard(&mut res);
         if ok { Ok(()) } else { Err(IoError) }
     }
 }
 
+/// A request to a service outside Cloudflare's own bindings: the DoH
+/// resolvers of the host screens and IndexNow. Release builds send it with
+/// the platform's Fetch. Dev builds send it through the `DEV_NET` service
+/// binding when the local session binds one (the fixture site, which answers
+/// for those hosts), so a local session asks no third party.
+pub(crate) async fn external(env: &Env, req: Request) -> worker::Result<worker::Response> {
+    #[cfg(feature = "dev")]
+    if let Ok(net) = env.service(DEV_NET) {
+        return net.fetch_request(req).await;
+    }
+    let _ = env;
+    worker::Fetch::Request(req).send().await
+}
+
+/// Dev builds only: the binding that stands in for the outside services.
+#[cfg(feature = "dev")]
+const DEV_NET: &str = "DEV_NET";
+
 /// The URL rules' policy: the configured origins, and the staging fixture
-/// allowance when `URL_FIXTURE_PREFIX` holds one (staging only).
+/// allowance when `URL_FIXTURE_PREFIX` holds one (staging only). Dev builds
+/// also admit the local fixture site's hosts (`DEV_FIXTURE_HOST`).
 fn policy(env: &Env) -> Policy {
     let p = Policy::from_origins(var(env, "SITE_ORIGIN").as_deref(), var(env, "SECRET_ORIGIN").as_deref());
-    match (var(env, "DEPLOY_ENV").as_deref(), var(env, "URL_FIXTURE_PREFIX")) {
+    let p = match (var(env, "DEPLOY_ENV").as_deref(), var(env, "URL_FIXTURE_PREFIX")) {
         (Some("staging"), Some(f)) => match slop_ninja_detect_url::FixturePrefix::parse(&f) {
             Some(fx) => p.with_fixture(fx),
             None => p,
         },
         _ => p,
+    };
+    #[cfg(feature = "dev")]
+    if let Some(h) = var(env, "DEV_FIXTURE_HOST") {
+        return p.with_dev_host(&h);
     }
+    p
 }
 
 /// `POST /api/detect/v1/url {url}`.

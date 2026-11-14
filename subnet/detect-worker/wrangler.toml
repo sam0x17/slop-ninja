@@ -399,7 +399,9 @@ service = "slop-ninja-alerts-testnet"
 # not a real build's. DETECT_STORE_SECRET and DETECT_SLUG_PEPPER_V1 come from
 # the session's untracked .dev.vars.dev (`dev-session.sh secrets`), never from
 # this file. No relay is bound: a legal notice retries into the local
-# dead-letter queue.
+# dead-letter queue. The operator key's verifying half (DETECT_OP_KEY) comes
+# from the same file (see the op vars below), so the suites sign ops with
+# subnet/devtools/op-stub and the session's seed against the local Workers.
 
 [env.dev]
 name = "slop-ninja-detect-dev"
@@ -426,8 +428,10 @@ SITE_ORIGIN = "https://slop.localhost:8787"
 SECRET_ORIGIN = "https://s.slop.localhost:8788"
 DETECT_TOOL = "on"
 DETECT_SPANS = "on"
-DETECT_URLS = "off"
-DETECT_X = "off"
+# On in the dev env, so the suites' switch rows turn the URL check and X
+# posts off and on again (a var's off is the hard off a row cannot lift).
+DETECT_URLS = "on"
+DETECT_X = "on"
 PUBLICATION = "pending"
 PACKAGE_LABEL = "span package d24"
 EVIDENCE_ID = "evidence-d24-web-v1"
@@ -444,6 +448,10 @@ SCORE_WAIT_MS = "20000"
 IDLE_MS = "600000"
 QUEUE_HOLD_MS = "20000"
 BODY_WAIT_MS = "60000"
+FETCH_WAIT_MS = "10000"
+# The local fixture site's domain: the dev build's URL rules admit it and
+# every host under it (one host per scenario).
+DEV_FIXTURE_HOST = "fixtures.test"
 # The op route in the dev session: the session's own operator key, which
 # `dev-session.sh secrets` makes once per state directory and writes to the
 # untracked .dev.vars.dev (that value replaces this empty placeholder).
@@ -462,9 +470,17 @@ class_name = "DetectLane"
 name = "DETECT_FEEDBACK"
 class_name = "DetectFeedback"
 
+[[env.dev.durable_objects.bindings]]
+name = "DETECT_HOST"
+class_name = "DetectHost"
+
 [[env.dev.migrations]]
 tag = "v1"
 new_sqlite_classes = ["DetectGate", "DetectLane", "DetectFeedback"]
+
+[[env.dev.migrations]]
+tag = "v2"
+new_sqlite_classes = ["DetectHost"]
 
 [[env.dev.r2_buckets]]
 binding = "DETECT_PACKAGES_TESTNET"
@@ -501,6 +517,20 @@ service = "slop-ninja-account-dev"
 [[env.dev.services]]
 binding = "STUB_SCORER"
 service = "slop-ninja-dev-stub-scorer"
+
+# The fetch Worker's dev build (its dev config is
+# subnet/devtools/session/detect-fetch.dev.toml), which reaches the fixture
+# site for every fixture host.
+[[env.dev.services]]
+binding = "DETECT_FETCH"
+service = "slop-ninja-detect-fetch-dev"
+
+# The outside services the host screens and IndexNow call (the DoH
+# resolvers, api.indexnow.org), answered by the fixture site: a local session
+# asks no third party.
+[[env.dev.services]]
+binding = "DEV_NET"
+service = "slop-ninja-dev-fixture-site"
 
 [[env.dev.analytics_engine_datasets]]
 binding = "DETECT_METRICS"

@@ -398,3 +398,235 @@ fn an_existing_post_the_embed_no_longer_shows_is_left_for_the_sweep() {
     assert!(url.is_some(), "nothing is deleted here");
     assert_eq!(w2.page(&first.slug).unwrap().state, DetState::Live);
 }
+
+// ------------------------------------------------- removals and opt-outs
+
+impl World {
+    /// A legal state on a public page, as a removal or a withheld excerpt
+    /// leaves it: the state and its removal record.
+    fn legal(&self, slug: &str, state: &str) {
+        legal_on(&self.h.db, slug, state);
+    }
+
+    fn state_of(&self, slug: &str) -> (String, Option<String>, Option<i64>, Option<Vec<u8>>) {
+        self.h
+            .db
+            .query_row(
+                "SELECT state, refusal, run_id, superseded_by FROM detections WHERE public_slug = ?1",
+                [slug],
+                |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)),
+            )
+            .unwrap()
+    }
+
+    fn run_docs(&self) -> usize {
+        self.h.docs.borrow().keys().filter(|k| k.starts_with("r/")).count()
+    }
+}
+
+fn legal_on(db: &rusqlite::Connection, slug: &str, state: &str) {
+    let scope = if state == "excerpt_withheld" { "excerpt" } else { "page" };
+    db.execute("UPDATE detections SET state = ?2, state_v = state_v + 1 WHERE public_slug = ?1", [slug, state])
+        .unwrap();
+    db.execute(
+        "INSERT INTO removals (at, public_slug, scope, basis, jurisdiction) VALUES (1, ?1, ?2, 'copyright', 'us')",
+        [slug, scope],
+    )
+    .unwrap();
+}
+
+#[test]
+fn sending_the_link_of_a_removed_or_withheld_page_again_changes_nothing() {
+    for (url, state) in [("https://example.com/a", "removed"), ("https://example.com/b", "excerpt_withheld")] {
+        let mut w = World::new();
+        w.fetch.page(url, &article(14));
+        let e = w.check(url).unwrap();
+        assert_eq!(e.failed, None);
+        w.legal(&e.slug, state);
+        let before = (w.fetch.fetch_calls.get(), w.scorer.calls.get(), w.rows("detections"), w.rows("claims"));
+        // The same link in another form, and under a newer package, answers
+        // the page under its legal state: no claim, no fetch, no scan.
+        for load in ["load-d24", "load-next"] {
+            w.serving.load = load.into();
+            for u in [url.to_owned(), format!("{url}?utm_source=x#frag")] {
+                assert_eq!(w.admit(&u).unwrap(), Admitted::Done(e.slug.clone()), "{state} {load} {u}");
+                assert_eq!(w.check(&u).unwrap(), Ended { slug: e.slug.clone(), failed: None });
+            }
+        }
+        assert_eq!(
+            (w.fetch.fetch_calls.get(), w.scorer.calls.get(), w.rows("detections"), w.rows("claims")),
+            before,
+            "{state}"
+        );
+        assert_eq!(w.h.count("SELECT count(*) FROM detections WHERE state = 'live'"), 0, "{state}");
+        let (st, _, _, sup) = w.state_of(&e.slug);
+        assert_eq!((st.as_str(), sup), (state, None), "never superseded");
+        // The page shows its legal state; a withheld page shows no excerpt.
+        w.serving.load = "load-d24".into();
+        let p = w.page(&e.slug).unwrap();
+        assert_eq!(p.state.as_str(), state);
+        if state == "excerpt_withheld" {
+            assert!(p.text.unwrap().body.is_none());
+        }
+    }
+}
+
+#[test]
+fn an_opted_out_source_is_never_checked_again() {
+    let mut w = World::new();
+    w.fetch.page(URL, &article(14));
+    let e = w.check(URL).unwrap();
+    w.h.exec("UPDATE sources SET state = 'opted_out' WHERE adapter = 'web'");
+    w.serving.load = "load-next".into();
+    let calls = w.fetch.fetch_calls.get();
+    assert_eq!(w.admit(URL), Err(RefusalCode::RerunBlocked));
+    assert_eq!(w.fetch.fetch_calls.get(), calls);
+    assert_eq!(w.rows("detections"), 1);
+    assert_eq!(w.state_of(&e.slug).0, "live");
+}
+
+/// One case of a removal landing while a check of the same source runs:
+/// the old page's legal state (or the source's opt-out) is applied just
+/// before the store's batch, after the fetch and the scan.
+fn removal_mid_drive(state: &'static str) {
+    let mut w = World::new();
+    w.fetch.page(URL, &article(14));
+    let first = w.check(URL).unwrap();
+    assert_eq!(w.rows("runs"), 1);
+    // A newer package: the link is checked again.
+    w.serving.load = "load-next".into();
+    let Admitted::Drive(d) = w.admit(URL).unwrap() else { panic!("{state}") };
+    let old = first.slug.clone();
+    w.h.before("INSERT INTO sources (canon_key, canon_url, host, adapter, title", move |db| {
+        if state == "opted_out" {
+            db.execute("UPDATE sources SET state = 'opted_out' WHERE adapter = 'web'", []).unwrap();
+        } else {
+            legal_on(db, &old, state);
+        }
+    });
+    let e = block_on(drive(&w.h, &w.host, &w.fetch, &w.scorer, &w.ctx(), &d));
+    assert_eq!(w.scorer.calls.get(), 2, "{state}: the check ran to its store");
+    assert_eq!(e.failed, Some(RefusalCode::RerunBlocked), "{state}");
+    // The new page ended failed with its domain only, and nothing of it
+    // stayed: no run row, no run document, no claim.
+    let (st, refusal, run, _) = w.state_of(&e.slug);
+    assert_eq!((st.as_str(), refusal.as_deref(), run), ("failed", Some("rerun_blocked"), None), "{state}");
+    let p = w.page(&e.slug).unwrap();
+    assert_eq!((p.state, p.failure.map(|f| f.code)), (DetState::Failed, Some(RefusalCode::RerunBlocked)));
+    let src = p.source.unwrap();
+    assert_eq!((src.host.as_str(), src.url, src.title), ("example.com", None, None));
+    assert_eq!((w.rows("runs"), w.run_docs(), w.rows("claims")), (1, 1, 0), "{state}");
+    assert_eq!(w.h.count("SELECT count(*) FROM detections WHERE sitemap_seq IS NOT NULL"), 1);
+    assert!(
+        !w.h.queue
+            .borrow()
+            .iter()
+            .any(|m| matches!(&m.job, Job::Indexnow { public_slug, .. } if *public_slug == e.slug))
+    );
+    // The old page keeps its state and is superseded by nothing, and the
+    // source stays opted out.
+    let (old_state, _, _, sup) = w.state_of(&first.slug);
+    let want = if state == "opted_out" { "live" } else { state };
+    assert_eq!((old_state.as_str(), sup), (want, None), "{state}");
+    let sstate: String =
+        w.h.db.query_row("SELECT state FROM sources WHERE canon_url = ?1", [URL], |r| r.get(0)).unwrap();
+    assert_eq!(sstate, if state == "opted_out" { "opted_out" } else { "ok" });
+    // Sending the link again makes no fetch.
+    let calls = w.fetch.fetch_calls.get();
+    match w.admit(URL) {
+        Ok(Admitted::Done(s)) => assert_eq!(s, first.slug, "{state}"),
+        Err(code) => assert_eq!((state, code), ("opted_out", RefusalCode::RerunBlocked)),
+        other => panic!("{state}: {other:?}"),
+    }
+    assert_eq!(w.fetch.fetch_calls.get(), calls);
+}
+
+#[test]
+fn a_removal_that_lands_during_a_check_wins() {
+    for state in ["removed", "excerpt_withheld", "opted_out"] {
+        removal_mid_drive(state);
+    }
+}
+
+#[test]
+fn a_removal_seen_after_the_fetch_ends_the_check_before_the_scan() {
+    let mut w = World::new();
+    w.fetch.page(URL, &article(14));
+    let first = w.check(URL).unwrap();
+    w.serving.load = "load-next".into();
+    let Admitted::Drive(d) = w.admit(URL).unwrap() else { panic!() };
+    w.legal(&first.slug, "removed");
+    let e = block_on(drive(&w.h, &w.host, &w.fetch, &w.scorer, &w.ctx(), &d));
+    assert_eq!(e.failed, Some(RefusalCode::RerunBlocked));
+    assert_eq!(w.scorer.calls.get(), 1, "no scan");
+    assert_eq!((w.rows("runs"), w.run_docs(), w.rows("claims")), (1, 1, 0));
+    assert_eq!(w.state_of(&e.slug).0, "failed");
+}
+
+// ------------------------------------------------- declared canonicals
+
+#[test]
+fn a_declared_canonical_never_names_another_page() {
+    // Two authors on one registrable domain. The page at A declares B, an
+    // article by someone else, as its canonical, and is checked first.
+    let w = World::new();
+    let (a, b) = ("https://blog.example.com/someone/a", "https://blog.example.com/victim/b");
+    let mut fa = ok_page(a, &article(14));
+    fa.canonical = Some(b.into());
+    fa.meta.as_mut().unwrap().title = Some("Not the victim's title".into());
+    w.fetch.pages.borrow_mut().insert(a.into(), fa);
+    let mut fb = ok_page(b, &vec![HUMAN; 14].join(" "));
+    fb.meta.as_mut().unwrap().title = Some("The victim's own article".into());
+    w.fetch.pages.borrow_mut().insert(b.into(), fb);
+    let ea = w.check(a).unwrap();
+    assert_eq!(ea.failed, None);
+    let pa = w.page(&ea.slug).unwrap();
+    assert_eq!(pa.source.as_ref().unwrap().url.as_deref(), Some(a), "A is its own source");
+    // Nothing names B yet: a check of B fetches and scores B.
+    let (f, s) = (w.fetch.fetch_calls.get(), w.scorer.calls.get());
+    let eb = w.check(b).unwrap();
+    assert_eq!(eb.failed, None);
+    assert_ne!(eb.slug, ea.slug);
+    assert_eq!((w.fetch.fetch_calls.get(), w.scorer.calls.get()), (f + 1, s + 1));
+    let pb = w.page(&eb.slug).unwrap();
+    let src = pb.source.as_ref().unwrap();
+    assert_eq!((src.url.as_deref(), src.title.as_deref()), (Some(b), Some("The victim's own article")));
+    let run = pb.run.as_ref().unwrap();
+    assert_eq!(run.band, Some(slop_ninja_detect_page::codes::Band::Weak), "B's own result");
+    assert!(!pb.text.as_ref().unwrap().body.as_deref().unwrap_or("").contains(AI1));
+    assert_eq!(pb.canonical.as_deref(), Some(eb.slug.as_str()));
+    // A's link still answers A's page; B's answers B's.
+    assert_eq!(w.admit(a).unwrap(), Admitted::Done(ea.slug.clone()));
+    assert_eq!(w.admit(b).unwrap(), Admitted::Done(eb.slug.clone()));
+    // No source is keyed, named or aliased by a declared canonical.
+    assert_eq!(w.h.count("SELECT count(*) FROM source_aliases"), 0);
+}
+
+#[test]
+fn a_declared_canonical_joins_a_live_page_of_it() {
+    // B is checked first; A then declares B and becomes an alias of B's page
+    // with B's real result, with no scan.
+    let w = World::new();
+    let (a, b) = ("https://example.com/print/7", "https://example.com/story/7");
+    w.fetch.page(b, &article(14));
+    let mut fa = ok_page(a, &vec![HUMAN; 14].join(" "));
+    fa.canonical = Some(b.into());
+    w.fetch.pages.borrow_mut().insert(a.into(), fa);
+    let eb = w.check(b).unwrap();
+    let s = w.scorer.calls.get();
+    let ea = w.check(a).unwrap();
+    assert_eq!(ea.failed, None);
+    assert_eq!(w.scorer.calls.get(), s, "no scan");
+    let pa = w.page(&ea.slug).unwrap();
+    assert_eq!(pa.canonical.as_deref(), Some(eb.slug.as_str()));
+    assert_eq!(pa.source.as_ref().unwrap().url.as_deref(), Some(b));
+    // A's link now answers B's page.
+    assert_eq!(w.admit(a).unwrap(), Admitted::Done(eb.slug.clone()));
+    // A declared canonical on another registrable domain is ignored.
+    let c = "https://example.com/c";
+    let mut fc = ok_page(c, &vec![HUMAN; 13].join(" "));
+    fc.canonical = Some("https://example.org/story/7".into());
+    w.fetch.pages.borrow_mut().insert(c.into(), fc);
+    let ec = w.check(c).unwrap();
+    assert_eq!(w.page(&ec.slug).unwrap().source.unwrap().url.as_deref(), Some(c));
+}

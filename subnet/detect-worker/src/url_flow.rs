@@ -13,20 +13,30 @@
 //! 2. `DETECT_TOOL` and `DETECT_URLS`; the host's opt-out row;
 //! 3. the security screen through `DetectHost` (`security_risk`);
 //! 4. the link's source under its alias: a live page under the serving
-//!    package answers its slug (no fetch, no scan), and a recent `robots` or
-//!    `private_source` failure answers its failed page for the robots cache
-//!    period;
+//!    package answers its slug (no fetch, no scan); a page of the source
+//!    under a legal state that no later live page replaced (`removed`,
+//!    `excerpt_withheld`, `disabled`, under any package) answers its slug,
+//!    and an `opted_out` source answers `rerun_blocked`, so sending the link
+//!    again never undoes a removal; a recent `robots` or `private_source`
+//!    failure answers its failed page for the robots cache period;
 //! 5. the claim ([`crate::claims`]): the winner draws the slug;
 //! 6. (`drive`) a politeness slot from `DetectHost` (robots.txt first when
 //!    stale; `robots` when it disallows), then `DETECT_FETCH /fetch` (once
 //!    more when the call itself fails), every hop re-checked there;
 //! 7. a failed fetch ends the page `failed` with the fetch's code, keeping no
 //!    text; a source that asks not to be indexed marks a known source
-//!    `unlisted`, and a 404 or 410 marks it `gone`;
+//!    `unlisted`, and a 404 or 410 marks it `gone` (an `opted_out` source
+//!    stays so);
 //! 8. reputation (ranking shards and the family screen);
-//! 9. canonical dedupe: the final or declared canonical URL that is already
-//!    a live source under this package makes this page an alias of that one
-//!    (same run, `rel=canonical` to it) and answers its slug;
+//! 9. the source is the final URL's (else the submitted link's), and the
+//!    link's forms are its aliases. Canonical dedupe: when that source, or
+//!    the declared `rel=canonical` on the same registrable domain, already
+//!    has a live page under this package, this page becomes an alias of
+//!    that one (same run, `rel=canonical` to it) and answers its slug. The
+//!    declared canonical only ever joins such a page: it never keys, names
+//!    or aliases a new source, since anyone who can publish on a shared
+//!    domain could declare another author's page as theirs. A source under
+//!    a legal state ends the page `failed` (`rerun_blocked`);
 //! 10. `canon_v1`, then `content_key` reuse (public text only), else the
 //!     scorer (the floor, the English screen, the free cut, a gate ticket of
 //!     class `url`);
@@ -34,7 +44,12 @@
 //!     never the full text) first, then one D1 batch fenced by the claim's
 //!     token: the source, its aliases, the run, the page `live` with its
 //!     `sitemap_seq`, older pages of the source superseded, the shards marked
-//!     dirty, the claim deleted; an IndexNow ping is queued.
+//!     dirty, the claim deleted; an IndexNow ping is queued. The page goes
+//!     live only if, inside that batch, neither its source nor the link's
+//!     is `opted_out` or under a legal state; otherwise the same batch ends
+//!     it `failed` (`rerun_blocked`) and deletes its new run, and the run
+//!     document goes after it. So a removal that lands while the check runs
+//!     still wins.
 //!
 //! **A post on X** (rule `x_post_v1`; no `DetectHost`, robots, Radar or
 //! security screen: oEmbed is an API endpoint, not a crawl):
@@ -50,7 +65,12 @@
 //!    shows gets `fetched_at = 0`, so the next sweep checks and deletes it;
 //! 5. the text is scored like any URL text, and the run document holds the
 //!    document-level result only; the source keeps the post's canonical URL,
-//!    `reputation = 'ranked'`, `fetched_at` now. No sitemap, no IndexNow.
+//!    `reputation = 'ranked'`, `fetched_at` now. No sitemap, no IndexNow;
+//! 6. the page goes live only on the post's live source: a removal
+//!    (the form, `remove` or `x_remove`) that left the tombstone while the
+//!    check ran makes the same batch end the page `failed` (`x_removed`)
+//!    with no source and delete its new run, and the run document goes
+//!    after it. Nothing of the post outlives the removal.
 
 use slop_ninja_detect_fetch_wire::{FetchAnswer, FetchRequest, Limits, MAX_HOPS, Outcome, XPostAnswer, XPostRequest};
 use slop_ninja_detect_page::codes::{DetectXState, Platform, Reputation};
@@ -160,13 +180,62 @@ pub fn url_refusal(r: Refusal) -> RefusalCode {
     RefusalCode::parse(r.public_code()).unwrap_or(RefusalCode::BadUrl)
 }
 
-/// The source of a key, by its own key or an alias, and its newest page
-/// under `package` (`live` first, then a recent hold-worthy failure).
-pub const SELECT_KNOWN: &str = "SELECT s.source_id AS source_id, s.state AS sstate, s.canon_url AS canon_url, \
+/// The condition on a page `b` of source `s` that stops any new public page
+/// of the source: a legal state (`removed`, `excerpt_withheld`,
+/// `disabled`), under any package, that no later live page replaced.
+macro_rules! blocking_page {
+    () => {
+        "b.source_id = s.source_id AND b.kind = 'public_url' \
+AND b.state IN ('removed','excerpt_withheld','disabled') AND NOT EXISTS (SELECT 1 FROM detections l \
+WHERE l.source_id = s.source_id AND l.state = 'live' AND l.created_at > b.created_at)"
+    };
+}
+
+/// The same condition as a constant: every statement that checks it
+/// carries this text.
+pub const BLOCKING_PAGE: &str = blocking_page!();
+
+/// The sources of a key, by its own key or an alias (at most two rows),
+/// each with its newest live page under `package` and its newest blocking
+/// page under any package ([`BLOCKING_PAGE`]).
+pub const SELECT_KNOWN: &str = concat!(
+    "SELECT s.source_id AS source_id, s.state AS sstate, s.canon_url AS canon_url, \
 (SELECT d.public_slug FROM detections d WHERE d.source_id = s.source_id AND d.kind = 'public_url' \
 AND d.state = 'live' AND d.package_load = ?3 AND d.superseded_by IS NULL ORDER BY d.created_at DESC LIMIT 1) \
-AS live_slug FROM sources s WHERE s.canon_key = ?1 \
-OR s.source_id = (SELECT a.source_id FROM source_aliases a WHERE a.alias_key = ?2) LIMIT 1";
+AS live_slug, (SELECT b.public_slug FROM detections b WHERE ",
+    blocking_page!(),
+    " ORDER BY b.created_at DESC LIMIT 1) AS blocked_slug FROM sources s WHERE s.canon_key = ?1 \
+OR s.source_id = (SELECT a.source_id FROM source_aliases a WHERE a.alias_key = ?2)"
+);
+
+/// What [`SELECT_KNOWN`] found for a link.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+struct Known {
+    /// A live page under the serving package.
+    live: Option<String>,
+    /// A page under a legal state that no later live page replaced.
+    blocked: Option<String>,
+    /// A source that is `opted_out`.
+    opted_out: bool,
+}
+
+impl Known {
+    fn of(d: Option<&Done>) -> Known {
+        let rows = d.map(|d| d.rows.as_slice()).unwrap_or(&[]);
+        Known {
+            live: rows.iter().find_map(|r| r.text("live_slug")).map(str::to_owned),
+            blocked: rows.iter().find_map(|r| r.text("blocked_slug")).map(str::to_owned),
+            opted_out: rows.iter().any(|r| r.text("sstate") == Some("opted_out")),
+        }
+    }
+
+    fn stmt(key: &str, package_load: &str) -> Stmt {
+        Stmt::new(
+            SELECT_KNOWN,
+            vec![Val::blob(&source_canon_key(key)), Val::blob(&alias_key(key)), Val::text(package_load)],
+        )
+    }
+}
 
 /// A recent failure that holds for its link (`robots`, `private_source`),
 /// by the claim key the failed page was drawn under (`refusal_marks`: a
@@ -219,12 +288,11 @@ pub async fn admit(io: &impl Io, host: &impl HostApi, ctx: &UrlCtx<'_>, url: &st
         Err(IoError) => return Err(unavailable()),
     }
     let submitted_key = platform::source_key(&target.url, &target.platform);
-    let canon = source_canon_key(&submitted_key);
     let alias = alias_key(&submitted_key);
     let ckey = claims::claim_key(&alias, &ctx.serving.load);
     let known = io
         .batch(vec![
-            Stmt::new(SELECT_KNOWN, vec![Val::blob(&canon), Val::blob(&alias), Val::text(&ctx.serving.load)]),
+            Known::stmt(&submitted_key, &ctx.serving.load),
             Stmt::new(
                 SELECT_HELD_FAILURE,
                 vec![Val::blob(&ckey), Val::int(io.now_ms().saturating_sub(REFUSAL_HOLD_MS))],
@@ -232,9 +300,18 @@ pub async fn admit(io: &impl Io, host: &impl HostApi, ctx: &UrlCtx<'_>, url: &st
         ])
         .await
         .map_err(|_| unavailable())?;
-    if let Some(slug_) = known.first().and_then(Done::first).and_then(|r| r.text("live_slug")) {
+    let k = Known::of(known.first());
+    if let Some(slug_) = k.live {
         io.metric("reuse", &["alias"]);
-        return Ok(Admitted::Done(slug_.to_owned()));
+        return Ok(Admitted::Done(slug_));
+    }
+    // A removal or a withheld excerpt stands for the link: its page answers,
+    // with no fetch, so sending the link again never undoes it.
+    if let Some(slug_) = k.blocked {
+        return Ok(Admitted::Done(slug_));
+    }
+    if k.opted_out {
+        return Err(refusal(RefusalCode::RerunBlocked));
     }
     if let Some(slug_) = known.get(1).and_then(Done::first).and_then(|r| r.text("public_slug")) {
         return Ok(Admitted::Done(slug_.to_owned()));
@@ -306,6 +383,21 @@ async fn claim_or_join(
 
 // ------------------------------------------------------------------ drive
 
+/// Why a check stopped short of a live page.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Stop {
+    /// The page is still to be ended `failed` with this code ([`fail`]).
+    Fail(RefusalCode),
+    /// The store's own batch already ended the page `failed` with this code.
+    Ended(RefusalCode),
+}
+
+impl From<RefusalCode> for Stop {
+    fn from(c: RefusalCode) -> Stop {
+        Stop::Fail(c)
+    }
+}
+
 /// Runs a claimed check to its end. It never fails: every outcome is the
 /// page's state (`live`, or `failed` with its code).
 pub async fn drive(
@@ -324,15 +416,13 @@ pub async fn drive(
     };
     let slug = job.held.slug.clone();
     let domain = match &job.link {
-        Link::Page { target, .. } => Some((
-            target.host.as_str(),
-            if matches!(target.platform, platform::Platform::Bluesky { .. }) { "bluesky" } else { "web" },
-        )),
+        Link::Page { target, .. } => Some((target.host.as_str(), adapter_of(target))),
         Link::XPost { .. } => None,
     };
     match r {
         Ok(()) => Ended { slug, failed: None },
-        Err(code) => {
+        Err(Stop::Ended(code)) => Ended { slug, failed: Some(code) },
+        Err(Stop::Fail(code)) => {
             let _ = fail(io, &job.held, code, domain).await;
             Ended { slug, failed: Some(code) }
         }
@@ -403,21 +493,21 @@ async fn drive_page(
     held: &Held,
     target: &slop_ninja_detect_url::Target,
     submitted_key: &str,
-) -> Result<(), RefusalCode> {
+) -> Result<(), Stop> {
     let url = target.url.as_str();
     let mut slot = host.slot(&target.registrable, url, ctx.lease_ms).await.map_err(|_| RefusalCode::Unavailable)?;
     if let Slot::WaitUntil(t) = slot {
         if t.saturating_sub(io.now_ms()) > ctx.fetch_ms {
-            return Err(RefusalCode::TooSlow);
+            return Err(RefusalCode::TooSlow.into());
         }
         host.wait_until(t).await;
         slot = host.slot(&target.registrable, url, ctx.lease_ms).await.map_err(|_| RefusalCode::Unavailable)?;
     }
     let slot_id = match slot {
         Slot::Granted { slot } => slot,
-        Slot::Disallowed => return Err(RefusalCode::Robots),
-        Slot::NoSearch => return Err(RefusalCode::PrivateSource),
-        Slot::WaitUntil(_) => return Err(RefusalCode::TooSlow),
+        Slot::Disallowed => return Err(RefusalCode::Robots.into()),
+        Slot::NoSearch => return Err(RefusalCode::PrivateSource.into()),
+        Slot::WaitUntil(_) => return Err(RefusalCode::TooSlow.into()),
     };
     let req = FetchRequest {
         url: url.to_owned(),
@@ -444,35 +534,38 @@ async fn drive_page(
         if let Some(st) = state {
             let _ = io
                 .run(Stmt::new(
-                    "UPDATE sources SET state = ?2 WHERE canon_key = ?1 AND adapter <> 'x'",
+                    "UPDATE sources SET state = ?2 WHERE canon_key = ?1 AND adapter <> 'x' AND state <> 'opted_out'",
                     vec![Val::blob(&known_key), Val::text(st)],
                 ))
                 .await;
         }
         let code = answer.outcome.refusal().and_then(RefusalCode::parse).unwrap_or(RefusalCode::FetchFailed);
-        return Err(code);
+        return Err(code.into());
     }
     let text = answer.text.as_deref().ok_or(RefusalCode::FetchFailed)?;
     let canonical = crate::canon::canon_v1(text).into_owned();
-    // The source: the declared canonical on the same registrable domain, or
-    // the final URL, or the submitted one; every form is an alias.
+    // The source: the final URL, or the submitted one; every form of the
+    // link is an alias. The declared canonical is only a dedupe candidate.
     let page = SourcePage::of(target, submitted_key, &answer);
-    // Canonical dedupe: another live page of this source under this package.
-    let dup = io
-        .run(Stmt::new(
-            SELECT_KNOWN,
-            vec![
-                Val::blob(&source_canon_key(&page.key)),
-                Val::blob(&alias_key(&page.key)),
-                Val::text(&ctx.serving.load),
-            ],
-        ))
-        .await
-        .map_err(|_| RefusalCode::Unavailable)?;
-    if let Some(existing) = dup.first().and_then(|r| r.text("live_slug")).map(str::to_owned)
+    // Canonical dedupe: another live page of this source, or of the
+    // declared canonical's, under this package.
+    let mut q = vec![Known::stmt(&page.key, &ctx.serving.load)];
+    if let Some(d) = &page.declared {
+        q.push(Known::stmt(d, &ctx.serving.load));
+    }
+    let dup = io.batch(q).await.map_err(|_| RefusalCode::Unavailable)?;
+    let own = Known::of(dup.first());
+    let declared = Known::of(dup.get(1));
+    let domain = (target.host.as_str(), adapter_of(target));
+    if let Some(existing) = own.live.or(declared.live)
         && existing != held.slug
     {
-        return alias_to(io, ctx, held, &page, &existing).await;
+        return alias_to(io, ctx, held, &page, &existing, domain).await;
+    }
+    // The source this fetch names is under a legal state, or opted out: no
+    // new page of it (the store's batch checks again).
+    if own.blocked.is_some() || own.opted_out {
+        return Err(RefusalCode::RerunBlocked.into());
     }
     let (reputation, rank_v) = match target.platform {
         platform::Platform::Bluesky { .. } => (Reputation::Ranked, "bsky".to_owned()),
@@ -520,18 +613,26 @@ async fn drive_page(
         aliases: page.aliases.clone(),
     };
     let web = kind == SourceKind::Web;
-    let live = store(
+    let fence = Fence::Page { submitted: submitted_key, host: domain.0, adapter: domain.1, sitemap: web };
+    let stored = store(
         io,
         ctx,
         held,
         &src,
         run_id,
         new_run.as_ref().map(|(id, d, ck)| (*id, d, Some(*ck), answer.extract_v.as_str())),
-        web,
+        fence,
     )
     .await;
-    match live {
-        Ok(true) => {
+    if stored != Ok(Stored::Live)
+        && let Some((id, _, _)) = new_run
+    {
+        // Not ours to show (blocked, taken over, or the store failed): the
+        // document must not outlive rows that point at it.
+        let _ = io.doc_delete(&[run_doc_key(id)]).await;
+    }
+    match stored {
+        Ok(Stored::Live) => {
             if web {
                 let _ = io
                     .enqueue(vec![QueueMessage::new(Job::Indexnow {
@@ -542,25 +643,36 @@ async fn drive_page(
             }
             Ok(())
         }
-        Ok(false) | Err(_) => {
-            if let Some((id, _, _)) = new_run {
-                // Not ours to store (taken over, or the store failed): the
-                // document must not outlive rows that point at it.
-                let _ = io.doc_delete(&[run_doc_key(id)]).await;
-            }
-            // A taker finishes the page; a store failure leaves it pending
-            // with its lease, so "Run it" can retry.
-            if live.is_err() { Err(RefusalCode::Unavailable) } else { Ok(()) }
-        }
+        Ok(Stored::Blocked) => Err(Stop::Ended(RefusalCode::RerunBlocked)),
+        // A taker finishes the page.
+        Ok(Stored::Lost) => Ok(()),
+        // A store failure: the page ends `failed` if the claim is still
+        // ours, else the taker finishes it.
+        Err(IoError) => Err(RefusalCode::Unavailable.into()),
     }
 }
 
-/// The source a fetch found, and the URL forms that name it.
+/// The adapter name of a link's domain-only source.
+fn adapter_of(target: &slop_ninja_detect_url::Target) -> &'static str {
+    if matches!(target.platform, platform::Platform::Bluesky { .. }) { "bluesky" } else { "web" }
+}
+
+/// The source a fetch found, the URL forms that name it, and the declared
+/// canonical it may join.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct SourcePage {
+    /// The source key: the final URL's, else the submitted link's.
     pub key: String,
+    /// The source's `canon_url`, the URL the text was fetched from.
     pub url: String,
+    /// The link's other forms (the submitted and final URLs).
     pub aliases: Vec<String>,
+    /// The declared `rel=canonical` on the same registrable domain, as a
+    /// source key, when it differs from `key`. It is only looked up: this
+    /// page joins it when it already has a live page under the serving
+    /// package, and it never keys, names or aliases a source, since the page
+    /// that declares it need not be its author's.
+    pub declared: Option<String>,
 }
 
 impl SourcePage {
@@ -571,7 +683,7 @@ impl SourcePage {
             let key = platform::bluesky_key(did, rkey);
             let mut aliases = vec![submitted_key.to_owned()];
             aliases.retain(|k| *k != key);
-            return SourcePage { key, url: target.url.as_str().to_owned(), aliases };
+            return SourcePage { key, url: target.url.as_str().to_owned(), aliases, declared: None };
         }
         let same_site = |u: &str| {
             url::Url::parse(u)
@@ -579,21 +691,19 @@ impl SourcePage {
                 .and_then(|u| u.host_str().and_then(slop_ninja_detect_url::psl::registrable_domain).map(str::to_owned))
                 .is_some_and(|r| r == target.registrable)
         };
-        let declared = a.canonical.as_deref().filter(|c| same_site(c));
-        let chosen = declared.or(a.final_url.as_deref()).unwrap_or(target.url.as_str()).to_owned();
+        let chosen = a.final_url.as_deref().unwrap_or(target.url.as_str()).to_owned();
         let key = format!("url:{chosen}");
-        let mut aliases: Vec<String> = [
-            Some(submitted_key.to_owned()),
-            a.final_url.as_ref().map(|f| format!("url:{f}")),
-            declared.map(|d| format!("url:{d}")),
-        ]
-        .into_iter()
-        .flatten()
-        .filter(|k| *k != key)
-        .collect();
+        let declared =
+            a.canonical.as_deref().filter(|c| same_site(c)).map(|d| format!("url:{d}")).filter(|d| *d != key);
+        let mut aliases: Vec<String> =
+            [Some(submitted_key.to_owned()), a.final_url.as_ref().map(|f| format!("url:{f}"))]
+                .into_iter()
+                .flatten()
+                .filter(|k| *k != key)
+                .collect();
         aliases.sort();
         aliases.dedup();
-        SourcePage { key, url: chosen, aliases }
+        SourcePage { key, url: chosen, aliases, declared }
     }
 }
 
@@ -621,14 +731,16 @@ struct SourceWrite {
     aliases: Vec<String>,
 }
 
-/// The source upsert: a check that succeeded leaves the source `ok`.
-const UPSERT_SOURCE: &str = "INSERT INTO sources (canon_key, canon_url, host, adapter, title, site_name, author, \
-lang, fetched_at, fresh_until, fetch_outcome, etag, last_modified, state, reputation, rank_list_v) \
+/// The source upsert: a check that succeeded leaves the source `ok`, except
+/// that an `opted_out` source stays so (no check lifts an opt-out).
+pub const UPSERT_SOURCE: &str = "INSERT INTO sources (canon_key, canon_url, host, adapter, title, site_name, \
+author, lang, fetched_at, fresh_until, fetch_outcome, etag, last_modified, state, reputation, rank_list_v) \
 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, 'ok', ?11, ?12, 'ok', ?13, ?14) \
 ON CONFLICT (canon_key) DO UPDATE SET canon_url = excluded.canon_url, host = excluded.host, \
 title = excluded.title, site_name = excluded.site_name, author = excluded.author, lang = excluded.lang, \
 fetched_at = excluded.fetched_at, fresh_until = excluded.fresh_until, fetch_outcome = 'ok', \
-etag = excluded.etag, last_modified = excluded.last_modified, state = 'ok', reputation = excluded.reputation, \
+etag = excluded.etag, last_modified = excluded.last_modified, \
+state = CASE WHEN sources.state = 'opted_out' THEN 'opted_out' ELSE 'ok' END, reputation = excluded.reputation, \
 rank_list_v = excluded.rank_list_v WHERE sources.adapter = excluded.adapter";
 
 /// The bounds of the page metadata a source keeps (hostile input: risk F16).
@@ -639,7 +751,6 @@ fn bounded(s: Option<&String>) -> Val {
 }
 
 /// Stores a finished check: one D1 batch fenced by the claim's token.
-/// `Ok(true)` when the page went live under this driver.
 async fn store(
     io: &impl Io,
     ctx: &UrlCtx<'_>,
@@ -647,8 +758,8 @@ async fn store(
     src: &SourceWrite,
     run_id: u64,
     new_run: Option<(u64, &RunDoc, Option<Bytes32>, &str)>,
-    sitemap: bool,
-) -> Result<bool, IoError> {
+    fence: Fence<'_>,
+) -> Result<Stored, IoError> {
     let now = io.now_ms();
     let (ck, tok) = held_vals(held);
     let skey = source_canon_key(&src.key);
@@ -681,11 +792,82 @@ ON CONFLICT (alias_key) DO NOTHING",
     if let Some((id, doc, content_key, extract_v)) = new_run {
         b.push(insert_run(ctx, &ck, &tok, id, doc, content_key, extract_v));
     }
-    let ours = b.len();
-    b.extend(go_live(ctx, &ck, &tok, &held.id_h, &skey, run_id, now, sitemap));
+    finish(io, ctx, held, b, &skey, run_id, new_run.is_some(), now, fence).await
+}
+
+/// What may stop a stored check going live. It is checked inside the
+/// store's own batch, so a removal that lands while the check runs (the
+/// pending page has no source yet, so the removal cannot name it) still
+/// wins.
+#[derive(Clone, Copy, Debug)]
+enum Fence<'a> {
+    /// A web page or a Bluesky post: neither the stored source nor the
+    /// source the submitted link names may be `opted_out` or have a page
+    /// under a legal state ([`BLOCKING_PAGE`]). A blocked page ends
+    /// `failed` (`rerun_blocked`) with its domain-only source (`host`,
+    /// `adapter`). `sitemap`: the page takes a sitemap position (web only).
+    Page { submitted: &'a str, host: &'a str, adapter: &'a str, sitemap: bool },
+    /// A post on X: the source must be the live post, not the removal
+    /// tombstone. A blocked page ends `failed` (`x_removed`) with no source.
+    X,
+}
+
+/// How the store's batch ended.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Stored {
+    /// The page went live under this driver.
+    Live,
+    /// The fence stopped it: the batch ended the page `failed` and deleted
+    /// the run it inserted.
+    Blocked,
+    /// The claim was taken over: the taker finishes the page.
+    Lost,
+}
+
+/// Whether a web or Bluesky page is blocked: the stored source (`?4`), or
+/// the source the submitted link names by its key (`?8`) or alias (`?9`),
+/// is `opted_out` or has a blocking page.
+fn page_blocked() -> String {
+    format!(
+        "EXISTS (SELECT 1 FROM sources s WHERE (s.canon_key IN (?4, ?8) \
+OR s.source_id = (SELECT a.source_id FROM source_aliases a WHERE a.alias_key = ?9)) \
+AND (s.state = 'opted_out' OR EXISTS (SELECT 1 FROM detections b WHERE {BLOCKING_PAGE})))"
+    )
+}
+
+/// Whether an X page is blocked: its source (`?4`) is not the live post
+/// (the removal left the tombstone, which has no `canon_url`).
+pub const X_BLOCKED: &str = "NOT EXISTS (SELECT 1 FROM sources s WHERE s.canon_key = ?4 AND s.canon_url IS NOT NULL \
+AND s.state <> 'opted_out')";
+
+/// Runs the store's batch: `b` (the source, its aliases, the run) and then
+/// [`go_live`]'s statements.
+#[allow(clippy::too_many_arguments)]
+async fn finish(
+    io: &impl Io,
+    ctx: &UrlCtx<'_>,
+    held: &Held,
+    mut b: Vec<Stmt>,
+    skey: &Bytes32,
+    run_id: u64,
+    new_run: bool,
+    now: u64,
+    fence: Fence<'_>,
+) -> Result<Stored, IoError> {
+    let (ck, tok) = held_vals(held);
+    let at = b.len();
+    let (stmts, live, blocked) = go_live(ctx, &ck, &tok, &held.id_h, skey, run_id, new_run, now, fence);
+    b.extend(stmts);
     let done = io.batch(b).await?;
-    // This driver's own update moved the page (a taker's would not count).
-    Ok(done.get(ours).is_some_and(|d| d.changes == 1))
+    // This driver's own updates moved the page (a taker's would not count).
+    let moved = |i: usize| done.get(at + i).is_some_and(|d| d.changes == 1);
+    Ok(if moved(live) {
+        Stored::Live
+    } else if moved(blocked) {
+        Stored::Blocked
+    } else {
+        Stored::Lost
+    })
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -734,9 +916,12 @@ SELECT ?3, ?4, ?5, ?6, ?7, ?8, '{CANON_V}', ?9, '{}', ?10, ?11, ?12, ?13, ?14, ?
     )
 }
 
-/// The page goes live: its run and source, its sitemap position (web pages
-/// only), older pages of the source superseded and their shards marked
-/// dirty, the claim deleted; then the page's state, read back.
+/// The page goes live unless the fence stops it: its run and source, its
+/// sitemap position (web pages only), older live pages of the source
+/// superseded and their shards marked dirty, the claim deleted; then the
+/// page's state, read back. A blocked page ends `failed` in the same batch
+/// and the run this batch inserted (`new_run`) is deleted. Returns the
+/// statements and the offsets of the live and the blocked update.
 #[allow(clippy::too_many_arguments)]
 fn go_live(
     ctx: &UrlCtx<'_>,
@@ -745,31 +930,57 @@ fn go_live(
     id_h: &Bytes32,
     skey: &Bytes32,
     run_id: u64,
+    new_run: bool,
     now: u64,
-    sitemap: bool,
-) -> Vec<Stmt> {
+    fence: Fence<'_>,
+) -> (Vec<Stmt>, usize, usize) {
+    let sitemap = matches!(fence, Fence::Page { sitemap: true, .. });
     let seq = if sitemap { "(SELECT coalesce(max(sitemap_seq), -1) + 1 FROM detections)" } else { "NULL" };
-    vec![
-        Stmt::owned(
-            format!(
-                "UPDATE detections SET state = 'live', refusal = NULL, run_id = ?3, \
+    let mut live_vals = vec![
+        ck.clone(),
+        tok.clone(),
+        Val::int(run_id),
+        Val::blob(skey),
+        Val::text(&ctx.serving.load),
+        Val::int(now),
+        Val::blob(id_h),
+    ];
+    let blocked = match fence {
+        Fence::Page { submitted, .. } => {
+            live_vals.push(Val::blob(&source_canon_key(submitted)));
+            live_vals.push(Val::blob(&alias_key(submitted)));
+            page_blocked()
+        }
+        Fence::X => X_BLOCKED.to_owned(),
+    };
+    let mut v = vec![Stmt::owned(
+        format!(
+            "UPDATE detections SET state = 'live', refusal = NULL, run_id = ?3, \
 source_id = (SELECT source_id FROM sources WHERE canon_key = ?4), package_load = ?5, sitemap_seq = {seq}, \
-state_v = state_v + 1, updated_at = ?6 WHERE id_h = ?7 AND state = 'pending' AND {FENCE}"
-            ),
-            vec![
-                ck.clone(),
-                tok.clone(),
-                Val::int(run_id),
-                Val::blob(skey),
-                Val::text(&ctx.serving.load),
-                Val::int(now),
-                Val::blob(id_h),
-            ],
+state_v = state_v + 1, updated_at = ?6 WHERE id_h = ?7 AND state = 'pending' AND {FENCE} AND NOT ({blocked})"
         ),
+        live_vals,
+    )];
+    // Still pending with the claim ours after the live update: the fence
+    // stopped it. The blocked update is the last of these statements.
+    let domain = match fence {
+        Fence::Page { host, adapter, .. } => Some((host, adapter)),
+        Fence::X => None,
+    };
+    let end = end_blocked(ck, tok, id_h, now, domain);
+    let blocked_at = v.len() + end.len() - 1;
+    v.extend(end);
+    if new_run {
+        v.push(Stmt::new(
+            "DELETE FROM runs WHERE run_id = ?1 AND NOT EXISTS (SELECT 1 FROM detections WHERE run_id = ?1)",
+            vec![Val::int(run_id)],
+        ));
+    }
+    v.extend([
         Stmt::new(
             "UPDATE detections SET superseded_by = ?1, state_v = state_v + 1 \
 WHERE source_id = (SELECT source_id FROM detections WHERE id_h = ?1 AND state = 'live') AND id_h <> ?1 \
-AND state IN ('live','excerpt_withheld') AND superseded_by IS NULL",
+AND state = 'live' AND superseded_by IS NULL",
             vec![Val::blob(id_h)],
         ),
         Stmt::new(
@@ -785,44 +996,108 @@ ON CONFLICT (shard) DO UPDATE SET dirty = 1",
         ),
         Stmt::new(claims::RELEASE, vec![ck.clone(), tok.clone()]),
         Stmt::new("SELECT state FROM detections WHERE id_h = ?1", vec![Val::blob(id_h)]),
-    ]
+    ]);
+    (v, 0, blocked_at)
 }
 
-/// This page becomes an alias of `existing`, the live page its source
-/// already has: the same run, `rel=canonical` to it, and the link's forms as
-/// aliases of its source.
+/// Ends a page the fence stopped: `failed`, with no run, while the claim
+/// is still this driver's and the page still pending (so after a live
+/// update in the same batch it changes nothing). A web or Bluesky page
+/// (`domain`: its host and adapter) keeps its domain-only source, inserted
+/// only for such a page, and reads `rerun_blocked`; an X page (`None`)
+/// keeps no source and reads `x_removed`. The update is the last
+/// statement.
+fn end_blocked(ck: &Val, tok: &Val, id_h: &Bytes32, now: u64, domain: Option<(&str, &str)>) -> Vec<Stmt> {
+    let mut v = Vec::new();
+    let (code, source) = match domain {
+        Some((host, adapter)) => {
+            let k = source_canon_key(&domain_key(host));
+            v.push(Stmt::owned(
+                format!(
+                    "INSERT INTO sources (canon_key, canon_url, host, adapter, state, reputation, rank_list_v) \
+SELECT ?3, ?4, ?5, ?6, 'ok', 'unranked', 'none' WHERE {FENCE} \
+AND EXISTS (SELECT 1 FROM detections WHERE id_h = ?7 AND state = 'pending') ON CONFLICT (canon_key) DO NOTHING"
+                ),
+                vec![
+                    ck.clone(),
+                    tok.clone(),
+                    Val::blob(&k),
+                    Val::text(format!("https://{host}/")),
+                    Val::text(host),
+                    Val::text(adapter),
+                    Val::blob(id_h),
+                ],
+            ));
+            (RefusalCode::RerunBlocked, Val::blob(&k))
+        }
+        None => (RefusalCode::XRemoved, Val::Null),
+    };
+    v.push(Stmt::owned(
+        format!(
+            "UPDATE detections SET state = 'failed', refusal = ?3, \
+source_id = (SELECT source_id FROM sources WHERE canon_key = ?6), run_id = NULL, \
+state_v = state_v + 1, updated_at = ?4 WHERE id_h = ?5 AND state = 'pending' AND {FENCE}"
+        ),
+        vec![ck.clone(), tok.clone(), Val::text(code.as_str()), Val::int(now), Val::blob(id_h), source],
+    ));
+    v
+}
+
+/// This page becomes an alias of `existing`, a live page of its source or
+/// of its declared canonical: the same run and source, `rel=canonical` to
+/// it, and the link's forms as aliases of that source. If `existing` is no
+/// longer live by then (a removal landed), the page ends `failed`
+/// (`rerun_blocked`) with its domain-only source (`domain`: host and
+/// adapter).
 async fn alias_to(
     io: &impl Io,
     ctx: &UrlCtx<'_>,
     held: &Held,
     page: &SourcePage,
     existing: &str,
-) -> Result<(), RefusalCode> {
+    domain: (&str, &str),
+) -> Result<(), Stop> {
     let (ck, tok) = held_vals(held);
-    let skey = source_canon_key(&page.key);
     let ex = crate::keys::public_id_h(existing);
     let now = io.now_ms();
-    let mut b = Vec::new();
-    for a in &page.aliases {
-        b.push(Stmt::new(
-            "INSERT INTO source_aliases (alias_key, source_id) SELECT ?1, source_id FROM sources WHERE canon_key = ?2 \
-ON CONFLICT (alias_key) DO NOTHING",
-            vec![Val::blob(&alias_key(a)), Val::blob(&skey)],
-        ));
-    }
-    b.push(Stmt::owned(
+    let mut b = vec![Stmt::owned(
         format!(
             "UPDATE detections SET state = 'live', refusal = NULL, superseded_by = ?3, \
 run_id = (SELECT run_id FROM detections WHERE id_h = ?3), source_id = (SELECT source_id FROM detections WHERE id_h = ?3), \
 package_load = ?4, state_v = state_v + 1, updated_at = ?5 WHERE id_h = ?6 AND state = 'pending' AND {FENCE} \
 AND EXISTS (SELECT 1 FROM detections WHERE id_h = ?3 AND state = 'live')"
         ),
-        vec![ck.clone(), tok.clone(), Val::blob(&ex), Val::text(&ctx.serving.load), Val::int(now), Val::blob(&held.id_h)],
-    ));
+        vec![
+            ck.clone(),
+            tok.clone(),
+            Val::blob(&ex),
+            Val::text(&ctx.serving.load),
+            Val::int(now),
+            Val::blob(&held.id_h),
+        ],
+    )];
+    // The link's forms, its own source key among them, name the joined
+    // source, only once this page shows it.
+    for a in std::iter::once(&page.key).chain(&page.aliases) {
+        b.push(Stmt::new(
+            "INSERT INTO source_aliases (alias_key, source_id) SELECT ?1, source_id FROM detections \
+WHERE id_h = ?2 AND state = 'live' AND source_id IS NOT NULL ON CONFLICT (alias_key) DO NOTHING",
+            vec![Val::blob(&alias_key(a)), Val::blob(&held.id_h)],
+        ));
+    }
+    let end = end_blocked(&ck, &tok, &held.id_h, now, Some(domain));
+    let blocked_at = b.len() + end.len() - 1;
+    b.extend(end);
     b.push(Stmt::new(claims::RELEASE, vec![ck, tok]));
-    io.batch(b).await.map_err(|_| RefusalCode::Unavailable)?;
-    io.metric("reuse", &["alias"]);
-    Ok(())
+    let done = io.batch(b).await.map_err(|_| RefusalCode::Unavailable)?;
+    if done.first().is_some_and(|d| d.changes == 1) {
+        io.metric("reuse", &["alias"]);
+        Ok(())
+    } else if done.get(blocked_at).is_some_and(|d| d.changes == 1) {
+        Err(Stop::Ended(RefusalCode::RerunBlocked))
+    } else {
+        Ok(())
+    }
 }
 
 // ------------------------------------------------------------------- X
@@ -834,14 +1109,14 @@ async fn drive_x(
     ctx: &UrlCtx<'_>,
     held: &Held,
     id: u64,
-) -> Result<(), RefusalCode> {
+) -> Result<(), Stop> {
     let key = x_flow::x_canon_key(id);
     let ans = fetch.x_post(&XPostRequest { id, deadline_ms: ctx.fetch_ms }).await.unwrap_or(XPostAnswer::Busy);
     let text = match ans {
         XPostAnswer::Text { text } => text,
-        XPostAnswer::Long => return Err(x_refused(io, "long", RefusalCode::XPostLong)),
-        XPostAnswer::Busy => return Err(x_refused(io, "busy", RefusalCode::XBusy)),
-        XPostAnswer::Unexpected => return Err(x_refused(io, "unexpected", RefusalCode::XUnavailable)),
+        XPostAnswer::Long => return Err(x_refused(io, "long", RefusalCode::XPostLong).into()),
+        XPostAnswer::Busy => return Err(x_refused(io, "busy", RefusalCode::XBusy).into()),
+        XPostAnswer::Unexpected => return Err(x_refused(io, "unexpected", RefusalCode::XUnavailable).into()),
         XPostAnswer::Unavailable => {
             // An existing source the embed no longer shows: due at once, so
             // the next sweep checks it with its controls and deletes it.
@@ -851,7 +1126,7 @@ async fn drive_x(
                     vec![Val::blob(&key)],
                 ))
                 .await;
-            return Err(x_refused(io, "unavailable", RefusalCode::XPostUnavailable));
+            return Err(x_refused(io, "unavailable", RefusalCode::XPostUnavailable).into());
         }
     };
     io.metric("xread", &["text"]);
@@ -866,6 +1141,8 @@ async fn drive_x(
     let now = io.now_ms();
     let (ck, tok) = held_vals(held);
     let url = x_canonical(id).ok_or(RefusalCode::Internal)?;
+    // The post's source: a tombstone left by a removal is kept as it is,
+    // and the fence then ends the page.
     let mut b = vec![Stmt::new(
         "INSERT INTO sources (canon_key, canon_url, host, adapter, fetched_at, fetch_outcome, state, reputation, \
 rank_list_v) VALUES (?1, ?2, ?3, 'x', ?4, 'ok', 'ok', 'ranked', 'x') ON CONFLICT (canon_key) DO UPDATE SET \
@@ -874,17 +1151,17 @@ state = 'ok', reputation = 'ranked' WHERE sources.adapter = 'x' AND sources.cano
         vec![Val::blob(&key), Val::text(url), Val::text(X_HOST), Val::int(now)],
     )];
     b.push(insert_run(ctx, &ck, &tok, run_id, &doc, None, X_TEXT_V));
-    let ours = b.len();
-    b.extend(go_live(ctx, &ck, &tok, &held.id_h, &key, run_id, now, false));
-    let ok = match io.batch(b).await {
-        Ok(done) => done.get(ours).is_some_and(|d| d.changes == 1),
-        Err(_) => false,
-    };
-    if !ok {
+    let stored = finish(io, ctx, held, b, &key, run_id, true, now, Fence::X).await;
+    if stored != Ok(Stored::Live) {
+        // The document must not outlive rows that point at it.
         let _ = io.doc_delete(&[run_doc_key(run_id)]).await;
-        return Err(RefusalCode::Unavailable);
     }
-    Ok(())
+    match stored {
+        Ok(Stored::Live) => Ok(()),
+        // A removal left the tombstone while the post was read.
+        Ok(Stored::Blocked) => Err(Stop::Ended(RefusalCode::XRemoved)),
+        Ok(Stored::Lost) | Err(IoError) => Err(RefusalCode::Unavailable.into()),
+    }
 }
 
 fn x_refused(io: &impl Io, outcome: &'static str, code: RefusalCode) -> RefusalCode {

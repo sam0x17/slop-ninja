@@ -528,3 +528,56 @@ fn every_point_written_is_in_the_schema() {
         assert_eq!(p.blobs.len(), blobs.len(), "{name}");
     }
 }
+
+#[test]
+fn a_removal_during_a_check_leaves_nothing_of_the_post() {
+    // The removal lands after admit read no tombstone and before the store
+    // (the pending page has no source yet, so the removal cannot name it).
+    for at_store in [false, true] {
+        let w = World::new(10);
+        let id = post_id(w.h.now.get(), 2 * 3_600_000, 1);
+        w.fetch.posts.borrow_mut().insert(id, XPostAnswer::Text { text: format!("{AI1} {HUMAN}") });
+        let a = block_on(admit(&w.h, &w.host, &w.ctx(), &format!("https://x.com/i/status/{id}"))).unwrap();
+        let Admitted::Drive(d) = a else { panic!("{a:?}") };
+        if at_store {
+            // Inside the store's own batch, just before its first statement.
+            let key = x_canon_key(id).to_vec();
+            w.h.before("INSERT INTO sources (canon_key, canon_url, host, adapter, fetched_at", move |db| {
+                db.execute(x_flow::UPSERT_TOMBSTONE, [&key]).unwrap();
+            });
+        } else {
+            let r = remove(&w, id, CaseRef::New("td-x0000005".into()), false);
+            assert_eq!(r.removed, 0, "the pending page is not the removal's");
+        }
+        let e = block_on(drive(&w.h, &w.host, &w.fetch, &w.scorer, &w.ctx(), &d));
+        assert_eq!(e.failed, Some(RefusalCode::XRemoved), "at_store {at_store}");
+        assert_eq!(w.scorer.calls.get(), 1, "the check ran to its store");
+        // No live page, no run row, no run document, no claim; the page
+        // ended failed with no source.
+        let (state, refusal, src, run): (String, Option<String>, Option<i64>, Option<i64>) =
+            w.h.db
+                .query_row(
+                    "SELECT state, refusal, source_id, run_id FROM detections WHERE public_slug = ?1",
+                    [&e.slug],
+                    |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)),
+                )
+                .unwrap();
+        assert_eq!((state.as_str(), refusal.as_deref(), src, run), ("failed", Some("x_removed"), None, None));
+        assert_eq!(w.h.count("SELECT count(*) FROM detections WHERE state = 'live'"), 0);
+        assert_eq!(w.h.count("SELECT count(*) FROM runs"), 0);
+        assert_eq!(w.h.docs.borrow().keys().filter(|k| k.starts_with("r/")).count(), 0);
+        assert_eq!(w.h.count("SELECT count(*) FROM claims"), 0);
+        let p = w.page(&e.slug).unwrap();
+        assert_eq!((p.state, p.failure.map(|f| f.code)), (DetState::Failed, Some(RefusalCode::XRemoved)));
+        // Only the tombstone is left, and a later check answers x_removed
+        // with no request.
+        let (url, st): (Option<String>, String) =
+            w.h.db.query_row("SELECT canon_url, state FROM sources", [], |r| Ok((r.get(0)?, r.get(1)?))).unwrap();
+        assert_eq!((url, st.as_str()), (None, "opted_out"));
+        let calls = w.fetch.post_calls.get();
+        let r = block_on(admit(&w.h, &w.host, &w.ctx(), &format!("https://x.com/a/status/{id}"))).unwrap_err();
+        assert_eq!(r.code, RefusalCode::XRemoved);
+        assert_eq!(w.fetch.post_calls.get(), calls);
+        assert!(!w.h.dump().contains("/status/"));
+    }
+}

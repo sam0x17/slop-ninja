@@ -1314,8 +1314,10 @@ pub struct Effect {
     /// case still holds them, or (a reject) because an accepted withhold
     /// took their text; for a restore by case, also removed pages the
     /// operator's `remove {slug}` holds or the restored case cannot have
-    /// removed. A page no open case holds can still be returned by
-    /// `restore {slug}`.
+    /// removed. For `remove {case_id}` and `withhold_excerpt`, public pages
+    /// the op moved after another op decided its case meanwhile, which take
+    /// the operator's hold. A page no open case holds can still be returned
+    /// by `restore {slug}`.
     #[serde(skip_serializing_if = "is_zero")]
     pub on_hold: u64,
     /// Documents an R2 step left for a retry of the same op.
@@ -1364,11 +1366,42 @@ impl Basis {
     }
 }
 
+/// Whether a removal op (`remove {case_id}`, `withhold_excerpt`) may act on
+/// a case in state `s`: one still awaiting its decision (it can still be
+/// accepted) or one whose removal stands (`accepted`, `countered`). A decided
+/// case (`rejected`, `restored`, `closed`) is refused, before anything is
+/// read or written, as `reject` and `close_case` refuse an edge they cannot
+/// take: the op would move its pages while the case kept a state no hold
+/// counts (`Others`), so restoring another case on the page could return it.
+/// `remove {slug}` (which leaves the operator's hold) or a new case is the
+/// operator's path for a page whose case was decided.
+pub fn takes_removal(s: CaseState) -> bool {
+    case_edge(s, CaseState::Accepted) || matches!(s, CaseState::Accepted | CaseState::Countered)
+}
+
+/// The operator's hold on a public page a removal op moved, should its case
+/// have been decided by another op between this op's read and its batch:
+/// the case's own state change then did not apply, so no case holds the
+/// move, and the page takes the hold `remove {slug}` leaves (only
+/// `restore {slug}` lifts it). It follows the case's state change in the
+/// same batch and changes nothing while the case is `accepted` or
+/// `countered`.
+fn decided_meanwhile_hold(id_h: &Bytes32, case_id: &str, now: u64) -> Stmt {
+    Stmt::new(
+        "UPDATE detections SET op_hold_at = COALESCE(op_hold_at, ?2) WHERE id_h = ?1 AND kind = 'public_url' \
+AND platform <> 'x' AND state IN ('removed','excerpt_withheld') \
+AND NOT EXISTS (SELECT 1 FROM cases WHERE case_id = ?3 AND state IN ('accepted','countered'))",
+        vec![Val::blob(id_h), Val::int(now), Val::text(case_id)],
+    )
+}
+
 /// `withhold_excerpt {case_id}`: every live public page among the case's
 /// targets has its excerpt withheld, and so has every other live public page
 /// of the same run (the same text); then each run document is rewritten
 /// without its text (its result stays, so the page keeps its score). The
-/// case is accepted.
+/// case is accepted. A decided case is refused ([`takes_removal`]); one
+/// decided while the op runs leaves the pages it withheld under the
+/// operator's hold (`decided_meanwhile_hold`, counted as `on_hold`).
 pub async fn withhold_excerpt(
     io: &impl Io,
     origins: &Origins,
@@ -1376,6 +1409,9 @@ pub async fn withhold_excerpt(
     basis: &Basis,
     journal: Stmt,
 ) -> Result<Effect, RefusalCode> {
+    if !takes_removal(case.state) {
+        return Err(RefusalCode::OpMalformed);
+    }
     let now = io.now_ms();
     let targets = case_targets(io, &case.case_id).await?;
     let mut runs = BTreeSet::new();
@@ -1397,16 +1433,21 @@ AND kind = 'public_url' AND platform <> 'x' AND state = 'live' ORDER BY id_h",
         .map_err(|_| RefusalCode::Unavailable)?;
     let mut batch = vec![journal];
     let mut slugs = Vec::new();
+    let mut ids = Vec::new();
     for r in &pages.rows {
         let (Some(id), Some(slug)) = (r.hex32("id_h"), r.text("public_slug")) else { continue };
         let row_stub = stub_row(id);
         batch.extend(withhold_stmts(&row_stub, slug, &basis.basis, &basis.jurisdiction, now));
         slugs.push(slug.to_owned());
+        ids.push(id);
     }
     // Pages withheld at intake (pending review) keep their record.
     batch.push(case_state_stmt(&case.case_id, CaseState::Accepted, now));
+    let held_from = batch.len();
+    batch.extend(ids.iter().map(|id| decided_meanwhile_hold(id, &case.case_id, now)));
     batch.extend(strike_stmts(case, &targets, now));
-    io.batch(batch).await.map_err(|_| RefusalCode::Unavailable)?;
+    let done = io.batch(batch).await.map_err(|_| RefusalCode::Unavailable)?;
+    let on_hold = (held_from..held_from + ids.len()).map(|i| done.get(i).map_or(0, |d| d.changes)).sum();
     let mut pending = 0;
     for run in &runs {
         if rewrite_without_text(io, *run).await.is_err() {
@@ -1415,7 +1456,7 @@ AND kind = 'public_url' AND platform <> 'x' AND state = 'live' ORDER BY id_h",
     }
     queue_purges(io, origins, &slugs).await;
     io.metric("removal", &[case.kind.as_str(), "excerpt_withheld"]);
-    Ok(Effect { pages: slugs.len() as u64, docs_pending: pending, ..Effect::default() })
+    Ok(Effect { pages: slugs.len() as u64, on_hold, docs_pending: pending, ..Effect::default() })
 }
 
 /// A row with only its id, for the statements that take one.
@@ -1473,7 +1514,10 @@ pub async fn rewrite_without_text(io: &impl Io, run_id: u64) -> Result<(), IoErr
 /// now on (its run document is deleted when no other shown page reads it);
 /// a secret page and its re-run copies move their documents to quarantine;
 /// an X page takes the X removal, with this case. The case is accepted, and
-/// a copyright case's owned targets leave strikes.
+/// a copyright case's owned targets leave strikes. A decided case is refused
+/// ([`takes_removal`]); one decided while the op runs leaves the public pages
+/// it removed under the operator's hold (`decided_meanwhile_hold`, counted
+/// as `on_hold`).
 pub async fn remove_case(
     io: &impl Io,
     keys: &StoreKeys,
@@ -1482,6 +1526,9 @@ pub async fn remove_case(
     basis: &Basis,
     journal: Stmt,
 ) -> Result<Effect, RefusalCode> {
+    if !takes_removal(case.state) {
+        return Err(RefusalCode::OpMalformed);
+    }
     let now = io.now_ms();
     let targets = case_targets(io, &case.case_id).await?;
     let mut effect = Effect::default();
@@ -1509,6 +1556,7 @@ pub async fn remove_case(
     let mut runs = BTreeSet::new();
     let mut quarantined = Vec::new();
     let mut seen = BTreeSet::new();
+    let mut public = Vec::new();
     for t in targets.iter().filter(|t| t.platform != Platform::X) {
         if t.kind == Kind::PublicUrl {
             if !matches!(t.state, DetState::Live | DetState::ExcerptWithheld | DetState::Pending | DetState::Failed) {
@@ -1523,6 +1571,7 @@ AND kind = 'public_url' AND state IN ('live','excerpt_withheld','pending','faile
             batch.push(removal_row(Some(&slug), "page", &basis.basis, &basis.jurisdiction, now));
             batch.push(shard_dirty(&t.id_h));
             slugs.push(slug);
+            public.push(t.id_h);
             if let Some(r) = t.run_id {
                 runs.insert(r);
             }
@@ -1558,13 +1607,16 @@ AND kind IN ('private_text','private_paid') AND state IN ('live','pending','disa
         }
     }
     batch.push(case_state_stmt(&case.case_id, CaseState::Accepted, now));
+    let held_from = batch.len();
+    batch.extend(public.iter().map(|id| decided_meanwhile_hold(id, &case.case_id, now)));
     batch.extend(strike_stmts(case, &targets, now));
-    if io.batch(batch).await.is_err() {
+    let Ok(done) = io.batch(batch).await else {
         for id in &quarantined {
             let _ = io.doc_delete(&[quarantine_key(&case.case_id, id)]).await;
         }
         return Err(RefusalCode::Unavailable);
-    }
+    };
+    effect.on_hold = (held_from..held_from + public.len()).map(|i| done.get(i).map_or(0, |d| d.changes)).sum();
     // The live documents go only now that the pages answer 451.
     let live: Vec<String> = quarantined.iter().map(secret_doc_key).collect();
     if delete_docs(io, &live).await.is_err() {
@@ -2404,6 +2456,14 @@ mod tests {
         }
         assert_eq!(from_states(Countered), "('accepted')");
         assert!(!from_states(Closed).contains("'closed'"));
+    }
+
+    #[test]
+    fn a_removal_op_takes_only_a_case_awaiting_its_decision_or_standing() {
+        for &s in CaseState::ALL {
+            let want = matches!(s, Received | Incomplete | Reviewing | Accepted | Countered);
+            assert_eq!(takes_removal(s), want, "{s}");
+        }
     }
 
     #[test]

@@ -312,7 +312,16 @@ already removed): no `restore` by case returns that page, and nor does the
 decision, whose only step is the intake withhold, or a rejected one).
 `restore {slug}` is the operator's decision on the page itself: it lifts
 the operator's hold and passes closed cases and other pages of the same
-text, never an open case's hold. Every X removal is one removal: R2
+text, never an open case's hold. `withhold_excerpt` and `remove {case_id}`
+act only on a case awaiting its decision or one whose removal stands
+(`accepted`, `countered`); a `rejected`, `restored` or `closed` case is
+refused (`op_malformed`, nothing written, the nonce unspent), as `reject`
+and `close_case` refuse an edge they cannot take, since the case would keep
+a state no hold counts. To take such a page down again the operator uses
+`remove {slug}` for a public page, or a new case (or `delete_private`) for a
+secret one. Should another op decide the case while the removal runs, the
+public pages it moved take the operator's hold (`on_hold` in its answer).
+Every X removal is one removal: R2
 first, then one D1 batch that leaves the post's opt-out tombstone with only
 its key hash, names it in the case, and journals
 `x_remove {reason, canon_key}`; `restore` lifts that tombstone and nothing

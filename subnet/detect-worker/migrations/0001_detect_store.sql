@@ -62,7 +62,8 @@ CREATE TABLE detections (
   copy_of BLOB,                              -- a secret re-run copy's family root, the first original's id_h
   expiry_cap INTEGER,                        -- a copy's latest allowed expires_at, the original's
   op_hold_at INTEGER,                        -- public: when `remove {slug}` (outside any case) removed the page or
-                                             -- found it removed; no case's restore returns it, `restore {slug}` clears it
+                                             -- found it removed, or a case's removal moved it as another op decided
+                                             -- the case; no case's restore returns it, `restore {slug}` clears it
   CHECK ((owner_h IS NULL) = (owner_via IS NULL)),
   CHECK (platform <> 'x' OR kind = 'public_url'));                                             -- an X post is a public page
 CREATE INDEX det_expiry ON detections(expires_at) WHERE expires_at IS NOT NULL;

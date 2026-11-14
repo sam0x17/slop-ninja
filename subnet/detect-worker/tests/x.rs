@@ -818,6 +818,37 @@ fn a_gone_deletion_leaves_a_run_another_page_still_names() {
     assert_eq!(w.h.count(&format!("SELECT count(*) FROM runs WHERE run_id = {run_a}")), 1);
 }
 
+/// A removal of the post lands in a gone deletion's gaps after its step 1
+/// read the post's run (before the R2 delete, and after it, before the
+/// batch): the deletion's batch leaves the page that now hangs on the
+/// tombstone, and its run, to the removal (the guard on `DELETE_RUNS`), and
+/// the removal's own deletion takes both. No run outlives its document, and
+/// nothing of the post is left.
+#[test]
+fn a_removal_in_a_gone_deletion_s_gap_takes_the_run_it_left() {
+    for gap in [AT_DOC_DELETE, "THEN state ELSE 'deleted' END"] {
+        let w = World::new(10);
+        let (id, s1) = w.post(1);
+        w.h.advance(X_CHECK_EVERY_MS + 1);
+        w.fetch.exists.borrow_mut().insert(id, XExists::Gone);
+        w.h.pause_at(gap);
+        let (rep, removed) =
+            interleave(x_flow::sweep(&w.h, &w.fetch, &w.origins, &w.cfg), removal(&w, id, XCase::New, false));
+        rep.unwrap();
+        assert_eq!(removed.unwrap().removed, 1, "{gap}");
+        assert!(w.h.pauses.borrow().is_empty(), "{gap}: the deletion paused there");
+        let p = w.page(&s1).unwrap();
+        assert_eq!((p.state, p.http_status()), (DetState::Removed, 451), "{gap}");
+        assert_eq!(w.h.count("SELECT count(*) FROM runs"), 0, "{gap}: no run outlives its document");
+        assert_eq!(w.h.count("SELECT count(*) FROM detections WHERE run_id IS NOT NULL"), 0, "{gap}");
+        assert_eq!(w.h.docs.borrow().keys().filter(|k| k.starts_with("r/")).count(), 0, "{gap}");
+        w.nothing_orphaned(gap);
+        let (url, st): (Option<String>, String) =
+            w.h.db.query_row("SELECT canon_url, state FROM sources", [], |r| Ok((r.get(0)?, r.get(1)?))).unwrap();
+        assert_eq!((url, st.as_str()), (None, "opted_out"), "{gap}: the tombstone stays");
+    }
+}
+
 /// `x_purge` lands while a check of a post is being read: the check never
 /// goes live after the purge, and writes no X source, run or document.
 #[test]

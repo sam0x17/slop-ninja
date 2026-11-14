@@ -17,7 +17,8 @@
 //!   detect Worker's dev env reaches it, the fixture site and no outside
 //!   service;
 //! - the session's operator key stays in the state directory: no tracked
-//!   config holds a verifying key.
+//!   config holds a verifying key, and `secrets` gives both Workers the same
+//!   key, a key made again included.
 
 use slop_ninja_detect_page::{Origin, Origins};
 use slop_ninja_dev_http::session::{MAIL_SUBJECT_PREFIX, SECRET_ORIGIN, SITE_ORIGIN, STORES, STUB_ORIGIN};
@@ -270,6 +271,74 @@ fn the_dev_op_routes_take_the_session_s_key() {
             }
         }
     }
+}
+
+/// A scratch tree removed when the test ends, pass or fail.
+struct Scratch(PathBuf);
+
+impl Drop for Scratch {
+    fn drop(&mut self) {
+        let _ = fs::remove_dir_all(&self.0);
+    }
+}
+
+/// `dev-session.sh secrets` gives both Workers the session's key, and a key
+/// made again (its files removed from the state directory) replaces the line
+/// an earlier key wrote in detect's vars, so the two never trust different
+/// keys; the store secret and the pepper stay, and a second run changes
+/// nothing. It runs a copy of the script in a scratch tree (the script finds
+/// the Workers beside its own place), so the checkout is untouched.
+#[test]
+fn a_key_made_again_reaches_both_workers() {
+    use std::os::unix::fs::PermissionsExt;
+    use std::process::Command;
+    if Command::new("openssl").arg("version").output().is_err() {
+        eprintln!("skipped: no openssl (the session needs it to make its key)");
+        return;
+    }
+    let nanos = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_nanos());
+    let root = Scratch(std::env::temp_dir().join(format!("sn-dev-secrets-{}-{nanos}", std::process::id())));
+    let session = root.0.join("subnet/devtools/session");
+    for d in [session.clone(), root.0.join("subnet/detect-worker"), root.0.join("subnet/account-worker")] {
+        fs::create_dir_all(&d).expect("scratch tree");
+    }
+    fs::copy(devtools().join("session/dev-session.sh"), session.join("dev-session.sh")).expect("copy the script");
+    let state = root.0.join("state");
+    let run = || {
+        let out = Command::new("bash")
+            .arg(session.join("dev-session.sh"))
+            .arg("secrets")
+            .env("DEV_STATE", &state)
+            .output()
+            .expect("bash");
+        assert!(out.status.success(), "secrets: {}", String::from_utf8_lossy(&out.stderr));
+        assert!(out.stdout.is_empty(), "secrets prints nothing");
+        let detect = root.0.join("subnet/detect-worker/.dev.vars.dev");
+        let account = root.0.join("subnet/account-worker/.dev.vars.dev");
+        for f in [&detect, &account] {
+            assert_eq!(fs::metadata(f).expect("vars").permissions().mode() & 0o777, 0o600, "{}", f.display());
+        }
+        (read(&detect), read(&account), read(&state.join("dev_op_key.pub")))
+    };
+    let key_lines = |vars: &str| vars.lines().filter(|l| l.starts_with("DETECT_OP_KEY=")).count();
+    let others = |vars: &str| vars.lines().filter(|l| !l.starts_with("DETECT_OP_KEY=")).collect::<Vec<_>>().join("\n");
+    let (d1, a1, k1) = run();
+    assert_eq!(k1.len(), 64, "the public key is 64 hex digits");
+    assert!(d1.contains(&format!("DETECT_OP_KEY={k1}\n")) && key_lines(&d1) == 1, "detect holds the key once");
+    assert_eq!(a1, format!("DETECT_OP_KEY={k1}\n"));
+    assert_eq!(others(&d1).lines().count(), 2, "the store secret and the pepper");
+    // Run again: nothing changes.
+    assert!(run() == (d1.clone(), a1, k1.clone()), "a second run changes nothing");
+    // A key made again reaches both Workers, and detect keeps one line.
+    for f in ["dev_op_key", "dev_op_key.pub"] {
+        fs::remove_file(state.join(f)).expect("remove the key");
+    }
+    let (d2, a2, k2) = run();
+    assert_ne!(k2, k1, "a new key");
+    assert!(d2.contains(&format!("DETECT_OP_KEY={k2}\n")) && key_lines(&d2) == 1, "detect holds the new key once");
+    assert!(!d2.contains(&k1), "the old key is gone from detect's vars");
+    assert_eq!(a2, format!("DETECT_OP_KEY={k2}\n"));
+    assert!(others(&d2) == others(&d1), "the store secret and the pepper stay");
 }
 
 #[test]

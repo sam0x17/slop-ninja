@@ -180,6 +180,8 @@ struct FakeLedger {
     /// The next hold is placed but its answer is lost (`unavailable`).
     lose_answer: Cell<bool>,
     expires: Cell<u32>,
+    /// Idempotency keys whose expire is refused (`unavailable`).
+    refuse_expire: RefCell<Vec<String>>,
 }
 
 impl FakeLedger {
@@ -254,7 +256,7 @@ impl Ledger for FakeLedger {
     }
 
     async fn expire(&self, req: &ExpireRequest) -> Result<ExpireAnswer, RefusalCode> {
-        if self.down.get() {
+        if self.down.get() || self.refuse_expire.borrow().contains(&req.idem) {
             return Err(RefusalCode::Unavailable);
         }
         self.expires.set(self.expires.get() + 1);
@@ -1484,6 +1486,49 @@ fn a_row_another_sweep_ended_is_not_expired_again() {
     assert_eq!((l.expires.get(), l.releases.get(), l.credit.get()), (1, 1, 100_000));
     assert_eq!(w.h.count("SELECT count(*) FROM hold_starts"), 0);
     assert_eq!(w.h.doubles_of("job", "hold_expired"), vec![1.0]);
+}
+
+/// Rows whose expire keeps failing never hold newer due rows back: a failed
+/// expire moves its row behind the rows due before it, so the next hourly
+/// run reaches a newer row although a full batch of older rows keeps
+/// failing (each still tried again at every run).
+#[test]
+fn rows_whose_expire_keeps_failing_never_starve_newer_ones() {
+    let w = World::new();
+    let l = FakeLedger::with(100_000);
+    let t0 = w.h.now.get();
+    for i in 0..paid::SWEEP_JOBS {
+        let idem = format!("old{i:03}");
+        w.h.exec(&format!("INSERT INTO hold_starts (idem, state, at) VALUES ('{idem}', 'given_back', {t0})"));
+        l.refuse_expire.borrow_mut().push(idem);
+    }
+    // Half an hour later a start's hold answer is lost: its row is newer.
+    w.h.advance(1_800_000);
+    let text = prose(2_500);
+    let seal = w.free_seal(&text, 1);
+    let q = quote(&w, &l, &text, &seal, Some(reader(false))).unwrap();
+    l.lose_answer.set(true);
+    assert_eq!(start(&w, &l, &text, &seal, &q.quote_seal, Some(reader(false))).unwrap_err(), RefusalCode::Unavailable);
+    assert_eq!(l.credit.get(), 100_000 - u64::from(q.paid_tokens));
+    // Both are due; the full batch of old rows fails and moves back.
+    w.h.advance(paid::START_GRACE_MS + 1);
+    assert!(block_on(paid::sweep_starts(&w.h, &l)).is_err(), "the failures are reported");
+    assert_eq!((l.expires.get(), l.releases.get()), (0, 0));
+    let cutoff = w.h.now.get() - paid::START_GRACE_MS;
+    let behind = w.h.count(&format!("SELECT count(*) FROM hold_starts WHERE idem LIKE 'old%' AND at = {cutoff}"));
+    assert_eq!(behind as u64, paid::SWEEP_JOBS, "each failed row waits behind the rows due before it");
+    // The next hourly run reaches the newer row first; the old rows are
+    // tried again after it.
+    w.h.advance(3_600_000);
+    assert!(block_on(paid::sweep_starts(&w.h, &l)).is_err());
+    assert_eq!((l.expires.get(), l.releases.get(), l.credit.get()), (1, 1, 100_000));
+    assert_eq!(w.h.doubles_of("job", "hold_expired"), vec![1.0]);
+    assert_eq!(w.h.count("SELECT count(*) FROM hold_starts") as u64, paid::SWEEP_JOBS);
+    // Once the ledger answers again, every old row ends.
+    l.refuse_expire.borrow_mut().clear();
+    w.h.advance(3_600_000);
+    assert_eq!(block_on(paid::sweep_starts(&w.h, &l)).unwrap(), 0);
+    assert_eq!(w.h.count("SELECT count(*) FROM hold_starts"), 0);
 }
 
 /// A driver whose lease lapsed during its assembly loses to the next, which

@@ -577,8 +577,14 @@ AND EXISTS (SELECT 1 FROM jobs WHERE hold_ref = ?2)";
 /// `RETURNING` answers whether this call set it.
 pub const FENCE_START: &str = "UPDATE hold_starts SET state = 'given_back' WHERE idem = ?1 AND state = 'open' \
 RETURNING 1 AS n";
-/// Starts left behind, oldest first.
+/// Starts left behind, oldest first (a `given_back` row whose expire failed
+/// comes after the rows that were due before it: [`RETRY_LEFT_START`]).
 pub const SELECT_LEFT_STARTS: &str = "SELECT idem FROM hold_starts WHERE at <= ?1 ORDER BY at, idem LIMIT ?2";
+/// A `given_back` row whose expire failed takes the run's cutoff (`?2`) as
+/// its time: still due at the next run, but behind every row that was due
+/// before it, so rows whose expire keeps failing never fill the sweep's
+/// batch and hold newer due rows back.
+pub const RETRY_LEFT_START: &str = "UPDATE hold_starts SET at = ?2 WHERE idem = ?1 AND state = 'given_back'";
 /// The sweep's fence: a row still open and still due (`at` at or before
 /// the cutoff `?2`, so one a confirm sent again renewed since the sweep
 /// read it is left to that start).
@@ -798,7 +804,9 @@ async fn give_back(io: &impl Io, ledger: &impl Ledger, idem: &str, hold_id: &str
 /// Neither is expired. A `given_back` row names a hold no job holds: a
 /// job's batch needs the row open and deletes it, and no start opens a row
 /// once a page holds its free seal ([`UPSERT_START`]). A failed call keeps
-/// the row for the next hour. Answers how many holds this run released.
+/// the row for the next run; a failed expire also moves the row behind the
+/// rows due before it ([`RETRY_LEFT_START`]), so rows that keep failing
+/// never starve newer ones. Answers how many holds this run released.
 pub async fn sweep_starts(io: &impl Io, ledger: &impl Ledger) -> Result<u64, crate::db::IoError> {
     let now = io.now_ms();
     let cutoff = now.saturating_sub(START_GRACE_MS);
@@ -833,6 +841,10 @@ pub async fn sweep_starts(io: &impl Io, ledger: &impl Ledger) -> Result<u64, cra
             }
             Err(_) => {
                 first_err.get_or_insert(crate::db::IoError);
+                // Its next try comes after the rows due before it.
+                if let Err(e) = io.run(Stmt::new(RETRY_LEFT_START, vec![Val::text(idem), Val::int(cutoff)])).await {
+                    first_err.get_or_insert(e.into());
+                }
             }
         }
     }

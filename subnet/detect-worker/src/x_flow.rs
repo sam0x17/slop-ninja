@@ -501,6 +501,9 @@ WHERE source_id IN (SELECT value FROM json_each(?1)) AND run_id IN (SELECT value
 /// removal whose tombstone landed mid-deletion keeps its pages, and their
 /// runs, for its own deletion): a run still named would fail the whole batch
 /// on its foreign key and roll back every other post's deletion with it.
+/// Such a run's document is already gone (step 1 deleted it), so until the
+/// removal's own deletion, which follows its tombstone, takes the page and
+/// the run, the page answers `report_unavailable`; no run outlives that.
 pub const DELETE_RUNS: &str = "DELETE FROM runs WHERE run_id IN (SELECT value FROM json_each(?1)) \
 AND NOT EXISTS (SELECT 1 FROM detections d WHERE d.run_id = runs.run_id)";
 /// The set's aliases (a removal).

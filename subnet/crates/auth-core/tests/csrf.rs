@@ -370,3 +370,38 @@ fn content_types() {
     ));
     assert!(!content_type_ok(Some("application/json"), BodyType::Form));
 }
+
+/// The README's `csrf` row states the whole rule: every case `check`
+/// refuses is named there, `Origin: null` without Fetch Metadata among them.
+#[test]
+fn the_readme_names_every_refused_case() {
+    let readme = std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/README.md"))
+        .expect("README.md");
+    let row = readme
+        .lines()
+        .find(|l| l.starts_with("| `csrf` |"))
+        .expect("the csrf row");
+    let refused = &row[row.find("; `cross-site`").expect("the refused list")..];
+    let o = origins();
+    for (named, sfs, origin) in [
+        ("`cross-site`", Some("cross-site"), Some(SITE)),
+        ("`same-site`", Some("same-site"), Some(SITE)),
+        ("`none`", Some("none"), Some(SITE)),
+        (
+            "another origin",
+            Some("same-origin"),
+            Some("https://evil.example"),
+        ),
+        ("`Origin: null` without Fetch Metadata", None, Some("null")),
+        ("neither header", None, None),
+    ] {
+        assert!(
+            refused.contains(named),
+            "the README's refused list names {named}"
+        );
+        assert!(
+            check("POST", sfs, origin, &o.site).is_err(),
+            "{named} is refused"
+        );
+    }
+}

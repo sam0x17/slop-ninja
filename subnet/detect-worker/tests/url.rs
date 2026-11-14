@@ -150,9 +150,12 @@ fn a_second_browser_joins_the_claim_and_a_dead_driver_is_taken_over() {
     // takes the same page over under a new token.
     w.h.advance(120_001);
     assert!(block_on(reads::state(&w.h, &first.held.slug)).unwrap().lease_ended);
+    assert!(w.h.doubles_of("job", "claim_expired").is_empty());
     let Admitted::Drive(second) = w.admit(URL).unwrap() else { panic!() };
     assert_eq!(second.held.slug, first.held.slug);
     assert_ne!(second.held.token, first.held.token);
+    // A claim taken over past its lease is counted (`job {claim_expired}`).
+    assert_eq!(w.h.doubles_of("job", "claim_expired"), vec![1.0]);
     // The old driver wakes up: its writes are fenced off.
     let e = block_on(drive(&w.h, &w.host, &w.fetch, &w.scorer, &w.ctx(), &first));
     assert_eq!(e.slug, first.held.slug);
@@ -665,6 +668,21 @@ fn a_legal_state_blocks_although_an_alias_page_of_it_is_live() {
             "{state}: the alias page only"
         );
         assert_eq!(w.state_of(&first.slug).0, state);
+        // A new link that redirects to the page: the block shows only after
+        // the fetch, while the alias page is live. It makes no new alias
+        // page; its pending page ends failed.
+        let other = "https://example.com/s/def";
+        let mut a = ok_page(URL, &article(14));
+        a.final_url = Some(URL.into());
+        w.fetch.pages.borrow_mut().insert(other.into(), a);
+        let e = w.check(other).unwrap();
+        assert_eq!(e.failed, Some(RefusalCode::RerunBlocked), "{state}");
+        assert_eq!(w.state_of(&e.slug).0, "failed", "{state}");
+        assert_eq!(
+            w.h.count("SELECT count(*) FROM detections WHERE state = 'live'"),
+            1,
+            "{state}: still the alias page only"
+        );
     }
 }
 
@@ -691,6 +709,18 @@ fn a_legal_state_blocks_although_a_newer_page_of_its_source_is_live() {
     assert_eq!(w.admit(URL).unwrap(), Admitted::Done(old.slug.clone()));
     assert_eq!(w.check(URL).unwrap(), Ended { slug: old.slug.clone(), failed: None });
     assert_eq!((w.fetch.fetch_calls.get(), w.scorer.calls.get(), w.rows("detections"), w.rows("claims")), before);
+    // Under the newer page's package, a new link that redirects to the page:
+    // the block shows only after the fetch, while the newer page is live. It
+    // joins no alias to it; its own page ends failed.
+    w.serving.load = "load-next".into();
+    let other = "https://example.com/s/ghi";
+    let mut a = ok_page(URL, &article(14));
+    a.final_url = Some(URL.into());
+    w.fetch.pages.borrow_mut().insert(other.into(), a);
+    let e = w.check(other).unwrap();
+    assert_eq!(e.failed, Some(RefusalCode::RerunBlocked));
+    assert_eq!(w.state_of(&e.slug).3, None, "not an alias of the newer page");
+    assert_eq!(w.h.count("SELECT count(*) FROM detections WHERE state = 'live'"), 1, "the newer page only");
 }
 
 // ------------------------------------------------- redirects to other sites

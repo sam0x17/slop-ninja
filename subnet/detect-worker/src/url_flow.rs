@@ -581,15 +581,16 @@ async fn drive_page(
     let own = Known::of(dup.first());
     let declared = Known::of(dup.get(1));
     let domain = (target.host.as_str(), adapter_of(target));
+    // The source this fetch names is under a legal state, or opted out: no
+    // new page of it, an alias page included, even while another page of it
+    // is live (the store's batch checks again).
+    if own.blocked.is_some() || own.opted_out {
+        return Err(RefusalCode::RerunBlocked.into());
+    }
     if let Some(existing) = own.live.or(declared.live)
         && existing != held.slug
     {
         return alias_to(io, ctx, held, &page, &existing, domain).await;
-    }
-    // The source this fetch names is under a legal state, or opted out: no
-    // new page of it (the store's batch checks again).
-    if own.blocked.is_some() || own.opted_out {
-        return Err(RefusalCode::RerunBlocked.into());
     }
     let (reputation, rank_v) = match target.platform {
         platform::Platform::Bluesky { .. } => (Reputation::Ranked, "bsky".to_owned()),
@@ -900,10 +901,15 @@ AND (s.state = 'opted_out' OR EXISTS (SELECT 1 FROM detections b WHERE {BLOCKING
     )
 }
 
+/// `x_purge` has run: `DETECT_X` is `purged`.
+pub const X_PURGED: &str = "EXISTS (SELECT 1 FROM switches WHERE name = 'DETECT_X' AND state = 'purged')";
+
 /// Whether an X page is blocked: its source (`?4`) is not the live post
-/// (the removal left the tombstone, which has no `canon_url`).
+/// (the removal left the tombstone, which has no `canon_url`), or X posts
+/// were purged as a class while the post was read (so a check that started
+/// before `x_purge` never goes live after its pages passed).
 pub const X_BLOCKED: &str = "NOT EXISTS (SELECT 1 FROM sources s WHERE s.canon_key = ?4 AND s.canon_url IS NOT NULL \
-AND s.state <> 'opted_out')";
+AND s.state <> 'opted_out') OR EXISTS (SELECT 1 FROM switches WHERE name = 'DETECT_X' AND state = 'purged')";
 
 /// Runs the store's batch: `b` (the source, its aliases, the run) and then
 /// [`go_live`]'s statements.
@@ -1207,12 +1213,16 @@ async fn drive_x(
     let (ck, tok) = held_vals(held);
     let url = x_canonical(id).ok_or(RefusalCode::Internal)?;
     // The post's source: a tombstone left by a removal is kept as it is,
-    // and the fence then ends the page.
-    let mut b = vec![Stmt::new(
-        "INSERT INTO sources (canon_key, canon_url, host, adapter, fetched_at, fetch_outcome, state, reputation, \
-rank_list_v) VALUES (?1, ?2, ?3, 'x', ?4, 'ok', 'ok', 'ranked', 'x') ON CONFLICT (canon_key) DO UPDATE SET \
+    // and the fence then ends the page. After `x_purge` no X source is
+    // written at all.
+    let mut b = vec![Stmt::owned(
+        format!(
+            "INSERT INTO sources (canon_key, canon_url, host, adapter, fetched_at, fetch_outcome, state, reputation, \
+rank_list_v) SELECT ?1, ?2, ?3, 'x', ?4, 'ok', 'ok', 'ranked', 'x' WHERE NOT {X_PURGED} \
+ON CONFLICT (canon_key) DO UPDATE SET \
 canon_url = excluded.canon_url, fetched_at = excluded.fetched_at, fetch_outcome = 'ok', check_queued_at = NULL, \
-state = 'ok', reputation = 'ranked' WHERE sources.adapter = 'x' AND sources.canon_url IS NOT NULL",
+state = 'ok', reputation = 'ranked' WHERE sources.adapter = 'x' AND sources.canon_url IS NOT NULL AND NOT {X_PURGED}"
+        ),
         vec![Val::blob(&key), Val::text(url), Val::text(X_HOST), Val::int(now)],
     )];
     b.push(insert_run(ctx, &ck, &tok, run_id, &doc, None, X_TEXT_V));
@@ -1223,7 +1233,8 @@ state = 'ok', reputation = 'ranked' WHERE sources.adapter = 'x' AND sources.cano
     }
     match stored {
         Ok(Stored::Live) => Ok(()),
-        // A removal left the tombstone while the post was read.
+        // A removal left the tombstone while the post was read, or X posts
+        // were purged (whose pages answer `x_purged` anyway).
         Ok(Stored::Blocked) => Err(Stop::Ended(RefusalCode::XRemoved)),
         Ok(Stored::Lost) | Err(IoError) => Err(RefusalCode::Unavailable.into()),
     }

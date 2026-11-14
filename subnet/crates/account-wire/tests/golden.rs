@@ -369,6 +369,9 @@ fn entries() -> Vec<(String, String)> {
         "billing-hold-end-earlier",
         HoldEndAnswer { hold_id: "h-2c9e7a1f4b8d3065".into(), ended: HoldEnd::Committed, by_this_call: false },
     );
+    put(&mut e, "billing-expire-request", ExpireRequest { idem: "6f1e0c2a9b8d7e3f5a4c1b0e9d8f7a6b".into() });
+    put(&mut e, "billing-expire-released", ExpireAnswer { ended: Some(HoldEnd::Released), by_this_call: true });
+    put(&mut e, "billing-expire-none", ExpireAnswer { ended: None, by_this_call: false });
     // Sign-in APIs.
     put(
         &mut e,
@@ -580,7 +583,7 @@ fn the_paid_offer_follows_the_page_and_the_reader() {
     assert_eq!(closed.paid_offer(Some(off_preview)), PaidOffer::Nothing);
     // No other page offers a paid check, whoever reads it.
     let best = Some(PaidReader { billing: BillingState::Live, paid_preview: true });
-    for name in ["01-public-very-strong", "15-secret-text", "20-secret-free-cut", "28-example", "30-x-post-long"] {
+    for name in ["01-public-very-strong", "15-secret-text", "20-secret-free-cut", "28-example", "29-x-post-short"] {
         let p = page(name);
         assert_eq!(
             (p.paid_open, p.paid_offer(best), p.paid_offer(None)),

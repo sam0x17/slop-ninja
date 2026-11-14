@@ -1107,5 +1107,5 @@ fn metric_points_are_named_once() {
     for a in ae::detect::ALERTS.iter().chain(ae::account::ALERTS) {
         assert!(alerts.insert(*a), "{a}");
     }
-    assert_eq!(ae::detect::ALERTS, &["x_check_unexpected", "x_sweep_late"]);
+    assert_eq!(ae::detect::ALERTS, &["x_check_unexpected", "x_sweep_late", "commit_found_released"]);
 }

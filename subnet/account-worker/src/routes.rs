@@ -83,6 +83,7 @@ async fn internal<H: Host>(cfg: &Config, host: &H, req: &Req) -> Resp {
         InternalRoute::BillingHold => crate::ledger::hold(host, req, &sw).await,
         InternalRoute::BillingCommit => crate::ledger::commit(host, req).await,
         InternalRoute::BillingRelease => crate::ledger::release(host, req).await,
+        InternalRoute::BillingExpire => crate::ledger::expire(host, req).await,
         InternalRoute::Users => crate::users::users(host, req).await,
         // The detect Worker's internal routes never parse as this Worker's.
         _ => Resp::refusal(RefusalCode::NotFound),

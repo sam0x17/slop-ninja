@@ -186,6 +186,8 @@ pub enum InternalRoute {
     BillingHold,
     BillingCommit,
     BillingRelease,
+    /// A hold a paid start left behind ends released.
+    BillingExpire,
 }
 
 impl InternalRoute {
@@ -210,6 +212,7 @@ impl InternalRoute {
         InternalRoute::BillingHold,
         InternalRoute::BillingCommit,
         InternalRoute::BillingRelease,
+        InternalRoute::BillingExpire,
     ];
 
     /// `(method, path)`; the sitemap shard path ends in `<n>`.
@@ -235,6 +238,7 @@ impl InternalRoute {
             InternalRoute::BillingHold => ("POST", "/internal/v1/billing/hold"),
             InternalRoute::BillingCommit => ("POST", "/internal/v1/billing/commit"),
             InternalRoute::BillingRelease => ("POST", "/internal/v1/billing/release"),
+            InternalRoute::BillingExpire => ("POST", "/internal/v1/billing/expire"),
         }
     }
 

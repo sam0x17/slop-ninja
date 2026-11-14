@@ -613,6 +613,31 @@ fn the_sweep_expires_documents_first_and_roots_take_their_copies() {
 }
 
 #[test]
+fn the_hourly_cron_counts_the_claims_it_releases() {
+    let w = World::new();
+    w.h.exec(&format!(
+        "INSERT INTO claims (claim_key, det_id_h, lease_until, stage) VALUES (x'{a}', x'{b}', 1, 't1'), \
+         (x'{c}', x'{d}', 1, 't2'), (x'{e}', x'{f}', {later}, 't3')",
+        a = "01".repeat(32),
+        b = "02".repeat(32),
+        c = "03".repeat(32),
+        d = "04".repeat(32),
+        e = "05".repeat(32),
+        f = "06".repeat(32),
+        later = w.h.now.get() + 60_000,
+    ));
+    let h = block_on(cron::hourly(&w.h, &w.origins, true)).unwrap();
+    assert_eq!(h.claims, 2);
+    // `job {claim_expired}`: the claims released past their lease, as one
+    // count.
+    assert_eq!(w.h.doubles_of("job", "claim_expired"), vec![2.0]);
+    // A run that releases none writes no point.
+    block_on(cron::hourly(&w.h, &w.origins, true)).unwrap();
+    assert_eq!(w.h.doubles_of("job", "claim_expired").len(), 1);
+    assert_eq!(w.h.count("SELECT count(*) FROM claims"), 1);
+}
+
+#[test]
 fn the_backstop_deletes_orphans_only() {
     let w = World::new();
     let (live, _) = make_link(&w, "load-new", Expiry::Keep, None);
@@ -710,6 +735,13 @@ fn sitemaps_purges_and_messages_of_other_flows() {
     w.h.purge_token.set(true);
     assert_eq!(block_on(consume(&w.h, &w.store, &p)), Ack::Done);
     assert_eq!(w.h.purged.borrow().len(), 1);
+    assert!(w.h.doubles_of("error", "purge").is_empty());
+    // A failed purge retries and writes `error {purge}` (double 1), which the
+    // alerts poller reads.
+    w.h.fail_purge.set(true);
+    assert!(matches!(block_on(consume(&w.h, &w.store, &p)), Ack::Retry(_)));
+    assert_eq!(w.h.doubles_of("error", "purge"), vec![1.0]);
+    w.h.fail_purge.set(false);
     let x = QueueMessage::new(Job::RerunOp { source_id: 1 });
     assert!(matches!(block_on(consume(&w.h, &w.store, &x)), Ack::Retry(_)));
 }

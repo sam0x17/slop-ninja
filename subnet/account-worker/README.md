@@ -19,7 +19,7 @@ plan periods, served to the detect Worker through the internal billing routes.
 | `sessions.rs` | sessions: issue, check, daily renewal, rotation, revocation |
 | `link.rs` | the connect, merge and unlink actions |
 | `owned.rs`, `views.rs`, `account.rs`, `delete.rs` | saved links, the account pages' data, sign out, sessions, export and deletion |
-| `ledger.rs` | the billing ledger (`billing-policy/v1`): `/internal/v1/billing/{peek,hold,commit,release}`, the draw order (the plan period first, then payments first paid, first used), holds checked by the store's own constraints, a hold's one end, and the grant ops' statements |
+| `ledger.rs` | the billing ledger (`billing-policy/v1`): `/internal/v1/billing/{peek,hold,commit,release,expire}`, the draw order (the plan period first, then payments first paid, first used), holds checked by the store's own constraints, a hold's one end, and the grant ops' statements |
 | `quota.rs` | the `QuotaLimiter` Durable Object's token buckets (sign-in mail, connect mail per address and per account, paid quotes per account) |
 | `ops.rs` | signed account ops, `x_signin_purge`, `grant_credit`, `grant_plan` and `void_grant` included |
 | `sweep.rs` | the crons (expired flows every 5 minutes; sessions and ended plan periods hourly) |
@@ -40,7 +40,10 @@ plan periods, served to the detect Worker through the internal billing routes.
   CHECK and rolls the whole batch back, and the hold reads and plans once more before it answers 402. A hold is
   idempotent by its quote's nonce until it ends, and it ends once: commit and release each begin with the `hold_ends`
   row, whose key refuses a second end. Once a hold has ended, its nonce answers `quote_invalid` and places nothing, so
-  one quote never backs a second check. A release returns nothing into a voided grant or a closed period.
+  one quote never backs a second check. A release returns nothing into a voided grant or a closed period. A hold a
+  paid start left behind (its answer was lost, or the start stopped before its job) ends through `/billing/expire
+  {idem}`, which the detect Worker sends once it has fenced that start, so no job of it can follow; it releases the
+  hold if it is still open.
 - **The `BILLING` switch** (`off`, `grants`, `live`) gates new quotes and holds only; holds placed before a flip still
   end. `grants` runs paid checks end to end on operator grants (non-cash, never counted for the pot); `live` waits for
   the payment processor and answers `not_configured`.

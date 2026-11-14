@@ -16,7 +16,10 @@
 //!   being made (its document is put before its row) is never touched.
 //! - **Paid jobs** (`crate::paid::sweep`). Running jobs whose page ended or
 //!   expired are cancelled, and every hold whose end is an hour overdue is
-//!   asked for again; each goes to the `commit_hold` consumer.
+//!   asked for again (`job {commit_retry}`); each goes to the
+//!   `commit_hold` consumer. Paid starts left behind (`crate::paid::
+//!   sweep_starts`, which needs the ledger) run beside this work in the
+//!   Worker's own cron handler.
 //! - **Claims.** Claims past their lease are deleted; a pending page with no
 //!   live claim offers "Run it".
 //! - **Sitemaps.** Dirty shards are rebuilt ([`crate::sitemap`]).
@@ -224,7 +227,13 @@ pub async fn hourly(io: &impl Io, origins: &Origins, index_on: bool) -> Result<H
         }
     }
     match io.run(Stmt::new(DELETE_STALE_CLAIMS, vec![Val::int(now)])).await {
-        Ok(d) => h.claims = d.changes,
+        Ok(d) => {
+            h.claims = d.changes;
+            // Each claim released here ended past its lease.
+            if d.changes > 0 {
+                io.metric_n("job", &["claim_expired"], d.changes as f64);
+            }
+        }
         Err(e) => {
             first_err.get_or_insert(e.into());
         }

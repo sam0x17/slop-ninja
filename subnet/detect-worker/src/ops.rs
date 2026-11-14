@@ -33,6 +33,8 @@
 //! | `review_strike` | `case_id`, `counts` |
 //! | `owner_match` | `case_id`, `after`? (an account id: where the last answer's `next` left off) |
 //! | `x_remove` | `reason` (`author`, `x` or `other`), `canon_key` (64 lowercase hex digits) |
+//! | `x_purge` | `dry_run` (`true`: the counts only; `false`: `DETECT_X = purged` and the first purge page) |
+//! | `release_claim` | `slug` (a public page: its URL check's claim goes, so the next submitter starts over) |
 //! | `set_switch` | `name` (a detect switch), `state` |
 //! | `index_force` | `slug`, `value` (`on`, `off` or null) |
 //! | `delete_private` | `id_h` (64 lowercase hex digits) |
@@ -40,9 +42,10 @@
 //! | `set_examples` | `slots` (`[{slot, public_slug}]` or `[{slot, doc_key}]`) |
 //! | `status` | none |
 //!
-//! `exclude_host`, `rerun`, `release_claim` and `x_purge` belong to the
-//! URL pipeline's build, and `edge_coverage` to the edge tooling's; until
-//! those land they answer `not_configured` without spending the nonce.
+//! `exclude_host` (whose effect on a host's existing pages is still to be
+//! decided) and `rerun` (whose `rerun_op` consumer is not built) belong to
+//! the URL pipeline, and `edge_coverage` to the edge tooling; until those
+//! land they answer `not_configured` without spending the nonce.
 
 use serde_json::{Map, Value, json};
 use slop_ninja_detect_page::ids::{IdH, UserId};
@@ -71,7 +74,7 @@ pub const OP_ENV_VAR: &str = "OP_ENV";
 
 /// The ops whose handlers come with other builds: refused before the nonce
 /// is spent.
-pub const NOT_BUILT: &[&str] = &["exclude_host", "rerun", "release_claim", "x_purge", "edge_coverage"];
+pub const NOT_BUILT: &[&str] = &["exclude_host", "rerun", "edge_coverage"];
 
 /// The op route's key and environment, from the vars; `None` (the route
 /// answers `not_configured`) when either is missing or malformed.
@@ -328,6 +331,40 @@ async fn dispatch<A: Accounts>(io: &impl Io, ctx: &OpCtx<'_, A>, o: &Op<'_>, nam
             let r = cases::x_removal(io, ctx.origins, &canon_key, reason, XCase::New, vec![o.journal()?]).await?;
             io.metric("removal", &["x_request", "x_removed"]);
             Ok(json!({"case_id": r.case_id, "removed": r.removed}))
+        }
+        "x_purge" => {
+            o.only(&["dry_run"])?;
+            if o.bool("dry_run")? {
+                // Counts only: nothing is written but the journal row.
+                io.batch(vec![o.journal()?]).await.map_err(|_| RefusalCode::Unavailable)?;
+                let c = crate::x_flow::purge_counts(io).await.map_err(|_| RefusalCode::Unavailable)?;
+                let zero = c.is_zero();
+                return Ok(json!({"dry_run": true, "counts": c, "zero": zero}));
+            }
+            // The journal row and `DETECT_X = purged` in one batch, then the
+            // first page under that row's seq. A failed send answers
+            // `unavailable`: the switch already holds every X page at 410,
+            // and the op sent again starts the pages.
+            let (stmts, _) = crate::x_flow::purge_start(o.now, 0);
+            apply(io, o, stmts).await?;
+            let seq = io
+                .run(Stmt::new(NONCE_USED, vec![Val::blob(&o.v.nonce_h())]))
+                .await
+                .ok()
+                .and_then(|d| d.first().and_then(|r| r.u64("seq")))
+                .ok_or(RefusalCode::Unavailable)?;
+            let (_, first) = crate::x_flow::purge_start(o.now, seq);
+            io.enqueue(vec![first]).await.map_err(|_| RefusalCode::Unavailable)?;
+            Ok(json!({"dry_run": false}))
+        }
+        "release_claim" => {
+            o.only(&["slug"])?;
+            let slug_ = o.str("slug")?;
+            if slug_form(slug_) != Some(SlugForm::Public) {
+                return Err(RefusalCode::OpMalformed);
+            }
+            let done = apply(io, o, vec![crate::claims::release_claim(slug_)]).await?;
+            Ok(json!({"released": done.get(1).map_or(0, |d| d.changes)}))
         }
         "set_switch" => {
             o.only(&["name", "state"])?;

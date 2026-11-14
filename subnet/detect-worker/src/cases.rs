@@ -764,6 +764,25 @@ WHERE (id_h = ?1 OR copy_of = ?1) AND kind IN ('private_text','private_paid') AN
     )
 }
 
+/// How a secret page comes back from a review (reject or restore): live,
+/// or `failed` (`job_stopped`) for a paid page that never had a document (its
+/// job never scored: the disable or removal stopped it and its hold went
+/// back, so nothing was charged). No paid page goes live without one.
+const RETURN_SET: &str = "state = CASE WHEN kind = 'private_paid' AND doc_key IS NULL THEN 'failed' ELSE 'live' END, \
+refusal = CASE WHEN kind = 'private_paid' AND doc_key IS NULL THEN COALESCE(refusal, 'job_stopped') ELSE refusal END";
+
+/// One secret page back from `from` (`disabled` or `removed`) by
+/// [`RETURN_SET`].
+fn return_secret(id_h: &Bytes32, from: &str, now: u64) -> Stmt {
+    Stmt::owned(
+        format!(
+            "UPDATE detections SET {RETURN_SET}, state_v = state_v + 1, updated_at = ?2 WHERE id_h = ?1 \
+AND kind IN ('private_text','private_paid') AND state = '{from}'"
+        ),
+        vec![Val::blob(id_h), Val::int(now)],
+    )
+}
+
 /// The source key of an X page's source, from its row.
 async fn x_source_of(io: &impl Io, row: &DetRow) -> Result<Option<Bytes32>, RefusalCode> {
     let Some(sid) = row.source_id else { return Ok(None) };
@@ -845,7 +864,8 @@ pub fn canonical(v: &Value) -> String {
 const X_RECORD_REMOVALS: &str = "INSERT INTO removals (at, public_slug, scope, basis, jurisdiction) \
 SELECT ?1, d.public_slug, 'page', ?3, ?4 FROM detections d \
 WHERE d.source_id = (SELECT source_id FROM sources WHERE canon_key = ?2 AND adapter = 'x') AND d.state = 'removed' \
-AND d.refusal = 'x_removed' AND d.updated_at = ?1 AND d.public_slug IS NOT NULL";
+AND d.refusal = 'x_removed' AND d.updated_at = ?1 AND d.public_slug IS NOT NULL \
+AND NOT EXISTS (SELECT 1 FROM removals r WHERE r.public_slug = d.public_slug AND r.at = ?1 AND r.scope = 'page')";
 /// The case's targets: every X page of the post (`?1` the case, `?2` the
 /// post's `canon_key`).
 const X_CASE_TARGETS: &str = "INSERT OR IGNORE INTO case_targets (case_id, det_id_h) SELECT ?1, d.id_h \
@@ -915,12 +935,17 @@ VALUES (?1, NULL, 'x_request', 'accepted', ?2, ?2, NULL)",
     let mut pre: Vec<Stmt> = journal.next().into_iter().collect();
     pre.extend(insert);
     let n_pre = pre.len();
-    let mut post = vec![
-        Stmt::new(
-            X_RECORD_REMOVALS,
-            vec![Val::int(now), key.clone(), Val::text(reason.as_str()), Val::text(DEFAULT_JURISDICTION)],
-        ),
-        Stmt::new(X_CASE_TARGETS, vec![Val::text(&case_id), key.clone()]),
+    let records = || {
+        vec![
+            Stmt::new(
+                X_RECORD_REMOVALS,
+                vec![Val::int(now), key.clone(), Val::text(reason.as_str()), Val::text(DEFAULT_JURISDICTION)],
+            ),
+            Stmt::new(X_CASE_TARGETS, vec![Val::text(&case_id), key.clone()]),
+        ]
+    };
+    let mut post = records();
+    post.extend([
         Stmt::new(
             "UPDATE cases SET source_id = (SELECT source_id FROM sources WHERE canon_key = ?2), updated_at = ?3 \
 WHERE case_id = ?1",
@@ -933,7 +958,7 @@ WHERE case_id = ?1",
             ),
             vec![Val::text(&case_id)],
         ),
-    ];
+    ]);
     post.extend(journal);
     let ids = [source_id];
     let (deleted, done) = match x_flow::delete_set_with(io, &ids, x_flow::Cause::Removed, now, pre, post).await {
@@ -950,7 +975,7 @@ WHERE case_id = ?1",
     // The deletion's first statement moved the pages to `removed`.
     let removed = done.get(n_pre).map_or(0, |d| d.changes);
     queue_purges(io, origins, &deleted.slugs).await;
-    x_flow::settle(io, origins, source_id, now).await;
+    x_flow::settle(io, origins, source_id, now, records()).await;
     Ok(XRemoved { case_id, removed })
 }
 
@@ -1559,23 +1584,28 @@ AND kind = 'public_url' AND state IN ('excerpt_withheld','removed')",
                         continue;
                     }
                     match m.state {
-                        DetState::Disabled => {}
+                        DetState::Disabled => batch.push(return_secret(&m.id_h, "disabled", now)),
                         DetState::Removed => {
-                            if !unquarantine(io, keys, &c.case_id, &m.id_h)
+                            if unquarantine(io, keys, &c.case_id, &m.id_h)
                                 .await
                                 .map_err(|_| RefusalCode::Unavailable)?
                             {
+                                put_back.push((c.case_id.clone(), m.id_h));
+                                batch.push(Stmt::new(
+                                    "UPDATE detections SET state = 'live', state_v = state_v + 1, updated_at = ?2 \
+WHERE id_h = ?1 AND kind IN ('private_text','private_paid') AND state = 'removed'",
+                                    vec![Val::blob(&m.id_h), Val::int(now)],
+                                ));
+                            } else if m.kind == Kind::PrivatePaid && m.doc_key.is_none() {
+                                // Never scored (a paid page whose job the
+                                // review stopped): it returns failed.
+                                batch.push(return_secret(&m.id_h, "removed", now));
+                            } else {
                                 continue;
                             }
-                            put_back.push((c.case_id.clone(), m.id_h));
                         }
                         _ => continue,
                     }
-                    batch.push(Stmt::new(
-                        "UPDATE detections SET state = 'live', state_v = state_v + 1, updated_at = ?2 WHERE id_h = ?1 \
-AND kind IN ('private_text','private_paid') AND state IN ('disabled','removed')",
-                        vec![Val::blob(&m.id_h), Val::int(now)],
-                    ));
                     returned.insert(m.id_h);
                     effect.pages += 1;
                 }
@@ -1677,9 +1707,11 @@ AND state = 'excerpt_withheld'",
                 effect.pages += 1;
             }
             (Kind::PrivateText | Kind::PrivatePaid, DetState::Disabled, CaseKind::Illegal) => {
-                batch.push(Stmt::new(
-                    "UPDATE detections SET state = 'live', state_v = state_v + 1, updated_at = ?2 \
-WHERE (id_h = ?1 OR copy_of = ?1) AND kind IN ('private_text','private_paid') AND state = 'disabled'",
+                batch.push(Stmt::owned(
+                    format!(
+                        "UPDATE detections SET {RETURN_SET}, state_v = state_v + 1, updated_at = ?2 \
+WHERE (id_h = ?1 OR copy_of = ?1) AND kind IN ('private_text','private_paid') AND state = 'disabled'"
+                    ),
                     vec![Val::blob(&t.family_root()), Val::int(now)],
                 ));
                 effect.pages += 1;

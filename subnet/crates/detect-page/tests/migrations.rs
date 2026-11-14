@@ -69,13 +69,16 @@ fn check_lists_equal_the_value_sets() {
     same("reputation", Reputation::ALL, Reputation::as_str);
     same("review", StrikeReview::ALL, StrikeReview::as_str);
     same("source", ExampleSource::ALL, ExampleSource::as_str);
-    // `state` has four lists: sources, detections, jobs and cases, in order.
+    // `state` has five lists: sources, detections, jobs, hold_starts and
+    // cases, in order.
     let states = in_lists("state");
     let names = |a: &[&'static str]| a.iter().map(|s| (*s).to_owned()).collect::<Vec<_>>();
+    assert_eq!(states.len(), 5);
     assert_eq!(states[0], names(&SourceStatus::ALL.iter().map(|s| s.as_str()).collect::<Vec<_>>()));
     assert_eq!(states[1], names(&DetState::ALL.iter().map(|s| s.as_str()).collect::<Vec<_>>()));
     assert_eq!(states[2], names(&JobState::ALL.iter().map(|s| s.as_str()).collect::<Vec<_>>()));
-    assert_eq!(states[3], names(&CaseState::ALL.iter().map(|s| s.as_str()).collect::<Vec<_>>()));
+    assert_eq!(states[3], names(&["open", "given_back"]));
+    assert_eq!(states[4], names(&CaseState::ALL.iter().map(|s| s.as_str()).collect::<Vec<_>>()));
     // `kind` has two: detections, then cases.
     let kinds = in_lists("kind");
     assert_eq!(kinds[0], names(&Kind::STORED.iter().map(|s| s.as_str()).collect::<Vec<_>>()));
@@ -100,6 +103,23 @@ const DET: &str = "INSERT INTO detections (id_h, public_slug, kind, platform, st
 
 fn det(id: u8, slug: V, kind: &str, state: &str, owner: V, via: V, seal: V, seq: V, force: V) -> Vec<V> {
     vec![b(id), slug, t(kind), t("paste"), t(state), owner, via, seal, seq, force]
+}
+
+/// A source's id is never reused (`AUTOINCREMENT`), so a stale message
+/// naming a deleted source's id can never reach a later source.
+#[test]
+fn source_ids_are_never_reused() {
+    let c = db();
+    let ins = "INSERT INTO sources (canon_key, canon_url, host, adapter, state, reputation, rank_list_v) \
+               VALUES (?, 'https://a.example/', 'a.example', 'web', 'ok', 'ranked', 'r1')";
+    run(&c, ins, &[b(1)]).unwrap();
+    let max = |c: &rusqlite::Connection| -> i64 {
+        c.query_row("SELECT max(source_id) FROM sources", [], |r| r.get(0)).unwrap()
+    };
+    let first = max(&c);
+    run(&c, "DELETE FROM sources", &[]).unwrap();
+    run(&c, ins, &[b(2)]).unwrap();
+    assert!(max(&c) > first);
 }
 
 #[test]
@@ -252,6 +272,12 @@ fn jobs_are_fenced_and_unique() {
     assert_eq!(run(&c, advance, &[i(2), b(1), b(8), i(2)]).unwrap(), 0);
     assert_eq!(run(&c, advance, &[i(2), b(1), b(7), i(2)]).unwrap(), 1);
     assert_eq!(run(&c, advance, &[i(2), b(1), b(7), i(2)]).unwrap(), 0);
+    // A start's row: one per quote nonce, open or given back.
+    let start = "INSERT INTO hold_starts (idem, state, at) VALUES (?, ?, 1)";
+    run(&c, start, &[t("q1"), t("open")]).unwrap();
+    refused(&c, start, &[t("q1"), t("open")], "hold_starts.idem");
+    refused(&c, start, &[t("q2"), t("held")], "CHECK constraint failed");
+    run(&c, start, &[t("q2"), t("given_back")]).unwrap();
 }
 
 #[test]

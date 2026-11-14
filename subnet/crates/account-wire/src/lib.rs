@@ -630,6 +630,27 @@ pub struct HoldEndAnswer {
     pub by_this_call: bool,
 }
 
+/// `POST /internal/v1/billing/expire`: the hold placed under `idem` ends
+/// released if it is still open. The detect Worker sends it for a paid start
+/// that left its hold behind (the hold's answer was lost, or the start
+/// stopped between the hold and its job) once that start can no longer make
+/// a job for it. Idempotent; it works in every `BILLING` state, as release
+/// does.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ExpireRequest {
+    pub idem: String,
+}
+
+/// How the hold of an `idem` ended: `ended` is `None` when no hold has that
+/// key (the start never placed one); `by_this_call` when this call released
+/// it.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ExpireAnswer {
+    pub ended: Option<HoldEnd>,
+    pub by_this_call: bool,
+}
+
 // ------------------------------------------------------- billing-policy/v1
 
 /// `billing-policy/v1`'s fixed figures. Both Workers apply them: the detect

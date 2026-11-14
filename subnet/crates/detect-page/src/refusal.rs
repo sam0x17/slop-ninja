@@ -267,6 +267,14 @@ refusal_codes! {
     SignedOut = "signed_out", 401, Paid;
     /// The paid API's key is invalid (never scored free).
     ApiKey = "api_key", 401, Paid;
+    /// "The free check already covered every part of this text we can
+    /// score, so there is nothing more to check." (the quote: past the free
+    /// cut, every stretch is listed as not scored).
+    FreeCutOnly = "free_cut_only", 422, Paid;
+    /// "This check was stopped before it finished, so nothing was charged.
+    /// Check the text again for a result." (a paid page whose job never
+    /// scored, back from a review).
+    JobStopped = "job_stopped", 409, Paid;
 
     // ---------------------------------------------------------------- removal
     /// A required field of the track is missing.

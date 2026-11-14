@@ -497,8 +497,12 @@ WHERE source_id IN (SELECT value FROM json_each(?1)) AND state NOT IN ('deleted'
 pub const CLEAR_RUNS: &str = "UPDATE detections SET run_id = NULL \
 WHERE source_id IN (SELECT value FROM json_each(?1)) AND run_id IN (SELECT value FROM json_each(?2))";
 
-/// The runs step 1 read.
-pub const DELETE_RUNS: &str = "DELETE FROM runs WHERE run_id IN (SELECT value FROM json_each(?1))";
+/// The runs step 1 read, unless a page outside the set still names one (a
+/// removal whose tombstone landed mid-deletion keeps its pages, and their
+/// runs, for its own deletion): a run still named would fail the whole batch
+/// on its foreign key and roll back every other post's deletion with it.
+pub const DELETE_RUNS: &str = "DELETE FROM runs WHERE run_id IN (SELECT value FROM json_each(?1)) \
+AND NOT EXISTS (SELECT 1 FROM detections d WHERE d.run_id = runs.run_id)";
 /// The set's aliases (a removal).
 pub const DELETE_ALIASES: &str = "DELETE FROM source_aliases WHERE source_id IN (SELECT value FROM json_each(?1))";
 /// The set's sources reduced to tombstones: `canon_key`, `adapter = 'x'`,
@@ -614,8 +618,12 @@ pub async fn delete_set(
 ) -> Result<Deleted, IoError> {
     let (d, _) = delete_set_with(io, ids, cause, now, Vec::new(), Vec::new()).await?;
     if !d.slugs.is_empty() {
-        // Without a purge token the cache bound (X_PAGE_CACHE_S) covers it.
-        let _ = io.cache_purge(&page_urls(origins, &d.slugs)).await;
+        // Without a purge token the cache bound (X_PAGE_CACHE_S) covers it;
+        // a failed purge is counted (`error {purge}`), and the bound covers
+        // it too.
+        if io.cache_purge(&page_urls(origins, &d.slugs)).await.is_err() {
+            io.metric_n("error", &["purge"], 1.0);
+        }
     }
     Ok(d)
 }
@@ -668,15 +676,23 @@ async fn left_on(io: &impl Io, source_id: u64) -> Result<bool, IoError> {
 }
 
 /// A removal's last read (its third step): anything still on the tombstone
-/// `source_id` is deleted with one more pass; a failure, or anything left
-/// after it, goes to `x_delete`. The removal itself is already written, so
-/// this never fails it.
-pub async fn settle(io: &impl Io, origins: &Origins, source_id: u64, now: u64) {
+/// `source_id` is deleted with one more pass, which writes `records` too
+/// (the removal's records and case targets, idempotent, so the pages this
+/// pass moves are recorded as the first pass's were); a failure, or anything
+/// left after it, goes to `x_delete`. The removal itself is already written,
+/// so this never fails it.
+pub async fn settle(io: &impl Io, origins: &Origins, source_id: u64, now: u64, records: Vec<Stmt>) {
     let settled = match left_on(io, source_id).await {
         Ok(false) => true,
         Ok(true) => {
-            delete_set(io, origins, &[source_id], Cause::Removed, now).await.is_ok()
-                && matches!(left_on(io, source_id).await, Ok(false))
+            let pass = delete_set_with(io, &[source_id], Cause::Removed, now, Vec::new(), records).await;
+            if let Ok((d, _)) = &pass
+                && !d.slugs.is_empty()
+                && io.cache_purge(&page_urls(origins, &d.slugs)).await.is_err()
+            {
+                io.metric_n("error", &["purge"], 1.0);
+            }
+            pass.is_ok() && matches!(left_on(io, source_id).await, Ok(false))
         }
         Err(IoError) => false,
     };

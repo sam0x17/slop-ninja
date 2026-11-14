@@ -575,6 +575,97 @@ VALUES (?2, 1, 'private_text', 'paste', 'live', 1, 1, ?1)",
     assert_eq!(w.op("close_case", json!({"case_id": case2, "reason": "again"})).err(), Some(RefusalCode::OpMalformed));
 }
 
+/// A paid page whose job never scored (pending, no document) disabled by an
+/// illegal-content report, then rejected, or removed and restored: it
+/// returns failed (`job_stopped`), never live without a document, and the
+/// sweep cancels its job (its hold goes back). A live paid page comes back
+/// live.
+#[test]
+fn a_paid_page_whose_job_never_scored_returns_failed_from_a_review() {
+    let fields = [("category", "other"), ("explanation", "it is illegal"), ("good_faith", "yes")];
+    for how in ["reject", "restore"] {
+        let w = World::new();
+        let (slug, _) = secret_page(&w, Some(principal(7)));
+        let idx = hex::encode(w.peppers.current().id_h(&slug));
+        // The page as a paid start leaves it: pending, its job running, no
+        // document yet.
+        w.h.exec(&format!(
+            "UPDATE detections SET kind = 'private_paid', owner_via = 'paid', state = 'pending', doc_key = NULL, \
+             doc_bytes = NULL WHERE id_h = x'{idx}'"
+        ));
+        block_on(w.h.doc_delete(&[format!("p/{idx}")])).unwrap();
+        w.h.exec(&format!(
+            "INSERT INTO jobs (det_id_h, owner_h, hold_ref, package_load, policy_v, sections_total, sections_done, \
+             tokens_billed, state, created_at, updated_at) SELECT id_h, owner_h, 'h-{how}', 'load-new', 'long-v1', 3, 1, \
+             900, 'running', 1, 1 FROM detections WHERE id_h = x'{idx}'"
+        ));
+        let (case_id, _, auto) = w.send(CaseKind::Illegal, &format!("https://s.site.example/{slug}"), &fields, None);
+        assert_eq!(auto, Some(AutoStep::Disabled));
+        assert_eq!(state(&w, &slug, true), "disabled");
+        if how == "restore" {
+            w.op("remove", json!({"case_id": case_id, "reason": "illegal"})).unwrap();
+            assert_eq!(state(&w, &slug, true), "removed");
+        }
+        let r = w.op(how, json!({"case_id": case_id, "reason": "review done"})).unwrap();
+        assert_eq!(r["pages"], 1, "{how}: {r}");
+        assert_eq!(state(&w, &slug, true), "failed", "{how}");
+        assert_eq!(w.text(&format!("SELECT refusal FROM detections WHERE id_h = x'{idx}'")), "job_stopped");
+        assert_eq!(w.h.count("SELECT count(*) FROM detections WHERE state = 'live' AND doc_key IS NULL"), 0);
+        let p = w.page(&slug).unwrap();
+        p.check().unwrap();
+        assert_eq!(p.failure.unwrap().code, RefusalCode::JobStopped);
+        // The page no longer pends, so the sweep cancels its job and sends
+        // its hold back through commit_hold.
+        block_on(slop_ninja_detect_worker::paid::sweep(&w.h)).unwrap();
+        assert_eq!(w.text("SELECT state FROM jobs"), "cancelled", "{how}");
+        assert!(queued(&w, |j| matches!(j, Job::CommitHold { .. })) >= 1);
+    }
+    // A paid page with its document (its job scored) comes back live.
+    let w = World::new();
+    let (slug, _) = secret_page(&w, Some(principal(7)));
+    let idx = hex::encode(w.peppers.current().id_h(&slug));
+    w.h.exec(&format!("UPDATE detections SET kind = 'private_paid', owner_via = 'paid' WHERE id_h = x'{idx}'"));
+    let (case_id, _, _) = w.send(CaseKind::Illegal, &slug, &fields, None);
+    assert_eq!(state(&w, &slug, true), "disabled");
+    w.op("reject", json!({"case_id": case_id, "reason": "not illegal"})).unwrap();
+    assert_eq!(state(&w, &slug, true), "live");
+}
+
+/// The URL pipeline's ops on the route: `x_purge` (its dry run counts and
+/// writes only its journal row; otherwise `DETECT_X = purged` and the first
+/// purge page under the op's own journal seq) and `release_claim`.
+#[test]
+fn x_purge_and_release_claim_run_on_the_op_route() {
+    let w = World::new();
+    x_page(&w, "x5n9r3v", 1_890_000_000_000_000_000);
+    let r = w.op("x_purge", json!({"reason": "check", "dry_run": true})).unwrap();
+    assert_eq!((r["dry_run"].clone(), r["zero"].clone()), (json!(true), json!(false)), "{r}");
+    assert_eq!(r["counts"]["runs"], 1, "{r}");
+    assert_eq!(w.h.count("SELECT count(*) FROM switches WHERE name = 'DETECT_X'"), 0, "a dry run writes nothing");
+    assert!(w.h.queue.borrow().is_empty());
+    let r = w.op("x_purge", json!({"reason": "agreement ended", "dry_run": false})).unwrap();
+    assert_eq!(r["dry_run"], false, "{r}");
+    assert_eq!(w.text("SELECT state FROM switches WHERE name = 'DETECT_X'"), "purged");
+    let seq = r["seq"].as_u64().unwrap();
+    assert_eq!(w.h.count(&format!("SELECT count(*) FROM switches WHERE name = 'DETECT_X' AND journal_seq = {seq}")), 1);
+    assert_eq!(queued(&w, |j| matches!(j, Job::XPurgePage { journal_seq } if *journal_seq == seq)), 1);
+    assert_eq!(w.op("x_purge", json!({"reason": "r", "dry_run": "yes"})).err(), Some(RefusalCode::OpMalformed));
+    // release_claim: the claim of a public page's URL check goes.
+    w.h.db
+        .execute(
+            "INSERT INTO claims (claim_key, det_id_h, lease_until, stage) VALUES (?1, ?2, ?3, 't')",
+            rusqlite::params![vec![0x61u8; 32], keys::public_id_h("k7m2xq9").to_vec(), w.h.now_ms() as i64 + 60_000],
+        )
+        .unwrap();
+    let r = w.op("release_claim", json!({"reason": "stuck check", "slug": "k7m2xq9"})).unwrap();
+    assert_eq!(r["released"], 1, "{r}");
+    assert_eq!(w.h.count("SELECT count(*) FROM claims"), 0);
+    assert_eq!(
+        w.op("release_claim", json!({"reason": "r", "slug": "not a slug"})).err(),
+        Some(RefusalCode::OpMalformed)
+    );
+}
+
 #[test]
 fn a_counter_notice_needs_the_manage_token_or_the_owner_and_never_keeps_it() {
     let w = World::new();

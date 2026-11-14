@@ -1,6 +1,6 @@
 //! The billing ledger: holds and how they end, grants, plan periods,
 //! `billing-policy/v1`, and the internal billing routes the detect Worker
-//! calls (`/internal/v1/billing/{peek,hold,commit,release}`).
+//! calls (`/internal/v1/billing/{peek,hold,commit,release,expire}`).
 //!
 //! **Credit is held in tokens.** Its sources are `payments` rows (grants are
 //! non-cash) and the active plan period's allowance. A check draws on the
@@ -33,6 +33,11 @@
 //! So no hold exists whose parts were not all deducted, and concurrent holds
 //! never draw more than the balance.
 //!
+//! **A hold a start left behind** (its answer was lost, or the start stopped
+//! between the hold and its job) has no job to end it. The detect Worker
+//! fences such a start's row, so it can no longer make a job, and then sends
+//! `/billing/expire {idem}`, which releases the hold if it is still open.
+//!
 //! **A hold ends once.** Commit and release each begin their batch with
 //! `INSERT INTO hold_ends`, whose primary key is the hold id: a second
 //! commit, a second release, or a release after a commit fails that insert
@@ -54,8 +59,8 @@
 use serde::{Deserialize, Serialize};
 use slop_ninja_account_wire::credit::{self, MAX_HOLD_TOKENS};
 use slop_ninja_account_wire::{
-    Bucket, BucketKind, CommitRequest, HoldAnswer, HoldEnd, HoldEndAnswer, HoldPart, HoldRequest, PartSource,
-    PeekAnswer, PeekRequest, ReleaseRequest, UserState,
+    Bucket, BucketKind, CommitRequest, ExpireAnswer, ExpireRequest, HoldAnswer, HoldEnd, HoldEndAnswer, HoldPart,
+    HoldRequest, PartSource, PeekAnswer, PeekRequest, ReleaseRequest, UserState,
 };
 use slop_ninja_auth_core::policy::{TokenBucket, Valued};
 use slop_ninja_detect_page::{BillingState, Channel, RefusalCode, UserId};
@@ -527,6 +532,41 @@ pub async fn release<H: Host>(host: &H, req: &Req) -> Resp {
         Err(c) => return Resp::refusal(c),
     };
     answer(end_hold(host, &body.hold_id, End::Release).await)
+}
+
+/// `POST /internal/v1/billing/expire`: the hold of an `idem` ends released
+/// if it is still open (idempotent).
+pub async fn expire<H: Host>(host: &H, req: &Req) -> Resp {
+    let body: ExpireRequest = match http::json(&req.body) {
+        Ok(b) => b,
+        Err(c) => return Resp::refusal(c),
+    };
+    match expire_idem(host, &body.idem).await {
+        Ok(a) => Resp::json(200, &a),
+        Err(c) => Resp::refusal(c),
+    }
+}
+
+/// Ends the hold of `idem` released when it is still open (the route's
+/// logic, for the tests too). The detect Worker asks only for a start whose
+/// row it has fenced, so no job of its can still be made for the hold; a
+/// hold that already ended answers that end, and an `idem` with no hold
+/// answers `ended: None`.
+pub async fn expire_idem<H: Host>(host: &H, idem: &str) -> Result<ExpireAnswer, RefusalCode> {
+    if !key_ok(idem) {
+        return Err(RefusalCode::MalformedRequest);
+    }
+    let Some(h) = read_hold(host, SELECT_HOLD_BY_IDEM, idem).await? else {
+        return Ok(ExpireAnswer { ended: None, by_this_call: false });
+    };
+    if let Some(e) = h.ended {
+        return Ok(ExpireAnswer { ended: Some(e), by_this_call: false });
+    }
+    let a = end_hold(host, &h.hold_id, End::Release).await?;
+    if a.by_this_call {
+        crate::metrics::ledger(host, "expired");
+    }
+    Ok(ExpireAnswer { ended: Some(a.ended), by_this_call: a.by_this_call })
 }
 
 fn answer(r: Result<HoldEndAnswer, RefusalCode>) -> Resp {

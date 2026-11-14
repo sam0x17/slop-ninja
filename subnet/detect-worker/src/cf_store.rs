@@ -24,7 +24,8 @@ use std::cell::RefCell;
 
 use serde::Serialize;
 use slop_ninja_account_wire::{
-    CommitRequest, HoldAnswer, HoldEndAnswer, HoldRequest, OwnedAddRequest, PeekAnswer, PeekRequest, ReleaseRequest,
+    CommitRequest, ExpireAnswer, ExpireRequest, HoldAnswer, HoldEndAnswer, HoldRequest, OwnedAddRequest, PeekAnswer,
+    PeekRequest, ReleaseRequest,
 };
 use slop_ninja_detect_page::queue::QueueMessage;
 use slop_ninja_detect_page::refusal::RefusalCode;
@@ -200,6 +201,10 @@ impl crate::paid::Ledger for CfStore<'_> {
 
     async fn release(&self, req: &ReleaseRequest) -> Result<HoldEndAnswer, RefusalCode> {
         self.account("https://account/internal/v1/billing/release", req).await
+    }
+
+    async fn expire(&self, req: &ExpireRequest) -> Result<ExpireAnswer, RefusalCode> {
+        self.account("https://account/internal/v1/billing/expire", req).await
     }
 }
 

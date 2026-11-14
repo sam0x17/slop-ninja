@@ -157,6 +157,8 @@ pub async fn claim(
             ))
             .await?;
         return Ok(if d.changes == 1 {
+            // A claim taken over past its lease (`job {claim_expired}`).
+            io.metric_n("job", &["claim_expired"], 1.0);
             Claim::Drive(Held { claim_key: *ckey, token: tok, id_h: holder, slug: held_slug })
         } else {
             Claim::Joined { slug: held_slug }

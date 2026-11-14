@@ -84,6 +84,8 @@ pub struct Harness {
     pub relay: RefCell<Vec<Vec<u8>>>,
     pub purged: RefCell<Vec<String>>,
     pub purge_token: Cell<bool>,
+    /// The zone purge call fails.
+    pub fail_purge: Cell<bool>,
     pub statements: Cell<u64>,
     pub doc_reads: Cell<u64>,
     pub fail_doc_put: Cell<bool>,
@@ -113,6 +115,7 @@ impl Harness {
             relay: RefCell::new(Vec::new()),
             purged: RefCell::new(Vec::new()),
             purge_token: Cell::new(false),
+            fail_purge: Cell::new(false),
             statements: Cell::new(0),
             doc_reads: Cell::new(0),
             fail_doc_put: Cell::new(false),
@@ -255,6 +258,16 @@ impl Harness {
         self.docs.borrow().get(key).map(|(b, _)| b.clone())
     }
 
+    /// The doubles of the points named `point` whose first blob is `blob`.
+    pub fn doubles_of(&self, point: &str, blob: &str) -> Vec<f64> {
+        self.doubles
+            .borrow()
+            .iter()
+            .filter(|(p, b, _)| p == point && b.first().map(String::as_str) == Some(blob))
+            .map(|(_, _, d)| *d)
+            .collect()
+    }
+
     pub fn metric_count(&self, point: &str, blob: &str) -> usize {
         self.metrics.borrow().iter().filter(|(p, b)| p == point && b.first().map(String::as_str) == Some(blob)).count()
     }
@@ -357,6 +370,9 @@ impl Io for Harness {
     }
 
     async fn cache_purge(&self, urls: &[String]) -> Result<bool, IoError> {
+        if self.fail_purge.get() {
+            return Err(IoError);
+        }
         if !self.purge_token.get() {
             return Ok(false);
         }

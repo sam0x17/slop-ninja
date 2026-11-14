@@ -750,6 +750,117 @@ fn a_run_the_removal_did_not_read_is_deleted_by_its_last_read() {
     assert_eq!(w.h.docs.borrow().keys().filter(|k| k.starts_with("r/")).count(), 0);
     assert!(w.h.queue.borrow().iter().all(|m| !matches!(m.job, Job::XDelete { .. })));
     w.nothing_orphaned("last read");
+    // The last read's pass records nothing twice.
+    assert_eq!(w.h.count("SELECT count(*) FROM removals WHERE scope = 'page'"), 2);
+    assert_eq!(w.h.count("SELECT count(*) FROM case_targets"), 2);
+}
+
+#[test]
+fn a_page_only_the_last_read_finds_gets_its_record_and_case_target() {
+    // A live page reaches the tombstone after the removal's batch and before
+    // its last read (no flow can do this; the test writes the row). The last
+    // read's pass removes it and records it as the first pass recorded the
+    // others: a removals row and the case's target.
+    let w = World::new(10);
+    let (id, s1) = w.post(1);
+    let sid = w.sid(id);
+    w.h.before("AND (run_id IS NOT NULL OR state = 'live')", move |db| {
+        db.execute(
+            "INSERT INTO detections (id_h, public_slug, kind, platform, state, created_at, updated_at, source_id, \
+             package_load) VALUES (x'43', 'zz43zz4', 'public_url', 'x', 'live', 1, 1, ?1, 'load-next')",
+            [sid as i64],
+        )
+        .unwrap();
+    });
+    let r = remove(&w, id, XCase::New, false);
+    assert_eq!(r.removed, 1, "the first pass moved one page");
+    assert_eq!(w.page(&s1).unwrap().state, DetState::Removed);
+    assert_eq!(w.h.count("SELECT count(*) FROM detections WHERE state = 'live'"), 0);
+    let (state, refusal) = w.state_of("zz43zz4");
+    assert_eq!((state.as_str(), refusal.as_deref()), ("removed", Some("x_removed")));
+    assert_eq!(w.h.count("SELECT count(*) FROM removals WHERE public_slug = 'zz43zz4' AND scope = 'page'"), 1);
+    assert_eq!(w.h.count("SELECT count(*) FROM removals WHERE scope = 'page'"), 2);
+    assert_eq!(
+        w.h.count(&format!("SELECT count(*) FROM case_targets WHERE case_id = '{}' AND det_id_h = x'43'", r.case_id)),
+        1
+    );
+    assert!(w.h.queue.borrow().iter().all(|m| !matches!(m.job, Job::XDelete { .. })));
+}
+
+/// A run the set read but a page outside the set still names (a removal
+/// whose tombstone landed mid-deletion keeps its pages): the deletion goes
+/// through for every post and leaves that run, instead of failing the whole
+/// batch on its foreign key.
+#[test]
+fn a_gone_deletion_leaves_a_run_another_page_still_names() {
+    let w = World::new(10);
+    let (a, sa) = w.post(1);
+    let (b, sb) = w.post(2);
+    let run_a: i64 =
+        w.h.db.query_row("SELECT run_id FROM detections WHERE public_slug = ?1", [&sa], |r| r.get(0)).unwrap();
+    w.h.db
+        .execute(
+            "INSERT INTO detections (id_h, public_slug, kind, platform, state, created_at, updated_at, run_id, \
+             package_load) VALUES (x'44', 'zz44zz4', 'public_url', 'x', 'removed', 1, 1, ?1, 'load-new')",
+            [run_a],
+        )
+        .unwrap();
+    w.h.advance(X_CHECK_EVERY_MS + 1);
+    w.fetch.exists.borrow_mut().insert(a, XExists::Gone);
+    w.fetch.exists.borrow_mut().insert(b, XExists::Gone);
+    let rep = w.sweep();
+    assert_eq!(rep.gone.len(), 2);
+    assert_eq!(w.page(&sa).unwrap().state, DetState::Deleted);
+    assert_eq!(w.page(&sb).unwrap().state, DetState::Deleted);
+    assert_eq!(w.h.count("SELECT count(*) FROM sources"), 0);
+    // The run the other page names stays; nothing else does.
+    assert_eq!(w.h.count("SELECT count(*) FROM runs"), 1);
+    assert_eq!(w.h.count(&format!("SELECT count(*) FROM runs WHERE run_id = {run_a}")), 1);
+}
+
+/// `x_purge` lands while a check of a post is being read: the check never
+/// goes live after the purge, and writes no X source, run or document.
+#[test]
+fn a_check_that_outlives_x_purge_keeps_nothing() {
+    let w = World::new(10);
+    let id = post_id(w.h.now.get(), 2 * 3_600_000, 1);
+    w.fetch.posts.borrow_mut().insert(id, XPostAnswer::Text { text: format!("{AI1} {HUMAN}") });
+    let Admitted::Drive(d) = block_on(admit(&w.h, &w.host, &w.ctx(), &format!("https://x.com/i/status/{id}"))).unwrap()
+    else {
+        panic!()
+    };
+    let (stmts, _) = x_flow::purge_start(w.h.now.get(), 1);
+    w.h.exec("INSERT INTO op_journal (at, actor, op, signature, nonce_h) VALUES (1, 'operator:00', '{\"op\":\"x_purge\"}', NULL, NULL)");
+    block_on(slop_ninja_detect_worker::db::Sql::batch(&w.h, stmts)).unwrap();
+    let ended = block_on(drive(&w.h, &w.host, &w.fetch, &w.scorer, &w.ctx(), &d));
+    assert_eq!(ended.failed, Some(RefusalCode::XRemoved));
+    assert_eq!(w.h.count("SELECT count(*) FROM detections WHERE state = 'live'"), 0);
+    assert_eq!(w.h.count("SELECT count(*) FROM sources"), 0, "no X source after the purge");
+    assert_eq!(w.h.count("SELECT count(*) FROM runs"), 0);
+    assert_eq!(w.h.docs.borrow().keys().filter(|k| k.starts_with("r/")).count(), 0);
+    assert!(!w.h.dump().contains("/status/"));
+
+    // A post that already has its page and source, checked again under a
+    // newer package after the switch but before the purge pages reach it:
+    // the check never goes live, and the purge pages find only what was
+    // there before.
+    let mut w = World::new(10);
+    let (id, first) = w.post(1);
+    w.serving.load = "load-next".into();
+    let Admitted::Drive(d) = block_on(admit(&w.h, &w.host, &w.ctx(), &format!("https://x.com/i/status/{id}"))).unwrap()
+    else {
+        panic!()
+    };
+    let (stmts, _) = x_flow::purge_start(w.h.now.get(), 1);
+    w.h.exec("INSERT INTO op_journal (at, actor, op, signature, nonce_h) VALUES (1, 'operator:00', '{\"op\":\"x_purge\"}', NULL, NULL)");
+    block_on(slop_ninja_detect_worker::db::Sql::batch(&w.h, stmts)).unwrap();
+    let runs_before = w.h.count("SELECT count(*) FROM runs");
+    let ended = block_on(drive(&w.h, &w.host, &w.fetch, &w.scorer, &w.ctx(), &d));
+    assert_eq!(ended.failed, Some(RefusalCode::XRemoved));
+    assert_ne!(ended.slug, first);
+    assert_eq!(w.state_of(&ended.slug).0, "failed");
+    assert_eq!(w.h.count("SELECT count(*) FROM detections WHERE state = 'live'"), 1, "the old page only");
+    assert_eq!(w.h.count("SELECT count(*) FROM runs"), runs_before, "no new run");
 }
 
 #[test]

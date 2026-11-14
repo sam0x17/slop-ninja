@@ -459,7 +459,7 @@ pub(crate) async fn consume(batch: worker_sys::MessageBatch, env: Env) {
         let ack = match (msg, &secrets, &io) {
             // A paid job's hold ends through the ledger (the account Worker).
             (Some(QueueMessage { job: Job::CommitHold { det_id_h }, .. }), Some(_), Some(io)) => {
-                match crate::paid::end_hold(io, io, &det_id_h.0).await {
+                match crate::paid::commit_hold(io, io, &det_id_h.0).await {
                     Ok(()) => queue::Ack::Done,
                     Err(_) => queue::Ack::Retry(queue::RETRY_S),
                 }
@@ -517,7 +517,10 @@ pub(crate) async fn hourly(env: Env) {
         return;
     };
     let index_on = lookup::read_switches(&io).await.on(&io, "DETECT_INDEX");
-    if cron::hourly(&io, &o, index_on).await.is_err() {
+    let store = cron::hourly(&io, &o, index_on).await;
+    // Paid starts left behind: their holds end through the ledger.
+    let starts = crate::paid::sweep_starts(&io, &io).await;
+    if store.is_err() || starts.is_err() {
         point(&env, ae::detect::ERROR, &["cron"], 1.0);
     }
 }

@@ -245,6 +245,65 @@ fn an_ended_hold_s_idem_places_nothing_again() {
     assert_eq!(credit_left(&h), 3_000, "nothing taken by the refused request");
 }
 
+/// A hold a paid start left behind (its answer was lost): `expire {idem}`
+/// releases it once, answers an ended hold's end and an unknown key's
+/// absence, works in every `BILLING` state, and spends the quote.
+#[test]
+fn a_hold_a_start_left_behind_expires_once() {
+    let h = TestHost::new();
+    let cfg = grants();
+    let u = account(&h, &cfg, "reader@example.com");
+    op(&h, &cfg, "grant_credit", json!({"user_id": u, "tokens": 5_000, "reason": "r"}));
+    let expire = |idem: &str| internal(&h, &cfg, "/internal/v1/billing/expire", json!({"idem": idem}));
+    assert_eq!(hold(&h, &cfg, &u, 1_000, "q-lost").0, 200);
+    assert_eq!(credit_left(&h), 4_000);
+    let (s, a) = expire("q-lost");
+    assert_eq!(s, 200, "{a}");
+    assert_eq!(a, json!({"ended": "released", "by_this_call": true}));
+    assert_eq!(credit_left(&h), 5_000, "the parts went back");
+    assert_eq!(h.count("SELECT count(*) AS n FROM hold_ends WHERE kind = 'released'"), 1);
+    assert_eq!(h.points_named("ledger").iter().filter(|b| b[0] == "expired").count(), 1);
+    // Again: the end already recorded, nothing more returned.
+    assert_eq!(expire("q-lost").1, json!({"ended": "released", "by_this_call": false}));
+    assert_eq!(credit_left(&h), 5_000);
+    // The quote is spent: a late confirm places nothing.
+    assert_eq!(hold(&h, &cfg, &u, 1_000, "q-lost").1["code"], json!("quote_invalid"));
+    // A key with no hold (the start never placed one).
+    assert_eq!(expire("q-never").1, json!({"ended": null, "by_this_call": false}));
+    // A committed hold stays committed.
+    let (_, a) = hold(&h, &cfg, &u, 1_000, "q-done");
+    commit(&h, &cfg, a["hold_id"].as_str().unwrap());
+    assert_eq!(expire("q-done").1, json!({"ended": "committed", "by_this_call": false}));
+    assert_eq!((credit_left(&h), h.count("SELECT count(*) AS n FROM debits")), (4_000, 1));
+    // With billing off, a hold placed before the flip still expires.
+    assert_eq!(hold(&h, &cfg, &u, 1_000, "q-flip").0, 200);
+    let off = config(&[("BILLING", "off")]);
+    let r = Browser::new().internal(&h, &off, "/internal/v1/billing/expire", json!({"idem": "q-flip"}));
+    assert_eq!(r.status, 200);
+    assert_eq!(credit_left(&h), 4_000);
+    // A malformed key is refused.
+    assert_eq!(expire("a b").0, 400);
+    // Raced against a commit of the same hold: one end, both agree.
+    for expire_first in [true, false] {
+        let idem = format!("q-race-{expire_first}");
+        let (_, a) = hold(&h, &cfg, &u, 500, &idem);
+        let id = a["hold_id"].as_str().unwrap().to_owned();
+        let racing = Racing(&h);
+        type Ended = Result<(HoldEnd, bool), RefusalCode>;
+        let e: Racer<'_, Ended> =
+            Box::pin(async { ledger::expire_idem(&racing, &idem).await.map(|a| (a.ended.unwrap(), a.by_this_call)) });
+        let c: Racer<'_, Ended> = Box::pin(async {
+            ledger::end_hold(&racing, &id, End::Commit { receipt_id: "pr-2", package_pub: PKG })
+                .await
+                .map(|a| (a.ended, a.by_this_call))
+        });
+        let results = race(if expire_first { vec![e, c] } else { vec![c, e] });
+        let (x, y) = (results[0].unwrap(), results[1].unwrap());
+        assert_eq!(x.0, y.0, "both calls answer the one end");
+        assert_eq!(u8::from(x.1) + u8::from(y.1), 1, "one call ended it");
+    }
+}
+
 #[test]
 fn the_billing_switch_gates_new_holds_only() {
     let h = TestHost::new();

@@ -47,12 +47,26 @@ pub mod detect {
     /// `kind`: `claim_join`, `content` or `alias`.
     pub const REUSE: Point = Point { name: "reuse", blobs: &["kind"] };
     pub const STORE: Point = Point { name: "store", blobs: &["op"] };
+    /// A paid job's or a URL check's event. Most carry no double; the ones
+    /// the poller counts carry the count as their double:
+    /// - `commit_retry`: a retry of a paid hold's end (the driver's failed
+    ///   end, a failed `commit_hold` message, an overdue end the hourly
+    ///   sweep asks for again), 1 each, or the sweep's number;
+    /// - `claim_expired`: URL check claims taken over or released after
+    ///   their lease ended (1 per takeover, the hourly release's number);
+    /// - `hold_expired`: holds of paid starts left behind that the hourly
+    ///   sweep released;
+    /// - `commit_found_released`: a commit that found its hold released (the
+    ///   page was served with no debit), 1 each; raises
+    ///   [`COMMIT_FOUND_RELEASED`].
     pub const JOB: Point = Point { name: "job", blobs: &["event"] };
     pub const REMOVAL: Point = Point { name: "removal", blobs: &["kind", "transition"] };
     pub const MANAGE: Point = Point { name: "manage", blobs: &["action"] };
     /// An owner action matched no row (`skipped`).
     pub const OWNER: Point = Point { name: "owner", blobs: &["result"] };
-    /// `code` includes `d1` when the store could not be read.
+    /// `code` includes `d1` when the store could not be read, and `purge`
+    /// (double 1) for each failed cache purge (a `purge` message, an X page
+    /// purge, an X deletion's purge).
     pub const ERROR: Point = Point { name: "error", blobs: &["code"] };
     /// One check of a post from its link through X's free embed
     /// (`/x/post`), or one refused before any request (one of
@@ -115,8 +129,12 @@ pub mod detect {
     /// The oldest check of an X source holding a `canon_url` is more than 24
     /// hours old ([`XSWEEP`], `status`).
     pub const X_SWEEP_LATE: &str = "x_sweep_late";
+    /// A `job {commit_found_released}` point: a paid page was served on a
+    /// hold that had been released, with no debit. The start's fence makes
+    /// this unreachable, so any one is a fault to look into.
+    pub const COMMIT_FOUND_RELEASED: &str = "commit_found_released";
     /// Alerts the poller raises from this dataset and the `status` op.
-    pub const ALERTS: &[&str] = &[X_CHECK_UNEXPECTED, X_SWEEP_LATE];
+    pub const ALERTS: &[&str] = &[X_CHECK_UNEXPECTED, X_SWEEP_LATE, COMMIT_FOUND_RELEASED];
 }
 
 /// The account Worker's dataset (binding `ACCOUNT_METRICS`).

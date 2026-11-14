@@ -38,7 +38,10 @@ pub fn edge(kind: Kind, from: DetState, to: DetState) -> bool {
         (Live, ExcerptWithheld | Removed | Disabled | Deleted | Expired) => true,
         (Failed, Deleted | Expired | Removed) => true,
         (ExcerptWithheld, Live | Removed | Deleted) => true,
-        (Disabled, Live | Removed | Deleted) => true,
+        // A secret page back from a review returns failed when it never had
+        // a document (a paid job the review stopped).
+        (Disabled, Live | Failed | Removed | Deleted) => true,
+        (Removed, Failed) => secret,
         (Removed, Live | ExcerptWithheld | Deleted) => true,
         _ => false,
     }
@@ -289,9 +292,11 @@ mod tests {
             (Failed, Expired),
             (Failed, Removed),
             (Disabled, Live),
+            (Disabled, Failed),
             (Disabled, Removed),
             (Disabled, Deleted),
             (Removed, Live),
+            (Removed, Failed),
             (Removed, Deleted),
         ];
         let public: &[(DetState, DetState)] = &[

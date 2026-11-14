@@ -68,7 +68,11 @@ pub async fn consume_url<F: crate::net::FetchApi, P: crate::net::Pinger>(
         Job::XSweep {} => x_flow::sweep(io, d.fetch, d.origins, &XConfig::from_io(io)).await.map(|_| ()),
         Job::XDelete { source_id, cause } => x_flow::x_delete(io, d.origins, *source_id, *cause).await,
         Job::XPurgePage { journal_seq } => {
-            x_flow::purge_page(io, d.origins, &XConfig::from_io(io), *journal_seq).await.map(|_| ())
+            let r = x_flow::purge_page(io, d.origins, &XConfig::from_io(io), *journal_seq).await.map(|_| ());
+            if r.is_err() {
+                io.metric_n("error", &["purge"], 1.0);
+            }
+            r
         }
         Job::Indexnow { public_slug, change } => {
             indexnow(io, d, public_slug, *change).await;
@@ -168,7 +172,13 @@ struct LegalBody<'a> {
 /// Handles one message.
 pub async fn consume(io: &impl Io, keys: &StoreKeys, msg: &QueueMessage) -> Ack {
     let r = match &msg.job {
-        Job::Purge { urls } => io.cache_purge(urls).await.map(|_| ()),
+        Job::Purge { urls } => {
+            let r = io.cache_purge(urls).await.map(|_| ());
+            if r.is_err() {
+                io.metric_n("error", &["purge"], 1.0);
+            }
+            r
+        }
         Job::OwnerPurge { user_id, mode } => owner_purge(io, keys, *user_id, *mode).await,
         Job::OwnerRekey { from_user_id, to_user_id } => rekey(io, keys, *from_user_id, *to_user_id).await,
         Job::LegalNotice { case_id, .. } => legal_notice(io, keys, case_id).await,

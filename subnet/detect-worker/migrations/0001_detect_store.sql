@@ -13,7 +13,7 @@ CREATE TABLE switches (                                                   -- run
   name TEXT PRIMARY KEY, state TEXT NOT NULL, at INTEGER NOT NULL, journal_seq INTEGER NOT NULL);
 
 CREATE TABLE sources (
-  source_id INTEGER PRIMARY KEY,
+  source_id INTEGER PRIMARY KEY AUTOINCREMENT,  -- never reused: a stale x_delete {source_id} finds nothing
   canon_key BLOB NOT NULL UNIQUE,            -- H("source_v1" ‖ "url:<canonical>" | "bsky:<did>/<rkey>" | "x:status:<id>")
   canon_url TEXT,                            -- NULL only on an X source: a refusal row or a removal tombstone
   host TEXT NOT NULL, adapter TEXT NOT NULL CHECK (adapter IN ('web','bluesky','x')),
@@ -83,8 +83,15 @@ CREATE TABLE jobs (                          -- paid whole-document checks
   cash_tokens INTEGER NOT NULL DEFAULT 0 CHECK (cash_tokens >= 0),  -- the hold's cash-backed tokens (the pot's count)
   lease_token BLOB, lease_until INTEGER,     -- the fencing token of the driver holding the work lease
   state TEXT NOT NULL CHECK (state IN ('running','scored','committed','failed','cancelled')),
-  failure TEXT, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL,
+  failure TEXT,                              -- a failed job's refusal code; on a committed job, hold_released when
+                                             -- its commit found the hold released (served with no debit; an alert)
+  created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL,
   hold_ended_at INTEGER);                    -- when the ledger confirmed the hold's end (commit or release)
+CREATE TABLE hold_starts (                   -- a paid start between its hold and its job (the quote nonce, the
+  idem TEXT PRIMARY KEY,                     -- hold's idempotency key): a start's job is inserted only while its
+  state TEXT NOT NULL CHECK (state IN ('open','given_back')),  -- row is open, and the batch that inserts it
+  at INTEGER NOT NULL);                      -- deletes the row; a give-back or the sweep sets given_back first,
+CREATE INDEX hold_starts_at ON hold_starts(at);  -- so a row left behind names a hold no job holds
 
 CREATE TABLE cases (
   case_id TEXT PRIMARY KEY,

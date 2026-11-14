@@ -175,23 +175,40 @@ the `ACCOUNT` binding; at launch only operator grants back it.
 - `POST /api/detect/v1/paid/quote` (the site host, signed in): the free
   check's seal must bind the text under the serving package; the whole text
   passes the English screen; the sections are planned and section 1 must be
-  the seal's free cut. The reader is billed the content tokens past the free
-  cut (at least 128), and the answer carries a quote seal binding the text,
-  the account, the free seal and the hold's idempotency key.
-- `POST /api/detect/v1/paid/start`: the hold, then the job text and section
-  1's result in R2 (under the page's own key, with the job AAD), then one
-  batch inserts the pending page and its job. A seal starts one check. A
-  start that fails after its hold gives the hold back, and the ledger then
-  refuses that quote (`quote_invalid`): the reader quotes again.
+  the seal's free cut, with a section past it (`free_cut_only` when every
+  stretch past the cut is listed as not scored). The reader is billed the
+  content tokens past the free cut (at least 128), and the answer carries a
+  quote seal binding the text, the account, the free seal and the hold's
+  idempotency key.
+- `POST /api/detect/v1/paid/start`: the start's row (`hold_starts`, by the
+  quote nonce), the hold, then the job text and section 1's result in R2
+  (under the page's own key, with the job AAD), then one batch inserts the
+  pending page and its job, only while the start's row is open, and deletes
+  the row. A seal starts one check. A start that fails after its hold gives
+  the hold back behind a fence: one batch marks the row `given_back` and
+  reads whether a job holds the hold, and only then is it released, so no
+  job of that quote can follow and none ever runs on a released hold; the
+  ledger then refuses that quote (`quote_invalid`): the reader quotes again.
+  A row left behind (a hold whose answer was lost, a start that stopped, a
+  release that failed) is fenced by the hourly sweep after an hour, and its
+  hold expires through the ledger's `/billing/expire`.
 - `POST /api/detect/v1/job` (the secret host): an NDJSON stream of job lines
   while one driver at a time scores the sections, fenced by a lease token
   (CLAIM, RENEW, ADVANCE, SCORED). Each section takes a gate ticket of class
   `paid` keyed by the page's owner hash and is counted on channel
   `paid_page` as an operation, never as pot basis. The page goes live in the
-  SCORED batch; the hold commits after it, and a failed commit retries
-  through `commit_hold` and the hourly sweep. A section refused for good
-  fails the job and the page and releases the hold; deleting the page
-  cancels a running job and its hold goes back the same way.
+  SCORED batch, which runs only while the page is still pending (a page
+  disabled, removed or expired since the last RENEW stops the job, and
+  nothing is charged); the hold commits after it, and a failed commit
+  retries through `commit_hold` and the hourly sweep (each retry an AE
+  `job {commit_retry}`).
+  A commit that finds its hold released keeps the page, records
+  `hold_released` on the job and writes `job {commit_found_released}`, an
+  alert. A section refused for good fails the job and the page and releases
+  the hold; deleting the page cancels a running job and its hold goes back
+  the same way. A paid page whose job never scored, disabled or removed by a
+  review and then rejected or restored, returns `failed` (`job_stopped`),
+  never live without its document.
 
 **Sections** (rules W1 to W6): at most 1,000 words and 2,046 content tokens
 each, cut with the free check's own rule; consecutive sections overlap by at

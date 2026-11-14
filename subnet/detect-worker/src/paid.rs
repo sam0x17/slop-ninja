@@ -6,8 +6,10 @@
 //! operator's `paid_preview` tester); the free check's seal must bind the
 //! text under the serving package; the whole text passes the English screen;
 //! the sections are planned ([`crate::sections`]) and section 1 must be the
-//! seal's free cut. The reader is billed the content tokens past the free
-//! cut, at least `credit::PAYG_MIN_TOKENS`, and the ledger's `peek` (which
+//! seal's free cut, with at least one section past it (`free_cut_only` when
+//! every stretch past the cut is listed as not scored). The reader is billed
+//! the content tokens past the free cut, at least `credit::PAYG_MIN_TOKENS`,
+//! and the ledger's `peek` (which
 //! takes one from the account's quote bucket) says what it draws. The quote
 //! seal (`slop_ninja_detect_quote_v1`) binds `{text_sha256, sections,
 //! paid_tokens, owner_h, free_seal_nonce_h, quote_nonce}`; `quote_nonce` is
@@ -15,15 +17,25 @@
 //!
 //! **Start** (`/api/detect/v1/paid/start {text, seal, quote_seal, expiry}`):
 //! the quote seal must be this account's, for this text, and name the free
-//! seal sent beside it; `DETECT_STORE` must be on. Then: the hold; the
-//! slug and manage token; the job text `j/<id_h>/text` (the canonical text
-//! and its plan, under the page's key with the job AAD) and section 1's
-//! result `j/<id_h>/s1` (the free seal's, not scored again); then one batch
-//! inserts the pending `private_paid` detection (owned, `owner_via =
-//! paid`, holding the free seal's nonce hash, so a seal starts one check)
-//! and its job (`running`, 1 of k). A start whose detection loses to
-//! another for the same seal answers `seal_used` and releases the hold only
-//! when no job holds it. The account's `owned/add` records the page.
+//! seal sent beside it; `DETECT_STORE` must be on. Then: the start's row
+//! (`hold_starts`, keyed by the quote nonce, `open`); the hold; the slug
+//! and manage token; the job text `j/<id_h>/text` (the canonical text and
+//! its plan, under the page's key with the job AAD) and section 1's result
+//! `j/<id_h>/s1` (the free seal's, not scored again); then one batch
+//! inserts the pending `private_paid` detection (owned, `owner_via = paid`,
+//! holding the free seal's nonce hash, so a seal starts one check) only
+//! while the start's row is open, its job (`running`, 1 of k), and deletes
+//! the row. The account's `owned/add` records the page.
+//!
+//! **A start that made no page gives its hold back** behind a fence: one
+//! batch sets the row `given_back` and reads whether a job holds the hold,
+//! and the hold is released only when none does. After the fence no start
+//! of that quote can insert a job, so a concurrent start either made its
+//! job first (and the read sees it) or makes none; no job ever runs on a
+//! released hold. A row left behind (the hold's answer was lost, the start
+//! stopped, or the release failed) names a hold no job holds: the hourly
+//! sweep ([`sweep_starts`]) fences it and expires its hold through the
+//! ledger after [`START_GRACE_MS`].
 //!
 //! **The job** (`/api/detect/v1/job {slug}` on the secret host, streamed as
 //! [`JobLine`]s): one driver at a time, by a fencing token.
@@ -35,15 +47,17 @@
 //!   channel `paid_page` counts it as an operation, never as pot basis),
 //!   put `j/<id_h>/s<n>`, ADVANCE (`sections_done = n` only from `n - 1`).
 //! - All done: RENEW, assemble the page's document, put `p/<id_h>`, then
-//!   one batch: SCORED (the single point after which no driver can act) and
-//!   the detection to `live`. Then the job objects go and the ledger
+//!   one batch: SCORED (the single point after which no driver can act; only
+//!   while the page is still pending and unexpired) and the detection to
+//!   `live`. A page that ended since the last RENEW makes the step LOST. Then the job objects go and the ledger
 //!   commits; a failed commit leaves the job `scored` for a `commit_hold`
 //!   message (and the hourly sweep), and the result shows meanwhile: the
 //!   hold reserved the tokens, so nothing can overspend.
-//! - LOST (a fenced step matched no row): stop; if the job ended or the page
-//!   did, delete what this driver wrote since its last fenced step (and
-//!   cancel a job whose page ended); otherwise leave them, since the holder
-//!   or the winner uses the same keys. Stream the progress.
+//! - LOST (a fenced step matched no row): stop; if a read shows the job or
+//!   the page ended, delete what this driver wrote since its last fenced
+//!   step (and cancel a job whose page ended); otherwise, a failed read
+//!   included, leave them, since the holder or the winner uses the same
+//!   keys. Stream the progress.
 //! - A section refused for good fails the job (fenced) and its page in one
 //!   batch, then releases the hold: "Nothing was charged". No path reaches
 //!   `failed` or a release after `scored`.
@@ -54,7 +68,9 @@
 //! **A hold ends** through [`end_hold`] (the `commit_hold` message, the
 //! hourly sweep): a `scored` job commits, a `failed` or `cancelled` one
 //! releases (and its job objects go), each once, by the ledger's own
-//! idempotency.
+//! idempotency. A commit that finds its hold released (no path above makes
+//! one) keeps the page, records `hold_released` on the job and writes the
+//! `job {commit_found_released}` point, which raises an alert.
 //!
 //! **Paused.** `DETECT_PAID` off pauses public jobs at their next open; an
 //! operator tester's job (recorded in its job text) runs while it is off.
@@ -69,8 +85,8 @@ use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use slop_ninja_account_wire::credit::{self, PAYG_MIN_TOKENS, PLAN_MIN_TOKENS};
 use slop_ninja_account_wire::{
-    CommitRequest, HoldAnswer, HoldEnd, HoldEndAnswer, HoldRequest, OwnedAddRequest, PeekAnswer, PeekRequest,
-    ReleaseRequest,
+    CommitRequest, ExpireAnswer, ExpireRequest, HoldAnswer, HoldEnd, HoldEndAnswer, HoldRequest, OwnedAddRequest,
+    PeekAnswer, PeekRequest, ReleaseRequest,
 };
 use slop_ninja_detect_page::api::{
     JobLine, QuoteAnswer, QuoteRequest, StartAnswer, StartRequest, Unscored as WireUnscored,
@@ -249,6 +265,8 @@ pub trait Ledger {
     async fn hold(&self, req: &HoldRequest) -> Result<HoldAnswer, RefusalCode>;
     async fn commit(&self, req: &CommitRequest) -> Result<HoldEndAnswer, RefusalCode>;
     async fn release(&self, req: &ReleaseRequest) -> Result<HoldEndAnswer, RefusalCode>;
+    /// The hold of a start this store has fenced ends released, if open.
+    async fn expire(&self, req: &ExpireRequest) -> Result<ExpireAnswer, RefusalCode>;
 }
 
 /// One section's scan, as the driver needs it.
@@ -435,8 +453,11 @@ fn check(
     if sections::utf16_at(&canonical, s1.end) != p.scored_end || s1.tokens != u64::from(stored.tokens) {
         return Err(RefusalCode::SealInvalid);
     }
-    if plan.sections.len() < 2 && plan.unscored.is_empty() {
-        return Err(RefusalCode::MalformedRequest);
+    if plan.sections.len() < 2 {
+        // Past the free cut nothing can be scored (every stretch is listed
+        // as not scored): there is nothing to sell, so no quote at the
+        // minimum for it.
+        return Err(if plan.unscored.is_empty() { RefusalCode::MalformedRequest } else { RefusalCode::FreeCutOnly });
     }
     // A free cut too dense in tokens to reach the measured range has no
     // section figures; the whole document cannot be checked.
@@ -513,10 +534,12 @@ pub async fn quote(
 
 // --------------------------------------------------------------- the start
 
-/// The pending paid page.
+/// The pending paid page, only while its start's row is open (the fence a
+/// give-back or the sweep sets).
 pub const INSERT_PAID: &str = "INSERT INTO detections (id_h, pepper_v, kind, platform, state, state_v, \
 created_at, updated_at, expires_at, package_load, manage_h, owner_h, owner_via, seal_nonce_h) \
-VALUES (?1, ?2, 'private_paid', 'paste', 'pending', 1, ?3, ?3, ?4, ?5, ?6, ?7, 'paid', ?8) ON CONFLICT DO NOTHING";
+SELECT ?1, ?2, 'private_paid', 'paste', 'pending', 1, ?3, ?3, ?4, ?5, ?6, ?7, 'paid', ?8 \
+WHERE EXISTS (SELECT 1 FROM hold_starts WHERE idem = ?9 AND state = 'open') ON CONFLICT DO NOTHING";
 
 /// Its job: only beside the detection this request inserted.
 pub const INSERT_JOB: &str = "INSERT INTO jobs (det_id_h, owner_h, hold_ref, package_load, package_pub, policy_v, \
@@ -526,6 +549,26 @@ WHERE EXISTS (SELECT 1 FROM detections WHERE id_h = ?1) ON CONFLICT DO NOTHING";
 
 /// Whether a job holds `hold_ref`.
 pub const JOB_OF_HOLD: &str = "SELECT 1 AS n FROM jobs WHERE hold_ref = ?1";
+
+/// A start's row before its hold: open, or (a confirm sent again) its time
+/// renewed while it is still open.
+pub const UPSERT_START: &str = "INSERT INTO hold_starts (idem, state, at) VALUES (?1, 'open', ?2) \
+ON CONFLICT (idem) DO UPDATE SET at = excluded.at WHERE hold_starts.state = 'open'";
+/// The start's row goes in the batch that inserted its job.
+pub const DELETE_START: &str = "DELETE FROM hold_starts WHERE idem = ?1 AND state = 'open' \
+AND EXISTS (SELECT 1 FROM jobs WHERE hold_ref = ?2)";
+/// The fence: from here on no start makes a job for this quote's hold.
+/// `RETURNING` answers whether this call set it.
+pub const FENCE_START: &str = "UPDATE hold_starts SET state = 'given_back' WHERE idem = ?1 AND state = 'open' \
+RETURNING 1 AS n";
+/// Starts left behind, oldest first.
+pub const SELECT_LEFT_STARTS: &str = "SELECT idem FROM hold_starts WHERE at <= ?1 ORDER BY at, idem LIMIT ?2";
+/// A start's row, once its hold has ended.
+pub const DELETE_LEFT_START: &str = "DELETE FROM hold_starts WHERE idem = ?1 AND state = 'given_back'";
+/// How long a start's row stays before the sweep ends its hold: an hour, far
+/// beyond the seconds a start takes from its hold to its job's batch (a
+/// confirm sent again renews it).
+pub const START_GRACE_MS: u64 = 3_600_000;
 
 /// `POST /api/detect/v1/paid/start`.
 pub async fn start(
@@ -554,7 +597,7 @@ pub async fn start(
     let c = check(cx, now, &req.text, &req.seal, preview, admit).map_err(|e| match e {
         // The quote was for this text; a text that no longer checks out is
         // not the one quoted.
-        RefusalCode::NotEnglish | RefusalCode::MalformedRequest => RefusalCode::QuoteInvalid,
+        RefusalCode::NotEnglish | RefusalCode::MalformedRequest | RefusalCode::FreeCutOnly => RefusalCode::QuoteInvalid,
         e => e,
     })?;
     let tokens = paid_tokens_of(&c.plan);
@@ -570,8 +613,14 @@ pub async fn start(
     if used.map_err(|_| RefusalCode::SaveUnavailable)?.first().is_some() {
         return Err(RefusalCode::SealUsed);
     }
+    // The start's row first: whatever happens to the hold's answer, the
+    // sweep can end a hold no job came to hold.
+    let idem = q.quote_nonce.clone();
+    io.run(Stmt::new(UPSERT_START, vec![Val::text(idem.clone()), Val::int(now)]))
+        .await
+        .map_err(|_| RefusalCode::SaveUnavailable)?;
     let hold = ledger
-        .hold(&HoldRequest { user_id: p.user_id, tokens, channel: Channel::PaidPage, idem: q.quote_nonce.clone() })
+        .hold(&HoldRequest { user_id: p.user_id, tokens, channel: Channel::PaidPage, idem: idem.clone() })
         .await?;
     let cash_tokens: u64 = hold.parts.iter().filter(|x| x.cash).map(|x| x.tokens).sum();
     let (slug, manage) = draw_secret(io);
@@ -586,7 +635,8 @@ pub async fn start(
         io.doc_put(&section_key(&id_h, 1), seal_part(pepper, &slug, io, &first)).await
     };
     if put.await.is_err() {
-        return Err(give_back(io, ledger, &hold.hold_id, &keys, RefusalCode::SaveUnavailable).await);
+        give_back(io, ledger, &idem, &hold.hold_id, &keys).await;
+        return Err(RefusalCode::SaveUnavailable);
     }
     let expires_at = req.expiry.duration_ms().map(|d| now.saturating_add(d));
     let batch = vec![
@@ -601,6 +651,7 @@ pub async fn start(
                 Val::blob(&manage_h(&manage)),
                 Val::blob(&owner_h),
                 Val::blob(&free_nonce_h),
+                Val::text(idem.clone()),
             ],
         ),
         Stmt::new(
@@ -618,14 +669,23 @@ pub async fn start(
                 Val::int(now),
             ],
         ),
+        Stmt::new(DELETE_START, vec![Val::text(idem.clone()), Val::text(hold.hold_id.clone())]),
     ];
     let inserted = match io.batch(batch).await {
         Ok(d) => d.first().is_some_and(|x| x.changes == 1) && d.get(1).is_some_and(|x| x.changes == 1),
-        Err(_) => return Err(give_back(io, ledger, &hold.hold_id, &keys, RefusalCode::SaveUnavailable).await),
+        Err(_) => {
+            give_back(io, ledger, &idem, &hold.hold_id, &keys).await;
+            return Err(RefusalCode::SaveUnavailable);
+        }
     };
     if !inserted {
-        // Another start (or a link) used this seal first.
-        return Err(give_back(io, ledger, &hold.hold_id, &keys, RefusalCode::SealUsed).await);
+        // Another start of this quote made its page first (its job holds
+        // the hold), a link used this seal, or the start was fenced (a
+        // give-back of this quote, or the sweep) and its hold has ended.
+        return Err(match give_back(io, ledger, &idem, &hold.hold_id, &keys).await {
+            GaveBack::Fenced | GaveBack::Unknown => RefusalCode::QuoteInvalid,
+            GaveBack::JobHolds | GaveBack::Released => RefusalCode::SealUsed,
+        });
     }
     io.metric("job", &["started"]);
     let add = OwnedAddRequest {
@@ -652,22 +712,86 @@ pub async fn start(
     Ok(StartAnswer { slug, manage })
 }
 
+/// What a give-back found.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum GaveBack {
+    /// A job holds the hold (another start of this quote made its page).
+    JobHolds,
+    /// This call fenced the start and released the hold.
+    Released,
+    /// The start was fenced already (an earlier give-back, or the sweep):
+    /// the hold was or will be released.
+    Fenced,
+    /// The store could not be read: nothing was released (the sweep ends
+    /// the hold later).
+    Unknown,
+}
+
 /// A start that did not make its page: the job objects go, and the hold
-/// goes back only when no job holds it (a concurrent start for the same
-/// quote may own it). Answers `why`.
-async fn give_back(
-    io: &impl Io,
-    ledger: &impl Ledger,
-    hold_id: &str,
-    keys: &[String],
-    why: RefusalCode,
-) -> RefusalCode {
-    let owned = io.run(Stmt::new(JOB_OF_HOLD, vec![Val::text(hold_id)])).await;
-    if owned.is_ok_and(|d| d.rows.is_empty()) {
-        let _ = ledger.release(&ReleaseRequest { hold_id: hold_id.to_owned() }).await;
-    }
+/// goes back only when no job holds it. The fence comes first, in the same
+/// batch as the read: once the start's row is `given_back`, no start of
+/// this quote can insert a job (`INSERT_PAID` needs the row open), so a
+/// concurrent start either made its job before the fence (and the read sees
+/// it) or makes none. A failed release, or a failed batch, leaves the hold
+/// to the sweep, which fences and expires it.
+async fn give_back(io: &impl Io, ledger: &impl Ledger, idem: &str, hold_id: &str, keys: &[String]) -> GaveBack {
+    let done = io
+        .batch(vec![Stmt::new(FENCE_START, vec![Val::text(idem)]), Stmt::new(JOB_OF_HOLD, vec![Val::text(hold_id)])])
+        .await;
+    let found = match done {
+        Ok(d) => {
+            let fenced_now = d.first().is_some_and(|x| !x.rows.is_empty());
+            if d.get(1).is_some_and(|x| !x.rows.is_empty()) {
+                GaveBack::JobHolds
+            } else {
+                let _ = ledger.release(&ReleaseRequest { hold_id: hold_id.to_owned() }).await;
+                if fenced_now { GaveBack::Released } else { GaveBack::Fenced }
+            }
+        }
+        Err(_) => GaveBack::Unknown,
+    };
     let _ = delete_docs(io, keys).await;
-    why
+    found
+}
+
+/// The hourly sweep's part for starts left behind: each start row older
+/// than [`START_GRACE_MS`] names a hold no job holds (the batch that inserts
+/// a job deletes its row). Fence it, ask the ledger to expire its hold, then
+/// delete the row; a failed call keeps the row for the next hour. Answers
+/// how many holds this run released.
+pub async fn sweep_starts(io: &impl Io, ledger: &impl Ledger) -> Result<u64, crate::db::IoError> {
+    let now = io.now_ms();
+    let due = io
+        .run(Stmt::new(SELECT_LEFT_STARTS, vec![Val::int(now.saturating_sub(START_GRACE_MS)), Val::int(SWEEP_JOBS)]))
+        .await?;
+    let mut released = 0u64;
+    let mut first_err = None;
+    for idem in due.rows.iter().filter_map(|r| r.text("idem")).map(str::to_owned) {
+        if let Err(e) = io.run(Stmt::new(FENCE_START, vec![Val::text(idem.clone())])).await {
+            first_err.get_or_insert(e.into());
+            continue;
+        }
+        match ledger.expire(&ExpireRequest { idem: idem.clone() }).await {
+            Ok(a) => {
+                if a.by_this_call {
+                    released += 1;
+                }
+                if let Err(e) = io.run(Stmt::new(DELETE_LEFT_START, vec![Val::text(idem)])).await {
+                    first_err.get_or_insert(e.into());
+                }
+            }
+            Err(_) => {
+                first_err.get_or_insert(crate::db::IoError);
+            }
+        }
+    }
+    if released > 0 {
+        io.metric_n("job", &["hold_expired"], released as f64);
+    }
+    match first_err {
+        Some(e) => Err(e),
+        None => Ok(released),
+    }
 }
 
 // ----------------------------------------------------------------- the job
@@ -715,9 +839,14 @@ AND (expires_at IS NULL OR expires_at > ?4)) RETURNING 1 AS ok";
 /// ADVANCE: section `?3` is done, only from `?3 - 1`.
 pub const ADVANCE: &str = "UPDATE jobs SET sections_done = ?3, updated_at = ?4 WHERE det_id_h = ?1 \
 AND lease_token = ?2 AND state = 'running' AND sections_done = ?3 - 1 RETURNING 1 AS ok";
-/// SCORED: the single point after which no driver can act.
+/// SCORED: the single point after which no driver can act, only while the
+/// page is still pending and unexpired, so a disable, a removal or an
+/// expiry that landed after the last RENEW stops the job (nothing is
+/// charged) instead of charging for a page that cannot go live.
 pub const SCORED: &str = "UPDATE jobs SET state = 'scored', lease_token = NULL, lease_until = NULL, updated_at = ?3 \
-WHERE det_id_h = ?1 AND lease_token = ?2 AND state = 'running' AND sections_done = sections_total RETURNING hold_ref";
+WHERE det_id_h = ?1 AND lease_token = ?2 AND state = 'running' AND sections_done = sections_total \
+AND EXISTS (SELECT 1 FROM detections WHERE id_h = ?1 AND state = 'pending' \
+AND (expires_at IS NULL OR expires_at > ?3)) RETURNING hold_ref";
 /// The page goes live in the SCORED batch, only beside a scored job.
 pub const LIVE: &str = "UPDATE detections SET state = 'live', state_v = state_v + 1, updated_at = ?2, \
 doc_key = ?3, doc_bytes = ?4 WHERE id_h = ?1 AND state = 'pending' \
@@ -744,6 +873,10 @@ AND (SELECT d.state FROM detections d WHERE d.id_h = ?1) = 'deleted' RETURNING h
 /// The ledger confirmed the commit.
 pub const COMMITTED: &str =
     "UPDATE jobs SET state = 'committed', hold_ended_at = ?2, updated_at = ?2 WHERE det_id_h = ?1 AND state = 'scored'";
+/// The commit found the hold released: the job ends committed with the
+/// record of it (no debit was made).
+pub const COMMITTED_RELEASED: &str = "UPDATE jobs SET state = 'committed', failure = 'hold_released', \
+hold_ended_at = ?2, updated_at = ?2 WHERE det_id_h = ?1 AND state = 'scored'";
 /// The ledger confirmed a failed or cancelled job's release.
 pub const RELEASED: &str = "UPDATE jobs SET hold_ended_at = ?2 WHERE det_id_h = ?1 \
 AND state IN ('failed','cancelled') AND hold_ended_at IS NULL";
@@ -833,6 +966,7 @@ impl<I: Io, L: Ledger, S: SectionScorer> Drive<'_, I, L, S> {
     async fn end_or_queue(&self, id: &Bytes32) {
         self.take(3);
         if end_hold(self.io, self.ledger, id).await.is_err() {
+            self.io.metric_n("job", &["commit_retry"], 1.0);
             let _ =
                 self.io.enqueue(vec![queue::QueueMessage::new(queue::Job::CommitHold { det_id_h: IdH(*id) })]).await;
         }
@@ -981,17 +1115,26 @@ impl<I: Io, L: Ledger, S: SectionScorer> Drive<'_, I, L, S> {
         self.fenced(s).await == Some(true)
     }
 
-    /// LOST: the job or the page moved on without this driver.
+    /// LOST: the job or the page moved on without this driver. What it
+    /// wrote goes only when a read shows the job or the page ended; when the
+    /// read itself fails, nothing is deleted or cancelled (the winner, or
+    /// this driver's next open, uses the same keys, and the hourly backstop
+    /// removes true orphans).
     async fn lost(&self, id: &Bytes32, wrote: &[String], sink: &mut impl JobSink) -> JobEnd {
         let io = self.io;
         self.take(1);
-        let d = io
+        let read = io
             .batch(vec![
                 Stmt::new(SELECT_JOB_ROW, vec![Val::blob(id)]),
                 Stmt::new(SELECT_DET_STATE, vec![Val::blob(id)]),
             ])
-            .await
-            .ok();
+            .await;
+        let Ok(d) = read else {
+            let _ = sink.line(&JobLine::Progress { section: 0, of: 0 }).await;
+            io.metric("job", &["lost"]);
+            return JobEnd::Lost;
+        };
+        let d = Some(d);
         let job = d.as_ref().and_then(|d| job_row(d.first()));
         let det = d.as_ref().and_then(|d| d.get(1)).and_then(Done::first).map(|r| {
             let s = r.text("state").and_then(DetState::parse).unwrap_or(DetState::Deleted);
@@ -1299,16 +1442,23 @@ pub async fn end_hold(io: &impl Io, ledger: &impl Ledger, id: &Bytes32) -> Resul
                 package_pub: job.package_pub.clone().unwrap_or_default(),
             };
             let a = ledger.commit(&req).await.map_err(|_| EndLater)?;
-            let mut batch = vec![Stmt::new(COMMITTED, vec![Val::blob(id), Val::int(now)])];
-            if a.ended == HoldEnd::Committed {
+            let found_released = a.ended != HoldEnd::Committed;
+            let mut batch = vec![Stmt::new(
+                if found_released { COMMITTED_RELEASED } else { COMMITTED },
+                vec![Val::blob(id), Val::int(now)],
+            )];
+            if !found_released {
                 batch.push(Stmt::new(
                     PAID_RECEIPT,
                     vec![Val::text(req.receipt_id.clone()), Val::text(hour_of(now)), Val::int(now), Val::blob(id)],
                 ));
-            } else {
-                io.metric("job", &["commit_found_released"]);
             }
             io.batch(batch).await.map_err(|_| EndLater)?;
+            if found_released {
+                // The fence makes this unreachable; if it happens anyway the
+                // page stays (the reader has it) and the operator is told.
+                io.metric_n("job", &["commit_found_released"], 1.0);
+            }
             io.metric("job", &["committed"]);
             Ok(())
         }
@@ -1321,6 +1471,16 @@ pub async fn end_hold(io: &impl Io, ledger: &impl Ledger, id: &Bytes32) -> Resul
         }
         _ => Ok(()),
     }
+}
+
+/// The `commit_hold` consumer: ends the job's hold, or counts the retry
+/// (`job {commit_retry}`, double 1) and asks the queue for one.
+pub async fn commit_hold(io: &impl Io, ledger: &impl Ledger, id: &Bytes32) -> Result<(), EndLater> {
+    let r = end_hold(io, ledger, id).await;
+    if r.is_err() {
+        io.metric_n("job", &["commit_retry"], 1.0);
+    }
+    r
 }
 
 /// `YYYY-MM-DDTHH`, the UTC hour (the counters' key).
@@ -1359,6 +1519,10 @@ pub async fn sweep(io: &impl Io) -> Result<usize, crate::db::IoError> {
     let due = io
         .run(Stmt::new(SELECT_UNENDED, vec![Val::int(now.saturating_sub(UNENDED_GRACE_MS)), Val::int(SWEEP_JOBS)]))
         .await?;
+    // Each overdue end asked for again is a retry of its hold's end.
+    if !due.rows.is_empty() {
+        io.metric_n("job", &["commit_retry"], due.rows.len() as f64);
+    }
     ids.extend(due.rows.iter().filter_map(|r| r.hex32("id_h")));
     ids.sort_unstable();
     ids.dedup();

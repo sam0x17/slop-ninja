@@ -66,9 +66,12 @@ impl CfFetch<'_> {
     ) -> Result<T, IoError> {
         let fetcher = self.env.service(FETCH).map_err(|_| IoError)?;
         let text = serde_json::to_string(body).map_err(|_| IoError)?;
-        let mut req = cf_io::internal_request(&format!("{FETCH_ORIGIN}{path}"), Method::Post, Some(&text), Some(wait))
+        let req = cf_io::internal_request(&format!("{FETCH_ORIGIN}{path}"), Method::Post, Some(&text), Some(wait))
             .map_err(|_| IoError)?;
-        let _ = req.headers_mut().map(|h| h.set("Content-Type", "application/json"));
+        // On the request itself: a request built from a web_sys request is
+        // immutable through `headers_mut`, and the fetch Worker refuses a
+        // body that is not JSON.
+        req.inner().headers().set("Content-Type", "application/json").map_err(|_| IoError)?;
         let mut res = fetcher.fetch_request(req).await.map_err(|_| IoError)?;
         if res.status_code() != 200 {
             cf_io::discard(&mut res);
@@ -256,9 +259,10 @@ pub(crate) struct CfPinger {
 impl Pinger for CfPinger {
     async fn indexnow(&self, body: Vec<u8>) -> Result<(), IoError> {
         let text = String::from_utf8(body).map_err(|_| IoError)?;
-        let mut req = cf_io::internal_request(crate::indexnow::ENDPOINT, Method::Post, Some(&text), Some(self.wait_ms))
+        let req = cf_io::internal_request(crate::indexnow::ENDPOINT, Method::Post, Some(&text), Some(self.wait_ms))
             .map_err(|_| IoError)?;
-        let _ = req.headers_mut().map(|h| h.set("Content-Type", "application/json; charset=utf-8"));
+        // On the request itself, as in `CfFetch::call`.
+        req.inner().headers().set("Content-Type", "application/json; charset=utf-8").map_err(|_| IoError)?;
         let mut res = worker::Fetch::Request(req).send().await.map_err(|_| IoError)?;
         let ok = (200..300).contains(&res.status_code());
         cf_io::discard(&mut res);

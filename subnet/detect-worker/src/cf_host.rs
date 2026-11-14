@@ -132,14 +132,16 @@ impl DetectHost {
     async fn read_robots(&self, origin: &str) -> Option<RobotsEntry> {
         let fetcher = self.env.service(crate::cf_url::FETCH).ok()?;
         let body = serde_json::to_string(&RobotsRequest { origin: origin.to_owned(), wait_ms: CALL_MS }).ok()?;
-        let mut req = cf_io::internal_request(
+        let req = cf_io::internal_request(
             &format!("{FETCH_ORIGIN}{ROBOTS_PATH}"),
             Method::Post,
             Some(&body),
             Some(CALL_MS * 2),
         )
         .ok()?;
-        let _ = req.headers_mut().map(|h| h.set("Content-Type", "application/json"));
+        // On the request itself: a request built from a web_sys request is
+        // immutable through `headers_mut`.
+        req.inner().headers().set("Content-Type", "application/json").ok()?;
         let mut res = fetcher.fetch_request(req).await.ok()?;
         if res.status_code() != 200 {
             cf_io::discard(&mut res);
@@ -153,8 +155,10 @@ impl DetectHost {
 
     /// One DoH JSON query.
     async fn doh(&self, endpoint: &str, name: &str) -> Option<host::DohAnswer> {
-        let mut req = cf_io::internal_request(&host::doh_url(endpoint, name), Method::Get, None, Some(CALL_MS)).ok()?;
-        let _ = req.headers_mut().map(|h| h.set("Accept", "application/dns-json"));
+        let req = cf_io::internal_request(&host::doh_url(endpoint, name), Method::Get, None, Some(CALL_MS)).ok()?;
+        // On the request itself (as above): without it the resolver does not
+        // answer JSON, and the family screen would count every domain adult.
+        req.inner().headers().set("Accept", "application/dns-json").ok()?;
         let mut res = worker::Fetch::Request(req).send().await.ok()?;
         if res.status_code() != 200 {
             cf_io::discard(&mut res);

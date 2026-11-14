@@ -79,8 +79,12 @@ async fn internal<H: Host>(cfg: &Config, host: &H, req: &Req) -> Resp {
         InternalRoute::OwnedGet => crate::owned::get(cfg, host, req).await,
         InternalRoute::OwnedRemove => crate::owned::remove(host, req).await,
         InternalRoute::OwnedPrune => crate::owned::prune(host, req).await,
-        // The ledger's routes are built with paid checks.
-        _ => Resp::refusal(RefusalCode::NotConfigured),
+        InternalRoute::BillingPeek => crate::ledger::peek(cfg, host, req, &sw).await,
+        InternalRoute::BillingHold => crate::ledger::hold(host, req, &sw).await,
+        InternalRoute::BillingCommit => crate::ledger::commit(host, req).await,
+        InternalRoute::BillingRelease => crate::ledger::release(host, req).await,
+        // The detect Worker's internal routes never parse as this Worker's.
+        _ => Resp::refusal(RefusalCode::NotFound),
     }
 }
 

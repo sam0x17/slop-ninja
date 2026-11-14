@@ -103,7 +103,10 @@ async fn secret(io: &impl Io, keys: Keys<'_>, serving: &Serving, slug: &str) -> 
             })
         });
     }
-    let receipt = receipt_for(io, state, doc.as_ref().map(|d| &d.result_full)).await;
+    // A paid document's receipt is issued for its strongest section.
+    let paid_input = doc.as_ref().and_then(crate::paid::receipt_input);
+    let input = paid_input.as_ref().or(doc.as_ref().map(|d| &d.result_full));
+    let receipt = receipt_for(io, state, input).await;
     let ctx = PageCtx { serving, switches: sw, now, receipt };
     secret_page(slug, &found.row, doc.as_ref(), job, &ctx)
 }

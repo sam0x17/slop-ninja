@@ -24,6 +24,8 @@
 //! - account data: [`link`] (connect, merge, unlink), [`owned`] (saved
 //!   links), [`views`] (the account pages' data), [`account`] (sign out,
 //!   sessions, export, deletion), [`delete`];
+//! - [`ledger`] (holds and how they end, grants, plan periods and the
+//!   internal billing routes, `billing-policy/v1`);
 //! - [`quota`] (the `QuotaLimiter` object's logic), [`ops`] (signed ops),
 //!   [`sweep`] (the crons), [`journal`], [`metrics`];
 //! - [`host`]: the platform seam the handlers run on; `cf.rs` (wasm32) is
@@ -45,6 +47,7 @@ pub mod host;
 pub mod http;
 pub mod journal;
 pub mod keys;
+pub mod ledger;
 pub mod link;
 pub mod memory;
 pub mod metrics;

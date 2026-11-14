@@ -59,9 +59,9 @@ fn the_envelope_is_checked_and_a_nonce_works_once() {
     // A var's hard off holds whatever the row says.
     let hard = config(&[("auth.email", "off")]);
     assert_eq!(Browser::new().email_start(&h, &hard, json!({"email": "reader@example.com"})).status, 503);
-    // Ledger ops come with paid checks, and spend no nonce here.
+    // A ledger op without its arguments is refused as malformed.
     let (s, a) = op(&h, &cfg, "grant_credit", json!({"reason": "r"}));
-    assert_eq!((s, a["code"].clone()), (503, json!("not_configured")));
+    assert_eq!((s, a["code"].clone()), (400, json!("op_malformed")));
     // No key configured: the op route is off.
     let none = config(&[("DETECT_OP_KEY", "")]);
     assert_eq!(op(&h, &none, "set_switch", json!({"reason": "r"})).0, 503);

@@ -20,6 +20,9 @@
 //! - **States** (`/internal/v1/states`): at most 90 ids per call, expiry
 //!   enforced on read.
 //!
+//! Deleting a pending paid page cancels its running job in the same batch;
+//! the job's hold goes back through a `commit_hold` message.
+//!
 //! The D1 tombstone comes first and the R2 delete after it: a delete that
 //! fails between the two leaves an orphan document, which the hourly
 //! backstop removes ([`crate::cron`]).
@@ -81,9 +84,15 @@ pub fn purge_urls(origins: &Origins, host: HostRole, slug: &str) -> QueueMessage
     })
 }
 
-/// The batch that tombstones `id_h` under `first` and ends its copies.
+/// The batch that tombstones `id_h` under `first`, ends its copies and
+/// cancels a paid page's running job (the owner preempts any driver; the
+/// hold goes back through `commit_hold`, `paid::after_cancel`).
 fn delete_batch(first: Stmt, id_h: &Bytes32, now: u64) -> Vec<Stmt> {
-    vec![first, Stmt::new(DELETE_COPIES, vec![Val::blob(id_h), Val::int(now)])]
+    vec![
+        first,
+        Stmt::new(DELETE_COPIES, vec![Val::blob(id_h), Val::int(now)]),
+        Stmt::new(crate::paid::CANCEL_DELETED, vec![Val::blob(id_h), Val::int(now)]),
+    ]
 }
 
 /// After a delete batch: whether the page was deleted, and the documents
@@ -145,6 +154,7 @@ pub async fn manage(
                 return Err(RefusalCode::ManageInvalid);
             }
             after_delete(io, origins, &req.slug, docs).await;
+            crate::paid::after_cancel(io, done.get(2)).await;
             io.metric("manage", &["delete"]);
             Ok(ManageAnswer {
                 ok: true,
@@ -298,6 +308,7 @@ pub async fn owner(
                 return Ok(skipped(io));
             }
             after_delete(io, origins, &req.slug, docs).await;
+            crate::paid::after_cancel(io, done.get(2)).await;
             io.metric("owner", &["deleted"]);
             Ok(OwnerAnswer::Done(OwnerDone { ok: true, code: None }))
         }

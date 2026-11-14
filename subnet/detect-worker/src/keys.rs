@@ -297,6 +297,17 @@ impl DocKey {
     pub fn open(&self, sealed: &[u8]) -> Result<Vec<u8>, Unopened> {
         open_with(&self.0, DOC_AAD, sealed)
     }
+
+    /// `nonce ‖ ciphertext ‖ tag` under this key with another AAD: a paid
+    /// job's objects, which never open as the page's document.
+    pub fn seal_with_aad(&self, nonce: &[u8; NONCE_BYTES], aad: &[u8], plaintext: &[u8]) -> Vec<u8> {
+        seal_with(&self.0, nonce, aad, plaintext)
+    }
+
+    /// The plaintext of [`DocKey::seal_with_aad`]'s output.
+    pub fn open_with_aad(&self, aad: &[u8], sealed: &[u8]) -> Result<Vec<u8>, Unopened> {
+        open_with(&self.0, aad, sealed)
+    }
 }
 
 /// `nonce ‖ AES-256-GCM(key, nonce, plaintext, aad)`.

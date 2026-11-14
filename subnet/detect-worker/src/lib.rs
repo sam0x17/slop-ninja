@@ -31,6 +31,8 @@
 //!   [`db`] (the SQL and I/O seam the flows run on), [`handoff`] (a sealed
 //!   free check's result as the store keeps it), [`lookup`], the flows
 //!   [`share`], [`manage`] (manage, owner and states) and [`rerun`], the
+//!   paid whole-document check [`paid`] (quote, start, the fenced job
+//!   driver and how its hold ends) with its [`sections`], the
 //!   read routes [`reads`], and the background work [`queue`], [`cron`],
 //!   [`sitemap`] and [`store_ops`];
 //! - `cf`, `cf_routes`, `cf_store`, `cf_gate`, `cf_feedback`, `cf_lane`
@@ -63,6 +65,7 @@ pub mod keys;
 pub mod lookup;
 pub mod manage;
 pub mod page;
+pub mod paid;
 pub mod policy;
 pub mod queue;
 pub mod reads;
@@ -70,6 +73,7 @@ pub mod receipt;
 pub mod rerun;
 pub mod routes;
 pub mod seal;
+pub mod sections;
 pub mod share;
 pub mod sitemap;
 pub mod slug;
@@ -91,6 +95,9 @@ mod cf_gate;
 mod cf_io;
 #[cfg(target_arch = "wasm32")]
 mod cf_lane;
+// The paid check's routes: quote, start and the job's stream.
+#[cfg(target_arch = "wasm32")]
+mod cf_paid;
 #[cfg(target_arch = "wasm32")]
 mod cf_routes;
 // The store's Cloudflare glue (D1, R2, the queue and the bindings).

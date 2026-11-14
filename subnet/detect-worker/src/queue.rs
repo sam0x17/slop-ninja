@@ -22,9 +22,14 @@
 //! - `sitemap_dirty {shard}`: marks the shard for the hourly rebuild.
 //! - `indexnow`: not sent before public pages exist; dropped.
 //!
-//! The other messages belong to the paid and URL flows; until those are
-//! built the consumer leaves them to the queue's retries (and the
-//! dead-letter queue, which raises an alert).
+//! - `commit_hold {det_id_h}`: ends a paid job's hold as its state asks
+//!   (`paid::end_hold`, which needs the ledger; the Worker's consumer calls
+//!   it before this one). An account's deleted pages cancel their running
+//!   jobs in the delete's own batch, and those holds go back the same way.
+//!
+//! The other messages belong to the URL flows; until those are built the
+//! consumer leaves them to the queue's retries (and the dead-letter queue,
+//! which raises an alert).
 
 use slop_ninja_detect_page::codes::PurgeMode;
 use slop_ninja_detect_page::ids::UserId;
@@ -108,6 +113,8 @@ pub async fn consume(io: &impl Io, keys: &StoreKeys, msg: &QueueMessage) -> Ack 
             .map(|_| ())
             .map_err(IoError::from),
         Job::Indexnow { .. } => Ok(()),
+        // Handled with the ledger (`paid::end_hold`), never here.
+        Job::CommitHold { .. } => return Ack::Retry(RETRY_S),
         _ => return Ack::Retry(NOT_BUILT_RETRY_S),
     };
     match r {
@@ -133,19 +140,22 @@ async fn owner_purge(io: &impl Io, keys: &StoreKeys, user_id: UserId, mode: Purg
             }
             rounds += 1;
             let now = io.now_ms();
-            let mut batch = Vec::with_capacity(ids.len() * 2);
+            let mut batch = Vec::with_capacity(ids.len() * 3);
             for id in &ids {
                 batch.push(Stmt::new(DELETE_BY_OWNER, vec![Val::blob(id), Val::blob(&o), Val::int(now)]));
                 batch.push(Stmt::new(DELETE_COPIES, vec![Val::blob(id), Val::int(now)]));
+                batch.push(Stmt::new(crate::paid::CANCEL_DELETED, vec![Val::blob(id), Val::int(now)]));
             }
             let done = io.batch(batch).await?;
             let mut docs = Vec::new();
-            for (pair, id) in done.chunks(2).zip(&ids) {
-                if pair.first().is_some_and(|x| x.changes == 1) {
+            for (part, id) in done.chunks(3).zip(&ids) {
+                if part.first().is_some_and(|x| x.changes == 1) {
                     docs.push(secret_doc_key(id));
-                    if let Some(c) = pair.get(1) {
+                    if let Some(c) = part.get(1) {
                         docs.extend(c.rows.iter().filter_map(|r| r.hex32("id_h")).map(|c| secret_doc_key(&c)));
                     }
+                    // A paid page's running job: its hold goes back.
+                    crate::paid::after_cancel(io, part.get(2)).await;
                 }
             }
             let _ = delete_docs(io, &docs).await;

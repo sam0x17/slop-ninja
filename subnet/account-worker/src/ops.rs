@@ -16,14 +16,14 @@
 //! | `merge_accounts` | `from_user_id`, `to_user_id`, `reason` (moves money too: the operator's decision) |
 //! | `undo_merge` | `seq` (the merge's journal row), `reason` |
 //! | `set_flag` | `user_id`, `flag` (`paid_preview`), `value`, `reason` |
+//! | `grant_credit` | `user_id`, `tokens`, `reason` (a non-cash payment: served, never counted for the pot) |
+//! | `grant_plan` | `user_id`, `days` (at most a year), `allowance`, `api_tokens`?, `reason` (a non-cash plan period; its API part defaults to the smaller of its tokens and the policy's) |
+//! | `void_grant` | `payment_id`, `reason` (closes a grant and any period it backs; holds already placed on it still commit) |
 //! | `set_switch` | `name` (`auth.*`, `ACCOUNTS`, `BILLING`), `state`, `reason` |
 //! | `reset_quota` | `kind`, `key` (an address, a user id or a key prefix), `reason` |
 //! | `unsuppress` | `address`, `reason` (the address leaves our suppression list; Cloudflare's own is the operator's console step) |
 //! | `x_signin_purge` | `dry_run`, `reason` |
 //! | `attach_email` | refused at launch (`no_accepted_evidence`), journaled |
-//!
-//! `grant_credit`, `grant_plan` and `void_grant` belong to the ledger's
-//! build and answer `not_configured` here without spending the nonce.
 
 use serde_json::{Map, Value, json};
 use slop_ninja_account_wire::{Bucket, BucketKind};
@@ -39,6 +39,7 @@ use crate::host::{DbError, Host, Stmt, Val, guard};
 use crate::http::{Req, Resp};
 use crate::journal::{self, Entry};
 use crate::keys::NONCE_LEN;
+use crate::ledger;
 use crate::sessions;
 
 /// The longest op body read.
@@ -85,6 +86,10 @@ impl Ctx<'_> {
         UserId::parse(self.str(k)?).ok_or(RefusalCode::OpMalformed)
     }
 
+    fn u64(&self, k: &str) -> Result<u64, RefusalCode> {
+        self.args().get(k).and_then(Value::as_u64).ok_or(RefusalCode::OpMalformed)
+    }
+
     fn bool(&self, k: &str) -> Result<bool, RefusalCode> {
         self.args().get(k).and_then(Value::as_bool).ok_or(RefusalCode::OpMalformed)
     }
@@ -129,9 +134,6 @@ pub async fn op<H: Host>(cfg: &Config, host: &H, req: &Req) -> Resp {
         Err(r) => return Resp::refusal(RefusalCode::parse(r.code()).unwrap_or(RefusalCode::OpMalformed)),
     };
     let name = v.op.op.clone();
-    if matches!(name.as_str(), "grant_credit" | "grant_plan" | "void_grant") {
-        return Resp::refusal(RefusalCode::NotConfigured);
-    }
     match host.first(crate::stmt!("SELECT seq FROM journal WHERE nonce_h = ?", v.nonce_h())).await {
         Ok(None) => {}
         Ok(Some(_)) => return Resp::refusal(RefusalCode::OpReusedNonce),
@@ -150,6 +152,9 @@ pub async fn op<H: Host>(cfg: &Config, host: &H, req: &Req) -> Resp {
         "merge_accounts" => merge_op(cfg, host, &c).await,
         "undo_merge" => undo_merge(cfg, host, &c).await,
         "set_flag" => set_flag(cfg, host, &c).await,
+        "grant_credit" => grant_credit(cfg, host, &c).await,
+        "grant_plan" => grant_plan(cfg, host, &c).await,
+        "void_grant" => void_grant(cfg, host, &c).await,
         "set_switch" => set_switch(host, &c).await,
         "reset_quota" => reset_quota(cfg, host, &c).await,
         "unsuppress" => unsuppress(cfg, host, &c).await,
@@ -357,6 +362,104 @@ async fn set_flag<H: Host>(cfg: &Config, host: &H, c: &Ctx<'_>) -> Result<Resp, 
     ];
     let rows = host.batch(stmts).await.map_err(db_code)?;
     Ok(ok("set_flag", seq_of(&rows, 2), Map::new()))
+}
+
+/// An account that can hold credit: it exists and is not deleted.
+const USER_ALIVE: &str = "EXISTS (SELECT 1 FROM users WHERE user_id = ? AND state != 'deleted')";
+
+async fn grant_credit<H: Host>(cfg: &Config, host: &H, c: &Ctx<'_>) -> Result<Resp, RefusalCode> {
+    c.only(&["user_id", "tokens"])?;
+    let u = c.user("user_id")?;
+    let tokens = c.u64("tokens")?;
+    if !ledger::grant_tokens_ok(tokens) {
+        return Err(RefusalCode::OpMalformed);
+    }
+    let stmts = vec![
+        guard(USER_ALIVE, vec![Val::from(u.0)]),
+        c.entry(
+            journal::op_text("grant_credit", journal::args([("user_id", json!(u.hex())), ("tokens", json!(tokens))])),
+            Some(cfg.keys.user_h(&u)),
+        ),
+        ledger::grant_credit_stmt(&u, tokens, c.now),
+    ];
+    let rows = host.batch(stmts).await.map_err(db_code)?;
+    let payment_id = rows.get(2).and_then(|r| r.first()).and_then(|r| r.u64("payment_id")).unwrap_or(0);
+    crate::metrics::ledger(host, "grant");
+    Ok(ok(
+        "grant_credit",
+        seq_of(&rows, 1),
+        journal::args([("payment_id", json!(payment_id)), ("tokens", json!(tokens))]),
+    ))
+}
+
+async fn grant_plan<H: Host>(cfg: &Config, host: &H, c: &Ctx<'_>) -> Result<Resp, RefusalCode> {
+    c.only(&["user_id", "days", "allowance", "api_tokens"])?;
+    let u = c.user("user_id")?;
+    let api_cap = match c.args().get("api_tokens") {
+        None => None,
+        Some(v) => Some(v.as_u64().ok_or(RefusalCode::OpMalformed)?),
+    };
+    let (days, allowance, api_cap) =
+        ledger::plan_figures(c.u64("days")?, c.u64("allowance")?, api_cap).ok_or(RefusalCode::OpMalformed)?;
+    let mut stmts = vec![
+        guard(USER_ALIVE, vec![Val::from(u.0)]),
+        c.entry(
+            journal::op_text(
+                "grant_plan",
+                journal::args([
+                    ("user_id", json!(u.hex())),
+                    ("days", json!(days)),
+                    ("allowance", json!(allowance)),
+                    ("api_tokens", json!(api_cap)),
+                ]),
+            ),
+            Some(cfg.keys.user_h(&u)),
+        ),
+    ];
+    stmts.extend(ledger::grant_plan_stmts(&u, days, allowance, api_cap, c.now));
+    let rows = host.batch(stmts).await.map_err(db_code)?;
+    let period = rows.get(3).and_then(|r| r.first());
+    let period_id = period.and_then(|r| r.u64("period_id")).unwrap_or(0);
+    let payment_id = period.and_then(|r| r.u64("payment_id")).unwrap_or(0);
+    crate::metrics::ledger(host, "grant");
+    Ok(ok(
+        "grant_plan",
+        seq_of(&rows, 1),
+        journal::args([
+            ("period_id", json!(period_id)),
+            ("payment_id", json!(payment_id)),
+            ("allowance", json!(allowance)),
+            ("api_tokens", json!(api_cap)),
+        ]),
+    ))
+}
+
+async fn void_grant<H: Host>(cfg: &Config, host: &H, c: &Ctx<'_>) -> Result<Resp, RefusalCode> {
+    c.only(&["payment_id"])?;
+    let id = c.u64("payment_id")?;
+    let row = host
+        .first(crate::stmt!(
+            "SELECT user_id, tokens_left FROM payments WHERE payment_id = ? AND kind = 'grant' AND state = 'active'",
+            id
+        ))
+        .await
+        .map_err(|_| RefusalCode::Internal)?
+        .ok_or(RefusalCode::NotFound)?;
+    let u = row.b16("user_id").map(UserId).ok_or(RefusalCode::Internal)?;
+    let left = row.u64("tokens_left").unwrap_or(0);
+    let mut stmts = ledger::void_grant_stmts(id);
+    stmts.push(
+        c.entry(journal::op_text("void_grant", journal::args([("payment_id", json!(id))])), Some(cfg.keys.user_h(&u))),
+    );
+    let at = stmts.len() - 1;
+    let rows = host.batch(stmts).await.map_err(db_code)?;
+    let periods = rows.get(2).map_or(0, Vec::len);
+    crate::metrics::ledger(host, "void");
+    Ok(ok(
+        "void_grant",
+        seq_of(&rows, at),
+        journal::args([("voided_tokens", json!(left)), ("periods_closed", json!(periods))]),
+    ))
 }
 
 async fn set_switch<H: Host>(host: &H, c: &Ctx<'_>) -> Result<Resp, RefusalCode> {

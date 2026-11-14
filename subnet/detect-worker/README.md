@@ -166,6 +166,58 @@ the request. A link or a preview reserves its footprint
 from the scan memory by its declared length, and a document read by the
 document's size.
 
+## Paid checks
+
+The paid whole-document check (`paid.rs`, its sections in `sections.rs`, the
+Cloudflare glue in `cf_paid.rs`) runs on the account Worker's ledger through
+the `ACCOUNT` binding; at launch only operator grants back it.
+
+- `POST /api/detect/v1/paid/quote` (the site host, signed in): the free
+  check's seal must bind the text under the serving package; the whole text
+  passes the English screen; the sections are planned and section 1 must be
+  the seal's free cut. The reader is billed the content tokens past the free
+  cut (at least 128), and the answer carries a quote seal binding the text,
+  the account, the free seal and the hold's idempotency key.
+- `POST /api/detect/v1/paid/start`: the hold, then the job text and section
+  1's result in R2 (under the page's own key, with the job AAD), then one
+  batch inserts the pending page and its job. A seal starts one check.
+- `POST /api/detect/v1/job` (the secret host): an NDJSON stream of job lines
+  while one driver at a time scores the sections, fenced by a lease token
+  (CLAIM, RENEW, ADVANCE, SCORED). Each section takes a gate ticket of class
+  `paid` keyed by the page's owner hash and is counted on channel
+  `paid_page` as an operation, never as pot basis. The page goes live in the
+  SCORED batch; the hold commits after it, and a failed commit retries
+  through `commit_hold` and the hourly sweep. A section refused for good
+  fails the job and the page and releases the hold; deleting the page
+  cancels a running job and its hold goes back the same way.
+
+**Sections** (rules W1 to W6): at most 1,000 words and 2,046 content tokens
+each, cut with the free check's own rule; consecutive sections overlap by at
+least 48 words (two span floors); the last section is the longest tail that
+fits; a stretch with no sentence or line end within a section's reach, or a
+section the rules cannot make long enough or that one scan cannot hold, is
+listed in the quote and neither scored nor billed; each overlap is split at
+its middle word, and owned words weight the document's share.
+
+**Bounds.** A paid text is at most `PAID_TEXT_BYTES` (2 MiB canonical, about
+340,000 words): its job holds the text, its plan and the assembled document
+in half the scan memory, one section's scan in the other half. Quotes and
+starts reserve their footprint by their declared body
+(`routes::paid_footprint`), the job by its text's size, and each section its
+own scan. The free check takes the whole document first, and its own
+reservation (98 bytes per body byte) is the tighter bound in practice: about
+860 KB, some 140,000 words.
+
+**Subrequests.** A job invocation counts its subrequests against the
+documented limit per invocation (10,000); every D1, R2, gate, lane and
+ledger call counts.
+A section takes about six (RENEW, the gate's enter and done, the lane, the
+section's put, ADVANCE) plus its gate asks, and the end two per section read
+back plus a fixed few: a 100,000-word document (107 sections) measured 860
+in one invocation. A driver starts a section only while the budget holds one
+more section and the whole end; otherwise it stops cleanly, lets its lease
+go, and the next open resumes.
+
 ## The free cut
 
 The free check scores at most the first 1,000 whitespace words of a text and

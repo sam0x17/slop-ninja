@@ -272,7 +272,8 @@ async fn billing<H: Host>(host: &H, sw: &Switches, s: &Session) -> Result<View, 
     let mut history = Vec::new();
     for r in host
         .all(crate::stmt!(
-            "SELECT kind, cash, tokens_total, state, created_at FROM payments WHERE user_id = ?",
+            "SELECT kind, cash, tokens_total, state, created_at FROM payments WHERE user_id = ? \
+             AND NOT (tokens_total = 0 AND EXISTS (SELECT 1 FROM plan_periods p WHERE p.payment_id = payments.payment_id))",
             s.user_id.0
         ))
         .await?

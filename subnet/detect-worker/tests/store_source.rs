@@ -8,6 +8,7 @@ fn src(name: &str) -> String {
 
 const STORE_FILES: &[&str] = &[
     "canon.rs",
+    "cf_paid.rs",
     "cf_routes.rs",
     "cf_store.rs",
     "cron.rs",
@@ -19,6 +20,7 @@ const STORE_FILES: &[&str] = &[
     "lookup.rs",
     "manage.rs",
     "page.rs",
+    "paid.rs",
     "queue.rs",
     "reads.rs",
     "rerun.rs",

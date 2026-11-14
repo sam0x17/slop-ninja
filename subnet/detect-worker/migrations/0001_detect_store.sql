@@ -79,10 +79,13 @@ CREATE TABLE jobs (                          -- paid whole-document checks
   det_id_h BLOB PRIMARY KEY REFERENCES detections(id_h),
   owner_h BLOB NOT NULL, hold_ref TEXT NOT NULL UNIQUE,  -- the account ledger's hold id (opaque here)
   package_load TEXT NOT NULL, policy_v TEXT NOT NULL,
+  package_pub TEXT,                          -- the published digest the commit names (the job's package)
   sections_total INTEGER NOT NULL, sections_done INTEGER NOT NULL, tokens_billed INTEGER NOT NULL,
+  cash_tokens INTEGER NOT NULL DEFAULT 0 CHECK (cash_tokens >= 0),  -- the hold's cash-backed tokens (the pot's count)
   lease_token BLOB, lease_until INTEGER,     -- the fencing token of the driver holding the work lease
   state TEXT NOT NULL CHECK (state IN ('running','scored','committed','failed','cancelled')),
-  failure TEXT, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL);
+  failure TEXT, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL,
+  hold_ended_at INTEGER);                    -- when the ledger confirmed the hold's end (commit or release)
 
 CREATE TABLE cases (
   case_id TEXT PRIMARY KEY, status_h BLOB NOT NULL,

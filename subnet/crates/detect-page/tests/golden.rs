@@ -1021,6 +1021,7 @@ fn entries() -> Vec<Entry> {
             draw_credit: 1020,
             enough: true,
             quote_seal: "AQ3xdW90ZS1zZWFsLWV4YW1wbGU".into(),
+            unscored: Vec::new(),
         },
     ));
     e.push(entry(

@@ -108,14 +108,32 @@ pub enum NoCut {
     Count(Refused),
 }
 
+/// Where a cut by rules C1 to C3 ends in `text`, how it was chosen and the
+/// scored part's exact token count, frame included.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct End {
+    /// A byte offset: `text.len()`, or a unit end (or a line end).
+    pub end: usize,
+    pub kind: Kind,
+    pub tokens: u64,
+}
+
 /// The free check's scored part of `text` (rules C1 to C3), with its exact
 /// token count. `admit` is offered every allocation the counts make.
 pub fn free_cut<'a>(text: &'a str, admit: Admit<'_>) -> Result<Cut<'a>, NoCut> {
-    let total_words = words(text);
+    let End { end, kind, tokens } = cut_end(text, admit)?;
+    let scored = text.get(..end).ok_or(NoCut::NoSentenceEnd)?;
+    Ok(Cut { scored, kind, total_words: words(text), scored_words: words(scored), tokens })
+}
+
+/// Rules C1 to C3 on `text`, read no further than they need: the scan stops
+/// at word 1,001 and the counts at the cut, so a paid check cuts each
+/// section of a long document with the free check's own rule (section 1 is
+/// exactly the free cut) without reading the rest of the document.
+pub fn cut_end(text: &str, admit: Admit<'_>) -> Result<End, NoCut> {
     let (mut end, mut kind) = (text.len(), Kind::Whole);
-    if total_words > FREE_MAX_WORDS {
-        // The start of word 1,001; a text of more words always has one.
-        let limit = word_start(text, FREE_MAX_WORDS).ok_or(NoCut::NoSentenceEnd)?;
+    // The start of word 1,001, when the text has more than 1,000 words.
+    if let Some(limit) = word_start(text, FREE_MAX_WORDS) {
         end = last_at_or_before(unit_ends(text), limit)
             .or_else(|| last_at_or_before(line_ends(text), limit))
             .ok_or(NoCut::NoSentenceEnd)?;
@@ -132,8 +150,17 @@ pub fn free_cut<'a>(text: &'a str, admit: Admit<'_>) -> Result<Cut<'a>, NoCut> {
     }
     // The searched end fits by construction; a miss is still never scored.
     let tokens = tokens.ok_or(NoCut::NoSentenceEnd)?;
-    let scored = text.get(..end).ok_or(NoCut::NoSentenceEnd)?;
-    Ok(Cut { scored, kind, total_words, scored_words: words(scored), tokens })
+    Ok(End { end, kind, tokens })
+}
+
+/// Whether the whole of `text` fits one cut: at most 1,000 words and the
+/// scorer's tokens. The word scan stops at word 1,001 and the count past
+/// the limit.
+pub fn fits_whole(text: &str, admit: Admit<'_>) -> Result<bool, NoCut> {
+    if word_start(text, FREE_MAX_WORDS).is_some() {
+        return Ok(false);
+    }
+    fits_at(text, text.len(), admit)
 }
 
 /// The exact count of `text[..end]` when it fits the scorer's tokens.

@@ -120,6 +120,20 @@ pub struct QuoteAnswer {
     /// The balance covers it: show **Confirm**.
     pub enough: bool,
     pub quote_seal: String,
+    /// Stretches the check does not score or bill, listed before any
+    /// charge: no sentence or line end within a section's reach (rule W5),
+    /// or a section the rules cannot make long enough to score. Absent when
+    /// there are none.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub unscored: Vec<Unscored>,
+}
+
+/// A stretch of a paid document that is not scored or billed, by its words
+/// (from 1).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Unscored {
+    pub from_word: u32,
+    pub to_word: u32,
 }
 
 /// `POST /api/detect/v1/paid/start`. The website answers 303 to

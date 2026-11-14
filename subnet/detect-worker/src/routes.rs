@@ -40,6 +40,8 @@ pub mod id {
     pub const INTERNAL: u8 = 9;
     pub const QUEUE: u8 = 10;
     pub const CRON: u8 = 11;
+    pub const PAID: u8 = 12;
+    pub const JOB: u8 = 13;
 }
 
 const KIB: usize = 1024;
@@ -61,6 +63,8 @@ pub const R_STATE: AsyncRoute = AsyncRoute::new(id::STATE, "detect/state", FETCH
 pub const R_INTERNAL: AsyncRoute = AsyncRoute::new(id::INTERNAL, "detect/internal", FETCH_MS);
 pub const R_QUEUE: AsyncRoute = AsyncRoute::new(id::QUEUE, "detect/queue", FETCH_MS);
 pub const R_CRON: AsyncRoute = AsyncRoute::new(id::CRON, "detect/cron", FETCH_MS);
+pub const R_PAID: AsyncRoute = AsyncRoute::new(id::PAID, "detect/paid", FETCH_MS);
+pub const R_JOB: AsyncRoute = AsyncRoute::new(id::JOB, "detect/job", FETCH_MS);
 
 /// The scorer's reply for one document, at most: one sentence record per
 /// content token at the most (a sentence holds at least one token) and one
@@ -146,6 +150,73 @@ pub const TEXT_BODY_BYTES: u64 =
 pub const SMALL_BODY_BYTES: usize = 4 * KIB;
 /// A `states` body: at most 90 ids of 64 hex digits, quoted, with commas.
 pub const STATES_BODY_BYTES: usize = slop_ninja_detect_page::internal::MAX_STATES_PER_CALL * (64 + 3) + 64;
+
+/// A paid quote's or start's fixed part: a store route's (its D1 rows and
+/// the ledger's answers). What grows with the text is reserved from the
+/// scan memory by the declared body ([`paid_footprint`]).
+pub const PAID_CONTROL_BYTES: usize = STORE_CONTROL_BYTES;
+/// The job route's fixed part: a store route that also holds one scorer
+/// reply per section, as a re-run does.
+pub const JOB_CONTROL_BYTES: usize = SCORE_CONTROL_BYTES;
+
+/// The longest canonical text a paid check takes. Its job holds the text,
+/// its plan and the assembled document at once ([`job_footprint`]); half
+/// the scan memory is kept for that, the other half for one section's scan
+/// beside it, so a job of this size fits alone. About 340,000 words of
+/// English (6.1 bytes a word).
+pub const PAID_TEXT_BYTES: usize = 2 * MIB;
+/// The job text's header (the plan) at most: a section per 952 words at
+/// the fewest (1,000 less the overlap), each under 300 bytes of JSON, for a
+/// text of words of one character and a space; rounded up.
+pub const JOB_HEADER_BYTES: usize = MIB;
+const _: () = assert!((PAID_TEXT_BYTES / 2 / 952 + 2) * 300 <= JOB_HEADER_BYTES);
+/// A paid quote's or start's body, at most: the text with every line break
+/// or quote escaped (two bytes for one; a text escaped further is refused),
+/// the free seal, the quote seal (a payload of fixed fields, under the free
+/// seal's field), and the other fields.
+pub const PAID_BODY_BYTES: u64 = 2 * PAID_TEXT_BYTES as u64 + 2 * SEAL_FIELD_BYTES as u64 + KIB as u64;
+/// Bytes a quote or a start can hold per byte of its body, at most: the
+/// body (1), the unescaped text (1), its `canon_v1` form (3: NFC never more
+/// than triples UTF-8), and for a start the job text holding that form (3)
+/// and the job text sealed (3).
+pub const PAID_BYTES_PER_BODY_BYTE: usize = 1 + 1 + 3 + 3 + 3;
+/// The token counts' scratch: each allocation the plan's counts make is
+/// admitted only up to this (a pre-token of over 100 KB is refused as busy,
+/// as no text of words is), and two may be live at once.
+pub const PAID_SCRATCH_BYTES: usize = 8 * MIB;
+
+/// A quote's or start's reservation for a declared body of `body_bytes`.
+pub const fn paid_footprint(body_bytes: u64) -> usize {
+    let n = if body_bytes > PAID_BODY_BYTES { PAID_BODY_BYTES } else { body_bytes } as usize;
+    n.saturating_mul(PAID_BYTES_PER_BODY_BYTE).saturating_add(2 * PAID_SCRATCH_BYTES)
+}
+
+/// The job route's reservation for a job text of `bytes` (the sealed
+/// object), beside the store's document read of it (`DOC_BYTES_PER_BYTE`):
+/// the text the job keeps, the assembled document's JSON (six bytes per
+/// byte at most) and that JSON sealed (`paid::JOB_BYTES_PER_TEXT_BYTE`).
+pub const fn job_footprint(bytes: u64) -> usize {
+    (bytes as usize).saturating_mul(crate::paid::JOB_BYTES_PER_TEXT_BYTE)
+}
+
+/// What a job of the largest text holds besides one section's scan.
+pub const JOB_LARGEST_BYTES: usize = (PAID_TEXT_BYTES + JOB_HEADER_BYTES) * DOC_BYTES_PER_BYTE
+    + job_footprint((PAID_TEXT_BYTES + JOB_HEADER_BYTES) as u64)
+    + JOB_CONTROL_BYTES;
+const _: () = assert!(JOB_LARGEST_BYTES <= SCAN_MEMORY_BYTES, "a job of the largest text fits the scan memory");
+const _: () = assert!(paid_footprint(PAID_BODY_BYTES) <= SCAN_MEMORY_BYTES, "the largest quote fits");
+
+/// The largest section one scan of a job may hold, beside the job's own
+/// memory at its largest: a section bigger than this (a thousand words of
+/// absurd length) is listed as not scored, never refused mid-job.
+pub const MAX_SECTION_BYTES: usize =
+    (SCAN_MEMORY_BYTES - JOB_LARGEST_BYTES - SCORE_CONTROL_BYTES) / BYTES_PER_BODY_BYTE;
+const _: () = assert!(MAX_SECTION_BYTES >= 64 * KIB, "a section of ordinary prose (about 6 KB) always fits");
+
+/// A section's scan reservation: the free check's, for the section's text.
+pub fn section_footprint(section_bytes: usize) -> usize {
+    section_bytes.saturating_mul(BYTES_PER_BODY_BYTE).saturating_add(SCORE_CONTROL_BYTES)
+}
 
 /// The detect Worker's internal route at `method` and `path`, with a
 /// sitemap shard's number (`/internal/v1/sitemap/<n>`, `n` in canonical

@@ -14,6 +14,9 @@
 //!   paid job), and a job object whose job is no longer running or scored.
 //!   Objects younger than [`BACKSTOP_MIN_AGE_MS`] are left alone, so a link
 //!   being made (its document is put before its row) is never touched.
+//! - **Paid jobs** (`crate::paid::sweep`). Running jobs whose page ended or
+//!   expired are cancelled, and every hold whose end is an hour overdue is
+//!   asked for again; each goes to the `commit_hold` consumer.
 //! - **Claims.** Claims past their lease are deleted; a pending page with no
 //!   live claim offers "Run it".
 //! - **Sitemaps.** Dirty shards are rebuilt ([`crate::sitemap`]).
@@ -67,6 +70,8 @@ pub struct Hourly {
     pub orphans: u64,
     pub claims: u64,
     pub shards: u64,
+    /// Paid jobs whose hold the sweep sent to `commit_hold`.
+    pub holds: usize,
 }
 
 fn ids(d: &Done) -> Vec<[u8; 32]> {
@@ -204,6 +209,12 @@ pub async fn hourly(io: &impl Io, origins: &Origins, index_on: bool) -> Result<H
             Err(e) => {
                 first_err.get_or_insert(e);
             }
+        }
+    }
+    match crate::paid::sweep(io).await {
+        Ok(n) => h.holds = n,
+        Err(e) => {
+            first_err.get_or_insert(e);
         }
     }
     match io.run(Stmt::new(DELETE_STALE_CLAIMS, vec![Val::int(now)])).await {

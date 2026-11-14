@@ -1,7 +1,8 @@
 //! The store's [`Io`] on Cloudflare (wasm32 only): D1 through its Sessions
 //! API, R2 `detect-docs`, the `detect-jobs` queue, the account Worker's and
 //! the alerts relay's service bindings, the zone cache purge, the feedback
-//! object's receipts and Analytics Engine.
+//! object's receipts and Analytics Engine; and the paid check's ledger
+//! (`paid::Ledger`: the account Worker's billing routes).
 //!
 //! - D1: one session per request (`first-unconstrained`; read replication
 //!   is off at launch, so every read is the primary's). Values bind as
@@ -22,8 +23,11 @@
 use std::cell::RefCell;
 
 use serde::Serialize;
-use slop_ninja_account_wire::OwnedAddRequest;
+use slop_ninja_account_wire::{
+    CommitRequest, HoldAnswer, HoldEndAnswer, HoldRequest, OwnedAddRequest, PeekAnswer, PeekRequest, ReleaseRequest,
+};
 use slop_ninja_detect_page::queue::QueueMessage;
+use slop_ninja_detect_page::refusal::RefusalCode;
 use wasm_bindgen::JsValue;
 use worker::{Bucket, D1DatabaseSession, D1PreparedStatement, Env, Method, QueueContentType, RawMessageBuilder};
 
@@ -140,6 +144,59 @@ fn done_of(r: &worker::D1Result) -> Result<Done, DbError> {
     }
     let changes = r.meta().ok().flatten().and_then(|m| m.changes).unwrap_or(0) as u64;
     Ok(Done { rows, changes })
+}
+
+impl CfStore<'_> {
+    /// An R2 object's size, `None` when missing or unreadable (the job
+    /// route's reservation reads it before the driver reads the object).
+    pub(crate) async fn doc_size(&self, key: &str) -> Option<u64> {
+        cf_io::r2_size(&self.docs, key, self.until()).await.ok().flatten()
+    }
+
+    /// One call to the account Worker's billing route at `url`: its JSON
+    /// answer, the refusal code it answered, or `unavailable` when the call
+    /// failed or answered out of form.
+    async fn account<B: Serialize, T: serde::de::DeserializeOwned>(
+        &self,
+        url: &str,
+        body: &B,
+    ) -> Result<T, RefusalCode> {
+        let gone = RefusalCode::Unavailable;
+        let fetcher = self.env.service(ACCOUNT).map_err(|_| gone)?;
+        let text = serde_json::to_string(body).map_err(|_| RefusalCode::Internal)?;
+        let mut req = cf_io::internal_request(url, Method::Post, Some(&text), Some(self.wait_ms)).map_err(|_| gone)?;
+        let _ = req.headers_mut().map(|h| h.set("Content-Type", "application/json"));
+        let mut res = fetcher.fetch_request(req).await.map_err(|_| gone)?;
+        let status = res.status_code();
+        let bytes = cf_io::response_bytes(&mut res, ANSWER_BYTES).await.map_err(|_| gone)?;
+        if status == 200 {
+            return serde_json::from_slice(&bytes).map_err(|_| gone);
+        }
+        #[derive(serde::Deserialize)]
+        struct Refused {
+            code: String,
+        }
+        let code = serde_json::from_slice::<Refused>(&bytes).ok().and_then(|r| RefusalCode::parse(&r.code));
+        Err(code.unwrap_or(gone))
+    }
+}
+
+impl crate::paid::Ledger for CfStore<'_> {
+    async fn peek(&self, req: &PeekRequest) -> Result<PeekAnswer, RefusalCode> {
+        self.account("https://account/internal/v1/billing/peek", req).await
+    }
+
+    async fn hold(&self, req: &HoldRequest) -> Result<HoldAnswer, RefusalCode> {
+        self.account("https://account/internal/v1/billing/hold", req).await
+    }
+
+    async fn commit(&self, req: &CommitRequest) -> Result<HoldEndAnswer, RefusalCode> {
+        self.account("https://account/internal/v1/billing/commit", req).await
+    }
+
+    async fn release(&self, req: &ReleaseRequest) -> Result<HoldEndAnswer, RefusalCode> {
+        self.account("https://account/internal/v1/billing/release", req).await
+    }
 }
 
 impl Sql for CfStore<'_> {

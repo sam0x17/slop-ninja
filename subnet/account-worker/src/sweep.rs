@@ -1,5 +1,7 @@
 //! The crons: every 5 minutes the expired flows, email links, wallet
-//! challenges and pending links go; hourly the sessions past either expiry.
+//! challenges and pending links go; hourly the sessions past either expiry
+//! go and plan periods past their end close (no rollover: a closed period
+//! keeps only what it used).
 //! Each table is swept through its expiry index, a bounded number of rows a
 //! run (every insert also deletes up to 20 of its own table's expired rows,
 //! so the tables stay near their live size between runs).
@@ -29,11 +31,14 @@ pub async fn run<H: Host>(host: &H, cron: &str) -> u64 {
                 )
             })
             .collect(),
-        SESSIONS_CRON => vec![Stmt::new(
-            "DELETE FROM sessions WHERE rowid IN (SELECT rowid FROM sessions WHERE idle_expires_at <= ? OR abs_expires_at <= ? \
+        SESSIONS_CRON => vec![
+            Stmt::new(
+                "DELETE FROM sessions WHERE rowid IN (SELECT rowid FROM sessions WHERE idle_expires_at <= ? OR abs_expires_at <= ? \
              LIMIT ?) RETURNING created_at",
-            vec![Val::from(now), Val::from(now), Val::from(PER_RUN)],
-        )],
+                vec![Val::from(now), Val::from(now), Val::from(PER_RUN)],
+            ),
+            crate::ledger::end_periods_stmt(now, PER_RUN),
+        ],
         _ => return 0,
     };
     match host.batch(stmts).await {

@@ -17,6 +17,7 @@ use slop_ninja_detect_page::origins::Origins;
 use slop_ninja_signed_op::{Env as OpEnv, OperatorKey};
 
 use crate::keys::Keys;
+use crate::ledger::BillingPolicy;
 
 /// The var and secret names.
 pub mod names {
@@ -28,6 +29,7 @@ pub mod names {
     pub const OP_ENV: &str = "OP_ENV";
     pub const DETECT_OP_KEY: &str = "DETECT_OP_KEY";
     pub const AUTH_POLICY: &str = "AUTH_POLICY";
+    pub const BILLING_POLICY: &str = "BILLING_POLICY";
     pub const ACCOUNT_STORE_SECRET: &str = "ACCOUNT_STORE_SECRET";
     pub const GOOGLE_CLIENT_ID: &str = "GOOGLE_CLIENT_ID";
     pub const GITHUB_CLIENT_ID: &str = "GITHUB_CLIENT_ID";
@@ -68,6 +70,9 @@ pub enum ConfigError {
 pub struct Config {
     pub origins: Origins,
     pub policy: AuthPolicy,
+    /// `billing-policy/v1`; `None` when the var does not parse, and then the
+    /// billing routes that size a quota answer `not_configured`.
+    pub billing: Option<BillingPolicy>,
     pub keys: Keys,
     pub mail: Result<MailConfig, ConfigError>,
     pub op_env: OpEnv,
@@ -94,6 +99,7 @@ impl Config {
         } else {
             AuthPolicy::from_json(&policy_var).map_err(|_| ConfigError::Policy)?
         };
+        let billing = BillingPolicy::from_var(&var(names::BILLING_POLICY)).ok();
         let secret = get(names::ACCOUNT_STORE_SECRET).unwrap_or_default();
         let keys = Keys::derive(secret.trim().as_bytes()).ok_or(ConfigError::StoreSecret)?;
         // The prefix is not trimmed: "[staging] " ends in a space.
@@ -128,6 +134,7 @@ impl Config {
         Ok(Config {
             origins,
             policy,
+            billing,
             keys,
             mail,
             op_env,

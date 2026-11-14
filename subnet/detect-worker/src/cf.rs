@@ -40,6 +40,11 @@
 //!   states, owner, examples, example, sitemap shards, removals), refused
 //!   when they carry `X-SN-Route` or `X-SN-Host`, with `X-SN-Principal` on
 //!   the owner route only.
+//! - The paid check's routes (`cf_paid`): `POST /api/detect/v1/paid/quote`
+//!   and `/paid/start` (the site host, with `X-SN-Principal`), and
+//!   `/api/detect/v1/job` (the secret host), whose NDJSON stream drives the
+//!   job's sections through the gate (class `paid`, keyed by the page's
+//!   owner hash) and the lane.
 //! - anything else: 404 (405 for another method on a route).
 //!
 //! The `queue` export consumes `detect-jobs` (one message per invocation),
@@ -112,6 +117,9 @@ export function detect_route(req) {
   if (u.pathname === '/api/detect/v1/manage') return post ? 6 : 9;
   if (u.pathname === '/api/detect/v1/rerun') return post ? 7 : 9;
   if (u.pathname === '/api/detect/v1/state') return post ? 8 : 9;
+  if (u.pathname === '/api/detect/v1/paid/quote') return post ? 10 : 9;
+  if (u.pathname === '/api/detect/v1/paid/start') return post ? 11 : 9;
+  if (u.pathname === '/api/detect/v1/job') return post ? 12 : 9;
   return 0;
 }
 export function ndjson_pair() {
@@ -140,8 +148,8 @@ export function random_bytes(n) {
 ")]
 extern "C" {
     /// 1 score, 2 warm, 3 feedback, 4 share, 5 an internal path, 6 manage,
-    /// 7 rerun, 8 state, 9 another method on a route, else 0 (read in JS,
-    /// no Rust allocation).
+    /// 7 rerun, 8 state, 10 paid quote, 11 paid start, 12 job, 9 another
+    /// method on a route, else 0 (read in JS, no Rust allocation).
     fn detect_route(req: &web_sys::Request) -> u32;
     /// `[readable, writer]` of a fresh TransformStream.
     fn ndjson_pair() -> js_sys::Array;
@@ -243,6 +251,8 @@ pub fn fetch(req: web_sys::Request, env: Env, _ctx: worker_sys::Context) -> js_s
         6 => (routes::R_MANAGE, routes::STORE_CONTROL_BYTES),
         7 => (routes::R_RERUN, routes::RERUN_CONTROL_BYTES),
         8 => (routes::R_STATE, routes::STORE_CONTROL_BYTES),
+        10 | 11 => (routes::R_PAID, routes::PAID_CONTROL_BYTES),
+        12 => (routes::R_JOB, routes::JOB_CONTROL_BYTES),
         _ => (routes::R_OTHER, routes::OTHER_CONTROL_BYTES),
     };
     // The score route resolves its answer early (a stream it keeps writing),
@@ -266,6 +276,9 @@ pub fn fetch(req: web_sys::Request, env: Env, _ctx: worker_sys::Context) -> js_s
                 6 => answer.send(crate::cf_routes::manage(req, &env).await),
                 7 => answer.send(crate::cf_routes::rerun(req, &env).await),
                 8 => answer.send(crate::cf_routes::state(req, &env).await),
+                10 => answer.send(crate::cf_paid::quote(req, &env).await),
+                11 => answer.send(crate::cf_paid::start(req, &env).await),
+                12 => crate::cf_paid::job(req, env, &answer).await,
                 9 => answer.send(refuse(RefusalCode::Method)),
                 _ => answer.send(refuse(RefusalCode::NotFound)),
             }
@@ -330,12 +343,12 @@ pub fn scheduled(_event: worker_sys::ScheduledEvent, env: Env, _ctx: worker_sys:
 }
 
 /// The invocation's answer: resolving it more than once has no effect.
-struct Answer {
+pub(crate) struct Answer {
     resolve: js_sys::Function,
 }
 
 impl Answer {
-    fn send(&self, r: web_sys::Response) {
+    pub(crate) fn send(&self, r: web_sys::Response) {
         let _ = self.resolve.call1(&JsValue::NULL, &r.into());
     }
 }
@@ -705,14 +718,41 @@ struct IssueReply {
 /// The NDJSON stream of an accepted text. Each write must complete within
 /// `bound_ms` (one hold): a reader that takes longer to accept a line is
 /// taken as gone, so no invocation waits on a reader indefinitely.
-struct Lines {
+pub(crate) struct Lines {
     writer: JsValue,
     open: bool,
     bound_ms: u64,
 }
 
 impl Lines {
-    async fn line<T: Serialize>(&mut self, v: &T) -> bool {
+    /// Answers `answer` with a fresh NDJSON stream (`200`, `no-store`) and
+    /// returns its writer; `None` when the response cannot be built (the
+    /// answer is then a 500).
+    pub(crate) fn open(answer: &Answer, bound_ms: u64) -> Option<Lines> {
+        let pair = ndjson_pair();
+        let (readable, writer) = (pair.get(0), pair.get(1));
+        let init = web_sys::ResponseInit::new();
+        init.set_status(200);
+        if let Ok(h) = web_sys::Headers::new() {
+            let _ = h.set("Content-Type", "application/x-ndjson; charset=utf-8");
+            let _ = h.set("Cache-Control", "no-store");
+            let _ = h.set("X-Content-Type-Options", "nosniff");
+            init.set_headers(&h);
+        }
+        let stream: Option<web_sys::ReadableStream> = wasm_bindgen::JsCast::dyn_into(readable).ok();
+        match web_sys::Response::new_with_opt_readable_stream_and_init(stream.as_ref(), &init) {
+            Ok(r) => {
+                answer.send(r);
+                Some(Lines { writer, open: true, bound_ms })
+            }
+            Err(_) => {
+                answer.send(refuse(RefusalCode::Internal));
+                None
+            }
+        }
+    }
+
+    pub(crate) async fn line<T: Serialize>(&mut self, v: &T) -> bool {
         if !self.open {
             return false;
         }
@@ -725,14 +765,14 @@ impl Lines {
     }
 
     /// The reader is still there (no write needed to find out).
-    fn alive(&mut self) -> bool {
+    pub(crate) fn alive(&mut self) -> bool {
         if self.open && writer_errored(&self.writer) {
             self.open = false;
         }
         self.open
     }
 
-    async fn close(&mut self) {
+    pub(crate) async fn close(&mut self) {
         if self.open {
             let until = now_ms().saturating_add(self.bound_ms);
             let _ = cf_io::settle(close_writer(&self.writer), Some(until)).await;
@@ -827,6 +867,72 @@ impl Accepted<'_> {
     }
 }
 
+impl<'a> Accepted<'a> {
+    /// One section of a paid document as a scan of its own: the section's
+    /// text whole (the plan cut it to fit), its words and exact tokens, and
+    /// the paid channel. `None` for a section under the measured floor or a
+    /// body over the scorer's (the plan leaves neither).
+    pub(crate) fn section(
+        pkg: Package,
+        text: &'a str,
+        words: usize,
+        tokens: u64,
+        spans_on: bool,
+        channel: Channel,
+    ) -> Option<Accepted<'a>> {
+        let length = policy::length_bin(words).ok().filter(|l| !l.is_short())?;
+        let fwd = Forward { package: &pkg.load, spans: true, docs: [ForwardDoc { id: "d", text }] };
+        let fwd = serde_json::to_string(&fwd).ok().filter(|f| f.len() as u64 <= bound::SCORER_MAX_BODY)?;
+        let cut = Cut { scored: text, kind: cut::Kind::Whole, total_words: words, scored_words: words, tokens };
+        Some(Accepted {
+            pkg,
+            fwd,
+            cut,
+            length,
+            spans_on,
+            text_sha256: String::new(),
+            channel: Some(channel),
+            started: now_ms(),
+        })
+    }
+}
+
+/// Who a scan's gate ticket is for: the client key's kind and value, the
+/// ticket class, whether the result gets a feedback receipt, and the
+/// invocation's subrequest count when the caller keeps one.
+pub(crate) struct Client<'a> {
+    /// `prefix` (an anonymous request's address prefix), `owner` (a paid
+    /// page's owner hash) or `api`.
+    pub kind: &'static str,
+    pub value: String,
+    pub class: TicketClass,
+    pub receipt: bool,
+    pub calls: Option<&'a crate::paid::Calls>,
+}
+
+impl Client<'_> {
+    /// A free scan: class interactive, keyed by the address prefix.
+    pub(crate) fn prefix(ip: Option<&str>) -> Client<'static> {
+        Client {
+            kind: "prefix",
+            value: ip.and_then(crate::address_prefix).unwrap_or_else(|| "none".into()),
+            class: TicketClass::Interactive,
+            receipt: true,
+            calls: None,
+        }
+    }
+
+    fn take(&self, n: u32) {
+        if let Some(c) = self.calls {
+            c.take(n);
+        }
+    }
+
+    fn fits(&self, n: u32) -> bool {
+        self.calls.is_none_or(|c| c.fits(n))
+    }
+}
+
 async fn score(mut req: Request, env: Env, answer: &Answer) {
     let started = now_ms();
     let route = RouteId::Score;
@@ -898,25 +1004,10 @@ async fn score(mut req: Request, env: Env, answer: &Answer) {
         Err(r) => return answer.send(refusal(&r)),
     };
     // Accepted: from here the answer is a stream.
-    let pair = ndjson_pair();
-    let (readable, writer) = (pair.get(0), pair.get(1));
-    let mut lines = Lines { writer, open: true, bound_ms: w.hold_ms };
-    let init = web_sys::ResponseInit::new();
-    init.set_status(200);
-    if let Ok(h) = web_sys::Headers::new() {
-        let _ = h.set("Content-Type", "application/x-ndjson; charset=utf-8");
-        let _ = h.set("Cache-Control", "no-store");
-        let _ = h.set("X-Content-Type-Options", "nosniff");
-        init.set_headers(&h);
-    }
-    let stream: Option<web_sys::ReadableStream> = wasm_bindgen::JsCast::dyn_into(readable).ok();
-    match web_sys::Response::new_with_opt_readable_stream_and_init(stream.as_ref(), &init) {
-        Ok(r) => answer.send(r),
-        Err(_) => return answer.send(refuse(RefusalCode::Internal)),
-    }
+    let Some(mut lines) = Lines::open(answer, w.hold_ms) else { return };
     submitted(&env, route, "accepted");
     let ip = header(&req, "cf-connecting-ip");
-    match run(&env, ip.as_deref(), &mut lines, &w, &accepted).await {
+    match run(&env, &Client::prefix(ip.as_deref()), &mut lines, &w, &accepted).await {
         Scan::Result(mut line) => {
             // The seal keeps the canonical text's offsets (what a link stores
             // and a preview renders); the line gets the sent string's.
@@ -1067,15 +1158,25 @@ pub(crate) enum Scan {
     Gone,
 }
 
-/// One scan of an accepted text: a gate ticket (class interactive, keyed by
-/// the address prefix), the lane, the answer's allow-list. The release that
-/// ends it carries its content-free count.
-pub(crate) async fn run(env: &Env, ip: Option<&str>, lines: &mut impl Progress, w: &Waits, a: &Accepted<'_>) -> Scan {
+/// One scan of an accepted text: a gate ticket of `client`'s class and key
+/// (a free scan's: interactive, keyed by the address prefix), the lane, the
+/// answer's allow-list. The release that ends it carries its content-free
+/// count. With a subrequest count kept, each gate, lane and feedback call is
+/// counted, and a wait that would leave no room for the scan itself gives up
+/// its ticket and answers busy.
+pub(crate) async fn run(
+    env: &Env,
+    client: &Client<'_>,
+    lines: &mut impl Progress,
+    w: &Waits,
+    a: &Accepted<'_>,
+) -> Scan {
     let (cut, length) = (&a.cut, a.length);
     let hold = w.hold_ms;
-    let prefix = ip.and_then(crate::address_prefix).unwrap_or_else(|| "none".into());
-    let class = TicketClass::Interactive;
-    let enter = EnterReq { client: ClientIn { kind: "prefix", value: &prefix }, class: class.as_str(), hold_ms: hold };
+    let class = client.class;
+    let enter =
+        EnterReq { client: ClientIn { kind: client.kind, value: &client.value }, class: class.as_str(), hold_ms: hold };
+    client.take(1);
     let Some(mut st) = gate_call::<GateStatus, _>(env, "/enter", Some(&enter), hold).await else {
         point(env, ae::detect::ERROR, &[RefusalCode::Unavailable.as_str()], 1.0);
         return Scan::Refused(ApiRefusal::new(RefusalCode::Unavailable));
@@ -1105,9 +1206,17 @@ pub(crate) async fn run(env: &Env, ip: Option<&str>, lines: &mut impl Progress, 
             "queued" => {
                 let q = Queued { state: "queued", position: st.position.unwrap_or(1), estimate_ms: st.estimate_ms };
                 if !lines.line(&q).await {
+                    client.take(1);
                     let _ = gate_tell(env, "/leave", &done(None, None), hold).await;
                     return Scan::Gone;
                 }
+                // Room for this ask, then the lane and the release.
+                if !client.fits(3) {
+                    client.take(1);
+                    let _ = gate_tell(env, "/leave", &done(None, None), hold).await;
+                    return refused(RefusalCode::Busy);
+                }
+                client.take(1);
                 // The gate holds the ask until the ticket is admitted or the
                 // (position-scaled) hold ends.
                 let wait = st.hold_ms.unwrap_or(hold).max(hold);
@@ -1130,7 +1239,9 @@ pub(crate) async fn run(env: &Env, ip: Option<&str>, lines: &mut impl Progress, 
             }
         }
     }
-    // The admission's clock: the lane gets what is left of its bound.
+    // The admission's clock: the lane gets what is left of its bound. From
+    // here the scan makes the lane call and one release.
+    client.take(2);
     let admitted_at = now_ms();
     if !st.tool {
         let _ = gate_tell(env, "/done", &done(None, count(RefusalCode::ToolOff.as_str())), hold).await;
@@ -1175,12 +1286,18 @@ pub(crate) async fn run(env: &Env, ip: Option<&str>, lines: &mut impl Progress, 
             // comes from the feedback object, which answers within a hold or
             // the result carries no receipt.
             let issue = IssueReq { band: band.code(), length: length.code() };
-            let (_, receipt) = futures_util::future::join(
-                gate_tell(env, "/done", &done(Some(served), count(counters::SCORED)), hold),
-                feedback_call::<IssueReply, _>(env, "/issue", &issue, hold),
-            )
-            .await;
-            let receipt = receipt.and_then(|r| r.receipt).unwrap_or_default();
+            let receipt = if client.receipt {
+                client.take(1);
+                let (_, receipt) = futures_util::future::join(
+                    gate_tell(env, "/done", &done(Some(served), count(counters::SCORED)), hold),
+                    feedback_call::<IssueReply, _>(env, "/issue", &issue, hold),
+                )
+                .await;
+                receipt.and_then(|r| r.receipt).unwrap_or_default()
+            } else {
+                let _ = gate_tell(env, "/done", &done(Some(served), count(counters::SCORED)), hold).await;
+                String::new()
+            };
             let line = answer::answer(
                 scored,
                 length,

@@ -20,6 +20,8 @@
 //!   interactive keyed by the address prefix, the lane, the answer's
 //!   allow-list, and the pot's count (`free_text` when forwarded from the
 //!   site host). It writes no progress lines: the route answers once.
+//! - **The queue's `commit_hold`** ends a paid job's hold through the
+//!   ledger (`paid::end_hold`); every other message goes to `queue::consume`.
 //! - Nothing here writes a console line or echoes input; every answer is
 //!   `no-store`.
 
@@ -30,7 +32,7 @@ use slop_ninja_detect_page::api::{ManageRequest, RerunRequest, ShareRequest, Sta
 use slop_ninja_detect_page::internal::{
     CardRequest, ExampleRequest, OwnerRequest, PageRequest, PreviewRequest, StatesRequest,
 };
-use slop_ninja_detect_page::queue::QueueMessage;
+use slop_ninja_detect_page::queue::{Job, QueueMessage};
 use slop_ninja_detect_page::sn::InternalRoute;
 use slop_ninja_detect_page::{Channel, Origins, RefusalCode, RouteId, ae};
 use wasm_bindgen::{JsCast, JsValue};
@@ -38,8 +40,8 @@ use worker::worker_sys::{self, web_sys};
 use worker::{Env, Request, Response};
 
 use crate::cf::{
-    Quiet, Reserved, Scan, admit, admit_internal, body_code, header, json_raw, origins, package, point, prepare,
-    read_switches, refuse, run, store_secret, submitted, var, waits,
+    Client, Quiet, Reserved, Scan, admit, admit_internal, body_code, header, json_raw, origins, package, point,
+    prepare, read_switches, refuse, run, store_secret, submitted, var, waits,
 };
 use crate::cf_io::{self, now_ms};
 use crate::cf_store::CfStore;
@@ -55,13 +57,13 @@ use crate::{answer, canon, cron, handoff, lookup, manage, queue, reads, rerun, s
 
 /// The store's keys: `DETECT_STORE_SECRET` and the slug peppers
 /// (`DETECT_SLUG_PEPPER_V1..`), each 64 hex digits, trimmed.
-struct Secrets {
+pub(crate) struct Secrets {
     store: StoreKeys,
     peppers: Peppers,
 }
 
 impl Secrets {
-    fn of(env: &Env) -> Option<Secrets> {
+    pub(crate) fn of(env: &Env) -> Option<Secrets> {
         let secret =
             |name: &str| env.secret(name).ok().map(|s| s.to_string().trim().to_owned()).filter(|s| !s.is_empty());
         let store = StoreKeys::from_hex(&secret(STORE_SECRET_VAR)?)?;
@@ -69,7 +71,7 @@ impl Secrets {
         Some(Secrets { store, peppers })
     }
 
-    fn keys(&self) -> Keys<'_> {
+    pub(crate) fn keys(&self) -> Keys<'_> {
         Keys { store: &self.store, peppers: &self.peppers }
     }
 }
@@ -77,7 +79,7 @@ impl Secrets {
 /// The package serving now: the package vars, `PACKAGE_LABEL`, the scorer
 /// build (the first 8 hex digits of `SCORER_BINARY_SHA256`) and
 /// `EVIDENCE_ID`.
-fn serving(env: &Env) -> Option<Serving> {
+pub(crate) fn serving(env: &Env) -> Option<Serving> {
     let p = package(env)?;
     Some(Serving {
         load: p.load,
@@ -91,14 +93,14 @@ fn serving(env: &Env) -> Option<Serving> {
 
 /// The invocation's store, keys, origins and serving package; `None` when
 /// any is missing (`not_configured`).
-struct Ctx<'e> {
-    io: CfStore<'e>,
-    secrets: Secrets,
-    origins: Origins,
-    serving: Serving,
+pub(crate) struct Ctx<'e> {
+    pub(crate) io: CfStore<'e>,
+    pub(crate) secrets: Secrets,
+    pub(crate) origins: Origins,
+    pub(crate) serving: Serving,
 }
 
-fn ctx(env: &Env) -> Result<Ctx<'_>, RefusalCode> {
+pub(crate) fn ctx(env: &Env) -> Result<Ctx<'_>, RefusalCode> {
     let missing = RefusalCode::NotConfigured;
     Ok(Ctx {
         io: CfStore::new(env, waits(env).hold_ms).ok_or(missing)?,
@@ -110,7 +112,7 @@ fn ctx(env: &Env) -> Result<Ctx<'_>, RefusalCode> {
 
 // ----------------------------------------------------------------- answers
 
-fn ok<T: Serialize>(v: &T) -> web_sys::Response {
+pub(crate) fn ok<T: Serialize>(v: &T) -> web_sys::Response {
     match serde_json::to_vec(v) {
         Ok(b) => json_raw(200, &b, false),
         Err(_) => refuse(RefusalCode::Internal),
@@ -144,12 +146,16 @@ fn xml(body: Vec<u8>) -> web_sys::Response {
 
 // ------------------------------------------------------------------ bodies
 
-fn declared(req: &Request) -> Option<u64> {
+pub(crate) fn declared(req: &Request) -> Option<u64> {
     header(req, "content-length").and_then(|v| v.trim().parse::<u64>().ok())
 }
 
 /// A JSON body of at most `bound` bytes, read within the body wait.
-async fn json_body<T: DeserializeOwned>(req: &mut Request, env: &Env, bound: usize) -> Result<T, RefusalCode> {
+pub(crate) async fn json_body<T: DeserializeOwned>(
+    req: &mut Request,
+    env: &Env,
+    bound: usize,
+) -> Result<T, RefusalCode> {
     if declared(req).is_some_and(|d| d > bound as u64) {
         return Err(RefusalCode::TooLarge);
     }
@@ -171,7 +177,7 @@ async fn text_body<T: DeserializeOwned>(req: &mut Request, env: &Env) -> Result<
     Ok((json_body(req, env, bound).await?, held))
 }
 
-fn no_room(e: NoRoom) -> RefusalCode {
+pub(crate) fn no_room(e: NoRoom) -> RefusalCode {
     match e {
         NoRoom::Busy => RefusalCode::Busy,
         NoRoom::TooLarge => RefusalCode::TooLarge,
@@ -179,7 +185,7 @@ fn no_room(e: NoRoom) -> RefusalCode {
 }
 
 /// A forwarded route's admission and JSON content type.
-fn forwarded(req: &Request, env: &Env, route: RouteId) -> Result<Admission, RefusalCode> {
+pub(crate) fn forwarded(req: &Request, env: &Env, route: RouteId) -> Result<Admission, RefusalCode> {
     let a = admit(req, env, route)?;
     if !content_type_ok(header(req, "content-type").as_deref(), BodyType::Json) {
         return Err(RefusalCode::ContentType);
@@ -188,7 +194,7 @@ fn forwarded(req: &Request, env: &Env, route: RouteId) -> Result<Admission, Refu
 }
 
 /// A refusal of a forwarded route, counted as its `submit` point.
-fn refused(env: &Env, route: RouteId, code: RefusalCode) -> web_sys::Response {
+pub(crate) fn refused(env: &Env, route: RouteId, code: RefusalCode) -> web_sys::Response {
     submitted(env, route, code.as_str());
     refuse(code)
 }
@@ -309,7 +315,7 @@ impl rerun::Scorer for CfScorer<'_> {
         let spans_on = sw.on(switches::SPANS);
         let a = prepare(env, RouteId::Rerun, &canonical, spans_on, pkg, self.channel, reservation, started)
             .map_err(|r| r.code)?;
-        match run(env, self.ip, &mut Quiet, &w, &a).await {
+        match run(env, &Client::prefix(self.ip), &mut Quiet, &w, &a).await {
             Scan::Result(mut line) => {
                 answer::to_original(&mut line, text, &canonical);
                 handoff::stored_result(&line.result_full(), now_ms(), a.load(), seal::POLICY_V, self.serving)
@@ -451,6 +457,13 @@ pub(crate) async fn consume(batch: worker_sys::MessageBatch, env: Env) {
             .and_then(|s| s.as_string())
             .and_then(|s| serde_json::from_str::<QueueMessage>(&s).ok());
         let ack = match (msg, &secrets, &io) {
+            // A paid job's hold ends through the ledger (the account Worker).
+            (Some(QueueMessage { job: Job::CommitHold { det_id_h }, .. }), Some(_), Some(io)) => {
+                match crate::paid::end_hold(io, io, &det_id_h.0).await {
+                    Ok(()) => queue::Ack::Done,
+                    Err(_) => queue::Ack::Retry(queue::RETRY_S),
+                }
+            }
             (Some(msg), Some(k), Some(io)) => queue::consume(io, &k.store, &msg).await,
             (None, ..) => {
                 point(&env, ae::detect::ERROR, &["queue_message"], 1.0);

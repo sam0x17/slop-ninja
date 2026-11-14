@@ -594,6 +594,64 @@ pub struct HoldEndAnswer {
     pub by_this_call: bool,
 }
 
+// ------------------------------------------------------- billing-policy/v1
+
+/// `billing-policy/v1`'s fixed figures. Both Workers apply them: the detect
+/// Worker quotes with them and the account Worker holds with them, so they
+/// belong to the policy's version, not to a var (`BILLING_POLICY` may size
+/// the quota buckets only).
+pub mod credit {
+    use slop_ninja_detect_page::Channel;
+
+    /// The fewest tokens a document is billed on pay-as-you-go credit.
+    pub const PAYG_MIN_TOKENS: u64 = 128;
+    /// The fewest tokens a check draws from a plan's allowance.
+    pub const PLAN_MIN_TOKENS: u64 = 512;
+    /// A plan period's API part: 20 documents at the scorer's limit.
+    pub const PLAN_API_TOKENS: u64 = 40_960;
+    /// The most tokens one hold may ask for: far above any document the paid
+    /// body bound admits, and below 2^53, so every figure survives D1's JS
+    /// numbers.
+    pub const MAX_HOLD_TOKENS: u64 = 1 << 40;
+
+    /// What a check draws: from the active plan period first, then from
+    /// credit (first paid, first used).
+    #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+    pub struct Draw {
+        pub plan: u64,
+        pub credit: u64,
+    }
+
+    impl Draw {
+        /// Everything the hold takes.
+        pub fn total(self) -> u64 {
+            self.plan.saturating_add(self.credit)
+        }
+    }
+
+    /// The channels a hold is placed on.
+    pub fn holds_on(channel: Channel) -> bool {
+        matches!(channel, Channel::PaidPage | Channel::Pro | Channel::Api)
+    }
+
+    /// The draw of a check billed `tokens`, or `None` when the balances fall
+    /// short. The rule (one place, for the quote and the hold alike):
+    /// - the document is billed at least [`PAYG_MIN_TOKENS`];
+    /// - the plan's room is what its period has left (on the API, also
+    ///   within the API part);
+    /// - from the plan, a check draws at least [`PLAN_MIN_TOKENS`] while the
+    ///   room allows, and never more than that room: the plan draws
+    ///   `min(room, max(billed, PLAN_MIN_TOKENS))`;
+    /// - credit covers whatever of the billed tokens the plan did not.
+    pub fn draw(tokens: u64, channel: Channel, plan_left: u64, api_left: u64, credit_left: u64) -> Option<Draw> {
+        let billed = tokens.max(PAYG_MIN_TOKENS);
+        let room = if channel == Channel::Api { plan_left.min(api_left) } else { plan_left };
+        let plan = room.min(billed.max(PLAN_MIN_TOKENS));
+        let credit = billed.saturating_sub(plan);
+        (credit <= credit_left).then_some(Draw { plan, credit })
+    }
+}
+
 // -------------------------------------------------------------------- forms
 //
 // The bodies of the account pages' forms (`application/x-www-form-urlencoded`,

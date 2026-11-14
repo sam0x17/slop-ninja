@@ -24,6 +24,11 @@ pub fn session<H: Host>(host: &H, event: &str) {
     host.point(&ae::SESSION, &[event]);
 }
 
+/// `ledger {event}`: `hold`, `committed`, `released`, `grant`, `void`.
+pub fn ledger<H: Host>(host: &H, event: &str) {
+    host.point(&ae::LEDGER, &[event]);
+}
+
 /// `alert {rule}`: one of `ae::account::ALERTS`.
 pub fn alert<H: Host>(host: &H, rule: &str) {
     host.point(&ae::ALERT, &[rule]);

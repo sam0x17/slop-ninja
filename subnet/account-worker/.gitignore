@@ -1,0 +1,2 @@
+# The local dev session's secrets file (subnet/devtools/session/dev-session.sh secrets).
+/.dev.vars*

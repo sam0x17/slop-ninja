@@ -202,6 +202,8 @@ SECRET_ORIGIN = "https://s.slop.localhost:8788"
 STUB_ORIGIN = "https://auth.slop.localhost:8789"
 MAIL_SUBJECT_PREFIX = "[dev] "
 MAIL_FROM = "sender@mail-domain.invalid"
+# The session's own operator key replaces this placeholder from the untracked
+# .dev.vars.dev (`dev-session.sh secrets`).
 OP_ENV = "staging"
 DETECT_OP_KEY = ""
 AUTH_POLICY = "auth-policy/v1"

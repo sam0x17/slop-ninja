@@ -87,6 +87,12 @@ A Worker joins the site or secret session by defining `[env.dev]` in its Wrangle
   browser sent, so the Origin checks run as in production.
 - **Secrets** come from the Worker's untracked `.dev.vars.dev` (its `.gitignore`), which `dev-session.sh secrets`
   (run by `site`) writes from random values kept in `$DEV_STATE`; no secret value is tracked.
+- **The operator key.** `dev-session.sh secrets` also makes the session's own Ed25519 operator key pair once per state
+  directory: `$DEV_STATE/dev_op_key` (the seed) and `dev_op_key.pub`, each 64 lowercase hex digits, mode 600, the
+  operator CLI's key file format. The public key goes to the detect and account Workers' `.dev.vars.dev` as
+  `DETECT_OP_KEY`, over the empty placeholder of their `[env.dev.vars]` (where `OP_ENV` is `staging`), so the dev
+  session's op routes (`/api/detect/v1/op`, `/api/account/v1/op`) verify ops signed with that seed for target
+  `detect` or `account` and env `staging`. No deployed environment trusts it.
 - **Stubs, only here and only behind the cargo feature `dev`:**
   - detect: `STUB_SCORER` (service `slop-ninja-dev-stub-scorer`) in place of the scorer Container's port. The
     stub is always running; the lane loads the dev package ([`session/dev-package/`](session/dev-package/): a

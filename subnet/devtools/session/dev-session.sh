@@ -4,7 +4,7 @@
 #   dev-session.sh cert       make the local TLS certificate (once)
 #   dev-session.sh build      build every session Worker: the stubs, the joined subnet Workers (their dev
 #                             feature) and, with WEB_REPO, the website and secret-host Workers
-#   dev-session.sh secrets    write the detect Worker's local dev secrets (.dev.vars.dev, untracked)
+#   dev-session.sh secrets    write the local dev secrets and the session's operator key (.dev.vars.dev, untracked)
 #   dev-session.sh migrate    apply both D1 stores' migrations (stores.toml) and put the dev package
 #                             (dev-package/) into the local package bucket, in the site session's state
 #   dev-session.sh stores     list the tables of each local store
@@ -91,14 +91,38 @@ build() {
 # random once per state directory, kept there, and copied to the Worker's
 # untracked .dev.vars.dev (its .gitignore), which `wrangler dev --env dev`
 # reads. They never enter a tracked file.
+#
+# The session's operator key pair (Ed25519), also once per state directory:
+# $STATE/dev_op_key holds the seed and dev_op_key.pub the public key, each as
+# 64 lowercase hex digits (the operator CLI's key file format, mode 600). The
+# public key is both Workers' DETECT_OP_KEY in the session (OP_ENV staging,
+# as their [env.dev] vars say), so the dev op routes verify ops signed with
+# the seed. No other environment trusts it: each holds an empty placeholder
+# that only its own operator key replaces.
+op_key() {
+  local key=$STATE/dev_op_key
+  if [[ -s $key && -s $key.pub ]]; then return; fi
+  ( umask 077
+    openssl genpkey -algorithm ed25519 -out "$key.pem" 2>/dev/null || die "openssl cannot make an Ed25519 key"
+    openssl pkey -in "$key.pem" -outform DER 2>/dev/null | tail -c 32 | od -An -tx1 | tr -d ' \n' > "$key"
+    openssl pkey -in "$key.pem" -pubout -outform DER 2>/dev/null | tail -c 32 | od -An -tx1 | tr -d ' \n' > "$key.pub"
+    rm -f "$key.pem" )
+  [[ $(wc -c < "$key") -eq 64 && $(wc -c < "$key.pub") -eq 64 ]] || die "the dev operator key is not 64 hex digits"
+}
+
 secrets() {
   mkdir -p "$STATE"
-  local vars=$STATE/detect.dev.vars
+  local vars=$STATE/detect.dev.vars acct=$STATE/account.dev.vars pub
   if [[ ! -s $vars ]]; then
     ( umask 077
       printf 'DETECT_STORE_SECRET=%s\nDETECT_SLUG_PEPPER_V1=%s\n' "$(openssl rand -hex 32)" "$(openssl rand -hex 32)" > "$vars" )
   fi
+  op_key
+  pub=$(cat "$STATE/dev_op_key.pub")
+  if ! grep -q '^DETECT_OP_KEY=' "$vars"; then printf 'DETECT_OP_KEY=%s\n' "$pub" >> "$vars"; fi
+  ( umask 077; printf 'DETECT_OP_KEY=%s\n' "$pub" > "$acct" )
   install -m 600 "$vars" "$SUBNET/detect-worker/.dev.vars.dev"
+  install -m 600 "$acct" "$SUBNET/account-worker/.dev.vars.dev"
 }
 
 # The site session's configs: the website's dev config first (the

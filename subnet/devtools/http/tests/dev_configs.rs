@@ -163,10 +163,18 @@ fn the_session_script_stays_local() {
     let next = s.lines().nth(r2[0].0 + 1).unwrap_or("");
     assert!(r2[0].1.contains("object put") && r2[0].1.contains(" --local "), "dev-session.sh: {}", r2[0].1);
     assert!(next.contains("-c \"$HERE/stores.toml\"") && next.contains("--persist-to \"$STATE/site\""), "dev-session.sh: {next}");
-    // The secrets file is untracked and never printed.
+    // The secrets files are untracked and never printed.
     assert!(s.contains("install -m 600 \"$vars\" \"$SUBNET/detect-worker/.dev.vars.dev\""));
-    let ignore = read(&subnet().join("detect-worker/.gitignore"));
-    assert!(ignore.lines().any(|l| l == "/.dev.vars*"), "detect-worker/.gitignore keeps the dev secrets out");
+    assert!(s.contains("install -m 600 \"$acct\" \"$SUBNET/account-worker/.dev.vars.dev\""));
+    for w in ["detect-worker", "account-worker"] {
+        let ignore = read(&subnet().join(format!("{w}/.gitignore")));
+        assert!(ignore.lines().any(|l| l == "/.dev.vars*"), "{w}/.gitignore keeps the dev secrets out");
+    }
+    // The session's operator key: made locally, its public half written as
+    // both Workers' DETECT_OP_KEY, nothing echoed.
+    assert!(s.contains("openssl genpkey -algorithm ed25519"));
+    assert_eq!(s.matches("printf 'DETECT_OP_KEY=%s\\n' \"$pub\"").count(), 2, "dev-session.sh: both Workers' key");
+    assert!(!s.contains("echo \"$pub\"") && !s.contains("cat \"$STATE/dev_op_key\"\n"), "the key is never printed");
     for off in ["WRANGLER_SEND_METRICS=false", "WRANGLER_HIDE_BANNER=true", "CLOUDFLARE_CF_FETCH_ENABLED=false", "WRANGLER_WRITE_LOGS=false"] {
         assert!(s.contains(off), "dev-session.sh: {off}");
     }
@@ -215,6 +223,30 @@ fn the_dev_origins_parse_and_agree_everywhere() {
                 _ => continue,
             };
             assert_eq!(v, want, "{}: [env.dev.vars] {k}", cfg.display());
+        }
+    }
+}
+
+/// The op routes join the dev session: detect and account both name the
+/// `staging` op env and leave `DETECT_OP_KEY` an empty placeholder in their
+/// `[env.dev.vars]`, which the session's own key replaces from the untracked
+/// `.dev.vars.dev`; no tracked config holds a key.
+#[test]
+fn the_dev_op_routes_take_the_session_s_key() {
+    for w in ["detect-worker", "account-worker"] {
+        let src = read(&subnet().join(format!("{w}/wrangler.toml")));
+        let dev: BTreeMap<String, String> = lines_by_table(&src)
+            .into_iter()
+            .filter(|(t, _)| t == "env.dev.vars")
+            .filter_map(|(_, l)| kv(&l).map(|(k, v)| (k.to_owned(), v.to_owned())))
+            .collect();
+        assert_eq!(dev.get("OP_ENV").map(String::as_str), Some("staging"), "{w}: [env.dev.vars] OP_ENV");
+        assert_eq!(dev.get("DETECT_OP_KEY").map(String::as_str), Some(""), "{w}: [env.dev.vars] DETECT_OP_KEY");
+        // Every env's key in the tracked config is the empty placeholder.
+        for (t, l) in lines_by_table(&src) {
+            if let Some((k, v)) = kv(&l).filter(|(k, _)| *k == "DETECT_OP_KEY") {
+                assert_eq!(v, "", "{w}: [{t}] {k}");
+            }
         }
     }
 }

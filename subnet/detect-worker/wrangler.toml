@@ -444,6 +444,11 @@ SCORE_WAIT_MS = "20000"
 IDLE_MS = "600000"
 QUEUE_HOLD_MS = "20000"
 BODY_WAIT_MS = "60000"
+# The op route in the dev session: the session's own operator key, which
+# `dev-session.sh secrets` makes once per state directory and writes to the
+# untracked .dev.vars.dev (that value replaces this empty placeholder).
+OP_ENV = "staging"
+DETECT_OP_KEY = ""
 
 [[env.dev.durable_objects.bindings]]
 name = "DETECT_GATE"

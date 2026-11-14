@@ -229,7 +229,9 @@ its middle word, and owned words weight the document's share.
 in half the scan memory, one section's scan in the other half. Quotes and
 starts reserve their footprint by their declared body
 (`routes::paid_footprint`), the job by its text's size, and each section its
-own scan. The free check takes the whole document first, and its own
+own scan. A quote or start that finds no room answers `paid_busy` in the 402
+class of the other paid refusals, never the free check's `busy`, and takes
+no credit. The free check takes the whole document first, and its own
 reservation (98 bytes per body byte) is the tighter bound in practice: about
 860 KB, some 140,000 words.
 
@@ -265,8 +267,9 @@ The removal form and the operator's signed ops run as pure flows too
   against a live public page withholds its excerpt at once (pending review:
   de-indexed, card generic); an illegal-content report against a secret
   page disables it with its re-run copy family; a wrong-result report on a
-  public page queues a re-check; a report on an X post's page from its
-  author removes every page about the post at once. Everything else waits.
+  shown public result (live or withheld) queues a re-check; a report on an
+  X post's page from its author removes every page about the post at once.
+  Everything else waits.
 - `POST /api/detect/v1/removal/status` (both hosts): the case's state and
   dates, never its notice.
 - `POST /api/detect/v1/op`: one signed op, the bare envelope of
@@ -294,14 +297,24 @@ case puts the page back from its quarantine, and `restore` of the
 counter-notice restores the countered cases behind it; either way the
 counter-notice is restored once no countered case is left behind it. A
 withheld excerpt's run document is rewritten without its text when the
-operator accepts the notice, so restoring it fetches the page again. Every
-X removal is one removal: R2 first, then one D1 batch that leaves the
-post's opt-out tombstone with only its key hash, names it in the case, and
-journals `x_remove {reason, canon_key}`; `restore` lifts that tombstone and
-nothing more. Accepted copyright cases against owned pages leave strikes
-(a claimed page's counts after the operator's review), and `owner_match`
-names the account behind a strike to the operator only, reading the
-account Worker's ids page by page.
+operator accepts the notice, so restoring it (like restoring a removed page
+whose document went) returns the page `failed` with `report_gone`: it says
+to check the link again or paste the text, and nothing is fetched behind the
+reader's back. A `restore` or `reject` returns a public page only while no
+other case holds it (one that targets it and is `accepted`, `countered` or a
+copyright case awaiting its decision; for a `restore`, also a decided case
+on another page of the same text, and a `closed` one); a held page stays as
+it is and the answer counts it as `on_hold`. A `reject` returns only a page
+its own notice withheld at intake. `restore {slug}` is the operator's
+decision on the page itself: it passes closed cases and other pages of the
+same text, never an open case's hold. Every X removal is one removal: R2
+first, then one D1 batch that leaves the post's opt-out tombstone with only
+its key hash, names it in the case, and journals
+`x_remove {reason, canon_key}`; `restore` lifts that tombstone and nothing
+more. Accepted copyright cases against owned pages leave strikes (a claimed
+page's counts after the operator's review), and `owner_match` names the
+account behind a strike to the operator only, reading the account Worker's
+ids page by page.
 
 ## The free cut
 

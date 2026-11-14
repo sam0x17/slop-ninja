@@ -572,6 +572,244 @@ fn a_removed_public_page_answers_451_and_returns_while_its_document_is_kept() {
     }
 }
 
+/// The page a new check of a fixture page's source answers instead of
+/// fetching: its newest page under a legal state (the URL check's own
+/// `SELECT_KNOWN`), if any.
+fn blocked(w: &World, slug: &str) -> Option<String> {
+    w.h.db
+        .query_row(
+            slop_ninja_detect_worker::url_flow::SELECT_KNOWN,
+            rusqlite::params![keys::h(b"source_v1", slug.as_bytes()).to_vec(), vec![0u8; 32], "load-new"],
+            |r| r.get::<_, Option<String>>("blocked_slug"),
+        )
+        .unwrap()
+}
+
+fn case_state(w: &World, case_id: &str) -> String {
+    w.text(&format!("SELECT state FROM cases WHERE case_id = '{case_id}'"))
+}
+
+/// Two cases on one page: restoring one never lifts the other's removal or
+/// withhold. The page stays as it is (`on_hold`), with its run and document,
+/// its link still answers the held page, and it returns with the last
+/// restore of the cases holding it.
+#[test]
+fn a_restore_leaves_a_page_another_case_still_holds() {
+    let w = World::new();
+    let illegal = [("category", "other"), ("explanation", "it is illegal"), ("good_faith", "yes")];
+    // Copyright case B withholds the page (accepted, its text rewritten
+    // away); illegal-content case A then removes it, and its run document
+    // with it.
+    let (_, run) = web_page(&w, "k7m2xq9", None);
+    let (b, _, auto) = w.send(CaseKind::Copyright, "k7m2xq9", &copyright("excerpt"), None);
+    assert_eq!(auto, Some(AutoStep::ExcerptWithheld));
+    w.op("withhold_excerpt", json!({"case_id": b, "reason": "valid notice"})).unwrap();
+    w.h.advance(1000);
+    let (a, _, auto) = w.send(CaseKind::Illegal, "k7m2xq9", &illegal, None);
+    assert_eq!(auto, None);
+    assert_eq!(w.op("remove", json!({"case_id": a, "reason": "illegal"})).unwrap()["pages"], 1);
+    assert!(w.h.doc(&format!("r/{run}")).is_none());
+    w.h.exec(&format!("UPDATE runs SET content_key = x'0102' WHERE run_id = {run}"));
+    // Restoring B leaves the page removed under A: no state change, no
+    // `report_gone`, the run kept with its reuse key, nothing fetched.
+    let r = w.op("restore", json!({"case_id": b, "reason": "notice withdrawn"})).unwrap();
+    assert_eq!((r["pages"].clone(), r["on_hold"].clone(), r.get("report_gone")), (json!(0), json!(1), None), "{r}");
+    assert_eq!(case_state(&w, &b), "restored");
+    assert_eq!(state(&w, "k7m2xq9", false), "removed");
+    assert_eq!(
+        w.h.count(&format!("SELECT count(*) FROM detections WHERE public_slug = 'k7m2xq9' AND run_id = {run}")),
+        1
+    );
+    assert_eq!(w.h.count(&format!("SELECT count(*) FROM runs WHERE run_id = {run} AND content_key IS NOT NULL")), 1);
+    assert_eq!(queued(&w, |j| matches!(j, Job::RerunOp { .. })), 0);
+    assert_eq!(blocked(&w, "k7m2xq9").as_deref(), Some("k7m2xq9"), "the link still answers the removed page");
+    // Nor does a restore by slug lift an open case's removal.
+    let r = w.op("restore", json!({"slug": "k7m2xq9", "reason": "lifted"})).unwrap();
+    assert_eq!((r["pages"].clone(), r["on_hold"].clone()), (json!(0), json!(1)), "{r}");
+    assert_eq!(state(&w, "k7m2xq9", false), "removed");
+    // Restoring A, the last case holding it, returns the page failed.
+    let r = w.op("restore", json!({"case_id": a, "reason": "mistake"})).unwrap();
+    assert_eq!((r["pages"].clone(), r["report_gone"].clone(), r.get("on_hold")), (json!(1), json!(1), None), "{r}");
+    assert_eq!(state(&w, "k7m2xq9", false), "failed");
+    assert_eq!(w.h.count(&format!("SELECT count(*) FROM runs WHERE run_id = {run}")), 0);
+    assert_eq!(blocked(&w, "k7m2xq9"), None);
+
+    // Two copyright cases on one page: C1 withheld it at intake, C2 (which
+    // found it withheld) is accepted. A third notice that also found it
+    // withheld is rejected: it had nothing to undo.
+    let (_, run2) = web_page(&w, "b4n8r2t", None);
+    w.h.advance(1000);
+    let (c1, _, auto) = w.send(CaseKind::Copyright, "b4n8r2t", &copyright("excerpt"), None);
+    assert_eq!(auto, Some(AutoStep::ExcerptWithheld));
+    w.h.advance(1000);
+    let (c2, _, auto) = w.send(CaseKind::Copyright, "b4n8r2t", &copyright("excerpt"), None);
+    assert_eq!(auto, None);
+    w.op("withhold_excerpt", json!({"case_id": c2, "reason": "valid notice"})).unwrap();
+    w.h.advance(1000);
+    let (c3, _, _) = w.send(CaseKind::Copyright, "b4n8r2t", &copyright("excerpt"), None);
+    let r = w.op("reject", json!({"case_id": c3, "reason": "duplicate"})).unwrap();
+    assert_eq!((r["pages"].clone(), r.get("on_hold")), (json!(0), None), "{r}");
+    assert_eq!(state(&w, "b4n8r2t", false), "excerpt_withheld");
+    // Rejecting C1 leaves C2's withhold, and C1's record with it.
+    let r = w.op("reject", json!({"case_id": c1, "reason": "not a copyright work"})).unwrap();
+    assert_eq!((r["pages"].clone(), r["on_hold"].clone()), (json!(0), json!(1)), "{r}");
+    assert_eq!(case_state(&w, &c1), "rejected");
+    assert_eq!(state(&w, "b4n8r2t", false), "excerpt_withheld");
+    assert_eq!(w.h.count("SELECT count(*) FROM removals WHERE public_slug = 'b4n8r2t'"), 1);
+    let p = w.page("b4n8r2t").unwrap();
+    p.check().unwrap();
+    assert_eq!(p.state.as_str(), "excerpt_withheld");
+    assert!(p.text.as_ref().unwrap().body.is_none(), "no excerpt comes back");
+    assert_eq!(blocked(&w, "b4n8r2t").as_deref(), Some("b4n8r2t"));
+    // A fresh notice, C4, restored while C2 stands: the page stays withheld.
+    w.h.advance(1000);
+    let (c4, _, _) = w.send(CaseKind::Copyright, "b4n8r2t", &copyright("excerpt"), None);
+    let r = w.op("restore", json!({"case_id": c4, "reason": "withdrawn"})).unwrap();
+    assert_eq!((r["pages"].clone(), r["on_hold"].clone()), (json!(0), json!(1)), "{r}");
+    assert_eq!(state(&w, "b4n8r2t", false), "excerpt_withheld");
+    assert!(w.h.doc(&format!("r/{run2}")).is_some());
+    // Restoring C2 returns it: its text was rewritten away, so failed.
+    let r = w.op("restore", json!({"case_id": c2, "reason": "counter evidence"})).unwrap();
+    assert_eq!((r["pages"].clone(), r["report_gone"].clone()), (json!(1), json!(1)), "{r}");
+    assert_eq!(state(&w, "b4n8r2t", false), "failed");
+    assert_eq!(blocked(&w, "b4n8r2t"), None);
+
+    // A copyright notice awaiting its decision holds the page its intake
+    // withheld: removed and restored under another case, the page stays
+    // removed. Once that notice is rejected (which leaves a removed page as
+    // it is), `restore {slug}` returns it.
+    web_page(&w, "c5p9s3v", None);
+    w.h.advance(1000);
+    let (d1, _, auto) = w.send(CaseKind::Copyright, "c5p9s3v", &copyright("excerpt"), None);
+    assert_eq!(auto, Some(AutoStep::ExcerptWithheld));
+    w.h.advance(1000);
+    let (d2, _, _) = w.send(CaseKind::Illegal, "c5p9s3v", &illegal, None);
+    w.op("remove", json!({"case_id": d2, "reason": "illegal"})).unwrap();
+    let r = w.op("restore", json!({"case_id": d2, "reason": "mistake"})).unwrap();
+    assert_eq!((r["pages"].clone(), r["on_hold"].clone()), (json!(0), json!(1)), "{r}");
+    assert_eq!((state(&w, "c5p9s3v", false), case_state(&w, &d1)), ("removed".into(), "received".into()));
+    let r = w.op("reject", json!({"case_id": d1, "reason": "not a copyright work"})).unwrap();
+    assert_eq!((r["pages"].clone(), r.get("on_hold")), (json!(0), None), "{r}");
+    assert_eq!(state(&w, "c5p9s3v", false), "removed");
+    let r = w.op("restore", json!({"slug": "c5p9s3v", "reason": "lifted"})).unwrap();
+    assert_eq!((r["pages"].clone(), r["report_gone"].clone()), (json!(1), json!(1)), "{r}");
+    assert_eq!(state(&w, "c5p9s3v", false), "failed");
+
+    // A reject never returns a page whose text an accepted withhold took,
+    // even once that case is closed.
+    web_page(&w, "h3k7m9q", None);
+    w.h.advance(1000);
+    let (q1, _, _) = w.send(CaseKind::Copyright, "h3k7m9q", &copyright("excerpt"), None);
+    w.h.advance(1000);
+    let (q2, _, _) = w.send(CaseKind::Copyright, "h3k7m9q", &copyright("excerpt"), None);
+    w.op("withhold_excerpt", json!({"case_id": q2, "reason": "valid notice"})).unwrap();
+    w.op("close_case", json!({"case_id": q2, "reason": "upheld"})).unwrap();
+    let r = w.op("reject", json!({"case_id": q1, "reason": "not a copyright work"})).unwrap();
+    assert_eq!((r["pages"].clone(), r["on_hold"].clone()), (json!(0), json!(1)), "{r}");
+    assert_eq!(state(&w, "h3k7m9q", false), "excerpt_withheld");
+    assert_eq!(blocked(&w, "h3k7m9q").as_deref(), Some("h3k7m9q"));
+}
+
+/// A case holding a page through its run, or once closed: a restore keeps
+/// the page; `restore {slug}`, the operator's decision on the page itself,
+/// returns it. A case that comes to hold the page between the restore's
+/// read and its batch keeps it too, with its run and document.
+#[test]
+fn a_restore_keeps_a_page_held_through_its_run_or_by_a_closed_case() {
+    let w = World::new();
+    let personal = [("name", "N"), ("email", "n@e.invalid"), ("data", "my name")];
+    // A closed removal: E1 removed the page and was closed; E2, sent while
+    // the page was removed, is removed (nothing changes) and restored.
+    let (_, run) = web_page(&w, "d6q8t4w", None);
+    let (e1, _, _) = w.send(CaseKind::PersonalData, "d6q8t4w", &personal, None);
+    w.op("remove", json!({"case_id": e1, "reason": "erasure"})).unwrap();
+    w.op("close_case", json!({"case_id": e1, "reason": "upheld"})).unwrap();
+    w.h.advance(1000);
+    let (e2, _, auto) = w.send(CaseKind::Copyright, "d6q8t4w", &copyright("page"), None);
+    assert_eq!(auto, None);
+    w.op("remove", json!({"case_id": e2, "reason": "valid notice"})).unwrap();
+    let r = w.op("restore", json!({"case_id": e2, "reason": "withdrawn"})).unwrap();
+    assert_eq!((r["pages"].clone(), r["on_hold"].clone()), (json!(0), json!(1)), "{r}");
+    assert_eq!(state(&w, "d6q8t4w", false), "removed");
+    let r = w.op("restore", json!({"slug": "d6q8t4w", "reason": "lifted"})).unwrap();
+    assert_eq!((r["pages"].clone(), r["report_gone"].clone()), (json!(1), json!(1)), "{r}");
+    assert_eq!(state(&w, "d6q8t4w", false), "failed");
+    assert_eq!(w.h.count(&format!("SELECT count(*) FROM runs WHERE run_id = {run}")), 0);
+    // A case closed before a notice found the page live holds nothing for
+    // that notice's restore.
+    let (_, run2) = web_page(&w, "b4n8r2t", None);
+    w.h.advance(1000);
+    let (f1, _, _) = w.send(CaseKind::Copyright, "b4n8r2t", &copyright("excerpt"), None);
+    w.op("reject", json!({"case_id": f1, "reason": "not a copyright work"})).unwrap();
+    w.op("close_case", json!({"case_id": f1, "reason": "done"})).unwrap();
+    assert_eq!(state(&w, "b4n8r2t", false), "live");
+    w.h.advance(1000);
+    let (f2, _, auto) = w.send(CaseKind::Copyright, "b4n8r2t", &copyright("excerpt"), None);
+    assert_eq!(auto, Some(AutoStep::ExcerptWithheld));
+    let r = w.op("restore", json!({"case_id": f2, "reason": "withdrawn"})).unwrap();
+    assert_eq!((r["pages"].clone(), r.get("on_hold")), (json!(1), None), "{r}");
+    assert_eq!(state(&w, "b4n8r2t", false), "live");
+    assert!(w.h.doc(&format!("r/{run2}")).is_some());
+    // Through its run: G1's accepted withhold covers the other page of the
+    // same text; G2, sent on that page and restored, leaves it withheld.
+    let (_, run3) = web_page(&w, "c5p9s3v", None);
+    web_page(&w, "h3k7m9q", Some(run3));
+    w.h.advance(1000);
+    let (g1, _, _) = w.send(CaseKind::Copyright, "c5p9s3v", &copyright("excerpt"), None);
+    w.op("withhold_excerpt", json!({"case_id": g1, "reason": "valid notice"})).unwrap();
+    assert_eq!(state(&w, "h3k7m9q", false), "excerpt_withheld");
+    w.h.advance(1000);
+    let (g2, _, _) = w.send(CaseKind::Copyright, "h3k7m9q", &copyright("excerpt"), None);
+    let r = w.op("restore", json!({"case_id": g2, "reason": "withdrawn"})).unwrap();
+    assert_eq!((r["pages"].clone(), r["on_hold"].clone()), (json!(0), json!(1)), "{r}");
+    assert_eq!(state(&w, "h3k7m9q", false), "excerpt_withheld");
+    assert_eq!(w.h.count(&format!("SELECT count(*) FROM detections WHERE run_id = {run3}")), 2);
+    // A hold that lands between the read and the batch: the page, its run
+    // and its document stay.
+    let (_, run4) = web_page(&w, "m2q8r4t", None);
+    w.h.advance(1000);
+    let (k1, _, _) = w.send(CaseKind::PersonalData, "m2q8r4t", &personal, None);
+    w.op("remove", json!({"case_id": k1, "reason": "erasure"})).unwrap();
+    w.h.exec(&format!("UPDATE runs SET content_key = x'0102' WHERE run_id = {run4}"));
+    w.h.before("UPDATE detections SET state = 'failed'", |db| race_hold(db, "td-race0001", "m2q8r4t"));
+    let r = w.op("restore", json!({"case_id": k1, "reason": "mistake"})).unwrap();
+    assert_eq!((r["pages"].clone(), r["on_hold"].clone(), r.get("report_gone")), (json!(0), json!(1), None), "{r}");
+    assert_eq!(state(&w, "m2q8r4t", false), "removed");
+    assert_eq!(w.h.count(&format!("SELECT count(*) FROM runs WHERE run_id = {run4} AND content_key IS NOT NULL")), 1);
+    assert_eq!(w.h.count(&format!("SELECT count(*) FROM detections WHERE run_id = {run4}")), 1);
+    // The same for a page a restore would return live, and for a reject,
+    // which also keeps its intake record.
+    for (n, slug, op) in [(2, "r4t8m2q", "restore"), (3, "t6v2k8n", "reject")] {
+        web_page(&w, slug, None);
+        w.h.advance(1000);
+        let (k, _, auto) = w.send(CaseKind::Copyright, slug, &copyright("excerpt"), None);
+        assert_eq!(auto, Some(AutoStep::ExcerptWithheld));
+        let id = format!("td-race000{n}");
+        let s = slug.to_owned();
+        w.h.before("UPDATE detections SET state = 'live'", move |db| race_hold(db, &id, &s));
+        let r = w.op(op, json!({"case_id": k, "reason": "review done"})).unwrap();
+        assert_eq!((r["pages"].clone(), r["on_hold"].clone()), (json!(0), json!(1)), "{op}: {r}");
+        assert_eq!(state(&w, slug, false), "excerpt_withheld", "{op}");
+        assert_eq!(w.h.count(&format!("SELECT count(*) FROM removals WHERE public_slug = '{slug}'")), 1, "{op}");
+    }
+}
+
+/// An accepted case on `slug`'s page, written as if it landed between an
+/// op's read and its batch.
+fn race_hold(db: &rusqlite::Connection, case_id: &str, slug: &str) {
+    db.execute(
+        "INSERT INTO cases (case_id, status_h, kind, state, received_at, updated_at, notice_key) \
+VALUES (?1, ?2, 'illegal', 'accepted', 1, 1, 'c/' || ?1)",
+        rusqlite::params![case_id, case_id.as_bytes()],
+    )
+    .unwrap();
+    db.execute(
+        "INSERT INTO case_targets (case_id, det_id_h) SELECT ?1, id_h FROM detections WHERE public_slug = ?2",
+        [case_id, slug],
+    )
+    .unwrap();
+}
+
 #[test]
 fn an_illegal_report_disables_the_family_and_a_removal_quarantines_it() {
     let w = World::new();

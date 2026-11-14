@@ -551,6 +551,88 @@ fn a_page_restored_without_its_report_lets_its_link_be_checked_again() {
     assert!(p.text.unwrap().body.is_some());
 }
 
+/// A case of the removal form on `slug`, sent.
+fn send_case(w: &World, slug: &str, track: slop_ninja_detect_page::codes::CaseKind, fields: &[(&str, &str)]) -> String {
+    use slop_ninja_detect_page::api::RemovalRequest;
+    use slop_ninja_detect_page::codes::RemovalStep;
+    use slop_ninja_detect_worker::cases::{RemovalAnswer, removal};
+    let req = RemovalRequest {
+        step: RemovalStep::Send,
+        track,
+        target: slug.into(),
+        fields: fields.iter().map(|(k, v)| ((*k).to_owned(), (*v).to_owned())).collect(),
+    };
+    match block_on(removal(&w.h, Keys { store: &w.store, peppers: &w.peppers }, &w.origins, None, &req)).unwrap() {
+        RemovalAnswer::Received(r) => r.case_id,
+        other => panic!("{other:?}"),
+    }
+}
+
+fn case_row(w: &World, case_id: &str) -> slop_ninja_detect_worker::cases::CaseRow {
+    block_on(slop_ninja_detect_worker::cases::read_case(&w.h, case_id)).unwrap()
+}
+
+/// Two cases on one page, end to end. A copyright case's withhold is
+/// accepted (its text rewritten away), then an illegal-content case removes
+/// the page and its run document. Restoring the copyright case leaves the
+/// page removed, so sending its link again answers the removed page with no
+/// claim, fetch or scan, under any package; restoring the removal, the last
+/// case holding it, returns it failed, and the link is then checked afresh.
+#[test]
+fn a_restore_never_frees_a_link_another_case_still_holds() {
+    use slop_ninja_detect_page::codes::CaseKind;
+    use slop_ninja_detect_worker::cases::{self, Basis};
+    use slop_ninja_detect_worker::db::Stmt;
+    let mut w = World::new();
+    let url = "https://example.com/a";
+    w.fetch.page(url, &article(14));
+    let e = w.check(url).unwrap();
+    assert_eq!(e.failed, None);
+    let copyright = [
+        ("work", "https://writer.example/essay"),
+        ("scope", "excerpt"),
+        ("name", "Claimant Fixture Name"),
+        ("email", "claimant@writer.invalid"),
+        ("address", "1 Fixture Lane"),
+        ("good_faith", "yes"),
+        ("accurate", "yes"),
+        ("signature", "Claimant Fixture Name"),
+    ];
+    let illegal = [("category", "other"), ("explanation", "it is illegal"), ("good_faith", "yes")];
+    let basis = Basis { basis: "other".into(), jurisdiction: "US".into() };
+    let journal = || Stmt::new("SELECT 1", Vec::new());
+    let b = send_case(&w, &e.slug, CaseKind::Copyright, &copyright);
+    assert_eq!(w.state_of(&e.slug).0, "excerpt_withheld");
+    block_on(cases::withhold_excerpt(&w.h, &w.origins, &case_row(&w, &b), &basis, journal())).unwrap();
+    w.h.advance(1000);
+    let a = send_case(&w, &e.slug, CaseKind::Illegal, &illegal);
+    block_on(cases::remove_case(&w.h, &w.store, &w.origins, &case_row(&w, &a), &basis, journal())).unwrap();
+    assert_eq!((w.state_of(&e.slug).0.as_str(), w.run_docs()), ("removed", 0));
+    let r = block_on(cases::restore_case(&w.h, &w.store, &w.origins, &case_row(&w, &b), journal())).unwrap();
+    assert_eq!((r.pages, r.on_hold, r.report_gone), (0, 1, 0));
+    assert_eq!(w.state_of(&e.slug).0, "removed");
+    let before = (w.fetch.fetch_calls.get(), w.scorer.calls.get(), w.rows("detections"), w.rows("claims"));
+    let load = w.serving.load.clone();
+    for l in [load.as_str(), "load-next"] {
+        w.serving.load = l.into();
+        assert_eq!(w.admit(url).unwrap(), Admitted::Done(e.slug.clone()), "{l}");
+        assert_eq!(w.check(url).unwrap(), Ended { slug: e.slug.clone(), failed: None }, "{l}");
+    }
+    w.serving.load = load;
+    assert_eq!((w.fetch.fetch_calls.get(), w.scorer.calls.get(), w.rows("detections"), w.rows("claims")), before);
+    assert_eq!(w.page(&e.slug).unwrap().state, DetState::Removed);
+    // The last case holding it, restored: failed, and the link is free.
+    let r = block_on(cases::restore_case(&w.h, &w.store, &w.origins, &case_row(&w, &a), journal())).unwrap();
+    assert_eq!((r.pages, r.on_hold, r.report_gone), (1, 0, 1));
+    let p = w.page(&e.slug).unwrap();
+    assert_eq!((p.state, p.failure.map(|f| f.code)), (DetState::Failed, Some(RefusalCode::ReportGone)));
+    let again = w.check(url).unwrap();
+    assert_eq!(again.failed, None);
+    assert_ne!(again.slug, e.slug);
+    assert_eq!((w.fetch.fetch_calls.get(), w.scorer.calls.get()), (before.0 + 1, before.1 + 1));
+    assert_eq!(w.page(&again.slug).unwrap().state, DetState::Live);
+}
+
 #[test]
 fn an_opted_out_source_is_never_checked_again() {
     let mut w = World::new();

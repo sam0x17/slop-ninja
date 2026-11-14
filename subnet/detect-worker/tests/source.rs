@@ -600,3 +600,31 @@ fn internal_calls_set_their_headers_on_the_request() {
         assert_eq!(sends, allowed, "{name}: a platform Fetch outside cf_url::external");
     }
 }
+
+/// The Workers bind every integer parameter as a JavaScript number, which D1
+/// stores and computes as a REAL: `sitemap_seq / ?2` gave a fraction, and its
+/// insert into the INTEGER PRIMARY KEY `sitemap_shards.shard` failed with
+/// SQLITE_MISMATCH for every public page after the first (the native test
+/// host binds integers, so only a Workers run showed it). A bound parameter
+/// that divides is cast to INTEGER first, in every source file.
+#[test]
+fn a_bound_divisor_is_cast_to_integer() {
+    let dir = format!("{}/src", env!("CARGO_MANIFEST_DIR"));
+    let mut checked = 0;
+    for entry in fs::read_dir(&dir).expect("src") {
+        let path = entry.expect("entry").path();
+        if path.extension().is_none_or(|e| e != "rs") {
+            continue;
+        }
+        let s = fs::read_to_string(&path).expect("source");
+        for (i, l) in s.lines().enumerate() {
+            let bytes = l.as_bytes();
+            for (at, _) in l.match_indices("/ ?") {
+                let next = bytes.get(at + 3).copied().unwrap_or(b' ');
+                assert!(!next.is_ascii_digit(), "{}:{}: a division by a bound parameter: {l}", path.display(), i + 1);
+            }
+            checked += l.matches("CAST(?").count();
+        }
+    }
+    assert!(checked >= 3, "the shard divisors are cast ({checked})");
+}

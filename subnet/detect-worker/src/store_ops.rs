@@ -51,7 +51,7 @@ pub fn index_force(slug: &str, value: Option<IndexForce>) -> Result<Vec<Stmt>, R
             vec![Val::blob(&id), Val::opt_text(value.map(|v| v.as_str()))],
         ),
         Stmt::new(
-            "INSERT INTO sitemap_shards (shard, dirty, urls, built_at) SELECT sitemap_seq / ?2, 1, 0, NULL \
+            "INSERT INTO sitemap_shards (shard, dirty, urls, built_at) SELECT sitemap_seq / CAST(?2 AS INTEGER), 1, 0, NULL \
 FROM detections WHERE id_h = ?1 AND sitemap_seq IS NOT NULL ON CONFLICT (shard) DO UPDATE SET dirty = 1",
             vec![Val::blob(&id), Val::int(SHARD_URLS)],
         ),

@@ -724,7 +724,7 @@ pub async fn removal_status(io: &impl Io, token: &str) -> Result<RemovalStatusAn
 /// Marks a public page's sitemap shard for the next rebuild.
 fn shard_dirty(id_h: &Bytes32) -> Stmt {
     Stmt::new(
-        "INSERT INTO sitemap_shards (shard, dirty, urls, built_at) SELECT sitemap_seq / ?2, 1, 0, NULL \
+        "INSERT INTO sitemap_shards (shard, dirty, urls, built_at) SELECT sitemap_seq / CAST(?2 AS INTEGER), 1, 0, NULL \
 FROM detections WHERE id_h = ?1 AND sitemap_seq IS NOT NULL ON CONFLICT (shard) DO UPDATE SET dirty = 1",
         vec![Val::blob(id_h), Val::int(SHARD_URLS)],
     )

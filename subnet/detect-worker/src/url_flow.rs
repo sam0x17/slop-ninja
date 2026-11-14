@@ -1055,7 +1055,7 @@ AND state = 'live' AND superseded_by IS NULL",
             vec![Val::blob(id_h)],
         ),
         Stmt::new(
-            "INSERT INTO sitemap_shards (shard, dirty, urls, built_at) SELECT DISTINCT sitemap_seq / ?2, 1, 0, NULL \
+            "INSERT INTO sitemap_shards (shard, dirty, urls, built_at) SELECT DISTINCT sitemap_seq / CAST(?2 AS INTEGER), 1, 0, NULL \
 FROM detections WHERE (id_h = ?1 OR superseded_by = ?1) AND sitemap_seq IS NOT NULL \
 ON CONFLICT (shard) DO UPDATE SET dirty = 1",
             vec![Val::blob(id_h), Val::int(SHARD_URLS)],

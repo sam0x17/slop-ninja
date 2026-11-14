@@ -806,33 +806,44 @@ AND kind IN ('private_text','private_paid') AND state = '{from}'"
 /// `countered`, or `closed` as above) on another page of the same run (the
 /// same text) holds it too, since an accepted withhold covers every page of
 /// the run. A case that is not the op's own but was restored or rejected
-/// holds nothing.
+/// holds nothing. With `op_hold`, the operator's own removal outside any case
+/// (`remove {slug}`, which sets the page's `op_hold_at`) holds it too: only
+/// `restore {slug}` lifts that one, so it is the one op that leaves it out.
 struct Others<'a> {
     /// The op's own cases, as a JSON list of case ids.
     own: &'a str,
     run: Option<u64>,
     closed_since: Option<u64>,
+    op_hold: bool,
 }
 
 impl Others<'_> {
-    /// The holding condition on the page `?{p}` (an `EXISTS`), with its
-    /// three values at `?{p+1}` to `?{p+3}` (`Others::vals`).
+    /// The holding condition on the page `?{p}`, with its four values at
+    /// `?{p+1}` to `?{p+4}` (`Others::vals`).
     fn sql(p: usize) -> String {
-        let (run, own, since) = (p + 1, p + 2, p + 3);
+        let (run, own, since, op) = (p + 1, p + 2, p + 3, p + 4);
         format!(
-            "EXISTS (SELECT 1 FROM case_targets ht JOIN cases hc ON hc.case_id = ht.case_id \
+            "(EXISTS (SELECT 1 FROM case_targets ht JOIN cases hc ON hc.case_id = ht.case_id \
 WHERE hc.case_id NOT IN (SELECT value FROM json_each(?{own})) \
 AND (ht.det_id_h = ?{p} OR ht.det_id_h IN (SELECT hs.id_h FROM detections hs WHERE hs.run_id = ?{run})) \
 AND (hc.state IN ('accepted','countered') OR (hc.state = 'closed' AND hc.updated_at >= ?{since}) \
-OR (ht.det_id_h = ?{p} AND hc.kind = 'copyright' AND hc.state IN ('received','incomplete','reviewing'))))"
+OR (ht.det_id_h = ?{p} AND hc.kind = 'copyright' AND hc.state IN ('received','incomplete','reviewing')))) \
+OR (?{op} = 1 AND EXISTS (SELECT 1 FROM detections ho WHERE ho.id_h = ?{p} AND ho.op_hold_at IS NOT NULL)))"
         )
     }
 
-    fn vals(&self, id_h: &Bytes32) -> [Val; 4] {
-        [Val::blob(id_h), Val::opt_int(self.run), Val::text(self.own), Val::opt_int(self.closed_since)]
+    fn vals(&self, id_h: &Bytes32) -> [Val; 5] {
+        [
+            Val::blob(id_h),
+            Val::opt_int(self.run),
+            Val::text(self.own),
+            Val::opt_int(self.closed_since),
+            Val::int(u64::from(self.op_hold)),
+        ]
     }
 
-    /// Whether another case holds the page now.
+    /// Whether another case, or the operator's own removal, holds the page
+    /// now.
     async fn hold(&self, io: &impl Io, id_h: &Bytes32) -> Result<bool, RefusalCode> {
         let d = io
             .run(Stmt::owned(format!("SELECT {} AS hit", Others::sql(1)), self.vals(id_h).into()))
@@ -861,16 +872,29 @@ async fn intake_withheld(io: &impl Io, slug: &str, received_at: u64) -> Result<b
     Ok(d.first().and_then(|r| r.u64("n")).unwrap_or(0) > 0)
 }
 
-/// A public page a review returns live (its report is kept), unless
-/// another case holds it (`Others`).
-fn return_public_live(id_h: &Bytes32, others: &Others<'_>, now: u64) -> Vec<Stmt> {
+/// The state a review returns a public page from, as its SQL literal: the
+/// state the op read (`removed` or `excerpt_withheld`), so a page whose state
+/// changed since the read is left as it is; `None` for any other state.
+fn returned_from(s: DetState) -> Option<&'static str> {
+    match s {
+        DetState::Removed => Some("removed"),
+        DetState::ExcerptWithheld => Some("excerpt_withheld"),
+        _ => None,
+    }
+}
+
+/// A public page a review returns live from `from` ([`returned_from`]; its
+/// report is kept), unless another case or the operator's own removal holds
+/// it (`Others`). The operator's hold goes with the state change (only
+/// `restore {slug}` returns a page that has one).
+fn return_public_live(id_h: &Bytes32, from: &str, others: &Others<'_>, now: u64) -> Vec<Stmt> {
     let mut vals = vec![Val::blob(id_h), Val::int(now)];
     vals.extend(others.vals(id_h));
     vec![
         Stmt::owned(
             format!(
-                "UPDATE detections SET state = 'live', state_v = state_v + 1, updated_at = ?2 WHERE id_h = ?1 \
-AND kind = 'public_url' AND state IN ('excerpt_withheld','removed') AND NOT {}",
+                "UPDATE detections SET state = 'live', op_hold_at = NULL, state_v = state_v + 1, updated_at = ?2 \
+WHERE id_h = ?1 AND kind = 'public_url' AND state = '{from}' AND NOT {}",
                 Others::sql(3)
             ),
             vals,
@@ -890,16 +914,17 @@ AND kind = 'public_url' AND state IN ('excerpt_withheld','removed') AND NOT {}",
 /// legal state, the page no longer blocks new checks of its source. A page
 /// another case holds (`Others`) is left as it is, run and all: the state
 /// change is the first statement, and the run's statements apply only once
-/// the page has left the run.
-fn return_public_failed(id_h: &Bytes32, run_id: Option<u64>, others: &Others<'_>, now: u64) -> Vec<Stmt> {
+/// the page has left the run. As in [`return_public_live`], the page returns
+/// only from `from`, and its operator's hold goes with the state change.
+fn return_public_failed(id_h: &Bytes32, from: &str, run_id: Option<u64>, others: &Others<'_>, now: u64) -> Vec<Stmt> {
     let mut vals = vec![Val::blob(id_h), Val::int(now)];
     vals.extend(others.vals(id_h));
     let mut v = Vec::with_capacity(4);
     v.push(Stmt::owned(
         format!(
             "UPDATE detections SET state = 'failed', refusal = COALESCE(refusal, 'report_gone'), run_id = NULL, \
-state_v = state_v + 1, updated_at = ?2 WHERE id_h = ?1 AND kind = 'public_url' AND platform <> 'x' \
-AND state IN ('excerpt_withheld','removed') AND NOT {}",
+op_hold_at = NULL, state_v = state_v + 1, updated_at = ?2 WHERE id_h = ?1 AND kind = 'public_url' \
+AND platform <> 'x' AND state = '{from}' AND NOT {}",
             Others::sql(3)
         ),
         vals,
@@ -1287,7 +1312,9 @@ pub struct Effect {
     pub report_gone: u64,
     /// Public pages a restore or reject left as they were because another
     /// case still holds them, or (a reject) because an accepted withhold
-    /// took their text. A page no open case holds can still be returned by
+    /// took their text; for a restore by case, also removed pages the
+    /// operator's `remove {slug}` holds or the restored case cannot have
+    /// removed. A page no open case holds can still be returned by
     /// `restore {slug}`.
     #[serde(skip_serializing_if = "is_zero")]
     pub on_hold: u64,
@@ -1553,9 +1580,23 @@ AND kind IN ('private_text','private_paid') AND state IN ('live','pending','disa
     Ok(effect)
 }
 
+/// The operator's hold on a public page that `remove {slug}` removed or
+/// found removed (`op_hold_at`, first time kept): no restore by case returns
+/// the page while it stands, and only `restore {slug}` clears it.
+fn op_hold_stmt(id_h: &Bytes32, now: u64) -> Stmt {
+    Stmt::new(
+        "UPDATE detections SET op_hold_at = COALESCE(op_hold_at, ?2) WHERE id_h = ?1 AND kind = 'public_url' \
+AND platform <> 'x' AND state = 'removed'",
+        vec![Val::blob(id_h), Val::int(now)],
+    )
+}
+
 /// `remove {slug}` of a public page outside a case: an X page takes the X
 /// removal with a new `x_request` case; any other public page is removed
-/// with its record and no case (`restore {slug}` lifts it).
+/// with its record and no case, under the operator's hold
+/// (`op_hold_stmt`), so restoring a case on the page never returns it:
+/// only `restore {slug}` does. A page already removed (by a case) changes
+/// state no further and writes no second record, but takes the hold too.
 pub async fn remove_slug(
     io: &impl Io,
     origins: &Origins,
@@ -1579,11 +1620,18 @@ pub async fn remove_slug(
         .await?;
         return Ok(Effect { pages: r.removed, x_case_id: Some(r.case_id), ..Effect::default() });
     }
+    if row.state == DetState::Removed {
+        // Already removed: the op is journaled and holds the page.
+        io.batch(vec![journal, op_hold_stmt(&row.id_h, now)]).await.map_err(|_| RefusalCode::Unavailable)?;
+        return Ok(Effect::default());
+    }
     if !matches!(row.state, DetState::Live | DetState::ExcerptWithheld | DetState::Pending | DetState::Failed) {
-        // Already removed or ended: the op is journaled and changes nothing.
+        // Ended: the op is journaled and changes nothing.
         io.batch(vec![journal]).await.map_err(|_| RefusalCode::Unavailable)?;
         return Ok(Effect::default());
     }
+    // The hold follows the state change, so a page a case removed since the
+    // read takes it as well.
     let batch = vec![
         journal,
         Stmt::new(
@@ -1591,6 +1639,7 @@ pub async fn remove_slug(
 AND kind = 'public_url' AND state IN ('live','excerpt_withheld','pending','failed')",
             vec![Val::blob(&row.id_h), Val::int(now)],
         ),
+        op_hold_stmt(&row.id_h, now),
         removal_row(Some(slug), "page", &basis.basis, &basis.jurisdiction, now),
         shard_dirty(&row.id_h),
     ];
@@ -1649,6 +1698,13 @@ async fn unquarantine(io: &impl Io, keys: &StoreKeys, case_id: &str, id_h: &Byte
     Ok(true)
 }
 
+/// Whether a case can have removed a page: only `remove {case_id}` removes
+/// one, and it accepts the case, so a case still awaiting its decision
+/// (`received`, `incomplete`, `reviewing`) or `rejected` has removed none.
+fn may_have_removed(s: CaseState) -> bool {
+    !matches!(s, CaseState::Received | CaseState::Incomplete | CaseState::Reviewing | CaseState::Rejected)
+}
+
 /// `restore {case_id}`: an X case lifts its opt-out ([`x_restore_stmts`]);
 /// otherwise each target returns: a disabled secret page (with its family)
 /// and a removed one whose quarantined document is put back are live again;
@@ -1663,8 +1719,12 @@ async fn unquarantine(io: &impl Io, keys: &StoreKeys, case_id: &str, id_h: &Byte
 /// restored case's own notice found the page live, or ever when it found
 /// none) stays as it is, with its run and document, and counts as `on_hold`;
 /// it returns with the last restore of the cases holding it, or by
-/// `restore {slug}` once no open case holds it. The case is restored, and so
-/// is each counter-notice on its pages that no countered case is left behind.
+/// `restore {slug}` once no open case holds it. So does a removed page this
+/// op cannot have removed: one under the operator's own `remove {slug}`
+/// (only `restore {slug}` returns it), and any removed target of a case that
+/// never accepted a removal (`may_have_removed`). The case is restored, and
+/// so is each counter-notice on its pages that no countered case is left
+/// behind.
 ///
 /// A counter-notice holds no removal of its own: its `restore` restores the
 /// countered copyright cases on its targets (the cases whose removal and
@@ -1714,10 +1774,15 @@ pub async fn restore_case(
         let mut seen = BTreeSet::new();
         for t in &targets {
             if t.kind == Kind::PublicUrl {
-                if !matches!(t.state, DetState::ExcerptWithheld | DetState::Removed)
-                    || t.platform == Platform::X
-                    || !returned.insert(t.id_h)
-                {
+                let Some(from) = returned_from(t.state) else { continue };
+                if t.platform == Platform::X || !returned.insert(t.id_h) {
+                    continue;
+                }
+                // A case that never accepted a removal (awaiting its
+                // decision, or rejected) removed nothing: its only step of
+                // its own is the intake withhold, so a removed page stays.
+                if t.state == DetState::Removed && !may_have_removed(c.state) {
+                    effect.on_hold += 1;
                     continue;
                 }
                 let slug = t.public_slug.clone().unwrap_or_default();
@@ -1728,17 +1793,17 @@ pub async fn restore_case(
                 } else {
                     0
                 };
-                let others = Others { own: &own, run: t.run_id, closed_since: Some(since) };
+                let others = Others { own: &own, run: t.run_id, closed_since: Some(since), op_hold: true };
                 if others.hold(io, &t.id_h).await? {
                     effect.on_hold += 1;
                     continue;
                 }
                 let at = batch.len();
                 if report_kept(io, t.run_id).await? {
-                    batch.extend(return_public_live(&t.id_h, &others, now));
+                    batch.extend(return_public_live(&t.id_h, from, &others, now));
                     public.push((at, slug, t.run_id, false));
                 } else {
-                    batch.extend(return_public_failed(&t.id_h, t.run_id, &others, now));
+                    batch.extend(return_public_failed(&t.id_h, from, t.run_id, &others, now));
                     public.push((at, slug, t.run_id, true));
                 }
             } else {
@@ -1823,20 +1888,24 @@ WHERE id_h = ?1 AND kind IN ('private_text','private_paid') AND state = 'removed
 
 /// `restore {slug}`: a public page removed outside a case returns, as a
 /// case's target would: live while its report is kept, else `failed` with
-/// `report_gone` (`return_public_failed`). It is the operator's decision on
-/// the page itself, so it returns a page held only by a `closed` case or by
-/// a case on another page of its run, but never one an open case holds
-/// (`accepted`, `countered`, or a copyright case awaiting its decision):
-/// that page stays as it is (`on_hold`) until those cases are restored or
-/// rejected.
+/// `report_gone` (`return_public_failed`), and the operator's hold its
+/// `remove {slug}` left goes with it. It is the operator's decision on the
+/// page itself, so it returns a page held only by that hold, by a `closed`
+/// case or by a case on another page of its run, but never one an open case
+/// holds (`accepted`, `countered`, or a copyright case awaiting its
+/// decision): that page stays as it is (`on_hold`), the operator's hold
+/// included, until those cases are restored or rejected.
 pub async fn restore_slug(io: &impl Io, origins: &Origins, slug: &str, journal: Stmt) -> Result<Effect, RefusalCode> {
     let now = io.now_ms();
     let (row, _) = public_lookup(io, slug).await.map_err(|_| RefusalCode::Unavailable)?;
     let row = row.filter(|r| r.platform != Platform::X).ok_or(RefusalCode::NotFound)?;
-    let others = Others { own: "[]", run: None, closed_since: None };
-    let on_hold =
-        matches!(row.state, DetState::ExcerptWithheld | DetState::Removed) && others.hold(io, &row.id_h).await?;
-    if on_hold {
+    let Some(from) = returned_from(row.state) else {
+        // Neither removed nor withheld: journaled, and nothing changes.
+        io.batch(vec![journal]).await.map_err(|_| RefusalCode::Unavailable)?;
+        return Ok(Effect::default());
+    };
+    let others = Others { own: "[]", run: None, closed_since: None, op_hold: false };
+    if others.hold(io, &row.id_h).await? {
         // Journaled, and nothing else changes.
         io.batch(vec![journal]).await.map_err(|_| RefusalCode::Unavailable)?;
         return Ok(Effect { on_hold: 1, ..Effect::default() });
@@ -1845,9 +1914,9 @@ pub async fn restore_slug(io: &impl Io, origins: &Origins, slug: &str, journal: 
     let mut batch = vec![journal];
     // The state change is the batch's second statement either way.
     if kept {
-        batch.extend(return_public_live(&row.id_h, &others, now));
+        batch.extend(return_public_live(&row.id_h, from, &others, now));
     } else {
-        batch.extend(return_public_failed(&row.id_h, row.run_id, &others, now));
+        batch.extend(return_public_failed(&row.id_h, from, row.run_id, &others, now));
     }
     let done = io.batch(batch).await.map_err(|_| RefusalCode::Unavailable)?;
     let pages = done.get(1).map_or(0, |d| d.changes);
@@ -1886,7 +1955,7 @@ pub async fn reject_case(
     let mut batch = vec![journal, case_state_stmt(&case.case_id, CaseState::Rejected, now)];
     let mut effect = Effect::default();
     let own = own_cases([case.case_id.as_str()]);
-    let others = Others { own: &own, run: None, closed_since: None };
+    let others = Others { own: &own, run: None, closed_since: None, op_hold: true };
     // Each public page's state change: its index in the batch, its slug.
     let mut public: Vec<(usize, String)> = Vec::new();
     for t in &targets {

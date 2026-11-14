@@ -633,6 +633,73 @@ fn a_restore_never_frees_a_link_another_case_still_holds() {
     assert_eq!(w.page(&again.slug).unwrap().state, DetState::Live);
 }
 
+/// A removal made outside any case, end to end. A copyright notice
+/// withholds the page at intake, then the operator removes it by slug (its
+/// run document goes); restoring the notice leaves it removed. A second
+/// notice, accepted by a `remove` that finds the page already removed, is
+/// restored too and leaves it removed. Sending the link again answers the
+/// removed page with no claim, fetch or scan, under any package; once
+/// `restore {slug}` returns it failed, the link is checked afresh.
+#[test]
+fn a_restore_by_case_never_frees_a_link_the_operator_removed() {
+    use slop_ninja_detect_page::codes::CaseKind;
+    use slop_ninja_detect_worker::cases::{self, Basis};
+    use slop_ninja_detect_worker::db::Stmt;
+    let mut w = World::new();
+    let url = "https://example.com/a";
+    w.fetch.page(url, &article(14));
+    let e = w.check(url).unwrap();
+    assert_eq!(e.failed, None);
+    let copyright = |scope: &'static str| {
+        [
+            ("work", "https://writer.example/essay"),
+            ("scope", scope),
+            ("name", "Claimant Fixture Name"),
+            ("email", "claimant@writer.invalid"),
+            ("address", "1 Fixture Lane"),
+            ("good_faith", "yes"),
+            ("accurate", "yes"),
+            ("signature", "Claimant Fixture Name"),
+        ]
+    };
+    let basis = Basis { basis: "other".into(), jurisdiction: "US".into() };
+    let journal = || Stmt::new("SELECT 1", Vec::new());
+    let b = send_case(&w, &e.slug, CaseKind::Copyright, &copyright("excerpt"));
+    assert_eq!(w.state_of(&e.slug).0, "excerpt_withheld");
+    let r = block_on(cases::remove_slug(&w.h, &w.origins, &e.slug, &basis, journal())).unwrap();
+    assert_eq!(r.pages, 1);
+    assert_eq!((w.state_of(&e.slug).0.as_str(), w.run_docs()), ("removed", 0));
+    let r = block_on(cases::restore_case(&w.h, &w.store, &w.origins, &case_row(&w, &b), journal())).unwrap();
+    assert_eq!((r.pages, r.on_hold, r.report_gone), (0, 1, 0));
+    w.h.advance(1000);
+    let c = send_case(&w, &e.slug, CaseKind::Copyright, &copyright("page"));
+    let r = block_on(cases::remove_case(&w.h, &w.store, &w.origins, &case_row(&w, &c), &basis, journal())).unwrap();
+    assert_eq!(r.pages, 0);
+    let r = block_on(cases::restore_case(&w.h, &w.store, &w.origins, &case_row(&w, &c), journal())).unwrap();
+    assert_eq!((r.pages, r.on_hold, r.report_gone), (0, 1, 0));
+    assert_eq!(w.state_of(&e.slug).0, "removed");
+    let before = (w.fetch.fetch_calls.get(), w.scorer.calls.get(), w.rows("detections"), w.rows("claims"));
+    let load = w.serving.load.clone();
+    for l in [load.as_str(), "load-next"] {
+        w.serving.load = l.into();
+        assert_eq!(w.admit(url).unwrap(), Admitted::Done(e.slug.clone()), "{l}");
+        assert_eq!(w.check(url).unwrap(), Ended { slug: e.slug.clone(), failed: None }, "{l}");
+    }
+    w.serving.load = load;
+    assert_eq!((w.fetch.fetch_calls.get(), w.scorer.calls.get(), w.rows("detections"), w.rows("claims")), before);
+    assert_eq!(w.page(&e.slug).unwrap().state, DetState::Removed);
+    // The operator's own restore: failed, and the link is free.
+    let r = block_on(cases::restore_slug(&w.h, &w.origins, &e.slug, journal())).unwrap();
+    assert_eq!((r.pages, r.on_hold, r.report_gone), (1, 0, 1));
+    let p = w.page(&e.slug).unwrap();
+    assert_eq!((p.state, p.failure.map(|f| f.code)), (DetState::Failed, Some(RefusalCode::ReportGone)));
+    let again = w.check(url).unwrap();
+    assert_eq!(again.failed, None);
+    assert_ne!(again.slug, e.slug);
+    assert_eq!((w.fetch.fetch_calls.get(), w.scorer.calls.get()), (before.0 + 1, before.1 + 1));
+    assert_eq!(w.page(&again.slug).unwrap().state, DetState::Live);
+}
+
 #[test]
 fn an_opted_out_source_is_never_checked_again() {
     let mut w = World::new();

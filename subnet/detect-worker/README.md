@@ -305,9 +305,14 @@ other case holds it (one that targets it and is `accepted`, `countered` or a
 copyright case awaiting its decision; for a `restore`, also a decided case
 on another page of the same text, and a `closed` one); a held page stays as
 it is and the answer counts it as `on_hold`. A `reject` returns only a page
-its own notice withheld at intake. `restore {slug}` is the operator's
-decision on the page itself: it passes closed cases and other pages of the
-same text, never an open case's hold. Every X removal is one removal: R2
+its own notice withheld at intake. `remove {slug}` removes a page outside
+any case and leaves the operator's hold on it (also on a page a case had
+already removed): no `restore` by case returns that page, and nor does the
+`restore` of a case that never accepted a removal (one awaiting its
+decision, whose only step is the intake withhold, or a rejected one).
+`restore {slug}` is the operator's decision on the page itself: it lifts
+the operator's hold and passes closed cases and other pages of the same
+text, never an open case's hold. Every X removal is one removal: R2
 first, then one D1 batch that leaves the post's opt-out tombstone with only
 its key hash, names it in the case, and journals
 `x_remove {reason, canon_key}`; `restore` lifts that tombstone and nothing

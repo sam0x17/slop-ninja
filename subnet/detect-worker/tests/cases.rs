@@ -794,6 +794,163 @@ fn a_restore_keeps_a_page_held_through_its_run_or_by_a_closed_case() {
     }
 }
 
+/// The operator's hold that `remove {slug}` leaves on `slug`'s page.
+fn op_hold(w: &World, slug: &str) -> bool {
+    w.h.count(&format!("SELECT count(*) FROM detections WHERE public_slug = '{slug}' AND op_hold_at IS NOT NULL")) == 1
+}
+
+/// A removal made outside any case (`remove {slug}`) holds the page against
+/// every restore by case: neither a notice that withheld the page at intake
+/// (A) nor a case accepted on the page once it was removed (C) returns it.
+/// The page stays removed with its run and reuse key, its link still answers
+/// the removed page, and `restore {slug}` returns it. A case that never
+/// accepted a removal never returns a removed page either.
+#[test]
+fn a_restore_by_case_never_returns_a_page_removed_outside_it() {
+    let w = World::new();
+    let personal = [("name", "N"), ("email", "n@e.invalid"), ("data", "my name")];
+    // (A) Copyright notice B withholds the page at intake; the operator then
+    // removes it by slug, and its run document goes.
+    let (_, run) = web_page(&w, "k7m2xq9", None);
+    w.h.advance(1000);
+    let (b, _, auto) = w.send(CaseKind::Copyright, "k7m2xq9", &copyright("excerpt"), None);
+    assert_eq!(auto, Some(AutoStep::ExcerptWithheld));
+    assert_eq!(w.op("remove", json!({"slug": "k7m2xq9", "reason": "abuse"})).unwrap()["pages"], 1);
+    assert!(w.h.doc(&format!("r/{run}")).is_none());
+    assert!(op_hold(&w, "k7m2xq9"));
+    assert_eq!(blocked(&w, "k7m2xq9").as_deref(), Some("k7m2xq9"));
+    w.h.exec(&format!("UPDATE runs SET content_key = x'0102' WHERE run_id = {run}"));
+    // Restoring B (a legal edge from `received`) leaves the page removed:
+    // no state change, no `report_gone`, its run kept with its reuse key,
+    // nothing fetched, and its link still answers the removed page.
+    let r = w.op("restore", json!({"case_id": b, "reason": "notice withdrawn"})).unwrap();
+    assert_eq!((r["pages"].clone(), r["on_hold"].clone(), r.get("report_gone")), (json!(0), json!(1), None), "{r}");
+    assert_eq!(case_state(&w, &b), "restored");
+    assert_eq!(state(&w, "k7m2xq9", false), "removed");
+    assert_eq!(
+        w.h.count(&format!("SELECT count(*) FROM detections WHERE public_slug = 'k7m2xq9' AND run_id = {run}")),
+        1
+    );
+    assert_eq!(w.h.count(&format!("SELECT count(*) FROM runs WHERE run_id = {run} AND content_key IS NOT NULL")), 1);
+    assert_eq!(queued(&w, |j| matches!(j, Job::RerunOp { .. })), 0);
+    assert_eq!(blocked(&w, "k7m2xq9").as_deref(), Some("k7m2xq9"));
+    // `restore {slug}` returns it, failed (its document went), and the hold
+    // goes with it; the link is free.
+    let r = w.op("restore", json!({"slug": "k7m2xq9", "reason": "lifted"})).unwrap();
+    assert_eq!((r["pages"].clone(), r["report_gone"].clone()), (json!(1), json!(1)), "{r}");
+    assert_eq!(state(&w, "k7m2xq9", false), "failed");
+    assert!(!op_hold(&w, "k7m2xq9"));
+    assert_eq!(w.h.count(&format!("SELECT count(*) FROM runs WHERE run_id = {run}")), 0);
+    assert_eq!(blocked(&w, "k7m2xq9"), None);
+
+    // (C) The operator removes a page by slug (another page of the same text
+    // keeps the run document). Copyright notice C arrives later and gets no
+    // automatic step; `remove {case_id: C}` removes nothing more but accepts
+    // C. Restoring C leaves the page removed, though its report is kept.
+    let (_, run2) = web_page(&w, "b4n8r2t", None);
+    web_page(&w, "c5p9s3v", Some(run2));
+    assert_eq!(w.op("remove", json!({"slug": "b4n8r2t", "reason": "abuse"})).unwrap()["pages"], 1);
+    w.h.advance(1000);
+    let (c, _, auto) = w.send(CaseKind::Copyright, "b4n8r2t", &copyright("page"), None);
+    assert_eq!(auto, None);
+    let r = w.op("remove", json!({"case_id": c, "reason": "valid notice"})).unwrap();
+    assert_eq!((r["pages"].clone(), case_state(&w, &c)), (json!(0), "accepted".into()), "{r}");
+    let r = w.op("restore", json!({"case_id": c, "reason": "counter evidence"})).unwrap();
+    assert_eq!((r["pages"].clone(), r["on_hold"].clone(), r.get("report_gone")), (json!(0), json!(1), None), "{r}");
+    assert_eq!(case_state(&w, &c), "restored");
+    assert_eq!(state(&w, "b4n8r2t", false), "removed");
+    assert!(w.h.doc(&format!("r/{run2}")).is_some());
+    assert_eq!(blocked(&w, "b4n8r2t").as_deref(), Some("b4n8r2t"));
+    let r = w.op("restore", json!({"slug": "b4n8r2t", "reason": "lifted"})).unwrap();
+    assert_eq!((r["pages"].clone(), r.get("report_gone")), (json!(1), None), "{r}");
+    assert_eq!(state(&w, "b4n8r2t", false), "live");
+    assert!(!op_hold(&w, "b4n8r2t"));
+
+    // The other order: a case removes the page, then the operator's
+    // `remove {slug}` finds it removed (nothing changes, no second record)
+    // and holds it; restoring the case leaves it removed.
+    web_page(&w, "d6q8t4w", None);
+    w.h.advance(1000);
+    let (e, _, _) = w.send(CaseKind::PersonalData, "d6q8t4w", &personal, None);
+    w.op("remove", json!({"case_id": e, "reason": "erasure"})).unwrap();
+    assert!(!op_hold(&w, "d6q8t4w"));
+    assert_eq!(w.op("remove", json!({"slug": "d6q8t4w", "reason": "abuse"})).unwrap()["pages"], 0);
+    assert_eq!(w.h.count("SELECT count(*) FROM removals WHERE public_slug = 'd6q8t4w'"), 1);
+    assert!(op_hold(&w, "d6q8t4w"));
+    let r = w.op("restore", json!({"case_id": e, "reason": "mistake"})).unwrap();
+    assert_eq!((r["pages"].clone(), r["on_hold"].clone()), (json!(0), json!(1)), "{r}");
+    assert_eq!(state(&w, "d6q8t4w", false), "removed");
+    let r = w.op("restore", json!({"slug": "d6q8t4w", "reason": "lifted"})).unwrap();
+    assert_eq!((r["pages"].clone(), r["report_gone"].clone()), (json!(1), json!(1)), "{r}");
+    assert_eq!(state(&w, "d6q8t4w", false), "failed");
+
+    // A case that never accepted a removal (awaiting its decision, or
+    // rejected) never returns a removed page, even with no other hold left:
+    // F removes the page and is restored while notices H and H2 (sent once
+    // the page was removed) hold it; H2 is rejected (which leaves a removed
+    // page as it is). Restoring H, then H2, leaves it removed, and
+    // `restore {slug}` returns it.
+    web_page(&w, "h3k7m9q", None);
+    w.h.advance(1000);
+    let (f, _, _) = w.send(CaseKind::PersonalData, "h3k7m9q", &personal, None);
+    w.op("remove", json!({"case_id": f, "reason": "erasure"})).unwrap();
+    w.h.advance(1000);
+    let (h, _, auto) = w.send(CaseKind::Copyright, "h3k7m9q", &copyright("page"), None);
+    assert_eq!(auto, None);
+    let (h2, _, _) = w.send(CaseKind::Copyright, "h3k7m9q", &copyright("page"), None);
+    let r = w.op("restore", json!({"case_id": f, "reason": "mistake"})).unwrap();
+    assert_eq!((r["pages"].clone(), r["on_hold"].clone()), (json!(0), json!(1)), "{r}");
+    assert_eq!(w.op("reject", json!({"case_id": h2, "reason": "duplicate"})).unwrap()["pages"], 0);
+    for (id, st) in [(&h, "restored"), (&h2, "rejected")] {
+        let r = w.op("restore", json!({"case_id": id, "reason": "notice withdrawn"})).unwrap();
+        assert_eq!((r["pages"].clone(), r["on_hold"].clone()), (json!(0), json!(1)), "{st}: {r}");
+        assert_eq!((case_state(&w, id), state(&w, "h3k7m9q", false)), (st.into(), "removed".into()));
+    }
+    assert_eq!(blocked(&w, "h3k7m9q").as_deref(), Some("h3k7m9q"));
+    let r = w.op("restore", json!({"slug": "h3k7m9q", "reason": "lifted"})).unwrap();
+    assert_eq!((r["pages"].clone(), r["report_gone"].clone()), (json!(1), json!(1)), "{r}");
+    assert_eq!(state(&w, "h3k7m9q", false), "failed");
+
+    // The operator's hold landing between a restore's read and its batch:
+    // the page, its run and its reuse key stay.
+    let (_, run4) = web_page(&w, "m2q8r4t", None);
+    w.h.advance(1000);
+    let (k, _, _) = w.send(CaseKind::PersonalData, "m2q8r4t", &personal, None);
+    w.op("remove", json!({"case_id": k, "reason": "erasure"})).unwrap();
+    w.h.exec(&format!("UPDATE runs SET content_key = x'0102' WHERE run_id = {run4}"));
+    w.h.before("UPDATE detections SET state = 'failed'", |db| {
+        db.execute("UPDATE detections SET op_hold_at = 1 WHERE public_slug = 'm2q8r4t'", []).unwrap();
+    });
+    let r = w.op("restore", json!({"case_id": k, "reason": "mistake"})).unwrap();
+    assert_eq!((r["pages"].clone(), r["on_hold"].clone(), r.get("report_gone")), (json!(0), json!(1), None), "{r}");
+    assert_eq!(state(&w, "m2q8r4t", false), "removed");
+    assert_eq!(w.h.count(&format!("SELECT count(*) FROM runs WHERE run_id = {run4} AND content_key IS NOT NULL")), 1);
+    assert_eq!(w.h.count(&format!("SELECT count(*) FROM detections WHERE run_id = {run4}")), 1);
+    // A page that leaves the state the restore read before its batch (here
+    // withheld at intake, then removed) is left as it is: a notice awaiting
+    // its decision returns its withheld page, never a removed one, whether
+    // its report is kept (live) or not (failed).
+    for (slug, gone) in [("r4t8m2q", false), ("t6v2k8n", true)] {
+        let (_, run) = web_page(&w, slug, None);
+        w.h.advance(1000);
+        let (n, _, auto) = w.send(CaseKind::Copyright, slug, &copyright("excerpt"), None);
+        assert_eq!(auto, Some(AutoStep::ExcerptWithheld));
+        if gone {
+            block_on(w.h.doc_delete(&[format!("r/{run}")])).unwrap();
+        }
+        let s = slug.to_owned();
+        let needle =
+            if gone { "UPDATE detections SET state = 'failed'" } else { "UPDATE detections SET state = 'live'" };
+        w.h.before(needle, move |db| {
+            db.execute("UPDATE detections SET state = 'removed' WHERE public_slug = ?1", [&s]).unwrap();
+        });
+        let r = w.op("restore", json!({"case_id": n, "reason": "notice withdrawn"})).unwrap();
+        assert_eq!((r["pages"].clone(), r["on_hold"].clone()), (json!(0), json!(1)), "{slug}: {r}");
+        assert_eq!(state(&w, slug, false), "removed", "{slug}");
+        assert_eq!(w.h.count(&format!("SELECT count(*) FROM runs WHERE run_id = {run}")), 1, "{slug}");
+    }
+}
+
 /// An accepted case on `slug`'s page, written as if it landed between an
 /// op's read and its batch.
 fn race_hold(db: &rusqlite::Connection, case_id: &str, slug: &str) {

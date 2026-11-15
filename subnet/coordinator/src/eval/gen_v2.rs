@@ -4,10 +4,27 @@
 //! sealed beside the batch.
 //!
 //! Everything here runs only for a plan naming `generation`
-//! ([`crate::eval::plan::CohortPlan::generation`]). This build still refuses
-//! such a plan at validation ([`crate::eval::plan::GENERATION_V2_REFUSAL`]):
-//! the flag stays off until the generator manifest is measured, the keys
-//! exist and the user approves; native tests drive the path directly.
+//! ([`crate::eval::plan::CohortPlan::generation`]).
+//!
+//! - The admission ([`admit_plan`]) runs on every operator path that stores
+//!   such a plan (`POST /eval/plan`, `POST /eval/template`), after the plan
+//!   parses and before anything is stored: the bound manifest and voice
+//!   library as the draw would load them, the manifest `measured`, a
+//!   register for every domain of the plan's pools, the plan's generators
+//!   the manifest's Workers AI ids, the generation Worker's interface, keys
+//!   and routes, the frontier lease against the slowest measured cell, and
+//!   the projected generation (with every frontier item fallen back to
+//!   Workers AI too) within the cohort's generating window
+//!   ([`generating_window_ms`]). A refusal stores nothing.
+//! - The draw's vendor checks ([`VendorChecks`]): a gen-side fault at the
+//!   draw is never a plan refusal or a cohort fault. A frontier vendor the
+//!   generation Worker's health does not show usable is paused
+//!   (`key_unavailable`) and its share drawn from the Workers AI fallback
+//!   deck; a paused vendor the health shows usable gets one fixed synthetic
+//!   request ([`probe_call`]: the compiled measurement set's first call on
+//!   its smallest model at its lowest usable level), and an answer resumes
+//!   it from that draw on. The operator clear stays; no timer resumes
+//!   anything.
 //!
 //! - The draw ([`Draw`]) loads the plan's bound generator manifest and voice
 //!   library (checked against their digests and kept in the cohort's store,
@@ -37,6 +54,7 @@
 )]
 
 use crate::eval::engine::{self, Cohort, EvalError, MixedSpec, R, ScratchSpec, i, item_digest, opt_text, s, sha_hex};
+use crate::eval::plan::CohortPlan;
 use crate::eval::textgen::{self, Reject};
 use crate::sql::{Row, Sql, SqlValue, bind_u64, int, text, uint};
 use serde::{Deserialize, Serialize};
@@ -44,11 +62,11 @@ use serde_json::{Value, json};
 use slop_ninja_gen_core::manifest::{Manifest, ModelEntry, ObjectRef};
 use slop_ninja_gen_core::outcome::{GenCall, GenReply, OutcomeCode};
 use slop_ninja_gen_core::pause::{self, Action, VendorStates};
-use slop_ninja_gen_core::plan::GenerationPlan;
+use slop_ninja_gen_core::plan::{GenerationPlan, Health, Phase, PhaseFit};
 use slop_ninja_gen_core::record::{AttemptRecord, FinalRecord, GenRecord};
 use slop_ninja_gen_core::request::{self, GenTarget};
 use slop_ninja_gen_core::rotation::{self, Avoid, FallbackCause, GenAssignment, StreamState};
-use slop_ninja_gen_core::spend;
+use slop_ninja_gen_core::{iface, measure, spend};
 use slop_ninja_gen_core::vendor::{DocKind, Effort, Lane, Vendor};
 use slop_ninja_gen_core::voice::{Library, VoiceChoice, VoiceSplit};
 use std::collections::{BTreeMap, BTreeSet};
@@ -252,11 +270,13 @@ impl Ctx {
 
 // ------------------------------------------------------------------- draw
 
-/// The bound objects the Worker read for a draw (checked again here).
+/// The bound objects the Worker read for a draw (checked again here), and
+/// what its vendor checks found ([`VendorChecks`]).
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct DrawObjects {
     pub manifest: Vec<u8>,
     pub library: Vec<u8>,
+    pub vendors: VendorChecks,
 }
 
 /// One draw's generation state: the context, the streams it advanced and the
@@ -333,11 +353,17 @@ pub struct MixedDraw {
 }
 
 impl Draw {
-    /// Starts the draw of cohort `seq`: checks and keeps the bound objects.
-    pub fn begin(sql: &impl Sql, seq: i64, plan: &GenerationPlan, objects: &DrawObjects, private_seed: &[u8; 32]) -> R<Self> {
+    /// Starts the draw of cohort `seq`: checks and keeps the bound objects,
+    /// and applies the Worker's vendor checks to the deployment's vendor
+    /// states before any cell is assigned (an answered probe resumes its
+    /// vendor, a vendor the health did not show usable is paused
+    /// `key_unavailable`; each change is a cohort log note), so this draw's
+    /// assignments already see them.
+    pub fn begin(sql: &impl Sql, seq: i64, plan: &GenerationPlan, objects: &DrawObjects, private_seed: &[u8; 32], now_ms: u64) -> R<Self> {
         let ctx = Ctx::from_bytes(plan, &objects.manifest, &objects.library, private_seed)?;
         Ctx::store(sql, seq, plan, &objects.manifest, &objects.library, &ctx.library_sha256)?;
-        Ok(Draw { ctx, streams: BTreeMap::new(), vendors: vendor_states(sql)?, counts: BTreeMap::new() })
+        let vendors = apply_vendor_checks(sql, seq, &objects.vendors, now_ms)?;
+        Ok(Draw { ctx, streams: BTreeMap::new(), vendors, counts: BTreeMap::new() })
     }
 
     fn assign(&mut self, sql: &impl Sql, kind: DocKind, domain: &str, key: &str, avoid: &Avoid) -> R<GenAssignment> {
@@ -1065,6 +1091,185 @@ pub fn seal_records(sql: &impl Sql, c: &Cohort) -> R<Option<SealedRecords>> {
         "manifest": {"key": plan.manifest.key, "sha256": manifest_sha}, "voice_library_sha256": library_sha,
         "documents": lines.len(), "shards": index});
     Ok(Some((shards, block)))
+}
+
+// -------------------------------------------------------------- admission
+
+/// The blocks of one tempo the generating window is counted in: the nominal
+/// tempo the cohort timing is specified in (a cohort lasts at least K tempos
+/// of 360 blocks), at [`crate::eval::calendar::NOMINAL_BLOCK_SECS`] a block.
+pub const NOMINAL_TEMPO_BLOCKS: u64 = 360;
+
+/// The generating window a v2 plan's projected generation must fit
+/// (`generating_window_v1`): the tempos its cohort has between the
+/// admission minimum and the transition minimum at its minimum length
+/// (`k_tempos - admission_tempos - transition_tempos`), at the nominal
+/// tempo ([`NOMINAL_TEMPO_BLOCKS`]). Tempo durations are minimum
+/// scheduling targets, so this is a planning bound checked at admission;
+/// at run time slow generation only moves the cohort's advancement to a
+/// later tempo boundary.
+pub fn generating_window_ms(plan: &CohortPlan) -> u64 {
+    plan.k_tempos
+        .saturating_sub(plan.admission_tempos)
+        .saturating_sub(plan.transition_tempos)
+        .saturating_mul(NOMINAL_TEMPO_BLOCKS)
+        .saturating_mul(crate::eval::calendar::NOMINAL_BLOCK_SECS)
+        .saturating_mul(1_000)
+}
+
+/// The generating phase admission projects for `plan`: its generated
+/// documents (mixed and model-only, spares included), its generating window
+/// and its generation lanes.
+pub fn phase(plan: &CohortPlan) -> Result<Phase, &'static str> {
+    let f = plan.fanout().map_err(|e| e.0)?;
+    let [_, mixed, model_only] = plan.generated_counts();
+    Ok(Phase {
+        documents: u64::from(mixed) + u64::from(model_only),
+        generating_window_ms: generating_window_ms(plan),
+        lanes: f.generation.max_lanes,
+        workers_ai_inflight_per_lane: f.generation.inflight_per_lane,
+    })
+}
+
+/// What the generation admission of a plan reads: the bound manifest's and
+/// voice library's bytes (as read by their bindings), the distinct domains
+/// of the plan's pools (`pool::manifest_domains` of the plan's pool and every
+/// further parent pool), and the generation Worker's health (`None`: it did
+/// not answer).
+pub struct AdmitInputs<'a> {
+    pub manifest: &'a [u8],
+    pub library: &'a [u8],
+    pub pool_domains: &'a BTreeSet<String>,
+    pub health: Option<Health>,
+}
+
+/// The generation admission (`gen_admit_v1`) of `plan`: `Ok(None)` for a
+/// plan without `generation`. The objects are checked and parsed exactly as
+/// the draw loads them ([`Ctx::from_bytes`]: the declared sizes within
+/// [`GEN_OBJECTS_BYTES`] before each parse, each binding's length and
+/// digest, the voice split), then `slop_ninja_gen_core::plan::admit` runs:
+/// the manifest measured, a register for every pool domain, the plan's
+/// generators the manifest's Workers AI ids, the generation Worker's
+/// interface, keys and routes, the frontier lease against the slowest
+/// measured cell, and the phase fit, all-fallback included. Every refusal
+/// is its code; the caller stores nothing on one.
+pub fn admit_plan(plan: &CohortPlan, x: &AdmitInputs<'_>) -> Result<Option<PhaseFit>, &'static str> {
+    let Some(g) = &plan.generation else { return Ok(None) };
+    let ctx = Ctx::from_bytes(g, x.manifest, x.library, &[0; 32]).map_err(|e| e.code())?;
+    let phase = phase(plan)?;
+    let domains: Vec<String> = x.pool_domains.iter().cloned().collect();
+    slop_ninja_gen_core::plan::admit(g, &ctx.manifest, &domains, &plan.generators, x.health.clone(), &crate::eval::plan::GEN_V2_LANE_BOUNDS, &phase)
+        .map(Some)
+        .map_err(|r| r.0)
+}
+
+// ------------------------------------------------- vendor checks at the draw
+
+/// What the Worker found of the frontier vendors before a v2 draw: the
+/// vendors to pause (`key_unavailable`) and the paused vendors whose resume
+/// probe was answered. Applied in the draw's transaction
+/// ([`Draw::begin`]); a gen-side fault here never refuses the plan or
+/// faults the cohort.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct VendorChecks {
+    pub unavailable: Vec<Vendor>,
+    pub answered: Vec<Vendor>,
+}
+
+/// The frontier vendors the manifest has a model of.
+pub fn manifest_vendors(m: &Manifest) -> Vec<Vendor> {
+    LEDGER_VENDORS.into_iter().filter(|v| m.models.iter().any(|x| x.vendor == *v)).collect()
+}
+
+/// Whether the generation Worker's health shows `v` usable for `m`: the
+/// interface version this build speaks, the vendor's key resolving, and the
+/// manifest's route for it.
+pub fn vendor_usable(m: &Manifest, h: &Health, v: Vendor) -> bool {
+    let (key, route) = match v {
+        Vendor::Openai => (h.openai, h.openai_route),
+        Vendor::Anthropic => (h.anthropic, h.anthropic_route),
+        Vendor::WorkersAi => return true,
+    };
+    h.interface == iface::MARKER_VALUE && key && route == m.routes.of(v)
+}
+
+/// The manifest's frontier vendors the health reading does not show usable
+/// (every one when the generation Worker did not answer).
+pub fn unavailable_vendors(m: &Manifest, health: Option<&Health>) -> Vec<Vendor> {
+    manifest_vendors(m).into_iter().filter(|v| !health.is_some_and(|h| vendor_usable(m, h, *v))).collect()
+}
+
+/// The resume probe's cell of `v`: its smallest frontier model (the lowest
+/// standard output price, then input price; the first in manifest order on
+/// a tie) that has a usable level, at its lowest usable level.
+pub fn probe_cell(m: &Manifest, v: Vendor) -> Option<(&ModelEntry, Effort)> {
+    m.lane_models(Lane::Frontier)
+        .into_iter()
+        .filter(|x| x.vendor == v)
+        .filter_map(|x| x.usable_efforts().first().copied().map(|e| (x, e)))
+        .min_by_key(|(x, _)| (x.prices.standard.output, x.prices.standard.input))
+}
+
+/// The resume probe of `v` (`gen_resume_probe_v1`): the compiled synthetic
+/// measurement set's first call (never cohort text) on [`probe_cell`], with
+/// the cell's measured slowest call plus the reply allowance as its
+/// timeout, within the plan's frontier call timeout (its lease less the
+/// lanes' commit margin; the whole timeout when the cell has no
+/// measurement). `None` when the vendor has no usable cell.
+pub fn probe_call<'m>(m: &'m Manifest, lib: &Library, plan: &GenerationPlan, v: Vendor) -> Option<(GenCall, &'m ModelEntry)> {
+    let (entry, effort) = probe_cell(m, v)?;
+    let (request, _) = measure::request(m, lib, &entry.id, effort, 0).ok()?;
+    let ceiling = plan.frontier_lanes.lease_ms.saturating_sub(crate::eval::plan::GEN_V2_LANE_BOUNDS.commit_margin_ms);
+    let timeout_ms = entry.measured(effort).map_or(ceiling, |c| c.latency_ms_max.saturating_add(iface::REPLY_ALLOWANCE_MS).min(ceiling));
+    let mut accepted_models = vec![entry.id.clone()];
+    accepted_models.extend(entry.accepted_aliases.iter().cloned());
+    Some((GenCall { request, accepted_models, timeout_ms }, entry))
+}
+
+/// Whether a probe's reply answers: the vendor took the call and replied
+/// with content (any content outcome: the key, the route and the quota
+/// work).
+pub fn probe_answered(g: &GenReply) -> bool {
+    g.outcome.uses_attempt()
+}
+
+/// The ledger key of a cohort draw's resume probe of `v` (`cohort_key` its
+/// `<instance>:<label>`), under the vendor's own prefix so the vendor's
+/// cycle spend counts it.
+pub fn probe_ledger_key(v: Vendor, cohort_key: &str) -> String {
+    format!("{}:resume-probe", spend::ledger_key(v, cohort_key))
+}
+
+/// The fixed log note of a resume (vendor only).
+pub fn resume_note(v: Vendor) -> &'static str {
+    match v {
+        Vendor::Openai => "gen_vendor_resumed:openai",
+        Vendor::Anthropic => "gen_vendor_resumed:anthropic",
+        Vendor::WorkersAi => "gen_vendor_resumed",
+    }
+}
+
+/// Applies the draw's vendor checks to the deployment's vendor states and
+/// returns the states the draw assigns with.
+fn apply_vendor_checks(sql: &impl Sql, seq: i64, checks: &VendorChecks, now_ms: u64) -> R<VendorStates> {
+    let mut v = vendor_states(sql)?;
+    let mut changed = false;
+    for vendor in &checks.answered {
+        if v.resume(*vendor) {
+            changed = true;
+            engine::log_note(sql, seq, resume_note(*vendor), now_ms)?;
+        }
+    }
+    for vendor in &checks.unavailable {
+        if v.pause(*vendor, FallbackCause::KeyUnavailable, now_ms) {
+            changed = true;
+            engine::log_note(sql, seq, pause_note(*vendor, FallbackCause::KeyUnavailable), now_ms)?;
+        }
+    }
+    if changed {
+        save_vendor_states(sql, &v)?;
+    }
+    Ok(v)
 }
 
 /// Whether a generated document's voice draw, kept for the reuse ledger, is

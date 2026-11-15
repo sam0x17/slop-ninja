@@ -789,7 +789,7 @@ pub fn apply_draw(
     // generated document's cell is assigned in this transaction (a draw is
     // applied once, so no stream advances twice).
     let mut gdraw = match (&plan.generation, &d.generation) {
-        (Some(g), Some(o)) => Some(crate::eval::gen_v2::Draw::begin(sql, seq, g, o, &cfg.private_seed)?),
+        (Some(g), Some(o)) => Some(crate::eval::gen_v2::Draw::begin(sql, seq, g, o, &cfg.private_seed, now_ms)?),
         (Some(_), None) => return Err(EvalError::State("generation v2 objects missing from the draw")),
         (None, _) => None,
     };

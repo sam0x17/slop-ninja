@@ -889,18 +889,37 @@ printf 'Authorization: Bearer %s\n' "$(cat $S/eval_operator_token)" |
 #   one; the manifest's `routes` names configured_endpoint_v1 for each vendor),
 #   POST /eval/gen/measure {"manifest": {key, sha256, bytes}, "model", "effort", "call", "attempt"}
 #   (synthetic set only; each vendor call settles under its own ledger key). Once a plan naming
-#   `generation` has been stored (a later build), rolling the eval Worker back below that build is
-#   unsafe: older builds refuse the stored plan (deny_unknown_fields).
+#   `generation` has been stored, never roll the eval Worker back below the build that admitted it:
+#   older builds refuse the stored plan (deny_unknown_fields). Fix forward instead.
 #   This build runs v2 cohorts end to end (draw rotation and voice split, default
 #   profile_none_quarter_v1; lane calls; outcome classes, vendor pause and Workers AI fallback;
-#   private records under cohorts/<label>/generation/ bound in batch index v4; store v26) but still
-#   refuses every plan naming `generation`. /eval/status gives each cohort gen_cost_by_vendor
+#   private records under cohorts/<label>/generation/ bound in batch index v4; store v26).
+#   Admission: POST /eval/plan and POST /eval/template run the generation admission on a plan naming
+#   `generation` after it parses and before anything is stored (src/eval/gen_v2.rs admit_plan): the
+#   bound manifest and voice library read by their bindings as the draw reads them, the manifest
+#   `measured`, a register for every domain of the plan's pools, the plan's generators the manifest's
+#   Workers AI ids, /health through GEN_TESTNET (interface v2, both keys, the manifest's routes), the
+#   frontier lease against the slowest measured cell, and the projected generation, with every
+#   frontier item fallen back to Workers AI too, within the generating window ((k_tempos -
+#   admission_tempos - transition_tempos) tempos of 360 blocks at 12 s). A refusal answers 422 with
+#   its code and stores nothing: no cohort, label or ledger reservation for /eval/plan, and the
+#   installed template unchanged for /eval/template (fix and resubmit, or queue a plan without
+#   `generation`). The calendar's next cohort and the admission freeze run only the synchronous
+#   plan checks, so a gen-side fault after the install never pauses the template.
+#   At the draw a gen-side fault is a vendor pause, never a cohort fault: a vendor the generation
+#   Worker's health does not show usable (no answer, another interface, a missing key, another
+#   route) pauses key_unavailable (cohort log note gen_vendor_paused:<vendor>:key_unavailable) and its
+#   share is drawn from the Workers AI fallback deck, recorded. /eval/status gives each cohort gen_cost_by_vendor
 #   {openai, anthropic, workers_ai} (micro-USD) and, for v2, generation_v2 (counts, cells, vendor
 #   states); the ledger status gives vendor_cycle_microusd. A v2 cohort settles each frontier
 #   vendor's spend under gen:<vendor>:<instance>:<label>, the rest (lanes, probes, Workers AI)
 #   under <instance>:<label> as before. A vendor paused by a spend cap or a key failure stays paused
-#   (deployment-wide, across cohorts) until POST /eval/gen/vendor-clear {"vendor": "openai"|"anthropic"}
-#   (answers {"vendor", "cleared"}; idempotent); the self-clearing draw probe is not built yet.
+#   (deployment-wide, across cohorts) until a draw's resume probe is answered or the operator clears it:
+#   while it is paused and the health shows it usable, each v2 draw sends it one fixed synthetic
+#   request (the measurement set's first call on its smallest model at its lowest usable level,
+#   charged under gen:<vendor>:<instance>:<label>:resume-probe), and an answer resumes it from that
+#   draw on (log note gen_vendor_resumed:<vendor>); no timer resumes anything. The operator clear:
+#   POST /eval/gen/vendor-clear {"vendor": "openai"|"anthropic"} (answers {"vendor", "cleared"}; idempotent).
 #   A v2 plan's manifest and voice library together must fit 131,072 declared bytes
 #   (gen_v2::GEN_OBJECTS_BYTES, derived from the claim/commit route footprint); the draw refuses more.
 # resume after an outage, platform, unresolved-infrastructure or step_refused fault: /eval/clear {"label": "..."}

@@ -374,10 +374,10 @@ max_concurrency = 1
 # slop-ninja-gen-testnet; no public surface), which makes the frontier model
 # calls through its configured credentials. A service binding to a Worker
 # that does not exist fails the deploy, so that Worker deploys first and
-# must exist for every deploy of this one. The binding changes no cohort:
-# the operator routes /eval/gen/health and /eval/gen/measure call it, and
-# the generation lanes would only for a plan naming generation v2, which
-# this build still refuses.
+# must exist for every deploy of this one. The operator routes
+# /eval/gen/health and /eval/gen/measure call it, the generation admission
+# of a plan naming generation v2 reads its health, and a v2 cohort's draw
+# (health and resume probe) and frontier lane calls go through it.
 [[env.eval-testnet.services]]
 binding = "GEN_TESTNET"
 service = "slop-ninja-gen-testnet"

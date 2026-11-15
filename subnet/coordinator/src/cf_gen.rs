@@ -23,21 +23,31 @@
 //! Everything these decide without the platform lives in
 //! `eval::gen_measure` and `slop_ninja_gen_core` (tested natively).
 //!
+//! - [`admit`]: the generation admission's reads for a plan naming
+//!   generation v2 (the bound manifest and voice library, the domains of the
+//!   plan's pools, the generation Worker's health), on every operator path
+//!   that stores such a plan; the checks are `gen_v2::admit_plan`.
+//! - [`draw_checks`]: the draw's vendor checks (health, and the resume
+//!   probe of a paused vendor), applied in the draw's transaction
+//!   (`gen_v2::VendorChecks`).
+//!
 //! The generation lanes call [`frontier`] and [`workers_ai`] for v2 items
-//! (`cf_lanes::gen_call`); the draw reads the bound objects itself. Plans
-//! naming generation v2 are still refused at validation
-//! (`plan::GENERATION_V2_REFUSAL`), so no cohort reaches them yet.
+//! (`cf_lanes::gen_call`); the draw reads the bound objects itself.
 
 use super::cf_io::{self, Settled};
 use crate::eval::gen_measure::{self, MeasureCall};
-use crate::eval::plan::GEN_V2_LANE_BOUNDS;
+use crate::eval::gen_v2::{self, AdmitInputs, VendorChecks};
+use crate::eval::plan::{CohortPlan, GEN_V2_LANE_BOUNDS};
+use crate::eval::pool;
 use crate::eval::textgen;
 use serde_json::{Value, json};
 use slop_ninja_gen_core::iface;
 use slop_ninja_gen_core::manifest::{Manifest, ObjectRef};
 use slop_ninja_gen_core::measure;
 use slop_ninja_gen_core::outcome::{self, GenCall, GenReply, OutcomeCode};
-use slop_ninja_gen_core::plan::Health;
+use slop_ninja_gen_core::pause::VendorStates;
+use slop_ninja_gen_core::plan::{GenerationPlan, Health};
+use slop_ninja_gen_core::spend;
 use slop_ninja_gen_core::request::VendorRequest;
 use slop_ninja_gen_core::vendor::Lane;
 use slop_ninja_gen_core::voice::Library;
@@ -232,4 +242,87 @@ pub async fn measure(env: &Env, body: &Value) -> (Value, u64, Option<String>) {
         a.insert("service_ms".into(), json!(wall_ms.saturating_sub(reply.latency_ms)));
     }
     (out.answer, out.microusd, Some(out.ledger_key))
+}
+
+/// The generation admission of `plan` (`gen_v2::admit_plan`), run on every
+/// operator path that stores a plan naming generation v2 (`POST /eval/plan`,
+/// `POST /eval/template`) after it parses and before anything is stored.
+/// Its reads: the bound manifest (refused unread when its declared size
+/// passes the generation objects bound), the voice library it binds (the
+/// same, with the manifest), each at its declared bytes and checked by its
+/// binding; the plan's pool manifest and every further parent pool's, each
+/// at most a step object (`STEP_OBJECT_BYTES`) and checked by its digest,
+/// for their rows' domains; and the generation Worker's health. `Ok` for a
+/// plan without generation; otherwise the refusal's code.
+pub async fn admit(env: &Env, plan: &CohortPlan) -> Result<(), &'static str> {
+    let Some(g) = &plan.generation else { return Ok(()) };
+    if !gen_v2::storable(&g.manifest, None) {
+        return Err("generation manifest (larger than the generation objects bound)");
+    }
+    let manifest = bound_object(env, &g.manifest).await.map_err(|e| object_refusal("generation.manifest", e))?;
+    let lref = match Manifest::parse_bound(&manifest, &g.manifest) {
+        Ok(m) => gen_v2::library_ref(&m),
+        Err(e) => return Err(e.0),
+    };
+    if !gen_v2::storable(&g.manifest, Some(&lref)) {
+        return Err("voice library (with the manifest, larger than the generation objects bound)");
+    }
+    let library = bound_object(env, &lref).await.map_err(|e| object_refusal("generation.voice_library", e))?;
+    let mut pool_domains = std::collections::BTreeSet::new();
+    let parents = plan.reward_v1.as_ref().map(|v| v.parent_pools.as_slice()).unwrap_or_default();
+    for p in std::iter::once(&plan.pool).chain(parents) {
+        let bytes = super::eval_do::get_bounded(env, super::eval_do::EVAL_BUCKET, &p.manifest_key, crate::arena_routes::STEP_OBJECT_BYTES)
+            .await
+            .map_err(|_| "generation (a pool manifest is unreadable)")?
+            .ok_or("generation (a pool manifest is missing)")?;
+        if crate::eval::lane_logic::sha_hex(&bytes) != p.manifest_sha256 {
+            return Err("generation (a pool manifest's digest is not the plan's)");
+        }
+        pool_domains.extend(pool::manifest_domains(&bytes, &p.pool_id).map_err(|e| e.0)?);
+    }
+    let health = health(env).await;
+    let inputs = AdmitInputs { manifest: &manifest, library: &library, pool_domains: &pool_domains, health };
+    gen_v2::admit_plan(plan, &inputs).map(|_| ())
+}
+
+/// The admission's code for a bound object `what` that could not be read
+/// as bound (`bound_object`'s codes).
+fn object_refusal(what: &'static str, e: &'static str) -> &'static str {
+    match (what, e) {
+        ("generation.manifest", "object missing") => "generation.manifest (no object at the plan's key)",
+        ("generation.manifest", "object digest") => "generation.manifest (length or digest is not the plan's)",
+        ("generation.manifest", _) => "generation.manifest (unreadable)",
+        (_, "object missing") => "generation.voice_library (no object at the manifest's key)",
+        (_, "object digest") => "generation.voice_library (length or digest is not the manifest's)",
+        _ => "generation.voice_library (unreadable)",
+    }
+}
+
+/// The draw's vendor checks for a v2 cohort (`gen_v2::VendorChecks`): the
+/// generation Worker's health, then for each frontier vendor of `m` that is
+/// paused (`paused`) and that the health shows usable, one resume probe
+/// (`gen_v2::probe_call`, through the generation Worker), its charge settled
+/// under the vendor's key (`gen_v2::probe_ledger_key`; a ledger failure
+/// leaves it unrecorded). Never an error: whatever fails here is a vendor
+/// pause or a vendor that stays paused, applied in the draw's transaction.
+pub async fn draw_checks(env: &Env, m: &Manifest, library: &Library, plan: &GenerationPlan, paused: &VendorStates, cohort_key: &str) -> VendorChecks {
+    let health = health(env).await;
+    let unavailable = gen_v2::unavailable_vendors(m, health.as_ref());
+    let mut answered = Vec::new();
+    for v in gen_v2::manifest_vendors(m) {
+        if paused.paused(v).is_none() || unavailable.contains(&v) {
+            continue;
+        }
+        let Some((call, entry)) = gen_v2::probe_call(m, library, plan, v) else { continue };
+        let reply = frontier(env, &call).await;
+        let micro = spend::microusd(spend::charge(entry, &call.request, &reply).cost_nanousd);
+        if micro > 0 {
+            let key = gen_v2::probe_ledger_key(v, cohort_key);
+            let _ = super::eval_do::ledger_call(env, "/settle", &json!({"key": key, "microusd": micro, "note": "generation resume probe"})).await;
+        }
+        if gen_v2::probe_answered(&reply) {
+            answered.push(v);
+        }
+    }
+    VendorChecks { unavailable, answered }
 }

@@ -34,6 +34,8 @@
 //! slop_ninja_eval_ops template-reinstall --cut DIR/probe-cut.json --record RECORD.json
 //!     --template TEMPLATE.json --wrangler WRANGLER.toml --tempo-blocks B [standing-template's options]
 //! slop_ninja_eval_ops template-check --template TEMPLATE.json --wrangler WRANGLER.toml
+//!     [--gen-manifest MANIFEST.json --gen-library LIBRARY.jsonl --pool-manifests FILE[,FILE...]
+//!      --gen-health HEALTH.json]
 //! ```
 //!
 //! - `template-check` runs the eval's own install check (`calendar::check`)
@@ -41,7 +43,15 @@
 //!   pools, chain and authority it declares) and prints its digest, its
 //!   reuse rule and parent pools and its capacity. The store-dependent
 //!   install checks (probe versions recorded and fingerprinted, the chain's
-//!   references) run only at the install itself.
+//!   references) run only at the install itself. For a template naming
+//!   generation v2 it also runs the install's generation admission
+//!   (`gen_v2::admit_plan`) offline when given the bound manifest and voice
+//!   library files, the plan's pool manifest and every parent pool's (each
+//!   matched to its plan reference by digest) and a saved
+//!   `GET /eval/gen/health` answer (an `{"error"}` answer is a generation
+//!   Worker that did not answer), and prints the projected generation
+//!   against the generating window; without the files it says it did not
+//!   run. A refusal exits with the admission's code.
 //!
 //! - `load-plan` writes a `slop_ninja_eval_load_plan_v1` plan: R_0 (the
 //!   reference artifact, without its owner, from ARTIFACT.json) owned by
@@ -879,8 +889,44 @@ fn template_check(flags: &BTreeMap<String, String>) {
             "exposed": v.reuse.exposed.map(slop_ninja_coordinator::eval::plan::ExposedReuse::name)},
         "spares_permille": v.spares_permille,
         "capacity": calendar::capacity(&t),
+        "generation_admission": generation_admission(flags, &t.plan),
     });
     println!("{}", serde_json::to_string_pretty(&out).expect("json"));
+}
+
+/// `template-check`'s offline run of the install's generation admission
+/// (`gen_v2::admit_plan`) for a plan naming generation v2; `null` for one
+/// without.
+fn generation_admission(flags: &BTreeMap<String, String>, plan: &slop_ninja_coordinator::eval::plan::CohortPlan) -> Value {
+    use slop_ninja_coordinator::eval::{gen_v2, pool};
+    if plan.generation.is_none() {
+        return Value::Null;
+    }
+    let Some(manifest_path) = flags.get("gen-manifest") else {
+        return json!({"run": false, "note": "the template names generation: pass --gen-manifest, --gen-library, --pool-manifests and --gen-health to run its admission"});
+    };
+    let read = |p: &str| std::fs::read(p).unwrap_or_else(|e| fail(&format!("{p}: {e}")));
+    let manifest = read(manifest_path);
+    let library = read(&flag::<String>(flags, "gen-library"));
+    let pools: Vec<Vec<u8>> = flag::<String>(flags, "pool-manifests").split(',').map(|p| read(p.trim())).collect();
+    let parents = plan.reward_v1.as_ref().map(|v| v.parent_pools.as_slice()).unwrap_or_default();
+    let mut domains = std::collections::BTreeSet::new();
+    for p in std::iter::once(&plan.pool).chain(parents) {
+        let b = pools
+            .iter()
+            .find(|b| sha_hex(b) == p.manifest_sha256)
+            .unwrap_or_else(|| fail(&format!("--pool-manifests: no file has the digest of pool {}", p.pool_id)));
+        domains.extend(pool::manifest_domains(b, &p.pool_id).unwrap_or_else(|e| fail(&format!("pool {}: {}", p.pool_id, e.0))));
+    }
+    let health: Option<slop_ninja_gen_core::plan::Health> = serde_json::from_slice(&read(&flag::<String>(flags, "gen-health"))).ok();
+    let inputs = gen_v2::AdmitInputs { manifest: &manifest, library: &library, pool_domains: &domains, health };
+    let fit = gen_v2::admit_plan(plan, &inputs)
+        .unwrap_or_else(|code| fail(&format!("generation admission refused: {code}")))
+        .unwrap_or_else(|| fail("generation admission: no generation block"));
+    let phase = gen_v2::phase(plan).unwrap_or_else(|e| fail(e));
+    json!({"run": true, "admitted": true, "pool_domains": domains.len(), "documents": phase.documents,
+        "generating_window_ms": phase.generating_window_ms, "projected_ms": {"frontier": fit.frontier.ms(),
+        "workers_ai": fit.workers_ai.ms(), "workers_ai_all_fallback": fit.workers_ai_all.ms()}})
 }
 
 /// `probe-cut`: a same-authority probe cut's plan and record.

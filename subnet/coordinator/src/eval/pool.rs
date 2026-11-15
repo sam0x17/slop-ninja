@@ -106,6 +106,54 @@ impl PoolManifest {
     }
 }
 
+/// The distinct domains of a pool manifest's rows (the generation
+/// admission's `pool_domains`), read in one pass that keeps one domain
+/// string per distinct domain and nothing of the rows: a pool manifest may
+/// be several megabytes, and the operator route that admits a plan holds
+/// only its control footprint beside the manifest's bytes. Refused on the
+/// schema or the pool id as [`PoolManifest::parse`] refuses them; the row
+/// checks stay with the draw's full parse.
+pub fn manifest_domains(bytes: &[u8], pool_id: &str) -> Result<BTreeSet<String>, PoolError> {
+    #[derive(Deserialize)]
+    struct Head {
+        schema: String,
+        pool_id: String,
+        #[serde(deserialize_with = "row_domains")]
+        rows: BTreeSet<String>,
+    }
+    let h: Head = serde_json::from_slice(bytes).map_err(|_| PoolError("pool manifest json"))?;
+    if h.schema != POOL_SCHEMA || h.pool_id != pool_id {
+        return Err(PoolError("pool manifest schema or id"));
+    }
+    Ok(h.rows)
+}
+
+/// The rows array as the set of its rows' domains (every other row field
+/// skipped unread).
+fn row_domains<'de, D: serde::Deserializer<'de>>(d: D) -> Result<BTreeSet<String>, D::Error> {
+    #[derive(Deserialize)]
+    struct DomainOnly {
+        domain: String,
+    }
+    struct Rows;
+    impl<'de> serde::de::Visitor<'de> for Rows {
+        type Value = BTreeSet<String>;
+        fn expecting(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+            f.write_str("pool rows")
+        }
+        fn visit_seq<A: serde::de::SeqAccess<'de>>(self, mut seq: A) -> Result<Self::Value, A::Error> {
+            let mut out = BTreeSet::new();
+            while let Some(r) = seq.next_element::<DomainOnly>()? {
+                if !out.contains(&r.domain) {
+                    out.insert(r.domain);
+                }
+            }
+            Ok(out)
+        }
+    }
+    d.deserialize_seq(Rows)
+}
+
 /// One used row in the ledger (private ids and digests; never text).
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -359,6 +407,34 @@ pub(crate) mod tests {
             rows,
             selection: None,
         }
+    }
+
+    /// The admission's one-pass domain read equals the full parse's domains,
+    /// skips every other field (selection, shards, unknown ones), and refuses
+    /// a manifest the draw's parse refuses on its schema or id.
+    #[test]
+    fn the_domain_read_matches_the_full_parse_and_its_refusals() {
+        let rows: Vec<serde_json::Value> = [("wiki", "g1"), ("news", "g2"), ("wiki", "g3"), ("forum", "g4")]
+            .iter()
+            .enumerate()
+            .map(|(i, (d, g))| serde_json::json!({"row_id": format!("r{i}"), "text_sha256": format!("{i:064}"), "domain": d,
+                "source_group": g, "shard": 0, "tokens": 12}))
+            .collect();
+        let m = serde_json::json!({"schema": POOL_SCHEMA, "pool_id": "p", "rows": rows, "selection": {"max_tokens": 7000},
+            "shards": [{"index": 0, "file": "shard-0000.jsonl", "rows": 4, "sha256": "ab"}], "note": "x"});
+        let b = serde_json::to_vec(&m).unwrap();
+        let full: BTreeSet<String> = PoolManifest::parse(&b, "p").unwrap().rows.into_iter().map(|r| r.domain).collect();
+        let read = manifest_domains(&b, "p").unwrap();
+        assert_eq!(read, full);
+        assert_eq!(read.into_iter().collect::<Vec<_>>(), ["forum", "news", "wiki"]);
+        assert_eq!(manifest_domains(&b, "q").unwrap_err().0, "pool manifest schema or id");
+        let mut other = m.clone();
+        other["schema"] = "slop_ninja_testnet_human_pool_v0".into();
+        assert_eq!(manifest_domains(&serde_json::to_vec(&other).unwrap(), "p").unwrap_err().0, "pool manifest schema or id");
+        let mut no_domain = m;
+        no_domain["rows"][1].as_object_mut().unwrap().remove("domain");
+        assert_eq!(manifest_domains(&serde_json::to_vec(&no_domain).unwrap(), "p").unwrap_err().0, "pool manifest json");
+        assert!(manifest_domains(b"{}", "p").is_err());
     }
 
     #[test]

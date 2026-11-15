@@ -677,11 +677,22 @@ impl EvalCohort {
                 // A named main authority installs a template only once every
                 // earlier authority recorded it as its successor; a template
                 // it would refuse supersedes nothing.
-                if let Err(e) = calendar::check(&cfg, &bytes) {
-                    let mut resp = Response::from_json(&j!({"error": e.code()}))?.with_status(422);
+                let refused = |code: &str| -> Result<Response> {
+                    let mut resp = Response::from_json(&j!({"error": code}))?.with_status(422);
                     resp.headers_mut().set("Cache-Control", "no-store")?;
-                    return Ok(resp);
+                    Ok(resp)
+                };
+                let t = match calendar::check(&cfg, &bytes) {
+                    Ok(t) => t,
+                    Err(e) => return refused(e.code()),
+                };
+                // Generation v2: the admission (`gen_v2::admit_plan`) before
+                // anything is stored; a refused template leaves the installed
+                // one unchanged (fix and reinstall).
+                if let Err(code) = super::gen_do::admit(&self.env, &t.plan).await {
+                    return refused(code);
                 }
+                drop(t);
                 if let Err(code) = self.succeed(&cfg).await {
                     return error(code, 409);
                 }

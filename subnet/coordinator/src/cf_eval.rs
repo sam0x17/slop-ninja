@@ -1022,7 +1022,7 @@ impl DurableObject for EvalCohort {
                     Err(super::cf_io::BodyError::TooLarge) => return error("plan_too_large", 413),
                     Err(e) => return error(e.code(), e.status()),
                 };
-                let adm = match engine::admit(&cfg, &bytes) {
+                let (plan, adm) = match engine::admit(&cfg, &bytes) {
                     Ok((plan, adm)) => {
                         // A plan whose package step the memory model cannot
                         // hold is refused now, never admitted to pause at
@@ -1030,10 +1030,18 @@ impl DurableObject for EvalCohort {
                         if !crate::eval::calendar::fits(&plan) {
                             return tx_reply::<()>(Err(TxError::Operation(engine::EvalError::Plan("arena_capacity: the package step exceeds the memory model"))));
                         }
-                        adm
+                        (plan, adm)
                     }
                     Err(e) => return tx_reply::<()>(Err(TxError::Operation(e))),
                 };
+                // Generation v2: the admission (`gen_v2::admit_plan`) before
+                // the succession check, the label, the ledger and the queue,
+                // so a refused plan leaves nothing behind (fix and resubmit,
+                // or queue the plan without `generation`).
+                if let Err(code) = super::gen_do::admit(&self.env, &plan).await {
+                    return tx_reply::<()>(Err(TxError::Operation(engine::EvalError::Plan(code))));
+                }
+                drop(plan);
                 // A named authority takes a plan only once every earlier
                 // authority recorded it as its successor (`succeed`).
                 if let Err(code) = self.succeed(&cfg).await {
@@ -3006,7 +3014,11 @@ impl EvalCohort {
         // Generation v2: the plan's bound manifest and voice library, refused
         // before each read when the declared sizes pass the generation
         // objects bound (`gen_v2::GEN_OBJECTS_BYTES`: the manifest's alone,
-        // then both), and checked by digest again in the draw.
+        // then both), and checked by digest again in the draw. Then the
+        // vendor checks (`gen_v2::VendorChecks`): the generation Worker's
+        // health, and the resume probe of a paused vendor it shows usable.
+        // Their outcome is a vendor pause or resume in the draw's
+        // transaction, never a refusal of this step.
         let generation = match &plan.generation {
             Some(g) => {
                 use crate::eval::gen_v2;
@@ -3023,7 +3035,14 @@ impl EvalCohort {
                 }
                 let bound = usize::try_from(lref.bytes).map_err(|_| "voice library size")?;
                 let lb = self.read(seq, EVAL_BUCKET, &lref.key, bound, "voice library read").await?.ok_or("voice library missing")?;
-                Some(gen_v2::DrawObjects { manifest: mb, library: lb })
+                let lib = slop_ninja_gen_core::voice::Library::parse_bound(&lb, &m.voice_library)
+                    .map_err(|e| self.step_refused_now(seq, engine::EvalError::State(e.0)))?;
+                let paused = transaction(&storage, gen_v2::vendor_states).map_err(|_| "generation vendor state")?;
+                let cohort_key = format!("{}:{}", cfg.instance, plan.label);
+                let vendors = super::gen_do::draw_checks(env, &m, &lib, g, &paused, &cohort_key).await;
+                drop(lib);
+                drop(m);
+                Some(gen_v2::DrawObjects { manifest: mb, library: lb, vendors })
             }
             None => None,
         };

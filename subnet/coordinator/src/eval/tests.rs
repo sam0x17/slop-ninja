@@ -304,6 +304,8 @@ type R2Hook<'a> = Box<dyn FnMut(&str, bool) -> bool + 'a>;
 type GenHook<'a> = Box<dyn FnMut(&engine::GenItem) -> Result<String, Reject> + 'a>;
 /// Generation v2: a vendor stand-in answering an item's built call.
 type VendorHook<'a> = Box<dyn FnMut(&engine::GenItem, &slop_ninja_gen_core::outcome::GenCall) -> slop_ninja_gen_core::outcome::GenReply + 'a>;
+/// Generation v2: the vendor's answer to a draw's resume probe.
+type ProbeHook<'a> = Box<dyn FnMut(&slop_ninja_gen_core::outcome::GenCall) -> slop_ninja_gen_core::outcome::GenReply + 'a>;
 /// reward-v1 scorer stand-in: `(job, kind, task) -> (confidence %, share %)`.
 type PredictHook<'a> = Box<dyn Fn(i64, &str, u32) -> (f64, f64) + 'a>;
 /// Predictions keyed by document: `(job, kind, text_sha256)`.
@@ -374,6 +376,12 @@ struct Sim<'a> {
     /// Generation v2: the vendor stand-in, and every ledger key settled.
     vendor: VendorHook<'a>,
     settled: Vec<(String, u64)>,
+    /// Generation v2 at the draw (`cf_gen::draw_checks`): the generation
+    /// Worker's health (`None`: no answer), the vendor's answer to a resume
+    /// probe, and every probe sent (vendor, model, effort, call timeout).
+    gen_health: Option<slop_ninja_gen_core::plan::Health>,
+    gen_probe: ProbeHook<'a>,
+    gen_probes: Vec<(slop_ninja_gen_core::vendor::Vendor, String, String, u64)>,
     /// The span gate: each job's load facts, and each job's span reply per
     /// document.
     span_facts: Option<FactsHook<'a>>,
@@ -436,6 +444,9 @@ impl<'a> Sim<'a> {
             settle_calls: 0,
             vendor: Box::new(gen_v2_tests::fake_vendor),
             settled: Vec::new(),
+            gen_health: Some(gen_v2_tests::healthy()),
+            gen_probe: Box::new(gen_v2_tests::probe_answer),
+            gen_probes: Vec::new(),
             span_facts: None,
             spans: None,
         }
@@ -793,7 +804,29 @@ impl<'a> Sim<'a> {
             generation: plan.generation.as_ref().map(|g| {
                 let manifest = self.eval[&g.manifest.key].clone();
                 let m = slop_ninja_gen_core::manifest::Manifest::parse_bound(&manifest, &g.manifest).unwrap();
-                super::gen_v2::DrawObjects { manifest, library: self.eval[&m.voice_library.key].clone() }
+                let library = self.eval[&m.voice_library.key].clone();
+                // The Worker's vendor checks (`cf_gen::draw_checks`).
+                let lib = slop_ninja_gen_core::voice::Library::parse_bound(&library, &m.voice_library).unwrap();
+                let paused = tx(self.db, super::gen_v2::vendor_states).unwrap();
+                let unavailable = super::gen_v2::unavailable_vendors(&m, self.gen_health.as_ref());
+                let mut answered = Vec::new();
+                for v in super::gen_v2::manifest_vendors(&m) {
+                    if paused.paused(v).is_none() || unavailable.contains(&v) {
+                        continue;
+                    }
+                    let Some((call, entry)) = super::gen_v2::probe_call(&m, &lib, g, v) else { continue };
+                    self.gen_probes.push((v, call.request.model.clone(), call.request.effort.code().to_owned(), call.timeout_ms));
+                    let reply = (self.gen_probe)(&call);
+                    let micro = slop_ninja_gen_core::spend::microusd(slop_ninja_gen_core::spend::charge(entry, &call.request, &reply).cost_nanousd);
+                    if micro > 0 {
+                        self.settled.push((super::gen_v2::probe_ledger_key(v, &format!("{}:{}", c.instance, plan.label)), micro));
+                    }
+                    if super::gen_v2::probe_answered(&reply) {
+                        answered.push(v);
+                    }
+                }
+                let vendors = super::gen_v2::VendorChecks { unavailable, answered };
+                super::gen_v2::DrawObjects { manifest, library, vendors }
             }),
             row_pools,
         };

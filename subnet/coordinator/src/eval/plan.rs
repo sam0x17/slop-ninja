@@ -481,10 +481,13 @@ pub struct CohortPlan {
     /// Workers AI, per-source rotation, voice profiles; the draw, lanes,
     /// commit and seal run it, [`crate::eval::gen_v2`]). Absent: today's v1
     /// generation, byte-identical (the field is never serialized when
-    /// absent, so stored plans keep their digests). Off: this build checks
-    /// its shape and refuses it ([`GENERATION_V2_REFUSAL`]) until the
-    /// generator manifest is measured, both keys exist and the user
-    /// approves.
+    /// absent, so stored plans keep their digests). Present: its shape is
+    /// checked here, and every operator path that stores such a plan
+    /// (`POST /eval/plan`, `POST /eval/template`) runs the generation
+    /// admission first ([`crate::eval::gen_v2::admit_plan`]: the bound
+    /// manifest measured, a register for every pool domain, the generation
+    /// Worker's health and routes, the frontier lease and the phase fit), so
+    /// a plan that fails it is refused and nothing is stored.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub generation: Option<slop_ninja_gen_core::plan::GenerationPlan>,
 }
@@ -495,13 +498,6 @@ pub struct CohortPlan {
 /// the per-invocation connection limit.
 pub const GEN_V2_LANE_BOUNDS: slop_ninja_gen_core::plan::LaneBounds =
     slop_ninja_gen_core::plan::LaneBounds { alarm_wall_ms: ALARM_WALL_MS, lease_step_ms: 60_000, commit_margin_ms: 15_000, max_inflight: 6 };
-
-/// Why this build refuses a plan naming generation v2 (after its shape
-/// checks pass): the draw, the lanes and the seal run it, but the plan field
-/// stays off until the generator manifest is measured, both keys exist and
-/// the user approves enabling it.
-pub const GENERATION_V2_REFUSAL: &str =
-    "generation (v2 stays off in this build: enabled only once the generator manifest is measured, both keys exist and the user approves)";
 
 /// The `reward-v1` block of a v3 plan. Every value is a plan parameter,
 /// recorded with the plan's digest and bound into the signed manifest (the
@@ -1388,18 +1384,12 @@ impl CohortPlan {
         self.scored_docs().saturating_mul(u64::from(self.max_attempts))
     }
 
+    /// The plan's own checks. A generation v2 block is checked for its shape
+    /// here; the checks that need its bound objects and the generation
+    /// Worker run before any operator path stores the plan
+    /// ([`crate::eval::gen_v2::admit_plan`]), never in this synchronous parse,
+    /// which the calendar and the admission freeze also run.
     pub fn validate(&self, ceilings: Ceilings) -> Result<(), PlanError> {
-        self.validate_checks(ceilings)?;
-        if self.generation.is_some() {
-            return Err(PlanError(GENERATION_V2_REFUSAL));
-        }
-        Ok(())
-    }
-
-    /// Every check of [`validate`](Self::validate) but this build's refusal
-    /// of generation v2 (which the flag lifts once the manifest is measured,
-    /// the keys exist and the user approves).
-    pub(crate) fn validate_checks(&self, ceilings: Ceilings) -> Result<(), PlanError> {
         let e = |c: bool, what: &'static str| if c { Ok(()) } else { Err(PlanError(what)) };
         // New cohorts are reward-v1 (v3) or probe builds; stored v2 plans still
         // deserialize through serde without this check.
@@ -1997,6 +1987,12 @@ pub(crate) mod tests {
         let bytes = serde_json::to_vec(&load).unwrap();
         let parsed = LoadPlan::parse(&bytes, NONE).unwrap();
         assert!(parsed.cohort_plan().is_load());
+        // A load plan never names generation v2: its cohort plan has none,
+        // and a load body naming one is refused at parse.
+        assert!(parsed.cohort_plan().generation.is_none());
+        let mut with_gen = serde_json::to_value(&load).unwrap();
+        with_gen["generation"] = serde_json::to_value(generation_v2()).unwrap();
+        assert!(LoadPlan::parse(&serde_json::to_vec(&with_gen).unwrap(), NONE).is_err());
         assert!(CohortPlan::parse(&bytes, NONE).is_err(), "a load plan is never a cohort plan");
         let mut bad = load.clone();
         bad.label = "s2a".into();
@@ -2037,7 +2033,7 @@ pub(crate) mod tests {
     }
 
     #[test]
-    fn generation_v2_is_off_by_default_and_refused_by_this_build() {
+    fn generation_v2_is_off_by_default_and_its_shape_is_checked_at_parse() {
         let c = NONE;
         // Absent: v1, and the stored form never names the field, so plans
         // written before it keep their bytes and digests.
@@ -2048,13 +2044,14 @@ pub(crate) mod tests {
         let top: serde_json::Value = serde_json::from_str(&json).unwrap();
         assert!(top.get("generation").is_none(), "the plan's top level never names an absent field");
         assert_eq!(CohortPlan::parse(json.as_bytes(), c).unwrap(), p);
-        // Present and well formed: refused by this build.
+        // Present and well formed: the parse accepts it (the generation
+        // admission runs on the operator paths that store it, `gen_v2::admit_plan`).
         let mut v2 = plan(100);
         v2.generation = Some(generation_v2());
-        assert_eq!(v2.validate(c).unwrap_err().0, GENERATION_V2_REFUSAL);
+        v2.validate(c).unwrap();
         let raw = serde_json::to_vec(&v2).unwrap();
-        assert_eq!(CohortPlan::parse(&raw, c).unwrap_err().0, GENERATION_V2_REFUSAL);
-        // Its shape is checked first.
+        assert_eq!(CohortPlan::parse(&raw, c).unwrap(), v2);
+        // Its shape is checked.
         let mut bad = v2.clone();
         bad.generation.as_mut().unwrap().frontier_lanes.lease_ms = ALARM_WALL_MS;
         assert!(bad.validate(c).unwrap_err().0.starts_with("generation.frontier_lanes.lease_ms"));
@@ -2065,8 +2062,8 @@ pub(crate) mod tests {
     }
 
     /// A v2 plan over the specified 14-model Workers AI roster (eight of
-    /// which `textgen::PRICES` does not list) passes every plan check but the
-    /// flag's refusal, and the manifest admission.
+    /// which `textgen::PRICES` does not list) passes every plan check and
+    /// the manifest admission; a v1 plan still refuses those generators.
     #[test]
     fn a_v2_plan_on_the_roster_passes_the_plan_checks_and_admission() {
         use slop_ninja_gen_core::manifest::fixture::{lane_ids, measured, planned};
@@ -2080,8 +2077,7 @@ pub(crate) mod tests {
         let mut v2 = plan(100);
         v2.generators = roster.clone();
         v2.generation = Some(generation_v2());
-        v2.validate_checks(c).unwrap();
-        assert_eq!(v2.validate(c).unwrap_err().0, GENERATION_V2_REFUSAL);
+        v2.validate(c).unwrap();
         let health = Some(Health { interface: slop_ninja_gen_core::iface::MARKER_VALUE.into(), openai: true, anthropic: true, ..Health::default() });
         let phase = Phase { documents: 80, generating_window_ms: 3_600_000, lanes: 4, workers_ai_inflight_per_lane: 6 };
         admit(v2.generation.as_ref().unwrap(), &m, &["wikipedia".to_owned()], &v2.generators, health, &GEN_V2_LANE_BOUNDS, &phase).unwrap();

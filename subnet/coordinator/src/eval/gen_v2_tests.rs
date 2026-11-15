@@ -1,16 +1,19 @@
 //! Generation v2 cohorts end to end in the native Sim, with fake vendors (no
-//! vendor, Workers AI or Cloudflare call): the draw's rotation and voice
-//! split, the lanes' requests, the commit's outcome classes, the vendor
-//! pause, spend by vendor and its ledger keys, and the private records at
-//! the seal. The plan field stays refused by this build's validation
-//! (`plan::GENERATION_V2_REFUSAL`): these tests store a v2 plan directly,
-//! the one path the flag will open.
+//! vendor, Workers AI or Cloudflare call): the generation admission on the
+//! two operator store paths (`/eval/plan`, `/eval/template`, mirrored here
+//! as the Worker runs them), the draw's vendor checks and resume probe, the
+//! draw's rotation and voice split, the lanes' requests, the commit's
+//! outcome classes, the vendor pause, spend by vendor and its ledger keys,
+//! and the private records at the seal.
 
 use super::*;
 use crate::eval::gen_v2::{self, DocGen};
 use slop_ninja_gen_core::manifest::{Manifest, ObjectRef, Register, fixture as mfx};
 use slop_ninja_gen_core::outcome::{GenCall, GenReply, OutcomeCode};
-use slop_ninja_gen_core::plan::{FrontierLanes, FrontierMode, GenerationPlan};
+use slop_ninja_gen_core::pause::{VendorState, VendorStates};
+use slop_ninja_gen_core::plan::{FrontierLanes, FrontierMode, GenerationPlan, Health};
+use slop_ninja_gen_core::rotation::FallbackCause;
+use slop_ninja_gen_core::vendor::Route;
 use slop_ninja_gen_core::record::GenRecord;
 use slop_ninja_gen_core::spend::Usage;
 use slop_ninja_gen_core::vendor::{Effort, Lane, Vendor};
@@ -61,6 +64,17 @@ fn failed_reply(call: &GenCall, outcome: OutcomeCode, status: u16) -> GenReply {
     g.http_status = status;
     g.sent = true;
     g
+}
+
+/// The generation Worker's health with both keys resolving on the fixture
+/// manifest's routes (direct) at this build's interface version.
+pub(super) fn healthy() -> Health {
+    Health { interface: slop_ninja_gen_core::iface::MARKER_VALUE.into(), openai: true, anthropic: true, ..Health::default() }
+}
+
+/// A vendor that answers a resume probe (usage reported).
+pub(super) fn probe_answer(call: &GenCall) -> GenReply {
+    answer_reply(call, "TEST probe answer".into())
 }
 
 /// The measured fixture manifest with a register for every pool domain, and
@@ -168,20 +182,66 @@ fn gen_plan(manifest: ObjectRef) -> GenerationPlan {
     serde_json::from_value(v).unwrap()
 }
 
-/// Queues `p` as a v1 plan, then stores it with `generation` (and the
-/// manifest's Workers AI generators): what lifting the flag will admit.
-fn open_v2(db: &Sqlite, p: &CohortPlan, g: GenerationPlan, m: &Manifest, first_epoch: u64, now: u64) -> i64 {
-    let bytes = serde_json::to_vec(p).unwrap();
-    let seq = tx(db, |s| engine::queue(s, &cfg(), &bytes, now)).unwrap();
+/// `p` with `generation` and the manifest's Workers AI generators.
+fn with_v2(p: &CohortPlan, g: GenerationPlan, m: &Manifest) -> CohortPlan {
     let mut v2 = p.clone();
     v2.generators = mfx::lane_ids(m, Lane::WorkersAi);
     v2.generation = Some(g);
-    assert_eq!(v2.validate(cfg().ceilings).unwrap_err().0, super::super::plan::GENERATION_V2_REFUSAL, "the flag stays off");
-    v2.validate_checks(cfg().ceilings).unwrap();
-    let stored = serde_json::to_string(&v2).unwrap();
-    db.conn
-        .execute("UPDATE cohorts SET plan = ?1, plan_sha256 = ?2 WHERE seq = ?3", rusqlite::params![stored, lane_logic::sha_hex(stored.as_bytes()), seq])
-        .unwrap();
+    v2
+}
+
+/// The generation admission's inputs as the Worker reads them for `plan`
+/// (`cf_gen::admit`): the bound objects from the sim's eval bucket (at
+/// their plan keys; an absent object is empty, which its binding refuses),
+/// the domains of the plan's pools, and the sim's generation Worker health.
+fn admit_in_sim(sim: &Sim<'_>, plan: &CohortPlan) -> Result<(), &'static str> {
+    let Some(g) = &plan.generation else { return Ok(()) };
+    let manifest = sim.eval.get(&g.manifest.key).cloned().unwrap_or_default();
+    let library = Manifest::parse_bound(&manifest, &g.manifest)
+        .ok()
+        .and_then(|m| sim.eval.get(&m.voice_library.key).cloned())
+        .unwrap_or_default();
+    let parents: Vec<&str> = plan.reward_v1.as_ref().map(|v| v.parent_pools.iter().map(|p| p.pool_id.as_str()).collect()).unwrap_or_default();
+    let pool_domains: BTreeSet<String> = sim
+        .pool
+        .rows
+        .iter()
+        .chain(sim.parent_pools.iter().filter(|m| parents.contains(&m.pool_id.as_str())).flat_map(|m| m.rows.iter()))
+        .map(|r| r.domain.clone())
+        .collect();
+    let inputs = gen_v2::AdmitInputs { manifest: &manifest, library: &library, pool_domains: &pool_domains, health: sim.gen_health.clone() };
+    gen_v2::admit_plan(plan, &inputs).map(|_| ())
+}
+
+/// `POST /eval/plan` as the cohort object runs it (`cf_eval`): the parse,
+/// the package fit, the generation admission, then (the succession check
+/// aside) the label, the ledger reservation (recorded in `ledger_keys`) and
+/// the queue. A refusal returns before any of the last three.
+fn post_plan(sim: &Sim<'_>, db: &Sqlite, bytes: &[u8], ledger_keys: &mut Vec<String>) -> Result<i64, String> {
+    let (plan, adm) = engine::admit(&cfg(), bytes).map_err(|e| e.code().to_owned())?;
+    assert!(crate::eval::calendar::fits(&plan));
+    admit_in_sim(sim, &plan).map_err(str::to_owned)?;
+    let label = adm.label.clone();
+    assert!(tx(db, |s| Ok::<_, engine::EvalError>(engine::cohorts(s)?.into_iter().all(|c| c.label != label))).unwrap());
+    ledger_keys.push(format!("main:{}", adm.label));
+    tx(db, |s| engine::queue(s, &cfg(), bytes, sim.now)).map_err(|e| e.code().to_owned())
+}
+
+/// `POST /eval/template` as the cohort object runs it (`cf_admission`): the
+/// template check, the generation admission, then the install.
+fn post_template(sim: &Sim<'_>, db: &Sqlite, t: &crate::eval::calendar::Template) -> Result<Value, String> {
+    let bytes = serde_json::to_vec(t).unwrap();
+    let checked = crate::eval::calendar::check(&cfg(), &bytes).map_err(|e| e.code().to_owned())?;
+    admit_in_sim(sim, &checked.plan).map_err(str::to_owned)?;
+    tx(db, |s| crate::eval::calendar::install(s, &cfg(), &bytes, sim.now)).map_err(|e| e.code().to_owned())
+}
+
+/// Queues `p` with `generation` (and the manifest's Workers AI generators)
+/// through the operator path (`post_plan`: the generation admission first),
+/// then opens it at `first_epoch`.
+fn open_v2(sim: &Sim<'_>, db: &Sqlite, p: &CohortPlan, g: GenerationPlan, m: &Manifest, first_epoch: u64, now: u64) -> i64 {
+    let v2 = with_v2(p, g, m);
+    let seq = post_plan(sim, db, &serde_json::to_vec(&v2).unwrap(), &mut Vec::new()).unwrap();
     kick_at(db, first_epoch, now);
     kick_at(db, first_epoch + 1, now);
     kick_at(db, first_epoch + 2, now);
@@ -215,7 +275,7 @@ fn v2_cohort_padded<'a>(db: &'a Sqlite, label: &str, total: Option<u64>, pad: Pa
     let mut p = plan_v3(2, label, 40, weak);
     p.reward_v1.as_mut().unwrap().probes = vec![probe_ref];
     p.reward_v1.as_mut().unwrap().canary.draw_humans = 16;
-    let seq = open_v2(db, &p, gen_plan(r), &m, 20, sim.now);
+    let seq = open_v2(&sim, db, &p, gen_plan(r), &m, 20, sim.now);
     (sim, seq, m)
 }
 
@@ -820,6 +880,302 @@ fn a_v2_lane_assignment_splits_the_connection_limit() {
     assert_eq!(a.gen_frontier_lease_ms, 300_000);
 }
 
+/// A manifest object in the sim's eval bucket at `key`, and its binding.
+fn put_manifest(sim: &mut Sim<'_>, key: &str, m: &Manifest) -> ObjectRef {
+    let mb = serde_json::to_vec(m).unwrap();
+    let r = ObjectRef { key: key.into(), sha256: lane_logic::sha_hex(&mb), bytes: mb.len() as u64 };
+    sim.eval.insert(r.key.clone(), mb);
+    r
+}
+
+/// The v3 plan the admission tests start from (the sim's v2 cohort shape).
+fn admission_base(weak: super::super::plan::ArtifactJson, probe_ref: super::super::plan::ProbeRef, label: &str) -> CohortPlan {
+    let mut p = plan_v3(2, label, 40, weak);
+    p.reward_v1.as_mut().unwrap().probes = vec![probe_ref];
+    p.reward_v1.as_mut().unwrap().canary.draw_humans = 16;
+    p
+}
+
+/// The cohorts a store holds.
+fn cohort_count(db: &Sqlite) -> i64 {
+    db.conn.query_row("SELECT COUNT(*) FROM cohorts", [], |x| x.get(0)).unwrap()
+}
+
+/// Every generation admission failure class on `POST /eval/plan` is
+/// refused with its code before the label, the ledger and the queue: no
+/// cohort, label or reservation is left behind. The well-formed plan then
+/// queues, and a plan without generation queues while the generation
+/// Worker is down.
+#[test]
+fn the_generation_admission_refuses_each_failure_class_on_the_plan_path_and_stores_nothing() {
+    let db = Sqlite::open();
+    let (mut sim, weak, probe_ref) = probe_built(&db);
+    let (r, m) = put_objects_padded(&mut sim, None, Pad::Long);
+    let mut planned = mfx::with_voice_library(mfx::planned(), m.voice_library.clone());
+    planned.registers = m.registers.clone();
+    let planned_ref = put_manifest(&mut sim, "generation/manifests/generator-manifest-planned.json", &planned);
+    let p = admission_base(weak, probe_ref, "testnet-g2-adm");
+    let good = with_v2(&p, gen_plan(r.clone()), &m);
+    let mut ledger_keys = Vec::new();
+    let before = cohort_count(&db);
+    let try_plan = |sim: &Sim<'_>, plan: &CohortPlan, ledger_keys: &mut Vec<String>| post_plan(sim, &db, &serde_json::to_vec(plan).unwrap(), ledger_keys);
+    let edit = |f: &dyn Fn(&mut CohortPlan)| {
+        let mut x = good.clone();
+        f(&mut x);
+        x
+    };
+    let with_manifest = |r: ObjectRef| edit(&|x| x.generation.as_mut().unwrap().manifest = r.clone());
+    let cases: Vec<(&str, CohortPlan, Option<Health>, &str)> = vec![
+        ("planned manifest", with_manifest(planned_ref.clone()), Some(healthy()), "generation.manifest (not measured: run the measurement first)"),
+        ("digest", with_manifest(ObjectRef { sha256: "00".repeat(32), ..r.clone() }), Some(healthy()), "manifest (length or digest is not the plan's)"),
+        (
+            "objects bound",
+            with_manifest(ObjectRef { bytes: gen_v2::GEN_OBJECTS_BYTES + 1, ..r.clone() }),
+            Some(healthy()),
+            "generation manifest (larger than the generation objects bound)",
+        ),
+        ("no answer", good.clone(), None, "generation.keys (the generation Worker did not answer)"),
+        ("key", good.clone(), Some(Health { anthropic: false, ..healthy() }), "generation.keys (a vendor key is missing)"),
+        (
+            "interface",
+            good.clone(),
+            Some(Health { interface: "slop_ninja_gen_iface_v1".into(), ..healthy() }),
+            "generation.interface (the generation Worker speaks another interface version)",
+        ),
+        (
+            "route",
+            good.clone(),
+            Some(Health { openai_route: Route::ConfiguredEndpointV1, ..healthy() }),
+            "generation.routes (the generation Worker's route for a vendor is not the manifest's)",
+        ),
+        ("generators", edit(&|x| x.generators.truncate(13)), Some(healthy()), "generators (the manifest's Workers AI ids)"),
+        (
+            "lease",
+            edit(&|x| x.generation.as_mut().unwrap().frontier_lanes.lease_ms = 40_000),
+            Some(healthy()),
+            "generation.frontier_lanes.lease_ms (below the slowest measured cell: mark it unusable or raise the lease)",
+        ),
+        ("phase", edit(&|x| x.k_tempos = x.admission_tempos + x.transition_tempos), Some(healthy()), "generation (the projected generation does not fit the generating window)"),
+    ];
+    for (what, plan, health, code) in cases {
+        sim.gen_health = health;
+        assert_eq!(try_plan(&sim, &plan, &mut ledger_keys).unwrap_err(), code, "{what}");
+        assert_eq!(cohort_count(&db), before, "{what}: nothing queued");
+        assert!(ledger_keys.is_empty(), "{what}: no ledger reservation");
+    }
+    // A pool domain without a register.
+    sim.gen_health = Some(healthy());
+    let mut extra = sim.pool.rows[0].clone();
+    extra.row_id = "forum-row".into();
+    extra.domain = "forum".into();
+    sim.pool.rows.push(extra);
+    assert_eq!(try_plan(&sim, &good, &mut ledger_keys).unwrap_err(), "generation.manifest (a pool domain without a register)");
+    sim.pool.rows.pop();
+    assert_eq!(cohort_count(&db), before);
+    assert!(ledger_keys.is_empty());
+    // The admitted plan queues, as stored with its generation block.
+    let seq = try_plan(&sim, &good, &mut ledger_keys).unwrap();
+    assert_eq!(ledger_keys, ["main:testnet-g2-adm".to_owned()]);
+    assert_eq!(tx(&db, |s| engine::cohort(s, seq)).unwrap().plan.generation, good.generation);
+    // A plan without generation never meets the generation Worker.
+    sim.gen_health = None;
+    let mut v1 = p.clone();
+    v1.label = "testnet-g2-adm-v1".into();
+    v1.cohort = 3;
+    try_plan(&sim, &v1, &mut ledger_keys).unwrap();
+    // The window the phase is projected into: the tempos between the
+    // admission and transition minimums (4 - 1 - 2 = 1), at the nominal tempo.
+    assert_eq!((good.k_tempos, good.admission_tempos, good.transition_tempos), (4, 1, 2));
+    assert_eq!(gen_v2::generating_window_ms(&good), 360 * 12_000);
+    let ph = gen_v2::phase(&good).unwrap();
+    let [_, mixed, model_only] = good.generated_counts();
+    assert_eq!((ph.documents, ph.lanes, ph.workers_ai_inflight_per_lane), (u64::from(mixed + model_only), 4, 4));
+}
+
+/// The generation admission guards the template install: a refused v2
+/// template leaves the installed template, its journal and the pause as
+/// they were; an admitted one installs. Then, with the generation Worker
+/// down, the calendar still queues the next cohort from it (the
+/// synchronous checks only, as `open_next` runs them) and never pauses the
+/// template: the draw turns the fault into a vendor pause.
+#[test]
+fn the_generation_admission_guards_the_template_install_and_the_calendar_never_pauses_on_a_gen_fault() {
+    let db = Sqlite::open();
+    let (mut sim, weak, probe_ref) = probe_built(&db);
+    let (r, m) = put_objects_padded(&mut sim, None, Pad::Long);
+    let mut planned = mfx::with_voice_library(mfx::planned(), m.voice_library.clone());
+    planned.registers = m.registers.clone();
+    let planned_ref = put_manifest(&mut sim, "generation/manifests/generator-manifest-planned.json", &planned);
+    let mut base = plan_v3(0, "testnet-g2t-template", 40, weak);
+    base.reward_v1.as_mut().unwrap().canary.draw_humans = 16;
+    let t1 = standing_of("testnet-g2t", base.clone(), vec![probe_ref.clone()]);
+    // A v1 template installs with the generation Worker down.
+    sim.gen_health = None;
+    post_template(&sim, &db, &t1).unwrap();
+    let installed = |db: &Sqlite| {
+        let journal: i64 = db.conn.query_row("SELECT COUNT(*) FROM template_installs", [], |x| x.get(0)).unwrap();
+        (tx(db, crate::eval::calendar::template).unwrap(), journal, db.conn.query_row("SELECT paused FROM standing_template WHERE id = 1", [], |x| x.get::<_, i64>(0)).unwrap())
+    };
+    let before = installed(&db);
+    let t2 = standing_of("testnet-g2t", with_v2(&base, gen_plan(r.clone()), &m), vec![probe_ref.clone()]);
+    let t_planned = standing_of("testnet-g2t", with_v2(&base, gen_plan(planned_ref), &m), vec![probe_ref]);
+    for (what, t, health, code) in [
+        ("no answer", &t2, None, "generation.keys (the generation Worker did not answer)"),
+        ("route", &t2, Some(Health { anthropic_route: Route::ConfiguredEndpointV1, ..healthy() }), "generation.routes (the generation Worker's route for a vendor is not the manifest's)"),
+        ("planned", &t_planned, Some(healthy()), "generation.manifest (not measured: run the measurement first)"),
+    ] {
+        sim.gen_health = health;
+        assert_eq!(post_template(&sim, &db, t).unwrap_err(), code, "{what}");
+        assert_eq!(installed(&db), before, "{what}: the installed template is unchanged");
+    }
+    sim.gen_health = Some(healthy());
+    let v = post_template(&sim, &db, &t2).unwrap();
+    assert_eq!(v["template_version"], 2);
+    assert_eq!(tx(&db, crate::eval::calendar::template).unwrap().unwrap().generation, t2.plan.generation);
+    // The gen Worker goes down; the calendar's next cohort still queues.
+    sim.gen_health = None;
+    let (label, bytes) = tx(&db, |s| crate::eval::calendar::due_any(s, 0)).unwrap().unwrap();
+    let (plan, _) = engine::admit(&cfg(), &bytes).unwrap();
+    assert!(plan.generation.is_some());
+    let seq = tx(&db, |s| engine::queue(s, &cfg(), &bytes, sim.now)).unwrap();
+    assert_eq!(tx(&db, |s| engine::cohort(s, seq)).unwrap().label, label);
+    assert_eq!(installed(&db).2, 0, "the template is not paused");
+}
+
+/// The phase log notes of cohort `seq`, in order.
+fn notes(db: &Sqlite, seq: i64) -> Vec<String> {
+    db.conn
+        .prepare("SELECT note FROM phase_log WHERE seq = ?1 AND note IS NOT NULL ORDER BY rowid")
+        .unwrap()
+        .query_map([seq], |r| r.get::<_, String>(0))
+        .unwrap()
+        .map(Result::unwrap)
+        .collect()
+}
+
+/// At the draw, a frontier vendor the generation Worker's health does not
+/// show usable (its key missing, or no answer at all) is paused
+/// `key_unavailable` for the deployment, with a log note: its share of
+/// the draw comes from the Workers AI fallback deck, recorded, nothing is
+/// sent to it, no probe is sent, and the cohort runs to its close.
+#[test]
+fn a_vendor_the_health_does_not_show_usable_at_the_draw_is_paused_and_its_share_falls_back() {
+    for (label, health, paused) in [
+        ("testnet-g2-h1", Some(Health { anthropic: false, ..healthy() }), vec![Vendor::Anthropic]),
+        ("testnet-g2-h2", None, vec![Vendor::Openai, Vendor::Anthropic]),
+    ] {
+        let db = Sqlite::open();
+        let (mut sim, seq, m) = v2_cohort(&db, label);
+        sim.gen_health = health;
+        let sent = std::rc::Rc::new(std::cell::RefCell::new(Vec::<Vendor>::new()));
+        let seen = sent.clone();
+        sim.vendor = Box::new(move |it, call| {
+            seen.borrow_mut().push(call.request.vendor);
+            fake_vendor(it, call)
+        });
+        run_to_close(&mut sim, &db, seq, 22);
+        assert_eq!(fault_of(&db, seq), None, "{label}: never a cohort fault");
+        assert!(sim.gen_probes.is_empty(), "{label}: no vendor was paused before the draw");
+        let v = tx(&db, gen_v2::vendor_states).unwrap();
+        for vendor in [Vendor::Openai, Vendor::Anthropic] {
+            let want = paused.contains(&vendor).then_some(FallbackCause::KeyUnavailable);
+            assert_eq!(v.paused(vendor), want, "{label}: {vendor:?}");
+            assert!(!(paused.contains(&vendor) && sent.borrow().contains(&vendor)), "{label}: nothing sent to {vendor:?}");
+        }
+        let log = notes(&db, seq);
+        for vendor in &paused {
+            assert_eq!(log.iter().filter(|n| *n == gen_v2::pause_note(*vendor, FallbackCause::KeyUnavailable)).count(), 1, "{label}");
+        }
+        // Every document drawn on a paused vendor's cell was moved to the
+        // Workers AI fallback deck at the draw, recorded with the cause.
+        let mut moved = 0;
+        for (key, _, g) in records(&db, seq) {
+            let a = &g.record.assignment;
+            let drawn_on = m.model(a.drawn().0).map_or(Vendor::WorkersAi, |x| x.vendor);
+            if paused.contains(&drawn_on) {
+                let f = a.fallback.as_ref().unwrap_or_else(|| panic!("{label}: {key} kept a paused vendor's cell"));
+                assert_eq!(f.cause, FallbackCause::KeyUnavailable, "{label}: {key}");
+                assert_eq!((a.lane, a.call_lane()), (Lane::Frontier, Lane::WorkersAi), "{label}: {key}");
+                moved += 1;
+            } else {
+                assert!(a.fallback.is_none(), "{label}: {key}");
+            }
+        }
+        assert!(moved > 0, "{label}: the paused share came from the fallback deck");
+    }
+}
+
+/// The resume probe: a paused vendor the health shows usable gets one fixed
+/// synthetic request at the draw (the measurement set's first call on its
+/// smallest model at its lowest usable level, with the cell's measured
+/// slowest call plus the reply allowance as its timeout), charged under
+/// the vendor's key; an answer resumes it from that draw on (log note),
+/// so its share is drawn on its own cells. A vendor the health shows
+/// unusable gets no probe and keeps its first cause; a probe that is not
+/// answered leaves its vendor paused, its share on the fallback deck.
+#[test]
+fn a_paused_vendor_resumes_when_its_draw_probe_is_answered_and_stays_paused_otherwise() {
+    let pre = |db: &Sqlite, v: VendorStates| {
+        db.conn.execute("INSERT INTO gen_vendor_state (id, state) VALUES (1, ?1)", [serde_json::to_string(&v).unwrap()]).unwrap();
+    };
+    let paused = |cause| VendorState::Paused { cause, since_ms: 5 };
+    // OpenAI paused for its key, health now fine: probed and answered.
+    // Anthropic paused at its spend cap, health shows its key missing: no probe.
+    let db = Sqlite::open();
+    let (mut sim, seq, m) = v2_cohort(&db, "testnet-g2-r1");
+    pre(&db, VendorStates { openai: paused(FallbackCause::KeyUnavailable), anthropic: paused(FallbackCause::SpendCap) });
+    sim.gen_health = Some(Health { anthropic: false, ..healthy() });
+    run_to_close(&mut sim, &db, seq, 22);
+    assert_eq!(fault_of(&db, seq), None);
+    let (luna, effort) = gen_v2::probe_cell(&m, Vendor::Openai).unwrap();
+    assert_eq!(luna.id, "gpt-6-luna");
+    assert_eq!(effort, luna.usable_efforts()[0]);
+    assert_eq!(sim.gen_probes, [(Vendor::Openai, luna.id.clone(), effort.code().to_owned(), 60_000 + slop_ninja_gen_core::iface::REPLY_ALLOWANCE_MS)]);
+    let v = tx(&db, gen_v2::vendor_states).unwrap();
+    assert_eq!(v.openai, VendorState::Active);
+    assert_eq!(v.anthropic, paused(FallbackCause::SpendCap), "a no-op pause keeps the first cause and time");
+    let log = notes(&db, seq);
+    assert_eq!(log.iter().filter(|n| *n == "gen_vendor_resumed:openai").count(), 1);
+    assert!(!log.iter().any(|n| n.starts_with("gen_vendor_paused")), "Anthropic was already paused");
+    let key = "gen:openai:main:testnet-g2-r1:resume-probe";
+    assert!(sim.settled.iter().any(|(k, micro)| k == key && *micro > 0), "settled under the vendor's key");
+    let recs = records(&db, seq);
+    let vendor_of = |id: &str| m.model(id).map_or(Vendor::WorkersAi, |x| x.vendor);
+    // OpenAI's draws keep their own cells again; Anthropic's go to the
+    // fallback deck under its first cause.
+    let on = |recs: &[(String, String, DocGen)], v: Vendor| -> Vec<Option<FallbackCause>> {
+        recs.iter().filter(|(_, _, g)| vendor_of(g.record.assignment.drawn().0) == v).map(|(_, _, g)| g.record.assignment.fallback.as_ref().map(|f| f.cause)).collect()
+    };
+    let openai = on(&recs, Vendor::Openai);
+    assert!(!openai.is_empty() && openai.iter().all(Option::is_none), "OpenAI draws again");
+    let anth = on(&recs, Vendor::Anthropic);
+    assert!(!anth.is_empty() && anth.iter().all(|c| *c == Some(FallbackCause::SpendCap)));
+    // A probe that is not answered (the cap still holds) leaves the vendor paused.
+    let db = Sqlite::open();
+    let (mut sim, seq, m) = v2_cohort(&db, "testnet-g2-r2");
+    pre(&db, VendorStates { openai: VendorState::Active, anthropic: paused(FallbackCause::SpendCap) });
+    sim.gen_probe = Box::new(|call| failed_reply(call, OutcomeCode::SpendCap, 429));
+    run_to_close(&mut sim, &db, seq, 22);
+    assert_eq!(fault_of(&db, seq), None);
+    let (haiku, _) = gen_v2::probe_cell(&m, Vendor::Anthropic).unwrap();
+    assert_eq!(sim.gen_probes.iter().map(|p| (p.0, p.1.as_str())).collect::<Vec<_>>(), [(Vendor::Anthropic, haiku.id.as_str())]);
+    assert_eq!(tx(&db, gen_v2::vendor_states).unwrap().anthropic, paused(FallbackCause::SpendCap));
+    assert!(!sim.settled.iter().any(|(k, _)| k.ends_with(":resume-probe")), "a capped answer bills nothing");
+    assert!(!notes(&db, seq).iter().any(|n| n.starts_with("gen_vendor_resumed")));
+    let anth = on(&records(&db, seq), Vendor::Anthropic);
+    assert!(!anth.is_empty() && anth.iter().all(|c| *c == Some(FallbackCause::SpendCap)));
+    // Answered means a content outcome.
+    let (call, _) = gen_v2::probe_call(&m, &vfx::library(), &gen_plan(ObjectRef { key: "k".into(), sha256: "ab".repeat(32), bytes: 1 }), Vendor::Openai).unwrap();
+    assert!(gen_v2::probe_answered(&probe_answer(&call)));
+    for (o, st) in [(OutcomeCode::Refusal, 200), (OutcomeCode::ModelMismatch, 200)] {
+        assert!(gen_v2::probe_answered(&failed_reply(&call, o, st)), "{o:?}");
+    }
+    for (o, st) in [(OutcomeCode::SpendCap, 429), (OutcomeCode::KeyUnavailable, 401), (OutcomeCode::Outage, 503), (OutcomeCode::Throttle, 429), (OutcomeCode::InterfaceMismatch, 409)] {
+        assert!(!gen_v2::probe_answered(&failed_reply(&call, o, st)), "{o:?}");
+    }
+    assert!(call.request.body.len() < 200_000 && !call.request.body.contains("wikinews"), "a synthetic request, never pool text");
+}
+
 /// Arena witnesses of generation v2's memory (`--features arena-witness`,
 /// one test thread): with the manifest and the voice library together at
 /// [`gen_v2::GEN_OBJECTS_BYTES`], a claim and a commit of each lane class
@@ -962,10 +1318,55 @@ mod witness {
             assert_eq!(admit_current_block(lb.len(), 1), Ok(true));
             let mut lcopy = Vec::with_capacity(lb.len());
             lcopy.extend_from_slice(&lb);
-            let objects = gen_v2::DrawObjects { manifest: mcopy, library: lcopy };
-            let d = tx(&fresh, |s| gen_v2::Draw::begin(s, seq, &g, &objects, &[5; 32])).unwrap();
+            // The Worker's vendor checks build the resume probe from the
+            // library it parses, then drop both before the transaction.
+            {
+                let lib = slop_ninja_gen_core::voice::Library::parse_bound(&lcopy, &m.voice_library).unwrap();
+                for v in gen_v2::manifest_vendors(&m) {
+                    assert!(gen_v2::probe_call(&m, &lib, &g, v).is_some());
+                }
+            }
+            drop(m);
+            let objects = gen_v2::DrawObjects { manifest: mcopy, library: lcopy, vendors: gen_v2::VendorChecks::default() };
+            let d = tx(&fresh, |s| gen_v2::Draw::begin(s, seq, &g, &objects, &[5; 32], 1)).unwrap();
             d.ctx.library.entries.len()
         });
+    }
+
+    /// The generation admission at the objects' bound, beside the plan it
+    /// admits, fits the cohort object's fetch footprint: the plan body (an
+    /// admitted block) and its parse, the two objects read as exact blocks
+    /// and parsed as the draw parses them, the pool domains and the health.
+    #[test]
+    fn arena_witness_the_generation_admission_fits_the_cohort_fetch_footprint() {
+        set_mode(Mode::Enforce);
+        for (pad, label) in [(Pad::Long, "testnet-g2-w4"), (Pad::Short, "testnet-g2-w4s")] {
+            let db = Sqlite::open();
+            let (sim, seq, _) = at_bound(&db, label, pad);
+            let c = tx(&db, |s| engine::cohort(s, seq)).unwrap();
+            let g = c.plan.generation.clone().unwrap();
+            let mb = sim.eval[&g.manifest.key].clone();
+            let lb = sim.eval[&Manifest::parse_bound(&mb, &g.manifest).unwrap().voice_library.key].clone();
+            let mut next = c.plan.clone();
+            next.label = format!("{label}-next");
+            next.cohort += 1;
+            let body = serde_json::to_vec(&next).unwrap();
+            let domains: BTreeSet<String> = sim.pool.rows.iter().map(|r| r.domain.clone()).collect();
+            witness(R_COHORT_FETCH.route(), COHORT_CONTROL_BYTES, || {
+                assert_eq!(admit_current_block(body.len(), 1), Ok(true));
+                let mut b = Vec::with_capacity(body.len());
+                b.extend_from_slice(&body);
+                let (plan, _) = engine::admit(&cfg(), &b).unwrap();
+                assert_eq!(admit_current_block(mb.len(), 1), Ok(true));
+                let mut mcopy = Vec::with_capacity(mb.len());
+                mcopy.extend_from_slice(&mb);
+                assert_eq!(admit_current_block(lb.len(), 1), Ok(true));
+                let mut lcopy = Vec::with_capacity(lb.len());
+                lcopy.extend_from_slice(&lb);
+                let inputs = gen_v2::AdmitInputs { manifest: &mcopy, library: &lcopy, pool_domains: &domains, health: Some(healthy()) };
+                gen_v2::admit_plan(&plan, &inputs).unwrap().is_some()
+            });
+        }
     }
 }
 

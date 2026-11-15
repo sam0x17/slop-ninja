@@ -23,6 +23,15 @@
 //!   up and ready and its scorer refused this request; 503 the instance could
 //!   not be made ready, or failed and was destroyed.
 //!
+//! **The start options** ([`crate::lane`]) are a plain object with own
+//! `enableInternet` and `env` properties, each set through `Reflect`, and
+//! the Container's `start` is called through `Reflect` with it, as the
+//! coordinator's evaluation lanes call it. `worker`'s typed startup options
+//! are not used: their fields are accessors on a class prototype, with `env`
+//! a `Map` that has no own keys, so the instance would not receive its
+//! sessions and threads, would run the image's defaults, and the lane would
+//! refuse it.
+//!
 //! **Every wait is bounded** (`waits::Waits`). A score call works within the
 //! time the Worker sends, never more than the lane's own bound: a wait for
 //! a load running in the alarm, the start (`SCORER_START_WAIT_MS`), the load
@@ -46,11 +55,12 @@
 
 use crate::cf::{ms_var, waits};
 use crate::cf_io::{self, now_ms};
+use crate::lane::{self, ENV_FIELD, INTERNET_FIELD, StartOptions};
 use crate::waits::Waits;
 use crate::{routes, silence_panics};
 use futures_util::future::{Either, select};
 use std::future::Future;
-use js_sys::{Function, Reflect};
+use js_sys::{Function, Object, Reflect};
 use serde_json::Value;
 use slop_ninja_artifact_check::files_manifest::{FilesManifest, MAX_MANIFEST_BYTES};
 use slop_ninja_scorer_client::{self as sc, Entry, Ours, Prep, Slot};
@@ -58,17 +68,13 @@ use std::cell::Cell;
 use std::time::Duration;
 use wasm_bindgen::{JsCast, JsValue};
 use worker::{
-    ContainerStartupOptions, Delay, DurableObject, Env, Fetcher, Headers, Method, Request, RequestInit, Response, ResponseBody, Result, State,
+    Delay, DurableObject, Env, Fetcher, Headers, Method, Request, RequestInit, Response, ResponseBody, Result, State,
     durable_object,
 };
 
 const PORT: u16 = 8080;
 /// The package bucket.
 const PACKAGES: &str = "DETECT_PACKAGES_TESTNET";
-/// One session fits standard-3's memory under the scorer's structural bound;
-/// two do not. Two threads use the instance's two vCPUs.
-const SESSIONS: &str = "1";
-const THREADS: &str = "2";
 /// One chunk: the scorer's largest transfer (the spec's part size).
 const CHUNK_BYTES: u64 = slop_ninja_artifact_check::spec::PART_BYTES;
 /// How often a waiting start or load asks the instance again.
@@ -83,6 +89,28 @@ fn container_call(raw: &JsValue, name: &str, arg: &JsValue) -> std::result::Resu
         .and_then(|f| f.dyn_into().ok())
         .ok_or("container method")?;
     f.call1(raw, arg).map_err(|_| "container call")
+}
+
+/// Sets one own property of a plain object.
+fn put(o: &Object, key: &str, value: &JsValue) -> std::result::Result<(), &'static str> {
+    match Reflect::set(o, &JsValue::from_str(key), value) {
+        Ok(true) => Ok(()),
+        _ => Err("start options"),
+    }
+}
+
+/// The start options as the plain object the runtime reads
+/// ([`StartOptions::to_json`]): own `enableInternet` and `env` properties,
+/// `env` a plain object of strings, each set through `Reflect`.
+fn start_object(o: &StartOptions) -> std::result::Result<Object, &'static str> {
+    let env = Object::new();
+    for (key, value) in &o.env {
+        put(&env, key, &JsValue::from_str(value))?;
+    }
+    let opts = Object::new();
+    put(&opts, INTERNET_FIELD, &JsValue::from_bool(o.enable_internet))?;
+    put(&opts, ENV_FIELD, &env)?;
+    Ok(opts)
 }
 
 async fn port_fetch(port: &Fetcher, method: Method, path: &str, body: Option<JsValue>, len: Option<u64>) -> Result<Response> {
@@ -265,7 +293,8 @@ impl DetectLane {
     }
 
     /// Starts the instance if none runs (Internet off, one session, two
-    /// threads). `false`: no binding, or a start is not allowed yet.
+    /// threads: [`lane::start_options`]). `false`: no binding, a start is
+    /// not allowed yet, or the start failed.
     async fn start(&self, plan: &Plan) -> bool {
         if self.running() {
             return true;
@@ -274,11 +303,8 @@ impl DetectLane {
         if !self.may_start() {
             return false;
         }
-        let mut opts = ContainerStartupOptions::new();
-        opts.enable_internet(false);
-        opts.add_env("A_SESSIONS", SESSIONS);
-        opts.add_env("A_THREADS", THREADS);
-        if c.start(Some(opts)).is_err() {
+        let started = start_object(&lane::start_options()).and_then(|o| container_call(c.as_ref(), "start", &o));
+        if started.is_err() {
             self.failed(plan);
             return false;
         }
@@ -333,8 +359,9 @@ impl DetectLane {
                 return Err("scorer build identity");
             }
         }
-        let n = |p: &str| h.pointer(p).and_then(Value::as_u64);
-        if n("/build/sessions") != Some(1) || n("/build/threads") != Some(2) {
+        // The sessions and threads the start passed (an instance that did
+        // not receive them runs the image's defaults).
+        if !lane::runs_ours(&h) {
             self.give_up(plan).await;
             return Err("scorer sessions or threads");
         }

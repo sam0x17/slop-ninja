@@ -408,6 +408,10 @@ Every wait is bounded, and nothing needs an operator to recover
   only the request failed). A start or load that fails destroys it, and new
   starts back off from `SCORER_START_WAIT_MS`, doubling, never past the idle
   timeout.
+- The instance starts with Internet access off and its sessions and
+  threads in its environment (`A_SESSIONS` 1, `A_THREADS` 2), passed to
+  the Container's `start` as a plain object (`lane.rs`). An instance whose
+  health report shows other values is destroyed as a failed start.
 - A waiting ask is answered early only when its ticket is admitted (or
   gone), otherwise at the end of its hold with its current position. A
   queue change therefore wakes one ask, not every waiting one.

@@ -29,6 +29,7 @@ const SOURCES: &[&str] = &[
     "seal.rs",
     "switches.rs",
     "waits.rs",
+    "lane.rs",
     "xpost.rs",
     "canon.rs",
     "handoff.rs",
@@ -163,6 +164,62 @@ fn the_scan_lease_is_derived_and_every_lane_call_is_bounded() {
     }
     assert!(calling >= 3, "healthz, load and score call the instance");
     assert!(lane.contains("Outlasted its bound: a hung instance is destroyed."));
+}
+
+/// The lane starts its instance with the plain object `start_object`
+/// builds from `lane::start_options` (each own property set through
+/// `Reflect`), calls the Container's `start` through `Reflect`, and checks
+/// the health report with `lane::runs_ours`; `worker`'s typed startup
+/// options appear nowhere. The object's fields and values are the JSON the
+/// `lane` unit tests pin.
+#[test]
+fn the_lane_starts_its_instance_with_a_plain_object() {
+    let lane = src("cf_lane.rs");
+    let uncommented: String =
+        code(&lane).lines().filter(|l| !l.trim_start().starts_with("//")).collect::<Vec<_>>().join("\n");
+    for banned in [
+        "ContainerStartupOptions",
+        ".start(Some(",
+        ".start(None)",
+        "add_env(",
+        "enable_internet(",
+        "/build/sessions",
+        "/build/threads",
+    ] {
+        assert!(!uncommented.contains(banned), "cf_lane.rs: {banned}");
+    }
+    // A method's body: from its signature to its closing brace.
+    let method = |sig: &str| -> String {
+        let at = lane.find(sig).unwrap_or_else(|| panic!("missing {sig}"));
+        let end = lane[at..].find("\n    }\n").map_or(lane.len(), |e| at + e);
+        lane[at..end].to_owned()
+    };
+    let put = function_body(&lane, "fn put(");
+    assert!(
+        put.contains("Reflect::set(o, &JsValue::from_str(key), value)") && put.contains("Ok(true) => Ok(())"),
+        "{put}"
+    );
+    let object = function_body(&lane, "fn start_object(");
+    assert_eq!(object.matches("Object::new()").count(), 2, "the options and env are plain objects: {object}");
+    for want in [
+        "for (key, value) in &o.env {",
+        "put(&env, key, &JsValue::from_str(value))?;",
+        "put(&opts, INTERNET_FIELD, &JsValue::from_bool(o.enable_internet))?;",
+        "put(&opts, ENV_FIELD, &env)?;",
+    ] {
+        assert!(object.contains(want), "start_object: {want}");
+    }
+    let start = method("async fn start(&self, plan: &Plan) -> bool {");
+    assert!(
+        start.contains("start_object(&lane::start_options()).and_then(|o| container_call(c.as_ref(), \"start\", &o))"),
+        "start: {start}"
+    );
+    assert!(start.contains("self.failed(plan);"), "a failed start counts");
+    let prepare = method("async fn prepare(&self, plan: &Plan, deadline: u64)");
+    assert!(prepare.contains("if !lane::runs_ours(&h) {"), "the health check is the options' own");
+    let pure = src("lane.rs");
+    assert!(pure.contains("pub const INTERNET_FIELD: &str = \"enableInternet\";"));
+    assert!(pure.contains("pub const ENV_FIELD: &str = \"env\";"));
 }
 
 #[test]

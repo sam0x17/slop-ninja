@@ -22,6 +22,8 @@
 //!   warmth;
 //! - [`counters`]: the gate's durable hourly counts and their flush;
 //! - [`waits`]: the liveness waits and the scan lease derived from them;
+//! - [`lane`]: the scorer instance's start options (Internet off, its
+//!   sessions and threads) and the health check that it runs them;
 //! - [`routes`]: arena routes, footprints, the isolate's scan memory and the
 //!   admission of forwarded requests (the `X-SN-*` allow-list and CSRF);
 //! - the store (secret links, pages and background work): [`canon`]
@@ -81,6 +83,7 @@ pub mod host;
 pub mod index_gates;
 pub mod indexnow;
 pub mod keys;
+pub mod lane;
 pub mod lookup;
 pub mod manage;
 pub mod net;

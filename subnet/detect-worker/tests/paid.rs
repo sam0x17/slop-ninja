@@ -4,7 +4,9 @@
 //! section refused for good, a failed commit, the pause, the subrequest
 //! calls of a long job, the sweep, a quote whose hold was given back, and
 //! the hourly sweep of starts left behind racing a confirm sent again, a
-//! second start of one quote and another sweep.
+//! second start of one quote and another sweep; the lease's heartbeat
+//! through a long section, a beat that finds the lease gone, and a reload
+//! that takes over the job of a driver whose invocation ended.
 //! The ledger is a fake with the account Worker's semantics (a hold per
 //! idempotency key until it ends, one end per hold); the account Worker's
 //! own suite runs the real ledger.
@@ -38,10 +40,12 @@ use slop_ninja_detect_worker::paid::{
 };
 use slop_ninja_detect_worker::routes::{MAX_SECTION_BYTES, PAID_TEXT_BYTES};
 use slop_ninja_detect_worker::share::Keys;
+use slop_ninja_detect_worker::waits::Waits;
 use slop_ninja_detect_worker::{canon, cut, policy, reads, seal};
 
 const DIGEST: &str = "e2536d12dff593d7b11895b3cbf6b10232601abfbebde248325afd707722b5e8";
-const LEASE: u64 = 360_000;
+const LEASE: u64 = Waits::DEFAULT.job_lease_ms();
+const BEAT: u64 = Waits::DEFAULT.job_beat_ms();
 
 // ------------------------------------------------------------------ world
 
@@ -280,6 +284,20 @@ struct FakeScorer<'a> {
     refuse_on: Cell<Option<(u32, ScoreFail)>>,
     hook: RefCell<Hook<'a>>,
     yields: Cell<bool>,
+    /// This call never finishes (its invocation is dropped mid-section).
+    hangs_on: Cell<Option<u32>>,
+    /// This call takes `yields` turns, the clock moving `ms` at each, and
+    /// runs `mid` at the turn `at` (`slow`).
+    slow: RefCell<Option<Slow<'a>>>,
+}
+
+struct Slow<'a> {
+    call: u32,
+    turns: u32,
+    ms: u64,
+    clock: &'a Harness,
+    at: u32,
+    mid: Box<dyn FnMut() + 'a>,
 }
 
 struct YieldOnce(bool);
@@ -305,6 +323,19 @@ impl SectionScorer for FakeScorer<'_> {
         self.calls.set(n);
         // The gate's enter and done, and the lane.
         calls.take(3);
+        if self.hangs_on.get() == Some(n) {
+            std::future::pending::<()>().await;
+        }
+        let slow = self.slow.borrow_mut().take_if(|s| s.call == n);
+        if let Some(mut slow) = slow {
+            for turn in 1..=slow.turns {
+                slow.clock.advance(slow.ms);
+                if turn == slow.at {
+                    (slow.mid)();
+                }
+                YieldOnce(false).await;
+            }
+        }
         assert!(words as usize >= slop_ninja_detect_worker::bound::MEASURED_MIN_WORDS && tokens <= 2048);
         let fire = matches!(&*self.hook.borrow(), Some((at, _)) if *at == n);
         if fire {
@@ -345,6 +376,8 @@ impl SectionScorer for FakeScorer<'_> {
 struct Sink {
     lines: Vec<JobLine>,
     gone_after: Option<usize>,
+    /// Each `room` call: hold (true) or let go.
+    rooms: Vec<bool>,
 }
 
 impl JobSink for Sink {
@@ -355,6 +388,58 @@ impl JobSink for Sink {
 
     fn alive(&mut self) -> bool {
         self.gone_after.is_none_or(|n| self.lines.len() < n)
+    }
+
+    async fn pause(&mut self, _ms: u64) {
+        YieldOnce(false).await;
+    }
+
+    fn room(&mut self, hold: bool) -> bool {
+        self.rooms.push(hold);
+        true
+    }
+}
+
+/// A reader's stream whose pauses move the harness clock, as a real beat
+/// does.
+struct ClockSink<'a> {
+    h: &'a Harness,
+    lines: Vec<JobLine>,
+    rooms: Vec<bool>,
+    pauses: u32,
+    /// Runs before the clock moves at this pause.
+    on_pause: Option<(u32, Box<dyn FnMut() + 'a>)>,
+}
+
+impl<'a> ClockSink<'a> {
+    fn new(h: &'a Harness) -> ClockSink<'a> {
+        ClockSink { h, lines: Vec::new(), rooms: Vec::new(), pauses: 0, on_pause: None }
+    }
+}
+
+impl JobSink for ClockSink<'_> {
+    async fn line(&mut self, l: &JobLine) -> bool {
+        self.lines.push(l.clone());
+        true
+    }
+
+    fn alive(&mut self) -> bool {
+        true
+    }
+
+    fn room(&mut self, hold: bool) -> bool {
+        self.rooms.push(hold);
+        true
+    }
+
+    async fn pause(&mut self, ms: u64) {
+        self.pauses += 1;
+        if let Some((at, f)) = self.on_pause.as_mut()
+            && *at == self.pauses
+        {
+            f();
+        }
+        self.h.advance(ms);
     }
 }
 
@@ -405,6 +490,9 @@ impl Io for Yielding<'_> {
     }
     async fn cache_purge(&self, urls: &[String]) -> Result<bool, IoError> {
         self.0.cache_purge(urls).await
+    }
+    async fn cache_purge_tags(&self, tags: &[String]) -> Result<bool, IoError> {
+        self.0.cache_purge_tags(tags).await
     }
     async fn relay_legal(&self, body: Vec<u8>) -> Result<(), IoError> {
         self.0.relay_legal(body).await
@@ -475,7 +563,7 @@ fn drive_with(
     calls: &Calls,
 ) -> (JobEnd, Vec<JobLine>) {
     let open = block_on(paid::open_job(io, w.keys(), slug)).unwrap();
-    let d = Drive { io, ledger: l, scorer: s, serving: &w.serving, lease_ms: LEASE, calls };
+    let d = Drive { io, ledger: l, scorer: s, serving: &w.serving, lease_ms: LEASE, beat_ms: BEAT, calls };
     let mut sink = Sink::default();
     let end = block_on(d.run(&open, slug, &mut sink));
     (end, sink.lines)
@@ -754,8 +842,8 @@ fn two_drivers_side_by_side_score_each_section_once() {
     let open_a = block_on(paid::open_job(&w.h, w.keys(), &slug)).unwrap();
     let open_b = block_on(paid::open_job(&w.h, w.keys(), &slug)).unwrap();
     let (ba, bb) = (Calls::new(SUBREQUESTS_PER_INVOCATION), Calls::new(SUBREQUESTS_PER_INVOCATION));
-    let da = Drive { io: &io, ledger: &l, scorer: &a, serving: &w.serving, lease_ms: LEASE, calls: &ba };
-    let db = Drive { io: &io, ledger: &l, scorer: &b, serving: &w.serving, lease_ms: LEASE, calls: &bb };
+    let da = Drive { io: &io, ledger: &l, scorer: &a, serving: &w.serving, lease_ms: LEASE, beat_ms: BEAT, calls: &ba };
+    let db = Drive { io: &io, ledger: &l, scorer: &b, serving: &w.serving, lease_ms: LEASE, beat_ms: BEAT, calls: &bb };
     let (mut sa, mut sb) = (Sink::default(), Sink::default());
     let fa: Racer<'_, JobEnd> = Box::pin(da.run(&open_a, &slug, &mut sa));
     let fb: Racer<'_, JobEnd> = Box::pin(db.run(&open_b, &slug, &mut sb));
@@ -766,7 +854,204 @@ fn two_drivers_side_by_side_score_each_section_once() {
     assert_eq!(a.calls.get() + b.calls.get(), k - 1, "every section scored once");
     assert_eq!(l.commits.get(), 1);
     assert_eq!((job_state(&w), det_state(&w)), ("committed".into(), "live".into()));
-    assert!(matches!(if ends[0] == JobEnd::Watching { &sa.lines[0] } else { &sb.lines[0] }, JobLine::Progress { .. }));
+    let watcher = if ends[0] == JobEnd::Watching { &sa.lines } else { &sb.lines };
+    assert!(matches!(watcher[0], JobLine::Progress { .. }));
+    // The watcher followed the other driver's sections and showed the
+    // result when the job ended, in the same stream.
+    assert_eq!(watcher.last(), Some(&JobLine::Done), "{watcher:?}");
+}
+
+/// A driver: the open and its run, its stream given.
+fn drive_into(
+    w: &World,
+    io: &impl Io,
+    l: &FakeLedger,
+    s: &FakeScorer<'_>,
+    slug: &str,
+    sink: &mut impl JobSink,
+) -> JobEnd {
+    let open = block_on(paid::open_job(io, w.keys(), slug)).unwrap();
+    let calls = Calls::new(SUBREQUESTS_PER_INVOCATION);
+    let d = Drive { io, ledger: l, scorer: s, serving: &w.serving, lease_ms: LEASE, beat_ms: BEAT, calls: &calls };
+    block_on(d.run(&open, slug, sink))
+}
+
+fn leased(w: &World) -> i64 {
+    w.h.count("SELECT count(*) FROM jobs WHERE lease_token IS NOT NULL")
+}
+
+/// A reload mid-job. The first driver's invocation ends inside a
+/// section (its future is dropped, as the platform drops an invocation
+/// whose reader left), so it never lets its lease go. The reload's open
+/// attaches: it shows the progress at once, asks every beat, takes the job
+/// over within one lease and a beat, and finishes it in the same stream.
+#[test]
+fn a_reload_takes_over_the_job_of_a_driver_whose_invocation_ended() {
+    let w = World::new();
+    let l = FakeLedger::with(1_000_000);
+    let (_, slug, _, k) = started(&w, &l, 6_000);
+    assert!(k >= 4);
+    let stuck = FakeScorer::default();
+    stuck.hangs_on.set(Some(2));
+    let mut first_sink = Sink::default();
+    {
+        let open = block_on(paid::open_job(&w.h, w.keys(), &slug)).unwrap();
+        let calls = Calls::new(SUBREQUESTS_PER_INVOCATION);
+        let d = Drive {
+            io: &w.h,
+            ledger: &l,
+            scorer: &stuck,
+            serving: &w.serving,
+            lease_ms: LEASE,
+            beat_ms: BEAT,
+            calls: &calls,
+        };
+        let mut run = pin!(d.run(&open, &slug, &mut first_sink));
+        let mut cx = Context::from_waker(Waker::noop());
+        for _ in 0..50 {
+            assert!(run.as_mut().poll(&mut cx).is_pending());
+        }
+    }
+    // The section beat while it hung: the lease stayed this driver's.
+    let lines = &first_sink.lines;
+    assert!(lines.len() > 10 && lines.iter().all(|l| *l == JobLine::Running { section: 2, of: k }), "{lines:?}");
+    assert_eq!(stuck.calls.get(), 2, "section 2 scored, section 3 in flight");
+    assert_eq!(leased(&w), 1, "the ended driver kept its lease");
+    let t0 = w.h.now_ms();
+    let next = FakeScorer::default();
+    let mut sink = ClockSink::new(&w.h);
+    let end = drive_into(&w, &w.h, &l, &next, &slug, &mut sink);
+    assert_eq!(end, JobEnd::Done, "{:?}", sink.lines);
+    let waited = w.h.now_ms() - t0;
+    assert!(waited <= LEASE + BEAT, "taken over after {waited} ms");
+    assert!(waited >= LEASE - BEAT, "not before the lease lapsed ({waited} ms)");
+    assert_eq!(sink.lines.first(), Some(&JobLine::Progress { section: 2, of: k }));
+    assert_eq!(sink.lines.last(), Some(&JobLine::Done));
+    assert_eq!(sink.rooms, vec![false, true], "it held no job memory while it watched");
+    assert!(sink.lines.contains(&JobLine::Running { section: 3, of: k }));
+    assert_eq!(next.calls.get(), k - 2, "the reload scored the rest once");
+    assert_eq!(l.commits.get(), 1);
+    assert_eq!((job_state(&w), det_state(&w)), ("committed".into(), "live".into()));
+    w.page(&slug).unwrap().check().unwrap();
+}
+
+/// A section that takes eight leases: the driver renews its lease every
+/// beat meanwhile, so an open in the middle of it attaches instead of
+/// taking the job over, and the driver finishes.
+#[test]
+fn the_heartbeat_holds_the_lease_through_a_long_section() {
+    let w = World::new();
+    let l = FakeLedger::with(1_000_000);
+    let (_, slug, _, k) = started(&w, &l, 6_000);
+    let other = FakeScorer::default();
+    let other_end = RefCell::new(None);
+    let slow = FakeScorer::default();
+    *slow.slow.borrow_mut() = Some(Slow {
+        call: 2,
+        turns: 64,
+        ms: BEAT / 2,
+        clock: &w.h,
+        at: 40,
+        mid: Box::new(|| {
+            // A second tab opens while the long section runs; it leaves
+            // after its first line.
+            let mut sink = Sink { gone_after: Some(1), ..Sink::default() };
+            *other_end.borrow_mut() = Some((drive_into(&w, &w.h, &l, &other, &slug, &mut sink), sink.lines));
+        }),
+    });
+    let mut sink = Sink::default();
+    let end = drive_into(&w, &w.h, &l, &slow, &slug, &mut sink);
+    assert_eq!(end, JobEnd::Done);
+    let (other_end, other_lines) = other_end.borrow_mut().take().unwrap();
+    assert_eq!(other_end, JobEnd::Watching);
+    assert_eq!(other_lines, vec![JobLine::Progress { section: 2, of: k }]);
+    assert_eq!(other.calls.get(), 0);
+    assert_eq!(slow.calls.get(), k - 1, "every section once");
+    assert!(sink.lines.iter().filter(|l| **l == JobLine::Running { section: 2, of: k }).count() >= 16, "it beat");
+    assert_eq!(l.commits.get(), 1);
+    assert_eq!((job_state(&w), det_state(&w)), ("committed".into(), "live".into()));
+}
+
+/// A beat that finds the lease gone (the store stalled past it and another
+/// driver took the job over): the scan still ends, so its gate ticket ends
+/// with it, and the driver takes the LOST path; the other finishes once.
+#[test]
+fn a_beat_that_finds_the_lease_gone_ends_the_scan_and_loses() {
+    let w = World::new();
+    let l = FakeLedger::with(1_000_000);
+    let (_, slug, _, k) = started(&w, &l, 6_000);
+    let winner = FakeScorer::default();
+    let winner_end = RefCell::new(None);
+    let slow = FakeScorer::default();
+    *slow.slow.borrow_mut() = Some(Slow {
+        call: 2,
+        turns: 8,
+        ms: 1,
+        clock: &w.h,
+        at: 3,
+        mid: Box::new(|| {
+            w.h.advance(LEASE + 1);
+            *winner_end.borrow_mut() = Some(drive(&w, &l, &winner, &slug).0);
+        }),
+    });
+    let mut sink = Sink::default();
+    let end = drive_into(&w, &w.h, &l, &slow, &slug, &mut sink);
+    assert_eq!(end, JobEnd::Lost, "{:?}", sink.lines);
+    assert_eq!(*winner_end.borrow(), Some(JobEnd::Done));
+    assert_eq!(slow.calls.get(), 2, "the lost scan ended and nothing more was scored");
+    assert_eq!(winner.calls.get(), k - 2);
+    assert_eq!(l.commits.get(), 1);
+    assert_eq!((job_state(&w), det_state(&w)), ("committed".into(), "live".into()));
+    assert_eq!(w.docs_under("j/"), 0, "the loser wrote nothing after its lease went");
+    w.page(&slug).unwrap().check().unwrap();
+}
+
+/// A watcher whose page is deleted while it waits ends its stream; the next
+/// open answers why.
+#[test]
+fn a_watcher_ends_when_the_page_ends() {
+    let w = World::new();
+    let l = FakeLedger::with(1_000_000);
+    let (_, slug, manage, _) = started(&w, &l, 6_000);
+    let stuck = FakeScorer::default();
+    stuck.hangs_on.set(Some(1));
+    {
+        let open = block_on(paid::open_job(&w.h, w.keys(), &slug)).unwrap();
+        let calls = Calls::new(SUBREQUESTS_PER_INVOCATION);
+        let d = Drive {
+            io: &w.h,
+            ledger: &l,
+            scorer: &stuck,
+            serving: &w.serving,
+            lease_ms: LEASE,
+            beat_ms: BEAT,
+            calls: &calls,
+        };
+        let mut sink = Sink::default();
+        let mut run = pin!(d.run(&open, &slug, &mut sink));
+        let mut cx = Context::from_waker(Waker::noop());
+        assert!(run.as_mut().poll(&mut cx).is_pending());
+    }
+    let mut sink = ClockSink::new(&w.h);
+    sink.on_pause = Some((
+        2,
+        Box::new(|| {
+            let req = ManageRequest {
+                slug: slug.clone(),
+                manage: manage.clone(),
+                action: ManageAction::Delete,
+                expiry: None,
+            };
+            block_on(slop_ninja_detect_worker::manage::manage(&w.h, w.keys(), &w.origins, &req)).unwrap();
+        }),
+    ));
+    let watcher = FakeScorer::default();
+    let end = drive_into(&w, &w.h, &l, &watcher, &slug, &mut sink);
+    assert_eq!(end, JobEnd::Watching, "{:?}", sink.lines);
+    assert_eq!(watcher.calls.get(), 0);
+    assert_eq!(sink.pauses, 2, "it ended at the first ask after the delete");
+    assert_eq!((job_state(&w), det_state(&w)), ("cancelled".into(), "deleted".into()));
+    assert!(block_on(paid::open_job(&w.h, w.keys(), &slug)).is_err(), "the next open answers why");
 }
 
 #[test]
@@ -885,7 +1170,8 @@ fn a_transient_stop_resumes_where_it_stopped() {
     let open = block_on(paid::open_job(&w2.h, w2.keys(), &slug2)).unwrap();
     let b = Calls::new(SUBREQUESTS_PER_INVOCATION);
     let s2 = FakeScorer::default();
-    let d = Drive { io: &w2.h, ledger: &l2, scorer: &s2, serving: &w2.serving, lease_ms: LEASE, calls: &b };
+    let d =
+        Drive { io: &w2.h, ledger: &l2, scorer: &s2, serving: &w2.serving, lease_ms: LEASE, beat_ms: BEAT, calls: &b };
     let mut sink = Sink { gone_after: Some(2), ..Sink::default() };
     assert_eq!(block_on(d.run(&open, &slug2, &mut sink)), JobEnd::Stopped);
     assert_eq!(s2.calls.get(), 2);
@@ -1143,6 +1429,9 @@ impl Io for Rigged<'_> {
     }
     async fn cache_purge(&self, urls: &[String]) -> Result<bool, IoError> {
         self.h.cache_purge(urls).await
+    }
+    async fn cache_purge_tags(&self, tags: &[String]) -> Result<bool, IoError> {
+        self.h.cache_purge_tags(tags).await
     }
     async fn relay_legal(&self, body: Vec<u8>) -> Result<(), IoError> {
         self.h.relay_legal(body).await

@@ -158,6 +158,7 @@ fn base(kind: Kind, slug: Option<&str>, state: DetState) -> Page {
         ninja: None,
         receipt: None,
         paid_open: None,
+        cache_tag: None,
     }
 }
 

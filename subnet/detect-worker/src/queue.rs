@@ -222,18 +222,20 @@ async fn owner_purge(io: &impl Io, keys: &StoreKeys, user_id: UserId, mode: Purg
                 batch.push(Stmt::new(crate::paid::CANCEL_DELETED, vec![Val::blob(id), Val::int(now)]));
             }
             let done = io.batch(batch).await?;
-            let mut docs = Vec::new();
+            let mut gone = Vec::new();
             for (part, id) in done.chunks(3).zip(&ids) {
                 if part.first().is_some_and(|x| x.changes == 1) {
-                    docs.push(secret_doc_key(id));
+                    gone.push(*id);
                     if let Some(c) = part.get(1) {
-                        docs.extend(c.rows.iter().filter_map(|r| r.hex32("id_h")).map(|c| secret_doc_key(&c)));
+                        gone.extend(c.rows.iter().filter_map(|r| r.hex32("id_h")));
                     }
                     // A paid page's running job: its hold goes back.
                     crate::paid::after_cancel(io, part.get(2)).await;
                 }
             }
+            let docs: Vec<String> = gone.iter().map(secret_doc_key).collect();
             let _ = delete_docs(io, &docs).await;
+            crate::purge::purge_pages(io, &gone).await;
         }
     }
     // Pages left (all of them on release; on delete, pages under a legal

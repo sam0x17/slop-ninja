@@ -39,8 +39,10 @@
 # DETECT_SLUG_PEPPER_V1 (the same form; later versions V2.. apply to new
 # pages only, and every version stays) derives each secret page's id and
 # document key. CACHE_PURGE_TOKEN (optional secret) with the var
-# CACHE_PURGE_ZONE, both set by the deploy wrappers, lets deletes purge
-# cached pages; without them the cache bound covers the delay.
+# CACHE_PURGE_ZONE, both set by the deploy wrappers, lets removals,
+# restores, case steps and deletes purge the cached copies of the pages they
+# change (by cache tag, src/purge.rs); without them the cache bound covers
+# the delay.
 #
 # The package vars are the journaled serving pointer: switching the package
 # is a deploy of new values, recorded by the wrapper. The switches are vars

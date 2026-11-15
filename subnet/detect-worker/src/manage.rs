@@ -95,24 +95,27 @@ fn delete_batch(first: Stmt, id_h: &Bytes32, now: u64) -> Vec<Stmt> {
     ]
 }
 
-/// After a delete batch: whether the page was deleted, and the documents
-/// to remove (the page's and its copies').
-fn deleted_docs(done: &[Done], id_h: &Bytes32) -> (bool, Vec<String>) {
+/// After a delete batch: whether the page was deleted, and the pages it
+/// ended (the page and its copies).
+fn deleted_docs(done: &[Done], id_h: &Bytes32) -> (bool, Vec<Bytes32>) {
     let hit = done.first().is_some_and(|d| d.changes == 1);
-    let mut keys = Vec::new();
+    let mut ids = Vec::new();
     if hit {
-        keys.push(secret_doc_key(id_h));
+        ids.push(*id_h);
         if let Some(copies) = done.get(1) {
-            keys.extend(copies.rows.iter().filter_map(|r| r.hex32("id_h")).map(|c| secret_doc_key(&c)));
+            ids.extend(copies.rows.iter().filter_map(|r| r.hex32("id_h")));
         }
     }
-    (hit, keys)
+    (hit, ids)
 }
 
-/// Finishes a delete: the documents, then the purge (both best effort; the
-/// backstop and the cache bound cover a failure).
-async fn after_delete(io: &impl Io, origins: &Origins, slug: &str, keys: Vec<String>) {
+/// Finishes a delete: the documents, then the purges of the ended pages'
+/// cached copies (all best effort; the backstop and the cache bound cover
+/// a failure).
+async fn after_delete(io: &impl Io, origins: &Origins, slug: &str, ids: Vec<Bytes32>) {
+    let keys: Vec<String> = ids.iter().map(secret_doc_key).collect();
     let _ = delete_docs(io, &keys).await;
+    crate::purge::purge_pages(io, &ids).await;
     let _ = io.enqueue(vec![purge_urls(origins, HostRole::Secret, slug)]).await;
 }
 

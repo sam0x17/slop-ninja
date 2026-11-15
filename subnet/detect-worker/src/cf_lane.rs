@@ -41,9 +41,21 @@
 //! instance can hold the lane only until then. A score call that outlasts
 //! its bound destroys the instance; one that fails while the instance no
 //! longer reports the package ready destroys it too. A start or load that
-//! fails destroys the instance; new starts then wait `SCORER_START_WAIT_MS`
-//! doubled per consecutive failure, never longer than the idle timeout. Nothing
-//! needs an operator to recover, and nothing here logs.
+//! fails destroys the instance. A start of a fresh instance that fails is
+//! tried once more in the same request, within its deadline, unless a new
+//! instance would fail the same way ([`lane::again_after`]); after that, new
+//! starts wait `SCORER_START_WAIT_MS` doubled per consecutive failure, never
+//! longer than the idle timeout. Nothing needs an operator to recover, and
+//! nothing here logs.
+//!
+//! **The instance is kept for `IDLE_MS`** after the last scan, or after its
+//! start when no scan has used it yet ([`lane::keep_until`]). While it is
+//! kept, the alarm runs at least every [`lane::KEEPALIVE_MS`]
+//! ([`lane::keep`]): each run sets the Container's inactivity timeout to the
+//! time left and asks the instance's health, so neither the object nor the
+//! instance is idle meanwhile, and the run after the time is up destroys
+//! the instance. A score or a load in flight holds the instance itself; the
+//! alarm then only comes back. Warms never extend the time; only scans do.
 //!
 //! **The dev build** (cargo feature `dev`, local dev sessions only): the
 //! instance is the stub scorer Worker (`subnet/devtools/stub-scorer`), bound
@@ -55,7 +67,7 @@
 
 use crate::cf::{ms_var, waits};
 use crate::cf_io::{self, now_ms};
-use crate::lane::{self, ENV_FIELD, INTERNET_FIELD, StartOptions};
+use crate::lane::{self, ENV_FIELD, INTERNET_FIELD, Failed, Keep, StartOptions};
 use crate::waits::Waits;
 use crate::{routes, silence_panics};
 use futures_util::future::{Either, select};
@@ -79,6 +91,9 @@ const PACKAGES: &str = "DETECT_PACKAGES_TESTNET";
 const CHUNK_BYTES: u64 = slop_ninja_artifact_check::spec::PART_BYTES;
 /// How often a waiting start or load asks the instance again.
 const POLL_MS: u64 = 250;
+/// The pause before a fresh start is tried again, and the bound on the
+/// keepalive's health ask.
+const SETTLE_MS: u64 = POLL_MS * 4;
 /// The dev build's instance (`[env.dev]` only): the stub scorer Worker.
 #[cfg(feature = "dev")]
 const STUB_SCORER: &str = "STUB_SCORER";
@@ -204,8 +219,27 @@ pub struct DetectLane {
     env: Env,
     busy: Cell<bool>,
     loading: Cell<bool>,
+    /// The alarm is destroying an instance whose idle time is up.
+    stopping: Cell<bool>,
+    /// A warm started the instance: the alarm loads it.
+    warm_load: Cell<bool>,
     failures: Cell<u32>,
     retry_at: Cell<u64>,
+    /// The instance is kept until this time (0: none is kept).
+    until: Cell<u64>,
+}
+
+/// How a start ended.
+enum Start {
+    /// An instance already runs.
+    Running,
+    /// This call started a fresh instance.
+    Started,
+    /// No start is allowed yet (the backoff after failures), or there is no
+    /// binding: nothing was started.
+    NotYet,
+    /// The start call failed.
+    Failed,
 }
 
 /// Clears a flag when the holder ends, however it ends.
@@ -263,6 +297,7 @@ impl DetectLane {
     }
 
     async fn destroy(&self) {
+        self.until.set(0);
         #[cfg(feature = "dev")]
         if let Some(stub) = self.stub() {
             let until = now_ms().saturating_add(POLL_MS * 4);
@@ -293,23 +328,85 @@ impl DetectLane {
     }
 
     /// Starts the instance if none runs (Internet off, one session, two
-    /// threads: [`lane::start_options`]). `false`: no binding, a start is
-    /// not allowed yet, or the start failed.
-    async fn start(&self, plan: &Plan) -> bool {
+    /// threads: [`lane::start_options`]). A fresh instance is kept for the
+    /// idle time from now. `again`: the one retry of a fresh start that
+    /// just failed, which the backoff does not hold back.
+    fn start(&self, plan: &Plan, again: bool) -> Start {
         if self.running() {
-            return true;
+            return Start::Running;
         }
-        let Some(c) = self.state.container() else { return false };
-        if !self.may_start() {
-            return false;
+        let Some(c) = self.state.container() else { return Start::NotYet };
+        if !again && !self.may_start() {
+            return Start::NotYet;
         }
         let started = start_object(&lane::start_options()).and_then(|o| container_call(c.as_ref(), "start", &o));
         if started.is_err() {
             self.failed(plan);
-            return false;
+            return Start::Failed;
         }
-        self.set_inactivity(plan.idle_ms).await;
-        true
+        self.until.set(lane::keep_until(now_ms(), plan.idle_ms, plan.waits.hold_ms));
+        Start::Started
+    }
+
+    /// The time left of the instance's keep, at least 1 ms (the runtime
+    /// refuses a timeout of 0).
+    fn left(&self) -> u64 {
+        self.until.get().saturating_sub(now_ms()).max(1)
+    }
+
+    /// Schedules the alarm `ms` from now (replacing any scheduled one).
+    async fn arm(&self, ms: u64) {
+        let _ = self.state.storage().set_alarm(i64::try_from(ms).unwrap_or(i64::MAX)).await;
+    }
+
+    /// A scan used the instance: it is kept for the idle time from now, and
+    /// the keepalive runs.
+    async fn kept(&self, plan: &Plan) {
+        self.until.set(lane::keep_until(now_ms(), plan.idle_ms, plan.waits.hold_ms));
+        self.set_inactivity(self.left()).await;
+        self.arm(lane::KEEPALIVE_MS).await;
+    }
+
+    /// One keepalive run of the alarm ([`lane::keep`]).
+    async fn tick(&self, plan: &Plan) {
+        // A scan or a load in flight holds the instance and sets its time
+        // when it ends; the alarm only comes back.
+        if self.busy.get() || self.loading.get() {
+            self.arm(lane::KEEPALIVE_MS).await;
+            return;
+        }
+        if !self.running() {
+            self.until.set(0);
+            return;
+        }
+        if self.until.get() == 0 {
+            // A running instance this object keeps no time for (the object
+            // was evicted and came back while it ran): kept as if just used.
+            self.until.set(lane::keep_until(now_ms(), plan.idle_ms, plan.waits.hold_ms));
+        }
+        match lane::keep(now_ms(), self.until.get()) {
+            Keep::Stop => {
+                self.stopping.set(true);
+                let _stopping = Flag(&self.stopping);
+                self.destroy().await;
+            }
+            Keep::Tick { sleep_ms, next_ms } => {
+                self.set_inactivity(sleep_ms).await;
+                if let Some(port) = self.port() {
+                    let _ = healthz(&port, now_ms().saturating_add(SETTLE_MS)).await;
+                }
+                self.arm(next_ms).await;
+            }
+        }
+    }
+
+    /// Waits, until `deadline`, for the alarm's load or stop to end.
+    /// `false`: one is still running.
+    async fn settled(&self, deadline: u64) -> bool {
+        while (self.loading.get() || self.stopping.get()) && now_ms() < deadline {
+            sleep(POLL_MS * 2).await;
+        }
+        !(self.loading.get() || self.stopping.get())
     }
 
     /// Destroys the instance and counts a failed start or load.
@@ -320,10 +417,36 @@ impl DetectLane {
 
     /// Makes the instance ready with the package, starting and loading as
     /// needed: the start within `SCORER_START_WAIT_MS`, the load within
-    /// `LOAD_WAIT_MS`, both cut at `deadline`.
+    /// `LOAD_WAIT_MS`, both cut at `deadline`. A fresh start that fails is
+    /// tried once more, after a short pause, while the deadline allows
+    /// ([`lane::again_after`]).
     async fn prepare(&self, plan: &Plan, deadline: u64) -> std::result::Result<Fetcher, &'static str> {
+        let mut tried = false;
+        loop {
+            match self.prepare_once(plan, deadline, tried).await {
+                Ok(port) => return Ok(port),
+                Err((f, fresh)) => {
+                    if !lane::again_after(f, fresh, tried, now_ms(), deadline) {
+                        return Err(f.code);
+                    }
+                    tried = true;
+                    sleep(SETTLE_MS).await;
+                }
+            }
+        }
+    }
+
+    /// One attempt of [`Self::prepare`]. The error says why, and whether
+    /// this attempt started a fresh instance. `again`: the retry, whose start
+    /// the backoff does not hold back.
+    async fn prepare_once(
+        &self,
+        plan: &Plan,
+        deadline: u64,
+        again: bool,
+    ) -> std::result::Result<Fetcher, (Failed, bool)> {
         if !self.bound() {
-            return Err("no container binding");
+            return Err((Failed::fixed("no container binding"), false));
         }
         let w = plan.waits;
         if self.running() {
@@ -335,10 +458,13 @@ impl DetectLane {
                 self.destroy().await;
             }
         }
-        if !self.start(plan).await {
-            return Err("start");
-        }
-        let port = self.port().ok_or("container port")?;
+        let fresh = match self.start(plan, again) {
+            Start::Running => false,
+            Start::Started => true,
+            Start::NotYet => return Err((Failed::transient("start"), false)),
+            Start::Failed => return Err((Failed::transient("start"), true)),
+        };
+        let Some(port) = self.port() else { return Err((Failed::transient("container port"), fresh)) };
         let until = Waits::stage_until(now_ms(), w.start_ms, deadline);
         let h = loop {
             if let Some(h) = healthz(&port, until).await {
@@ -346,41 +472,48 @@ impl DetectLane {
             }
             if now_ms() >= until {
                 self.give_up(plan).await;
-                return Err("container did not answer");
+                return Err((Failed::transient("container did not answer"), fresh));
             }
             sleep(POLL_MS).await;
         };
+        // The instance runs: the runtime's own sleep timer gets the time left.
+        self.set_inactivity(self.left()).await;
         // Build identity: the binary and runtime library the pinned digests name.
         for (field, want) in [("/build/binary_sha256", &plan.binary), ("/build/ort_sha256", &plan.ort)] {
             if let Some(w) = want
                 && h.pointer(field).and_then(Value::as_str) != Some(w.as_str())
             {
                 self.give_up(plan).await;
-                return Err("scorer build identity");
+                return Err((Failed::fixed("scorer build identity"), fresh));
             }
         }
         // The sessions and threads the start passed (an instance that did
         // not receive them runs the image's defaults).
         if !lane::runs_ours(&h) {
             self.give_up(plan).await;
-            return Err("scorer sessions or threads");
+            return Err((Failed::fixed("scorer sessions or threads"), fresh));
         }
         let spec = match sc::spec_sent(&h, Some(&plan.spec)) {
             Ok(s) => s,
             Err(_) => {
                 self.give_up(plan).await;
-                return Err(sc::SPEC_NOT_SERVED);
+                return Err((Failed::fixed(sc::SPEC_NOT_SERVED), fresh));
             }
         };
         let until = Waits::stage_until(now_ms(), w.load_ms, deadline);
         let loaded = match sc::slot(&h, &plan.package, None, spec) {
             Slot::Ours(Ours::Ready) => Ok(()),
-            Slot::Ours(Ours::Receiving | Ours::Loading) => self.wait_ready(&port, plan, spec, until).await,
-            _ => self.load(&port, plan, spec, until).await.map_err(|e| e.code()),
+            Slot::Ours(Ours::Receiving | Ours::Loading) => {
+                self.wait_ready(&port, plan, spec, until).await.map_err(Failed::transient)
+            }
+            _ => self.load(&port, plan, spec, until).await.map_err(|e| match e {
+                Prep::Infra(code) => Failed::of_load(code, false),
+                Prep::Artifact(code, definitive) => Failed::of_load(code, definitive),
+            }),
         };
         if let Err(e) = loaded {
             self.give_up(plan).await;
-            return Err(e);
+            return Err((e, fresh));
         }
         self.failures.set(0);
         self.retry_at.set(0);
@@ -507,12 +640,11 @@ impl DetectLane {
         let w = plan.waits;
         let left = req.url().ok().and_then(|u| u.query_pairs().find(|(k, _)| k == "left_ms").and_then(|(_, v)| v.parse::<u64>().ok()));
         let deadline = w.lane_deadline(now_ms(), left);
-        // A warm start may be loading in the alarm: wait for it rather
-        // than load twice, within the same deadline.
-        while self.loading.get() && now_ms() < deadline {
-            sleep(POLL_MS * 2).await;
-        }
-        if self.loading.get() {
+        // A warm start may be loading in the alarm, or the alarm may be
+        // stopping an instance whose time is up: wait for it rather than
+        // load twice or start beside a stopping one, within the same
+        // deadline.
+        if !self.settled(deadline).await {
             return Ok(Response::empty()?.with_status(503));
         }
         let port = match self.prepare(&plan, deadline).await {
@@ -533,14 +665,21 @@ impl DetectLane {
         };
         match within(until, call).await {
             Some(Ok(bytes)) => {
+                self.kept(&plan).await;
                 let mut out = Response::from_bytes(bytes)?;
                 out.headers_mut().set("Content-Type", "application/json")?;
                 Ok(out)
             }
             // The scorer refused this request itself: the instance stays.
-            Some(Err(CallFail::Status(400 | 404 | 413 | 422))) => Ok(Response::empty()?.with_status(502)),
+            Some(Err(CallFail::Status(400 | 404 | 413 | 422))) => {
+                self.kept(&plan).await;
+                Ok(Response::empty()?.with_status(502))
+            }
             Some(Err(_)) => {
                 let kept = self.after_failure(&port, &plan, deadline).await;
+                if kept {
+                    self.kept(&plan).await;
+                }
                 Ok(Response::empty()?.with_status(if kept { 502 } else { 503 }))
             }
             None => {
@@ -555,7 +694,17 @@ impl DetectLane {
 impl DurableObject for DetectLane {
     fn new(state: State, env: Env) -> Self {
         silence_panics();
-        Self { state, env, busy: Cell::new(false), loading: Cell::new(false), failures: Cell::new(0), retry_at: Cell::new(0) }
+        Self {
+            state,
+            env,
+            busy: Cell::new(false),
+            loading: Cell::new(false),
+            stopping: Cell::new(false),
+            warm_load: Cell::new(false),
+            failures: Cell::new(0),
+            retry_at: Cell::new(0),
+            until: Cell::new(0),
+        }
     }
 
     async fn fetch(&self, req: Request) -> Result<Response> {
@@ -566,10 +715,20 @@ impl DurableObject for DetectLane {
         match req.path().as_str() {
             "/warm" => {
                 let Some(plan) = Plan::of(&self.env) else { return Ok(Response::empty()?.with_status(503)) };
-                if !self.start(&plan).await {
+                // An instance the alarm is stopping is not started over.
+                if !self.settled(now_ms().saturating_add(plan.waits.hold_ms)).await {
                     return Ok(Response::empty()?.with_status(503));
                 }
-                self.state.storage().set_alarm(0i64).await?;
+                // The load follows in the alarm (a ready instance needs none).
+                // A warm never extends the time the lane keeps the instance:
+                // a fresh one is kept from its start, a running one as it was.
+                match self.start(&plan, false) {
+                    Start::Started | Start::Running => {
+                        self.warm_load.set(true);
+                        self.state.storage().set_alarm(0i64).await?;
+                    }
+                    Start::NotYet | Start::Failed => return Ok(Response::empty()?.with_status(503)),
+                }
                 Ok(Response::empty()?.with_status(202))
             }
             "/score" => self.score(req).await,
@@ -580,16 +739,19 @@ impl DurableObject for DetectLane {
     async fn alarm(&self) -> Result<Response> {
         silence_panics();
         let Some(plan) = Plan::of(&self.env) else { return Response::empty() };
-        if self.busy.get() || self.loading.get() {
-            return Response::empty();
+        // A warm's load (a scan in flight loads the instance itself, and the
+        // next run finds it ready).
+        if self.warm_load.get() && !self.busy.get() && !self.loading.get() {
+            self.warm_load.set(false);
+            if self.running() {
+                self.loading.set(true);
+                let _loading = Flag(&self.loading);
+                let w = plan.waits;
+                let deadline = now_ms().saturating_add(w.start_ms).saturating_add(w.load_ms);
+                let _ = self.prepare(&plan, deadline).await;
+            }
         }
-        if self.running() {
-            self.loading.set(true);
-            let _loading = Flag(&self.loading);
-            let w = plan.waits;
-            let deadline = now_ms().saturating_add(w.start_ms).saturating_add(w.load_ms);
-            let _ = self.prepare(&plan, deadline).await;
-        }
+        self.tick(&plan).await;
         Response::empty()
     }
 }

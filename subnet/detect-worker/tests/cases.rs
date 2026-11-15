@@ -1943,3 +1943,88 @@ fn a_purge_naming_a_secret_page_keeps_no_slug_in_the_journal() {
         assert_eq!(ops::names_secret(&w.origins, url), secret, "{url}");
     }
 }
+
+// ------------------------------------------------------- the page cache
+
+/// The cache tags purged since the last call, sorted.
+fn take_tags(w: &World) -> Vec<String> {
+    let mut v = std::mem::take(&mut *w.h.purged_tags.borrow_mut());
+    v.sort();
+    v
+}
+
+fn tags_of(ids: &[[u8; 32]]) -> Vec<String> {
+    let mut v: Vec<String> = ids.iter().map(slop_ninja_detect_worker::purge::cache_tag).collect();
+    v.sort();
+    v
+}
+
+/// Every legal step that changes a page purges its cached copies at
+/// once, by the page's cache tag: an illegal-content report's disable (the
+/// re-run copy family), a removal, a restore, a reject that returns a
+/// family, a public removal and its restore, and `delete_private`. The page
+/// answers carry the same tag.
+#[test]
+fn every_legal_step_purges_the_pages_cached_copies_at_once() {
+    let w = World::new();
+    w.h.purge_token.set(true);
+    let (slug, _) = secret_page(&w, Some(principal(5)));
+    let id = w.peppers.current().id_h(&slug);
+    let copy = [0x77u8; 32];
+    w.h.db
+        .execute(
+            "INSERT INTO detections (id_h, pepper_v, kind, platform, state, created_at, updated_at, copy_of) \
+VALUES (?2, 1, 'private_text', 'paste', 'live', 1, 1, ?1)",
+            [id.to_vec(), copy.to_vec()],
+        )
+        .unwrap();
+    let tag = w.page(&slug).unwrap().cache_tag.unwrap();
+    assert_eq!(vec![tag.clone()], tags_of(&[id]), "the page carries the tag the store purges");
+    let fields = [("category", "other"), ("explanation", "it is illegal"), ("good_faith", "yes")];
+    let (case_id, _, auto) = w.send(CaseKind::Illegal, &slug, &fields, None);
+    assert_eq!(auto, Some(AutoStep::Disabled));
+    assert_eq!(take_tags(&w), tags_of(&[id, copy]), "the disable reaches the whole family");
+    w.op("remove", json!({"case_id": case_id, "reason": "illegal"})).unwrap();
+    assert_eq!(take_tags(&w), tags_of(&[id, copy]));
+    w.op("restore", json!({"case_id": case_id, "reason": "lifted"})).unwrap();
+    assert_eq!(take_tags(&w), tags_of(&[id]), "only the page that came back");
+    assert_eq!(w.page(&slug).unwrap().state.as_str(), "live");
+    // A reject returns a disabled family.
+    let (case2, _, _) = w.send(CaseKind::Illegal, &slug, &fields, None);
+    assert_eq!(take_tags(&w), tags_of(&[id]));
+    w.op("reject", json!({"case_id": case2, "reason": "not illegal"})).unwrap();
+    assert_eq!(take_tags(&w), tags_of(&[id]));
+    assert_eq!(state(&w, &slug, true), "live");
+    // A public page: its removal and its restore.
+    web_page(&w, "b4n8r2t", None);
+    let pid = keys::public_id_h("b4n8r2t");
+    assert_eq!(w.page("b4n8r2t").unwrap().cache_tag, tags_of(&[pid]).pop());
+    w.op("remove", json!({"slug": "b4n8r2t", "reason": "abuse"})).unwrap();
+    assert_eq!(take_tags(&w), tags_of(&[pid]));
+    w.op("restore", json!({"slug": "b4n8r2t", "reason": "lifted"})).unwrap();
+    assert_eq!(take_tags(&w), tags_of(&[pid]));
+    // The operator's delete_private: the page and its copies.
+    w.h.db.execute("UPDATE detections SET state = 'live' WHERE id_h = ?1", [copy.to_vec()]).unwrap();
+    let r = w.op("delete_private", json!({"id_h": hex::encode(id), "reason": "court order"})).unwrap();
+    assert_eq!(r["deleted"], 1);
+    assert_eq!(take_tags(&w), tags_of(&[id, copy]));
+    // A deleted page's 410 carries its tag too.
+    assert_eq!(w.page(&slug).unwrap().cache_tag, Some(tag));
+}
+
+/// Without a purge token nothing is purged and nothing fails; a purge the
+/// zone refuses writes `error {purge}`, and the step it follows stands.
+#[test]
+fn a_purge_without_a_token_or_refused_never_stops_the_step() {
+    let w = World::new();
+    let (slug, _) = secret_page(&w, None);
+    let fields = [("category", "other"), ("explanation", "it is illegal"), ("good_faith", "yes")];
+    let (case_id, _, _) = w.send(CaseKind::Illegal, &slug, &fields, None);
+    assert!(w.h.purged_tags.borrow().is_empty());
+    assert_eq!(w.h.metric_count("error", "purge"), 0);
+    w.h.purge_token.set(true);
+    w.h.fail_purge.set(true);
+    w.op("remove", json!({"case_id": case_id, "reason": "illegal"})).unwrap();
+    assert_eq!(state(&w, &slug, true), "removed");
+    assert_eq!(w.h.metric_count("error", "purge"), 1);
+}

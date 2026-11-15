@@ -122,6 +122,25 @@ pub struct Page {
     /// same for every reader. What the page offers a reader also depends on
     /// the account side ([`PaidReader`]); [`Page::paid_offer`] combines them.
     pub paid_open: Option<bool>,
+    /// A stored page's cache tag: the website stores every cached copy of
+    /// the page (its X widget route and its card included) under it
+    /// (`Cache-Tag`), and the detect Worker purges it when a removal, a
+    /// restore, a case's disable, another legal step or a delete changes the
+    /// page. Absent on the unstored result and the example reports. Never
+    /// sent to a reader.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cache_tag: Option<String>,
+}
+
+/// The most bytes of a cache tag.
+pub const MAX_CACHE_TAG: usize = 64;
+
+/// A cache tag's form: 1 to [`MAX_CACHE_TAG`] lowercase ASCII letters,
+/// digits and hyphens (a form the zone's purge by tag takes as it is).
+pub fn cache_tag_ok(t: &str) -> bool {
+    !t.is_empty()
+        && t.len() <= MAX_CACHE_TAG
+        && t.bytes().all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'-')
 }
 
 /// What the unstored result offers for the words past the free cut.
@@ -507,6 +526,8 @@ impl Page {
 
     /// Checks the contract's invariants.
     pub fn check(&self) -> Result<(), PageError> {
+        need(self.cache_tag.as_deref().is_none_or(cache_tag_ok), "cache tag form")?;
+        need(self.cache_tag.is_none() || self.slug.is_some(), "a cache tag on a stored page only")?;
         // Identity: slug, host, robots and canonical by kind.
         match self.kind {
             Kind::PublicUrl => {

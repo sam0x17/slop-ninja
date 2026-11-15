@@ -11,13 +11,20 @@
 //!   the account Worker's billing routes through the `ACCOUNT` binding.
 //! - **The job** (`/api/detect/v1/job`, the secret host): the lookup answers
 //!   any refusal as JSON; then the job text's footprint is reserved
-//!   (`routes::job_footprint`) and the answer becomes an NDJSON stream of
-//!   job lines while the driver runs. Each section reserves its own scan
+//!   (`routes::job_footprint`; an open that only watches gives it back
+//!   until it takes the job over) and the answer becomes an NDJSON stream
+//!   of job lines while the driver runs. Each section reserves its own scan
 //!   (`routes::section_footprint`) and takes a gate ticket of class `paid`
 //!   keyed by the page's owner hash, so the gate alternates paid sections
 //!   with free scans and holds one per owner at a time. The invocation keeps
 //!   a subrequest calls (`paid::SUBREQUESTS_PER_INVOCATION`); a driver that
-//!   runs short stops cleanly and the next open resumes.
+//!   runs short stops cleanly and the next open resumes. The driver holds
+//!   the job by a heartbeat lease (`waits::Waits::job_lease_ms`, renewed
+//!   every `job_beat_ms`), and an open that finds it held follows the
+//!   holder's progress and takes the job over once the lease is free.
+//!   The invocation is kept past its reader's leaving (`waitUntil`, in
+//!   `cf::fetch`), within the platform's grace, so a reload mid-section
+//!   lets the old driver end its scan and let the lease go.
 //!
 //! Nothing here writes a console line or echoes input; every answer is
 //! `no-store`.
@@ -130,9 +137,12 @@ pub(crate) async fn start(mut req: Request, env: &Env) -> web_sys::Response {
     }
 }
 
-/// The job's lines on its NDJSON stream.
+/// The job's lines on its NDJSON stream, and the job's memory while this
+/// invocation drives it.
 struct Stream<'a> {
     lines: &'a mut Lines,
+    footprint: usize,
+    held: Option<Reserved>,
 }
 
 impl JobSink for Stream<'_> {
@@ -142,6 +152,19 @@ impl JobSink for Stream<'_> {
 
     fn alive(&mut self) -> bool {
         self.lines.alive()
+    }
+
+    async fn pause(&mut self, ms: u64) {
+        worker::Delay::from(std::time::Duration::from_millis(ms)).await;
+    }
+
+    fn room(&mut self, hold: bool) -> bool {
+        if !hold {
+            self.held = None;
+        } else if self.held.is_none() {
+            self.held = Reserved::take(self.footprint).ok();
+        }
+        !hold || self.held.is_some()
     }
 }
 
@@ -258,7 +281,10 @@ pub(crate) async fn job(mut req: Request, env: Env, answer: &Answer) {
     // The lookup batch, the job row and the job text's size.
     calls.take(3);
     let size = c.io.doc_size(&paid::text_key(&open.found.row.id_h)).await.unwrap_or(0);
-    let _held = match Reserved::take(routes::job_footprint(size)) {
+    // Taken before the stream opens, so an open with no room is refused
+    // at once; a watcher lets it go until it takes the job over.
+    let footprint = routes::job_footprint(size);
+    let held = match Reserved::take(footprint) {
         Ok(h) => h,
         Err(e) => return answer.send(refused(&env, route, no_room(e))),
     };
@@ -272,10 +298,11 @@ pub(crate) async fn job(mut req: Request, env: Env, answer: &Answer) {
         ledger: &c.io,
         scorer: &scorer,
         serving: &c.serving,
-        lease_ms: w.scan_lease_ms().saturating_add(w.hold_ms),
+        lease_ms: w.job_lease_ms(),
+        beat_ms: w.job_beat_ms(),
         calls: &calls,
     };
-    let mut sink = Stream { lines: &mut lines };
+    let mut sink = Stream { lines: &mut lines, footprint, held: Some(held) };
     let end = d.run(&open, &body.slug, &mut sink).await;
     point(&env, ae::detect::JOB, &[end_code(end)], f64::from(calls.used()));
     lines.close().await;

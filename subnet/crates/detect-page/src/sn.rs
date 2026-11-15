@@ -173,6 +173,9 @@ pub enum InternalRoute {
     Example,
     Sitemap,
     Removals,
+    /// Whether stored pages may be served (`DETECT_PAGES`): the website
+    /// asks before it serves a page from its cache.
+    PagesSwitch,
     // account
     Session,
     View,
@@ -201,6 +204,7 @@ impl InternalRoute {
         InternalRoute::Example,
         InternalRoute::Sitemap,
         InternalRoute::Removals,
+        InternalRoute::PagesSwitch,
         InternalRoute::Session,
         InternalRoute::View,
         InternalRoute::OwnedAdd,
@@ -227,6 +231,7 @@ impl InternalRoute {
             InternalRoute::Example => ("POST", "/internal/v1/example"),
             InternalRoute::Sitemap => ("GET", "/internal/v1/sitemap/<n>"),
             InternalRoute::Removals => ("GET", "/internal/v1/removals"),
+            InternalRoute::PagesSwitch => ("GET", "/internal/v1/pages_switch"),
             InternalRoute::Session => ("POST", "/internal/v1/session"),
             InternalRoute::View => ("POST", "/internal/v1/view"),
             InternalRoute::OwnedAdd => ("POST", "/internal/v1/owned/add"),
@@ -252,7 +257,8 @@ impl InternalRoute {
             | InternalRoute::Examples
             | InternalRoute::Example
             | InternalRoute::Sitemap
-            | InternalRoute::Removals => Callee::Detect,
+            | InternalRoute::Removals
+            | InternalRoute::PagesSwitch => Callee::Detect,
             _ => Callee::Account,
         }
     }

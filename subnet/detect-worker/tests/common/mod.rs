@@ -83,6 +83,8 @@ pub struct Harness {
     pub doubles: RefCell<Vec<(String, Vec<String>, f64)>>,
     pub relay: RefCell<Vec<Vec<u8>>>,
     pub purged: RefCell<Vec<String>>,
+    /// The cache tags purged, in order (with a purge token).
+    pub purged_tags: RefCell<Vec<String>>,
     pub purge_token: Cell<bool>,
     /// The zone purge call fails.
     pub fail_purge: Cell<bool>,
@@ -114,6 +116,7 @@ impl Harness {
             doubles: RefCell::new(Vec::new()),
             relay: RefCell::new(Vec::new()),
             purged: RefCell::new(Vec::new()),
+            purged_tags: RefCell::new(Vec::new()),
             purge_token: Cell::new(false),
             fail_purge: Cell::new(false),
             statements: Cell::new(0),
@@ -377,6 +380,18 @@ impl Io for Harness {
             return Ok(false);
         }
         self.purged.borrow_mut().extend(urls.iter().cloned());
+        Ok(true)
+    }
+
+    async fn cache_purge_tags(&self, tags: &[String]) -> Result<bool, IoError> {
+        assert!(tags.len() <= slop_ninja_detect_worker::purge::TAGS_PER_PURGE);
+        if self.fail_purge.get() {
+            return Err(IoError);
+        }
+        if !self.purge_token.get() {
+            return Ok(false);
+        }
+        self.purged_tags.borrow_mut().extend(tags.iter().cloned());
         Ok(true)
     }
 

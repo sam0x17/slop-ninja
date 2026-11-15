@@ -35,6 +35,7 @@ const SOURCES: &[&str] = &[
     "handoff.rs",
     "sections.rs",
     "paid.rs",
+    "purge.rs",
     "cf.rs",
     "cf_paid.rs",
     "cf_routes.rs",
@@ -209,14 +210,43 @@ fn the_lane_starts_its_instance_with_a_plain_object() {
     ] {
         assert!(object.contains(want), "start_object: {want}");
     }
-    let start = method("async fn start(&self, plan: &Plan) -> bool {");
+    let start = method("fn start(&self, plan: &Plan, again: bool) -> Start {");
     assert!(
         start.contains("start_object(&lane::start_options()).and_then(|o| container_call(c.as_ref(), \"start\", &o))"),
         "start: {start}"
     );
     assert!(start.contains("self.failed(plan);"), "a failed start counts");
-    let prepare = method("async fn prepare(&self, plan: &Plan, deadline: u64)");
+    let prepare = method("async fn prepare_once(");
     assert!(prepare.contains("if !lane::runs_ours(&h) {"), "the health check is the options' own");
+    // The runtime's own sleep timer is set once the instance answers,
+    // never right after `start`, and from the time the lane keeps.
+    assert!(!start.contains("set_inactivity"), "start: {start}");
+    let answered = prepare.find("break h;").expect("the health loop");
+    let sleep_set = prepare.find("self.set_inactivity(self.left()).await;").expect("the sleep timer");
+    assert!(sleep_set > answered, "set after the instance answered");
+    // The keepalive. The alarm runs a tick on every run; a tick
+    // stops the instance when its time is up, or sets the sleep timer to
+    // the time left and comes back within the keepalive.
+    let alarm = method("async fn alarm(&self) -> Result<Response> {");
+    assert!(alarm.contains("self.tick(&plan).await;"), "{alarm}");
+    let tick = method("async fn tick(&self, plan: &Plan) {");
+    for want in [
+        "match lane::keep(now_ms(), self.until.get()) {",
+        "Keep::Stop => {",
+        "self.destroy().await;",
+        "self.set_inactivity(sleep_ms).await;",
+        "self.arm(next_ms).await;",
+        "self.arm(lane::KEEPALIVE_MS).await;",
+    ] {
+        assert!(tick.contains(want), "tick: {want}");
+    }
+    // A scan keeps the instance for the idle time from its end.
+    let score = method("async fn score(&self, req: Request) -> Result<Response> {");
+    assert!(score.matches("self.kept(&plan).await;").count() >= 3, "{score}");
+    // A fresh start that fails is tried once more, by the pure rule.
+    let retry = method("async fn prepare(&self, plan: &Plan, deadline: u64)");
+    assert!(retry.contains("lane::again_after(f, fresh, tried, now_ms(), deadline)"), "{retry}");
+    assert!(retry.contains("self.prepare_once(plan, deadline, tried).await"), "{retry}");
     let pure = src("lane.rs");
     assert!(pure.contains("pub const INTERNET_FIELD: &str = \"enableInternet\";"));
     assert!(pure.contains("pub const ENV_FIELD: &str = \"env\";"));

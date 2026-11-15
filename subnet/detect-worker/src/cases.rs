@@ -496,9 +496,13 @@ pub fn purge_urls(origins: &Origins, slugs: &[String]) -> Vec<String> {
     out
 }
 
-/// Queues the purges of these public slugs' URLs, at most 30 a message (the
-/// purge op's own bound). A failed send leaves the cache bound to clear them.
+/// Purges these public slugs' cached pages: their cache tags at once
+/// ([`crate::purge::purge_pages`]), and their URLs through the queue, at
+/// most 30 a message (the purge op's own bound). A failed purge or send
+/// leaves the cache bound to clear them.
 pub async fn queue_purges(io: &impl Io, origins: &Origins, slugs: &[String]) {
+    let ids: Vec<Bytes32> = slugs.iter().map(|s| crate::keys::public_id_h(s)).collect();
+    crate::purge::purge_pages(io, &ids).await;
     let urls = purge_urls(origins, slugs);
     let msgs: Vec<QueueMessage> = urls.chunks(30).map(|c| QueueMessage::new(Job::Purge { urls: c.to_vec() })).collect();
     if io.enqueue(msgs).await.is_err() {
@@ -645,12 +649,16 @@ AND case_id IN (SELECT case_id FROM case_targets WHERE det_id_h = ?1)",
         ));
     }
     let mut purge = Vec::new();
+    let mut disabled_at = None;
     match auto {
         Some(AutoStep::ExcerptWithheld) => {
             batch.extend(withhold_stmts(&t.row, &t.slug, req.track.as_str(), DEFAULT_JURISDICTION, now));
             purge.push(t.slug.clone());
         }
-        Some(AutoStep::Disabled) => batch.push(disable_family(&t.row, now)),
+        Some(AutoStep::Disabled) => {
+            disabled_at = Some(batch.len());
+            batch.push(disable_family(&t.row, now));
+        }
         Some(AutoStep::Removed) => {
             // The X removal runs this case's batch itself.
             let canon_key = x_source_of(io, &t.row).await?.ok_or(RefusalCode::Unavailable)?;
@@ -674,10 +682,14 @@ AND case_id IN (SELECT case_id FROM case_targets WHERE det_id_h = ?1)",
         }
         Some(AutoStep::Recheck) | None => {}
     }
-    if io.batch(batch).await.is_err() {
+    let Ok(done) = io.batch(batch).await else {
         // The case did not happen: its notice goes too.
         let _ = io.doc_delete(&[notice_key(&case_id)]).await;
         return Err(RefusalCode::Unavailable);
+    };
+    // The disabled pages' cached copies go at once.
+    if let Some(d) = disabled_at.and_then(|i| done.get(i)) {
+        crate::purge::purge_pages(io, &returned_ids(d)).await;
     }
     if auto == Some(AutoStep::Recheck)
         && let Some(source_id) = t.row.source_id
@@ -761,6 +773,11 @@ WHERE id_h = ?1 AND kind = 'public_url' AND platform <> 'x' AND state = 'live'",
     ]
 }
 
+/// The store ids a statement's `RETURNING hex(id_h) AS id_h` named.
+fn returned_ids(d: &Done) -> Vec<Bytes32> {
+    d.rows.iter().filter_map(|r| r.hex32("id_h")).collect()
+}
+
 /// A secret page disabled pending review, with every live or pending member
 /// of its re-run copy family (a disabled page cannot be re-run, so the
 /// report cannot be copied around).
@@ -768,7 +785,8 @@ fn disable_family(row: &DetRow, now: u64) -> Stmt {
     let root = row.family_root();
     Stmt::new(
         "UPDATE detections SET state = 'disabled', state_v = state_v + 1, updated_at = ?2 \
-WHERE (id_h = ?1 OR copy_of = ?1) AND kind IN ('private_text','private_paid') AND state IN ('live','pending')",
+WHERE (id_h = ?1 OR copy_of = ?1) AND kind IN ('private_text','private_paid') AND state IN ('live','pending') \
+RETURNING hex(id_h) AS id_h",
         vec![Val::blob(&root), Val::int(now)],
     )
 }
@@ -1627,6 +1645,7 @@ AND kind IN ('private_text','private_paid') AND state IN ('live','pending','disa
             effect.docs_pending += 1;
         }
     }
+    crate::purge::purge_pages(io, &quarantined).await;
     queue_purges(io, origins, &slugs).await;
     io.metric("removal", &[case.kind.as_str(), "removed"]);
     Ok(effect)
@@ -1820,6 +1839,8 @@ pub async fn restore_case(
     let mut public: Vec<(usize, String, Option<u64>, bool)> = Vec::new();
     // Pages already returned (or found held) by an earlier case of this op.
     let mut returned = BTreeSet::new();
+    // The secret pages this op returns, whose cached 451 or 410 goes.
+    let mut secret_back: Vec<Bytes32> = Vec::new();
     let own = own_cases(restoring.iter().map(|c| c.case_id.as_str()).chain([case.case_id.as_str()]));
     for c in &restoring {
         let targets = case_targets(io, &c.case_id).await?;
@@ -1889,6 +1910,7 @@ WHERE id_h = ?1 AND kind IN ('private_text','private_paid') AND state = 'removed
                         _ => continue,
                     }
                     returned.insert(m.id_h);
+                    secret_back.push(m.id_h);
                     effect.pages += 1;
                 }
             }
@@ -1933,6 +1955,7 @@ WHERE id_h = ?1 AND kind IN ('private_text','private_paid') AND state = 'removed
             effect.docs_pending += 1;
         }
     }
+    crate::purge::purge_pages(io, &secret_back).await;
     queue_purges(io, origins, &slugs).await;
     io.metric("removal", &[case.kind.as_str(), "restored"]);
     Ok(effect)
@@ -2010,6 +2033,8 @@ pub async fn reject_case(
     let others = Others { own: &own, run: None, closed_since: None, op_hold: true };
     // Each public page's state change: its index in the batch, its slug.
     let mut public: Vec<(usize, String)> = Vec::new();
+    // Each secret family's return: its index in the batch.
+    let mut secret: Vec<usize> = Vec::new();
     for t in &targets {
         match (t.kind, t.state, case.kind) {
             (Kind::PublicUrl, DetState::ExcerptWithheld, CaseKind::Copyright) => {
@@ -2043,10 +2068,12 @@ AND EXISTS (SELECT 1 FROM detections WHERE id_h = ?3 AND state = 'live')",
                 batch.push(shard_dirty(&t.id_h));
             }
             (Kind::PrivateText | Kind::PrivatePaid, DetState::Disabled, CaseKind::Illegal) => {
+                secret.push(batch.len());
                 batch.push(Stmt::owned(
                     format!(
                         "UPDATE detections SET {RETURN_SET}, state_v = state_v + 1, updated_at = ?2 \
-WHERE (id_h = ?1 OR copy_of = ?1) AND kind IN ('private_text','private_paid') AND state = 'disabled'"
+WHERE (id_h = ?1 OR copy_of = ?1) AND kind IN ('private_text','private_paid') AND state = 'disabled' \
+RETURNING hex(id_h) AS id_h"
                     ),
                     vec![Val::blob(&t.family_root()), Val::int(now)],
                 ));
@@ -2065,6 +2092,8 @@ WHERE (id_h = ?1 OR copy_of = ?1) AND kind IN ('private_text','private_paid') AN
             slugs.push(slug);
         }
     }
+    let back: Vec<Bytes32> = secret.iter().filter_map(|i| done.get(*i)).flat_map(returned_ids).collect();
+    crate::purge::purge_pages(io, &back).await;
     queue_purges(io, origins, &slugs).await;
     io.metric("removal", &[case.kind.as_str(), "rejected"]);
     Ok(effect)

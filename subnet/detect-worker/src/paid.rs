@@ -49,12 +49,23 @@
 //!
 //! **The job** (`/api/detect/v1/job {slug}` on the secret host, streamed as
 //! [`JobLine`]s): one driver at a time, by a fencing token.
+//! - **The lease is a heartbeat** (`waits::Waits::job_lease_ms`, two
+//!   holds): the driver renews it every beat (`job_beat_ms`, half a hold),
+//!   also while a section scores, so a driver whose invocation ended (its
+//!   reader reloaded or closed the page) gives the job up within one lease,
+//!   not one section's worst case.
 //! - CLAIM sets `lease_token` and `lease_until` on a `running` job whose
-//!   lease is free; zero rows means another driver holds it, so this one
-//!   streams the progress only.
+//!   lease is free. Zero rows means another driver holds it: this one
+//!   **attaches** ([`Drive::run`]'s watch). It streams that driver's
+//!   progress, asks again every beat, and takes the job over in the same
+//!   stream as soon as the lease is free (let go, or lapsed); it shows the
+//!   result when the job ends, and ends the stream when the page or the job
+//!   ended otherwise (the next open answers why).
 //! - Per section: RENEW (the lease, and the page still pending and
 //!   unexpired), score it (gate class `paid`, keyed by the owner hash; the
-//!   channel `paid_page` counts it as an operation, never as pot basis),
+//!   channel `paid_page` counts it as an operation, never as pot basis;
+//!   RENEW every beat meanwhile, and a beat the store refuses lets the scan
+//!   end, so its gate ticket ends with it, then takes the LOST path below),
 //!   put `j/<id_h>/s<n>`, ADVANCE (`sections_done = n` only from `n - 1`).
 //! - All done: RENEW, assemble the page's document, put `p/<id_h>`, then
 //!   one batch: SCORED (the single point after which no driver can act; only
@@ -90,6 +101,9 @@
 //! is.
 
 use std::cell::Cell;
+use std::future::Future;
+use std::pin::{Pin, pin};
+use std::task::Poll;
 
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
@@ -315,6 +329,32 @@ pub trait JobSink {
     /// `false` when the reader is gone.
     async fn line(&mut self, l: &JobLine) -> bool;
     fn alive(&mut self) -> bool;
+    /// Waits `ms`: the driver's beat and a watcher's pause between asks.
+    async fn pause(&mut self, ms: u64);
+    /// The job's memory (its text, plan and assembly): `true` holds it (or
+    /// takes it again), `false` lets it go while this invocation only
+    /// watches. `false` back: no room now.
+    fn room(&mut self, hold: bool) -> bool;
+}
+
+/// Which of two futures finished first.
+enum First<A, B> {
+    A(A),
+    B(B),
+}
+
+/// Polls `a`, then `b`, until one is ready (`a` wins a tie).
+async fn first<A: Future + Unpin, B: Future + Unpin>(a: &mut A, b: &mut B) -> First<A::Output, B::Output> {
+    std::future::poll_fn(|cx| {
+        if let Poll::Ready(v) = Pin::new(&mut *a).poll(cx) {
+            return Poll::Ready(First::A(v));
+        }
+        if let Poll::Ready(v) = Pin::new(&mut *b).poll(cx) {
+            return Poll::Ready(First::B(v));
+        }
+        Poll::Pending
+    })
+    .await
 }
 
 /// The documented Workers limit on subrequests per invocation; every
@@ -330,6 +370,9 @@ pub const SECTION_SUBREQUESTS: u32 = 64;
 /// the document's put, the SCORED batch, the job objects' delete, the
 /// commit and its batch, a queue send, with room to spare.
 pub const ASSEMBLY_FIXED_SUBREQUESTS: u32 = 16;
+/// One ask of a watcher: the batch that tries the CLAIM and reads the job
+/// and the page.
+pub const WATCH_SUBREQUESTS: u32 = 1;
 /// Reading one stored section result (its size and its bytes).
 pub const READ_SUBREQUESTS: u32 = 2;
 
@@ -983,8 +1026,12 @@ pub struct Drive<'a, I: Io, L: Ledger, S: SectionScorer> {
     pub ledger: &'a L,
     pub scorer: &'a S,
     pub serving: &'a Serving,
-    /// The work lease: one section's scan lease plus one gate hold.
+    /// The work lease (`waits::Waits::job_lease_ms`): it outlasts a beat and
+    /// one store call, and nothing more.
     pub lease_ms: u64,
+    /// How often a driver renews its lease, and a watcher asks again
+    /// (`waits::Waits::job_beat_ms`).
+    pub beat_ms: u64,
     pub calls: &'a Calls,
 }
 
@@ -995,7 +1042,8 @@ pub enum JobEnd {
     Done,
     /// The page was already live or failed: nothing to drive.
     Shown,
-    /// Another driver holds the lease: progress only.
+    /// Another driver held the lease: this one showed its progress (and
+    /// its end) without taking the job over.
     Watching,
     /// Stopped cleanly (paused, transient, no calls, reader gone).
     Stopped,
@@ -1070,63 +1118,153 @@ impl<I: Io, L: Ledger, S: SectionScorer> Drive<'_, I, L, S> {
             ))
             .await;
         let Some(done_from) = claimed.as_ref().and_then(Done::first).and_then(|r| r.u64("sections_done")) else {
-            let _ = sink.line(&progress).await;
-            return JobEnd::Watching;
+            return self.watch(open, slug, sink, &job).await;
         };
-        let done_from = u32::try_from(done_from).unwrap_or(u32::MAX);
+        self.drive(open, slug, sink, &job, &t, u32::try_from(done_from).unwrap_or(u32::MAX)).await
+    }
+
+    /// Another driver holds the lease: the reader follows its progress,
+    /// one ask a beat, and this invocation takes the job over in the same
+    /// stream once the lease is free (the holder let it go, or its
+    /// invocation ended and the lease lapsed). A live page shows its
+    /// result; any other end of the job or the page ends the stream, and
+    /// the next open answers it. The reader leaving or the calls running
+    /// short end the watch too.
+    async fn watch(&self, open: &JobOpen<'_>, slug: &str, sink: &mut impl JobSink, job: &JobRow) -> JobEnd {
+        let (io, id, total) = (self.io, open.found.row.id_h, job.sections_total);
+        // A watcher holds none of the job's memory until it takes the job.
+        sink.room(false);
+        if !sink.line(&JobLine::Progress { section: job.sections_done, of: total }).await {
+            return JobEnd::Watching;
+        }
+        loop {
+            let room =
+                WATCH_SUBREQUESTS.saturating_add(SECTION_SUBREQUESTS).saturating_add(assembly_subrequests(total));
+            if !self.calls.fits(room) {
+                return JobEnd::Watching;
+            }
+            sink.pause(self.beat_ms).await;
+            if !sink.alive() {
+                return JobEnd::Watching;
+            }
+            let now = io.now_ms();
+            let mut t = [0u8; 16];
+            io.fill(&mut t);
+            self.take(WATCH_SUBREQUESTS);
+            let read = io
+                .batch(vec![
+                    Stmt::new(
+                        CLAIM,
+                        vec![Val::blob(&id), Val::blob(&t), Val::int(now.saturating_add(self.lease_ms)), Val::int(now)],
+                    ),
+                    Stmt::new(SELECT_JOB_ROW, vec![Val::blob(&id)]),
+                    Stmt::new(SELECT_DET_STATE, vec![Val::blob(&id)]),
+                ])
+                .await;
+            // An unreadable store: ask again at the next beat.
+            let Ok(d) = read else { continue };
+            if let Some(from) = d.first().and_then(Done::first).and_then(|r| r.u64("sections_done")) {
+                return self.drive(open, slug, sink, job, &t, u32::try_from(from).unwrap_or(u32::MAX)).await;
+            }
+            let row = job_row(d.get(1));
+            let det = d.get(2).and_then(Done::first).map(|r| {
+                let s = r.text("state").and_then(DetState::parse).unwrap_or(DetState::Deleted);
+                store::read_state(s, r.u64("expires_at"), io.now_ms())
+            });
+            match (det, row.as_ref().map(|j| j.state)) {
+                (Some(DetState::Live), _) => {
+                    let _ = sink.line(&JobLine::Done).await;
+                    return JobEnd::Watching;
+                }
+                (Some(DetState::Pending), Some(JobState::Running)) => {
+                    let section = row.map_or(0, |j| j.sections_done);
+                    if !sink.line(&JobLine::Progress { section, of: total }).await {
+                        return JobEnd::Watching;
+                    }
+                }
+                // Failed, cancelled, or the page ended: the next open says
+                // why.
+                _ => return JobEnd::Watching,
+            }
+        }
+    }
+
+    /// Drives the job from `done_from`, holding the lease `t`.
+    async fn drive(
+        &self,
+        open: &JobOpen<'_>,
+        slug: &str,
+        sink: &mut impl JobSink,
+        job: &JobRow,
+        t: &[u8; 16],
+        done_from: u32,
+    ) -> JobEnd {
+        let (io, id) = (self.io, open.found.row.id_h);
+        let progress = JobLine::Progress { section: done_from, of: job.sections_total };
+        if !sink.room(true) {
+            // No room for the job's memory now: the next open resumes.
+            self.let_go(&id, t).await;
+            let _ = sink.line(&progress).await;
+            return JobEnd::Stopped;
+        }
         // The job text: a missing one fails the job (this driver holds the
         // lease of a running job); an unreadable store stops cleanly.
         self.take(READ_SUBREQUESTS);
         let jt = match io.doc_get(&text_key(&id)).await {
             Ok(Some(b)) => match open_part(open.found.pepper, slug, &b).map(JobText::decode) {
                 Some(Ok(j)) => j,
-                _ => return self.fail(&id, &t, RefusalCode::Internal, job.sections_total, sink).await,
+                _ => return self.fail(&id, t, RefusalCode::Internal, job.sections_total, sink).await,
             },
-            Ok(None) => return self.fail(&id, &t, RefusalCode::Internal, job.sections_total, sink).await,
+            Ok(None) => return self.fail(&id, t, RefusalCode::Internal, job.sections_total, sink).await,
             Err(_) => {
-                self.let_go(&id, &t).await;
+                self.let_go(&id, t).await;
                 let _ = sink.line(&progress).await;
                 return JobEnd::Stopped;
             }
         };
         if !(open.switches.on(io, "DETECT_PAID") || jt.header.preview) {
             // Paused: the switch is off for public jobs.
-            self.let_go(&id, &t).await;
+            self.let_go(&id, t).await;
             let _ = sink.line(&progress).await;
             return JobEnd::Stopped;
         }
         if job.package_load != self.serving.load {
             // The serving package changed mid-job: its sections would mix
             // two packages.
-            return self.fail(&id, &t, RefusalCode::Unavailable, job.sections_total, sink).await;
+            return self.fail(&id, t, RefusalCode::Unavailable, job.sections_total, sink).await;
         }
         let plan = &jt.header.plan;
         let total = job.sections_total;
         if plan.sections.len() != total as usize {
-            return self.fail(&id, &t, RefusalCode::Internal, total, sink).await;
+            return self.fail(&id, t, RefusalCode::Internal, total, sink).await;
         }
         let mut wrote: Vec<String> = Vec::new();
         for n in done_from.saturating_add(1)..=total {
             if !self.calls.fits(SECTION_SUBREQUESTS.saturating_add(assembly_subrequests(total))) || !sink.alive() {
-                self.let_go(&id, &t).await;
+                self.let_go(&id, t).await;
                 let _ = sink.line(&JobLine::Progress { section: n - 1, of: total }).await;
                 return JobEnd::Stopped;
             }
-            if !self.renew(&id, &t).await {
+            if !self.renew(&id, t).await {
                 return self.lost(&id, &wrote, sink).await;
             }
             let Some(sec) = plan.sections.get(n as usize - 1).copied() else {
-                return self.fail(&id, &t, RefusalCode::Internal, total, sink).await;
+                return self.fail(&id, t, RefusalCode::Internal, total, sink).await;
             };
             let text = jt.text.get(sec.start..sec.end).unwrap_or("");
-            let scored = match self.scorer.score(text, sec.words, sec.tokens, self.calls).await {
+            let scan = self.scorer.score(text, sec.words, sec.tokens, self.calls);
+            let (scored, held) = self.beating(&id, t, n - 1, total, sink, scan).await;
+            if !held {
+                return self.lost(&id, &wrote, sink).await;
+            }
+            let scored = match scored {
                 Ok(s) => s,
                 Err(ScoreFail::Transient) => {
-                    self.let_go(&id, &t).await;
+                    self.let_go(&id, t).await;
                     let _ = sink.line(&JobLine::Progress { section: n - 1, of: total }).await;
                     return JobEnd::Stopped;
                 }
-                Err(ScoreFail::Refused(code)) => return self.fail(&id, &t, code, total, sink).await,
+                Err(ScoreFail::Refused(code)) => return self.fail(&id, t, code, total, sink).await,
             };
             let shift = u32_sat(sections::utf16_at(&jt.text, sec.start) as u64);
             let result = SectionResult {
@@ -1145,28 +1283,71 @@ impl<I: Io, L: Ledger, S: SectionScorer> Drive<'_, I, L, S> {
             let key = section_key(&id, n);
             self.take(1);
             if io.doc_put(&key, seal_part(open.found.pepper, slug, io, &bytes)).await.is_err() {
-                self.let_go(&id, &t).await;
+                self.let_go(&id, t).await;
                 let _ = sink.line(&JobLine::Progress { section: n - 1, of: total }).await;
                 return JobEnd::Stopped;
             }
             wrote.push(key);
             let adv =
-                Stmt::new(ADVANCE, vec![Val::blob(&id), Val::blob(&t), Val::int(u64::from(n)), Val::int(io.now_ms())]);
+                Stmt::new(ADVANCE, vec![Val::blob(&id), Val::blob(t), Val::int(u64::from(n)), Val::int(io.now_ms())]);
             match self.fenced(adv).await {
                 Some(true) => wrote.clear(),
                 Some(false) => return self.lost(&id, &wrote, sink).await,
                 None => {
-                    self.let_go(&id, &t).await;
+                    self.let_go(&id, t).await;
                     let _ = sink.line(&JobLine::Progress { section: n - 1, of: total }).await;
                     return JobEnd::Stopped;
                 }
             }
             if !sink.line(&JobLine::Running { section: n, of: total }).await {
-                self.let_go(&id, &t).await;
+                self.let_go(&id, t).await;
                 return JobEnd::Stopped;
             }
         }
-        self.finish(open, &id, &t, &jt, &job, slug, sink).await
+        self.finish(open, &id, t, &jt, job, slug, sink).await
+    }
+
+    /// Runs `scan` (a section's) while renewing this driver's lease every
+    /// beat, and tells the reader at each beat that the job runs (`done` of
+    /// `of`). `false`: a renew matched no row (the job or the page moved on,
+    /// or the lease went to another driver): the scan still runs to its
+    /// end, since its gate ticket and the lane call end with it, and the
+    /// caller then takes the LOST path. A beat the store could not answer
+    /// keeps the lease as it is, until the next.
+    async fn beating<T>(
+        &self,
+        id: &Bytes32,
+        t: &[u8],
+        done: u32,
+        of: u32,
+        sink: &mut impl JobSink,
+        scan: impl Future<Output = T>,
+    ) -> (T, bool) {
+        let mut scan = pin!(scan);
+        loop {
+            {
+                let mut wait = pin!(sink.pause(self.beat_ms));
+                if let First::A(v) = first(&mut scan, &mut wait).await {
+                    return (v, true);
+                }
+            }
+            if self.renew_beat(id, t).await == Some(false) {
+                return (scan.await, false);
+            }
+            if sink.alive() {
+                let _ = sink.line(&JobLine::Running { section: done, of }).await;
+            }
+        }
+    }
+
+    /// One beat's RENEW: `None` when the store could not answer.
+    async fn renew_beat(&self, id: &Bytes32, t: &[u8]) -> Option<bool> {
+        let now = self.io.now_ms();
+        let s = Stmt::new(
+            RENEW,
+            vec![Val::blob(id), Val::blob(t), Val::int(now.saturating_add(self.lease_ms)), Val::int(now)],
+        );
+        self.fenced(s).await
     }
 
     async fn renew(&self, id: &Bytes32, t: &[u8]) -> bool {
@@ -1274,8 +1455,17 @@ impl<I: Io, L: Ledger, S: SectionScorer> Drive<'_, I, L, S> {
         if !self.renew(id, t).await {
             return self.lost(id, &[], sink).await;
         }
+        // The lease is renewed again whenever a beat has passed, so a long
+        // document's reads never outlast it.
+        let mut renewed = io.now_ms();
         let mut results = Vec::with_capacity(total as usize);
         for n in 1..=total {
+            if io.now_ms().saturating_sub(renewed) >= self.beat_ms {
+                if !self.renew(id, t).await {
+                    return self.lost(id, &[], sink).await;
+                }
+                renewed = io.now_ms();
+            }
             self.take(READ_SUBREQUESTS);
             match io.doc_get(&section_key(id, n)).await {
                 Ok(Some(b)) => match open_part(open.found.pepper, slug, &b)
@@ -1297,6 +1487,9 @@ impl<I: Io, L: Ledger, S: SectionScorer> Drive<'_, I, L, S> {
             Some(d) => d,
             None => return self.fail(id, t, RefusalCode::Internal, total, sink).await,
         };
+        if io.now_ms().saturating_sub(renewed) >= self.beat_ms && !self.renew(id, t).await {
+            return self.lost(id, &[], sink).await;
+        }
         let mut nonce = [0u8; NONCE_BYTES];
         io.fill(&mut nonce);
         let sealed = open.found.pepper.doc_key(slug).seal(&nonce, &doc.encode());

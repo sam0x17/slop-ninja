@@ -297,6 +297,37 @@ fn cards_follow_their_page() {
     assert_eq!((c.source_label.as_str(), &c.link), (card::SECRET_LABEL, &CardLink::SecretHost));
 }
 
+/// A stored page's cache tag rides on its page and its card, in a form the
+/// zone's purge takes, and stays off the wire when absent (every fixture
+/// round-trips unchanged).
+#[test]
+fn a_cache_tag_rides_on_the_page_and_its_card() {
+    let mut p = fixture("15-secret-text");
+    assert_eq!(p.cache_tag, None);
+    let json = serde_json::to_value(&p).unwrap();
+    assert!(json.get("cache_tag").is_none(), "absent when unset");
+    p.cache_tag = Some("snp1-0123456789abcdef0123456789abcdef".into());
+    p.check().unwrap();
+    let back: Page = serde_json::from_value(serde_json::to_value(&p).unwrap()).unwrap();
+    assert_eq!(back, p);
+    let c = Card::from_page(&p, false).unwrap();
+    assert_eq!(c.cache_tag, p.cache_tag);
+    c.check().unwrap();
+    for bad in ["", "SNP1-AB", "snp1 ab", "snp1-ab,cd", &"a".repeat(MAX_CACHE_TAG + 1)] {
+        assert!(!cache_tag_ok(bad), "{bad:?}");
+        p.cache_tag = Some(bad.to_owned());
+        assert!(p.check().is_err(), "{bad:?}");
+        let mut c2 = c.clone();
+        c2.cache_tag = Some(bad.to_owned());
+        assert!(c2.check().is_err(), "{bad:?}");
+    }
+    assert!(cache_tag_ok(&"a".repeat(MAX_CACHE_TAG)));
+    // Only a stored page carries one.
+    let mut u = fixture("27-unstored");
+    u.cache_tag = Some("snp1-ab".into());
+    assert!(u.check().is_err());
+}
+
 #[test]
 fn card_bounds_hold_for_extreme_values() {
     let max = u32::MAX;
@@ -857,6 +888,8 @@ fn routes_and_headers() {
     for r in InternalRoute::ALL {
         assert!(r.method_path().1.starts_with("/internal/v1/"));
     }
+    assert_eq!(InternalRoute::PagesSwitch.method_path(), ("GET", "/internal/v1/pages_switch"));
+    assert_eq!(InternalRoute::PagesSwitch.callee(), sn::Callee::Detect);
 }
 
 #[test]

@@ -16,6 +16,13 @@
 //!   lane's bound plus one hold, the bound on the internal calls around it
 //!   (the admission reply, the lane call and reply, the done report), which
 //!   take milliseconds.
+//! - A paid job's driver holds its job by a heartbeat lease,
+//!   [`Waits::job_lease_ms`] (two holds), renewed every
+//!   [`Waits::job_beat_ms`] (half a hold) while it works, a section's scan
+//!   included. A renew is one store call, bounded by one hold, so a beat and
+//!   a slow renew still land inside the lease; a driver whose invocation
+//!   ended gives the job up within one lease, and the next open, which asks
+//!   once a beat, takes it over.
 
 /// The liveness waits, in milliseconds.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -51,6 +58,18 @@ impl Waits {
     /// An admitted ticket's lease at the gate.
     pub const fn scan_lease_ms(&self) -> u64 {
         self.lane_ms().saturating_add(self.hold_ms)
+    }
+
+    /// A paid job driver's lease: two holds.
+    pub const fn job_lease_ms(&self) -> u64 {
+        self.hold_ms.saturating_mul(2)
+    }
+
+    /// How often a paid job driver renews its lease, and a watcher asks
+    /// again: half a hold (at least 1 ms).
+    pub const fn job_beat_ms(&self) -> u64 {
+        let b = self.hold_ms / 2;
+        if b == 0 { 1 } else { b }
     }
 
     /// The time the Worker passes the lane, `elapsed_ms` after its
@@ -90,6 +109,21 @@ mod tests {
         assert!(after_score <= deadline);
         // The gate's lease ends a hold after the lane's deadline.
         assert_eq!(w.scan_lease_ms(), deadline + w.hold_ms);
+    }
+
+    #[test]
+    fn a_job_lease_outlasts_a_beat_and_a_slow_renew() {
+        for hold in [2, 3, 20_000, 60_000] {
+            let w = Waits { hold_ms: hold, ..Waits::DEFAULT };
+            // A beat, then a renew that takes its whole bound (one hold).
+            assert!(w.job_beat_ms() + w.hold_ms < w.job_lease_ms(), "hold {hold}");
+            assert!(w.job_beat_ms() >= 1);
+        }
+        let w = Waits::DEFAULT;
+        assert_eq!((w.job_beat_ms(), w.job_lease_ms()), (10_000, 40_000));
+        // Far under the scan's own worst case, which the lease no longer
+        // has to cover.
+        assert!(w.job_lease_ms() * 4 < w.scan_lease_ms());
     }
 
     #[test]

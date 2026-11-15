@@ -65,6 +65,7 @@ fn empty(slug: Option<String>, host: HostRole, kind: Kind, platform: Platform, s
         ninja: None,
         receipt: None,
         paid_open: None,
+        cache_tag: None,
     }
 }
 

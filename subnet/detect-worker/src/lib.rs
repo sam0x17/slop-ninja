@@ -90,6 +90,7 @@ pub mod net;
 pub mod ops;
 pub mod page;
 pub mod paid;
+pub mod purge;
 pub mod policy;
 pub mod queue;
 pub mod reads;

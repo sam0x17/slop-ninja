@@ -244,7 +244,7 @@ pub(crate) fn body_code(e: BodyError) -> RefusalCode {
 }
 
 #[wasm_bindgen]
-pub fn fetch(req: web_sys::Request, env: Env, _ctx: worker_sys::Context) -> js_sys::Promise {
+pub fn fetch(req: web_sys::Request, env: Env, ctx: worker_sys::Context) -> js_sys::Promise {
     silence_panics();
     let Ok(ticket) = glue::Ticket::admit() else {
         let v: JsValue = status_only(503).into();
@@ -275,7 +275,7 @@ pub fn fetch(req: web_sys::Request, env: Env, _ctx: worker_sys::Context) -> js_s
     let (outer, resolve) = (pair.get(0), pair.get(1));
     let outer: js_sys::Promise = outer.into();
     let resolve: js_sys::Function = resolve.into();
-    wasm_bindgen_futures::spawn_local(async move {
+    let work = wasm_bindgen_futures::future_to_promise(async move {
         let _ticket = ticket;
         let done = resolve.clone();
         let r = slop_ninja_arena::enter(route, control, move |_scope| async move {
@@ -309,7 +309,15 @@ pub fn fetch(req: web_sys::Request, env: Env, _ctx: worker_sys::Context) -> js_s
                 let _ = done.call1(&JsValue::NULL, &status_only(503).into());
             }
         }
+        Ok(JsValue::UNDEFINED)
     });
+    // A paid job's driver runs on past its reader's leaving, within the
+    // platform's grace, so a reload mid-section lets the old driver end
+    // its scan (and the scan's gate ticket) and let its lease go
+    // (`paid.rs`). Other routes end with their reader.
+    if class == 12 {
+        let _ = ctx.wait_until(&work);
+    }
     outer
 }
 

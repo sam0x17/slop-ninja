@@ -189,6 +189,10 @@ pub trait Io: Sql {
     /// The zone cache purge of these URLs; `Ok(false)` when no purge token
     /// is configured (the cache bound then covers the delay).
     async fn cache_purge(&self, urls: &[String]) -> Result<bool, IoError>;
+    /// The zone cache purge of these cache tags ([`crate::purge`]), at most
+    /// [`crate::purge::TAGS_PER_PURGE`]; `Ok(false)` when no purge token is
+    /// configured.
+    async fn cache_purge_tags(&self, tags: &[String]) -> Result<bool, IoError>;
     /// The alerts relay's legal stream (`POST /v1/legal`).
     async fn relay_legal(&self, body: Vec<u8>) -> Result<(), IoError>;
     /// A feedback receipt for a shown result (from the feedback object);

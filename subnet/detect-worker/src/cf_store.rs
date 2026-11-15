@@ -77,6 +77,21 @@ impl<'e> CfStore<'e> {
         Some(CfStore { env, db, docs, wait_ms, held: RefCell::new(Vec::new()) })
     }
 
+    /// One zone cache purge (`body`: `{"files": …}` or `{"tags": …}`);
+    /// `Ok(false)` when no purge token is configured.
+    async fn zone_purge(&self, body: &str) -> Result<bool, IoError> {
+        let (Ok(token), Some(zone)) = (self.env.secret(PURGE_TOKEN), self.var(PURGE_ZONE)) else { return Ok(false) };
+        let url = format!("https://api.cloudflare.com/client/v4/zones/{zone}/purge_cache");
+        let req = cf_io::internal_request(&url, Method::Post, Some(body), Some(self.wait_ms)).map_err(|_| IoError)?;
+        let h = req.inner().headers();
+        h.set("Content-Type", "application/json").map_err(|_| IoError)?;
+        h.set("Authorization", &format!("Bearer {token}")).map_err(|_| IoError)?;
+        let mut res = worker::Fetch::Request(req).send().await.map_err(|_| IoError)?;
+        let ok = (200..300).contains(&res.status_code());
+        cf_io::discard(&mut res);
+        if ok { Ok(true) } else { Err(IoError) }
+    }
+
     /// The absolute deadline of a call starting now (the R2 helpers' form).
     fn until(&self) -> Option<u64> {
         Some(cf_io::now_ms().saturating_add(self.wait_ms))
@@ -240,6 +255,11 @@ struct PurgeBody<'a> {
     files: &'a [String],
 }
 
+#[derive(serde::Serialize)]
+struct PurgeTagsBody<'a> {
+    tags: &'a [String],
+}
+
 impl Io for CfStore<'_> {
     fn now_ms(&self) -> u64 {
         cf_io::now_ms()
@@ -310,17 +330,16 @@ impl Io for CfStore<'_> {
     }
 
     async fn cache_purge(&self, urls: &[String]) -> Result<bool, IoError> {
-        let (Ok(token), Some(zone)) = (self.env.secret(PURGE_TOKEN), self.var(PURGE_ZONE)) else { return Ok(false) };
-        let url = format!("https://api.cloudflare.com/client/v4/zones/{zone}/purge_cache");
         let text = serde_json::to_string(&PurgeBody { files: urls }).map_err(|_| IoError)?;
-        let req = cf_io::internal_request(&url, Method::Post, Some(&text), Some(self.wait_ms)).map_err(|_| IoError)?;
-        let h = req.inner().headers();
-        h.set("Content-Type", "application/json").map_err(|_| IoError)?;
-        h.set("Authorization", &format!("Bearer {token}")).map_err(|_| IoError)?;
-        let mut res = worker::Fetch::Request(req).send().await.map_err(|_| IoError)?;
-        let ok = (200..300).contains(&res.status_code());
-        cf_io::discard(&mut res);
-        if ok { Ok(true) } else { Err(IoError) }
+        self.zone_purge(&text).await
+    }
+
+    async fn cache_purge_tags(&self, tags: &[String]) -> Result<bool, IoError> {
+        if tags.is_empty() {
+            return Ok(true);
+        }
+        let text = serde_json::to_string(&PurgeTagsBody { tags }).map_err(|_| IoError)?;
+        self.zone_purge(&text).await
     }
 
     async fn relay_legal(&self, body: Vec<u8>) -> Result<(), IoError> {

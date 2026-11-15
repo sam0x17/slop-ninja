@@ -17,7 +17,9 @@
 use slop_ninja_detect_page::api::StateAnswer;
 use slop_ninja_detect_page::card::Card;
 use slop_ninja_detect_page::codes::{DetState, ExampleSource, Kind, RemovalScope};
-use slop_ninja_detect_page::internal::{ExampleEntry, ExamplesAnswer, MonthlyCount, RemovalEntry, RemovalsAnswer};
+use slop_ninja_detect_page::internal::{
+    ExampleEntry, ExamplesAnswer, MonthlyCount, PagesSwitchAnswer, RemovalEntry, RemovalsAnswer,
+};
 use slop_ninja_detect_page::page::{JobProgress, Page, Removal};
 use slop_ninja_detect_page::refusal::RefusalCode;
 
@@ -112,7 +114,20 @@ async fn secret(io: &impl Io, keys: Keys<'_>, serving: &Serving, slug: &str) -> 
     let input = paid_input.as_ref().or(doc.as_ref().map(|d| &d.result_full));
     let receipt = receipt_for(io, state, input).await;
     let ctx = PageCtx { serving, switches: sw, now, receipt };
-    secret_page(slug, &found.row, doc.as_ref(), job, &ctx)
+    secret_page(slug, &found.row, doc.as_ref(), job, &ctx).map(|p| tagged(p, &found.row.id_h))
+}
+
+/// A stored page with its cache tag ([`crate::purge::cache_tag`]).
+fn tagged(mut p: Page, id_h: &crate::keys::Bytes32) -> Page {
+    p.cache_tag = Some(crate::purge::cache_tag(id_h));
+    p
+}
+
+/// `GET /internal/v1/pages_switch`: whether stored pages may be served
+/// (`DETECT_PAGES`, its var AND its row; the var alone when the rows
+/// cannot be read). Writes nothing.
+pub async fn pages_switch(io: &impl Io) -> PagesSwitchAnswer {
+    PagesSwitchAnswer { on: crate::lookup::read_switches(io).await.on(io, "DETECT_PAGES") }
 }
 
 async fn public(io: &impl Io, serving: &Serving, slug: &str) -> Result<Page, RefusalCode> {
@@ -163,7 +178,7 @@ async fn public(io: &impl Io, serving: &Serving, slug: &str) -> Result<Page, Ref
     }
     let receipt = receipt_for(io, state, doc.as_ref().map(|d| &d.result_full)).await;
     let ctx = PageCtx { serving, switches: sw, now, receipt };
-    public_page(slug, &row, &ex, doc.as_ref(), &ctx)
+    public_page(slug, &row, &ex, doc.as_ref(), &ctx).map(|p| tagged(p, &row.id_h))
 }
 
 /// The unstored result (`kind = unstored`) of an opened seal. It renders

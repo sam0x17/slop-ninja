@@ -113,6 +113,10 @@ pub struct Card {
     /// A paid document's section bands, in order (the ladder).
     #[serde(default)]
     pub ladder: Vec<Band>,
+    /// The page's cache tag ([`crate::Page::cache_tag`]), under which the
+    /// website stores the card's image. Not drawn.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cache_tag: Option<String>,
 }
 
 /// Why a page has no card.
@@ -242,6 +246,7 @@ impl Card {
                 free_cut_note: None,
                 document_note: Some(document_note(run.total_words, s.document.total_sections)),
                 ladder: s.items.iter().map(|x| x.band).collect(),
+                cache_tag: page.cache_tag.clone(),
             });
         }
         let (variant, headline) = match (run.band, run.short) {
@@ -265,6 +270,7 @@ impl Card {
             free_cut_note,
             document_note: None,
             ladder: Vec::new(),
+            cache_tag: page.cache_tag.clone(),
         })
     }
 
@@ -276,6 +282,7 @@ impl Card {
         need(clean(&self.source_label, MAX_SOURCE_LABEL), "source_label")?;
         need(clean(&self.headline, MAX_HEADLINE) && !self.headline.is_empty(), "headline")?;
         need(clean(&self.model_line, MAX_MODEL_LINE), "model_line")?;
+        need(self.cache_tag.as_deref().is_none_or(crate::page::cache_tag_ok), "cache_tag")?;
         for f in [&self.confidence_text, &self.share_text].into_iter().flatten() {
             need(clean(f, MAX_FIGURE), "figure")?;
         }

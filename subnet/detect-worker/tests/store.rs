@@ -387,6 +387,7 @@ fn delete_by_token_tombstones_the_row_and_its_document() {
         let mut f = fixture("21-secret-deleted");
         f.slug = Some(slug.clone());
         f.created_at = p.created_at;
+        f.cache_tag = p.cache_tag.clone();
         f
     });
     // A second delete answers the page's state.
@@ -703,6 +704,57 @@ fn an_owner_purge_deletes_or_releases_only_that_owners_pages() {
     assert_eq!(block_on(consume(&w.h, &w.store, &r)), Ack::Done);
     assert_eq!(state_of(&w, &theirs), "live");
     assert_eq!(w.h.count("SELECT count(*) FROM detections WHERE owner_h IS NOT NULL"), 0);
+}
+
+/// A page an account's deletion ends leaves the page cache at once
+/// (its cache tag is purged); a released page keeps its copies.
+#[test]
+fn an_owner_purge_purges_the_cached_copies_of_the_pages_it_ends() {
+    let w = World::new();
+    w.h.purge_token.set(true);
+    let (mine, _) = make_link(&w, "l", Expiry::Keep, Some(principal(1)));
+    let (theirs, _) = make_link(&w, "l", Expiry::Keep, Some(principal(2)));
+    let m = QueueMessage::new(Job::OwnerPurge { user_id: UserId([1; 16]), mode: PurgeMode::Delete });
+    assert_eq!(block_on(consume(&w.h, &w.store, &m)), Ack::Done);
+    assert_eq!(*w.h.purged_tags.borrow(), vec![slop_ninja_detect_worker::purge::cache_tag(&id_of(&w, &mine))]);
+    let r = QueueMessage::new(Job::OwnerPurge { user_id: UserId([2; 16]), mode: PurgeMode::Release });
+    assert_eq!(block_on(consume(&w.h, &w.store, &r)), Ack::Done);
+    assert_eq!(state_of(&w, &theirs), "live");
+    assert_eq!(w.h.purged_tags.borrow().len(), 1, "a release changes no page");
+}
+
+/// The page and card answers of a stored page carry its cache tag, and
+/// a delete by its manage token purges that tag at once.
+#[test]
+fn a_stored_page_carries_its_cache_tag_and_a_delete_purges_it() {
+    let w = World::new();
+    w.h.purge_token.set(true);
+    let (slug, t) = make_link(&w, "load-new", Expiry::Keep, None);
+    let tag = slop_ninja_detect_worker::purge::cache_tag(&id_of(&w, &slug));
+    let p = page(&w, &slug).unwrap();
+    assert_eq!(p.cache_tag.as_deref(), Some(tag.as_str()));
+    p.check().unwrap();
+    let card = block_on(reads::card(&w.h, w.keys(), &w.serving, &slug)).unwrap();
+    assert_eq!(card.cache_tag.as_deref(), Some(tag.as_str()));
+    card.check().unwrap();
+    assert!(w.h.purged_tags.borrow().is_empty());
+    block_on(manage(&w.h, w.keys(), &w.origins, &mreq(&slug, &t, ManageAction::Delete, None))).unwrap();
+    assert_eq!(*w.h.purged_tags.borrow(), vec![tag]);
+}
+
+/// The website asks whether stored pages may be served before it
+/// serves one from its cache: `DETECT_PAGES`, its var AND its row.
+#[test]
+fn the_pages_switch_answers_the_var_and_the_row() {
+    let w = World::new();
+    let on = || block_on(reads::pages_switch(&w.h)).on;
+    assert!(on());
+    apply(&w, store_ops::set_switch("DETECT_PAGES", "off", 1).unwrap());
+    assert!(!on());
+    apply(&w, store_ops::set_switch("DETECT_PAGES", "on", 2).unwrap());
+    assert!(on());
+    w.h.vars.borrow_mut().insert("DETECT_PAGES".into(), "off".into());
+    assert!(!on(), "the var is the hard off");
 }
 
 #[test]

@@ -137,6 +137,18 @@ pub struct ExampleRequest {
     pub slot: u8,
 }
 
+/// `GET /internal/v1/pages_switch`: whether stored pages may be served, the
+/// effective state of `DETECT_PAGES` (its var AND its `switches` row; the
+/// var alone when the row cannot be read). The website asks before it
+/// serves any page from its page cache, so the emergency switch reaches a
+/// cached page on its next view; a page it fetches answers `pages_off`
+/// itself. The other switches reach a cached page within the cache's
+/// lifetime (`PAGE_CACHE_S`).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PagesSwitchAnswer {
+    pub on: bool,
+}
+
 /// `GET /internal/v1/removals`: the public removal record.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct RemovalsAnswer {

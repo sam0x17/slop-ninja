@@ -370,6 +370,10 @@ pub(crate) async fn internal(mut req: Request, env: &Env) -> web_sys::Response {
             let Some(io) = CfStore::new(env, waits(env).hold_ms) else { return refuse(RefusalCode::NotConfigured) };
             answer_of(reads::removals(&io).await)
         }
+        InternalRoute::PagesSwitch => {
+            let Some(io) = CfStore::new(env, waits(env).hold_ms) else { return refuse(RefusalCode::NotConfigured) };
+            ok(&reads::pages_switch(&io).await)
+        }
         InternalRoute::Sitemap => {
             let Some(io) = CfStore::new(env, waits(env).hold_ms) else { return refuse(RefusalCode::NotConfigured) };
             match reads::sitemap_shard(&io, shard.unwrap_or_default()).await {

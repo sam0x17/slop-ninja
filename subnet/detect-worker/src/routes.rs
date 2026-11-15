@@ -784,6 +784,8 @@ mod tests {
         assert_eq!(internal_route("POST", "/internal/v1/owner"), Ok((I::Owner, None)));
         assert_eq!(internal_route("GET", "/internal/v1/examples"), Ok((I::Examples, None)));
         assert_eq!(internal_route("GET", "/internal/v1/removals"), Ok((I::Removals, None)));
+        assert_eq!(internal_route("GET", "/internal/v1/pages_switch"), Ok((I::PagesSwitch, None)));
+        assert_eq!(internal_route("POST", "/internal/v1/pages_switch"), Err(RefusalCode::Method));
         assert_eq!(internal_route("GET", "/internal/v1/sitemap/0"), Ok((I::Sitemap, Some(0))));
         assert_eq!(internal_route("GET", "/internal/v1/sitemap/12"), Ok((I::Sitemap, Some(12))));
         assert_eq!(internal_route("GET", "/internal/v1/page"), Err(RefusalCode::Method));

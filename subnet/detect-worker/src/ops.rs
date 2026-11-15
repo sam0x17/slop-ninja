@@ -389,8 +389,14 @@ async fn dispatch<A: Accounts>(io: &impl Io, ctx: &OpCtx<'_, A>, o: &Op<'_>, nam
             let done = apply(io, o, store_ops::delete_private(&id, o.now)).await?;
             let deleted = done.get(1).map_or(0, |d| d.changes);
             let empty = crate::db::Done::default();
-            let keys = store_ops::delete_private_docs(&id, done.get(2).unwrap_or(&empty));
+            let copies = done.get(2).unwrap_or(&empty);
+            let keys = store_ops::delete_private_docs(&id, copies);
             let docs_pending = u64::from(deleted > 0 && crate::db::delete_docs(io, &keys).await.is_err());
+            if deleted > 0 {
+                let mut ended = vec![id.0];
+                ended.extend(copies.rows.iter().filter_map(|r| r.hex32("id_h")));
+                crate::purge::purge_pages(io, &ended).await;
+            }
             Ok(json!({"deleted": deleted, "docs_pending": docs_pending}))
         }
         "purge" => {

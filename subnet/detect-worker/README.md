@@ -152,10 +152,30 @@ the Cloudflare glue in `cf_store.rs` and the routes in `cf_routes.rs`:
   secret page's re-run: the same cut, ticket class and lane as a paste, and
   counted like one) and `/state` (a pending public page's poll);
 - the binding-only `/internal/v1/` routes: `page`, `preview`, `card`,
-  `states`, `owner`, `examples`, `example`, `sitemap/<n>` and `removals`;
+  `states`, `owner`, `examples`, `example`, `sitemap/<n>`, `removals` and
+  `pages_switch`;
 - the `detect-jobs` consumer (one message per invocation; purges, owner
   purges and re-keys, legal notices, sitemap marks) and the hourly cron
   (expiry, the orphan backstop, stale claims, sitemap shards).
+
+**The page cache** (`purge.rs`). The website and the secret host keep a
+rendered page, a 410 and a 451 in their page cache (the Cache API, per data
+center) for up to `PAGE_CACHE_S`. Every page and card answer of a stored
+page carries its cache tag (`cache_tag`: `snp1-` and 16 bytes of a hash of
+the page's store id, so it names neither a slug nor the text), and the
+website stores each copy of the page, its X widget route and its card under
+it. A removal (a case's, the operator's, an X removal), a restore, a case's
+disable, the other case steps that change what a page shows (a withheld
+excerpt, a reject that returns a page), a delete by the page's owner (the
+manage page, the account's list, the account's deletion) and
+`delete_private` purge the tags of every page they changed at once, in the
+same invocation, through the zone's purge by tag (`CACHE_PURGE_TOKEN` and
+`CACHE_PURGE_ZONE`). Without them nothing is purged and the cache's lifetime
+bounds the delay; a refused purge writes `error {purge}`. Switch flips are
+not purged: the website asks `GET /internal/v1/pages_switch` (`DETECT_PAGES`,
+the emergency switch, its var AND its row) before it serves any cached
+page, and the other switches reach a page already in the cache within
+`PAGE_CACHE_S`.
 
 A secret page's text is stored only in R2, encrypted under a key derived
 from its own slug and the slug pepper (`DETECT_SLUG_PEPPER_V1`), so the
@@ -200,7 +220,17 @@ the `ACCOUNT` binding; at launch only operator grants back it.
   job runs on a hold a give-back or the sweep released.
 - `POST /api/detect/v1/job` (the secret host): an NDJSON stream of job lines
   while one driver at a time scores the sections, fenced by a lease token
-  (CLAIM, RENEW, ADVANCE, SCORED). Each section takes a gate ticket of class
+  (CLAIM, RENEW, ADVANCE, SCORED). The lease is a heartbeat
+  (`job_lease_ms`, two holds): the driver renews it every beat (half a
+  hold), also while a section scores, so a driver whose invocation ended
+  gives the job up within one lease. An open that finds the lease held
+  attaches: it streams the holder's progress, asks again every beat, takes
+  the job over in the same stream once the lease is free, and shows the
+  result when the job ends. A reload mid-job therefore resumes within a
+  lease and a beat, and the job route's invocation runs on past its
+  reader's leaving within the platform's grace (`waitUntil`), so the old
+  driver can end the section it was scoring and let its lease go at once.
+  Each section takes a gate ticket of class
   `paid` keyed by the page's owner hash and is counted on channel
   `paid_page` as an operation, never as pot basis. The page goes live in the
   SCORED batch, which runs only while the page is still pending (a page
@@ -396,6 +426,8 @@ Every wait is bounded, and nothing needs an operator to recover
 | `QUEUE_HOLD_MS` | 20 s | the shortest waiting ask (its call gets two holds; the gate scales it with the place in line), the score path's other internal calls, each line written to the reader |
 | `BODY_WAIT_MS` | 300 s | a score request's body arriving whole; meanwhile it holds only its intake reservation |
 | scan lease | derived: the three waits plus one hold | an admitted ticket at the gate |
+| `IDLE_MS` | 600 s | how long the lane keeps its instance after the last scan (or after starting one no scan has used) |
+| job lease | derived: two holds, renewed every half hold | a paid job's driver; a reload takes the job over within one lease and a beat |
 
 - The lane works within the time the Worker sends: what is left of the
   three waits since the ticket's admission. Every instance call, health
@@ -405,9 +437,24 @@ Every wait is bounded, and nothing needs an operator to recover
   lane may still be busy.
 - A score call that outlasts `SCORE_WAIT_MS` destroys the instance. A
   failed call destroys it unless it still reports the package ready (then
-  only the request failed). A start or load that fails destroys it, and new
-  starts back off from `SCORER_START_WAIT_MS`, doubling, never past the idle
-  timeout.
+  only the request failed). A start or load that fails destroys it. A fresh
+  start that fails is tried once more in the same request, after a short
+  pause and within its deadline, unless a new instance would fail the same
+  way (the build identity, the sessions and threads, the spec, the
+  package's manifest, a definitive refusal); only then does the reader see
+  `restarting`, and new starts back off from `SCORER_START_WAIT_MS`,
+  doubling, never past the idle timeout.
+- The lane keeps its instance for `IDLE_MS` after the last scan, or after
+  its start when no scan has used it yet (`lane.rs`). It does not rely on
+  the runtime's sleep timer alone: while it keeps an instance, its alarm
+  runs at least every 5 s (half the 10 s after which the platform may evict
+  an idle Durable Object, and an eviction can end the instance), sets the
+  Container's inactivity timeout to the time left (only once the instance
+  answers its health check) and asks the instance's health; the run after
+  the time is up destroys the instance. The time is the idle timeout plus
+  one hold from the scan's end, so the gate, which counts the instance
+  awake for the idle timeout from the scan's done report, never counts an
+  instance the lane has let go. Warms never extend it.
 - The instance starts with Internet access off and its sessions and
   threads in its environment (`A_SESSIONS` 1, `A_THREADS` 2), passed to
   the Container's `start` as a plain object (`lane.rs`). An instance whose

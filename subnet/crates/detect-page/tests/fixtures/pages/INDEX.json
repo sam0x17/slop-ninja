@@ -30,14 +30,14 @@
   "05-public-unranked": {
     "ad_page_kind": "public_result",
     "canonical": "k7m2xq9",
-    "robots": "noindex",
+    "robots": "index",
     "shows": "public_url unranked: no title or excerpt, address unlinked",
     "status": 200
   },
   "06-public-source-gone": {
     "ad_page_kind": "public_result",
     "canonical": "k7m2xq9",
-    "robots": "noindex",
+    "robots": "index",
     "shows": "source gone: score and positions stay, excerpt goes",
     "status": 200
   },
@@ -93,8 +93,8 @@
   "14-bluesky-post": {
     "ad_page_kind": "public_result",
     "canonical": "k7m2xq9",
-    "robots": "noindex",
-    "shows": "public_url Bluesky post: short text, noindex",
+    "robots": "index",
+    "shows": "public_url Bluesky post: short text, indexed",
     "status": 200
   },
   "15-secret-text": {
@@ -198,8 +198,8 @@
   "29-x-post-short": {
     "ad_page_kind": "x_post",
     "canonical": "x4m8q2t",
-    "robots": "noindex",
-    "shows": "X post under 150 words: short gauge, View on X, no text body, noindex",
+    "robots": "index",
+    "shows": "X post under 150 words: short gauge, View on X, no text body, indexed",
     "status": 200
   },
   "32-x-post-removed": {

@@ -201,6 +201,28 @@ the emergency switch, its var AND its row) before it serves any cached
 page, and the other switches reach a page already in the cache within
 `PAGE_CACHE_S`.
 
+**Search indexing** (`index_gates.rs`, `index-gates/v2`). Whether a page
+can be indexed follows from how its text arrived, never from what the text
+says: a check of a public page's URL makes a public page, and pasted text
+makes a secret page, even when its words are a public page's. Every live
+public page is indexable, listed in a sitemap shard and announced through
+IndexNow, with `rel=canonical` to itself (or to the newest page of its
+source), whatever its length or platform (a web page, a Bluesky post, a
+post on X) and whatever its ranking or what the display policy narrows. Only a consent, legal or safety limit keeps a page
+`noindex`, out of the shards and unannounced: the page is not live
+(pending, failed, an excerpt withheld, removed, disabled, deleted, or an X
+page under `DETECT_X = purged`); its source opted out or asks not to be
+indexed (`opted_out`, `unlisted`; a fetch that meets such a request ends
+`private_source` and never goes live); its host has an opt-out row; or
+1.1.1.1 for Families blocks its domain (malware and adult content), which
+only the operator's `index_force = on` lifts for one page. `DETECT_INDEX`
+off and `index_force = off` keep every page, or one page, out. Secret pages
+are always `noindex, nofollow, noarchive, nosnippet, noimageindex`, in no
+shard and never announced. The shard query is the render rule in SQL (a
+test sets every combination of the gates' inputs on a web page, a Bluesky
+post and a post on X and compares the two), and a rebuild under other
+switches or another gates version re-marks every shard.
+
 A secret page's text is stored only in R2, encrypted under a key derived
 from its own slug and the slug pepper (`DETECT_SLUG_PEPPER_V1`), so the
 store's rows hold nothing of it but the text's keyed address. The save

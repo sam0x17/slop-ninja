@@ -529,12 +529,21 @@ pub struct Deleted {
     pub docs: usize,
 }
 
+/// Marks the sitemap shards of the pages `?1` (a JSON array of public
+/// slugs) for the next rebuild, which drops a page that is no longer live.
+pub const MARK_SLUG_SHARDS: &str = "INSERT INTO sitemap_shards (shard, dirty, urls, built_at) \
+SELECT DISTINCT sitemap_seq / CAST(?2 AS INTEGER), 1, 0, NULL FROM detections \
+WHERE public_slug IN (SELECT value FROM json_each(?1)) AND sitemap_seq IS NOT NULL \
+ON CONFLICT (shard) DO UPDATE SET dirty = 1";
+
 /// The D1 statements of deleting `ids` by `cause` (step 3), with the run
-/// ids step 1 read.
-pub fn delete_stmts(ids: &[u64], runs: &[u64], cause: Cause, now: u64) -> Vec<Stmt> {
+/// ids and page slugs step 1 read. The first statement moves the pages
+/// (`cases::x_removal` reads its count); the last marks their sitemap
+/// shards.
+pub fn delete_stmts(ids: &[u64], runs: &[u64], slugs: &[String], cause: Cause, now: u64) -> Vec<Stmt> {
     let set = Val::text(json_ids(ids));
     let runs = Val::text(json_ids(runs));
-    let mut v = Vec::with_capacity(6);
+    let mut v = Vec::with_capacity(7);
     match cause {
         Cause::Removed => {
             v.push(Stmt::new(REMOVE_DETECTIONS, vec![set.clone(), Val::int(now)]));
@@ -554,6 +563,8 @@ pub fn delete_stmts(ids: &[u64], runs: &[u64], cause: Cause, now: u64) -> Vec<St
             v.push(Stmt::owned(delete_sources(cause), vec![set]));
         }
     }
+    let slugs = serde_json::to_string(slugs).unwrap_or_else(|_| "[]".to_owned());
+    v.push(Stmt::new(MARK_SLUG_SHARDS, vec![Val::text(slugs), Val::int(crate::sitemap::SHARD_URLS)]));
     v
 }
 
@@ -605,7 +616,7 @@ pub async fn delete_set_with(
     let keys: Vec<String> = runs.iter().map(|r| run_doc_key(*r)).collect();
     delete_docs(io, &keys).await?;
     let mut batch = before;
-    batch.extend(delete_stmts(ids, &runs, cause, now));
+    batch.extend(delete_stmts(ids, &runs, &slugs, cause, now));
     batch.extend(after);
     let done = io.batch(batch).await?;
     Ok((Deleted { slugs, docs: keys.len() }, done))

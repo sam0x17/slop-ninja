@@ -74,7 +74,8 @@
 //!    shows gets `fetched_at = 0`, so the next sweep checks and deletes it;
 //! 5. the text is scored like any URL text, and the run document holds the
 //!    document-level result only; the source keeps the post's canonical URL,
-//!    `reputation = 'ranked'`, `fetched_at` now. No sitemap, no IndexNow;
+//!    `reputation = 'ranked'`, `fetched_at` now. The page takes its sitemap
+//!    position and an IndexNow ping is queued, as for a web page;
 //! 6. the page goes live only on the post's live source: a removal
 //!    (the form, `remove` or `x_remove`) that left the tombstone while the
 //!    check ran makes the same batch end the page `failed` (`x_removed`)
@@ -649,8 +650,7 @@ async fn drive_page(
         last_modified: answer.last_modified.clone(),
         aliases: page.aliases.clone(),
     };
-    let web = kind == SourceKind::Web;
-    let fence = Fence::Page { submitted: submitted_key, host: domain.0, adapter: domain.1, sitemap: web };
+    let fence = Fence::Page { submitted: submitted_key, host: domain.0, adapter: domain.1 };
     let stored = store(
         io,
         ctx,
@@ -670,14 +670,7 @@ async fn drive_page(
     }
     match stored {
         Ok(Stored::Live) => {
-            if web {
-                let _ = io
-                    .enqueue(vec![QueueMessage::new(Job::Indexnow {
-                        public_slug: held.slug.clone(),
-                        change: slop_ninja_detect_page::codes::IndexChange::Updated,
-                    })])
-                    .await;
-            }
+            announce(io, held).await;
             Ok(())
         }
         Ok(Stored::Blocked) => Err(Stop::Ended(RefusalCode::RerunBlocked)),
@@ -687,6 +680,19 @@ async fn drive_page(
         // ours, else the taker finishes it.
         Err(IoError) => Err(RefusalCode::Unavailable.into()),
     }
+}
+
+/// Queues the IndexNow ping of a page that went live (a web page, a
+/// Bluesky post or a post on X). The consumer pings only while the page
+/// reads `index` ([`crate::indexnow::announce`]); a failed enqueue leaves
+/// the sitemap to carry the page.
+async fn announce(io: &impl Io, held: &Held) {
+    let _ = io
+        .enqueue(vec![QueueMessage::new(Job::Indexnow {
+            public_slug: held.slug.clone(),
+            change: slop_ninja_detect_page::codes::IndexChange::Updated,
+        })])
+        .await;
 }
 
 /// The adapter name of a link's domain-only source.
@@ -883,8 +889,8 @@ enum Fence<'a> {
     /// source the submitted link names may be `opted_out` or have a page
     /// under a legal state ([`BLOCKING_PAGE`]). A blocked page ends
     /// `failed` (`rerun_blocked`) with its domain-only source (`host`,
-    /// `adapter`). `sitemap`: the page takes a sitemap position (web only).
-    Page { submitted: &'a str, host: &'a str, adapter: &'a str, sitemap: bool },
+    /// `adapter`).
+    Page { submitted: &'a str, host: &'a str, adapter: &'a str },
     /// A post on X: the source must be the live post, not the removal
     /// tombstone. A blocked page ends `failed` (`x_removed`) with no source.
     X,
@@ -996,7 +1002,7 @@ SELECT ?3, ?4, ?5, ?6, ?7, ?8, '{CANON_V}', ?9, '{}', ?10, ?11, ?12, ?13, ?14, ?
 }
 
 /// The page goes live unless the fence stops it: its run and source, its
-/// sitemap position (web pages only), older live pages of the source
+/// sitemap position (every public page), older live pages of the source
 /// superseded and their shards marked dirty, the claim deleted; then the
 /// page's state, read back. A blocked page ends `failed` in the same batch
 /// and the run this batch inserted (`new_run`) is deleted. Returns the
@@ -1013,8 +1019,7 @@ fn go_live(
     now: u64,
     fence: Fence<'_>,
 ) -> (Vec<Stmt>, usize, usize) {
-    let sitemap = matches!(fence, Fence::Page { sitemap: true, .. });
-    let seq = if sitemap { "(SELECT coalesce(max(sitemap_seq), -1) + 1 FROM detections)" } else { "NULL" };
+    let seq = "(SELECT coalesce(max(sitemap_seq), -1) + 1 FROM detections)";
     let mut live_vals = vec![
         ck.clone(),
         tok.clone(),
@@ -1240,7 +1245,10 @@ state = 'ok', reputation = 'ranked' WHERE sources.adapter = 'x' AND sources.cano
         let _ = io.doc_delete(&[run_doc_key(run_id)]).await;
     }
     match stored {
-        Ok(Stored::Live) => Ok(()),
+        Ok(Stored::Live) => {
+            announce(io, held).await;
+            Ok(())
+        }
         // A removal left the tombstone while the post was read, or X posts
         // were purged (whose pages answer `x_purged` anyway).
         Ok(Stored::Blocked) => Err(Stop::Ended(RefusalCode::XRemoved)),

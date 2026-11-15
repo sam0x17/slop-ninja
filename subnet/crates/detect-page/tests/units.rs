@@ -543,8 +543,10 @@ fn x_pages_keep_their_invariants() {
         let p = fixture(name);
         assert!(p.check().is_ok(), "{name}");
         assert!(p.is_x_post(), "{name}");
-        // No text body, anchors, quote or embed; never indexed; no ad slot.
-        assert!(p.text.is_none() && p.robots == Robots::Noindex, "{name}");
+        // No text body, anchors, quote or embed; indexed only while live;
+        // no ad slot.
+        assert!(p.text.is_none(), "{name}");
+        assert_eq!(p.robots == Robots::Index, p.state == DetState::Live, "{name}");
         assert!(p.ads_forbidden() && p.ad_page_kind() == "x_post", "{name}");
         assert!(p.run.as_ref().is_none_or(|r| r.spans.is_empty() && r.spans_note == Some(SpansNote::XPost)));
         let keys: Vec<String> =
@@ -605,9 +607,13 @@ fn check_refuses_broken_x_pages() {
         withheld_reason: Some(WithheldReason::Unranked),
     });
     refused(p, "an X page has no anchors");
+    // A live X page is indexed like any public page; an ended one never.
     let mut p = fixture("29-x-post-short");
+    p.robots = Robots::Noindex;
+    assert!(p.check().is_ok(), "a live X page may be noindex (a switch or an override)");
+    let mut p = fixture("33-x-post-gone");
     p.robots = Robots::Index;
-    refused(p, "an X page is noindex");
+    refused(p, "only live pages are indexed");
     let mut p = fixture("29-x-post-short");
     p.run.as_mut().unwrap().spans = vec![Span { start: 0, end: 10, words: 30, confidence: None }];
     refused(p, "an X page draws no passage");

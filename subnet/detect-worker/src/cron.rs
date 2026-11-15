@@ -21,7 +21,8 @@
 //!   Worker's own cron handler.
 //! - **Claims.** Claims past their lease are deleted; a pending page with no
 //!   live claim offers "Run it".
-//! - **Sitemaps.** Dirty shards are rebuilt ([`crate::sitemap`]).
+//! - **Sitemaps.** Dirty shards are rebuilt ([`crate::sitemap`], which reads
+//!   `DETECT_INDEX` and `DETECT_X` itself).
 //!
 //! Counters are not cron work: the gate's alarm flushes them.
 
@@ -173,7 +174,7 @@ pub async fn backstop(io: &impl Io, prefix: &str, now: u64) -> Result<u64, IoErr
 
 /// The hourly store work. Each part runs even when an earlier one failed;
 /// the first error is returned after all of them ran.
-pub async fn hourly(io: &impl Io, origins: &Origins, index_on: bool) -> Result<Hourly, IoError> {
+pub async fn hourly(io: &impl Io, origins: &Origins) -> Result<Hourly, IoError> {
     let now = io.now_ms();
     let mut h = Hourly::default();
     let mut first_err = None;
@@ -226,7 +227,7 @@ pub async fn hourly(io: &impl Io, origins: &Origins, index_on: bool) -> Result<H
     {
         first_err.get_or_insert(e);
     }
-    match crate::sitemap::rebuild(io, origins, index_on).await {
+    match crate::sitemap::rebuild(io, origins).await {
         Ok(n) => h.shards = n,
         Err(e) => {
             first_err.get_or_insert(e);

@@ -447,7 +447,7 @@ fn claim_check_and_no_page_ends_by_time() {
     assert_eq!((c.ok, c.state), (true, DetState::Live));
     // A year later the page is as it was, and the hourly work ends nothing.
     w.h.advance(365 * DAY);
-    block_on(cron::hourly(&w.h, &w.origins, true)).unwrap();
+    block_on(cron::hourly(&w.h, &w.origins)).unwrap();
     assert_eq!(page(&w, &slug).unwrap().state, DetState::Live);
     let c = block_on(manage(&w.h, w.keys(), &w.origins, &mreq(&slug, &t, ManageAction::ClaimCheck))).unwrap();
     assert!(c.ok);
@@ -658,10 +658,10 @@ fn the_pending_sweep_ends_stale_claims_only() {
         .unwrap();
     block_on(slop_ninja_detect_worker::db::Io::doc_put(&w.h, &secret_doc_key(&stale), vec![1])).unwrap();
     // Young: left alone.
-    let h = block_on(cron::hourly(&w.h, &w.origins, true)).unwrap();
+    let h = block_on(cron::hourly(&w.h, &w.origins)).unwrap();
     assert_eq!(h.stale_pending, 0);
     w.h.advance(cron::BACKSTOP_MIN_AGE_MS + 1);
-    let h = block_on(cron::hourly(&w.h, &w.origins, true)).unwrap();
+    let h = block_on(cron::hourly(&w.h, &w.origins)).unwrap();
     assert_eq!(h.stale_pending, 1);
     let (state, seal): (String, Option<Vec<u8>>) =
         w.h.db
@@ -688,13 +688,13 @@ fn the_hourly_cron_counts_the_claims_it_releases() {
         f = "06".repeat(32),
         later = w.h.now.get() + 60_000,
     ));
-    let h = block_on(cron::hourly(&w.h, &w.origins, true)).unwrap();
+    let h = block_on(cron::hourly(&w.h, &w.origins)).unwrap();
     assert_eq!(h.claims, 2);
     // `job {claim_expired}`: the claims released past their lease, as one
     // count.
     assert_eq!(w.h.doubles_of("job", "claim_expired"), vec![2.0]);
     // A run that releases none writes no point.
-    block_on(cron::hourly(&w.h, &w.origins, true)).unwrap();
+    block_on(cron::hourly(&w.h, &w.origins)).unwrap();
     assert_eq!(w.h.doubles_of("job", "claim_expired").len(), 1);
     assert_eq!(w.h.count("SELECT count(*) FROM claims"), 1);
 }
@@ -711,7 +711,7 @@ fn the_backstop_deletes_orphans_only() {
     w.h.advance(2 * 3_600_000);
     block_on(slop_ninja_detect_worker::db::Io::doc_put(&w.h, &format!("p/{}", "ef".repeat(32)), vec![1])).unwrap();
     w.h.list_page.set(1);
-    let h = block_on(cron::hourly(&w.h, &w.origins, true)).unwrap();
+    let h = block_on(cron::hourly(&w.h, &w.origins)).unwrap();
     let keys: Vec<String> = w.h.docs.borrow().keys().cloned().collect();
     assert!(keys.contains(&secret_doc_key(&id_of(&w, &live))));
     assert!(keys.contains(&format!("p/{}", "ef".repeat(32))), "young objects stay");
@@ -719,7 +719,7 @@ fn the_backstop_deletes_orphans_only() {
     // cursor is kept for the next run.
     let ck: i64 = w.h.count("SELECT count(*) FROM schema_info WHERE k LIKE 'cron.backstop.%'");
     assert!(ck <= 1);
-    let h2 = block_on(cron::hourly(&w.h, &w.origins, true)).unwrap();
+    let h2 = block_on(cron::hourly(&w.h, &w.origins)).unwrap();
     assert_eq!(h.orphans + h2.orphans, 3);
     let keys: Vec<String> = w.h.docs.borrow().keys().cloned().collect();
     assert_eq!(keys.len(), 2, "{keys:?}");
@@ -993,7 +993,7 @@ VALUES (?1, 'https://a.example/x', 'a.example', 'web', 'ok', ?2, 'v1')",
         )
         .unwrap();
     let source_id = w.h.db.last_insert_rowid();
-    // A long-form run (index gate 1), so the source's own gates decide.
+    // A run for the page (the index gates read nothing of it).
     w.h.db
         .execute(
             "INSERT INTO runs (run_id, package_load, package_pub, package_label, policy_v, canon_v, display_v, \
@@ -1014,29 +1014,67 @@ VALUES (?1, ?2, 'public_url', ?3, ?4, 1, 1795169040000, ?5, ?6, ?7, ?6)",
 #[test]
 fn sitemap_shards_list_indexable_public_pages_only() {
     let w = World::new();
+    w.h.vars.borrow_mut().insert("DETECT_INDEX".into(), "on".into());
     public_row(&w, "k7m2xq9", 1, "live", "web", "ranked", None);
     public_row(&w, "p4r8tz2", 2, "live", "web", "unranked", None);
-    public_row(&w, "a1b2c3d", 3, "live", "web", "unranked", Some("on"));
+    public_row(&w, "a1b2c3d", 3, "live", "web", "adult", Some("on"));
     public_row(&w, "e4f5g6h", 4, "removed", "web", "ranked", None);
     public_row(&w, "j7k8m9n", 5, "live", "bluesky", "ranked", None);
     public_row(&w, "q2r3s4t", 6, "live", "web", "ranked", Some("off"));
+    public_row(&w, "r5s6t7v", 7, "live", "web", "adult", None);
+    public_row(&w, "w8x9y2z", 8, "excerpt_withheld", "web", "ranked", None);
+    public_row(&w, "b3c4d5e", 9, "live", "x", "ranked", None);
     let (secret, _) = make_link(&w, "l", None);
     let m = QueueMessage::new(Job::SitemapDirty { shard: 0 });
     assert_eq!(block_on(consume(&w.h, &w.store, &m)), Ack::Done);
-    let h = block_on(cron::hourly(&w.h, &w.origins, true)).unwrap();
+    let h = block_on(cron::hourly(&w.h, &w.origins)).unwrap();
     assert_eq!(h.shards, 1);
     let xml = String::from_utf8(block_on(reads::sitemap_shard(&w.h, 0)).unwrap()).unwrap();
-    assert!(xml.contains("<loc>https://site.example/d/k7m2xq9</loc>"));
-    assert!(xml.contains("<loc>https://site.example/d/a1b2c3d</loc>"), "index_force on");
-    for absent in ["p4r8tz2", "e4f5g6h", "j7k8m9n", "q2r3s4t", secret.as_str()] {
+    // Ranked or not, web page, Bluesky post or post on X; an adult domain
+    // only by the operator's override.
+    for listed in ["k7m2xq9", "p4r8tz2", "a1b2c3d", "j7k8m9n", "b3c4d5e"] {
+        assert!(xml.contains(&format!("<loc>https://site.example/d/{listed}</loc>")), "{listed}");
+    }
+    for absent in ["e4f5g6h", "q2r3s4t", "r5s6t7v", "w8x9y2z", secret.as_str()] {
         assert!(!xml.contains(absent), "{absent}");
     }
     assert_eq!(w.h.count("SELECT dirty FROM sitemap_shards WHERE shard = 0"), 0);
-    // DETECT_INDEX off: shards rebuild empty.
-    block_on(consume(&w.h, &w.store, &m));
-    block_on(cron::hourly(&w.h, &w.origins, false)).unwrap();
+    // DETECT_INDEX off: the next rebuild empties every shard, with no
+    // message marking it.
+    w.h.vars.borrow_mut().insert("DETECT_INDEX".into(), "off".into());
+    block_on(cron::hourly(&w.h, &w.origins)).unwrap();
     let xml = String::from_utf8(block_on(reads::sitemap_shard(&w.h, 0)).unwrap()).unwrap();
     assert!(!xml.contains("<loc>"));
+    // And on again: the pages come back.
+    w.h.vars.borrow_mut().insert("DETECT_INDEX".into(), "on".into());
+    assert_eq!(block_on(cron::hourly(&w.h, &w.origins)).unwrap().shards, 1);
+    let xml = String::from_utf8(block_on(reads::sitemap_shard(&w.h, 0)).unwrap()).unwrap();
+    assert_eq!(xml.matches("<loc>").count(), 5);
+    // Nothing changed: nothing is rebuilt.
+    assert_eq!(block_on(cron::hourly(&w.h, &w.origins)).unwrap().shards, 0);
+    // The row's off holds though the var says on; and when the rows cannot
+    // be read nothing is rebuilt, so the var alone never lists a page.
+    w.h.exec("INSERT INTO switches (name, state, at, journal_seq) VALUES ('DETECT_INDEX', 'off', 1, 1)");
+    block_on(cron::hourly(&w.h, &w.origins)).unwrap();
+    let empty = || !String::from_utf8(block_on(reads::sitemap_shard(&w.h, 0)).unwrap()).unwrap().contains("<loc>");
+    assert!(empty());
+    // (A view in the table's place that fails when read: the statement
+    // prepares, and its read fails, as an unreadable D1 table does.)
+    w.h.before("SELECT name, state FROM switches", |db| {
+        db.execute_batch(
+            "ALTER TABLE switches RENAME TO switches_away; CREATE VIEW switches AS SELECT name, state FROM \
+switches_away WHERE abs(-9223372036854775807 - 1) > 0",
+        )
+        .unwrap()
+    });
+    w.h.exec("UPDATE sitemap_shards SET dirty = 1");
+    assert!(block_on(slop_ninja_detect_worker::sitemap::rebuild(&w.h, &w.origins)).is_err());
+    assert!(empty());
+    w.h.exec("DROP VIEW switches; ALTER TABLE switches_away RENAME TO switches");
+    w.h.exec("DELETE FROM switches WHERE name = 'DETECT_INDEX'");
+    assert_eq!(block_on(cron::hourly(&w.h, &w.origins)).unwrap().shards, 1);
+    assert!(!empty());
+    assert_eq!(w.h.count("SELECT dirty FROM sitemap_shards WHERE shard = 0"), 0);
     // An index override marks the page's shard.
     apply(&w, store_ops::index_force("k7m2xq9", Some(slop_ninja_detect_page::codes::IndexForce::Off)).unwrap());
     assert_eq!(w.h.count("SELECT dirty FROM sitemap_shards WHERE shard = 0"), 1);

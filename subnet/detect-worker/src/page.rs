@@ -204,7 +204,6 @@ pub fn public_page(slug: &str, row: &DetRow, ex: &PublicExtras, doc: Option<&Run
     p.state_v = row.state_v;
     p.created_at = Some(row.created_at);
     p.serving = ctx.serving.line(row.package_load.as_deref());
-    let mut full_analysis = false;
     if is_x {
         p.ended = if state.is_ended() { ended } else { None };
         if matches!(state, DetState::Deleted | DetState::Removed) && p.ended.is_none() {
@@ -264,7 +263,6 @@ pub fn public_page(slug: &str, row: &DetRow, ex: &PublicExtras, doc: Option<&Run
                 if !keep_spans {
                     run.spans.clear();
                 }
-                full_analysis = keep_spans;
                 p.text = Some(text);
             }
             if state == DetState::ExcerptWithheld {
@@ -276,14 +274,12 @@ pub fn public_page(slug: &str, row: &DetRow, ex: &PublicExtras, doc: Option<&Run
         }
         _ => {}
     }
-    // The five structural gates (`index-gates/v1`), with the overrides.
+    // The index gates (`index-gates/v2`), with the overrides: the state as
+    // rendered (an X page under the purge reads as deleted).
     p.robots = crate::index_gates::robots(&crate::index_gates::GateInput {
         state,
-        platform: row.platform,
-        words: p.run.as_ref().map(|r| r.words),
         source: ex.source.as_ref().map(|s| (s.state, s.reputation)),
         host_opted_out: ex.host_opted_out,
-        full_analysis,
         index_force: row.index_force,
         index_on: ctx.switches.index,
     });

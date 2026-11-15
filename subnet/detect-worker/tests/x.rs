@@ -21,7 +21,7 @@ use slop_ninja_detect_worker::keys::{Pepper, Peppers, StoreKeys};
 use slop_ninja_detect_worker::save::Keys;
 use slop_ninja_detect_worker::url_flow::{Admitted, UrlCtx, admit, drive};
 use slop_ninja_detect_worker::x_flow::{self, X_CHECK_EVERY_MS, X_LATE_MS, X_REQUEUE_MS, XConfig, x_canon_key};
-use slop_ninja_detect_worker::{queue, reads};
+use slop_ninja_detect_worker::{queue, reads, sitemap};
 use stubs::*;
 
 struct World {
@@ -488,6 +488,57 @@ fn the_form_removal_uses_its_case_and_journals_the_hash() {
     assert!(op.contains(&hex::encode(x_canon_key(id))) && !op.contains(&id.to_string()));
     let src: Option<i64> = w.h.db.query_row("SELECT source_id FROM cases", [], |r| r.get(0)).unwrap();
     assert!(src.is_some());
+}
+
+impl World {
+    /// The public slugs the rebuilt shard 0 lists.
+    fn listed(&self) -> Vec<String> {
+        block_on(sitemap::rebuild(&self.h, &self.origins)).unwrap();
+        let xml = String::from_utf8(self.h.doc(&sitemap::shard_key(0)).unwrap()).unwrap();
+        xml.split("<loc>https://site.example/d/")
+            .skip(1)
+            .filter_map(|x| x.split('<').next())
+            .map(str::to_owned)
+            .collect()
+    }
+
+    fn shard_dirty(&self) -> i64 {
+        self.h.count("SELECT dirty FROM sitemap_shards WHERE shard = 0")
+    }
+}
+
+/// A post on X is listed while its page is live, and every way its page
+/// ends (gone at X, a removal, the purge) marks its shard, whose rebuild
+/// drops it.
+#[test]
+fn x_pages_leave_their_sitemap_shard_when_they_end() {
+    let w = World::new(50);
+    w.h.vars.borrow_mut().insert("DETECT_INDEX".into(), "on".into());
+    let (_, sa) = w.post(1);
+    let (b, sb) = w.post(2);
+    let (c, sc) = w.post(3);
+    let mut want = vec![sa.clone(), sb.clone(), sc.clone()];
+    assert_eq!(w.listed(), want);
+    assert_eq!(w.shard_dirty(), 0);
+    // b is gone at X: the sweep deletes its page.
+    w.h.advance(X_CHECK_EVERY_MS + 1);
+    w.fetch.exists.borrow_mut().insert(b, XExists::Gone);
+    assert_eq!(w.sweep().gone.len(), 1);
+    assert_eq!(w.shard_dirty(), 1, "gone");
+    want.retain(|s| *s != sb);
+    assert_eq!(w.listed(), want);
+    // c is removed at its author's request.
+    assert_eq!(remove(&w, c, XCase::New, false).removed, 1);
+    assert_eq!(w.shard_dirty(), 1, "removed");
+    want.retain(|s| *s != sc);
+    assert_eq!(w.listed(), want);
+    assert_eq!(w.page(&sa).unwrap().robots, slop_ninja_detect_page::codes::Robots::Index);
+    // The purge: the switch alone already takes every X page out.
+    let (stmts, _) = x_flow::purge_start(w.h.now.get(), 1);
+    w.h.exec("INSERT INTO op_journal (at, actor, op, signature, nonce_h) VALUES (1, 'operator:00', '{\"op\":\"x_purge\"}', NULL, NULL)");
+    block_on(slop_ninja_detect_worker::db::Sql::batch(&w.h, stmts)).unwrap();
+    assert!(w.listed().is_empty());
+    assert_eq!(w.page(&sa).unwrap().robots, slop_ninja_detect_page::codes::Robots::Noindex);
 }
 
 #[test]

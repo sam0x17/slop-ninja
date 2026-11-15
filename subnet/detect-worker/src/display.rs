@@ -21,14 +21,12 @@
 //! Secret pages and the unstored result show the whole text the submitter
 //! pasted, plain.
 //!
-//! Robots: a public page is indexed only when it is live, not an X or
-//! Bluesky post, its source is ranked and listed and not gone, and
-//! `DETECT_INDEX` is on; the operator's `index_force` overrides the source
-//! rules (`on`) or every rule (`off`).
+//! Robots are not a display rule: the index gates decide them
+//! ([`crate::index_gates`]), and no narrowing here keeps a live page out of
+//! the index.
 
 use slop_ninja_detect_page::codes::{
-    Adapter, AnchorRole, DetState, IndexForce, Platform, Reputation, Robots, Shown, SourceStatus, SourceVia,
-    WithheldReason,
+    Adapter, AnchorRole, DetState, Reputation, Shown, SourceStatus, SourceVia, WithheldReason,
 };
 use slop_ninja_detect_page::page::{FurtherPassage, Source, Text};
 use slop_ninja_detect_page::x::X_HOST;
@@ -265,28 +263,5 @@ pub fn public_source(state: DetState, src: &SourceRow, page_hash: Option<&str>, 
         checked: true,
         page_hash: page_hash.map(str::to_owned),
         stale: src.fresh_until.is_some_and(|t| t <= now),
-    }
-}
-
-/// A public page's robots directive.
-pub fn public_robots(
-    state: DetState,
-    platform: Platform,
-    src: Option<&SourceRow>,
-    index_force: Option<IndexForce>,
-    sw: PageSwitches,
-) -> Robots {
-    if index_force == Some(IndexForce::Off) || !sw.index || state != DetState::Live {
-        return Robots::Noindex;
-    }
-    if matches!(platform, Platform::X | Platform::Bluesky) {
-        return Robots::Noindex;
-    }
-    if index_force == Some(IndexForce::On) {
-        return Robots::Index;
-    }
-    match src {
-        Some(s) if s.state == SourceStatus::Ok && s.reputation == Reputation::Ranked => Robots::Index,
-        _ => Robots::Noindex,
     }
 }

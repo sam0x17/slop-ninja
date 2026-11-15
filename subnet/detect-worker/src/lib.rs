@@ -44,7 +44,7 @@
 //!   op handlers);
 //! - the URL pipeline: [`url_flow`] (the public URL check, web pages,
 //!   Bluesky posts and posts on X), [`claims`] (single flight), [`excerpt`]
-//!   (a public run's document), [`index_gates`] (`index-gates/v1`),
+//!   (a public run's document), [`index_gates`] (`index-gates/v2`),
 //!   [`x_flow`] (the daily existence check of X posts, deletion, removals,
 //!   purge), [`host`] (the `DetectHost` object's rules), [`reputation`]
 //!   (the ranking shards and the family screen), [`indexnow`], and [`net`]

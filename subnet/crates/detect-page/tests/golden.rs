@@ -442,10 +442,10 @@ fn x_source(reputation: Reputation) -> Source {
 }
 
 /// A live X page: the run with no passages, the post's source and its link.
+/// Indexed, as every live public page that passes the index gates.
 fn x_post(id: u64, mut run: Run, reputation: Reputation) -> Page {
     let mut p = base(Kind::PublicUrl, Some(X_SLUG), DetState::Live);
     p.platform = Platform::X;
-    p.robots = Robots::Noindex;
     run.spans.clear();
     run.spans_note = Some(SpansNote::XPost);
     p.run = Some(run);
@@ -560,8 +560,8 @@ fn pages() -> Vec<(&'static str, &'static str, Page)> {
         "band 1 public: title, first sentence, continue link",
         public_weak(Band::Weak, 120, "12.0%", 4),
     ));
+    // Indexed: the ranking narrows what the page shows, never its robots.
     let mut p = public_strong(Band::Strong, 963, "96.3%", 63);
-    p.robots = Robots::Noindex;
     let s = p.source.as_mut().unwrap();
     s.reputation = Some(Reputation::Unranked);
     s.title = None;
@@ -569,8 +569,9 @@ fn pages() -> Vec<(&'static str, &'static str, Page)> {
     p.text = Some(withheld(WithheldReason::Unranked));
     p.run.as_mut().unwrap().spans.clear();
     v.push(("05-public-unranked", "public_url unranked: no title or excerpt, address unlinked", p));
+    // Indexed: a gone source narrows the page to positions, and it stays
+    // a live page.
     let mut p = public_strong(Band::Strong, 973, "97.3%", 43);
-    p.robots = Robots::Noindex;
     p.source.as_mut().unwrap().status = Some(SourceStatus::Gone);
     // The positions stay: every passage by its words on the source page and
     // its confidence (the renderer lists them unlinked, since the source is
@@ -644,7 +645,6 @@ fn pages() -> Vec<(&'static str, &'static str, Page)> {
     v.push(("13-public-removed", "removed: 451 with blocked-by", p));
     let mut p = base(Kind::PublicUrl, Some(PUBLIC), DetState::Live);
     p.platform = Platform::Bluesky;
-    p.robots = Robots::Noindex;
     let body = short_body(true);
     let mut run = short_strong(words(&body));
     run.spans = vec![span(&body, &body, None)];
@@ -657,7 +657,7 @@ fn pages() -> Vec<(&'static str, &'static str, Page)> {
         site_name: None,
         ..source("bsky.app", None)
     });
-    v.push(("14-bluesky-post", "public_url Bluesky post: short text, noindex", live(p)));
+    v.push(("14-bluesky-post", "public_url Bluesky post: short text, indexed", live(p)));
     v.push(("15-secret-text", "private_text: whole text, secret notice", secret_strong()));
     v.push((
         "16-secret-short-strong",
@@ -724,7 +724,7 @@ fn pages() -> Vec<(&'static str, &'static str, Page)> {
     v.push(("28-example", "kind example: synthetic example report, noindex", live(p)));
     v.push((
         "29-x-post-short",
-        "X post under 150 words: short gauge, View on X, no text body, noindex",
+        "X post under 150 words: short gauge, View on X, no text body, indexed",
         x_post_short(),
     ));
     let mut p = x_ended(DetState::Removed, RefusalCode::XRemoved);
@@ -1283,7 +1283,8 @@ fn the_page_set_covers_every_plan_step() {
     }
     for (name, _, p) in &pages {
         if p.is_x_post() {
-            assert!(p.text.is_none() && p.robots == Robots::Noindex, "{name}");
+            assert!(p.text.is_none(), "{name}");
+            assert_eq!(p.robots == Robots::Index, p.state == DetState::Live, "{name}");
             assert!(p.run.as_ref().is_none_or(|r| r.spans.is_empty()), "{name}");
             assert!(p.ads_forbidden() && p.ad_page_kind() == "x_post", "{name}");
             assert_eq!(p.x.is_some(), p.state == DetState::Live, "{name}");

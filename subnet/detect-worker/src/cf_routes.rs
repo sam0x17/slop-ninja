@@ -51,7 +51,7 @@ use crate::manage::OwnerAnswer;
 use crate::routes::forwarded::Admission;
 use crate::routes::{self, NoRoom};
 use crate::save::{Keys, Sealed};
-use crate::{answer, canon, cron, handoff, lookup, manage, queue, reads, rerun, save, seal, switches};
+use crate::{answer, canon, cron, handoff, manage, queue, reads, rerun, save, seal, switches};
 
 // ------------------------------------------------------------- the context
 
@@ -509,8 +509,7 @@ pub(crate) async fn hourly(env: Env) {
         point(&env, ae::detect::ERROR, &["cron"], 1.0);
         return;
     };
-    let index_on = lookup::read_switches(&io).await.on(&io, "DETECT_INDEX");
-    let store = cron::hourly(&io, &o, index_on).await;
+    let store = cron::hourly(&io, &o).await;
     // Paid starts left behind: their holds end through the ledger.
     let starts = crate::paid::sweep_starts(&io, &io).await;
     if store.is_err() || starts.is_err() {

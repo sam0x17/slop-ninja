@@ -3,15 +3,20 @@
 //! engines that take IndexNow (one POST to `api.indexnow.org`, which shares
 //! it with the others).
 //!
-//! - `updated`: pinged only while the page is indexed (its page JSON says
-//!   `index`); a page that fails a gate is never announced.
+//! - `updated`: queued when any public page goes live (a web page, a
+//!   Bluesky post or a post on X) and pinged only while the page is indexed
+//!   (its page JSON says `index`, [`crate::index_gates`]); a page that fails
+//!   a gate is never announced.
 //! - `deleted`: always pinged, so a removed or deleted page is crawled again
 //!   and dropped.
+//!
+//! The ping names only our page's URL (`/d/<slug>` on the site origin),
+//! never the source's or the post's, and never a secret page (a secret slug
+//! is not a public slug, so [`ping_body`] drops it).
 //!
 //! With no key (`INDEXNOW_KEY` unset) every message is dropped: the site has
 //! no key file, and the sitemaps carry the change anyway. The key file
 //! itself (`/<key>.txt` on the site, holding the key) is the website's.
-//! Posts on X and Bluesky are never indexed, so they are never pinged.
 
 use serde::Serialize;
 use slop_ninja_detect_page::codes::{IndexChange, Robots};
@@ -86,6 +91,16 @@ mod tests {
     fn only_indexed_pages_are_announced_and_every_removal_is() {
         assert!(announce(IndexChange::Updated, Some(Robots::Index)));
         assert!(!announce(IndexChange::Updated, Some(Robots::Noindex)));
+        // A secret page's robots: never announced, and its slug never
+        // makes a body.
+        assert!(!announce(IndexChange::Updated, Some(Robots::NoindexAll)));
+        assert_eq!(
+            ping_body(&origins(), "abcdef0123456789", &["7hq2kd9m4xw8rt3vn6pb", "k7m2xq9"]).map(|b| {
+                let v: serde_json::Value = serde_json::from_slice(&b).unwrap();
+                v["urlList"].clone()
+            }),
+            Some(serde_json::json!(["https://site.example/d/k7m2xq9"]))
+        );
         assert!(!announce(IndexChange::Updated, None));
         assert!(announce(IndexChange::Deleted, None));
     }

@@ -7,7 +7,7 @@ mod stubs;
 
 use common::{Harness, block_on};
 use slop_ninja_detect_fetch_wire::{Outcome, XPostAnswer};
-use slop_ninja_detect_page::codes::{DetState, Platform, Robots, SourceVia};
+use slop_ninja_detect_page::codes::{DetState, IndexChange, Platform, Robots, SourceVia};
 use slop_ninja_detect_page::origins::Origins;
 use slop_ninja_detect_page::queue::Job;
 use slop_ninja_detect_page::refusal::RefusalCode;
@@ -16,7 +16,7 @@ use slop_ninja_detect_worker::doc::{RunDoc, Serving};
 use slop_ninja_detect_worker::keys::{Pepper, Peppers, StoreKeys};
 use slop_ninja_detect_worker::save::Keys;
 use slop_ninja_detect_worker::url_flow::{Admitted, Ended, UrlCtx, admit, drive};
-use slop_ninja_detect_worker::{reads, sitemap};
+use slop_ninja_detect_worker::{queue, reads, sitemap};
 use stubs::*;
 
 struct World {
@@ -102,7 +102,7 @@ fn a_page_is_checked_once_and_its_link_reused() {
     assert_eq!(e.failed, None);
     let p = w.page(&e.slug).unwrap();
     assert_eq!((p.state, p.platform), (DetState::Live, Platform::Web));
-    // A ranked long-form page with its full analysis passes every gate.
+    // A live page of a source that did not opt out passes every gate.
     assert_eq!(p.robots, Robots::Index);
     let text = p.text.as_ref().unwrap();
     let body = text.body.as_deref().unwrap();
@@ -129,7 +129,7 @@ fn a_page_is_checked_once_and_its_link_reused() {
             .iter()
             .any(|m| matches!(&m.job, Job::Indexnow { public_slug, .. } if *public_slug == e.slug))
     );
-    assert_eq!(block_on(sitemap::rebuild(&w.h, &w.origins, true)).unwrap(), 1);
+    assert_eq!(block_on(sitemap::rebuild(&w.h, &w.origins)).unwrap(), 1);
     let xml = String::from_utf8(w.h.doc(&sitemap::shard_key(0)).unwrap()).unwrap();
     assert!(xml.contains(&format!("https://site.example/d/{}", e.slug)));
     assert_eq!(w.rows("claims"), 0);
@@ -327,19 +327,306 @@ impl World {
 }
 
 #[test]
-fn unranked_and_short_pages_are_not_indexed() {
+fn unranked_and_short_pages_are_indexed() {
+    // index-gates/v2: the ranking and the length narrow what a page shows,
+    // never whether search engines may index it.
     let w = World::new();
     w.fetch.page("https://example.org/a", &article(14));
-    let e = w.check("https://example.org/a").unwrap();
-    let p = w.page(&e.slug).unwrap();
-    assert_eq!((p.state, p.robots), (DetState::Live, Robots::Noindex));
-    assert!(p.text.unwrap().body.is_none(), "an unranked source shows no excerpt");
+    let unranked = w.check("https://example.org/a").unwrap();
+    let p = w.page(&unranked.slug).unwrap();
+    assert_eq!((p.state, p.robots), (DetState::Live, Robots::Index));
+    assert!(p.text.unwrap().body.is_none(), "an unranked source still shows no excerpt");
     w.fetch.page("https://example.com/short", &format!("{HUMAN} {AI1}"));
-    let e = w.check("https://example.com/short").unwrap();
-    assert_eq!(w.page(&e.slug).unwrap().robots, Robots::Noindex);
-    assert_eq!(block_on(sitemap::rebuild(&w.h, &w.origins, true)).unwrap(), 1);
+    let short = w.check("https://example.com/short").unwrap();
+    let p = w.page(&short.slug).unwrap();
+    assert!(p.run.as_ref().unwrap().words < 150, "a short text");
+    assert_eq!(p.robots, Robots::Index);
+    assert_eq!(block_on(sitemap::rebuild(&w.h, &w.origins)).unwrap(), 1);
+    let xml = String::from_utf8(w.h.doc(&sitemap::shard_key(0)).unwrap()).unwrap();
+    for e in [&unranked, &short] {
+        assert!(xml.contains(&format!("https://site.example/d/{}<", e.slug)), "{xml}");
+        assert!(announced(&w, &e.slug), "{}", e.slug);
+    }
+}
+
+/// Whether an IndexNow `updated` message for `slug` is queued.
+fn announced(w: &World, slug: &str) -> bool {
+    w.h.queue
+        .borrow()
+        .iter()
+        .any(|m| matches!(&m.job, Job::Indexnow { public_slug, change: IndexChange::Updated } if *public_slug == slug))
+}
+
+/// Runs the queued IndexNow messages through the consumer with a key, and
+/// returns the URLs each ping named.
+fn pings(w: &World) -> Vec<Vec<String>> {
+    let ping = PingStub::default();
+    let d = queue::UrlDeps {
+        fetch: &w.fetch,
+        ping: &ping,
+        origins: &w.origins,
+        serving: &w.serving,
+        keys: Keys { store: &w.store, peppers: &w.peppers },
+        indexnow_key: Some("abcdef0123456789".into()),
+    };
+    let msgs: Vec<_> = w.h.queue.borrow().iter().filter(|m| matches!(m.job, Job::Indexnow { .. })).cloned().collect();
+    for m in &msgs {
+        assert_eq!(block_on(queue::consume_url(&w.h, &d, m)), Some(queue::Ack::Done));
+    }
+    ping.bodies
+        .borrow()
+        .iter()
+        .map(|b| {
+            let v: serde_json::Value = serde_json::from_slice(b).unwrap();
+            v["urlList"].as_array().unwrap().iter().map(|u| u.as_str().unwrap().to_owned()).collect()
+        })
+        .collect()
+}
+
+#[test]
+fn bluesky_and_x_pages_are_indexed_listed_and_announced() {
+    let w = World::new();
+    let bsky = "https://bsky.app/profile/did:plc:z72i7hdynmk6r22z27h6tvur/post/3l6oveex3ii2l";
+    w.fetch.page(bsky, &format!("{HUMAN} {AI1}"));
+    let b = w.check(bsky).unwrap();
+    assert_eq!(b.failed, None);
+    let id = post_id(w.h.now.get(), 2 * 3_600_000, 1);
+    w.fetch.posts.borrow_mut().insert(id, XPostAnswer::Text { text: x_text() });
+    let x = w.check(&format!("https://x.com/someone/status/{id}")).unwrap();
+    assert_eq!(x.failed, None);
+    for (e, platform) in [(&b, Platform::Bluesky), (&x, Platform::X)] {
+        let p = w.page(&e.slug).unwrap();
+        assert_eq!((p.state, p.platform, p.robots), (DetState::Live, platform, Robots::Index), "{platform}");
+        assert!(announced(&w, &e.slug), "{platform}");
+    }
+    // Both took a sitemap position, and their shard lists them.
+    assert_eq!(w.h.count("SELECT count(*) FROM detections WHERE sitemap_seq IS NOT NULL"), 2);
+    assert_eq!(block_on(sitemap::rebuild(&w.h, &w.origins)).unwrap(), 1);
+    let xml = String::from_utf8(w.h.doc(&sitemap::shard_key(0)).unwrap()).unwrap();
+    for e in [&b, &x] {
+        assert!(xml.contains(&format!("<loc>https://site.example/d/{}</loc>", e.slug)), "{xml}");
+    }
+    // IndexNow names our page only, never the post or its link.
+    let got = pings(&w);
+    let want: Vec<Vec<String>> = [&b, &x].iter().map(|e| vec![format!("https://site.example/d/{}", e.slug)]).collect();
+    assert_eq!(got, want);
+    // With DETECT_INDEX off nothing is announced, and every shard rebuilds
+    // empty although no page changed.
+    w.h.vars.borrow_mut().insert("DETECT_INDEX".into(), "off".into());
+    assert!(pings(&w).is_empty());
+    assert_eq!(block_on(sitemap::rebuild(&w.h, &w.origins)).unwrap(), 1);
     let xml = String::from_utf8(w.h.doc(&sitemap::shard_key(0)).unwrap()).unwrap();
     assert!(!xml.contains("<url>"), "{xml}");
+}
+
+/// The rule follows from how the text arrived, never from what it says: the
+/// same words pasted make a secret page that is never indexed, listed or
+/// announced, while the check of the public page or post that carries them
+/// makes a public page that is.
+#[test]
+fn a_pasted_copy_of_a_public_text_stays_secret() {
+    use slop_ninja_detect_page::codes::Kind;
+    use slop_ninja_detect_page::internal::SaveRequest;
+    use slop_ninja_detect_worker::canon;
+    use slop_ninja_detect_worker::doc::StoredResult;
+    use slop_ninja_detect_worker::save::{Sealed, save};
+    let w = World::new();
+    w.fetch.page(URL, &article(14));
+    let web = w.check(URL).unwrap();
+    let id = post_id(w.h.now.get(), 2 * 3_600_000, 1);
+    w.fetch.posts.borrow_mut().insert(id, XPostAnswer::Text { text: x_text() });
+    let x = w.check(&format!("https://x.com/someone/status/{id}")).unwrap();
+    let fixture = format!("{}/../crates/detect-page/tests/fixtures/pages/15-secret-text.json", env!("CARGO_MANIFEST_DIR"));
+    let run = serde_json::from_str::<slop_ninja_detect_page::page::Page>(&std::fs::read_to_string(fixture).unwrap())
+        .unwrap()
+        .run
+        .unwrap();
+    let mut secrets = Vec::new();
+    for text in [article(14), x_text()] {
+        let mut nonce = vec![0u8; 12];
+        slop_ninja_detect_worker::db::Io::fill(&w.h, &mut nonce);
+        let result = StoredResult {
+            scored_at: w.h.now.get(),
+            package_load: w.serving.load.clone(),
+            package_label: w.serving.label.clone(),
+            package_pub: w.serving.published.clone(),
+            publication_pending: w.serving.pending,
+            scorer_build: run.scorer_build.clone(),
+            policy: run.policy.clone(),
+            evidence: run.evidence.clone(),
+            band: run.band,
+            legacy_short: None,
+            confidence_tenths: run.confidence_tenths,
+            confidence_text: run.confidence_text.clone(),
+            share_pct: run.share_pct,
+            share_text: run.share_text.clone(),
+            words: run.words,
+            total_words: run.total_words,
+            cut: run.cut,
+            tokens: run.tokens,
+            length: run.length,
+            spans: Vec::new(),
+            spans_note: run.spans_note,
+            markers: Vec::new(),
+            invisible: false,
+            raw: None,
+        };
+        let sealed = Sealed { text_sha256: canon::text_sha256(&text), nonce, result };
+        let req = SaveRequest { text: text.clone(), seal: "opened-elsewhere".into(), save: false };
+        let a = block_on(save(&w.h, Keys { store: &w.store, peppers: &w.peppers }, &req, Some(sealed), None)).unwrap();
+        assert!(a.made);
+        secrets.push(a.slug);
+    }
+    for slug in &secrets {
+        let p = w.page(slug).unwrap();
+        assert_eq!((p.kind, p.state, p.robots), (Kind::PrivateText, DetState::Live, Robots::NoindexAll), "{slug}");
+        assert_eq!(p.canonical, None, "{slug}");
+        assert!(!announced(&w, slug), "{slug}");
+    }
+    for e in [&web, &x] {
+        let p = w.page(&e.slug).unwrap();
+        assert_eq!((p.kind, p.robots), (Kind::PublicUrl, Robots::Index), "{}", e.slug);
+        assert_eq!(p.canonical.as_deref(), Some(e.slug.as_str()), "{}", e.slug);
+        assert!(announced(&w, &e.slug), "{}", e.slug);
+    }
+    // Only the two public pages hold sitemap positions, and their shard
+    // lists them alone.
+    assert_eq!(w.h.count("SELECT count(*) FROM detections WHERE sitemap_seq IS NOT NULL"), 2);
+    assert_eq!(w.h.count("SELECT count(*) FROM detections WHERE sitemap_seq IS NOT NULL AND kind <> 'public_url'"), 0);
+    assert_eq!(block_on(sitemap::rebuild(&w.h, &w.origins)).unwrap(), 1);
+    let xml = String::from_utf8(w.h.doc(&sitemap::shard_key(0)).unwrap()).unwrap();
+    assert_eq!(xml.matches("<url>").count(), 2, "{xml}");
+    for e in [&web, &x] {
+        assert!(xml.contains(&format!("<loc>https://site.example/d/{}</loc>", e.slug)), "{xml}");
+    }
+    for slug in &secrets {
+        assert!(!xml.contains(slug.as_str()), "{xml}");
+    }
+}
+
+/// Every combination of the inputs the index gates read, set on a live web
+/// page, a Bluesky post and a post on X: a sitemap shard lists a page
+/// exactly when its page read says `index` (the SQL rule is the render
+/// rule), and both agree with the gates as written out here.
+#[test]
+fn the_shard_rule_is_the_render_rule() {
+    use slop_ninja_detect_page::codes::{IndexForce, Reputation, SourceStatus};
+    let w = World::new();
+    let bsky = "https://bsky.app/profile/did:plc:z72i7hdynmk6r22z27h6tvur/post/3l6oveex3ii2l";
+    w.fetch.page(URL, &article(14));
+    w.fetch.page(bsky, &format!("{HUMAN} {AI1}"));
+    let id = post_id(w.h.now.get(), 2 * 3_600_000, 1);
+    w.fetch.posts.borrow_mut().insert(id, XPostAnswer::Text { text: x_text() });
+    let pages: Vec<(Platform, String)> = [
+        (Platform::Web, URL.to_owned()),
+        (Platform::Bluesky, bsky.to_owned()),
+        (Platform::X, format!("https://x.com/i/status/{id}")),
+    ]
+    .into_iter()
+    .map(|(pl, link)| (pl, w.check(&link).unwrap().slug))
+    .collect();
+    // The removals a removed or withheld page names.
+    for (_, slug) in &pages {
+        w.h.db
+            .execute(
+                "INSERT INTO removals (at, public_slug, scope, basis, jurisdiction) VALUES (1, ?1, 'page', 'copyright', 'US'), \
+(1, ?1, 'excerpt', 'copyright', 'US')",
+                [slug],
+            )
+            .unwrap();
+    }
+    let forces = [None, Some(IndexForce::On), Some(IndexForce::Off)];
+    let (mut checked, mut indexed) = (0, 0);
+    for &(index_on, x_purged) in &[(true, false), (false, false), (true, true)] {
+        w.h.vars.borrow_mut().insert("DETECT_INDEX".into(), if index_on { "on" } else { "off" }.into());
+        let xs = if x_purged { "purged" } else { "on" };
+        w.h.db
+            .execute(
+                "INSERT INTO switches (name, state, at, journal_seq) VALUES ('DETECT_X', ?1, 1, 1) \
+ON CONFLICT (name) DO UPDATE SET state = excluded.state",
+                [xs],
+            )
+            .unwrap();
+        // The switch combinations other than the default run over the live,
+        // consenting pages only (every state and source under the default).
+        let full = index_on && !x_purged;
+        for state in DetState::ALL.iter().copied().filter(|s| full || *s == DetState::Live) {
+            for status in SourceStatus::ALL.iter().copied().filter(|s| full || *s == SourceStatus::Ok) {
+                for rep in Reputation::ALL.iter().copied() {
+                    for opted in [false, true].into_iter().filter(|o| full || !o) {
+                        for force in forces {
+                            for (platform, slug) in &pages {
+                                set_gate_inputs(&w, slug, state, status, rep, opted, force);
+                                w.h.exec("UPDATE sitemap_shards SET dirty = 1");
+                                block_on(sitemap::rebuild(&w.h, &w.origins)).unwrap();
+                                let xml = String::from_utf8(w.h.doc(&sitemap::shard_key(0)).unwrap()).unwrap();
+                                let listed = xml.contains(&format!("/d/{slug}</loc>"));
+                                let rendered = w.page(slug).map(|p| p.robots);
+                                let want = index_on
+                                    && state == DetState::Live
+                                    && !(*platform == Platform::X && x_purged)
+                                    && matches!(status, SourceStatus::Ok | SourceStatus::Gone)
+                                    && !opted
+                                    && force != Some(IndexForce::Off)
+                                    && (rep != Reputation::Adult || force == Some(IndexForce::On));
+                                let why = format!(
+                                    "{platform} {state} {status} {rep} opted {opted} force {force:?} index {index_on} x_purged {x_purged}"
+                                );
+                                assert_eq!(listed, rendered == Ok(Robots::Index), "{why}: {rendered:?}");
+                                assert_eq!(listed, want, "{why}");
+                                checked += 1;
+                                indexed += usize::from(want);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+    // 8 states x 4 source states x 3 reputations x 2 x 3 overrides on each
+    // of 3 pages, then 3 reputations x 3 overrides on each page under the
+    // two other switch settings; indexed: 10 a page under the default (a
+    // live page, `ok` or `gone`, no opt-out; ranked or unranked, or any
+    // reputation forced on), none with indexing off, 5 for each page but
+    // the X post under the purge.
+    assert_eq!((checked, indexed), (1728 + 27 + 27, 30 + 10));
+}
+
+/// Sets what the index gates read of the page `slug`: its state, its
+/// source's state and reputation, an opt-out row for its host, and the
+/// operator's override.
+fn set_gate_inputs(
+    w: &World,
+    slug: &str,
+    state: DetState,
+    status: slop_ninja_detect_page::codes::SourceStatus,
+    rep: slop_ninja_detect_page::codes::Reputation,
+    opted: bool,
+    force: Option<slop_ninja_detect_page::codes::IndexForce>,
+) {
+    let db = &w.h.db;
+    db.execute(
+        "UPDATE detections SET state = ?2, index_force = ?3 WHERE public_slug = ?1",
+        rusqlite::params![slug, state.as_str(), force.map(|f| f.as_str())],
+    )
+    .unwrap();
+    db.execute(
+        "UPDATE sources SET state = ?2, reputation = ?3 WHERE source_id = (SELECT source_id FROM detections \
+WHERE public_slug = ?1)",
+        rusqlite::params![slug, status.as_str(), rep.as_str()],
+    )
+    .unwrap();
+    let host: String = db
+        .query_row(
+            "SELECT s.host FROM sources s JOIN detections d ON d.source_id = s.source_id WHERE d.public_slug = ?1",
+            [slug],
+            |r| r.get(0),
+        )
+        .unwrap();
+    db.execute("DELETE FROM optouts WHERE host = ?1", [&host]).unwrap();
+    if opted {
+        db.execute("INSERT INTO optouts (host, at, journal_seq) VALUES (?1, 1, 1)", [&host]).unwrap();
+    }
 }
 
 // ---------------------------------------------------------------------- X
@@ -357,7 +644,7 @@ fn an_x_post_is_checked_once_and_keeps_no_text() {
     let e = w.check(&link).unwrap();
     assert_eq!(e.failed, None);
     let p = w.page(&e.slug).unwrap();
-    assert_eq!((p.state, p.platform, p.robots), (DetState::Live, Platform::X, Robots::Noindex));
+    assert_eq!((p.state, p.platform, p.robots), (DetState::Live, Platform::X, Robots::Index));
     assert_eq!(p.x.unwrap().post_url.id(), id);
     assert!(p.text.is_none() && p.run.as_ref().unwrap().spans.is_empty());
     // Nothing of the post's text is stored, in D1 or R2.
@@ -367,9 +654,9 @@ fn an_x_post_is_checked_once_and_keeps_no_text() {
         let s = String::from_utf8_lossy(b);
         assert!(!s.contains("fast-paced") && !s.contains("tomatoes"), "{k}");
     }
-    // No sitemap position and no IndexNow ping.
-    assert_eq!(w.h.count("SELECT count(*) FROM detections WHERE sitemap_seq IS NOT NULL"), 0);
-    assert!(!w.h.queue.borrow().iter().any(|m| matches!(m.job, Job::Indexnow { .. })));
+    // A sitemap position and an IndexNow ping, as for a web page.
+    assert_eq!(w.h.count("SELECT count(*) FROM detections WHERE sitemap_seq IS NOT NULL"), 1);
+    assert!(announced(&w, &e.slug));
     // A second check, by any form of the link, makes no request.
     for l in [format!("x.com/i/status/{id}"), format!("https://mobile.x.com/a/status/{id}/photo/1")] {
         assert_eq!(w.admit(&l).unwrap(), Admitted::Done(e.slug.clone()), "{l}");
@@ -958,10 +1245,12 @@ fn host_of(u: &str) -> String {
 #[test]
 fn a_redirect_to_another_site_is_judged_by_that_site() {
     // example.com is ranked. Its links redirect to an unranked site and to
-    // an adult one: each page names the site the text came from, and shows
-    // no title or excerpt and stays out of the index, as a page of that site.
+    // an adult one: each page names the site the text came from and shows no
+    // title or excerpt, as a page of that site; the unranked site's page is
+    // indexed, the one the family screen blocks is not.
     let w = World::new();
     w.host.adult.borrow_mut().insert("example.net".into());
+    let mut listed = Vec::new();
     for (link, fin) in [
         ("https://example.com/go/1", "https://www.example.org/story"),
         ("https://example.com/go/2", "https://example.net/story"),
@@ -971,13 +1260,18 @@ fn a_redirect_to_another_site_is_judged_by_that_site() {
         let src = p.source.as_ref().unwrap();
         assert_eq!((src.host.as_str(), src.title.as_deref()), (host_of(fin).as_str(), None), "{fin}");
         assert!(p.text.as_ref().unwrap().body.is_none(), "{fin}: no excerpt");
-        assert_eq!(p.robots, Robots::Noindex, "{fin}");
+        let adult = fin.contains("example.net");
+        assert_eq!(p.robots, if adult { Robots::Noindex } else { Robots::Index }, "{fin}");
         let card = slop_ninja_detect_page::card::Card::from_page(&p, false).unwrap();
         assert_eq!(card.source_label, host_of(fin), "{fin}");
+        listed.push((slug, !adult));
     }
-    assert_eq!(block_on(sitemap::rebuild(&w.h, &w.origins, true)).unwrap(), 1);
+    assert_eq!(block_on(sitemap::rebuild(&w.h, &w.origins)).unwrap(), 1);
     let xml = String::from_utf8(w.h.doc(&sitemap::shard_key(0)).unwrap()).unwrap();
-    assert!(!xml.contains("<url>"), "{xml}");
+    assert_eq!(xml.matches("<url>").count(), 1, "{xml}");
+    for (slug, want) in listed {
+        assert_eq!(xml.contains(&format!("/d/{slug}</loc>")), want, "{xml}");
+    }
     // The other way round: an unranked site's link to a ranked site's page
     // is that site's page.
     let slug = w.check_with_final("https://example.org/go/3", "https://example.com/story/3");

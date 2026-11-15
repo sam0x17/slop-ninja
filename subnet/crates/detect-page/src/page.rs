@@ -18,8 +18,9 @@
 //! `null`, the run has no passages, and a live page carries only
 //! [`Page::x`], the link to the post ([`crate::x::PostUrl`]). The page shows
 //! no quote, handle, author or X mark, and building it makes no request to X.
-//! It is always `noindex`, never in a sitemap, and its ad page kind `x_post`
-//! never carries an ad slot ([`Page::ad_page_kind`]).
+//! Like every public page it is indexed while it is live and passes the
+//! detect Worker's index gates; its ad page kind `x_post` never carries an
+//! ad slot ([`Page::ad_page_kind`]).
 //!
 //! A pasted text's page (`private_text`) shows its newest run ([`Page::run`])
 //! and lists the earlier ones ([`Page::history`]): a newer model's check of
@@ -500,8 +501,8 @@ impl Page {
     }
 
     /// Whether the page is a post on X checked from its link (`public_url`,
-    /// `platform = x`): no text block, no passages, always `noindex`, and the
-    /// ad page kind `x_post`, which never carries an ad slot.
+    /// `platform = x`): no text block, no passages, and the ad page kind
+    /// `x_post`, which never carries an ad slot.
     pub fn is_x_post(&self) -> bool {
         self.kind == Kind::PublicUrl && self.platform == Platform::X
     }
@@ -731,7 +732,8 @@ impl Page {
 
     /// The X invariants:
     /// - an X post is only a public page, and only an X page carries `x`;
-    /// - it is always `noindex`, and its ad page kind is `x_post`;
+    /// - its ad page kind is `x_post` (its robots follow the public pages'
+    ///   rules: `index` only while live);
     /// - it has no text block (no body, no anchors, no quote) and its run
     ///   draws no passage (`spans_note = x_post`);
     /// - `x` is present exactly on a live X page, and there is no excerpt to
@@ -747,7 +749,6 @@ impl Page {
             need(self.x.is_none(), "x only on an X page")?;
             return Ok(());
         }
-        need(self.robots == Robots::Noindex, "an X page is noindex")?;
         need(self.text.is_none(), "an X page has no text body, anchors or quote")?;
         need(self.state != DetState::ExcerptWithheld, "an X page has no excerpt to withhold")?;
         need(self.x.is_some() == (self.state == DetState::Live), "x exactly on a live X page")?;

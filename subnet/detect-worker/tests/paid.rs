@@ -1107,7 +1107,7 @@ fn a_driver_whose_lease_lapsed_loses_to_the_next() {
     // job; the hourly backstop deletes it once it is an hour old.
     assert_eq!(w.docs_under("j/"), 1);
     w.h.advance(3_600_001);
-    block_on(slop_ninja_detect_worker::cron::hourly(&w.h, &w.origins, false)).unwrap();
+    block_on(slop_ninja_detect_worker::cron::hourly(&w.h, &w.origins)).unwrap();
     assert_eq!(w.docs_under("j/"), 0);
     w.page(&slug).unwrap().check().unwrap();
 }

@@ -163,9 +163,9 @@ ARTIFACT_COPY = "stream"
 ADMISSION_BUCKET_NAME = "slop-ninja-admission-testnet"
 # Set at deploy, not here:
 #   PRIVATE_DIGESTS       comma-separated content digests and artifact SHA-256s
-#                         of the references (the initial reference and its
-#                         replacement); never published as entrant artifacts
-#                         (they are published as reference packages)
+#                         of the reference packages SlopNinja publishes
+#                         itself; never published as entrant artifacts (they
+#                         are published as reference packages)
 #   OPERATOR_HOTKEYS      comma-separated 64-hex hotkeys whose artifacts are
 #                         never published (owner, our miners and validators,
 #                         synthetic identities)

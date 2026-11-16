@@ -509,11 +509,13 @@ slop_ninja_a_testnet_eval_manifest carve-v3-release --repo . --record data/.../C
 lineage screen. Its trainer-bundle rows and title list are gate references of
 role `reference_training_lineage`, bound to that screen exactly as
 `r0_training_lineage` is bound to R0's screen. Hits exclude whole groups with
-receipts. R0's lineage stays gated. When a later reference replaces R_0, the
-pool is rebuilt with that reference's bundle. If its exclusions would change
-any weight, the build refuses and the replacement waits for an amendment. A hit
-on a carve group refuses the build with its own message: the reference's
-training lineage then touches Test-2 T or the mock reserve.
+receipts. R0's lineage stays gated. An allow-list that names a later
+reference (R_0 was replaced by R_1 through ordinary promotion in
+`testnet-r1-30`) as its `active_reference` rebuilds the pool with that
+reference's bundle. If its exclusions would change any weight, the build
+refuses and the rebuild waits for an amendment. A hit on a carve group
+refuses the build with its own message: the reference's training lineage then
+touches Test-2 T or the mock reserve.
 
 ## Replay of the v1 draws
 

@@ -303,5 +303,5 @@ apply; a stand-in Worker in the site session, bound to both stores under the ses
 every table, saw foreign keys on, and had its CHECK and NOT NULL violations refused. Third run, the same day, with
 the real Workers (Wrangler 4.160.1): the website and the secret-host Worker with the detect, account and card
 Workers in the site session and the three stubs, under `run`; the free check loaded the dev package through the
-stub scorer and answered with its seal, Get a link, the secret page, its card and the manage delete worked end
-to end, and the website repository's HTTP suites and browser flows ran against it.
+stub scorer and answered with its seal; the secret page made from that seal, its card and the manage delete worked
+end to end, and the website repository's HTTP suites and browser flows ran against it.

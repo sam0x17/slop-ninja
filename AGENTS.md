@@ -44,9 +44,12 @@ registered, with admission open to every registered hotkey. Testnet subnet
 pages live under `/testnet/<page>`, their unprefixed paths reserved for
 mainnet; the detection product, not a subnet page, lives at `/detect/`.
 Revenue starts on testnet: a free AI-detection page in SlopNinja's own runtime
-(no stored text, no ad or analytics script; ads only on approved content
-pages), later serving the reigning reference, a paid detection API (card
-processor or TAO) once its package is published, and other products. Payouts
+(every check gets a permanent link: a pasted text's page is unlisted, so only
+people its link is shared with can find it, and a check of a public page's
+address is public and indexable; no ad or analytics script; ads only on
+approved content pages), later serving the reigning reference, a paid
+detection API (card processor or TAO) once its package is published, and
+other products. Payouts
 go into a public pot, native TAO in a published two-of-three multisig with an
 independent third signer and a public ledger (whitepaper Section 8): at about
 1.5x the registration cost it pays the mainnet registration (refunds go back

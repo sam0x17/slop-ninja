@@ -255,7 +255,8 @@ queue = "detect-jobs-queue-testnet"
 max_batch_size = 1
 dead_letter_queue = "detect-jobs-dlq-testnet"
 
-# The account Worker (saved links: owned/add after Get a link with Save).
+# The account Worker (owned/add for a page saved with "Save to my detections" and for a paid page; the paid
+# checks' billing ledger).
 # It calls no Worker back.
 [[env.testnet.services]]
 binding = "ACCOUNT"

@@ -132,7 +132,8 @@ code_enum! {
         PrivateText = "private_text",
         /// A paid whole-document check, a secret link.
         PrivatePaid = "private_paid",
-        /// The result of a free check before any link exists (never stored).
+        /// A free check's result shown without a page (its save failed, or
+        /// its text is held); never stored.
         Unstored = "unstored",
         /// A synthetic example report on the tool page.
         Example = "example",

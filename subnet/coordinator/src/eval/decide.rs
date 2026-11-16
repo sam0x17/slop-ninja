@@ -28,9 +28,10 @@
 //!
 //! - [`reference_decision`] (D10(b)): the operator sets the chain's
 //!   references for later cohorts under the offline key, with a recorded
-//!   reason: the general `override`, and the narrow `span_equivalent`
-//!   replacement of R_0 by a staged package of R_0's own model with a span
-//!   head, whose document outputs equal R_0's.
+//!   reason: the general `override`, and the narrow `span_equivalent`,
+//!   which only while the chain is at R_0 passes R_0's position to a staged
+//!   package of R_0's own model with a span head, whose document outputs
+//!   equal R_0's.
 //!
 //! Records are queued in `decision_records` and written by their own step
 //! ([`engine::Work::DecisionRecord`]); the write never holds other work.

@@ -62,11 +62,12 @@ ModernBERT-base.
   recipe below starts from ModernBERT-base and public data; you can start
   from R0's encoder instead ([Warm start from R0](#warm-start-from-r0)).
 - **The cutoff and promotion.** A cohort pays only entrants that pass the
-  gates and reach its cutoff, and the first that also passes the promotion
-  checks becomes the next reference; the operator may also set references by
-  a recorded decision ([terms](terms.md#operator-decisions)). The miner
-  guide's [Rewards](miner-guide.md#rewards) section gives the score, the
-  cutoff, the gates and the credit rule.
+  gates and reach its cutoff, and the first of them in rank order that also
+  beats `R_k` by the margin and passes the promotion checks becomes the next
+  reference; the operator may also set references by a recorded decision
+  ([terms](terms.md#operator-decisions)). The miner guide's
+  [Rewards](miner-guide.md#rewards) section gives the score, the cutoff, the
+  gates and the credit rule.
 - **Copies.** An artifact with the inference content of any published
   artifact (an earlier entry, yours included, or a reference) is not executed
   and earns nothing, and a near copy of a published artifact or of either

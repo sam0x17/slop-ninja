@@ -521,10 +521,11 @@ re-registration, a UID changing hands, an owner move), with a later epoch. It wr
 pointer and objects (`authorizations/current.json` and
 `authorizations/<sha256>.signed` in the receipts bucket); the pointer names
 a row only beside the authorization it was committed under. The publisher
-copies them to `v1/` as soon as they verify. The public host is not deployed
-on testnet yet: until it is, a validator pointed at it reports `unpublished`
-and keeps its installed bundle, and an operator with read access to the
-receipts bucket can serve its own validator a mirror instead
+copies them to `v1/` as soon as they verify. Testnet's public host,
+`https://testnet.slop.ninja/`, has served them since November 13, 2026. A
+validator pointed at a host that names no authorization reports
+`unpublished` and keeps its installed bundle, and an operator with read
+access to the receipts bucket can serve its own validator a mirror instead
 (`deploy/row-mirror.sh`, below). A validator may instead read a local copy of
 the layout (`base_url = "file:///<mirror dir>/"`); a `file://` base must
 name a local absolute directory (no host, query or fragment), each path is

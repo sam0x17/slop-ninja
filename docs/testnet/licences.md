@@ -51,8 +51,9 @@ License 2.0. The repository's `LICENSE-APACHE` is that licence's text, byte
 for byte the copy in each reference package's
 `upstream/ModernBERT-base-LICENSE`.
 
-The public status host, where artifacts are published, is not yet
-readable. A notice for the published artifacts, with a copy of the base
-model's licence, is planned beside them under `artifacts/v2/` before public
-access opens; the [public layout](public-layout.md) will give their paths
-once the publisher writes them.
+The public status host, <https://testnet.slop.ninja>, where artifacts are
+published, has been live since November 13, 2026. A notice for the published
+artifacts, with a copy of the base model's licence, is planned beside them
+under `artifacts/v2/` and is not published yet; the
+[public layout](public-layout.md) will give its paths once the publisher
+writes them.

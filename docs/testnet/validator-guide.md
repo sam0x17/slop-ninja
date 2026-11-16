@@ -57,16 +57,18 @@ the hidden evaluation is part of the protocol.
 | `slop_ninja_validator` startup checks, `observe`, the dry run and journaled dispatch | built and tested on Linux x86_64; live commits, per-tempo re-commits and fault drills ran on subnet 601 on October 30, 2026, under a fixture package |
 | Verification of the coordinator's signed row (`slop_ninja.coordinator_row_bundle/v1`; earlier package bundles are refused as `bundle_schema_retired`) | in the signed release `testnet-v0.2.0` and the current source ([section 2](#2-install)) |
 | The coordinator's signed row | live: the deployed coordinator signs a row record for the active target whenever its paid entries change |
-| Published rows on the public status host | not yet live |
-| The row fetcher (`[fetch]`) | built and tested offline against the publisher's layout; waits for the public host, so until it is live every validator installs each row bundle by hand or reads a local mirror (below). The coordinator signs each closed cohort's authorization itself, so the pointer names the current one with no operator step |
+| Published rows on the public status host, <https://testnet.slop.ninja> | live since November 13, 2026: `v1/authorizations/current.json` names the authorization in force and the coordinator's signed row ([Fetching the coordinator's row](#fetching-the-coordinators-row)) |
+| The row fetcher (`[fetch]`) | built and tested offline against the publisher's layout; it reads the public status host or a local mirror, and without it you install each row bundle by hand (below). The coordinator signs each closed cohort's authorization itself, so the pointer names the current one with no operator step |
 | Continuous dispatch, successor supersession and persistent user units | built and tested offline; not yet run unattended across cohorts on subnet 601 |
-| Committing the launch burn row | live on subnet 601: both SlopNinja validators commit and reveal it each tempo under rtao's owner-row opt-in (below); first native commit and reveal on November 3, 2026 |
+| Committing the active target's row | live on subnet 601: both SlopNinja validators committed and revealed the launch burn row each tempo under rtao's owner-row opt-in (below), from the first native commit and reveal on November 3, 2026 until `testnet-r1-30`'s target activated at its close on November 15, 2026; since then they commit and reveal that target's row. The status snapshot's `mode` says which is active |
 | Release public key | published on the [landing page](README.md#release-key) |
 | Public repository | [sam0x17/slop-ninja](https://github.com/sam0x17/slop-ninja) |
 | Validator release binaries (Linux x86_64) | live: `testnet-v0.2.0`, published November 11, 2026, holds `slop_ninja_validator` and `slop-ninja-journal`, built from the public repository, signed and smoke-tested ([section 2](#2-install)); the miner client stays in `testnet-v0.1.0` |
 
 Today an outside validator can install the binary, create its journal, run the
-startup checks and use `observe`. Committing rows waits for the pieces above.
+startup checks and use `observe`. Committing rows needs a row from the public
+status host, a local mirror or a bundle installed by hand; continuous dispatch
+has not yet run unattended across cohorts on subnet 601 (above).
 
 ## 1. Requirements
 
@@ -237,7 +239,7 @@ receipt = "<receipt_public_key from testnet-trust.json>"
 authorization = "<authorization_public_key from testnet-trust.json>"
 
 [fetch]
-base_url = "https://<public status host>/"
+base_url = "https://testnet.slop.ninja/"
 
 [dispatch]
 hotkey_file = "/home/operator/.bittensor/wallets/my-wallet/hotkeys/my-validator"
@@ -482,9 +484,10 @@ the installed target's row from its own finalized snapshot once a tempo and
 whenever a target is installed, independent of its own commitment, and
 signs a new row record only when the paid entries change. Until a row
 exists under the current authorization, the session reports `row_unpublished` and retries at the next check, and the
-installed bundle keeps committing. **The public host is not deployed yet**;
-until it is, the fetcher reports `unpublished` and the validator keeps the
-bundle you install. `base_url` may instead name a local directory holding a
+installed bundle keeps committing. The public host,
+`https://testnet.slop.ninja/`, has been live since November 13, 2026. While a
+host names no authorization, the fetcher reports `unpublished` and the
+validator keeps the bundle it holds. `base_url` may instead name a local directory holding a
 copy of the layout (`file:///<dir>/`), checked exactly as the host is;
 whatever fills it writes each object before the pointer, the pointer last.
 An operator with read access to the coordinator's private bucket can fill
@@ -717,8 +720,9 @@ skipped.
 
 ### The launch burn row
 
-Until some entrant beats the reference by the margin, the active target is the
-burn row: the whole pool goes to the subnet owner hotkey's UID. rtao holds a
+Until a cohort's target first activates, and again after an operator's switch
+to burn, the active target is the launch burn row: the whole pool goes to the
+subnet owner hotkey's UID. rtao holds a
 row whose only positive entries are the owner hotkey's UID or the validator's
 own unless the work opts in to submitting owner rows. The validator opts in
 only for the burn row under a valid launch authorization, or a verified target
@@ -761,12 +765,14 @@ signed release.
 not the owner, running at rtao `0c128160`, committed the launch burn row
 timelocked in block 8,362,443 and revealed it at 8,362,485 with the reveal
 matching its journaled row. Both SlopNinja validators, that one and the
-coordinator, now commit and reveal it each tempo; read back at block
+coordinator, then committed and revealed it each tempo; read back at block
 8,363,204, the chain held both rows as weight 1.0 on the owner UID and
-nothing for any miner UID. They commit it under the launch authorization,
+nothing for any miner UID. They committed it under the launch authorization,
 which, like every authorization, does not expire
 ([Fetching the coordinator's row](#fetching-the-coordinators-row)): it stops only
 when a successor target supersedes it or a signed revocation withdraws it.
+`testnet-r1-30`'s target superseded it at that cohort's close on November 15,
+2026, and both validators now commit and reveal that target's row.
 
 ## The journal
 

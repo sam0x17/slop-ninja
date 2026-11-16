@@ -89,8 +89,7 @@ commitment for any registered hotkey whenever a cohort admits. `upload` needs
 the signed routes, which are open to every registered hotkey. **Each cohort
 needs a new commitment and a new model**: a commitment counts for one cohort
 only, and a model you entered before is a published copy that is not executed
-([Copies](#13-rewards)). The steps below say where they depend on a piece that
-is not yet live. The public repository is
+([Copies](#13-rewards)). The public repository is
 <https://github.com/sam0x17/slop-ninja>, and the public status host is
 <https://testnet.slop.ninja>. The release key is on the
 [landing page](README.md#release-key).

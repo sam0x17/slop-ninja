@@ -1,11 +1,13 @@
 # Testnet terms
 
-Version 4, November 11, 2026. It replaces version 3 of the same day (which
-replaced version 2 of November 9, 2026, which replaced version 1, the
-unnumbered terms published before it) and adds what SlopNinja's planned
-distribution from its revenue pot to testnet miners is and is not. A
-commitment made after version 4 is published accepts it; an earlier commitment
-stays under the version in force when it was made, except that a legal removal
+Version 5, November 16, 2026. It replaces version 4 of November 11, 2026
+(which replaced version 3 of the same day, which replaced version 2 of
+November 9, 2026, which replaced version 1, the unnumbered terms published
+before it). It changes no term and no rule: it brings up to date which model
+is the reference and how it changes, which row validators commit, and that
+the public status host is open. A commitment made after version 5 is
+published accepts it; an earlier commitment stays under the version in force
+when it was made, except that a legal removal
 ([Legal notices and removals](#legal-notices-and-removals)) can apply to
 material published under any version.
 
@@ -132,21 +134,21 @@ published result is the record.
 
 ## The reference model
 
-Testnet's reference is `R_0`. SlopNinja publishes its reference packages,
-`R_0` among them, under the CC BY-SA 4.0 licence with their notices, once
-public access opens ([reference packages](reference-packages.md)). The
-SlopNinja name and logo are not covered by that licence. The reference
+Testnet's reference is the current `R_k`, which the
+[status page](https://slop.ninja/testnet/status/) names. The first reference,
+`R_0`, was replaced by `R_1` through ordinary promotion in `testnet-r1-30` on
+November 15, 2026, and `R_0` became its predecessor. A promoted reference is
+an entrant's artifact, published when its cohort's scoring started under the
+licence its miner granted ([Your submission](#your-submission)). SlopNinja
+publishes its reference packages, `R_0` among them, under the CC BY-SA 4.0
+licence with their notices on the public status host,
+<https://testnet.slop.ninja> ([reference packages](reference-packages.md)).
+The SlopNinja name and logo are not covered by that licence. The reference
 changes by the published promotion rule or by an operator reference decision
-(below). Two such decisions are planned. Before the first cohort that enforces
-the span gate (a check of each entrant's AI spans against d24's on the same
-batch; no cohort enforces it yet), one signed span-equivalent reference
-decision passes `R_0`'s position to span package d24, SlopNinja's
-span-serving package, after d24 runs once as an ordinary entry, so that it is
-published and fingerprinted; this changes no reward input and is not the
-planned replacement. That replacement is the other: replacing `R_0` by the
-next reference SlopNinja trains, only if it passes every required gate,
-announced in advance on the status page. Replacing the reference moves no
-reward already earned.
+([below](#operator-decisions)). Replacing the reference moves no reward
+already earned. The span gate (a check of each entrant's AI spans against a
+fixed anchor on the same batch; no cohort enforces it yet) keeps span
+package d24, SlopNinja's span-serving package, as that anchor.
 On testnet only, promotions run without the lookup canary, and the
 leaderboard labels this; an operator drill of the blocking path, named in the
 cohort's plan, can still block a candidate. The canary is required before
@@ -157,9 +159,16 @@ mainnet.
 Each cohort runs under a signed manifest that freezes its rules, parameters and
 gate thresholds; a cohort's rules do not change after it opens. Later cohorts
 may run under new manifest versions. Testnet follows the whitepaper's reward
-rule: no miner earns until an entrant beats the reference by the margin, and
-until then the active target is the burn row, which pays no miner.
-SlopNinja's validators commit that row on chain each tempo; the
+rule ([reward rules](../agents/rewards.md)): a cohort pays only entrants that
+pass the gates and reach its cutoff, which is the reference's score plus the
+margin or, when nobody reaches that and a predecessor reference exists, a
+fallback cutoff above the predecessor's score. A cohort that pays no one
+leaves the previous target in force. The burn row, which pays no miner, is
+the active target only when no cohort target exists: on testnet it was the
+active target from launch until `testnet-r1-30`'s target replaced it on
+November 15, 2026, and only an operator's restart of the record
+([below](#operator-decisions)) brings it back. Validators commit the active
+target's row on chain each tempo; the
 [miner guide](miner-guide.md#13-rewards) says what that means.
 
 ## Operator decisions

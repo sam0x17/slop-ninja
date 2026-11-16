@@ -324,6 +324,10 @@ and settlement.
 Solana is preferred for any additional crypto entry route; Ethereum mainnet is
 not selected. Paid-use emissions are a separate choice.
 Keep the whitepaper and design notes aligned when these decisions change.
+A landing that changes anything a miner runs, reads, submits or is scored on
+updates `docs/testnet/miner-guide.md` (and the testnet guides it links) in the
+same landing; the guide states volatile live values by pointing to the status
+page or the command that prints them.
 Support Linux and macOS miner/validator tooling. Keep platform-specific ML
 backends optional and declare tested OS/architecture/runtime combinations.
 Production miner and validator implementations are entirely Rust using

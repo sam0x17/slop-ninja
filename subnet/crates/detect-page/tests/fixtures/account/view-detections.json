@@ -10,7 +10,6 @@
       "summary": {
         "kind": "private_text",
         "band": "very_strong",
-        "short": null,
         "strong_sections": null,
         "total_sections": null,
         "words": 181,
@@ -25,7 +24,6 @@
       "summary": {
         "kind": "private_paid",
         "band": null,
-        "short": null,
         "strong_sections": 1,
         "total_sections": 3,
         "words": 3214,
@@ -40,7 +38,6 @@
       "summary": {
         "kind": "private_text",
         "band": "weak",
-        "short": null,
         "strong_sections": null,
         "total_sections": null,
         "words": 412,

@@ -29,7 +29,7 @@ fn user() -> UserId {
 }
 
 fn summary(kind: Kind, band: Option<Band>, words: u32) -> Summary {
-    Summary { kind, band, short: None, strong_sections: None, total_sections: None, words, created_at: T0 }
+    Summary { kind, band, strong_sections: None, total_sections: None, words, created_at: T0 }
 }
 
 fn identity(id: u64, provider: Provider, label: &str, current: bool) -> IdentityRow {

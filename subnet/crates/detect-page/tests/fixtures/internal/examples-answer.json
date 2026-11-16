@@ -4,7 +4,7 @@
       "slot": 1,
       "source": "synthetic",
       "page": {
-        "schema": "slop_ninja_detect_page_v2",
+        "schema": "slop_ninja_detect_page_v3",
         "slug": null,
         "host": "site",
         "kind": "example",
@@ -12,7 +12,6 @@
         "state": "live",
         "state_v": 1,
         "created_at": 1795169040000,
-        "expires_at": null,
         "robots": "noindex",
         "canonical": null,
         "superseded_by": null,
@@ -63,6 +62,7 @@
           "markers": [],
           "invisible": false
         },
+        "history": [],
         "sections": null,
         "text": {
           "body": "We planted the tomatoes late this year because the frost hung around until the second week of May. In today's fast-paced world, community gardens serve as vibrant hubs that foster connection, promote sustainability, and empower residents to take meaningful ownership of their shared green spaces and local food systems.\n\nMarta says the beans did better on the north fence, and for once I think she is right. Moreover, by leveraging innovative composting strategies and data-driven planting schedules, organizers can unlock unprecedented yields while ensuring that every volunteer feels seen, valued, and inspired to keep growing together.",
@@ -136,7 +136,8 @@
         "card": null,
         "ninja": "strike",
         "receipt": null,
-        "paid_open": null
+        "paid_open": null,
+        "check_all": false
       }
     }
   ]

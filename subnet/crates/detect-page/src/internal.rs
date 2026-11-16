@@ -18,8 +18,42 @@ pub const MAX_STATES_PER_CALL: usize = 90;
 /// `POST /internal/v1/page`: the page JSON of a slug (website, secret host).
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct PageRequest {
-    /// A canonical slug: 7 characters (public) or 20 (secret).
+    /// A canonical slug: 7 characters (public), a text slug (8 to 19 base62
+    /// characters) or a drawn 20-character one (secret).
     pub slug: String,
+}
+
+/// `POST /internal/v1/save` (the website's `POST /detect/result`, with
+/// `X-SN-Principal` only when `save` is set and the reader is signed in):
+/// a sealed free check becomes its text's page, or lands on the page the
+/// same text already has. Every check that returns a seal is saved this way.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SaveRequest {
+    /// The exact string that was scored.
+    pub text: String,
+    pub seal: String,
+    /// "Save to my detections" was ticked (needs a principal).
+    #[serde(default)]
+    pub save: bool,
+}
+
+/// The check's page. The browser opens `<secret origin>/<slug>`, with
+/// `#m=<manage>` when this save made the page, and otherwise `#c=1` (the
+/// text was checked before) or `#c=2` (`updated`: this save added the
+/// serving model's run).
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SaveAnswer {
+    pub slug: String,
+    /// The manage token, drawn once, only for the save that made the page.
+    pub manage: Option<String>,
+    /// This save made the page.
+    pub made: bool,
+    /// This save added its run to an existing page.
+    pub updated: bool,
+    /// How the page was saved to the account; `null` when not saved.
+    pub saved: Option<crate::api::SavedAs>,
+    /// Why a save to the account asked for did not happen.
+    pub reason: Option<crate::api::SaveReason>,
 }
 
 /// `POST /internal/v1/preview`: the unstored result of a sealed free check.
@@ -50,13 +84,12 @@ pub struct StatesAnswer {
     pub states: Vec<StateEntry>,
 }
 
-/// One saved detection's state, with expiry enforced on read.
+/// One saved detection's state.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct StateEntry {
     pub id_h: IdH,
     /// `null`: no such detection (treated as deleted).
     pub state: Option<DetState>,
-    pub expires_at: Option<u64>,
 }
 
 /// What the account list shows of a detection, fixed when it was saved.
@@ -70,7 +103,6 @@ pub struct Summary {
     pub total_sections: Option<u32>,
     pub words: u32,
     pub created_at: u64,
-    pub expires_at: Option<u64>,
 }
 
 /// `POST /internal/v1/owner` with `X-SN-Principal`.
@@ -82,7 +114,7 @@ pub struct OwnerRequest {
     pub manage: Option<String>,
 }
 
-/// `peek`: writes nothing. A deleted, expired, removed or disabled page
+/// `peek`: writes nothing. A deleted, removed or disabled page
 /// answers its refusal (`page_gone`, `page_removed`, `page_disabled`) with
 /// no `id_h`, so nothing can be saved for it.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]

@@ -10,51 +10,41 @@ use crate::codes::*;
 use crate::refusal::RefusalCode;
 
 crate::code_enum! {
-    /// Why a link was not saved to the account.
+    /// Why a page was not saved to the account.
     pub enum SaveReason {
         /// The session was missing or expired: `save` became false.
         SignedOut = "signed_out",
-        /// The account Worker failed; the link exists unsaved.
+        /// The account Worker failed; the page exists unsaved.
         AccountUnavailable = "account_unavailable",
     }
 }
 
-/// `POST /api/detect/v1/share` (Get a link).
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-pub struct ShareRequest {
-    /// The exact string that was scored.
-    pub text: String,
-    pub seal: String,
-    pub expiry: Expiry,
-    /// Save to my detections (needs a principal).
-    pub save: bool,
-    /// "Where is this text from?": only its host is kept, inside the
-    /// encrypted document.
-    pub source: Option<String>,
+crate::code_enum! {
+    /// How a check's page was saved to the account.
+    pub enum SavedAs {
+        /// The account owns the page: its check made it (or the account
+        /// already owned it).
+        Owner = "owner",
+        /// The page existed before this check: the account keeps a bookmark,
+        /// which can open the page and never delete or release it.
+        Bookmark = "bookmark",
+    }
 }
 
-/// The new secret link. The browser opens `<secret origin>/<slug>#m=<manage>`
-/// (with `&s=1` when saved).
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-pub struct ShareAnswer {
-    pub slug: String,
-    pub manage: String,
-    pub saved: bool,
-    pub reason: Option<SaveReason>,
-}
-
-/// `POST /api/detect/v1/rerun`.
+/// `POST /api/detect/v1/rerun`: check a pasted text's page again with the
+/// current model.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct RerunRequest {
     pub slug: String,
 }
 
-/// A re-run's new page: a secret copy carries its own manage token; a public
-/// re-run answers the newest page's slug only.
+/// A re-run's page. A pasted text's run is added to the same page
+/// (`updated`: this call added it; the browser opens `<slug>#c=2`); nothing
+/// carries a manage token.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct RerunAnswer {
     pub slug: String,
-    pub manage: Option<String>,
+    pub updated: bool,
 }
 
 /// `POST /api/detect/v1/url`: the link of a public page, or of a post on X.
@@ -102,29 +92,23 @@ pub struct ManageRequest {
     pub slug: String,
     pub manage: String,
     pub action: ManageAction,
-    /// With `set_expiry`.
-    pub expiry: Option<Expiry>,
 }
 
-/// The page after a manage action.
+/// The page after a manage action. No page ends by time, so there is no
+/// expiry to show or change.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ManageAnswer {
     pub ok: bool,
     pub state: DetState,
-    pub expires_at: Option<u64>,
-    /// A re-run copy's latest allowed expiry.
-    pub latest_expiry: Option<u64>,
-    /// The expiry choices this page offers (a copy offers only those that
-    /// end no later than its original).
-    #[serde(default)]
-    pub choices: Vec<Expiry>,
 }
 
-/// `POST /api/detect/v1/paid/quote` (the website turns the form into this).
+/// `POST /api/detect/v1/paid/quote` (the website turns the form into this):
+/// "Check all" from a pasted text's page, by its slug. The text is the
+/// page's, and section 1 is its newest run, which must be under the serving
+/// package (`quote_stale_run` otherwise).
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct QuoteRequest {
-    pub text: String,
-    pub seal: String,
+    pub slug: String,
 }
 
 /// The quote page's figures.
@@ -158,14 +142,13 @@ pub struct Unscored {
     pub to_word: u32,
 }
 
-/// `POST /api/detect/v1/paid/start`. The website answers 303 to
-/// `<secret origin>/<slug>#m=<manage>&s=1`.
+/// `POST /api/detect/v1/paid/start`: the quoted page's slug and the quote
+/// seal. The website answers 303 to `<secret origin>/<paid slug>#m=<manage>&s=1`,
+/// a separate secret page with a drawn 20-character slug.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct StartRequest {
-    pub text: String,
-    pub seal: String,
+    pub slug: String,
     pub quote_seal: String,
-    pub expiry: Expiry,
 }
 
 /// The paid job's page.

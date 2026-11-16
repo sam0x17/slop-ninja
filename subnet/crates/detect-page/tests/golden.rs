@@ -34,7 +34,11 @@ const D24: &str = "e2536d12dff593d7b11895b3cbf6b10232601abfbebde248325afd707722b
 const SCORER: &str = "7030a86f";
 const PUBLIC: &str = "k7m2xq9";
 const NEWER: &str = "p4r8tz2";
+/// A drawn 20-character secret slug: paid pages, and pasted-text pages made
+/// before text slugs.
 const SECRET: &str = "7hq2kd9m4xw8rt3vn6pb";
+/// A pasted text's slug (`permalink-policy/v1`'s worked example).
+const TEXT: &str = "uM07zZQv";
 const SECRET2: &str = "c3jf8kq1zw5ty7hn2mdx";
 /// A feedback receipt's id and tag (`<id>.<band>.<length bin>.<tag>`).
 const RECEIPT_ID: &str = "0f1e2d3c4b5a69788796a5b4c3d2e1f0";
@@ -138,7 +142,6 @@ fn base(kind: Kind, slug: Option<&str>, state: DetState) -> Page {
         state,
         state_v: 1,
         created_at: if kind == Kind::Unstored { None } else { Some(T0) },
-        expires_at: None,
         robots,
         canonical: if kind == Kind::PublicUrl { slug.map(Into::into) } else { None },
         superseded_by: None,
@@ -146,6 +149,7 @@ fn base(kind: Kind, slug: Option<&str>, state: DetState) -> Page {
         example_slot: None,
         serving: serving(false),
         run: None,
+        history: Vec::new(),
         sections: None,
         text: None,
         x: None,
@@ -158,6 +162,7 @@ fn base(kind: Kind, slug: Option<&str>, state: DetState) -> Page {
         ninja: None,
         receipt: None,
         paid_open: None,
+        check_all: false,
         cache_tag: None,
     }
 }
@@ -363,7 +368,7 @@ fn long_body() -> (String, u32, u32) {
 }
 
 fn secret_strong() -> Page {
-    let mut p = base(Kind::PrivateText, Some(SECRET), DetState::Live);
+    let mut p = base(Kind::PrivateText, Some(TEXT), DetState::Live);
     let body = secret_body();
     let mut run = banded_run(Band::VeryStrong, 999, "above 99.9%", 86, words(&body), words(&body), CutKind::None);
     run.spans = vec![span(&body, &format!("{P1} {P2}"), Some(98))];
@@ -377,7 +382,7 @@ fn short_body(strong: bool) -> String {
 }
 
 fn secret_short(r: ShortResult) -> Page {
-    let mut p = base(Kind::PrivateText, Some(SECRET), DetState::Live);
+    let mut p = base(Kind::PrivateText, Some(TEXT), DetState::Live);
     let body = short_body(r == ShortResult::Strong);
     let mut run = short_run(r, words(&body));
     if r == ShortResult::Strong {
@@ -534,7 +539,6 @@ fn paid_document() -> Page {
         },
     });
     p.text = Some(full(&body));
-    p.expires_at = Some(T0 + 30 * DAY);
     live(p)
 }
 
@@ -669,7 +673,7 @@ fn pages() -> Vec<(&'static str, &'static str, Page)> {
         pasted_x_source(),
     ));
     let (body, scored, total) = long_body();
-    let mut p = base(Kind::PrivateText, Some(SECRET), DetState::Live);
+    let mut p = base(Kind::PrivateText, Some(TEXT), DetState::Live);
     let mut run = banded_run(Band::VeryStrong, 999, "above 99.9%", 86, scored, total, CutKind::FirstWords);
     run.spans = vec![span(&body, &format!("{P1} {P2}"), Some(98))];
     p.run = Some(run);
@@ -677,13 +681,12 @@ fn pages() -> Vec<(&'static str, &'static str, Page)> {
     p.serving = serving(true);
     let p = live(p);
     v.push(("20-secret-free-cut", "run.cut: first N of M words; re-run link (live private_text, older package)", p));
-    let mut p = base(Kind::PrivateText, Some(SECRET), DetState::Deleted);
+    let mut p = base(Kind::PrivateText, Some(TEXT), DetState::Deleted);
     p.state_v = 2;
     v.push(("21-secret-deleted", "deleted: 410", p));
-    let mut p = base(Kind::PrivateText, Some(SECRET), DetState::Expired);
-    p.expires_at = Some(T0 + DAY);
-    v.push(("22-secret-expired", "expired: 410", p));
-    let mut p = base(Kind::PrivateText, Some(SECRET), DetState::Disabled);
+    let p = base(Kind::PrivateText, Some(SECRET), DetState::Expired);
+    v.push(("22-secret-expired", "legacy expired tombstone (a 20-character slug): 410", p));
+    let mut p = base(Kind::PrivateText, Some(TEXT), DetState::Disabled);
     p.state_v = 2;
     v.push(("23-secret-disabled", "disabled: 451 while a report is reviewed", p));
     v.push(("24-paid-document", "private_paid: section map, neutral dial, no ninja", paid_document()));
@@ -706,7 +709,7 @@ fn pages() -> Vec<(&'static str, &'static str, Page)> {
     let open = Page { paid_open: Some(true), ..unstored.clone() };
     v.push((
         "27-unstored",
-        "unstored result: not saved, Get a link, free-cut notice; paid checks closed to the public",
+        "unstored result: not saved (saving unavailable), free-cut notice; paid checks closed to the public",
         unstored,
     ));
     let mut p = base(Kind::Example, None, DetState::Live);
@@ -746,6 +749,49 @@ fn pages() -> Vec<(&'static str, &'static str, Page)> {
         "39-unstored-paid-open",
         "unstored result while paid checks are open (DETECT_PAID on): Check all N words when signed in",
         open,
+    ));
+    // A pasted text checked under two earlier packages: the newest run, with
+    // the earlier ones listed newest first.
+    let mut p = secret_strong();
+    p.state_v = 3;
+    p.history = vec![
+        HistoryEntry {
+            scored_at: T0 - 20 * DAY,
+            package: HistoryPackage {
+                label: "span package d23".into(),
+                published_digest: "a1b2c3d4e5f60718293a4b5c6d7e8f90a1b2c3d4e5f60718293a4b5c6d7e8f90".into(),
+            },
+            band: Some(Band::Strong),
+            confidence_text: Some("97.3%".into()),
+            share_text: Some("about 61%".into()),
+        },
+        HistoryEntry {
+            scored_at: T0 - 40 * DAY,
+            package: HistoryPackage {
+                label: "reference R0".into(),
+                published_digest: "0f1e2d3c4b5a69788796a5b4c3d2e1f00f1e2d3c4b5a69788796a5b4c3d2e1f0".into(),
+            },
+            band: Some(Band::Unclear),
+            confidence_text: Some("72.4%".into()),
+            share_text: Some("about 20%".into()),
+        },
+    ];
+    let p = live(p);
+    v.push(("40-secret-history", "a pasted text's page with earlier results: newest run, Earlier results", p));
+    let mut p = base(Kind::PrivateText, Some(TEXT), DetState::Pending);
+    p.pending = Some(Pending { lease_ended: false, job: None });
+    v.push(("41-secret-pending", "a pasted text's page being saved: pending, reload in a moment (no-store)", p));
+    let (body, scored, total) = long_body();
+    let mut p = base(Kind::PrivateText, Some(TEXT), DetState::Live);
+    let mut run = banded_run(Band::VeryStrong, 999, "above 99.9%", 86, scored, total, CutKind::FirstWords);
+    run.spans = vec![span(&body, &format!("{P1} {P2}"), Some(98))];
+    p.run = Some(run);
+    p.text = Some(full(&body));
+    p.check_all = true;
+    v.push((
+        "42-secret-check-all",
+        "a pasted text's page with a free cut under the serving package while paid checks are open: Check all",
+        live(p),
     ));
     v
 }
@@ -806,7 +852,6 @@ fn summary() -> Summary {
         total_sections: None,
         words: 150,
         created_at: T0,
-        expires_at: None,
     }
 }
 
@@ -861,7 +906,7 @@ fn entries() -> Vec<Entry> {
         e.push(entry(format!("cards/{name}.json"), card));
     }
     // Internal routes.
-    e.push(entry("internal/page-request.json", PageRequest { slug: SECRET.into() }));
+    e.push(entry("internal/page-request.json", PageRequest { slug: TEXT.into() }));
     e.push(entry(
         "internal/preview-request.json",
         PreviewRequest { text: secret_body(), seal: "AQ3vb2xkLXNlYWwtZXhhbXBsZQ".into() },
@@ -872,9 +917,9 @@ fn entries() -> Vec<Entry> {
         "internal/states-answer.json",
         StatesAnswer {
             states: vec![
-                StateEntry { id_h: id_h(1), state: Some(DetState::Live), expires_at: None },
-                StateEntry { id_h: id_h(2), state: Some(DetState::Expired), expires_at: Some(T0 + DAY) },
-                StateEntry { id_h: id_h(3), state: None, expires_at: None },
+                StateEntry { id_h: id_h(1), state: Some(DetState::Live) },
+                StateEntry { id_h: id_h(2), state: Some(DetState::Deleted) },
+                StateEntry { id_h: id_h(3), state: None },
             ],
         },
     ));
@@ -882,7 +927,7 @@ fn entries() -> Vec<Entry> {
         "internal/owner-peek-request.json",
         OwnerRequest {
             action: OwnerAction::Peek,
-            slug: SECRET.into(),
+            slug: TEXT.into(),
             manage: Some("4kq8mz2p7wx3rt9vn6bc1hj5dy".into()),
         },
     ));
@@ -890,17 +935,17 @@ fn entries() -> Vec<Entry> {
         "internal/owner-claim-request.json",
         OwnerRequest {
             action: OwnerAction::Claim,
-            slug: SECRET.into(),
+            slug: TEXT.into(),
             manage: Some("4kq8mz2p7wx3rt9vn6bc1hj5dy".into()),
         },
     ));
     e.push(entry(
         "internal/owner-delete-request.json",
-        OwnerRequest { action: OwnerAction::Delete, slug: SECRET.into(), manage: None },
+        OwnerRequest { action: OwnerAction::Delete, slug: TEXT.into(), manage: None },
     ));
     e.push(entry(
         "internal/owner-release-request.json",
-        OwnerRequest { action: OwnerAction::Release, slug: SECRET.into(), manage: None },
+        OwnerRequest { action: OwnerAction::Release, slug: TEXT.into(), manage: None },
     ));
     e.push(entry(
         "internal/peek-answer.json",
@@ -936,35 +981,46 @@ fn entries() -> Vec<Entry> {
             secret_monthly: vec![MonthlyCount { month: "2026-11".into(), count: 2 }],
         },
     ));
-    // Forwarded routes.
     e.push(entry(
-        "api/share-request.json",
-        ShareRequest {
-            text: secret_body(),
-            seal: "AQ3vb2xkLXNlYWwtZXhhbXBsZQ".into(),
-            expiry: Expiry::Keep,
-            save: true,
-            source: Some("https://x.com/a/status/1".into()),
+        "internal/save-request.json",
+        SaveRequest { text: secret_body(), seal: "AQ3vb2xkLXNlYWwtZXhhbXBsZQ".into(), save: true },
+    ));
+    e.push(entry(
+        "internal/save-answer-made.json",
+        SaveAnswer {
+            slug: TEXT.into(),
+            manage: Some("4kq8mz2p7wx3rt9vn6bc1hj5dy".into()),
+            made: true,
+            updated: false,
+            saved: Some(SavedAs::Owner),
+            reason: None,
         },
     ));
     e.push(entry(
-        "api/share-answer.json",
-        ShareAnswer { slug: SECRET.into(), manage: "4kq8mz2p7wx3rt9vn6bc1hj5dy".into(), saved: true, reason: None },
+        "internal/save-answer-existing.json",
+        SaveAnswer {
+            slug: TEXT.into(),
+            manage: None,
+            made: false,
+            updated: false,
+            saved: Some(SavedAs::Bookmark),
+            reason: None,
+        },
     ));
     e.push(entry(
-        "api/share-answer-unsaved.json",
-        ShareAnswer {
-            slug: SECRET.into(),
-            manage: "4kq8mz2p7wx3rt9vn6bc1hj5dy".into(),
-            saved: false,
+        "internal/save-answer-updated-unsaved.json",
+        SaveAnswer {
+            slug: TEXT.into(),
+            manage: None,
+            made: false,
+            updated: true,
+            saved: None,
             reason: Some(SaveReason::AccountUnavailable),
         },
     ));
-    e.push(entry("api/rerun-request.json", RerunRequest { slug: SECRET.into() }));
-    e.push(entry(
-        "api/rerun-answer.json",
-        RerunAnswer { slug: SECRET2.into(), manage: Some("9xw3kq8mz2p7rt4vn6bc1hj5dy".into()) },
-    ));
+    // Forwarded routes.
+    e.push(entry("api/rerun-request.json", RerunRequest { slug: TEXT.into() }));
+    e.push(entry("api/rerun-answer.json", RerunAnswer { slug: TEXT.into(), updated: true }));
     e.push(entry("api/url-request.json", UrlRequest { url: "https://news.example/a/garden-notes".into() }));
     e.push(entry("api/url-line-pending.json", UrlLine::Pending { slug: PUBLIC.into() }));
     e.push(entry("api/url-line-done.json", UrlLine::Done { slug: PUBLIC.into() }));
@@ -972,27 +1028,10 @@ fn entries() -> Vec<Entry> {
     e.push(entry("api/state-answer.json", StateAnswer { state: DetState::Pending, lease_ended: true, code: None }));
     e.push(entry(
         "api/manage-request.json",
-        ManageRequest {
-            slug: SECRET2.into(),
-            manage: "9xw3kq8mz2p7rt4vn6bc1hj5dy".into(),
-            action: ManageAction::SetExpiry,
-            expiry: Some(Expiry::Week),
-        },
+        ManageRequest { slug: TEXT.into(), manage: "9xw3kq8mz2p7rt4vn6bc1hj5dy".into(), action: ManageAction::Delete },
     ));
-    e.push(entry(
-        "api/manage-answer.json",
-        ManageAnswer {
-            ok: true,
-            state: DetState::Live,
-            expires_at: Some(T0 + 7 * DAY),
-            latest_expiry: Some(T0 + 30 * DAY),
-            choices: vec![Expiry::Day, Expiry::Week, Expiry::Month],
-        },
-    ));
-    e.push(entry(
-        "api/quote-request.json",
-        QuoteRequest { text: secret_body(), seal: "AQ3vb2xkLXNlYWwtZXhhbXBsZQ".into() },
-    ));
+    e.push(entry("api/manage-answer.json", ManageAnswer { ok: true, state: DetState::Deleted }));
+    e.push(entry("api/quote-request.json", QuoteRequest { slug: TEXT.into() }));
     e.push(entry(
         "api/quote-answer.json",
         QuoteAnswer {
@@ -1009,12 +1048,7 @@ fn entries() -> Vec<Entry> {
     ));
     e.push(entry(
         "api/start-request.json",
-        StartRequest {
-            text: secret_body(),
-            seal: "AQ3vb2xkLXNlYWwtZXhhbXBsZQ".into(),
-            quote_seal: "AQ3xdW90ZS1zZWFsLWV4YW1wbGU".into(),
-            expiry: Expiry::Keep,
-        },
+        StartRequest { slug: TEXT.into(), quote_seal: "AQ3xdW90ZS1zZWFsLWV4YW1wbGU".into() },
     ));
     e.push(entry(
         "api/start-answer.json",

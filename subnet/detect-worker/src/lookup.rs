@@ -6,10 +6,12 @@
 //!   the request's own reads, so a flip takes effect on the next request.
 //!   When D1 cannot be read the var decides.
 //! - **Slugs.** A slug is looked up only in its canonical form: 7
-//!   characters for a public page, 20 for a secret one. Anything else is not
-//!   found, with no store read. A secret slug is looked up under every live
-//!   pepper version in one batch, and a row counts only under the version it
-//!   was made with.
+//!   characters for a public page; for a secret one a text slug (8 to 19
+//!   base62 characters, exactly as written) or a drawn 20-character one.
+//!   Anything else is not found, with no store read. A secret slug is looked
+//!   up under every live pepper version in one batch (its id under
+//!   `slug_v2` for a text slug, `slug_v1` for a drawn one), and a row counts
+//!   only under the version it was made with.
 
 use slop_ninja_detect_page::slug::{self, PUBLIC_LEN, SECRET_LEN};
 
@@ -61,6 +63,7 @@ impl SwitchRows {
             index: self.on(io, "DETECT_INDEX"),
             excerpts: self.on(io, "DETECT_EXCERPTS"),
             x_purged: self.state(io, "DETECT_X") == "purged",
+            paid: self.on(io, "DETECT_PAID"),
         }
     }
 }
@@ -74,8 +77,20 @@ pub async fn read_switches(io: &impl Io) -> SwitchRows {
 /// What a slug is by its form.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum SlugForm {
+    /// A public page's 7 characters.
     Public,
+    /// A drawn 20-character secret slug (paid pages; pasted-text pages made
+    /// before `permalink-policy/v1`).
     Secret,
+    /// A pasted text's derived slug: 8 to 19 base62 characters.
+    Text,
+}
+
+impl SlugForm {
+    /// Whether a slug of this form names a secret page.
+    pub fn is_secret(self) -> bool {
+        matches!(self, SlugForm::Secret | SlugForm::Text)
+    }
 }
 
 /// The form of a canonical slug; `None` for anything else.
@@ -84,6 +99,8 @@ pub fn slug_form(s: &str) -> Option<SlugForm> {
         Some(SlugForm::Public)
     } else if slug::is_canonical(s, SECRET_LEN) {
         Some(SlugForm::Secret)
+    } else if slug::is_text_slug(s) {
+        Some(SlugForm::Text)
     } else {
         None
     }
@@ -106,7 +123,7 @@ pub async fn secret_lookup<'p>(
     let candidates: Vec<&Pepper> = peppers.all().collect();
     let mut batch = vec![Stmt::new(SELECT_SWITCHES, Vec::new())];
     for p in &candidates {
-        batch.push(Stmt::new(SELECT_DET, vec![Val::blob(&p.id_h(slug))]));
+        batch.push(Stmt::new(SELECT_DET, vec![Val::blob(&p.secret_id_h(slug))]));
     }
     let done = io.batch(batch).await?;
     let sw = SwitchRows::from_done(done.first());

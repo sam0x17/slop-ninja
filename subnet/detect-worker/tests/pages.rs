@@ -6,7 +6,7 @@ use slop_ninja_detect_page::codes::{Adapter, DetState, Kind, Platform, Reputatio
 use slop_ninja_detect_page::page::{JobProgress, Page, Run};
 use slop_ninja_detect_page::refusal::RefusalCode;
 use slop_ninja_detect_worker::display::{PageSwitches, SourceRow};
-use slop_ninja_detect_worker::doc::{DOC_V, RunDoc, SecretDoc, Serving, SourceCheck, StoredResult};
+use slop_ninja_detect_worker::doc::{DOC_V, DOC_V2, RunDoc, SecretDoc, Serving, SourceCheck, StoredResult};
 use slop_ninja_detect_worker::page::{PageCtx, PublicExtras, public_page, secret_page, unstored_page};
 use slop_ninja_detect_worker::store::DetRow;
 
@@ -79,7 +79,6 @@ fn row(p: &Page) -> DetRow {
         refusal: p.ended.map(|e| e.code).or(p.failure.map(|f| f.code)),
         created_at: p.created_at.unwrap(),
         updated_at: p.created_at.unwrap(),
-        expires_at: p.expires_at,
         source_id: Some(1),
         run_id: Some(1),
         superseded_by: p.superseded_by.as_ref().map(|_| [2; 32]),
@@ -91,14 +90,11 @@ fn row(p: &Page) -> DetRow {
         doc_key: None,
         index_force: None,
         copy_of: None,
-        expiry_cap: None,
     }
 }
 
 fn ctx<'a>(p: &Page, s: &'a Serving, sw: PageSwitches) -> PageCtx<'a> {
-    // An expired fixture is read after its expiry.
-    let now = p.expires_at.map_or(p.created_at.unwrap_or(0) + 1, |e| e + 1);
-    let now = if p.state == DetState::Expired { now } else { p.created_at.unwrap_or(0) + 1 };
+    let now = p.created_at.unwrap_or(0) + 1;
     PageCtx { serving: s, switches: sw, now, receipt: p.receipt.clone() }
 }
 
@@ -128,26 +124,83 @@ fn secret_pages_match_their_fixtures() {
         "24-paid-document",
         "25-paid-pending",
         "26-paid-failed",
+        "40-secret-history",
+        "41-secret-pending",
+        "42-secret-check-all",
     ] {
         let want = fixture(name);
         let s = serving(&want);
-        let doc = want.run.as_ref().map(|run| SecretDoc {
-            v: DOC_V,
-            text: want.text.as_ref().unwrap().body.clone().unwrap(),
-            result_full: stored(run, run_load(&want)),
-            source_check: want.source.as_ref().map(|s| SourceCheck { host: s.host.clone(), checked: s.checked }),
-            sections: want.sections.clone(),
+        let doc = want.run.as_ref().map(|run| {
+            // The earlier runs, oldest first, then the shown one.
+            let mut runs: Vec<StoredResult> = want
+                .history
+                .iter()
+                .rev()
+                .map(|h| {
+                    let mut r = stored(run, "load-earlier");
+                    r.scored_at = h.scored_at;
+                    r.package_label = h.package.label.clone();
+                    r.package_pub = h.package.published_digest.clone();
+                    r.band = h.band;
+                    r.confidence_text = h.confidence_text.clone();
+                    r.share_text = h.share_text.clone();
+                    r
+                })
+                .collect();
+            runs.push(stored(run, run_load(&want)));
+            SecretDoc {
+                v: if want.kind == Kind::PrivatePaid { DOC_V } else { DOC_V2 },
+                text: want.text.as_ref().unwrap().body.clone().unwrap(),
+                runs,
+                source_check: want.source.as_ref().map(|s| SourceCheck { host: s.host.clone(), checked: s.checked }),
+                sections: want.sections.clone(),
+            }
         });
         let job = want.pending.as_ref().and_then(|p| p.job);
-        let got = secret_page(
-            want.slug.as_deref().unwrap(),
-            &row(&want),
-            doc.as_ref(),
-            job,
-            &ctx(&want, &s, PageSwitches::DEFAULT),
-        );
+        let sw = PageSwitches { paid: want.check_all, ..PageSwitches::DEFAULT };
+        let got = secret_page(want.slug.as_deref().unwrap(), &row(&want), doc.as_ref(), job, &ctx(&want, &s, sw));
         assert_page(name, got, &want);
+        // The document round-trips as its version.
+        if let Some(d) = &doc {
+            assert_eq!(&SecretDoc::decode(&d.encode()).unwrap(), d, "{name}");
+        }
     }
+}
+
+/// `check_all` follows the switch and the run's package: never while paid
+/// checks are closed, nor on a run under an older package.
+#[test]
+fn check_all_needs_paid_checks_open_and_the_serving_package() {
+    let want = fixture("42-secret-check-all");
+    let s = serving(&want);
+    let run = want.run.as_ref().unwrap();
+    let doc = |load: &str| SecretDoc {
+        v: DOC_V2,
+        text: want.text.as_ref().unwrap().body.clone().unwrap(),
+        runs: vec![stored(run, load)],
+        source_check: None,
+        sections: None,
+    };
+    let at = |sw: PageSwitches, load: &str| {
+        secret_page(want.slug.as_deref().unwrap(), &row(&want), Some(&doc(load)), None, &ctx(&want, &s, sw))
+            .unwrap()
+            .check_all
+    };
+    let open = PageSwitches { paid: true, ..PageSwitches::DEFAULT };
+    assert!(at(open, &s.load));
+    assert!(!at(PageSwitches::DEFAULT, &s.load), "paid checks closed");
+    assert!(!at(open, "load-earlier"), "an older package's run");
+    // A page with no cut never offers it.
+    let uncut = fixture("15-secret-text");
+    let d = SecretDoc {
+        v: DOC_V2,
+        text: uncut.text.as_ref().unwrap().body.clone().unwrap(),
+        runs: vec![stored(uncut.run.as_ref().unwrap(), &s.load)],
+        source_check: None,
+        sections: None,
+    };
+    let p = secret_page(uncut.slug.as_deref().unwrap(), &row(&uncut), Some(&d), None, &ctx(&uncut, &s, open)).unwrap();
+    assert!(!p.check_all);
 }
 
 fn source_row(p: &Page, adapter: Adapter, status: SourceStatus, reputation: Reputation) -> SourceRow {

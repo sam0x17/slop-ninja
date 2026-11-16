@@ -59,10 +59,13 @@ FROM detections WHERE id_h = ?1 AND sitemap_seq IS NOT NULL ON CONFLICT (shard) 
 }
 
 /// `delete_private {id_h}`: tombstones a secret page that is not already
-/// ended, with its copies when it is a family root. The caller deletes the
-/// documents after the batch ([`delete_private_docs`]).
+/// ended, with its copies when it is a family root; a disabled page's text
+/// is held first, as every delete does. The caller deletes the documents
+/// after the batch ([`delete_private_docs`]). The tombstone is the second
+/// statement and the copies the third.
 pub fn delete_private(id_h: &IdH, now: u64) -> Vec<Stmt> {
     vec![
+        Stmt::new(crate::manage::HOLD_ANY, vec![Val::blob(&id_h.0), Val::int(now)]),
         Stmt::new(
             "UPDATE detections SET state = 'deleted', doc_key = NULL, doc_bytes = NULL, manage_h = NULL, \
 owner_h = NULL, owner_via = NULL, state_v = state_v + 1, updated_at = ?2 WHERE id_h = ?1 \
@@ -79,6 +82,16 @@ pub fn delete_private_docs(id_h: &IdH, copies: &crate::db::Done) -> Vec<String> 
     let mut keys = vec![crate::store::secret_doc_key(&id_h.0)];
     keys.extend(copies.rows.iter().filter_map(|r| r.hex32("id_h")).map(|c| crate::store::secret_doc_key(&c)));
     keys
+}
+
+/// `release_text {slug}`: the hold on the text whose current page is
+/// `id_h` goes (the operator's path past a hold that no case decision
+/// cleared), so its next check makes a new page.
+pub fn release_text(id_h: &crate::keys::Bytes32, now: u64) -> Stmt {
+    Stmt::new(
+        "UPDATE texts SET hold = NULL, updated_at = ?2 WHERE det_id_h = ?1 AND hold IS NOT NULL",
+        vec![Val::blob(id_h), Val::int(now)],
+    )
 }
 
 /// `purge {urls}`: a purge of pages on the two public origins only.
@@ -145,8 +158,12 @@ pub struct StoreStatus {
     pub dirty_shards: u64,
     /// The switch rows.
     pub switches: Vec<(String, String)>,
-    /// Live secret pages past their expiry (the sweep's backlog).
-    pub expiry_backlog: u64,
+    /// Pasted texts held after a disabled page was deleted (`release_text`
+    /// lets one go).
+    pub texts_on_hold: u64,
+    /// Rows that still carry a reader-chosen end date (none after the
+    /// store's `0002` migration; production must show none before it runs).
+    pub with_end_date: u64,
 }
 
 /// Reads [`StoreStatus`].
@@ -161,10 +178,10 @@ pub async fn status(io: &impl Io) -> Result<StoreStatus, RefusalCode> {
             Stmt::new("SELECT count(*) AS n FROM claims WHERE lease_until >= ?1", vec![Val::int(now)]),
             Stmt::new("SELECT count(*) AS n FROM sitemap_shards WHERE dirty = 1", Vec::new()),
             Stmt::new(crate::lookup::SELECT_SWITCHES, Vec::new()),
+            Stmt::new("SELECT count(*) AS n FROM texts WHERE hold IS NOT NULL", Vec::new()),
             Stmt::new(
-                "SELECT count(*) AS n FROM detections WHERE expires_at IS NOT NULL AND expires_at <= ?1 \
-AND state IN ('live','pending','failed')",
-                vec![Val::int(now)],
+                "SELECT count(*) AS n FROM detections WHERE expires_at IS NOT NULL OR expiry_cap IS NOT NULL",
+                Vec::new(),
             ),
         ])
         .await
@@ -185,5 +202,12 @@ AND state IN ('live','pending','failed')",
             d.rows.iter().filter_map(|r| Some((r.text("name")?.to_owned(), r.text("state")?.to_owned()))).collect()
         })
         .unwrap_or_default();
-    Ok(StoreStatus { detections, live_claims: n(1), dirty_shards: n(2), switches, expiry_backlog: n(4) })
+    Ok(StoreStatus {
+        detections,
+        live_claims: n(1),
+        dirty_shards: n(2),
+        switches,
+        texts_on_hold: n(4),
+        with_end_date: n(5),
+    })
 }

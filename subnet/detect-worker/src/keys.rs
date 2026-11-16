@@ -7,11 +7,22 @@
 //!   "owner_v1" ‖ user_id)`: only this Worker holds the secret, so only it
 //!   can derive an owner hash, and every other Worker passes the user id.
 //! - Each slug pepper `DETECT_SLUG_PEPPER_V<n>` (64 lowercase hex digits)
-//!   keys a secret page's id, `id_h = HMAC(pepper, "slug_v1" ‖ slug)`, and
-//!   salts its document key, `K_doc = HKDF(ikm = slug, salt =
-//!   "slop_ninja_detect_private_v1" ‖ pepper, info = "doc")`. New pages use
-//!   the highest version; a page keeps the version it was made with
+//!   keys a secret page's id and salts its document key, `K_doc = HKDF(ikm
+//!   = slug, salt = "slop_ninja_detect_private_v1" ‖ pepper, info = "doc")`.
+//!   A drawn 20-character slug's id is `HMAC(pepper, "slug_v1" ‖ slug)`; a
+//!   text slug's is `HMAC(pepper, "slug_v2" ‖ slug)`. New pages use the
+//!   highest version; a page keeps the version it was made with
 //!   (`detections.pepper_v`), so a pepper is never rotated for an existing
+//!   page.
+//! - **Text slugs** (`permalink-policy/v1`). A pasted text's address is
+//!   `text_h = HMAC(pepper, "text_v1" 0 "canon_v1" 0 ‖ text)` (stored in
+//!   `texts`), and its page's slug the first L characters of
+//!   `HKDF-Expand(PRK = HMAC(pepper, "slug_text_v1" 0 "canon_v1" 0 ‖
+//!   be32(gen) ‖ text), "slop_ninja_text_slug_chars_v1", 64)` under the
+//!   character rule `slug::text_chars`. `text` is `canon_v1` of the scored
+//!   string. The two HMACs have different domains, so the stored `text_h`
+//!   reveals neither the slug nor its key, and without the pepper neither
+//!   can be tested against a text: only this Worker can map a text to its
 //!   page.
 //! - A public page's id is `H("slug_v1" ‖ slug)`; a manage token's hash is
 //!   `H("manage_v1" ‖ token)`; a seal's single use is `H("seal_nonce_v1" ‖
@@ -19,12 +30,12 @@
 //!   version.
 //! - A secret document is `nonce ‖ AES-256-GCM(K_doc, nonce, plaintext)`
 //!   with the AAD [`DOC_AAD`] and a 96-bit nonce from the platform's CSPRNG.
-//!   Each document is written once under its own key, so a nonce never
-//!   repeats under a key.
+//!   A page's key sees one write when it is made and at most one more per
+//!   package a newer run is added under, far inside the random-nonce bound.
 //!
 //! A dump of D1 and R2 without these secrets yields no plaintext, no secret
 //! slug and no manage token: the slug is never stored, and a secret page's
-//! id and key both need the pepper.
+//! id, its key and a text's address all need the pepper.
 //!
 //! Keys never appear in `Debug` output.
 
@@ -47,6 +58,16 @@ pub const DOC_AAD: &[u8] = b"slop_ninja_detect_doc_v1";
 pub const DOC_SALT: &[u8] = b"slop_ninja_detect_private_v1";
 /// The domain prefix of public content keys (public runs only).
 pub const CONTENT_DOMAIN: &[u8] = b"slop_ninja_detect_content_v1\0";
+/// The domain of a pasted text's stored address (`texts.text_h`).
+pub const TEXT_DOMAIN: &[u8] = b"text_v1\0canon_v1\0";
+/// The domain of a text slug's derivation key (never stored).
+pub const SLUG_TEXT_DOMAIN: &[u8] = b"slug_text_v1\0canon_v1\0";
+/// The HKDF-Expand info of a text slug's character stream.
+pub const SLUG_CHARS_INFO: &[u8] = b"slop_ninja_text_slug_chars_v1";
+/// The bytes of a text slug's character stream: about 62 characters, so
+/// falling short of the longest slug takes 46 of 64 bytes at or above the
+/// rejection bound (about 10^-60).
+pub const SLUG_STREAM_BYTES: usize = 64;
 /// The var of a pepper version: `DETECT_SLUG_PEPPER_V1`, `_V2`, ...
 pub const PEPPER_VAR_PREFIX: &str = "DETECT_SLUG_PEPPER_V";
 /// The var of the store secret.
@@ -224,9 +245,46 @@ impl Pepper {
         Pepper { v, key }
     }
 
-    /// A secret page's id: `HMAC(pepper, "slug_v1" ‖ slug)`.
+    /// A drawn secret page's id: `HMAC(pepper, "slug_v1" ‖ slug)`.
     pub fn id_h(&self, slug: &str) -> Bytes32 {
         hmac(&self.key, b"slug_v1", slug.as_bytes())
+    }
+
+    /// A text page's id: `HMAC(pepper, "slug_v2" ‖ slug)`.
+    pub fn text_id_h(&self, slug: &str) -> Bytes32 {
+        hmac(&self.key, b"slug_v2", slug.as_bytes())
+    }
+
+    /// A secret page's id by its slug's form: a text slug's under `slug_v2`,
+    /// a drawn one's under `slug_v1`.
+    pub fn secret_id_h(&self, slug: &str) -> Bytes32 {
+        if slop_ninja_detect_page::slug::is_text_slug(slug) { self.text_id_h(slug) } else { self.id_h(slug) }
+    }
+
+    /// A pasted text's address, `texts.text_h`: `HMAC(pepper, "text_v1" 0
+    /// "canon_v1" 0 ‖ text)`, `text` already canonical.
+    pub fn text_h(&self, text: &str) -> Bytes32 {
+        hmac(&self.key, TEXT_DOMAIN, text.as_bytes())
+    }
+
+    /// The characters a text's generation `gen` derives its slug from (a
+    /// slug of length L is the first L): never stored.
+    pub fn text_slug_chars(&self, text: &str, generation: u32) -> String {
+        let m = {
+            let Ok(mut m) = <HmacSha256 as Mac>::new_from_slice(&self.key) else { return String::new() };
+            m.update(SLUG_TEXT_DOMAIN);
+            m.update(&generation.to_be_bytes());
+            m.update(text.as_bytes());
+            let out: Bytes32 = m.finalize().into_bytes().into();
+            out
+        };
+        let mut stream = [0u8; SLUG_STREAM_BYTES];
+        // A 32-byte PRK is HKDF-SHA256's own length, and 64 bytes is far
+        // under its 255 × 32 limit, so neither step can fail.
+        if let Ok(h) = Hkdf::<Sha256>::from_prk(&m) {
+            let _ = h.expand(SLUG_CHARS_INFO, &mut stream);
+        }
+        slop_ninja_detect_page::slug::text_chars(&stream)
     }
 
     /// A secret page's document key.
@@ -413,6 +471,38 @@ mod tests {
             open_with(&hkdf32(slug.as_bytes(), Some(&[DOC_SALT, &[3u8; 32]].concat()), b"doc"), b"x", &doc).is_err()
         );
         assert_eq!(format!("{p1:?}"), "Pepper(v1)");
+    }
+
+    /// The worked example of `permalink-policy/v1` (test pepper 0x00..0x1f).
+    #[test]
+    fn the_text_slug_worked_example() {
+        let p = Pepper::new(1, core::array::from_fn(|i| i as u8));
+        let t = "The quarterly report shows steady growth across every region, with the strongest gains in the \
+                 northern stores. Our team expects the trend to continue into next year as new locations open and \
+                 online orders keep rising.";
+        assert_eq!(t.split_whitespace().count(), 36);
+        assert_eq!(hexs(&p.text_h(t)), "4a6d7b2741829351dffc616c335983c0a85c703e18cd820844ee742ee03d073d");
+        let g0 = p.text_slug_chars(t, 0);
+        assert_eq!(&g0[..8], "uM07zZQv");
+        assert_eq!(&g0[..9], "uM07zZQve");
+        assert_eq!(&g0[..10], "uM07zZQvek");
+        assert!(g0.len() >= 19, "about 62 characters");
+        assert_eq!(hexs(&p.text_id_h("uM07zZQv")), "e11824480849a6f31f041cfb6785e9fb2941e5c7d4b75f1915a1dcd96ac3a197");
+        assert_eq!(p.secret_id_h("uM07zZQv"), p.text_id_h("uM07zZQv"));
+        assert_eq!(p.secret_id_h("7hq2kd9m4xw8rt3vn6pb"), p.id_h("7hq2kd9m4xw8rt3vn6pb"));
+        assert_ne!(p.text_id_h("uM07zZQv"), p.id_h("uM07zZQv"), "the two forms' ids are separated");
+        assert_eq!(&p.text_slug_chars(t, 1)[..8], "XxXl3YyG");
+        // The collision pair at a floor of 2 characters.
+        let n8 = "Synthetic example text number 8 for the collision test.";
+        let n46 = "Synthetic example text number 46 for the collision test.";
+        assert_eq!(&p.text_slug_chars(n8, 0)[..2], "Mq");
+        assert_eq!(&p.text_slug_chars(n46, 0)[..3], "Mqu");
+        // Another pepper, another address and slug.
+        let q = Pepper::new(2, [1u8; 32]);
+        assert_ne!(q.text_h(t), p.text_h(t));
+        assert_ne!(q.text_slug_chars(t, 0), g0);
+        // The address and the slug key are different HMACs of the text.
+        assert_ne!(hexs(&p.text_h(t)), hexs(&hmac(&[0u8; 32], SLUG_TEXT_DOMAIN, t.as_bytes())));
     }
 
     #[test]

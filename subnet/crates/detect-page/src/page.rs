@@ -1,4 +1,4 @@
-//! The page contract `slop_ninja_detect_page_v2`: one JSON shape for every
+//! The page contract `slop_ninja_detect_page_v3`: one JSON shape for every
 //! page the website and the secret host render.
 //!
 //! The detect Worker produces it with the display policy already applied,
@@ -21,6 +21,10 @@
 //! It is always `noindex`, never in a sitemap, and its ad page kind `x_post`
 //! never carries an ad slot ([`Page::ad_page_kind`]).
 //!
+//! A pasted text's page (`private_text`) shows its newest run ([`Page::run`])
+//! and lists the earlier ones ([`Page::history`]): a newer model's check of
+//! the same text adds its run to the same page. No page ends by time.
+//!
 //! [`Page::check`] states the invariants a producer keeps and a consumer may
 //! rely on.
 
@@ -34,7 +38,7 @@ use crate::x::X_HOST;
 pub use crate::x::XPost;
 
 /// The schema id.
-pub const PAGE_SCHEMA: &str = "slop_ninja_detect_page_v2";
+pub const PAGE_SCHEMA: &str = "slop_ninja_detect_page_v3";
 
 /// The literal [`PAGE_SCHEMA`].
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -57,8 +61,10 @@ impl<'de> Deserialize<'de> for PageSchema {
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct Page {
     pub schema: PageSchema,
-    /// The page's slug: 7 characters on a public page, 20 on a secret one;
-    /// `null` for the unstored result and the example reports.
+    /// The page's slug: 7 characters on a public page; on a secret one a
+    /// text slug (8 to 19 base62 characters, case-sensitive) or a drawn
+    /// 20-character slug ([`slug::is_secret_slug`]); `null` for the unstored
+    /// result and the example reports.
     pub slug: Option<String>,
     /// The host the page belongs to.
     pub host: HostRole,
@@ -69,8 +75,6 @@ pub struct Page {
     pub state_v: u32,
     /// `null` for the unstored result.
     pub created_at: Option<u64>,
-    /// `null`: until deleted.
-    pub expires_at: Option<u64>,
     pub robots: Robots,
     /// The public slug whose URL is canonical (`rel=canonical`); `null` on
     /// secret, unstored and example pages.
@@ -83,9 +87,14 @@ pub struct Page {
     pub example_slot: Option<u8>,
     /// The package serving now.
     pub serving: Serving,
-    /// The run the page shows; `null` while pending, after a failure, and on
-    /// every ended page (removed, disabled, deleted, expired).
+    /// The run the page shows (a pasted text's page: its newest run);
+    /// `null` while pending, after a failure, and on every ended page
+    /// (removed, disabled, deleted, and the legacy `expired`).
     pub run: Option<Run>,
+    /// A live pasted text's earlier runs, newest first, without the shown
+    /// one; empty on every other page. Each run used another package.
+    #[serde(default)]
+    pub history: Vec<HistoryEntry>,
     /// A paid whole document's sections.
     pub sections: Option<Sections>,
     /// The text block; always `null` on an X page, which keeps no post text.
@@ -122,6 +131,14 @@ pub struct Page {
     /// same for every reader. What the page offers a reader also depends on
     /// the account side ([`PaidReader`]); [`Page::paid_offer`] combines them.
     pub paid_open: Option<bool>,
+    /// A live pasted text's page whose newest run has a free cut, is under
+    /// the serving package, while paid checks are open to every account
+    /// (`DETECT_PAID = on`): the page links "Check all N words" to the tool
+    /// page's check-all mode. `false` on every other page; an operator's
+    /// `paid_preview` tester opens that mode by its link while paid checks
+    /// are closed.
+    #[serde(default)]
+    pub check_all: bool,
     /// A stored page's cache tag: the website stores every cached copy of
     /// the page (its X widget route and its card included) under it
     /// (`Cache-Tag`), and the detect Worker purges it when a removal, a
@@ -242,6 +259,25 @@ pub struct Span {
     pub words: u32,
     /// Whole percent, floored; `null` on a short text (one neutral shade).
     pub confidence: Option<u8>,
+}
+
+/// An earlier run of a pasted text's page, as its record lists it.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct HistoryEntry {
+    pub scored_at: u64,
+    pub package: HistoryPackage,
+    /// The run's band (`null` when the run printed none).
+    pub band: Option<Band>,
+    pub confidence_text: Option<String>,
+    pub share_text: Option<String>,
+}
+
+/// The package an earlier run used.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct HistoryPackage {
+    pub label: String,
+    /// The published package digest, 64 hex digits.
+    pub published_digest: String,
 }
 
 /// A paid whole document's sections.
@@ -449,7 +485,8 @@ pub fn utf16_len(s: &str) -> u32 {
 
 impl Page {
     /// The HTTP status of the page: 451 for a
-    /// removed or disabled page, 410 for a deleted or expired one, else 200.
+    /// removed or disabled page, 410 for a deleted one (or a legacy
+    /// `expired` tombstone), else 200.
     pub fn http_status(&self) -> u16 {
         match self.state {
             DetState::Removed | DetState::Disabled => 451,
@@ -538,7 +575,11 @@ impl Page {
             }
             Kind::PrivateText | Kind::PrivatePaid => {
                 let s = self.slug.as_deref().ok_or(PageError("secret page without slug"))?;
-                need(slug::is_canonical(s, slug::SECRET_LEN), "secret slug form")?;
+                need(slug::is_secret_slug(s), "secret slug form")?;
+                need(
+                    self.kind == Kind::PrivateText || slug::is_canonical(s, slug::SECRET_LEN),
+                    "a paid slug is drawn",
+                )?;
                 need(self.host == HostRole::Secret, "secret page on the secret host")?;
                 need(self.robots == Robots::NoindexAll, "secret robots")?;
                 need(self.canonical.is_none() && self.superseded_by.is_none(), "secret page names no public page")?;
@@ -565,6 +606,18 @@ impl Page {
         need(
             self.paid_open.is_some() == (self.kind == Kind::Unstored && self.state == DetState::Live && cut),
             "paid_open exactly on an unstored result whose text was cut",
+        )?;
+        need(
+            self.history.is_empty() || (self.kind == Kind::PrivateText && self.state == DetState::Live),
+            "history only on a live pasted text's page",
+        )?;
+        need(
+            !self.check_all
+                || (self.kind == Kind::PrivateText
+                    && self.state == DetState::Live
+                    && self.run.as_ref().is_some_and(|r| r.cut != CutKind::None)
+                    && !self.serving.differs_from_run),
+            "check_all only on a live pasted text's page with a free cut under the serving package",
         )?;
         // State: what each state carries.
         let ended = self.state.is_ended();

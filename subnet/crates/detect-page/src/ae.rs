@@ -46,6 +46,9 @@ pub mod detect {
     pub const EXTRACT: Point = Point { name: "extract", blobs: &["outcome"] };
     /// `kind`: `claim_join`, `content` or `alias`.
     pub const REUSE: Point = Point { name: "reuse", blobs: &["kind"] };
+    /// `op`: a save's `made` (a new page), `existing` (the text's page),
+    /// `updated` (its run added to the text's page) or `held` (the text's
+    /// page is disabled or removed); a re-run's `rerun_added`. Never a slug.
     pub const STORE: Point = Point { name: "store", blobs: &["op"] };
     /// A paid job's or a URL check's event. Most carry no double; the ones
     /// the poller counts carry the count as their double:

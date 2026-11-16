@@ -124,7 +124,6 @@ async fn export_doc<H: Host>(cfg: &Config, host: &H, s: &Session) -> Result<Valu
                 "band": e.summary.band.map(|b| b.as_str()),
                 "words": e.summary.words,
                 "created_at": e.summary.created_at,
-                "expires_at": e.summary.expires_at,
                 "owner": e.is_owner,
             })
         })

@@ -155,6 +155,65 @@ fn page_paths_and_their_301_forms() {
     assert_eq!(slug::match_path(Site, "/d/k7m2xq9/X"), PathMatch::NoMatch);
     assert_eq!(slug::path(Site, SlugRoute::XWidget, "k7m2xq9"), "/d/k7m2xq9/x");
     assert_eq!(slug::match_path(Secret, &format!("/{s}/x")), PathMatch::NoMatch);
+    // A text slug: 8 to 19 base62 characters, exactly as written (no
+    // folding), with its card, its manage shell and its 301 for a trailing
+    // slash.
+    let t = "uM07zZQv";
+    assert_eq!(slug::match_path(Secret, &format!("/{t}")), serve(SlugRoute::Page, t));
+    assert_eq!(slug::match_path(Secret, &format!("/{t}/card.png")), serve(SlugRoute::Card, t));
+    assert_eq!(slug::match_path(Secret, &format!("/{t}/manage")), serve(SlugRoute::Manage, t));
+    assert_eq!(slug::match_path(Secret, &format!("/{t}/")), to(&format!("/{t}")));
+    assert_eq!(slug::match_path(Secret, "/UM07ZZQV"), serve(SlugRoute::Page, "UM07ZZQV"), "case is kept");
+    assert_eq!(slug::match_path(Secret, "/uM07zZQvek"), serve(SlugRoute::Page, "uM07zZQvek"));
+    assert_eq!(slug::match_path(Secret, &format!("/{}", "a".repeat(19))), serve(SlugRoute::Page, &"a".repeat(19)));
+    assert_eq!(slug::match_path(Secret, "/uM07zZQ"), PathMatch::NoMatch, "7 characters");
+    assert_eq!(slug::match_path(Secret, "/uM07zZQ-"), PathMatch::NoMatch);
+    assert_eq!(slug::match_path(Secret, "/manifest"), PathMatch::NoMatch, "a reserved segment");
+    assert_eq!(slug::match_path(Secret, "/Manifest"), PathMatch::NoMatch);
+    assert_eq!(slug::match_path(Site, &format!("/d/{t}")), PathMatch::NoMatch);
+    // A 20-character segment with an upper-case letter still folds as a
+    // drawn slug.
+    assert_eq!(slug::match_path(Secret, "/7HQ2KD9M4XW8RT3VN6PB"), to("/7hq2kd9m4xw8rt3vn6pb"));
+    assert_eq!(slug::match_path(Secret, &format!("/{}", "a".repeat(21))), PathMatch::NoMatch);
+}
+
+#[test]
+fn text_slugs_form_and_characters() {
+    assert_eq!(slug::ALPHABET62.iter().collect::<HashSet<_>>().len(), 62);
+    assert_eq!(slug::ALPHABET62.len(), 62);
+    assert_eq!(usize::from(slug::TEXT_BYTE_BOUND), 4 * 62);
+    // The rejection edge: 247 is kept (247 mod 62 = 61, "z"), 248 and up
+    // skipped; 0 and 62 are both "0".
+    assert_eq!(slug::text_chars(&[247, 248, 255, 0, 62, 61]), "z00z");
+    assert_eq!(slug::text_chars(&[]), "");
+    // Each character equally likely: 248 values, 4 per character.
+    let all: Vec<u8> = (0..=255).collect();
+    let chars = slug::text_chars(&all);
+    assert_eq!(chars.len(), 248);
+    for c in slug::ALPHABET62 {
+        assert_eq!(chars.bytes().filter(|b| b == c).count(), 4, "{}", *c as char);
+    }
+    // The prefix property: a longer candidate extends a shorter one.
+    let s = slug::text_chars(&all);
+    assert!(s[..9].starts_with(&s[..8]));
+    // The form.
+    assert!(slug::is_text_slug("uM07zZQv"));
+    assert!(slug::is_text_slug(&"Z".repeat(19)));
+    assert!(!slug::is_text_slug(&"Z".repeat(20)));
+    assert!(!slug::is_text_slug("uM07zZQ"));
+    assert!(!slug::is_text_slug("uM07zZQ_"));
+    assert!(!slug::is_text_slug("manifest") && !slug::is_text_slug("MANIFEST"));
+    assert_eq!(&slug::ALPHABET62[..12], b"0123456789AB");
+    assert_eq!(&slug::ALPHABET62[60..], b"yz");
+    assert!(slug::is_secret_slug("uM07zZQv") && slug::is_secret_slug("7hq2kd9m4xw8rt3vn6pb"));
+    assert!(!slug::is_secret_slug("k7m2xq9"));
+    for r in slug::RESERVED_SEGMENTS {
+        assert!((slug::TEXT_MIN_LEN..=slug::TEXT_MAX_LEN).contains(&r.len()), "{r}");
+        assert!(r.bytes().all(|b| b.is_ascii_lowercase()), "{r}");
+        assert!(slug::is_reserved(r) && slug::is_reserved(&r.to_uppercase()));
+    }
+    const { assert!(slug::TEXT_MAX_LEN < slug::SECRET_LEN, "the two secret forms never meet") };
+    const { assert!(slug::TEXT_MIN_LEN <= slug::TEXT_DEFAULT_LEN && slug::TEXT_DEFAULT_LEN <= slug::TEXT_MAX_LEN) };
 }
 
 // ---------------------------------------------------------------- ninja
@@ -879,12 +938,18 @@ fn routes_and_headers() {
         }
     }
     let principal: Vec<_> = RouteId::ALL.iter().filter(|r| r.takes_principal()).map(|r| r.as_str()).collect();
-    assert_eq!(principal, ["share", "paid_quote", "paid_start", "removal"]);
+    assert_eq!(principal, ["paid_quote", "paid_start", "removal"]);
+    assert!(RouteId::parse("share").is_none(), "Get a link is gone: every check saves through the website");
     for r in [RouteId::Manage, RouteId::Job] {
         assert!(r.spec().hosts.admits(HostRole::Secret) && !r.spec().hosts.admits(HostRole::Site));
     }
     let internal: Vec<_> = InternalRoute::ALL.iter().filter(|r| r.takes_principal()).collect();
-    assert_eq!(internal, [&InternalRoute::Owner]);
+    assert_eq!(internal, [&InternalRoute::Save, &InternalRoute::Owner]);
+    assert_eq!(InternalRoute::Owner.principal(), sn::PrincipalRule::Required);
+    assert_eq!(InternalRoute::Save.principal(), sn::PrincipalRule::Optional);
+    assert_eq!(InternalRoute::Page.principal(), sn::PrincipalRule::Refused);
+    assert_eq!(InternalRoute::Save.method_path(), ("POST", "/internal/v1/save"));
+    assert_eq!(InternalRoute::Save.callee(), sn::Callee::Detect);
     for r in InternalRoute::ALL {
         assert!(r.method_path().1.starts_with("/internal/v1/"));
     }
@@ -1043,8 +1108,6 @@ fn code_sets_parse_only_their_strings() {
     assert_eq!(Band::parse("no_strong_signs"), None);
     assert_eq!(serde_json::to_string(&LengthBin::Long).unwrap(), "\"451_1000\"");
     assert!(serde_json::from_str::<Kind>("\"Public_url\"").is_err());
-    assert_eq!(Expiry::Week.duration_ms(), Some(7 * 86_400_000));
-    assert_eq!(Expiry::Keep.duration_ms(), None);
     assert_eq!(LengthBin::of_words(23), None);
     assert_eq!(LengthBin::of_words(24), Some(LengthBin::Short24));
     assert_eq!(LengthBin::of_words(150), Some(LengthBin::Measured));

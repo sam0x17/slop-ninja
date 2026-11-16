@@ -1,21 +1,20 @@
 //! The hourly cron's store work.
 //!
-//! - **Expiry sweep.** Rows past `expires_at` (`live`, `pending`, `failed`)
-//!   lose their R2 documents first and are then tombstoned `expired`, so no
-//!   document outlives the row that points at it. An expired family root
-//!   takes its live and pending re-run copies with it, in the same batch.
-//!   Expiry sweeps cannot purge the cache (no slug is known); the page cache
-//!   bound covers them.
+//! - **No expiry sweep.** No page ends by time. A pasted text's page still
+//!   `pending` after [`BACKSTOP_MIN_AGE_MS`] (a save that stopped between
+//!   its claim and its flip) is tombstoned `deleted`, its document with it,
+//!   so its slug stays dead and the text's next check takes the next
+//!   generation.
 //! - **Backstop** (orphan documents). A delete that failed between its D1
 //!   tombstone and its R2 delete, a cancelled paid job or a failed one leaves
 //!   documents nothing reads. The backstop lists `p/` and `j/` a few pages
 //!   per run (its cursor is kept in `schema_info`) and deletes a document
 //!   whose detection is missing or ended (`deleted`, `expired`, or a failed
 //!   paid job), and a job object whose job is no longer running or scored.
-//!   Objects younger than [`BACKSTOP_MIN_AGE_MS`] are left alone, so a link
-//!   being made (its document is put before its row) is never touched.
-//! - **Paid jobs** (`crate::paid::sweep`). Running jobs whose page ended or
-//!   expired are cancelled, and every hold whose end is an hour overdue is
+//!   Objects younger than [`BACKSTOP_MIN_AGE_MS`] are left alone, so a page
+//!   being made is never touched.
+//! - **Paid jobs** (`crate::paid::sweep`). Running jobs whose page ended are
+//!   cancelled, and every hold whose end is an hour overdue is
 //!   asked for again (`job {commit_retry}`); each goes to the
 //!   `commit_hold` consumer. Paid starts left behind (`crate::paid::
 //!   sweep_starts`, which needs the ledger) run beside this work in the
@@ -31,37 +30,15 @@ use slop_ninja_detect_page::origins::Origins;
 use crate::db::{Done, Io, IoError, Stmt, Val, delete_docs};
 use crate::store::secret_doc_key;
 
-/// Rows expired per sweep round, and rounds per run (each round is one D1
-/// read, one R2 delete and one D1 batch).
+/// Stale pending text pages tombstoned per run.
 pub const SWEEP_BATCH: u64 = 100;
-pub const SWEEP_ROUNDS: u32 = 10;
 /// R2 listing pages (of up to 1,000 objects) the backstop reads per run.
 pub const BACKSTOP_PAGES: u32 = 5;
-/// The backstop's grace: an hour, far beyond the seconds between a link's
-/// document put and its row insert.
+/// The backstop's grace: an hour, far beyond the seconds between a save's
+/// claim and its flip.
 pub const BACKSTOP_MIN_AGE_MS: u64 = 3_600_000;
 /// Ids per D1 read (D1 binds at most 100 parameters).
 pub const IDS_PER_READ: usize = 90;
-
-/// Due rows, oldest expiry first (`det_expiry`).
-pub const SELECT_DUE: &str = "SELECT hex(id_h) AS id_h FROM detections \
-WHERE expires_at IS NOT NULL AND expires_at <= ?1 AND state IN ('live','pending','failed') \
-ORDER BY expires_at LIMIT ?2";
-
-/// The live and pending copies of a family root.
-pub const SELECT_COPIES: &str =
-    "SELECT hex(id_h) AS id_h FROM detections WHERE copy_of = ?1 AND state IN ('live','pending')";
-
-/// The expiry tombstone.
-pub const EXPIRE: &str = "UPDATE detections SET state = 'expired', doc_key = NULL, doc_bytes = NULL, \
-manage_h = NULL, owner_h = NULL, owner_via = NULL, state_v = state_v + 1, updated_at = ?2 \
-WHERE id_h = ?1 AND state IN ('live','pending','failed') AND expires_at <= ?2";
-
-/// An expired root's copies end with it (guarded on the root having expired).
-pub const EXPIRE_COPIES: &str = "UPDATE detections SET state = 'expired', doc_key = NULL, doc_bytes = NULL, \
-manage_h = NULL, owner_h = NULL, owner_via = NULL, state_v = state_v + 1, updated_at = ?2 \
-WHERE copy_of = ?1 AND state IN ('live','pending') \
-AND (SELECT r.state FROM detections r WHERE r.id_h = ?1) = 'expired'";
 
 /// Failure holds past the robots cache period.
 pub const DELETE_OLD_HOLDS: &str =
@@ -73,7 +50,8 @@ pub const DELETE_STALE_CLAIMS: &str = "DELETE FROM claims WHERE lease_until < ?1
 /// What one run did (content-free counts).
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct Hourly {
-    pub expired: u64,
+    /// Stale pending text pages tombstoned.
+    pub stale_pending: u64,
     pub orphans: u64,
     pub claims: u64,
     pub shards: u64,
@@ -87,29 +65,26 @@ fn ids(d: &Done) -> Vec<[u8; 32]> {
     d.rows.iter().filter_map(|r| r.hex32("id_h")).collect()
 }
 
-/// One sweep round: returns how many rows it expired.
-pub async fn sweep_round(io: &impl Io, now: u64) -> Result<u64, IoError> {
-    let due = ids(&io.run(Stmt::new(SELECT_DUE, vec![Val::int(now), Val::int(SWEEP_BATCH)])).await?);
+/// The pending text pages older than [`BACKSTOP_MIN_AGE_MS`]: each is
+/// tombstoned (its seal let go), then its document deleted. Returns how many
+/// it ended.
+pub async fn sweep_pending(io: &impl Io, now: u64) -> Result<u64, IoError> {
+    let cutoff = now.saturating_sub(BACKSTOP_MIN_AGE_MS);
+    let due = ids(&io
+        .run(Stmt::new(crate::save::SELECT_STALE_PENDING, vec![Val::int(cutoff), Val::int(SWEEP_BATCH)]))
+        .await?);
     if due.is_empty() {
         return Ok(0);
     }
-    let mut copies = Vec::new();
-    for id in &due {
-        copies.extend(ids(&io.run(Stmt::new(SELECT_COPIES, vec![Val::blob(id)])).await?));
-    }
-    // R2 first: a row is tombstoned only after its documents are gone.
-    let mut keys: Vec<String> = Vec::new();
-    for id in due.iter().chain(&copies) {
-        keys.push(secret_doc_key(id));
-    }
-    delete_docs(io, &keys).await?;
-    let mut batch = Vec::with_capacity(due.len() * 2);
-    for id in &due {
-        batch.push(Stmt::new(EXPIRE, vec![Val::blob(id), Val::int(now)]));
-        batch.push(Stmt::new(EXPIRE_COPIES, vec![Val::blob(id), Val::int(now)]));
-    }
+    let batch = due
+        .iter()
+        .map(|id| Stmt::new(crate::save::DROP_STALE_PENDING, vec![Val::blob(id), Val::int(cutoff), Val::int(now)]))
+        .collect();
     let done = io.batch(batch).await?;
-    Ok(done.iter().map(|d| d.changes).sum())
+    let ended: Vec<[u8; 32]> = due.iter().zip(&done).filter(|(_, d)| d.changes == 1).map(|(id, _)| *id).collect();
+    let keys: Vec<String> = ended.iter().map(secret_doc_key).collect();
+    delete_docs(io, &keys).await?;
+    Ok(ended.len() as u64)
 }
 
 /// The backstop cursor's key in `schema_info`.
@@ -202,14 +177,10 @@ pub async fn hourly(io: &impl Io, origins: &Origins, index_on: bool) -> Result<H
     let now = io.now_ms();
     let mut h = Hourly::default();
     let mut first_err = None;
-    for _ in 0..SWEEP_ROUNDS {
-        match sweep_round(io, now).await {
-            Ok(0) => break,
-            Ok(n) => h.expired += n,
-            Err(e) => {
-                first_err.get_or_insert(e);
-                break;
-            }
+    match sweep_pending(io, now).await {
+        Ok(n) => h.stale_pending = n,
+        Err(e) => {
+            first_err.get_or_insert(e);
         }
     }
     for prefix in ["p/", "j/"] {

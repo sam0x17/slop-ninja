@@ -6,8 +6,11 @@
 //! - **Quote and start** (`/api/detect/v1/paid/{quote,start}`, the site
 //!   host, with `X-SN-Principal`): the free check's admission (allow-list,
 //!   CSRF, principal only where the route table takes one); a declared body
-//!   within `routes::PAID_BODY_BYTES`, its footprint reserved from the scan
-//!   memory before a byte is read (`routes::paid_footprint`). The ledger is
+//!   within `routes::PAID_FORM_BYTES` (a page's slug, and a start's quote
+//!   seal). The text is the page's, read from its document (whose read
+//!   reserves by its size), so the largest text's footprint
+//!   (`routes::paid_footprint` of `routes::PAID_BODY_BYTES`) is reserved
+//!   from the scan memory before a byte is read. The ledger is
 //!   the account Worker's billing routes through the `ACCOUNT` binding.
 //! - **The job** (`/api/detect/v1/job`, the secret host): the lookup answers
 //!   any refusal as JSON; then the job text's footprint is reserved
@@ -45,15 +48,16 @@ use crate::paid::{self, Calls, Drive, JobEnd, JobSink, ScoreFail, Scored, Sectio
 use crate::routes::forwarded::Admission;
 use crate::{answer, routes, switches};
 
-/// A quote's or start's body: its declared length within the paid bound,
-/// its footprint reserved before a byte is read. Room taken by other
-/// requests answers `paid_busy` (`routes::paid_no_room`), not 503.
+/// A quote's or start's body: its declared length within the form's bound,
+/// the largest text's footprint reserved before a byte is read (the text
+/// comes from the page's document). Room taken by other requests answers
+/// `paid_busy` (`routes::paid_no_room`), not 503.
 async fn paid_body<T: serde::de::DeserializeOwned>(req: &mut Request, env: &Env) -> Result<(T, Reserved), RefusalCode> {
     let n = declared(req).ok_or(RefusalCode::LengthRequired)?;
-    if n > routes::PAID_BODY_BYTES {
+    if n > routes::PAID_FORM_BYTES {
         return Err(RefusalCode::TooLarge);
     }
-    let held = Reserved::take(routes::paid_footprint(n)).map_err(routes::paid_no_room)?;
+    let held = Reserved::take(routes::paid_footprint(routes::PAID_BODY_BYTES)).map_err(routes::paid_no_room)?;
     let bound = usize::try_from(n).map_err(|_| RefusalCode::TooLarge)?;
     Ok((json_body(req, env, bound).await?, held))
 }

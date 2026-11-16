@@ -143,20 +143,39 @@ under the package that scored it.
 
 ## The store
 
-Secret links, pages and the background work run as pure flows over one SQL
-and I/O seam (`db.rs`), tested natively on the store's own migration, with
-the Cloudflare glue in `cf_store.rs` and the routes in `cf_routes.rs`:
+Secret pages and the background work run as pure flows over one SQL and
+I/O seam (`db.rs`), tested natively on the store's own migrations (`0001`,
+then `0002_permalinks`), with the Cloudflare glue in `cf_store.rs` and the
+routes in `cf_routes.rs`:
 
-- `POST /api/detect/v1/share` (Get a link, from the site host, with
-  `X-SN-Principal` when saved), `/manage` (the secret host), `/rerun` (a
-  secret page's re-run: the same cut, ticket class and lane as a paste, and
-  counted like one) and `/state` (a pending public page's poll);
-- the binding-only `/internal/v1/` routes: `page`, `preview`, `card`,
-  `states`, `owner`, `examples`, `example`, `sitemap/<n>`, `removals` and
-  `pages_switch`;
+- `POST /api/detect/v1/manage` (the secret host), `/rerun` (a pasted text's
+  re-run: the same cut, ticket class and lane as a paste, counted like one,
+  its run added to the same page) and `/state` (a pending public page's
+  poll);
+- the binding-only `/internal/v1/` routes: `page`, `preview`, `save`,
+  `card`, `states`, `owner`, `examples`, `example`, `sitemap/<n>`,
+  `removals` and `pages_switch`;
 - the `detect-jobs` consumer (one message per invocation; purges, owner
   purges and re-keys, legal notices, sitemap marks) and the hourly cron
-  (expiry, the orphan backstop, stale claims, sitemap shards).
+  (stale pending pages, the orphan backstop, stale claims, sitemap shards).
+
+**Every check makes its page** (`save.rs`, `permalink-policy/v1`). The
+website's `POST /detect/result` sends the sealed free check to
+`/internal/v1/save` (with `X-SN-Principal` only when the reader ticked "Save
+to my detections") and the browser lands on the page. A pasted text's slug is
+the first `DETECT_TEXT_SLUG_LEN` (8 by default, 8 to 19) base62 characters
+derived from a keyed hash of its `canon_v1` form, extended one character at
+a time past a slug any row holds; the store keeps the text's keyed address
+(`texts`), never the slug. The same text lands on the same page with no new
+manage token (the first saver's is shown once); a later saver's account
+keeps a bookmark. A check under a newer package adds its run to the page,
+which shows the newest and lists the earlier ones. No page ends by time: a
+page ends by its manage link, its owner, account deletion's delete choice,
+the operator's `delete_private`, a removal, or a source duty (X pages).
+After a delete, the text's next check makes a new generation under a new
+slug and the old link stays 410; a disabled or removed page holds its text
+(no new page while that lasts), and `release_text` is the operator's way
+past a hold no case decision cleared.
 
 **The page cache** (`purge.rs`). The website and the secret host keep a
 rendered page, a 410 and a 451 in their page cache (the Cache API, per data
@@ -179,12 +198,12 @@ page, and the other switches reach a page already in the cache within
 
 A secret page's text is stored only in R2, encrypted under a key derived
 from its own slug and the slug pepper (`DETECT_SLUG_PEPPER_V1`), so the
-store's rows hold nothing of it. The link stores, and a preview renders, the
-text's `canon_v1` form, the string the scorer read, so the seal's passages
-fall on the words the result named whichever equal-canonical string made
-the request. A link or a preview reserves its footprint
-from the scan memory by its declared length, and a document read by the
-document's size.
+store's rows hold nothing of it but the text's keyed address. The save
+stores, and a preview renders, the text's `canon_v1` form, the string the
+scorer read, so the seal's passages fall on the words the result named
+whichever equal-canonical string made the request. A save or a preview
+reserves its footprint from the scan memory by its declared length, and a
+document read by the document's size.
 
 ## Paid checks
 
@@ -192,24 +211,25 @@ The paid whole-document check (`paid.rs`, its sections in `sections.rs`, the
 Cloudflare glue in `cf_paid.rs`) runs on the account Worker's ledger through
 the `ACCOUNT` binding; at launch only operator grants back it.
 
-- `POST /api/detect/v1/paid/quote` (the site host, signed in): the free
-  check's seal must bind the text under the serving package; the whole text
-  passes the English screen; the sections are planned and section 1 must be
-  the seal's free cut, with a section past it (`free_cut_only` when every
-  stretch past the cut is listed as not scored). The reader is billed the
-  content tokens past the free cut (at least 128), and the answer carries a
-  quote seal binding the text, the account, the free seal and the hold's
-  idempotency key.
+- `POST /api/detect/v1/paid/quote {slug}` (the site host, signed in): "Check
+  all" from a pasted text's page; its newest run must be under the serving
+  package (`quote_stale_run` otherwise); the whole text passes the English
+  screen; the sections are planned and section 1 must be that run's free
+  cut, with a section past it (`free_cut_only` when every stretch past the
+  cut is listed as not scored). The reader is billed the content tokens past
+  the free cut (at least 128), and the answer carries a quote seal binding
+  the page, its text and run, the account and the hold's idempotency key.
 - `POST /api/detect/v1/paid/start`: the start's row (`hold_starts`, by the
   quote nonce), the hold, then the job text and section 1's result in R2
   (under the page's own key, with the job AAD), then one batch inserts the
   pending page and its job, only while the start's row is open, and deletes
-  the row. A seal starts one check. A start that fails after its hold gives
+  the row. A quote starts one check (the paid page, a separate secret page
+  with a drawn slug and no end date, holds its quote's nonce). A start that fails after its hold gives
   the hold back behind a fence: one batch marks the row `given_back` and
   reads whether a job holds the hold, and only then is it released, so no
   job of that quote can follow; the ledger then refuses that quote
   (`quote_invalid`): the reader quotes again. A start opens or renews its
-  row only while no page holds the free seal, in one batch with the seal's
+  row only while no page holds its quote's nonce, in one batch with that
   check (`seal_used`; `quote_invalid` for a fenced row), so a row never
   comes back beside a job its quote made. A row left behind (a hold whose
   answer was lost, a start that stopped, a release that failed) is fenced
@@ -234,7 +254,7 @@ the `ACCOUNT` binding; at launch only operator grants back it.
   `paid` keyed by the page's owner hash and is counted on channel
   `paid_page` as an operation, never as pot basis. The page goes live in the
   SCORED batch, which runs only while the page is still pending (a page
-  disabled, removed or expired since the last RENEW stops the job, and
+  disabled, removed or deleted since the last RENEW stops the job, and
   nothing is charged); the hold commits after it, and a failed commit
   retries through `commit_hold` and the hourly sweep (each retry an AE
   `job {commit_retry}`).
@@ -507,8 +527,9 @@ the launch gate; they are not abuse thresholds.
 
 - The text stays in the request's memory. Nothing derived from it is stored,
   logged, cached or returned beyond the allow-list in `answer.rs`: no text
-  hash, no output digest, no attribution, no timing. Only Get a link stores
-  a text, encrypted, as its secret page (above).
+  hash, no output digest, no attribution, no timing. The website's save
+  stores a checked text, encrypted, as its secret page (above), with its
+  keyed address.
 - The gate holds tickets and client keys in memory, and content-free hourly
   counts in its own storage. A client key is an HMAC of the
   address's network prefix (the first 24 bits of an IPv4 address, the first

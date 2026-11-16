@@ -70,7 +70,7 @@ use crate::doc::RunDoc;
 use crate::keys::{Bytes32, NONCE_BYTES, StoreKeys, ct_eq, h, open_with, seal_with};
 use crate::lookup::{SlugForm, public_lookup, secret_lookup};
 use crate::queue::CASE_AAD;
-use crate::share::Keys;
+use crate::save::Keys;
 use crate::sitemap::SHARD_URLS;
 use crate::store::{DET_COLUMNS, DetRow, run_doc_key, secret_doc_key};
 use crate::x_flow;
@@ -303,6 +303,10 @@ pub fn target_slug(origins: &Origins, target: &str) -> Option<(SlugForm, String)
             Folded::Invalid => {}
         }
     }
+    // A text slug is taken exactly as written: it never folds.
+    if slug::is_text_slug(t) {
+        return Some((SlugForm::Text, t.to_owned()));
+    }
     let t = t.split(['#', '?']).next()?;
     for (role, form) in [(HostRole::Site, SlugForm::Public), (HostRole::Secret, SlugForm::Secret)] {
         let Some(path) = t.strip_prefix(origins.of(role).as_str()) else { continue };
@@ -314,6 +318,7 @@ pub fn target_slug(origins: &Origins, target: &str) -> Option<(SlugForm, String)
             m => m,
         };
         if let PathMatch::Serve { slug, .. } = m {
+            let form = if form == SlugForm::Secret && slug::is_text_slug(&slug) { SlugForm::Text } else { form };
             return Some((form, slug));
         }
     }
@@ -351,7 +356,7 @@ async fn find_target(
     let Some((form, slug)) = target_slug(origins, target) else { return Ok(None) };
     let row = match form {
         SlugForm::Public => public_lookup(io, &slug).await.map_err(|_| RefusalCode::Unavailable)?.0,
-        SlugForm::Secret => {
+        SlugForm::Secret | SlugForm::Text => {
             secret_lookup(io, keys.peppers, &slug).await.map_err(|_| RefusalCode::Unavailable)?.0.map(|f| f.row)
         }
     };
@@ -411,8 +416,10 @@ pub fn fold_byte(b: u8) -> u8 {
 }
 
 /// `s` with every run of `canonical.len()` bytes that folds
-/// ([`fold_byte`]) to `canonical` replaced by `mask`. A match is ASCII
-/// only, so the result stays UTF-8.
+/// ([`fold_byte`]) as `canonical` folds replaced by `mask`: a drawn slug
+/// in any of its folded forms, and a text slug in any case (masking more
+/// than the slug's exact spelling, never less). A match is ASCII only, so
+/// the result stays UTF-8.
 pub fn mask_folded(s: &str, canonical: &str, mask: &str) -> String {
     let (src, want) = (s.as_bytes(), canonical.as_bytes());
     if want.is_empty() || src.len() < want.len() {
@@ -422,7 +429,7 @@ pub fn mask_folded(s: &str, canonical: &str, mask: &str) -> String {
     let mut i = 0;
     while let Some(&b) = src.get(i) {
         let window = src.get(i..i.saturating_add(want.len()));
-        if window.is_some_and(|w| w.iter().zip(want).all(|(a, c)| fold_byte(*a) == *c)) {
+        if window.is_some_and(|w| w.iter().zip(want).all(|(a, c)| fold_byte(*a) == fold_byte(*c))) {
             out.extend_from_slice(mask.as_bytes());
             i += want.len();
         } else {
@@ -444,7 +451,7 @@ impl Notice {
         if !self.secret {
             return Some(self.clone());
         }
-        let slug = self.target.rsplit('/').next().filter(|s| slug::is_canonical(s, SECRET_LEN))?;
+        let slug = self.target.rsplit('/').next().filter(|s| slug::is_secret_slug(s))?;
         Some(Notice {
             target: PRIVATE_TARGET.to_owned(),
             fields: self.fields.iter().map(|(k, v)| (k.clone(), mask_folded(v, slug, SLUG_MASK))).collect(),
@@ -869,6 +876,21 @@ OR (?{op} = 1 AND EXISTS (SELECT 1 FROM detections ho WHERE ho.id_h = ?{p} AND h
             .map_err(|_| RefusalCode::Unavailable)?;
         Ok(d.first().and_then(|r| r.int("hit")).unwrap_or(1) != 0)
     }
+}
+
+/// A decision that ends a case without a removal (`reject`, `restore`)
+/// clears the hold on the text whose page (`?1`) the case targets, a hold
+/// that deleting the page while it was disabled set
+/// (`crate::manage::HOLD_BY_TOKEN`), unless another case still targets the
+/// page and is awaiting its decision, accepted or countered (`?3`: the op's
+/// own cases, as a JSON list). The text's next check then makes a new page.
+pub const CLEAR_TEXT_HOLD: &str = "UPDATE texts SET hold = NULL, updated_at = ?2 WHERE det_id_h = ?1 \
+AND hold IS NOT NULL AND NOT EXISTS (SELECT 1 FROM case_targets ht JOIN cases hc ON hc.case_id = ht.case_id \
+WHERE ht.det_id_h = ?1 AND hc.case_id NOT IN (SELECT value FROM json_each(?3)) \
+AND hc.state IN ('received','incomplete','reviewing','accepted','countered'))";
+
+fn clear_text_hold(id_h: &Bytes32, own: &str, now: u64) -> Stmt {
+    Stmt::new(CLEAR_TEXT_HOLD, vec![Val::blob(id_h), Val::int(now), Val::text(own)])
 }
 
 /// The op's own case ids as the JSON list `Others` takes.
@@ -1490,7 +1512,6 @@ fn stub_row(id_h: Bytes32) -> DetRow {
         refusal: None,
         created_at: 0,
         updated_at: 0,
-        expires_at: None,
         source_id: None,
         run_id: None,
         superseded_by: None,
@@ -1502,7 +1523,6 @@ fn stub_row(id_h: Bytes32) -> DetRow {
         doc_key: None,
         index_force: None,
         copy_of: None,
-        expiry_cap: None,
     }
 }
 
@@ -1880,6 +1900,7 @@ pub async fn restore_case(
                     public.push((at, slug, t.run_id, true));
                 }
             } else {
+                batch.push(clear_text_hold(&t.id_h, &own, now));
                 for m in family(io, t).await? {
                     // A family is read once per case, whichever of its pages
                     // the case names.
@@ -2036,6 +2057,9 @@ pub async fn reject_case(
     // Each secret family's return: its index in the batch.
     let mut secret: Vec<usize> = Vec::new();
     for t in &targets {
+        if t.kind.is_secret() {
+            batch.push(clear_text_hold(&t.id_h, &own, now));
+        }
         match (t.kind, t.state, case.kind) {
             (Kind::PublicUrl, DetState::ExcerptWithheld, CaseKind::Copyright) => {
                 let slug = t.public_slug.clone().unwrap_or_default();

@@ -24,8 +24,9 @@ use slop_ninja_account_wire::{
     OwnedAddRequest, PartSource, PeekAnswer, PeekRequest, ReleaseRequest,
 };
 use slop_ninja_detect_page::api::{JobLine, ManageRequest, QuoteRequest, StartRequest};
-use slop_ninja_detect_page::codes::{Band, DetState, Expiry, Kind, ManageAction};
+use slop_ninja_detect_page::codes::{Band, DetState, Kind, ManageAction};
 use slop_ninja_detect_page::ids::UserId;
+use slop_ninja_detect_page::internal::SaveRequest;
 use slop_ninja_detect_page::origins::Origins;
 use slop_ninja_detect_page::page::Span;
 use slop_ninja_detect_page::queue::{Job, QueueMessage};
@@ -39,9 +40,9 @@ use slop_ninja_detect_worker::paid::{
     self, Calls, Drive, JobEnd, JobSink, Ledger, SUBREQUESTS_PER_INVOCATION, ScoreFail, Scored, SectionScorer,
 };
 use slop_ninja_detect_worker::routes::{MAX_SECTION_BYTES, PAID_TEXT_BYTES};
-use slop_ninja_detect_worker::share::Keys;
+use slop_ninja_detect_worker::save::Keys;
 use slop_ninja_detect_worker::waits::Waits;
-use slop_ninja_detect_worker::{canon, cut, policy, reads, seal};
+use slop_ninja_detect_worker::{canon, cut, handoff, policy, reads, save, seal};
 
 const DIGEST: &str = "e2536d12dff593d7b11895b3cbf6b10232601abfbebde248325afd707722b5e8";
 const LEASE: u64 = Waits::DEFAULT.job_lease_ms();
@@ -530,6 +531,16 @@ fn race<T>(futs: Vec<Racer<'_, T>>) -> Vec<T> {
 
 // ------------------------------------------------------------------ helpers
 
+/// The text's page, as the website's save makes it from the free check's
+/// seal (a page the text already has is the one it lands on): its slug.
+fn page_of(w: &World, text: &str, seal_s: &str) -> Result<String, RefusalCode> {
+    let opened = seal::open_result(&w.secret, w.h.now.get(), seal_s, text).map_err(|_| RefusalCode::SealInvalid)?;
+    let sealed = handoff::sealed(opened, &w.serving)?;
+    let req = SaveRequest { text: text.into(), seal: seal_s.into(), save: false };
+    block_on(save::save(&w.h, w.keys(), &req, Some(sealed), None)).map(|a| a.slug)
+}
+
+/// "Check all" from the text's page.
 fn quote(
     w: &World,
     l: &FakeLedger,
@@ -537,7 +548,7 @@ fn quote(
     seal: &str,
     p: Option<Principal>,
 ) -> Result<slop_ninja_detect_page::api::QuoteAnswer, RefusalCode> {
-    let req = QuoteRequest { text: text.into(), seal: seal.into() };
+    let req = QuoteRequest { slug: page_of(w, text, seal)? };
     block_on(paid::quote(&w.h, l, &w.cx(), p, &req, &mut |b, _| b <= 8 << 20))
 }
 
@@ -549,8 +560,7 @@ fn start(
     quote_seal: &str,
     p: Option<Principal>,
 ) -> Result<slop_ninja_detect_page::api::StartAnswer, RefusalCode> {
-    let req =
-        StartRequest { text: text.into(), seal: seal.into(), quote_seal: quote_seal.into(), expiry: Expiry::Keep };
+    let req = StartRequest { slug: page_of(w, text, seal)?, quote_seal: quote_seal.into() };
     block_on(paid::start(&w.h, l, &w.cx(), p, &req, &mut |b, _| b <= 8 << 20))
 }
 
@@ -586,8 +596,9 @@ fn job_state(w: &World) -> String {
     w.h.db.query_row("SELECT state FROM jobs", [], |r| r.get(0)).unwrap()
 }
 
+/// The paid page's state (the text's page is the other row).
 fn det_state(w: &World) -> String {
-    w.h.db.query_row("SELECT state FROM detections", [], |r| r.get(0)).unwrap()
+    w.h.db.query_row("SELECT state FROM detections WHERE kind = 'private_paid'", [], |r| r.get(0)).unwrap()
 }
 
 fn commit_holds(w: &World) -> Vec<[u8; 32]> {
@@ -620,8 +631,10 @@ fn a_quote_a_start_and_a_job_make_one_paid_page() {
     assert_eq!((q.draw_plan, q.draw_credit, q.enough), (0, q.paid_tokens, true));
     assert!(q.unscored.is_empty());
     assert_eq!(l.peeks.get(), 1);
-    // A quote holds nothing and stores nothing.
-    assert_eq!(w.h.count("SELECT count(*) FROM detections"), 0);
+    // A quote holds nothing and stores nothing (the text's page is the
+    // check's own).
+    assert_eq!(w.h.count("SELECT count(*) FROM detections WHERE kind = 'private_paid'"), 0);
+    assert_eq!(w.h.count("SELECT count(*) FROM detections WHERE kind = 'private_text'"), 1);
     assert!(l.holds.borrow().is_empty());
 
     let a = start(&w, &l, &text, &seal, &q.quote_seal, Some(reader(false))).unwrap();
@@ -735,15 +748,17 @@ fn a_start_needs_this_account_s_quote_for_this_text() {
         RefusalCode::QuoteInvalid,
         "a result seal"
     );
-    // Another free seal of the same text: not the one quoted.
-    let seal2 = w.free_seal(&text, 2);
+    // Another text's page: not the page quoted.
+    let other_text = prose(2_501);
+    let other_seal = w.free_seal(&other_text, 3);
     assert_eq!(
-        start(&w, &l, &text, &seal2, &q.quote_seal, Some(reader(false))).unwrap_err(),
+        start(&w, &l, &other_text, &other_seal, &q.quote_seal, Some(reader(false))).unwrap_err(),
         RefusalCode::QuoteInvalid
     );
     assert_eq!(
         start(&w, &l, &prose(2_501), &seal, &q.quote_seal, Some(reader(false))).unwrap_err(),
-        RefusalCode::SealInvalid
+        RefusalCode::SealInvalid,
+        "the page cannot be reached with another text's seal"
     );
     w.h.vars.borrow_mut().insert("DETECT_STORE".into(), "off".into());
     assert_eq!(start(&w, &l, &text, &seal, &q.quote_seal, Some(reader(false))).unwrap_err(), RefusalCode::StoreOff);
@@ -755,7 +770,7 @@ fn a_start_needs_this_account_s_quote_for_this_text() {
         start(&w, &poor, &text, &seal, &q.quote_seal, Some(reader(false))).unwrap_err(),
         RefusalCode::NotEnoughCredit
     );
-    assert_eq!(w.h.count("SELECT count(*) FROM detections"), 0);
+    assert_eq!(w.h.count("SELECT count(*) FROM detections WHERE kind = 'private_paid'"), 0);
     assert_eq!(w.docs_under("j/"), 0);
     // A confirm sent twice: one hold, one page; the second answers
     // seal_used and gives back nothing the first holds.
@@ -763,11 +778,25 @@ fn a_start_needs_this_account_s_quote_for_this_text() {
     assert_eq!(start(&w, &l, &text, &seal, &q.quote_seal, Some(reader(false))).unwrap_err(), RefusalCode::SealUsed);
     assert_eq!(l.holds.borrow().len(), 1);
     assert_eq!(l.releases.get(), 0);
-    assert_eq!(w.h.count("SELECT count(*) FROM detections"), 1);
+    assert_eq!(w.h.count("SELECT count(*) FROM detections WHERE kind = 'private_paid'"), 1);
     assert_eq!(w.docs_under("j/"), 2);
-    // The scan that started a check cannot also make a free link.
+    // The paid page holds its quote's nonce: the text's page holds the
+    // free seal's, and the other text's page its own.
     let used = w.h.count("SELECT count(*) FROM detections WHERE seal_nonce_h IS NOT NULL");
-    assert_eq!(used, 1);
+    assert_eq!(used, 3);
+    let quote_nonce: String = {
+        let q = seal::open::<paid::QuotePayload>(&w.secret, seal::Purpose::Quote, w.h.now.get(), &q.quote_seal)
+            .unwrap()
+            .payload;
+        q.quote_nonce
+    };
+    assert_eq!(
+        w.h.count(&format!(
+            "SELECT count(*) FROM detections WHERE kind = 'private_paid' AND seal_nonce_h = x'{}'",
+            hex::encode(paid::quote_nonce_h(&quote_nonce))
+        )),
+        1
+    );
     let _ = a;
 }
 
@@ -802,7 +831,7 @@ fn a_quote_whose_hold_was_given_back_starts_nothing() {
         w.h.exec("DROP TRIGGER IF EXISTS temp.no_job");
         assert_eq!((l.holds.borrow().len(), l.releases.get(), l.commits.get()), (1, 1, 0));
         assert_eq!(l.credit.get(), 100_000, "the hold went back");
-        assert_eq!(w.h.count("SELECT count(*) FROM detections"), 0);
+        assert_eq!(w.h.count("SELECT count(*) FROM detections WHERE kind = 'private_paid'"), 0);
         assert_eq!(w.docs_under("j/"), 0);
 
         // The same quote again: refused, and nothing is placed or written.
@@ -814,7 +843,7 @@ fn a_quote_whose_hold_was_given_back_starts_nothing() {
         assert_eq!(l.holds.borrow().len(), 1, "no second hold");
         assert_eq!((l.releases.get(), l.commits.get()), (1, 0));
         assert_eq!(l.credit.get(), 100_000);
-        assert_eq!(w.h.count("SELECT count(*) FROM detections"), 0);
+        assert_eq!(w.h.count("SELECT count(*) FROM detections WHERE kind = 'private_paid'"), 0);
         assert_eq!(w.h.count("SELECT count(*) FROM jobs"), 0);
         assert_eq!(w.docs_under("j/"), 0);
         assert_eq!(w.h.metric_count("job", "started"), 0);
@@ -1036,12 +1065,7 @@ fn a_watcher_ends_when_the_page_ends() {
     sink.on_pause = Some((
         2,
         Box::new(|| {
-            let req = ManageRequest {
-                slug: slug.clone(),
-                manage: manage.clone(),
-                action: ManageAction::Delete,
-                expiry: None,
-            };
+            let req = ManageRequest { slug: slug.clone(), manage: manage.clone(), action: ManageAction::Delete };
             block_on(slop_ninja_detect_worker::manage::manage(&w.h, w.keys(), &w.origins, &req)).unwrap();
         }),
     ));
@@ -1098,12 +1122,7 @@ fn deleting_the_page_mid_job_cancels_it_and_gives_the_hold_back() {
     *s.hook.borrow_mut() = Some((
         2,
         Box::new(|| {
-            let req = ManageRequest {
-                slug: slug.clone(),
-                manage: manage.clone(),
-                action: ManageAction::Delete,
-                expiry: None,
-            };
+            let req = ManageRequest { slug: slug.clone(), manage: manage.clone(), action: ManageAction::Delete };
             block_on(slop_ninja_detect_worker::manage::manage(&w.h, w.keys(), &w.origins, &req)).unwrap();
         }),
     ));
@@ -1117,7 +1136,8 @@ fn deleting_the_page_mid_job_cancels_it_and_gives_the_hold_back() {
     block_on(paid::end_hold(&w.h, &l, &ids[0])).unwrap();
     assert_eq!((l.releases.get(), l.commits.get()), (1, 0));
     assert_eq!(l.credit.get(), 1_000_000, "{taken} tokens came back");
-    assert_eq!(w.docs_under("j/") + w.docs_under("p/"), 0);
+    // Only the text's page keeps its document.
+    assert_eq!((w.docs_under("j/"), w.docs_under("p/")), (0, 1));
     assert_eq!(w.h.count("SELECT count(*) FROM jobs WHERE hold_ended_at IS NOT NULL"), 1);
     // A repeat of the message changes nothing.
     block_on(paid::end_hold(&w.h, &l, &ids[0])).unwrap();
@@ -1232,16 +1252,20 @@ fn closed_paid_checks_pause_public_jobs_and_run_testers() {
 }
 
 #[test]
-fn an_expired_page_s_running_job_is_cancelled_by_the_sweep() {
+fn an_ended_page_s_running_job_is_cancelled_by_the_sweep() {
     let w = World::new();
     let l = FakeLedger::with(1_000_000);
     let text = prose(3_000);
     let seal = w.free_seal(&text, 1);
     let q = quote(&w, &l, &text, &seal, Some(reader(false))).unwrap();
-    let req = StartRequest { text: text.clone(), seal: seal.clone(), quote_seal: q.quote_seal, expiry: Expiry::Day };
+    let req = StartRequest { slug: page_of(&w, &text, &seal).unwrap(), quote_seal: q.quote_seal };
     let a = block_on(paid::start(&w.h, &l, &w.cx(), Some(reader(false)), &req, &mut |_, _| true)).unwrap();
-    w.h.advance(86_400_001);
-    // The job route refuses an expired page before any stream.
+    // The page ends outside the job's path (as the operator's
+    // `delete_private` does, without its cancel); no page ends by time.
+    w.h.advance(365 * 86_400_000);
+    assert_eq!(det_state(&w), "pending");
+    w.h.exec("UPDATE detections SET state = 'deleted' WHERE kind = 'private_paid'");
+    // The job route refuses an ended page before any stream.
     assert_eq!(block_on(paid::open_job(&w.h, w.keys(), &a.slug)).unwrap_err(), RefusalCode::PageGone);
     assert_eq!(block_on(paid::sweep(&w.h)).unwrap(), 1);
     assert_eq!(job_state(&w), "cancelled");
@@ -1459,12 +1483,7 @@ fn a_start_given_back_fences_its_quote_against_a_concurrent_start() {
         let text = prose(2_500);
         let seal = w.free_seal(&text, 1);
         let q = quote(&w, &l, &text, &seal, Some(reader(false))).unwrap();
-        let req = StartRequest {
-            text: text.clone(),
-            seal: seal.clone(),
-            quote_seal: q.quote_seal.clone(),
-            expiry: Expiry::Keep,
-        };
+        let req = StartRequest { slug: page_of(&w, &text, &seal).unwrap(), quote_seal: q.quote_seal.clone() };
         let mut failing = Rigged::new(&w.h);
         failing.fail_job_put = true;
         let cx = w.cx();
@@ -1488,7 +1507,7 @@ fn a_start_given_back_fences_its_quote_against_a_concurrent_start() {
             assert_eq!(ok_end.as_ref().unwrap_err(), &RefusalCode::QuoteInvalid, "give_back_first");
             assert_eq!((l.releases.get(), l.commits.get()), (1, 0));
             assert_eq!(l.credit.get(), 100_000);
-            assert_eq!(w.h.count("SELECT count(*) FROM detections"), 0);
+            assert_eq!(w.h.count("SELECT count(*) FROM detections WHERE kind = 'private_paid'"), 0);
             assert_eq!(w.h.count("SELECT count(*) FROM jobs"), 0);
             assert_eq!(w.docs_under("j/"), 0);
             assert_eq!(w.h.metric_count("job", "started"), 0);
@@ -1552,7 +1571,7 @@ fn a_hold_whose_answer_was_lost_is_released_by_the_sweep() {
     // The same confirm now places nothing and makes no page.
     assert_eq!(start(&w, &l, &text, &seal, &q.quote_seal, Some(reader(false))).unwrap_err(), RefusalCode::QuoteInvalid);
     assert_eq!(l.holds.borrow().len(), 1);
-    assert_eq!(w.h.count("SELECT count(*) FROM detections"), 0);
+    assert_eq!(w.h.count("SELECT count(*) FROM detections WHERE kind = 'private_paid'"), 0);
     // Its row is cleaned up by a later sweep with nothing more released.
     w.h.advance(paid::START_GRACE_MS + 1);
     assert_eq!(block_on(paid::sweep_starts(&w.h, &l)).unwrap(), 0);
@@ -1621,12 +1640,7 @@ fn the_sweep_leaves_a_hold_a_confirm_sent_again_took() {
             assert_eq!(w.h.count("SELECT count(*) FROM hold_starts WHERE state = 'open'"), 1, "{at}");
             w.h.advance(paid::START_GRACE_MS + 1);
 
-            let req = StartRequest {
-                text: text.clone(),
-                seal: seal.clone(),
-                quote_seal: q.quote_seal.clone(),
-                expiry: Expiry::Keep,
-            };
+            let req = StartRequest { slug: page_of(&w, &text, &seal).unwrap(), quote_seal: q.quote_seal.clone() };
             let cx = w.cx();
             let mut admit = |b: usize, _: usize| b <= 8 << 20;
             let sweep = paid::sweep_starts(&w.h, &l);
@@ -1720,12 +1734,7 @@ fn a_second_start_after_its_quote_s_job_leaves_no_row() {
         let text = prose(2_500);
         let seal = w.free_seal(&text, 1);
         let q = quote(&w, &l, &text, &seal, Some(reader(false))).unwrap();
-        let req = StartRequest {
-            text: text.clone(),
-            seal: seal.clone(),
-            quote_seal: q.quote_seal.clone(),
-            expiry: Expiry::Keep,
-        };
+        let req = StartRequest { slug: page_of(&w, &text, &seal).unwrap(), quote_seal: q.quote_seal.clone() };
         let mut rigged = Rigged::new(&w.h);
         rigged.fail_job_put = matches!(fail_at, FailAt::Put);
         rigged.fail_insert_batch.set(matches!(fail_at, FailAt::Batch));
@@ -1743,7 +1752,7 @@ fn a_second_start_after_its_quote_s_job_leaves_no_row() {
         assert_eq!(w.h.count("SELECT count(*) FROM hold_starts"), 0, "{fail_at:?}: no row beside the job");
         assert_eq!(l.holds.borrow().len(), 1, "{fail_at:?}");
         assert_eq!((l.releases.get(), l.commits.get()), (0, 0), "{fail_at:?}");
-        assert_eq!(w.h.count("SELECT count(*) FROM detections"), 1, "{fail_at:?}");
+        assert_eq!(w.h.count("SELECT count(*) FROM detections WHERE kind = 'private_paid'"), 1, "{fail_at:?}");
 
         w.h.advance(paid::START_GRACE_MS + 1);
         assert_eq!(block_on(paid::sweep_starts(&w.h, &l)).unwrap(), 0, "{fail_at:?}");
@@ -1884,8 +1893,9 @@ fn a_page_disabled_before_the_scored_step_charges_nothing() {
     assert_eq!((job_state(&w), det_state(&w)), ("cancelled".into(), "disabled".into()));
     assert_eq!((l.commits.get(), l.releases.get()), (0, 1));
     assert_eq!(l.credit.get(), 1_000_000);
-    assert_eq!(w.docs_under("p/") + w.docs_under("j/"), 0, "no document is left for the page");
-    assert_eq!(w.h.count("SELECT count(*) FROM detections WHERE doc_key IS NULL"), 1);
+    // The text's page keeps its own document; the paid page has none.
+    assert_eq!((w.docs_under("p/"), w.docs_under("j/")), (1, 0), "no document is left for the page");
+    assert_eq!(w.h.count("SELECT count(*) FROM detections WHERE kind = 'private_paid' AND doc_key IS NULL"), 1);
 }
 
 /// Every retry of a hold's end is counted (`job {commit_retry}`, double 1
@@ -1909,4 +1919,64 @@ fn retries_of_a_hold_s_end_are_counted() {
     block_on(paid::commit_hold(&w.h, &l, &ids[0])).unwrap();
     assert_eq!(w.h.doubles_of("job", "commit_retry").len(), 3, "a landed commit is no retry");
     assert_eq!(job_state(&w), "committed");
+}
+
+/// "Check all" starts from a pasted text's page: a page whose newest run is
+/// under another package answers `quote_stale_run`, any other slug or page
+/// its own refusal, and a quote starts one paid page, never linked from the
+/// text's page.
+#[test]
+fn a_quote_needs_a_live_text_page_whose_newest_run_is_serving() {
+    let mut w = World::new();
+    let l = FakeLedger::with(1_000_000);
+    let text = prose(2_500);
+    let seal = w.free_seal(&text, 1);
+    let slug = page_of(&w, &text, &seal).unwrap();
+    let q = |w: &World, slug: &str| {
+        let req = QuoteRequest { slug: slug.into() };
+        block_on(paid::quote(&w.h, &l, &w.cx(), Some(reader(false)), &req, &mut |b, _| b <= 8 << 20))
+    };
+    assert!(q(&w, &slug).is_ok());
+    for bad in ["k7m2xq9", "nope", "zzzzzzzz", "7hq2kd9m4xw8rt3vn6pb"] {
+        assert_eq!(q(&w, bad).unwrap_err(), RefusalCode::NotFound, "{bad}");
+    }
+    // The serving package changes: the page's run is now an earlier one.
+    let old = w.serving.load.clone();
+    w.serving.load = "load-newer".into();
+    assert_eq!(q(&w, &slug).unwrap_err(), RefusalCode::QuoteStaleRun);
+    w.serving.load = old;
+    // A disabled or deleted page answers its own refusal.
+    w.h.exec("UPDATE detections SET state = 'disabled' WHERE kind = 'private_text'");
+    assert_eq!(q(&w, &slug).unwrap_err(), RefusalCode::PageDisabled);
+    w.h.exec("UPDATE detections SET state = 'deleted' WHERE kind = 'private_text'");
+    assert_eq!(q(&w, &slug).unwrap_err(), RefusalCode::PageGone);
+    w.h.exec("UPDATE detections SET state = 'live' WHERE kind = 'private_text'");
+    // Two quotes of one page start two paid pages, each its own; a quote
+    // starts one.
+    let q1 = q(&w, &slug).unwrap();
+    let q2 = q(&w, &slug).unwrap();
+    let start_of = |qs: &str| {
+        let req = StartRequest { slug: slug.clone(), quote_seal: qs.into() };
+        block_on(paid::start(&w.h, &l, &w.cx(), Some(reader(false)), &req, &mut |b, _| b <= 8 << 20))
+    };
+    let a = start_of(&q1.quote_seal).unwrap();
+    let b = start_of(&q2.quote_seal).unwrap();
+    assert_ne!(a.slug, b.slug);
+    assert_eq!(a.slug.len(), 20, "a paid page's slug is drawn");
+    assert_eq!(start_of(&q1.quote_seal).unwrap_err(), RefusalCode::SealUsed);
+    assert_eq!(w.h.count("SELECT count(*) FROM detections WHERE kind = 'private_paid'"), 2);
+    // The quote seal names the page it was for.
+    let other = prose(2_600);
+    let other_seal = w.free_seal(&other, 2);
+    let other_slug = page_of(&w, &other, &other_seal).unwrap();
+    let q3 = q(&w, &slug).unwrap();
+    let req = StartRequest { slug: other_slug, quote_seal: q3.quote_seal };
+    assert_eq!(
+        block_on(paid::start(&w.h, &l, &w.cx(), Some(reader(false)), &req, &mut |b, _| b <= 8 << 20)).unwrap_err(),
+        RefusalCode::QuoteInvalid
+    );
+    // The text's page never names the paid pages.
+    let p = w.page(&slug).unwrap();
+    let json = serde_json::to_string(&p).unwrap();
+    assert!(!json.contains(&a.slug) && !json.contains(&b.slug));
 }

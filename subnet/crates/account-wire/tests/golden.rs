@@ -29,16 +29,7 @@ fn user() -> UserId {
 }
 
 fn summary(kind: Kind, band: Option<Band>, words: u32) -> Summary {
-    Summary {
-        kind,
-        band,
-        short: None,
-        strong_sections: None,
-        total_sections: None,
-        words,
-        created_at: T0,
-        expires_at: None,
-    }
+    Summary { kind, band, short: None, strong_sections: None, total_sections: None, words, created_at: T0 }
 }
 
 fn identity(id: u64, provider: Provider, label: &str, current: bool) -> IdentityRow {
@@ -208,11 +199,10 @@ fn entries() -> Vec<(String, String)> {
     let mut paid = summary(Kind::PrivatePaid, None, 3214);
     paid.strong_sections = Some(1);
     paid.total_sections = Some(3);
-    paid.expires_at = Some(T0 + 30 * DAY);
     let detections = vec![
-        owned(11, "7hq2kd9m4xw8rt3vn6pb", 1, true, summary(Kind::PrivateText, Some(Band::VeryStrong), 181)),
+        owned(11, "uM07zZQv", 1, true, summary(Kind::PrivateText, Some(Band::VeryStrong), 181)),
         owned(12, "c3jf8kq1zw5ty7hn2mdx", 2, true, paid),
-        owned(13, "m5tq9w2xk8vr3yn7hd4c", 3, false, summary(Kind::PrivateText, Some(Band::Weak), 412)),
+        owned(13, "Tq9w2Xk8", 3, false, summary(Kind::PrivateText, Some(Band::Weak), 412)),
     ];
     put(
         &mut e,

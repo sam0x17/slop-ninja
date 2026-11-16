@@ -155,6 +155,11 @@ DETECT_OP_KEY = ""
 # liveness parameter, measured at the launch gate. The sweep's batch
 # (X_CHECK_BATCH) is derived from it (src/x_flow.rs).
 FETCH_WAIT_MS = "10000"
+# permalink-policy/v1: a pasted text's page slug is this many base62
+# characters (8 to 19; a longer one only on a collision). Outside 8-19 every
+# save refuses and the check still answers. The length a text got is kept
+# with it, so a change affects new texts only (src/save.rs).
+DETECT_TEXT_SLUG_LEN = "8"
 
 [[env.testnet.durable_objects.bindings]]
 name = "DETECT_GATE"
@@ -305,6 +310,11 @@ DETECT_OP_KEY = ""
 # liveness parameter, measured at the launch gate. The sweep's batch
 # (X_CHECK_BATCH) is derived from it (src/x_flow.rs).
 FETCH_WAIT_MS = "10000"
+# permalink-policy/v1: a pasted text's page slug is this many base62
+# characters (8 to 19; a longer one only on a collision). Outside 8-19 every
+# save refuses and the check still answers. The length a text got is kept
+# with it, so a change affects new texts only (src/save.rs).
+DETECT_TEXT_SLUG_LEN = "8"
 # Staging only, as in the fetch Worker's staging env: one
 # https://slop.ninja/preview/<token>/fixtures/ prefix the URL rules admit for
 # the URL-page drill, read only when DEPLOY_ENV is "staging". The deploy
@@ -457,6 +467,7 @@ IDLE_MS = "600000"
 QUEUE_HOLD_MS = "20000"
 BODY_WAIT_MS = "60000"
 FETCH_WAIT_MS = "10000"
+DETECT_TEXT_SLUG_LEN = "8"
 # The local fixture site's domain: the dev build's URL rules admit it and
 # every host under it (one host per scenario).
 DEV_FIXTURE_HOST = "fixtures.test"

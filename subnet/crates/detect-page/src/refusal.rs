@@ -134,19 +134,27 @@ refusal_codes! {
     Scorer = "scorer", 502, Check;
 
     // ------------------------------------------------------------------ store
-    /// "This result is more than a day old. Check it again to share it." (a
+    /// "This result is more than a day old. Check the text again." (a
     /// forged, expired or mismatched seal).
     SealInvalid = "seal_invalid", 400, Store;
-    /// The seal already made a link.
+    /// "This result's page was deleted. Check the text again to make a new
+    /// one." The seal already made a page, which is gone.
     SealUsed = "seal_used", 409, Store;
     /// "Saving is unavailable right now." (`DETECT_STORE` off).
     StoreOff = "store_off", 503, Store;
+    /// The text's page is disabled or removed, or its text is held after a
+    /// disabled page was deleted: no new page is made for it while that
+    /// lasts. The tool shows the unstored result with the same line as
+    /// `store_off`, so a check says nothing about a notice against its text.
+    TextOnHold = "text_on_hold", 409, Store;
+    /// No free slug up to the longest text slug (it takes twelve exact
+    /// collisions in a row): internal, shown as `store_off`.
+    SlugExhausted = "slug_exhausted", 503, Store;
     /// Every stored page is temporarily unavailable (`DETECT_PAGES` off).
     PagesOff = "pages_off", 503, Store;
 
     // ------------------------------------------------------------------ rerun
-    /// "This secret link was deleted or has expired, so it can't be checked
-    /// again."
+    /// "This page was deleted, so it can't be checked again."
     RerunGone = "rerun_gone", 410, Rerun;
     /// "This page is unavailable, so it can't be checked again."
     RerunBlocked = "rerun_blocked", 451, Rerun;
@@ -163,7 +171,7 @@ refusal_codes! {
     BadUrl = "bad_url", 422, Url;
     /// "We can't make a public page for this link: it is a private share
     /// link, or the page asks search engines not to list it. Paste its text to
-    /// make a secret link."
+    /// check it."
     CapabilityUrl = "capability_url", 422, Url;
     /// As `capability_url`.
     PrivateSource = "private_source", 422, Url;
@@ -234,7 +242,7 @@ refusal_codes! {
     XPurged = "x_purged", 410, X;
 
     // ------------------------------------------------------------------- page
-    /// "This secret link was deleted or has expired. Links are never reused."
+    /// "This page was deleted. Its link is never used again."
     PageGone = "page_gone", 410, Page;
     /// "This page was removed after a legal notice."
     PageRemoved = "page_removed", 451, Page;
@@ -268,6 +276,10 @@ refusal_codes! {
     NotEnoughCredit = "not_enough_credit", 402, Paid;
     /// The quote seal is forged, expired or for another account or text.
     QuoteInvalid = "quote_invalid", 409, Paid;
+    /// "This page was checked with an earlier model. Check it again with the
+    /// current model first." "Check all" needs the page's newest run under
+    /// the serving package.
+    QuoteStaleRun = "quote_stale_run", 409, Paid;
     /// Another driver holds the job's lease.
     JobRunning = "job_running", 409, Paid;
     /// The route needs a session.

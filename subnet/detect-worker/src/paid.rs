@@ -1,31 +1,35 @@
 //! The paid whole-document check (grants only, release R1a): the quote, the
 //! start, the fenced job driver, and how a job's ledger hold ends.
 //!
-//! **Quote** (`/api/detect/v1/paid/quote {text, seal}`, a signed-in reader):
-//! paid checks must be open (`DETECT_PAID = on`, or the account is an
-//! operator's `paid_preview` tester); the free check's seal must bind the
-//! text under the serving package; the whole text passes the English screen;
-//! the sections are planned ([`crate::sections`]) and section 1 must be the
-//! seal's free cut, with at least one section past it (`free_cut_only` when
-//! every stretch past the cut is listed as not scored). The reader is billed
-//! the content tokens past the free cut, at least `credit::PAYG_MIN_TOKENS`,
-//! and the ledger's `peek` (which
-//! takes one from the account's quote bucket) says what it draws. The quote
-//! seal (`slop_ninja_detect_quote_v1`) binds `{text_sha256, sections,
-//! paid_tokens, owner_h, free_seal_nonce_h, quote_nonce}`; `quote_nonce` is
-//! the hold's idempotency key, so a confirm sent twice places one hold.
+//! **Quote** (`/api/detect/v1/paid/quote {slug}`, a signed-in reader, from a
+//! pasted text's page: "Check all"): paid checks must be open (`DETECT_PAID =
+//! on`, or the account is an operator's `paid_preview` tester); the page must
+//! be a live `private_text` page whose newest run is under the serving
+//! package (`quote_stale_run` otherwise); the whole text passes the English
+//! screen; the sections are planned ([`crate::sections`]) and section 1 must
+//! be that run's free cut, with at least one section past it
+//! (`free_cut_only` when every stretch past the cut is listed as not
+//! scored). The reader is billed the content tokens past the free cut, at
+//! least `credit::PAYG_MIN_TOKENS`, and the ledger's `peek` (which takes one
+//! from the account's quote bucket) says what it draws. The quote seal
+//! (`slop_ninja_detect_quote_v1`) binds `{from_id_h, text_sha256,
+//! run_package, sections, paid_tokens, owner_h, quote_nonce}`;
+//! `quote_nonce` is the hold's idempotency key, so a confirm sent twice
+//! places one hold.
 //!
-//! **Start** (`/api/detect/v1/paid/start {text, seal, quote_seal, expiry}`):
-//! the quote seal must be this account's, for this text, and name the free
-//! seal sent beside it; `DETECT_STORE` must be on. Then: the start's row
-//! (`hold_starts`, keyed by the quote nonce, `open`); the hold; the slug
-//! and manage token; the job text `j/<id_h>/text` (the canonical text and
-//! its plan, under the page's key with the job AAD) and section 1's result
-//! `j/<id_h>/s1` (the free seal's, not scored again); then one batch
-//! inserts the pending `private_paid` detection (owned, `owner_via = paid`,
-//! holding the free seal's nonce hash, so a seal starts one check) only
-//! while the start's row is open, its job (`running`, 1 of k), and deletes
-//! the row. The account's `owned/add` records the page.
+//! **Start** (`/api/detect/v1/paid/start {slug, quote_seal}`): the quote
+//! seal must be this account's, for this page, its text and its newest run;
+//! `DETECT_STORE` must be on. Then: the start's row (`hold_starts`, keyed by
+//! the quote nonce, `open`); the hold; a drawn 20-character slug and manage
+//! token for the paid page (its own secret page, owned by the payer, never
+//! linked from the text's page); the job text `j/<id_h>/text` (the
+//! canonical text and its plan, under the page's key with the job AAD) and
+//! section 1's result `j/<id_h>/s1` (the text page's newest run, not scored
+//! again); then one batch inserts the pending `private_paid` detection
+//! (owned, `owner_via = paid`, holding `H("quote_nonce_v1" ‖ quote_nonce)`
+//! as its `seal_nonce_h`, so a quote starts one check) only while the
+//! start's row is open, its job (`running`, 1 of k), and deletes the row.
+//! The account's `owned/add` records the page. No page ends by time.
 //!
 //! **A start that made no page gives its hold back** behind a fence: one
 //! batch sets the row `given_back` and reads whether a job holds the hold,
@@ -35,8 +39,8 @@
 //!
 //! **A start's row never sits beside a job of its quote.** The batch that
 //! inserts the job deletes the row, and a start opens or renews its row
-//! only while no page holds the free seal, in one batch with the seal's
-//! check ([`UPSERT_START`]; otherwise `seal_used`, or `quote_invalid` for a
+//! only while no page holds the quote's nonce, in one batch with that check
+//! ([`UPSERT_START`]; otherwise `seal_used`, or `quote_invalid` for a
 //! fenced row), so once the job's page exists no later start of that quote
 //! brings a row back. A row left behind (the hold's answer was lost, the
 //! start stopped, or the release failed) therefore names a hold no job
@@ -62,14 +66,14 @@
 //!   result when the job ends, and ends the stream when the page or the job
 //!   ended otherwise (the next open answers why).
 //! - Per section: RENEW (the lease, and the page still pending and
-//!   unexpired), score it (gate class `paid`, keyed by the owner hash; the
+//!   not ended), score it (gate class `paid`, keyed by the owner hash; the
 //!   channel `paid_page` counts it as an operation, never as pot basis;
 //!   RENEW every beat meanwhile, and a beat the store refuses lets the scan
 //!   end, so its gate ticket ends with it, then takes the LOST path below),
 //!   put `j/<id_h>/s<n>`, ADVANCE (`sections_done = n` only from `n - 1`).
 //! - All done: RENEW, assemble the page's document, put `p/<id_h>`, then
 //!   one batch: SCORED (the single point after which no driver can act; only
-//!   while the page is still pending and unexpired) and the detection to
+//!   while the page is still pending) and the detection to
 //!   `live`. A page that ended since the last RENEW makes the step LOST. Then the job objects go and the ledger
 //!   commits; a failed commit leaves the job `scored` for a `commit_hold`
 //!   message (and the hourly sweep), and the result shows meanwhile: the
@@ -130,9 +134,9 @@ use crate::db::{Done, Io, Stmt, Val, delete_docs};
 use crate::doc::{DOC_V, SecretDoc, Serving, StoredResult};
 use crate::keys::{Bytes32, NONCE_BYTES, Pepper, ct_eq, manage_h};
 use crate::lookup::{Found, SELECT_SWITCHES, SlugForm, SwitchRows, secret_lookup, slug_form};
-use crate::seal::{self, Dated, Opened, Purpose, ResultPayload};
+use crate::save::{Keys, draw_secret};
+use crate::seal::{self, Dated, Purpose};
 use crate::sections::{self, Plan};
-use crate::share::{Keys, draw_secret};
 use crate::store::{self, job_prefix, secret_doc_key};
 
 // ------------------------------------------------------------------ objects
@@ -414,14 +418,16 @@ pub fn assembly_subrequests(k: u32) -> u32 {
 #[serde(deny_unknown_fields)]
 pub struct QuotePayload {
     pub day: u64,
+    /// The text page's store id, hex.
+    pub from_id_h: String,
     /// `SHA-256(canon_v1(text))`, hex.
     pub text_sha256: String,
+    /// The package of the text page's newest run (section 1).
+    pub run_package: String,
     pub sections: u32,
     pub paid_tokens: u64,
     /// The account's owner hash, hex.
     pub owner_h: String,
-    /// The free check's seal nonce hash, hex.
-    pub free_seal_nonce_h: String,
     /// The hold's idempotency key: 32 hex digits.
     pub quote_nonce: String,
     pub issued_ms: u64,
@@ -450,7 +456,6 @@ pub struct Ctx<'a> {
 struct Checked {
     canonical: String,
     plan: Plan,
-    free: Opened<ResultPayload>,
     first: SectionResult,
     /// Started while paid checks are closed, by a tester.
     preview: bool,
@@ -475,21 +480,16 @@ fn plan_code(e: NoCut) -> RefusalCode {
     }
 }
 
-/// The checks the quote and the start share: the free seal for this text
-/// and package, the English screen on the whole text, the plan, and
-/// section 1 equal to the seal's free cut.
+/// The checks the quote and the start share on a text page's text and its
+/// newest run (already under the serving package): the English screen on
+/// the whole text, the plan, and section 1 equal to the run's free cut.
 fn check(
     cx: &Ctx<'_>,
-    now: u64,
     text: &str,
-    seal_s: &str,
+    stored: &StoredResult,
     preview: bool,
     admit: Admit<'_>,
 ) -> Result<Checked, RefusalCode> {
-    let free = seal::open_result(cx.secret, now, seal_s, text).map_err(|_| RefusalCode::SealInvalid)?;
-    let p = &free.payload;
-    let stored = crate::handoff::stored_result(&p.result_full, p.issued_ms, &p.package_load, &p.policy_v, cx.serving)
-        .map_err(|_| RefusalCode::SealInvalid)?;
     if stored.cut == CutKind::None {
         // Nothing past the free cut: the free check scored it all.
         return Err(RefusalCode::MalformedRequest);
@@ -503,8 +503,10 @@ fn check(
     }
     let plan = sections::plan(&canonical, cx.max_section_bytes, admit).map_err(plan_code)?;
     let s1 = plan.sections.first().ok_or(RefusalCode::NoSentenceEnd)?;
-    if sections::utf16_at(&canonical, s1.end) != p.scored_end || s1.tokens != u64::from(stored.tokens) {
-        return Err(RefusalCode::SealInvalid);
+    if s1.words != stored.words || s1.tokens != u64::from(stored.tokens) {
+        // The plan does not reproduce the run's free cut: section 1 cannot
+        // be the run's result.
+        return Err(RefusalCode::QuoteInvalid);
     }
     if plan.sections.len() < 2 {
         // Past the free cut nothing can be scored (every stretch is listed
@@ -514,8 +516,48 @@ fn check(
     }
     // A free cut too dense in tokens to reach the measured range has no
     // section figures; the whole document cannot be checked.
-    let first = SectionResult::from_free(&stored).ok_or(RefusalCode::TooLong)?;
-    Ok(Checked { canonical, plan, free, first, preview })
+    let first = SectionResult::from_free(stored).ok_or(RefusalCode::TooLong)?;
+    Ok(Checked { canonical, plan, first, preview })
+}
+
+/// A text page read for "Check all": the page, its text and its newest run.
+struct TextPage {
+    id_h: Bytes32,
+    text: String,
+    run: StoredResult,
+}
+
+/// Reads the text page `slug`: a live `private_text` page (`page_gone`,
+/// `page_removed`, `page_disabled` for an ended one, `not_found` for any
+/// other page), whose newest run is under the serving package
+/// (`quote_stale_run` otherwise).
+async fn text_page(io: &impl Io, keys: Keys<'_>, serving: &Serving, slug: &str) -> Result<TextPage, RefusalCode> {
+    if !slug_form(slug).is_some_and(SlugForm::is_secret) {
+        return Err(RefusalCode::NotFound);
+    }
+    let (found, _) = secret_lookup(io, keys.peppers, slug).await.map_err(|_| RefusalCode::Unavailable)?;
+    let found = found.ok_or(RefusalCode::NotFound)?;
+    if let Some(r) = store::ended_refusal(found.row.state) {
+        return Err(r);
+    }
+    if found.row.kind != Kind::PrivateText || found.row.state != DetState::Live {
+        return Err(RefusalCode::NotFound);
+    }
+    let bytes = io.doc_get(&secret_doc_key(&found.row.id_h)).await.map_err(|_| RefusalCode::Unavailable)?;
+    let bytes = bytes.ok_or(RefusalCode::ReportUnavailable)?;
+    let plain = found.pepper.doc_key(slug).open(&bytes).map_err(|_| RefusalCode::ReportUnavailable)?;
+    let doc = SecretDoc::decode(&plain).map_err(|_| RefusalCode::ReportUnavailable)?;
+    let run = doc.latest().cloned().ok_or(RefusalCode::ReportUnavailable)?;
+    if run.package_load != serving.load {
+        return Err(RefusalCode::QuoteStaleRun);
+    }
+    Ok(TextPage { id_h: found.row.id_h, text: doc.text, run })
+}
+
+/// A paid page's `seal_nonce_h`: its quote's nonce, so a quote starts one
+/// check.
+pub fn quote_nonce_h(quote_nonce: &str) -> Bytes32 {
+    crate::keys::h(b"quote_nonce_v1", quote_nonce.as_bytes())
 }
 
 /// The billed tokens of a plan.
@@ -544,7 +586,8 @@ pub async fn quote(
     let sw = SwitchRows::from_done(io.run(Stmt::new(SELECT_SWITCHES, Vec::new())).await.ok().as_ref());
     let preview = open_to(io, &sw, &p)?;
     let now = io.now_ms();
-    let c = check(cx, now, &req.text, &req.seal, preview, admit)?;
+    let page = text_page(io, cx.keys, cx.serving, &req.slug).await?;
+    let c = check(cx, &page.text, &page.run, preview, admit)?;
     let tokens = paid_tokens_of(&c.plan);
     let peek = ledger.peek(&PeekRequest { user_id: p.user_id }).await?;
     let draw = credit::draw(tokens, Channel::PaidPage, peek.plan_left, peek.api_left, peek.credit_left);
@@ -559,11 +602,12 @@ pub async fn quote(
     io.fill(&mut nonce);
     let payload = QuotePayload {
         day: seal::day_of(now),
+        from_id_h: hex::encode(page.id_h),
         text_sha256: hex::encode(crate::canon::canonical_sha256(&c.canonical)),
+        run_package: page.run.package_load.clone(),
         sections: u32_sat(c.plan.sections.len() as u64),
         paid_tokens: tokens,
         owner_h: hex::encode(cx.keys.store.owner_h(&p.user_id.0)),
-        free_seal_nonce_h: hex::encode(c.free.nonce_h()),
         quote_nonce: hex::encode(nonce),
         issued_ms: now,
     };
@@ -588,11 +632,11 @@ pub async fn quote(
 // --------------------------------------------------------------- the start
 
 /// The pending paid page, only while its start's row is open (the fence a
-/// give-back or the sweep sets).
+/// give-back or the sweep sets); its `seal_nonce_h` is its quote's nonce.
 pub const INSERT_PAID: &str = "INSERT INTO detections (id_h, pepper_v, kind, platform, state, state_v, \
-created_at, updated_at, expires_at, package_load, manage_h, owner_h, owner_via, seal_nonce_h) \
-SELECT ?1, ?2, 'private_paid', 'paste', 'pending', 1, ?3, ?3, ?4, ?5, ?6, ?7, 'paid', ?8 \
-WHERE EXISTS (SELECT 1 FROM hold_starts WHERE idem = ?9 AND state = 'open') ON CONFLICT DO NOTHING";
+created_at, updated_at, package_load, manage_h, owner_h, owner_via, seal_nonce_h) \
+SELECT ?1, ?2, 'private_paid', 'paste', 'pending', 1, ?3, ?3, ?4, ?5, ?6, 'paid', ?7 \
+WHERE EXISTS (SELECT 1 FROM hold_starts WHERE idem = ?8 AND state = 'open') ON CONFLICT DO NOTHING";
 
 /// Its job: only beside the detection this request inserted.
 pub const INSERT_JOB: &str = "INSERT INTO jobs (det_id_h, owner_h, hold_ref, package_load, package_pub, policy_v, \
@@ -605,11 +649,11 @@ pub const JOB_OF_HOLD: &str = "SELECT 1 AS n FROM jobs WHERE hold_ref = ?1";
 
 /// A start's row before its hold: opened, or (a confirm sent again) its
 /// time renewed while it is still open; either only while no page holds the
-/// free seal (`?3`, the seal's nonce hash). The batch that inserts a job
-/// inserts its page with that seal and deletes the row, so once a job of
+/// quote's nonce (`?3`, [`quote_nonce_h`]). The batch that inserts a job
+/// inserts its page with that nonce and deletes the row, so once a job of
 /// this quote exists no start brings its row back: a row never sits beside
 /// a job of its quote. `RETURNING` answers whether this call opened or
-/// renewed the row (nothing when the seal is used or the row is fenced).
+/// renewed the row (nothing when the quote is used or the row is fenced).
 pub const UPSERT_START: &str = "INSERT INTO hold_starts (idem, state, at) SELECT ?1, 'open', ?2 \
 WHERE NOT EXISTS (SELECT 1 FROM detections WHERE seal_nonce_h = ?3) \
 ON CONFLICT (idem) DO UPDATE SET at = excluded.at WHERE hold_starts.state = 'open' RETURNING 1 AS n";
@@ -666,16 +710,19 @@ pub async fn start(
     if seal::day_of(q.issued_ms) != q.day || !hex_ok(&q.owner_h, &owner_h) || !nonce_ok(&q.quote_nonce) {
         return Err(RefusalCode::QuoteInvalid);
     }
-    let c = check(cx, now, &req.text, &req.seal, preview, admit).map_err(|e| match e {
-        // The quote was for this text; a text that no longer checks out is
+    let page = text_page(io, cx.keys, cx.serving, &req.slug).await?;
+    if !hex_ok(&q.from_id_h, &page.id_h) {
+        return Err(RefusalCode::QuoteInvalid);
+    }
+    let c = check(cx, &page.text, &page.run, preview, admit).map_err(|e| match e {
+        // The quote was for this page; a text that no longer checks out is
         // not the one quoted.
         RefusalCode::NotEnglish | RefusalCode::MalformedRequest | RefusalCode::FreeCutOnly => RefusalCode::QuoteInvalid,
         e => e,
     })?;
     let tokens = paid_tokens_of(&c.plan);
-    let free_nonce_h = c.free.nonce_h();
     if !hex_ok(&q.text_sha256, &crate::canon::canonical_sha256(&c.canonical))
-        || !hex_ok(&q.free_seal_nonce_h, &free_nonce_h)
+        || q.run_package != page.run.package_load
         || q.sections as usize != c.plan.sections.len()
         || q.paid_tokens != tokens
     {
@@ -683,13 +730,14 @@ pub async fn start(
     }
     // The start's row first: whatever happens to the hold's answer, the
     // sweep can end a hold no job came to hold. It opens (or renews) only
-    // while the seal is unused, in one batch with the seal's check, so it
-    // never comes back beside a job this quote already made.
+    // while no page holds the quote's nonce, in one batch with that check,
+    // so it never comes back beside a job this quote already made.
     let idem = q.quote_nonce.clone();
+    let used_h = quote_nonce_h(&idem);
     let opened = io
         .batch(vec![
-            Stmt::new(crate::share::SEAL_USED, vec![Val::blob(&free_nonce_h)]),
-            Stmt::new(UPSERT_START, vec![Val::text(idem.clone()), Val::int(now), Val::blob(&free_nonce_h)]),
+            Stmt::new(crate::save::SEAL_USED, vec![Val::blob(&used_h)]),
+            Stmt::new(UPSERT_START, vec![Val::text(idem.clone()), Val::int(now), Val::blob(&used_h)]),
         ])
         .await
         .map_err(|_| RefusalCode::SaveUnavailable)?;
@@ -720,7 +768,6 @@ pub async fn start(
         give_back(io, ledger, &idem, &hold.hold_id, &keys).await;
         return Err(RefusalCode::SaveUnavailable);
     }
-    let expires_at = req.expiry.duration_ms().map(|d| now.saturating_add(d));
     let batch = vec![
         Stmt::new(
             INSERT_PAID,
@@ -728,11 +775,10 @@ pub async fn start(
                 Val::blob(&id_h),
                 Val::int(u64::from(pepper.v)),
                 Val::int(now),
-                Val::opt_int(expires_at),
                 Val::text(cx.serving.load.clone()),
                 Val::blob(&manage_h(&manage)),
                 Val::blob(&owner_h),
-                Val::blob(&free_nonce_h),
+                Val::blob(&used_h),
                 Val::text(idem.clone()),
             ],
         ),
@@ -762,8 +808,7 @@ pub async fn start(
     };
     if !inserted {
         // Another start of this quote made its page first (its job holds
-        // the hold), a link or another quote of this scan used the seal, or
-        // the start was fenced (a give-back of this quote, or the sweep) and
+        // the hold), or the start was fenced (a give-back of this quote, or the sweep) and
         // its hold has ended.
         return Err(match give_back(io, ledger, &idem, &hold.hold_id, &keys).await {
             GaveBack::Fenced | GaveBack::Unknown => RefusalCode::QuoteInvalid,
@@ -783,7 +828,6 @@ pub async fn start(
             total_sections: Some(k),
             words: job.header.plan.total_words,
             created_at: now,
-            expires_at,
         },
         is_owner: true,
     };
@@ -938,21 +982,20 @@ fn job_row(d: Option<&Done>) -> Option<JobRow> {
 pub const CLAIM: &str = "UPDATE jobs SET lease_token = ?2, lease_until = ?3, updated_at = ?4 \
 WHERE det_id_h = ?1 AND state = 'running' AND (lease_until IS NULL OR lease_until < ?4) RETURNING sections_done";
 /// RENEW: the lease, while this driver holds it and the page is still
-/// pending and unexpired.
+/// pending.
 pub const RENEW: &str = "UPDATE jobs SET lease_until = ?3 WHERE det_id_h = ?1 AND lease_token = ?2 \
-AND state = 'running' AND EXISTS (SELECT 1 FROM detections WHERE id_h = ?1 AND state = 'pending' \
-AND (expires_at IS NULL OR expires_at > ?4)) RETURNING 1 AS ok";
+AND state = 'running' AND EXISTS (SELECT 1 FROM detections WHERE id_h = ?1 AND state = 'pending') \
+RETURNING 1 AS ok";
 /// ADVANCE: section `?3` is done, only from `?3 - 1`.
 pub const ADVANCE: &str = "UPDATE jobs SET sections_done = ?3, updated_at = ?4 WHERE det_id_h = ?1 \
 AND lease_token = ?2 AND state = 'running' AND sections_done = ?3 - 1 RETURNING 1 AS ok";
 /// SCORED: the single point after which no driver can act, only while the
-/// page is still pending and unexpired, so a disable, a removal or an
-/// expiry that landed after the last RENEW stops the job (nothing is
-/// charged) instead of charging for a page that cannot go live.
+/// page is still pending, so a disable, a removal or a delete that landed
+/// after the last RENEW stops the job (nothing is charged) instead of
+/// charging for a page that cannot go live.
 pub const SCORED: &str = "UPDATE jobs SET state = 'scored', lease_token = NULL, lease_until = NULL, updated_at = ?3 \
 WHERE det_id_h = ?1 AND lease_token = ?2 AND state = 'running' AND sections_done = sections_total \
-AND EXISTS (SELECT 1 FROM detections WHERE id_h = ?1 AND state = 'pending' \
-AND (expires_at IS NULL OR expires_at > ?3)) RETURNING hold_ref";
+AND EXISTS (SELECT 1 FROM detections WHERE id_h = ?1 AND state = 'pending') RETURNING hold_ref";
 /// The page goes live in the SCORED batch, only beside a scored job.
 pub const LIVE: &str = "UPDATE detections SET state = 'live', state_v = state_v + 1, updated_at = ?2, \
 doc_key = ?3, doc_bytes = ?4 WHERE id_h = ?1 AND state = 'pending' \
@@ -992,7 +1035,7 @@ pub const PAID_RECEIPT: &str = "INSERT INTO paid_receipts (receipt_id, hour, cha
 tokens, cash, at) SELECT ?1, ?2, 'paid_page', package_load, hold_ref, cash_tokens, 1, ?3 FROM jobs \
 WHERE det_id_h = ?4 AND cash_tokens > 0 ON CONFLICT DO NOTHING";
 /// The page's state after a lost fenced step.
-pub const SELECT_DET_STATE: &str = "SELECT state, expires_at FROM detections WHERE id_h = ?1";
+pub const SELECT_DET_STATE: &str = "SELECT state FROM detections WHERE id_h = ?1";
 
 /// A paid page found by its slug, with its job.
 #[derive(Clone, Debug)]
@@ -1005,12 +1048,12 @@ pub struct JobOpen<'p> {
 /// The job route's lookup: a secret `private_paid` page, or a refusal
 /// (answered before any stream).
 pub async fn open_job<'p>(io: &impl Io, keys: Keys<'p>, slug: &str) -> Result<JobOpen<'p>, RefusalCode> {
-    if slug_form(slug) != Some(SlugForm::Secret) {
+    if !slug_form(slug).is_some_and(SlugForm::is_secret) {
         return Err(RefusalCode::NotFound);
     }
     let (found, sw) = secret_lookup(io, keys.peppers, slug).await.map_err(|_| RefusalCode::Unavailable)?;
     let found = found.filter(|f| f.row.kind == Kind::PrivatePaid).ok_or(RefusalCode::NotFound)?;
-    if let Some(r) = store::ended_refusal(found.row.state_at(io.now_ms())) {
+    if let Some(r) = store::ended_refusal(found.row.state) {
         return Err(r);
     }
     let d = io
@@ -1093,7 +1136,7 @@ impl<I: Io, L: Ledger, S: SectionScorer> Drive<'_, I, L, S> {
             return JobEnd::Shown;
         };
         let progress = JobLine::Progress { section: job.sections_done, of: job.sections_total };
-        match (row.state_at(now), job.state) {
+        match (row.state, job.state) {
             (DetState::Live, _) => {
                 let _ = sink.line(&JobLine::Done).await;
                 return JobEnd::Shown;
@@ -1167,10 +1210,10 @@ impl<I: Io, L: Ledger, S: SectionScorer> Drive<'_, I, L, S> {
                 return self.drive(open, slug, sink, job, &t, u32::try_from(from).unwrap_or(u32::MAX)).await;
             }
             let row = job_row(d.get(1));
-            let det = d.get(2).and_then(Done::first).map(|r| {
-                let s = r.text("state").and_then(DetState::parse).unwrap_or(DetState::Deleted);
-                store::read_state(s, r.u64("expires_at"), io.now_ms())
-            });
+            let det = d
+                .get(2)
+                .and_then(Done::first)
+                .map(|r| r.text("state").and_then(DetState::parse).unwrap_or(DetState::Deleted));
             match (det, row.as_ref().map(|j| j.state)) {
                 (Some(DetState::Live), _) => {
                     let _ = sink.line(&JobLine::Done).await;
@@ -1213,9 +1256,13 @@ impl<I: Io, L: Ledger, S: SectionScorer> Drive<'_, I, L, S> {
         let jt = match io.doc_get(&text_key(&id)).await {
             Ok(Some(b)) => match open_part(open.found.pepper, slug, &b).map(JobText::decode) {
                 Some(Ok(j)) => j,
-                _ => return self.fail(&id, t, RefusalCode::Internal, job.sections_total, sink).await,
+                _ => {
+                    return self.fail(&id, t, RefusalCode::Internal, job.sections_total, sink).await;
+                }
             },
-            Ok(None) => return self.fail(&id, t, RefusalCode::Internal, job.sections_total, sink).await,
+            Ok(None) => {
+                return self.fail(&id, t, RefusalCode::Internal, job.sections_total, sink).await;
+            }
             Err(_) => {
                 self.let_go(&id, t).await;
                 let _ = sink.line(&progress).await;
@@ -1343,19 +1390,13 @@ impl<I: Io, L: Ledger, S: SectionScorer> Drive<'_, I, L, S> {
     /// One beat's RENEW: `None` when the store could not answer.
     async fn renew_beat(&self, id: &Bytes32, t: &[u8]) -> Option<bool> {
         let now = self.io.now_ms();
-        let s = Stmt::new(
-            RENEW,
-            vec![Val::blob(id), Val::blob(t), Val::int(now.saturating_add(self.lease_ms)), Val::int(now)],
-        );
+        let s = Stmt::new(RENEW, vec![Val::blob(id), Val::blob(t), Val::int(now.saturating_add(self.lease_ms))]);
         self.fenced(s).await
     }
 
     async fn renew(&self, id: &Bytes32, t: &[u8]) -> bool {
         let now = self.io.now_ms();
-        let s = Stmt::new(
-            RENEW,
-            vec![Val::blob(id), Val::blob(t), Val::int(now.saturating_add(self.lease_ms)), Val::int(now)],
-        );
+        let s = Stmt::new(RENEW, vec![Val::blob(id), Val::blob(t), Val::int(now.saturating_add(self.lease_ms))]);
         self.fenced(s).await == Some(true)
     }
 
@@ -1380,10 +1421,11 @@ impl<I: Io, L: Ledger, S: SectionScorer> Drive<'_, I, L, S> {
         };
         let d = Some(d);
         let job = d.as_ref().and_then(|d| job_row(d.first()));
-        let det = d.as_ref().and_then(|d| d.get(1)).and_then(Done::first).map(|r| {
-            let s = r.text("state").and_then(DetState::parse).unwrap_or(DetState::Deleted);
-            store::read_state(s, r.u64("expires_at"), io.now_ms())
-        });
+        let det = d
+            .as_ref()
+            .and_then(|d| d.get(1))
+            .and_then(Done::first)
+            .map(|r| r.text("state").and_then(DetState::parse).unwrap_or(DetState::Deleted));
         let page_ended = !matches!(det, Some(DetState::Pending | DetState::Live));
         let job_ended = job.as_ref().is_none_or(|j| matches!(j.state, JobState::Failed | JobState::Cancelled));
         if page_ended || job_ended {
@@ -1607,7 +1649,7 @@ pub fn assemble(
     Some(SecretDoc {
         v: DOC_V,
         text: text.to_owned(),
-        result_full,
+        runs: vec![result_full],
         source_check: None,
         sections: Some(Sections {
             items,
@@ -1670,7 +1712,7 @@ pub fn receipt_input(doc: &SecretDoc) -> Option<StoredResult> {
         Band::Strong => 2,
         Band::VeryStrong => 3,
     })?;
-    let mut r = doc.result_full.clone();
+    let mut r = doc.latest()?.clone();
     r.band = Some(band);
     r.length = Some(slop_ninja_detect_page::codes::LengthBin::Long);
     Some(r)
@@ -1745,10 +1787,9 @@ pub fn hour_of(ms: u64) -> String {
     crate::counters::hour_key(ms)
 }
 
-/// Running jobs whose page ended or expired: the sweep cancels them.
+/// Running jobs whose page ended: the sweep cancels them.
 pub const SELECT_ENDED_RUNNING: &str = "SELECT hex(j.det_id_h) AS id_h FROM jobs j JOIN detections d \
-ON d.id_h = j.det_id_h WHERE j.state = 'running' AND (d.state <> 'pending' \
-OR (d.expires_at IS NOT NULL AND d.expires_at <= ?1)) LIMIT ?2";
+ON d.id_h = j.det_id_h WHERE j.state = 'running' AND d.state <> 'pending' LIMIT ?1";
 /// Jobs whose hold has not ended an hour after their end: the sweep asks
 /// again.
 pub const SELECT_UNENDED: &str = "SELECT hex(det_id_h) AS id_h FROM jobs WHERE (state = 'scored' \
@@ -1759,12 +1800,12 @@ pub const SWEEP_JOBS: u64 = 50;
 /// sends another.
 pub const UNENDED_GRACE_MS: u64 = 3_600_000;
 
-/// The hourly sweep's paid part: cancel running jobs whose page ended or
-/// expired, and ask again for every hold whose end is overdue; each goes to
+/// The hourly sweep's paid part: cancel running jobs whose page ended,
+/// and ask again for every hold whose end is overdue; each goes to
 /// the `commit_hold` consumer ([`end_hold`]). Answers how many it sent.
 pub async fn sweep(io: &impl Io) -> Result<usize, crate::db::IoError> {
     let now = io.now_ms();
-    let ended = io.run(Stmt::new(SELECT_ENDED_RUNNING, vec![Val::int(now), Val::int(SWEEP_JOBS)])).await?;
+    let ended = io.run(Stmt::new(SELECT_ENDED_RUNNING, vec![Val::int(SWEEP_JOBS)])).await?;
     let mut ids: Vec<Bytes32> = Vec::new();
     for r in &ended.rows {
         let Some(id) = r.hex32("id_h") else { continue };

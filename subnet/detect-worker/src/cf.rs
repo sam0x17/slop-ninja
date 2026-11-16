@@ -32,14 +32,14 @@
 //!   the wrong shape is refused here; any other goes to the `DetectFeedback`
 //!   object (never the gate), which accepts it once, and is counted as a
 //!   content-free data point.
-//! - The store's routes (`cf_routes`): `POST /api/detect/v1/share`
-//!   (Get a link, with `X-SN-Principal` from the site host when saved),
-//!   `/manage` (the secret host), `/rerun` (a secret page's re-run: the same
-//!   ticket class, cut and lane as a paste, counted like one) and `/state`;
-//!   and the binding-only `/internal/v1/*` routes (page, preview, card,
-//!   states, owner, examples, example, sitemap shards, removals), refused
-//!   when they carry `X-SN-Route` or `X-SN-Host`, with `X-SN-Principal` on
-//!   the owner route only.
+//! - The store's routes (`cf_routes`): `POST /api/detect/v1/manage` (the
+//!   secret host), `/rerun` (a pasted text's re-run: the same ticket class,
+//!   cut and lane as a paste, counted like one; its run is added to the same
+//!   page) and `/state`; and the binding-only `/internal/v1/*` routes (page,
+//!   preview, save, card, states, owner, examples, example, sitemap shards,
+//!   removals), refused when they carry `X-SN-Route` or `X-SN-Host`, with
+//!   `X-SN-Principal` required on the owner route and optional on the save
+//!   (the website sends it only when the reader asked to save).
 //! - The paid check's routes (`cf_paid`): `POST /api/detect/v1/paid/quote`
 //!   and `/paid/start` (the site host, with `X-SN-Principal`), and
 //!   `/api/detect/v1/job` (the secret host), whose NDJSON stream drives the
@@ -118,7 +118,6 @@ export function detect_route(req) {
   if (u.pathname === '/api/detect/v1/score') return post ? 1 : 9;
   if (u.pathname === '/api/detect/v1/warm') return post ? 2 : 9;
   if (u.pathname === '/api/detect/v1/feedback') return post ? 3 : 9;
-  if (u.pathname === '/api/detect/v1/share') return post ? 4 : 9;
   if (u.pathname === '/api/detect/v1/manage') return post ? 6 : 9;
   if (u.pathname === '/api/detect/v1/rerun') return post ? 7 : 9;
   if (u.pathname === '/api/detect/v1/state') return post ? 8 : 9;
@@ -156,7 +155,7 @@ export function random_bytes(n) {
 }
 ")]
 extern "C" {
-    /// 1 score, 2 warm, 3 feedback, 4 share, 5 an internal path, 6 manage,
+    /// 1 score, 2 warm, 3 feedback, 5 an internal path, 6 manage,
     /// 7 rerun, 8 state, 10 paid quote, 11 paid start, 12 job, 20 removal,
     /// 21 removal status, 22 op, 30 url, 9 another method on a route, else 0
     /// (read in JS, no Rust allocation).
@@ -256,7 +255,6 @@ pub fn fetch(req: web_sys::Request, env: Env, ctx: worker_sys::Context) -> js_sy
         1 => (routes::R_SCORE, routes::SCORE_CONTROL_BYTES),
         2 => (routes::R_WARM, routes::WARM_CONTROL_BYTES),
         3 => (routes::R_FEEDBACK, routes::FEEDBACK_CONTROL_BYTES),
-        4 => (routes::R_SHARE, routes::STORE_CONTROL_BYTES),
         5 => (routes::R_INTERNAL, routes::STORE_CONTROL_BYTES),
         6 => (routes::R_MANAGE, routes::STORE_CONTROL_BYTES),
         7 => (routes::R_RERUN, routes::RERUN_CONTROL_BYTES),
@@ -285,7 +283,6 @@ pub fn fetch(req: web_sys::Request, env: Env, ctx: worker_sys::Context) -> js_sy
                 1 => score(req, env, &answer).await,
                 2 => answer.send(warm(&req, &env).await),
                 3 => answer.send(feedback(req, &env).await),
-                4 => answer.send(crate::cf_routes::share(req, &env).await),
                 5 => answer.send(crate::cf_routes::internal(req, &env).await),
                 6 => answer.send(crate::cf_routes::manage(req, &env).await),
                 7 => answer.send(crate::cf_routes::rerun(req, &env).await),

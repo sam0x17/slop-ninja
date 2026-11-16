@@ -7,13 +7,20 @@
 //!   caller supplies the bytes (`crypto.getRandomValues` in a Worker).
 //! - Public slugs are 7 characters (35 bits). A draw that contains a
 //!   [`BLOCKLIST_V1`] entry is redrawn.
-//! - Secret slugs are 20 characters (100 bits, with the server-held
-//!   pepper). Manage tokens, removal status tokens and wallet nonces are 26
-//!   characters (130 bits).
-//! - **Folding.** Uppercase folds to lowercase, `i` and `l` to `1`, `o` to
-//!   `0`; a folded path answers 301 to the canonical one. A segment of the
-//!   wrong length or with any other character matches nothing (404, with no
-//!   store read).
+//! - Drawn secret slugs (paid pages, and pasted-text pages made before
+//!   `permalink-policy/v1`) are 20 characters (100 bits, with the
+//!   server-held pepper). Manage tokens, removal status tokens and wallet
+//!   nonces are 26 characters (130 bits).
+//! - **Text slugs** (`permalink-policy/v1`): a pasted text's page has a
+//!   slug of [`TEXT_MIN_LEN`] to [`TEXT_MAX_LEN`] base62 characters
+//!   ([`ALPHABET62`]), derived by the detect Worker from a keyed hash of the
+//!   text ([`text_chars`] is the character rule). It is case-sensitive and
+//!   never folded. The two secret forms cannot meet: text slugs stop at 19
+//!   characters, drawn ones are 20.
+//! - **Folding** (the Crockford forms only). Uppercase folds to lowercase,
+//!   `i` and `l` to `1`, `o` to `0`; a folded path answers 301 to the
+//!   canonical one. A segment of the wrong length or with any other
+//!   character matches nothing (404, with no store read).
 
 use crate::codes::HostRole;
 
@@ -21,8 +28,55 @@ use crate::codes::HostRole;
 pub const ALPHABET: &[u8; 32] = b"0123456789abcdefghjkmnpqrstvwxyz";
 /// A public page's slug length.
 pub const PUBLIC_LEN: usize = 7;
-/// A secret page's slug length.
+/// A drawn secret page's slug length (paid pages; pasted-text pages made
+/// before `permalink-policy/v1`).
 pub const SECRET_LEN: usize = 20;
+/// A text slug's alphabet (base62), in value order.
+pub const ALPHABET62: &[u8; 62] = &alphabet62();
+
+/// `0-9`, then `A-Z`, then `a-z`.
+const fn alphabet62() -> [u8; 62] {
+    let mut out = [0u8; 62];
+    let mut i = 0;
+    while i < 62 {
+        out[i] = match i {
+            0..=9 => b'0' + i as u8,
+            10..=35 => b'A' + (i - 10) as u8,
+            _ => b'a' + (i - 36) as u8,
+        };
+        i += 1;
+    }
+    out
+}
+
+/// The shortest text slug (`permalink-policy/v1`'s floor).
+pub const TEXT_MIN_LEN: usize = 8;
+/// The longest text slug: one short of [`SECRET_LEN`], so the two secret
+/// forms never meet.
+pub const TEXT_MAX_LEN: usize = 19;
+/// The policy's default length (`DETECT_TEXT_SLUG_LEN`).
+pub const TEXT_DEFAULT_LEN: usize = 8;
+/// The derivation keeps a stream byte below this bound only: 248 = 4 × 62,
+/// so every character of [`ALPHABET62`] is equally likely.
+pub const TEXT_BYTE_BOUND: u8 = 248;
+/// Segments of the secret host that are not page slugs, though they have a
+/// text slug's form: a derived slug equal to one (in any case) is skipped
+/// for the next length, and a path segment equal to one never reads the
+/// store.
+pub const RESERVED_SEGMENTS: &[&str] = &[
+    "manifest",
+    "security",
+    "internal",
+    "accounts",
+    "settings",
+    "download",
+    "detections",
+    "wellknown",
+    "healthcheck",
+    "robotstxt",
+    "sitemaps",
+    "favicons",
+];
 /// Manage tokens, removal status tokens and wallet nonces.
 pub const TOKEN_LEN: usize = 26;
 /// The blocklist's version name.
@@ -95,6 +149,32 @@ pub fn draw_token(fill: &mut dyn FnMut(&mut [u8])) -> String {
     draw(TOKEN_LEN, fill)
 }
 
+/// The characters of a text slug from a derivation stream: each byte below
+/// [`TEXT_BYTE_BOUND`] gives `ALPHABET62[b mod 62]`, and every other byte is
+/// skipped, so no character is biased. A slug of length L is the first L
+/// characters, so a shorter candidate is a prefix of a longer one.
+pub fn text_chars(stream: &[u8]) -> String {
+    stream.iter().filter(|&&b| b < TEXT_BYTE_BOUND).map(|&b| ALPHABET62[usize::from(b % 62)] as char).collect()
+}
+
+/// Whether `s` is a reserved segment of the secret host (any case).
+pub fn is_reserved(s: &str) -> bool {
+    RESERVED_SEGMENTS.iter().any(|r| r.eq_ignore_ascii_case(s))
+}
+
+/// Whether `s` has a text slug's form: [`TEXT_MIN_LEN`] to
+/// [`TEXT_MAX_LEN`] base62 characters, and not a reserved segment. Case
+/// matters; nothing folds.
+pub fn is_text_slug(s: &str) -> bool {
+    (TEXT_MIN_LEN..=TEXT_MAX_LEN).contains(&s.len()) && s.bytes().all(|b| b.is_ascii_alphanumeric()) && !is_reserved(s)
+}
+
+/// Whether `s` is a secret page's slug in either form: a text slug, or a
+/// canonical 20-character drawn slug.
+pub fn is_secret_slug(s: &str) -> bool {
+    is_text_slug(s) || is_canonical(s, SECRET_LEN)
+}
+
 /// A segment after folding.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Folded {
@@ -131,7 +211,8 @@ pub fn is_canonical(s: &str, len: usize) -> bool {
     fold(s, len) == Folded::Canonical
 }
 
-/// The slug length of a host's pages.
+/// The slug length of a host's pages (on the secret host, the drawn form;
+/// a text slug is [`is_text_slug`]).
 pub fn slug_len(host: HostRole) -> usize {
     match host {
         HostRole::Site => PUBLIC_LEN,
@@ -142,11 +223,12 @@ pub fn slug_len(host: HostRole) -> usize {
 /// What a slug path serves.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum SlugRoute {
-    /// The page: `/d/<7>` or `/<20>`.
+    /// The page: `/d/<7>`, or `/<slug>` on the secret host (a text slug or
+    /// a 20-character drawn one).
     Page,
-    /// Its card: `/d/<7>/card.png` or `/<20>/card.png`.
+    /// Its card: `/d/<7>/card.png` or `/<slug>/card.png`.
     Card,
-    /// The secret host's manage shell: `/<20>/manage`.
+    /// The secret host's manage shell: `/<slug>/manage`.
     Manage,
     /// An X page with X's own widget, loaded on the reader's click:
     /// `/d/<7>/x` on the site host (`noindex`, canonical to `/d/<7>`, its own
@@ -205,6 +287,15 @@ pub fn match_path(host: HostRole, path_: &str) -> PathMatch {
         (HostRole::Site, "/x") => (SlugRoute::XWidget, false),
         _ => return PathMatch::NoMatch,
     };
+    // A text slug is looked up exactly as it is: case-sensitive, never
+    // folded.
+    if host == HostRole::Secret && is_text_slug(segment) {
+        return if trailing {
+            PathMatch::Redirect(path(host, route, segment))
+        } else {
+            PathMatch::Serve { route, slug: segment.to_owned() }
+        };
+    }
     match fold(segment, slug_len(host)) {
         Folded::Invalid => PathMatch::NoMatch,
         Folded::Canonical if !trailing => PathMatch::Serve { route, slug: segment.to_owned() },

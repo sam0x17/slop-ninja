@@ -52,12 +52,15 @@ pub struct PageSwitches {
     pub excerpts: bool,
     /// `DETECT_X = purged`: every X page answers 410 `x_purged`.
     pub x_purged: bool,
+    /// `DETECT_PAID`: paid checks are open to every account, so a pasted
+    /// text's page with a free cut links "Check all" (`Page::check_all`).
+    pub paid: bool,
 }
 
 impl PageSwitches {
     /// Every switch at its default.
     pub const DEFAULT: PageSwitches =
-        PageSwitches { pages: true, cards_generic: false, index: true, excerpts: true, x_purged: false };
+        PageSwitches { pages: true, cards_generic: false, index: true, excerpts: true, x_purged: false, paid: false };
 }
 
 /// A `sources` row as a page reads it.

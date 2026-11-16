@@ -1,7 +1,9 @@
-//! The detect store's migration (`subnet/detect-worker/migrations/`) applied
-//! to an in-memory SQLite with foreign keys on, as D1 runs it: every CHECK
-//! and UNIQUE is exercised, the CHECK lists equal this crate's value sets,
-//! and the statements the design relies on behave as it says.
+//! The detect store's migrations (`subnet/detect-worker/migrations/`, 0001
+//! then 0002) applied to an in-memory SQLite with foreign keys on, as D1
+//! runs them: every CHECK and UNIQUE is exercised, the CHECK lists equal this
+//! crate's value sets, 0002's data steps end only overdue pages before every
+//! end date is cleared, and the statements the design relies on behave as it
+//! says.
 
 #![allow(clippy::too_many_arguments)]
 
@@ -10,11 +12,20 @@ use rusqlite::{Connection, params_from_iter};
 use slop_ninja_detect_page::*;
 
 const SCHEMA: &str = include_str!("../../../detect-worker/migrations/0001_detect_store.sql");
+const PERMALINKS: &str = include_str!("../../../detect-worker/migrations/0002_permalinks.sql");
 
-fn db() -> Connection {
+/// The store at 0001 only (for 0002's data steps).
+fn db_v1() -> Connection {
     let c = Connection::open_in_memory().unwrap();
     c.pragma_update(None, "foreign_keys", true).unwrap();
     c.execute_batch(SCHEMA).unwrap();
+    c
+}
+
+/// The store as every migration leaves it.
+fn db() -> Connection {
+    let c = db_v1();
+    c.execute_batch(PERMALINKS).unwrap();
     c
 }
 
@@ -89,7 +100,12 @@ fn check_lists_equal_the_value_sets() {
 fn schema_info_names_the_schema() {
     let c = db();
     let v: String = c.query_row("SELECT v FROM schema_info WHERE k = 'schema'", [], |r| r.get(0)).unwrap();
-    assert_eq!(v, "slop_ninja_detect_store_v1");
+    assert_eq!(v, "slop_ninja_detect_store_v2");
+    // 0002 dropped the expiry index.
+    let n: i64 = c
+        .query_row("SELECT count(*) FROM sqlite_master WHERE type = 'index' AND name = 'det_expiry'", [], |r| r.get(0))
+        .unwrap();
+    assert_eq!(n, 0);
 }
 
 const SRC: &str = "INSERT INTO sources (source_id, canon_key, canon_url, host, adapter, state, reputation, rank_list_v) \
@@ -211,32 +227,104 @@ fn detections_checks_and_uniques() {
     refused(&c, "UPDATE detections SET owner_via = NULL WHERE id_h = ?", &[b(10)], "CHECK constraint failed");
 }
 
+/// 0002 on a store with pages of every kind of end date: only pages already
+/// past theirs end (as `expired` tombstones, with the live and pending copies
+/// of an ended root), pages under a legal state keep their state, and then
+/// no row keeps an end date. Nothing that reads as expired today comes back
+/// live.
 #[test]
-fn a_rerun_copy_inherits_expiry_and_family() {
+fn permalinks_migration_ends_overdue_pages_before_it_clears_end_dates() {
+    let c = db_v1();
+    let now: i64 = c.query_row("SELECT CAST(strftime('%s','now') AS INTEGER) * 1000", [], |r| r.get(0)).unwrap();
+    let past = now - 60_000;
+    let future = now + 86_400_000;
+    let ins = "INSERT INTO detections (id_h, pepper_v, kind, platform, state, created_at, updated_at, expires_at, \
+               expiry_cap, copy_of, manage_h, owner_h, owner_via, doc_key, doc_bytes) \
+               VALUES (?, 1, 'private_text', 'paste', ?, 1, 1, ?, ?, ?, ?, ?, ?, ?, 10)";
+    let page = |id: u8, state: &str, exp: V, latest: V, copy: V| {
+        let owner = if state == "live" { (b(100 + id), t("created")) } else { (NULL, NULL) };
+        run(&c, ins, &[b(id), t(state), exp, latest, copy, b(50 + id), owner.0, owner.1, t(&format!("p/{id}"))])
+            .unwrap();
+    };
+    page(1, "live", i(past), NULL, NULL); // overdue: ends
+    page(2, "live", i(future), NULL, NULL); // not yet: stays live, loses its date
+    page(3, "live", NULL, NULL, NULL); // no date
+    // A copy of root 1, its latest allowed end past: it ends with its root.
+    page(4, "live", i(future), i(past), b(1));
+    page(5, "pending", i(future), i(future), b(1)); // a pending copy of root 1: ends with it
+    page(6, "live", i(future), i(future), b(2)); // a copy of a root that stays: stays
+    page(7, "removed", i(past), NULL, NULL); // a legal state keeps its state
+    page(8, "disabled", i(past), NULL, NULL);
+    page(9, "failed", i(past), NULL, NULL); // overdue failed: ends
+    page(10, "deleted", i(past), NULL, NULL); // already a tombstone
+    c.execute_batch(PERMALINKS).unwrap();
+    let state = |id: u8| -> String {
+        c.query_row("SELECT state FROM detections WHERE id_h = ?", [vec![id; 32]], |r| r.get(0)).unwrap()
+    };
+    let want = [
+        (1, "expired"),
+        (2, "live"),
+        (3, "live"),
+        (4, "expired"),
+        (5, "expired"),
+        (6, "live"),
+        (7, "removed"),
+        (8, "disabled"),
+        (9, "expired"),
+        (10, "deleted"),
+    ];
+    for (id, s) in want {
+        assert_eq!(state(id), s, "page {id}");
+    }
+    // An ended page lost its document key, manage hash and owner.
+    for id in [1u8, 4, 5, 9] {
+        let (doc, manage, owner): (Option<String>, Option<Vec<u8>>, Option<Vec<u8>>) = c
+            .query_row("SELECT doc_key, manage_h, owner_h FROM detections WHERE id_h = ?", [vec![id; 32]], |r| {
+                Ok((r.get(0)?, r.get(1)?, r.get(2)?))
+            })
+            .unwrap();
+        assert_eq!((doc, manage, owner), (None, None, None), "page {id}");
+    }
+    // A live page kept its owner.
+    assert_eq!(count(&c, "SELECT count(*) FROM detections WHERE owner_h IS NOT NULL"), 3);
+    let with_dates = "SELECT count(*) FROM detections WHERE expires_at IS NOT NULL OR expiry_cap IS NOT NULL";
+    assert_eq!(count(&c, with_dates), 0, "no row keeps an end date");
+    let v: String = c.query_row("SELECT v FROM schema_info WHERE k = 'schema'", [], |r| r.get(0)).unwrap();
+    assert_eq!(v, "slop_ninja_detect_store_v2");
+}
+
+/// The `texts` table: a pasted text's keyed address and its current page.
+#[test]
+fn texts_checks_and_uniques() {
     let c = db();
-    run(
-        &c,
-        "INSERT INTO detections (id_h, kind, platform, state, created_at, updated_at, expires_at) \
-         VALUES (?, 'private_text', 'paste', 'live', 1, 1, 5000)",
-        &[b(1)],
-    )
-    .unwrap();
-    let copy = "INSERT INTO detections (id_h, kind, platform, state, created_at, updated_at, expires_at, expiry_cap, copy_of) \
-                SELECT ?, 'private_text', 'paste', 'live', ?, ?, o.expires_at, o.expires_at, coalesce(o.copy_of, o.id_h) \
-                FROM detections o WHERE o.id_h = ? AND o.state = 'live' AND (o.expires_at IS NULL OR o.expires_at > ?)";
-    assert_eq!(run(&c, copy, &[b(2), i(10), i(10), b(1), i(10)]).unwrap(), 1);
-    // A copy of a copy names the same root.
-    assert_eq!(run(&c, copy, &[b(3), i(11), i(11), b(2), i(11)]).unwrap(), 1);
-    let (latest, root): (i64, Vec<u8>) = c
-        .query_row("SELECT expiry_cap, copy_of FROM detections WHERE id_h = ?", [vec![3u8; 32]], |r| {
-            Ok((r.get(0)?, r.get(1)?))
-        })
-        .unwrap();
-    assert_eq!((latest, root), (5000, vec![1u8; 32]));
-    // An expired or deleted original yields no copy.
-    assert_eq!(run(&c, copy, &[b(4), i(6000), i(6000), b(1), i(6000)]).unwrap(), 0);
-    run(&c, "UPDATE detections SET state = 'deleted' WHERE id_h = ?", &[b(1)]).unwrap();
-    assert_eq!(run(&c, copy, &[b(5), i(12), i(12), b(1), i(12)]).unwrap(), 0);
+    let page = "INSERT INTO detections (id_h, pepper_v, kind, platform, state, created_at, updated_at) \
+                VALUES (?, 1, 'private_text', 'paste', 'live', 1, 1)";
+    for id in [1u8, 2, 3] {
+        run(&c, page, &[b(id)]).unwrap();
+    }
+    let ins = "INSERT INTO texts (text_h, pepper_v, gen, slug_len, det_id_h, hold, created_at, updated_at) \
+               VALUES (?, 1, ?, ?, ?, ?, 1, 1)";
+    run(&c, ins, &[b(20), i(0), i(8), b(1), NULL]).unwrap();
+    refused(&c, ins, &[b(20), i(0), i(8), b(2), NULL], "UNIQUE constraint failed: texts.text_h");
+    refused(&c, ins, &[b(21), i(0), i(8), b(1), NULL], "UNIQUE constraint failed: texts.det_id_h");
+    refused(&c, ins, &[b(21), i(-1), i(8), b(2), NULL], "CHECK constraint failed");
+    refused(&c, ins, &[b(21), i(0), i(7), b(2), NULL], "CHECK constraint failed");
+    refused(&c, ins, &[b(21), i(0), i(20), b(2), NULL], "CHECK constraint failed");
+    refused(&c, ins, &[b(21), i(0), i(8), b(2), t("on")], "CHECK constraint failed");
+    refused(&c, ins, &[b(21), i(0), i(8), b(9), NULL], "FOREIGN KEY constraint failed");
+    run(&c, ins, &[b(21), i(3), i(19), b(2), t("notice")]).unwrap();
+    // A page a text row names cannot be deleted from the table.
+    refused(&c, "DELETE FROM detections WHERE id_h = ?", &[b(1)], "FOREIGN KEY constraint failed");
+    // Nothing in the table is a slug or a text: every value is a hash, a
+    // version, a count or the hold.
+    let cols: Vec<String> = c
+        .prepare("SELECT name FROM pragma_table_info('texts')")
+        .unwrap()
+        .query_map([], |r| r.get(0))
+        .unwrap()
+        .map(Result::unwrap)
+        .collect();
+    assert_eq!(cols, ["text_h", "pepper_v", "gen", "slug_len", "det_id_h", "hold", "created_at", "updated_at"]);
 }
 
 #[test]
@@ -276,7 +364,7 @@ fn jobs_are_fenced_and_unique() {
     let start = "INSERT INTO hold_starts (idem, state, at) VALUES (?, ?, 1)";
     run(&c, start, &[t("q1"), t("open")]).unwrap();
     refused(&c, start, &[t("q1"), t("open")], "hold_starts.idem");
-    refused(&c, start, &[t("q2"), t("held")], "CHECK constraint failed");
+    refused(&c, start, &[t("q2"), t("notice")], "CHECK constraint failed");
     run(&c, start, &[t("q2"), t("given_back")]).unwrap();
 }
 

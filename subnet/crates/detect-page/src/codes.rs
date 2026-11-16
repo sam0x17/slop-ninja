@@ -178,6 +178,9 @@ code_enum! {
         Removed = "removed",
         Disabled = "disabled",
         Deleted = "deleted",
+        /// A legacy tombstone: a page that ended by a reader-chosen expiry
+        /// before `slop_ninja_detect_store_v2` (staging only). No page enters
+        /// it any more; it reads as deleted (410).
         Expired = "expired",
     }
 }
@@ -331,30 +334,6 @@ code_enum! {
 }
 
 code_enum! {
-    /// A secret link's lifetime.
-    pub enum Expiry {
-        Day = "1d",
-        Week = "7d",
-        Month = "30d",
-        /// Until deleted (the default).
-        Keep = "keep",
-    }
-}
-
-impl Expiry {
-    /// Milliseconds from now, `None` for [`Expiry::Keep`].
-    pub fn duration_ms(self) -> Option<u64> {
-        const DAY: u64 = 86_400_000;
-        match self {
-            Expiry::Day => Some(DAY),
-            Expiry::Week => Some(7 * DAY),
-            Expiry::Month => Some(30 * DAY),
-            Expiry::Keep => None,
-        }
-    }
-}
-
-code_enum! {
     /// What an owner purge does to an account's pages (by default:
     /// delete).
     pub enum PurgeMode {
@@ -492,7 +471,6 @@ code_enum! {
     /// A manage request's action.
     pub enum ManageAction {
         Delete = "delete",
-        SetExpiry = "set_expiry",
         ClaimCheck = "claim_check",
     }
 }

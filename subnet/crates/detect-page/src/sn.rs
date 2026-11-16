@@ -117,7 +117,6 @@ routes! {
     // detect
     Score = "score", "POST", "/api/detect/v1/score", Detect, Site, false, true;
     Warm = "warm", "POST", "/api/detect/v1/warm", Detect, Site, false, true;
-    Share = "share", "POST", "/api/detect/v1/share", Detect, Site, true, true;
     Url = "url", "POST", "/api/detect/v1/url", Detect, Site, false, true;
     Rerun = "rerun", "POST", "/api/detect/v1/rerun", Detect, Site, false, true;
     State = "state", "POST", "/api/detect/v1/state", Detect, Site, false, true;
@@ -160,12 +159,27 @@ impl RouteId {
     }
 }
 
+/// Whether an internal route takes `X-SN-Principal`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum PrincipalRule {
+    /// A request with the header is refused.
+    Refused,
+    /// The header may be present (the save, when the reader asked to save).
+    Optional,
+    /// A request without the header is refused (`signed_out`).
+    Required,
+}
+
 /// A binding-only route.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum InternalRoute {
     // detect
     Page,
     Preview,
+    /// The website's `POST /detect/result`: a sealed free check becomes its
+    /// text's page ([`crate::internal::SaveRequest`]). Takes
+    /// `X-SN-Principal` when the reader asked to save and is signed in.
+    Save,
     Card,
     States,
     Owner,
@@ -197,6 +211,7 @@ impl InternalRoute {
     pub const ALL: &'static [InternalRoute] = &[
         InternalRoute::Page,
         InternalRoute::Preview,
+        InternalRoute::Save,
         InternalRoute::Card,
         InternalRoute::States,
         InternalRoute::Owner,
@@ -224,6 +239,7 @@ impl InternalRoute {
         match self {
             InternalRoute::Page => ("POST", "/internal/v1/page"),
             InternalRoute::Preview => ("POST", "/internal/v1/preview"),
+            InternalRoute::Save => ("POST", "/internal/v1/save"),
             InternalRoute::Card => ("POST", "/internal/v1/card"),
             InternalRoute::States => ("POST", "/internal/v1/states"),
             InternalRoute::Owner => ("POST", "/internal/v1/owner"),
@@ -251,6 +267,7 @@ impl InternalRoute {
         match self {
             InternalRoute::Page
             | InternalRoute::Preview
+            | InternalRoute::Save
             | InternalRoute::Card
             | InternalRoute::States
             | InternalRoute::Owner
@@ -263,9 +280,20 @@ impl InternalRoute {
         }
     }
 
-    /// The only internal route that takes `X-SN-Principal`.
+    /// Whether the route takes `X-SN-Principal`: the owner route requires it,
+    /// the save takes it when the reader asked to save, and every other
+    /// internal route refuses it.
+    pub fn principal(self) -> PrincipalRule {
+        match self {
+            InternalRoute::Owner => PrincipalRule::Required,
+            InternalRoute::Save => PrincipalRule::Optional,
+            _ => PrincipalRule::Refused,
+        }
+    }
+
+    /// Whether the route accepts `X-SN-Principal` at all.
     pub fn takes_principal(self) -> bool {
-        self == InternalRoute::Owner
+        self.principal() != PrincipalRule::Refused
     }
 }
 

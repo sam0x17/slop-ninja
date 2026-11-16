@@ -4,11 +4,18 @@
 //! - **Manage** (the secret host's `/api/detect/v1/manage`): `delete` tombstones
 //!   the row (`deleted`; document key, manage hash and owner cleared;
 //!   `state_v + 1`), deletes `p/<id_h>` and asks for a purge of the page and
-//!   card URLs (the slug is in the request). Deleting a family root also
-//!   ends its re-run copies, in the same batch. `set_expiry` recomputes
-//!   `expires_at`, never past a re-run copy's latest allowed expiry (set once,
-//!   when the copy is made).
-//!   `claim_check` checks the token.
+//!   card URLs (the slug is in the request). Deleting a family root made
+//!   before `slop_ninja_detect_store_v2` also ends its re-run copies, in the
+//!   same batch. `claim_check` checks the token. No page ends by time, so
+//!   there is no expiry to change.
+//! - **Deleting a disabled page holds its text.** Every delete batch (by
+//!   token, by owner, an owner purge, the operator's `delete_private`)
+//!   first sets `texts.hold` on the text whose current page it is, when the
+//!   page is `disabled`, under the delete's own guard: the same text then
+//!   gets no new page while the notice is reviewed (a reject or restore of
+//!   the case clears the hold, as `release_text` does). A deleted page's
+//!   text row is otherwise left as it is, so the next check of the text
+//!   gets a new generation and a new slug, and the old link stays 410.
 //! - **Owner** (`/internal/v1/owner`, with the principal): the Worker
 //!   derives `owner_h` from the principal's user id; the body never carries
 //!   one. Every statement that changes a page for an account runs `… WHERE
@@ -17,8 +24,7 @@
 //!   writes an `owner {skipped}` point. Owners exist only for secret pages,
 //!   so every action refuses a slug of any other form (a public page's
 //!   included) with `not_found`, before any read and writing nothing.
-//! - **States** (`/internal/v1/states`): at most 90 ids per call, expiry
-//!   enforced on read.
+//! - **States** (`/internal/v1/states`): at most 90 ids per call.
 //!
 //! Deleting a pending paid page cancels its running job in the same batch;
 //! the job's hold goes back through a `commit_hold` message.
@@ -44,7 +50,20 @@ use crate::db::{Done, Io, Stmt, Val, delete_docs};
 use crate::doc::SecretDoc;
 use crate::keys::Bytes32;
 use crate::lookup::{Found, SlugForm, secret_lookup, slug_form};
-use crate::share::{Keys, summary};
+use crate::save::{Keys, summary};
+
+/// The hold a delete by manage token sets first: on the text whose current
+/// page is `?1`, when the page is disabled and the token is its own.
+pub const HOLD_BY_TOKEN: &str = "UPDATE texts SET hold = 'notice', updated_at = ?3 WHERE det_id_h = ?1 \
+AND EXISTS (SELECT 1 FROM detections WHERE id_h = ?1 AND state = 'disabled' AND manage_h = ?2)";
+
+/// The hold a delete by the owner sets first.
+pub const HOLD_BY_OWNER: &str = "UPDATE texts SET hold = 'notice', updated_at = ?3 WHERE det_id_h = ?1 \
+AND EXISTS (SELECT 1 FROM detections WHERE id_h = ?1 AND state = 'disabled' AND owner_h = ?2)";
+
+/// The hold the operator's `delete_private` sets first.
+pub const HOLD_ANY: &str = "UPDATE texts SET hold = 'notice', updated_at = ?2 WHERE det_id_h = ?1 \
+AND EXISTS (SELECT 1 FROM detections WHERE id_h = ?1 AND state = 'disabled')";
 use crate::store::{self, DetRow, secret_doc_key};
 
 /// The tombstone of a delete by manage token.
@@ -64,11 +83,6 @@ manage_h = NULL, owner_h = NULL, owner_via = NULL, state_v = state_v + 1, update
 WHERE copy_of = ?1 AND state IN ('live','pending') \
 AND (SELECT r.state FROM detections r WHERE r.id_h = ?1) = 'deleted' RETURNING hex(id_h) AS id_h";
 
-/// `set_expiry`: the new expiry (NULL: until deleted), already limited to a
-/// copy's latest allowed expiry, which never changes after the copy is made.
-pub const SET_EXPIRY: &str = "UPDATE detections SET expires_at = ?3, state_v = state_v + 1, updated_at = ?4 \
-WHERE id_h = ?1 AND manage_h = ?2 AND state IN ('live','pending')";
-
 /// `claim`: the first account to save a page with its manage token owns it.
 pub const CLAIM: &str = "UPDATE detections SET owner_h = ?3, owner_via = 'claimed', state_v = state_v + 1, \
 updated_at = ?4 WHERE id_h = ?1 AND manage_h = ?2 AND state IN ('live','pending') AND owner_h IS NULL";
@@ -84,25 +98,31 @@ pub fn purge_urls(origins: &Origins, host: HostRole, slug: &str) -> QueueMessage
     })
 }
 
-/// The batch that tombstones `id_h` under `first`, ends its copies and
+/// The batch that holds the text of a disabled page (`hold`, under the
+/// delete's own guard), tombstones `id_h` under `first`, ends its copies and
 /// cancels a paid page's running job (the owner preempts any driver; the
 /// hold goes back through `commit_hold`, `paid::after_cancel`).
-fn delete_batch(first: Stmt, id_h: &Bytes32, now: u64) -> Vec<Stmt> {
+pub fn delete_batch(hold: Stmt, first: Stmt, id_h: &Bytes32, now: u64) -> Vec<Stmt> {
     vec![
+        hold,
         first,
         Stmt::new(DELETE_COPIES, vec![Val::blob(id_h), Val::int(now)]),
         Stmt::new(crate::paid::CANCEL_DELETED, vec![Val::blob(id_h), Val::int(now)]),
     ]
 }
 
+/// The statements per page of [`delete_batch`]; the tombstone is the
+/// second, the copies the third and the cancel the fourth.
+pub const DELETE_BATCH_LEN: usize = 4;
+
 /// After a delete batch: whether the page was deleted, and the pages it
 /// ended (the page and its copies).
 fn deleted_docs(done: &[Done], id_h: &Bytes32) -> (bool, Vec<Bytes32>) {
-    let hit = done.first().is_some_and(|d| d.changes == 1);
+    let hit = done.get(1).is_some_and(|d| d.changes == 1);
     let mut ids = Vec::new();
     if hit {
         ids.push(*id_h);
-        if let Some(copies) = done.get(1) {
+        if let Some(copies) = done.get(2) {
             ids.extend(copies.rows.iter().filter_map(|r| r.hex32("id_h")));
         }
     }
@@ -120,7 +140,7 @@ async fn after_delete(io: &impl Io, origins: &Origins, slug: &str, ids: Vec<Byte
 }
 
 fn need_secret(slug: &str) -> Result<(), RefusalCode> {
-    if slug_form(slug) == Some(SlugForm::Secret) { Ok(()) } else { Err(RefusalCode::NotFound) }
+    if slug_form(slug).is_some_and(SlugForm::is_secret) { Ok(()) } else { Err(RefusalCode::NotFound) }
 }
 
 /// Reads a secret page or answers `not_found`.
@@ -139,7 +159,7 @@ pub async fn manage(
     need_secret(&req.slug)?;
     let Found { row, .. } = find(io, keys, &req.slug).await?;
     let now = io.now_ms();
-    let state = row.state_at(now);
+    let state = row.state;
     if !row.manage_ok(Some(&req.manage)) {
         // A tombstone has no manage hash: an ended page answers its state.
         return Err(store::ended_refusal(state).unwrap_or(RefusalCode::ManageInvalid));
@@ -150,58 +170,25 @@ pub async fn manage(
             if !store::DELETABLE.contains(&state) {
                 return Err(store::ended_refusal(state).unwrap_or(RefusalCode::ManageInvalid));
             }
-            let first = Stmt::new(DELETE_BY_TOKEN, vec![Val::blob(&row.id_h), Val::blob(&token_h), Val::int(now)]);
-            let done = io.batch(delete_batch(first, &row.id_h, now)).await.map_err(|_| RefusalCode::SaveUnavailable)?;
+            let guard = vec![Val::blob(&row.id_h), Val::blob(&token_h), Val::int(now)];
+            let hold = Stmt::new(HOLD_BY_TOKEN, guard.clone());
+            let first = Stmt::new(DELETE_BY_TOKEN, guard);
+            let done =
+                io.batch(delete_batch(hold, first, &row.id_h, now)).await.map_err(|_| RefusalCode::SaveUnavailable)?;
             let (hit, docs) = deleted_docs(&done, &row.id_h);
             if !hit {
                 return Err(RefusalCode::ManageInvalid);
             }
             after_delete(io, origins, &req.slug, docs).await;
-            crate::paid::after_cancel(io, done.get(2)).await;
+            crate::paid::after_cancel(io, done.get(3)).await;
             io.metric("manage", &["delete"]);
-            Ok(ManageAnswer {
-                ok: true,
-                state: DetState::Deleted,
-                expires_at: None,
-                latest_expiry: None,
-                choices: Vec::new(),
-            })
-        }
-        ManageAction::SetExpiry => {
-            let choice = req.expiry.ok_or(RefusalCode::MalformedRequest)?;
-            if !store::MANAGEABLE.contains(&state) {
-                return Err(store::ended_refusal(state).unwrap_or(RefusalCode::ManageInvalid));
-            }
-            let latest = row.expiry_cap;
-            let expires_at = store::new_expiry(choice, now, latest);
-            let s = Stmt::new(
-                SET_EXPIRY,
-                vec![Val::blob(&row.id_h), Val::blob(&token_h), Val::opt_int(expires_at), Val::int(now)],
-            );
-            let done = io.run(s).await.map_err(|_| RefusalCode::SaveUnavailable)?;
-            if done.changes != 1 {
-                return Err(RefusalCode::ManageInvalid);
-            }
-            io.metric("manage", &["set_expiry"]);
-            Ok(ManageAnswer {
-                ok: true,
-                state,
-                expires_at,
-                latest_expiry: latest,
-                choices: store::expiry_choices(now, latest),
-            })
+            Ok(ManageAnswer { ok: true, state: DetState::Deleted })
         }
         ManageAction::ClaimCheck => {
             if !store::MANAGEABLE.contains(&state) {
                 return Err(store::ended_refusal(state).unwrap_or(RefusalCode::ManageInvalid));
             }
-            Ok(ManageAnswer {
-                ok: true,
-                state,
-                expires_at: row.expires_at,
-                latest_expiry: row.expiry_cap,
-                choices: store::expiry_choices(now, row.expiry_cap),
-            })
+            Ok(ManageAnswer { ok: true, state })
         }
     }
 }
@@ -226,7 +213,6 @@ async fn page_summary(io: &impl Io, slug: &str, f: &Found<'_>) -> Result<Summary
         total_sections: None,
         words: 0,
         created_at: row.created_at,
-        expires_at: row.expires_at,
     };
     if row.state != DetState::Live {
         return Ok(empty);
@@ -235,7 +221,8 @@ async fn page_summary(io: &impl Io, slug: &str, f: &Found<'_>) -> Result<Summary
     let Some(bytes) = bytes else { return Err(RefusalCode::ReportUnavailable) };
     let plain = f.pepper.doc_key(slug).open(&bytes).map_err(|_| RefusalCode::ReportUnavailable)?;
     let doc = SecretDoc::decode(&plain).map_err(|_| RefusalCode::ReportUnavailable)?;
-    let mut s = summary(row.kind, &doc.result_full, row.created_at, row.expires_at);
+    let latest = doc.latest().ok_or(RefusalCode::ReportUnavailable)?;
+    let mut s = summary(row.kind, latest, row.created_at);
     if let Some(sec) = &doc.sections {
         s.strong_sections = Some(sec.document.strong_sections);
         s.total_sections = Some(sec.document.total_sections);
@@ -258,7 +245,7 @@ pub async fn owner(
     let found = find(io, keys, &req.slug).await?;
     let now = io.now_ms();
     let row: &DetRow = &found.row;
-    let state = row.state_at(now);
+    let state = row.state;
     let skipped = |io: &_| {
         Io::metric(io, "owner", &["skipped"]);
         OwnerAnswer::Done(OwnerDone { ok: false, code: Some(RefusalCode::NotOwner) })
@@ -304,14 +291,17 @@ pub async fn owner(
             if row.owner_relation(&o) != OwnerRelation::You || !store::DELETABLE.contains(&state) {
                 return Ok(skipped(io));
             }
-            let first = Stmt::new(DELETE_BY_OWNER, vec![Val::blob(&row.id_h), Val::blob(&o), Val::int(now)]);
-            let done = io.batch(delete_batch(first, &row.id_h, now)).await.map_err(|_| RefusalCode::SaveUnavailable)?;
+            let guard = vec![Val::blob(&row.id_h), Val::blob(&o), Val::int(now)];
+            let hold = Stmt::new(HOLD_BY_OWNER, guard.clone());
+            let first = Stmt::new(DELETE_BY_OWNER, guard);
+            let done =
+                io.batch(delete_batch(hold, first, &row.id_h, now)).await.map_err(|_| RefusalCode::SaveUnavailable)?;
             let (hit, docs) = deleted_docs(&done, &row.id_h);
             if !hit {
                 return Ok(skipped(io));
             }
             after_delete(io, origins, &req.slug, docs).await;
-            crate::paid::after_cancel(io, done.get(2)).await;
+            crate::paid::after_cancel(io, done.get(3)).await;
             io.metric("owner", &["deleted"]);
             Ok(OwnerAnswer::Done(OwnerDone { ok: true, code: None }))
         }
@@ -332,7 +322,7 @@ pub async fn owner(
 /// The `states` statement for `n` ids.
 pub fn states_sql(n: usize) -> String {
     let marks: Vec<String> = (1..=n).map(|i| format!("?{i}")).collect();
-    format!("SELECT hex(id_h) AS id_h, state, expires_at, kind FROM detections WHERE id_h IN ({})", marks.join(", "))
+    format!("SELECT hex(id_h) AS id_h, state, kind FROM detections WHERE id_h IN ({})", marks.join(", "))
 }
 
 /// The states of saved pages, in request order; a missing id reads `null`.
@@ -346,18 +336,17 @@ pub async fn states(io: &impl Io, req: &StatesRequest) -> Result<StatesAnswer, R
     let params = req.id_h.iter().map(|i| Val::blob(&i.0)).collect();
     let done =
         io.run(Stmt::owned(states_sql(req.id_h.len()), params)).await.map_err(|_| RefusalCode::SaveUnavailable)?;
-    let now = io.now_ms();
     let states = req
         .id_h
         .iter()
         .map(|id| {
             let r = done.rows.iter().find(|r| r.hex32("id_h") == Some(id.0));
-            let read = r.and_then(|r| {
+            let state = r.and_then(|r| {
                 let kind = Kind::parse(r.text("kind")?)?;
                 let st = DetState::parse(r.text("state")?)?;
-                kind.is_secret().then(|| (store::read_state(st, r.u64("expires_at"), now), r.u64("expires_at")))
+                kind.is_secret().then_some(st)
             });
-            StateEntry { id_h: *id, state: read.map(|x| x.0), expires_at: read.and_then(|x| x.1) }
+            StateEntry { id_h: *id, state }
         })
         .collect();
     Ok(StatesAnswer { states })

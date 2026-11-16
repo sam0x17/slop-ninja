@@ -26,13 +26,14 @@
 //!   sessions and threads) and the health check that it runs them;
 //! - [`routes`]: arena routes, footprints, the isolate's scan memory and the
 //!   admission of forwarded requests (the `X-SN-*` allow-list and CSRF);
-//! - the store (secret links, pages and background work): [`canon`]
+//! - the store (secret pages and background work): [`canon`]
 //!   (`canon_v1`), [`keys`] (hashes, keys and document encryption),
 //!   [`slug`], [`store`] (the state machine), [`doc`] (the stored result and
 //!   documents), [`display`] (the display policy), [`page`] (page JSON),
 //!   [`db`] (the SQL and I/O seam the flows run on), [`handoff`] (a sealed
 //!   free check's result as the store keeps it), [`lookup`], the flows
-//!   [`share`], [`manage`] (manage, owner and states) and [`rerun`], the
+//!   [`save`] (every check's page), [`manage`] (manage, owner and states) and
+//!   [`rerun`] (a newer model's run added to the same page), the
 //!   paid whole-document check [`paid`] (quote, start, the fenced job
 //!   driver and how its hold ends) with its [`sections`], the
 //!   read routes [`reads`], and the background work [`queue`], [`cron`],
@@ -90,17 +91,17 @@ pub mod net;
 pub mod ops;
 pub mod page;
 pub mod paid;
-pub mod purge;
 pub mod policy;
+pub mod purge;
 pub mod queue;
 pub mod reads;
 pub mod receipt;
 pub mod reputation;
 pub mod rerun;
 pub mod routes;
+pub mod save;
 pub mod seal;
 pub mod sections;
-pub mod share;
 pub mod sitemap;
 pub mod slug;
 pub mod store;

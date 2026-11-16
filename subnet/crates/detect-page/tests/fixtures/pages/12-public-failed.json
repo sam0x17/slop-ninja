@@ -1,5 +1,5 @@
 {
-  "schema": "slop_ninja_detect_page_v2",
+  "schema": "slop_ninja_detect_page_v3",
   "slug": "k7m2xq9",
   "host": "site",
   "kind": "public_url",
@@ -7,7 +7,6 @@
   "state": "failed",
   "state_v": 1,
   "created_at": 1795169040000,
-  "expires_at": null,
   "robots": "noindex",
   "canonical": null,
   "superseded_by": null,
@@ -20,6 +19,7 @@
     "differs_from_run": false
   },
   "run": null,
+  "history": [],
   "sections": null,
   "text": null,
   "x": null,
@@ -48,5 +48,6 @@
   "card": null,
   "ninja": null,
   "receipt": null,
-  "paid_open": null
+  "paid_open": null,
+  "check_all": false
 }

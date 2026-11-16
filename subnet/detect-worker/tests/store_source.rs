@@ -35,7 +35,7 @@ const STORE_FILES: &[&str] = &[
     "queue.rs",
     "reads.rs",
     "rerun.rs",
-    "share.rs",
+    "save.rs",
     "sitemap.rs",
     "slug.rs",
     "store.rs",
@@ -53,9 +53,9 @@ fn the_retired_x_source_rule_is_gone() {
     for f in STORE_FILES {
         all.push_str(&src(f));
     }
-    all.push_str(
-        &fs::read_to_string(format!("{}/migrations/0001_detect_store.sql", env!("CARGO_MANIFEST_DIR"))).unwrap(),
-    );
+    for m in ["0001_detect_store.sql", "0002_permalinks.sql"] {
+        all.push_str(&fs::read_to_string(format!("{}/migrations/{m}", env!("CARGO_MANIFEST_DIR"))).unwrap());
+    }
     all.push_str(&fs::read_to_string(format!("{}/wrangler.toml", env!("CARGO_MANIFEST_DIR"))).unwrap());
     for banned in ["text_withheld", "X_DEVELOPER", "ADV16", "x_source_rule", "XSourceRule"] {
         assert!(!all.contains(banned), "{banned}");
@@ -96,12 +96,72 @@ fn every_owner_statement_matches_the_owner() {
     for (file, name, clause) in [
         ("manage.rs", "DELETE_BY_OWNER", "WHERE id_h = ?1 AND owner_h = ?2"),
         ("manage.rs", "RELEASE", "WHERE id_h = ?1 AND owner_h = ?2"),
-        ("share.rs", "CLEAR_OWNER", "WHERE id_h = ?1 AND owner_h = ?2"),
+        ("save.rs", "CLEAR_OWNER", "WHERE id_h = ?1 AND owner_h = ?2"),
+        ("manage.rs", "HOLD_BY_OWNER", "state = 'disabled' AND owner_h = ?2"),
+        ("manage.rs", "HOLD_BY_TOKEN", "state = 'disabled' AND manage_h = ?2"),
         ("manage.rs", "CLAIM", "AND owner_h IS NULL"),
         ("queue.rs", "SELECT_OWNED_DELETABLE", "WHERE owner_h = ?1"),
         ("queue.rs", "RELEASE_OWNED", "WHERE owner_h = ?1"),
     ] {
         assert!(statement(file, name).contains(clause), "{name}");
+    }
+}
+
+/// No page ends by time: nothing but the migrations writes or reads an end
+/// date.
+#[test]
+fn no_statement_writes_or_reads_an_end_date() {
+    for f in STORE_FILES {
+        let s = code(&src(f));
+        let body = s.split("#[cfg(test)]").next().unwrap_or("");
+        // The status op counts rows that still carry one (none after 0002).
+        let body = body
+            .replace("SELECT count(*) AS n FROM detections WHERE expires_at IS NOT NULL OR expiry_cap IS NOT NULL", "");
+        for banned in ["expires_at", "expiry_cap", "Expiry", "set_expiry", "SET_EXPIRY", "EXPIRE"] {
+            assert!(!body.contains(banned), "{f} names {banned}");
+        }
+    }
+}
+
+/// Every delete of a secret page holds the text of a disabled one first,
+/// under the delete's own guard: by token, by owner, an owner purge and the
+/// operator's `delete_private`.
+#[test]
+fn every_delete_batch_holds_a_disabled_pages_text() {
+    let manage = code(&src("manage.rs"));
+    assert!(
+        manage.contains("Stmt::new(HOLD_BY_TOKEN, guard.clone())")
+            && manage.contains("Stmt::new(DELETE_BY_TOKEN, guard)")
+    );
+    assert!(
+        manage.contains("Stmt::new(HOLD_BY_OWNER, guard.clone())")
+            && manage.contains("Stmt::new(DELETE_BY_OWNER, guard)")
+    );
+    let queue = code(&src("queue.rs"));
+    assert!(
+        queue.contains("Stmt::new(HOLD_BY_OWNER, guard.clone())")
+            && queue.contains("Stmt::new(DELETE_BY_OWNER, guard)")
+    );
+    let ops = code(&src("store_ops.rs"));
+    let dp = &ops[ops.find("pub fn delete_private(").unwrap()..];
+    let dp = &dp[..dp.find("\n}").unwrap()];
+    assert!(dp.find("HOLD_ANY").unwrap() < dp.find("state = 'deleted'").unwrap(), "the hold comes first");
+    // Every statement that tombstones a secret page by a reader's or the
+    // operator's delete is one of these.
+    for f in STORE_FILES {
+        let s = code(&src(f));
+        let n = s.matches("DELETE_BY_TOKEN").count() + s.matches("DELETE_BY_OWNER").count();
+        let holds = s.matches("HOLD_BY_TOKEN").count() + s.matches("HOLD_BY_OWNER").count();
+        if f != &"manage.rs" {
+            assert!(n == 0 || holds > 0, "{f}: a delete without its hold");
+        }
+    }
+    for (name, clause) in [
+        ("HOLD_BY_TOKEN", "UPDATE texts SET hold = 'notice'"),
+        ("HOLD_BY_OWNER", "UPDATE texts SET hold = 'notice'"),
+        ("HOLD_ANY", "UPDATE texts SET hold = 'notice'"),
+    ] {
+        assert!(statement("manage.rs", name).contains(clause), "{name}");
     }
 }
 

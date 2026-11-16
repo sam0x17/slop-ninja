@@ -17,7 +17,7 @@
 //! before anything is read. The scan memory is a byte pool rather than a
 //! count of worst-case arenas, so short texts do not each hold a 9 MB arena.
 //!
-//! The store's routes reserve from the same scan memory: a link or a
+//! The store's routes reserve from the same scan memory: a save or a
 //! preview by its declared body ([`text_footprint`]), a page, card or owner
 //! read by the size of the document it reads, and a re-run by both its
 //! document and its scan.
@@ -33,7 +33,7 @@ pub mod id {
     pub const WARM: u8 = 2;
     pub const FEEDBACK: u8 = 3;
     pub const OTHER: u8 = 4;
-    pub const SHARE: u8 = 5;
+    /// 5 was the retired share route's.
     pub const MANAGE: u8 = 6;
     pub const RERUN: u8 = 7;
     pub const STATE: u8 = 8;
@@ -60,7 +60,6 @@ pub const R_SCORE: AsyncRoute = AsyncRoute::new(id::SCORE, "detect/score", FETCH
 pub const R_WARM: AsyncRoute = AsyncRoute::new(id::WARM, "detect/warm", FETCH_MS);
 pub const R_FEEDBACK: AsyncRoute = AsyncRoute::new(id::FEEDBACK, "detect/feedback", FETCH_MS);
 pub const R_OTHER: AsyncRoute = AsyncRoute::new(id::OTHER, "detect/other", FETCH_MS);
-pub const R_SHARE: AsyncRoute = AsyncRoute::new(id::SHARE, "detect/share", FETCH_MS);
 pub const R_MANAGE: AsyncRoute = AsyncRoute::new(id::MANAGE, "detect/manage", FETCH_MS);
 pub const R_RERUN: AsyncRoute = AsyncRoute::new(id::RERUN, "detect/rerun", FETCH_MS);
 pub const R_STATE: AsyncRoute = AsyncRoute::new(id::STATE, "detect/state", FETCH_MS);
@@ -132,8 +131,8 @@ pub const LARGEST_INVOCATION_BYTES: usize = SCORE_CONTROL_BYTES + slop_ninja_are
 /// minimal JSON escaping is at most `\u00XX` per byte).
 pub const BYTES_PER_BODY_BYTE: usize = 1 + 1 + 3 + 12 + 3 + 72 + 6;
 
-/// Bytes a link or a preview can hold per byte of its body, at most: the
-/// body (1), the unescaped text (1), its canonical form (3), which the link
+/// Bytes a save or a preview can hold per byte of its body, at most: the
+/// body (1), the unescaped text (1), its canonical form (3), which the save
 /// stores and the preview renders, with that form's alignment table while
 /// it is built (12, freed before anything below), and then the document:
 /// a copy of the text when it was already canonical (1), the document's
@@ -154,11 +153,9 @@ pub const DOC_BYTES_PER_BYTE: usize = 6;
 /// room for its JSON quotes; checked by
 /// `tests::the_largest_seal_fits_its_field`.
 pub const SEAL_FIELD_BYTES: usize = 8 * KIB;
-/// A link's or a preview's body, at most: the text field as the score
-/// envelope bounds it, the seal, the source (each byte escaped to at most
-/// 6), and the other fields' names and values.
-pub const TEXT_BODY_BYTES: u64 =
-    bound::TEXT_FIELD_BYTES + SEAL_FIELD_BYTES as u64 + (crate::share::MAX_SOURCE_BYTES * 6) as u64 + KIB as u64;
+/// A save's or a preview's body, at most: the text field as the score
+/// envelope bounds it, the seal, and the other fields' names and values.
+pub const TEXT_BODY_BYTES: u64 = bound::TEXT_FIELD_BYTES + SEAL_FIELD_BYTES as u64 + KIB as u64;
 /// A body that carries slugs, tokens and codes only.
 pub const SMALL_BODY_BYTES: usize = 4 * KIB;
 /// A `states` body: at most 90 ids of 64 hex digits, quoted, with commas.
@@ -198,7 +195,13 @@ pub const PAID_BYTES_PER_BODY_BYTE: usize = 1 + 1 + 3 + 3 + 3;
 /// as no text of words is), and two may be live at once.
 pub const PAID_SCRATCH_BYTES: usize = 8 * MIB;
 
-/// A quote's or start's reservation for a declared body of `body_bytes`.
+/// A quote's or start's body: the page's slug and a start's quote seal,
+/// with the field names.
+pub const PAID_FORM_BYTES: u64 = (SMALL_BODY_BYTES + SEAL_FIELD_BYTES) as u64;
+
+/// A quote's or start's reservation for a text whose body form takes
+/// `body_bytes` (the page's text, read from its document: at most
+/// [`PAID_BODY_BYTES`]).
 pub const fn paid_footprint(body_bytes: u64) -> usize {
     let n = if body_bytes > PAID_BODY_BYTES { PAID_BODY_BYTES } else { body_bytes } as usize;
     n.saturating_mul(PAID_BYTES_PER_BODY_BYTE).saturating_add(2 * PAID_SCRATCH_BYTES)
@@ -287,7 +290,9 @@ pub fn internal_route(
     Err(RefusalCode::NotFound)
 }
 
-/// A link's or a preview's reservation for a declared body of `body_bytes`.
+/// A save's or a preview's reservation for a declared body of `body_bytes`
+/// (a page the save adds a run to reads its document through the store,
+/// which reserves by the object's size).
 pub fn text_footprint(body_bytes: u64) -> usize {
     let n = usize::try_from(body_bytes.min(TEXT_BODY_BYTES)).unwrap_or(usize::MAX);
     n.saturating_mul(TEXT_BYTES_PER_BODY_BYTE)
@@ -425,7 +430,7 @@ impl ScanMemory {
 ///   forward an internal path.
 pub mod forwarded {
     use slop_ninja_auth_core::csrf;
-    use slop_ninja_detect_page::sn::{self, InternalRoute, X_SN_HOST, X_SN_PRINCIPAL, X_SN_ROUTE};
+    use slop_ninja_detect_page::sn::{self, InternalRoute, PrincipalRule, X_SN_HOST, X_SN_PRINCIPAL, X_SN_ROUTE};
     use slop_ninja_detect_page::{Channel, HostRole, Origins, Principal, RefusalCode, RouteId};
 
     /// Every request header this crate reads: the forwarders' allow-list.
@@ -514,17 +519,17 @@ pub mod forwarded {
         }
     }
 
-    /// The principal of internal route `route`: only the owner route takes
-    /// one, in the exact form the website writes, and needs one
-    /// (`signed_out` without); on any other internal route its presence
-    /// refuses the request.
+    /// The principal of internal route `route`, in the exact form the
+    /// website writes: the owner route needs one (`signed_out` without), the
+    /// save takes one when the reader asked to save, and on any other
+    /// internal route its presence refuses the request.
     pub fn internal_principal(route: InternalRoute, a: &Arrival<'_>) -> Result<Option<Principal>, RefusalCode> {
         admit_internal(a)?;
-        match (a.sn_principal, route.takes_principal()) {
-            (None, false) => Ok(None),
-            (None, true) => Err(RefusalCode::SignedOut),
-            (Some(_), false) => Err(RefusalCode::MalformedRequest),
-            (Some(p), true) => Principal::decode(p).map(Some).ok_or(RefusalCode::MalformedRequest),
+        match (a.sn_principal, route.principal()) {
+            (None, PrincipalRule::Required) => Err(RefusalCode::SignedOut),
+            (None, _) => Ok(None),
+            (Some(_), PrincipalRule::Refused) => Err(RefusalCode::MalformedRequest),
+            (Some(p), _) => Principal::decode(p).map(Some).ok_or(RefusalCode::MalformedRequest),
         }
     }
 
@@ -617,18 +622,20 @@ pub mod forwarded {
             }
             let direct = Arrival { method: "POST", sn_principal: Some(&p), ..Arrival::default() };
             assert_eq!(admit(RouteId::Score, &direct, &o), Err(RefusalCode::MalformedRequest));
-            // `share` takes one from the site host, in the exact form only.
-            let a = Arrival { sn_principal: Some(&p), ..forwarded("share", "site.example") };
-            let Ok(Admission::Forwarded { principal: Some(got), .. }) = admit(RouteId::Share, &a, &o) else { panic!() };
+            // `paid_quote` takes one from the site host, in the exact form only.
+            let a = Arrival { sn_principal: Some(&p), ..forwarded("paid_quote", "site.example") };
+            let Ok(Admission::Forwarded { principal: Some(got), .. }) = admit(RouteId::PaidQuote, &a, &o) else {
+                panic!()
+            };
             assert_eq!(got.auth_time_ms, 5);
             for bad in
                 ["v1;0123;5;0", "v2;0123456789abcdef0123456789abcdef;5;0", "v1;0123456789abcdef0123456789abcdef;05;0"]
             {
-                let a = Arrival { sn_principal: Some(bad), ..forwarded("share", "site.example") };
-                assert_eq!(admit(RouteId::Share, &a, &o), Err(RefusalCode::MalformedRequest), "{bad}");
+                let a = Arrival { sn_principal: Some(bad), ..forwarded("paid_quote", "site.example") };
+                assert_eq!(admit(RouteId::PaidQuote, &a, &o), Err(RefusalCode::MalformedRequest), "{bad}");
             }
             assert_eq!(
-                admit(RouteId::Share, &forwarded("share", "site.example"), &o).unwrap(),
+                admit(RouteId::PaidQuote, &forwarded("paid_quote", "site.example"), &o).unwrap(),
                 Admission::Forwarded { host: HostRole::Site, principal: None }
             );
         }
@@ -680,7 +687,7 @@ pub mod forwarded {
         }
 
         #[test]
-        fn only_the_owner_route_takes_a_principal_and_needs_one() {
+        fn the_owner_route_needs_a_principal_and_the_save_may_take_one() {
             let p = principal();
             let with = Arrival { method: "POST", sn_principal: Some(&p), ..Arrival::default() };
             let without = Arrival { method: "POST", ..Arrival::default() };
@@ -692,8 +699,13 @@ pub mod forwarded {
                 assert_eq!(internal_principal(r, &without), Ok(None));
                 assert_eq!(internal_principal(r, &with), Err(RefusalCode::MalformedRequest), "{r:?}");
             }
+            // The save: optional, in the exact form only.
+            assert_eq!(internal_principal(InternalRoute::Save, &with).unwrap().map(|x| x.auth_time_ms), Some(5));
+            assert_eq!(internal_principal(InternalRoute::Save, &without), Ok(None));
+            assert_eq!(internal_principal(InternalRoute::Save, &bad), Err(RefusalCode::MalformedRequest));
             let forwarded = Arrival { sn_route: Some("score"), ..with };
             assert_eq!(internal_principal(InternalRoute::Owner, &forwarded), Err(RefusalCode::MalformedRequest));
+            assert_eq!(internal_principal(InternalRoute::Save, &forwarded), Err(RefusalCode::MalformedRequest));
         }
 
         #[test]
@@ -702,7 +714,7 @@ pub mod forwarded {
             let a = admit(RouteId::Rerun, &forwarded("rerun", "site.example"), &o).unwrap();
             assert_eq!(a.channel(RouteId::Rerun), Some(Channel::FreeText));
             assert_eq!(Admission::Direct.channel(RouteId::Rerun), None);
-            assert_eq!(a.channel(RouteId::Share), None);
+            assert_eq!(a.channel(RouteId::Url), None);
         }
 
         #[test]

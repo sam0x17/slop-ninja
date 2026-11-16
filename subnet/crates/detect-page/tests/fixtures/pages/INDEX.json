@@ -150,7 +150,7 @@
     "ad_page_kind": "secret",
     "canonical": null,
     "robots": "noindex, nofollow, noarchive, nosnippet, noimageindex",
-    "shows": "expired: 410",
+    "shows": "legacy expired tombstone (a 20-character slug): 410",
     "status": 410
   },
   "23-secret-disabled": {
@@ -185,7 +185,7 @@
     "ad_page_kind": "unstored_result",
     "canonical": null,
     "robots": "noindex",
-    "shows": "unstored result: not saved, Get a link, free-cut notice; paid checks closed to the public",
+    "shows": "unstored result: not saved (saving unavailable), free-cut notice; paid checks closed to the public",
     "status": 200
   },
   "28-example": {
@@ -235,6 +235,27 @@
     "canonical": null,
     "robots": "noindex",
     "shows": "unstored result while paid checks are open (DETECT_PAID on): Check all N words when signed in",
+    "status": 200
+  },
+  "40-secret-history": {
+    "ad_page_kind": "secret",
+    "canonical": null,
+    "robots": "noindex, nofollow, noarchive, nosnippet, noimageindex",
+    "shows": "a pasted text's page with earlier results: newest run, Earlier results",
+    "status": 200
+  },
+  "41-secret-pending": {
+    "ad_page_kind": "secret",
+    "canonical": null,
+    "robots": "noindex, nofollow, noarchive, nosnippet, noimageindex",
+    "shows": "a pasted text's page being saved: pending, reload in a moment (no-store)",
+    "status": 200
+  },
+  "42-secret-check-all": {
+    "ad_page_kind": "secret",
+    "canonical": null,
+    "robots": "noindex, nofollow, noarchive, nosnippet, noimageindex",
+    "shows": "a pasted text's page with a free cut under the serving package while paid checks are open: Check all",
     "status": 200
   }
 }

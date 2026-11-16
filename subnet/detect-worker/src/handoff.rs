@@ -19,8 +19,8 @@ use slop_ninja_detect_page::refusal::RefusalCode;
 
 use crate::answer::{self, ResultFull};
 use crate::doc::{Serving, StoredResult};
+use crate::save::Sealed;
 use crate::seal::{Opened, ResultPayload};
-use crate::share::Sealed;
 
 /// A result that does not convert (another package, or a value no answer
 /// line carries).

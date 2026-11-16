@@ -1,21 +1,21 @@
-//! The store's routes on Cloudflare (wasm32 only): the forwarded `share`,
-//! `manage`, `rerun` and `state` routes, the binding-only `/internal/v1/*`
-//! routes, the `detect-jobs` consumer and the hourly cron. Every flow is a
+//! The store's routes on Cloudflare (wasm32 only): the forwarded `manage`,
+//! `rerun` and `state` routes, the binding-only `/internal/v1/*` routes
+//! (the save among them), the `detect-jobs` consumer and the hourly cron. Every flow is a
 //! pure function of `crate::db::Io` (tested natively on the store's own
 //! migration); this module reads the request, admits it, builds the
 //! invocation's store (`cf_store`), keys and serving package, and answers.
 //!
 //! - **Admission.** A forwarded route goes through the free check's
 //!   admission (`routes::forwarded`: the `X-SN-*` allow-list, the CSRF
-//!   check, `X-SN-Principal` only where the route table takes one, so only
-//!   on `share` from the site host). An internal route is refused when it
-//!   carries `X-SN-Route` or `X-SN-Host`, and takes `X-SN-Principal` on the
-//!   owner route only, where it is required.
-//! - **Memory.** A link or a preview reserves its footprint from the
+//!   check, `X-SN-Principal` only where the route table takes one). An
+//!   internal route is refused when it carries `X-SN-Route` or `X-SN-Host`;
+//!   it takes `X-SN-Principal` on the owner route, where it is required, and
+//!   on the save, where it is optional.
+//! - **Memory.** A save or a preview reserves its footprint from the
 //!   isolate's scan memory by its declared length before reading a byte
 //!   (`routes::text_footprint`); a document read reserves by the object's
 //!   size (`cf_store`); a re-run also reserves its scan, as a paste does.
-//! - **Re-run.** A secret page's re-run scores its stored text as a paste
+//! - **Re-run.** A pasted text's re-run scores its stored text as a paste
 //!   is scored: `canon_v1`, the free cut, a gate ticket of class
 //!   interactive keyed by the address prefix, the lane, the answer's
 //!   allow-list, and the pot's count (`free_text` when forwarded from the
@@ -28,9 +28,9 @@
 use serde::Serialize;
 use serde::de::DeserializeOwned;
 use slop_ninja_auth_core::csrf::{BodyType, content_type_ok};
-use slop_ninja_detect_page::api::{ManageRequest, RerunRequest, ShareRequest, StateRequest};
+use slop_ninja_detect_page::api::{ManageRequest, RerunRequest, StateRequest};
 use slop_ninja_detect_page::internal::{
-    CardRequest, ExampleRequest, OwnerRequest, PageRequest, PreviewRequest, StatesRequest,
+    CardRequest, ExampleRequest, OwnerRequest, PageRequest, PreviewRequest, SaveRequest, StatesRequest,
 };
 use slop_ninja_detect_page::queue::{Job, QueueMessage};
 use slop_ninja_detect_page::sn::InternalRoute;
@@ -50,8 +50,8 @@ use crate::keys::{PEPPER_VAR_PREFIX, Peppers, STORE_SECRET_VAR, StoreKeys};
 use crate::manage::OwnerAnswer;
 use crate::routes::forwarded::Admission;
 use crate::routes::{self, NoRoom};
-use crate::share::{Keys, Sealed};
-use crate::{answer, canon, cron, handoff, lookup, manage, queue, reads, rerun, seal, share, switches};
+use crate::save::{Keys, Sealed};
+use crate::{answer, canon, cron, handoff, lookup, manage, queue, reads, rerun, save, seal, switches};
 
 // ------------------------------------------------------------- the context
 
@@ -209,29 +209,6 @@ fn open_seal(env: &Env, serving: &Serving, text: &str, sealed: &str) -> Option<S
 
 // ---------------------------------------------------------- forwarded routes
 
-/// `POST /api/detect/v1/share`: Get a link.
-pub(crate) async fn share(mut req: Request, env: &Env) -> web_sys::Response {
-    let route = RouteId::Share;
-    let principal = match forwarded(&req, env, route) {
-        Ok(Admission::Forwarded { principal, .. }) => principal,
-        Ok(Admission::Direct) => None,
-        Err(c) => return refused(env, route, c),
-    };
-    let (body, _held) = match text_body::<ShareRequest>(&mut req, env).await {
-        Ok(b) => b,
-        Err(c) => return refused(env, route, c),
-    };
-    let c = match ctx(env) {
-        Ok(c) => c,
-        Err(code) => return refused(env, route, code),
-    };
-    let sealed = open_seal(env, &c.serving, &body.text, &body.seal);
-    match share::share(&c.io, c.secrets.keys(), &body, sealed, principal).await {
-        Ok(a) => ok(&a),
-        Err(code) => refused(env, route, code),
-    }
-}
-
 /// `POST /api/detect/v1/manage` (the secret host).
 pub(crate) async fn manage(mut req: Request, env: &Env) -> web_sys::Response {
     let route = RouteId::Manage;
@@ -249,7 +226,7 @@ pub(crate) async fn manage(mut req: Request, env: &Env) -> web_sys::Response {
     answer_of(manage::manage(&c.io, c.secrets.keys(), &c.origins, &body).await)
 }
 
-/// `POST /api/detect/v1/rerun`: a secret page's re-run.
+/// `POST /api/detect/v1/rerun`: a pasted text's re-run, added to its page.
 pub(crate) async fn rerun(mut req: Request, env: &Env) -> web_sys::Response {
     let route = RouteId::Rerun;
     let admission = match forwarded(&req, env, route) {
@@ -357,6 +334,18 @@ pub(crate) async fn internal(mut req: Request, env: &Env) -> web_sys::Response {
             };
             let sealed = open_seal(env, &serving, &body.text, &body.seal);
             answer_of(reads::preview(&io, &serving, &body.text, sealed.as_ref()).await)
+        }
+        InternalRoute::Save => {
+            let (body, _held) = match text_body::<SaveRequest>(&mut req, env).await {
+                Ok(b) => b,
+                Err(c) => return refuse(c),
+            };
+            let c = match ctx(env) {
+                Ok(c) => c,
+                Err(code) => return refuse(code),
+            };
+            let sealed = open_seal(env, &c.serving, &body.text, &body.seal);
+            answer_of(save::save(&c.io, c.secrets.keys(), &body, sealed, principal).await)
         }
         InternalRoute::States => {
             let body = match json_body::<StatesRequest>(&mut req, env, routes::STATES_BODY_BYTES).await {

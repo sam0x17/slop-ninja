@@ -6,8 +6,13 @@
 //!   the internal record and never rendered. Passage offsets are UTF-16
 //!   offsets into the document's text: the whole text of a secret page, or
 //!   the quoted body of a public run.
-//! - [`SecretDoc`] is a secret page's document, `{text, result_full,
-//!   source_check}`, encrypted under the page's own key at `p/<hex id_h>`.
+//! - [`SecretDoc`] is a secret page's document, encrypted under the page's
+//!   own key at `p/<hex id_h>`. A pasted text's page writes version 2,
+//!   `{v: 2, text, runs, source_check, sections}`, with every run it was
+//!   checked under, oldest first (a newer model's run is added to the same
+//!   page). A paid page writes version 1, `{v: 1, text, result_full,
+//!   source_check, sections}`, and a version 1 document (paid pages, and
+//!   text pages made before `slop_ninja_detect_store_v2`) reads as one run.
 //!   `text` is the exact string that was scored: `canon_v1` of the text
 //!   sent, in whose UTF-16 units a seal's passages are.
 //! - [`RunDoc`] is a public run's document at `r/<run_id>` (plain JSON: its
@@ -22,8 +27,10 @@ use serde::{Deserialize, Serialize};
 use slop_ninja_detect_page::codes::{Band, CutKind, LengthBin, ShortResult, SpansNote};
 use slop_ninja_detect_page::page::{Anchor, FurtherPassage, PackageLine, Run, Sections, Span};
 
-/// The document version.
+/// The document version of public runs and paid pages (one run).
 pub const DOC_V: u8 = 1;
+/// The document version of pasted-text pages (every run).
+pub const DOC_V2: u8 = 2;
 
 /// The raw figures, for the internal record only.
 #[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
@@ -146,17 +153,50 @@ pub struct SourceCheck {
     pub checked: bool,
 }
 
-/// A secret page's document.
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
+/// A secret page's document: its text, its runs (oldest first, at least
+/// one) and, on a paid page, its sections.
+#[derive(Clone, Debug, PartialEq)]
 pub struct SecretDoc {
+    /// The version it is written as: [`DOC_V`] (paid pages; one run) or
+    /// [`DOC_V2`] (pasted-text pages).
     pub v: u8,
     pub text: String,
-    pub result_full: StoredResult,
+    pub runs: Vec<StoredResult>,
+    /// A page made before the "Where is this text from?" field was retired
+    /// keeps its submitter's host; nothing writes a new one.
     pub source_check: Option<SourceCheck>,
     /// A paid whole document's sections (written when the job assembles).
-    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub sections: Option<Sections>,
+}
+
+/// Version 1 on the wire.
+#[derive(Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct SecretDocV1 {
+    v: u8,
+    text: String,
+    result_full: StoredResult,
+    source_check: Option<SourceCheck>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    sections: Option<Sections>,
+}
+
+/// Version 2 on the wire.
+#[derive(Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct SecretDocV2 {
+    v: u8,
+    text: String,
+    runs: Vec<StoredResult>,
+    source_check: Option<SourceCheck>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    sections: Option<Sections>,
+}
+
+/// A document's version, read before its shape.
+#[derive(Deserialize)]
+struct Version {
+    v: u8,
 }
 
 /// A public run's document.
@@ -185,13 +225,68 @@ pub struct RunDoc {
 pub struct BadDoc;
 
 impl SecretDoc {
-    pub fn encode(&self) -> Vec<u8> {
-        serde_json::to_vec(self).unwrap_or_default()
+    /// A pasted text's first document (version 2, one run).
+    pub fn text_page(text: String, result: StoredResult) -> SecretDoc {
+        SecretDoc { v: DOC_V2, text, runs: vec![result], source_check: None, sections: None }
     }
 
+    /// The newest run: the one the page shows.
+    pub fn latest(&self) -> Option<&StoredResult> {
+        self.runs.last()
+    }
+
+    /// The document's bytes. Version 1 holds exactly one run; a version 1
+    /// document given more is written as version 2, so no run is dropped.
+    pub fn encode(&self) -> Vec<u8> {
+        let out = match (self.v, self.runs.as_slice()) {
+            (DOC_V, [one]) => serde_json::to_vec(&SecretDocV1 {
+                v: DOC_V,
+                text: self.text.clone(),
+                result_full: one.clone(),
+                source_check: self.source_check.clone(),
+                sections: self.sections.clone(),
+            }),
+            _ => serde_json::to_vec(&SecretDocV2 {
+                v: DOC_V2,
+                text: self.text.clone(),
+                runs: self.runs.clone(),
+                source_check: self.source_check.clone(),
+                sections: self.sections.clone(),
+            }),
+        };
+        out.unwrap_or_default()
+    }
+
+    /// Reads a version 1 or 2 document; anything else, or a document with
+    /// no run, is refused.
     pub fn decode(b: &[u8]) -> Result<SecretDoc, BadDoc> {
-        let d: SecretDoc = serde_json::from_slice(b).map_err(|_| BadDoc)?;
-        if d.v == DOC_V { Ok(d) } else { Err(BadDoc) }
+        let v: Version = serde_json::from_slice(b).map_err(|_| BadDoc)?;
+        match v.v {
+            DOC_V => {
+                let d: SecretDocV1 = serde_json::from_slice(b).map_err(|_| BadDoc)?;
+                Ok(SecretDoc {
+                    v: DOC_V,
+                    text: d.text,
+                    runs: vec![d.result_full],
+                    source_check: d.source_check,
+                    sections: d.sections,
+                })
+            }
+            DOC_V2 => {
+                let d: SecretDocV2 = serde_json::from_slice(b).map_err(|_| BadDoc)?;
+                if d.runs.is_empty() || d.v != DOC_V2 {
+                    return Err(BadDoc);
+                }
+                Ok(SecretDoc {
+                    v: DOC_V2,
+                    text: d.text,
+                    runs: d.runs,
+                    source_check: d.source_check,
+                    sections: d.sections,
+                })
+            }
+            _ => Err(BadDoc),
+        }
     }
 }
 

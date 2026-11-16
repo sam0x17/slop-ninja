@@ -19,7 +19,10 @@ use slop_ninja_detect_page::queue::QueueMessage;
 use slop_ninja_detect_worker::db::{DbError, DocPage, Done, Io, IoError, Row, Sql, Stmt, Val};
 use slop_ninja_detect_worker::doc::StoredResult;
 
+/// The store's migrations, in order, as the deploy wrapper's D1 step applies
+/// them.
 pub const MIGRATION: &str = include_str!("../../migrations/0001_detect_store.sql");
+pub const MIGRATION_2: &str = include_str!("../../migrations/0002_permalinks.sql");
 
 pub fn block_on<F: Future>(f: F) -> F::Output {
     let mut f = pin!(f);
@@ -103,6 +106,7 @@ impl Harness {
         let db = rusqlite::Connection::open_in_memory().unwrap();
         db.execute_batch("PRAGMA foreign_keys = ON;").unwrap();
         db.execute_batch(MIGRATION).unwrap();
+        db.execute_batch(MIGRATION_2).unwrap();
         Harness {
             db,
             docs: RefCell::new(BTreeMap::new()),

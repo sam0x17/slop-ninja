@@ -244,6 +244,17 @@ fn saved_links_keep_only_secret_slugs_and_only_their_users_rows() {
     assert_eq!(body(&r)["removed"], 0);
     let r = website.internal(&h, &cfg, "/internal/v1/owned/prune", json!({"user_id": ua, "entry_ids": [entry]}));
     assert_eq!(body(&r)["removed"], 1);
+    // A pasted text's slug (8 to 19 base62 characters, case kept) is saved
+    // too; its summary, sent as an entry saved before end dates went, still
+    // decodes with its old field.
+    let r = save(&h, &cfg, &ua, "uM07zZQv", 3, true);
+    assert_eq!(body(&r)["added"], true);
+    let v = a.view(&h, &cfg, "detections");
+    assert_eq!(v["entries"][0]["slug"], "uM07zZQv");
+    assert!(!h.dump().contains("uM07zZQv"), "the store holds no slug in clear");
+    for bad in ["uM07zZQ", "manifest", "uM07zZQv!", "UM07ZZQVEKUM07ZZQVEK1"] {
+        assert_eq!(save(&h, &cfg, &ua, bad, 4, false).status, 400, "{bad}");
+    }
 }
 
 fn two_accounts(

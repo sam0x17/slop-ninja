@@ -1,5 +1,6 @@
-//! Page JSON (`slop_ninja_detect_page_v2`) from stored rows and documents
-//! (pure).
+//! Page JSON (`slop_ninja_detect_page_v3`) from stored rows and documents
+//! (pure). A pasted text's page shows its document's newest run and lists
+//! the earlier ones (`history`, newest first).
 //!
 //! Each builder takes what the store read and returns the page the website
 //! or the secret host renders, with the display policy applied
@@ -9,7 +10,9 @@
 //! cached) instead of a page.
 
 use slop_ninja_detect_page::codes::{CardVariant, DetState, HostRole, Kind, Platform, RemovalScope, Robots, SpansNote};
-use slop_ninja_detect_page::page::{CardRef, Ended, Failure, JobProgress, Page, PageSchema, Pending, Removal, XPost};
+use slop_ninja_detect_page::page::{
+    CardRef, Ended, Failure, HistoryEntry, HistoryPackage, JobProgress, Page, PageSchema, Pending, Removal, XPost,
+};
 use slop_ninja_detect_page::refusal::RefusalCode;
 use slop_ninja_detect_page::slug::{self, SlugRoute};
 use slop_ninja_detect_page::x::{PostUrl, parse_x_canonical};
@@ -45,7 +48,6 @@ fn empty(slug: Option<String>, host: HostRole, kind: Kind, platform: Platform, s
         state: DetState::Live,
         state_v: 1,
         created_at: None,
-        expires_at: None,
         robots: if host == HostRole::Secret { Robots::NoindexAll } else { Robots::Noindex },
         canonical: None,
         superseded_by: None,
@@ -53,6 +55,7 @@ fn empty(slug: Option<String>, host: HostRole, kind: Kind, platform: Platform, s
         example_slot: None,
         serving: serving.line(None),
         run: None,
+        history: Vec::new(),
         sections: None,
         text: None,
         x: None,
@@ -65,7 +68,19 @@ fn empty(slug: Option<String>, host: HostRole, kind: Kind, platform: Platform, s
         ninja: None,
         receipt: None,
         paid_open: None,
+        check_all: false,
         cache_tag: None,
+    }
+}
+
+/// An earlier run as a text page's record lists it.
+fn history_entry(r: &StoredResult) -> HistoryEntry {
+    HistoryEntry {
+        scored_at: r.scored_at,
+        package: HistoryPackage { label: r.package_label.clone(), published_digest: r.package_pub.clone() },
+        band: r.band,
+        confidence_text: r.confidence_text.clone(),
+        share_text: r.share_text.clone(),
     }
 }
 
@@ -115,17 +130,24 @@ pub fn secret_page(
     ctx: &PageCtx<'_>,
 ) -> PageResult {
     let mut p = empty(Some(slug.to_owned()), HostRole::Secret, row.kind, row.platform, ctx.serving);
-    let state = row.state_at(ctx.now);
+    let state = row.state;
     p.state = state;
     p.state_v = row.state_v;
     p.created_at = Some(row.created_at);
-    p.expires_at = row.expires_at;
     p.serving = ctx.serving.line(row.package_load.as_deref());
     match state {
         DetState::Live => {
             let doc = doc.ok_or(RefusalCode::ReportUnavailable)?;
-            p.serving = ctx.serving.line(Some(&doc.result_full.package_load));
-            p.run = Some(doc.result_full.to_run(ctx.serving));
+            let (latest, earlier) = doc.runs.split_last().ok_or(RefusalCode::ReportUnavailable)?;
+            p.serving = ctx.serving.line(Some(&latest.package_load));
+            let run = latest.to_run(ctx.serving);
+            if row.kind == Kind::PrivateText {
+                p.history = earlier.iter().rev().map(history_entry).collect();
+                p.check_all = ctx.switches.paid
+                    && run.cut != slop_ninja_detect_page::codes::CutKind::None
+                    && !p.serving.differs_from_run;
+            }
+            p.run = Some(run);
             p.text = Some(display::secret_text(&doc.text));
             p.source = doc.source_check.as_ref().map(display::submitter_source);
             if row.kind == Kind::PrivatePaid {
@@ -170,7 +192,7 @@ pub struct PublicExtras {
 pub fn public_page(slug: &str, row: &DetRow, ex: &PublicExtras, doc: Option<&RunDoc>, ctx: &PageCtx<'_>) -> PageResult {
     let mut p = empty(Some(slug.to_owned()), HostRole::Site, Kind::PublicUrl, row.platform, ctx.serving);
     let is_x = row.platform == Platform::X;
-    let mut state = row.state_at(ctx.now);
+    let mut state = row.state;
     let mut ended = row.refusal.filter(|c| Ended::state_of(*c) == Some(state)).map(|code| Ended { code });
     if is_x && ctx.switches.x_purged && !matches!(state, DetState::Removed) {
         state = DetState::Deleted;
@@ -179,7 +201,6 @@ pub fn public_page(slug: &str, row: &DetRow, ex: &PublicExtras, doc: Option<&Run
     p.state = state;
     p.state_v = row.state_v;
     p.created_at = Some(row.created_at);
-    p.expires_at = row.expires_at;
     p.serving = ctx.serving.line(row.package_load.as_deref());
     let mut full_analysis = false;
     if is_x {

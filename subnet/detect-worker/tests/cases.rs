@@ -11,9 +11,10 @@ use std::collections::BTreeMap;
 use common::{Harness, block_on};
 use serde_json::{Value, json};
 use slop_ninja_account_wire::{UserEntry, UserState, UsersPage};
-use slop_ninja_detect_page::api::{AutoStep, RemovalRequest, ShareRequest};
-use slop_ninja_detect_page::codes::{CaseKind, Expiry, RemovalStep};
+use slop_ninja_detect_page::api::{AutoStep, RemovalRequest};
+use slop_ninja_detect_page::codes::{CaseKind, RemovalStep};
 use slop_ninja_detect_page::ids::UserId;
+use slop_ninja_detect_page::internal::SaveRequest;
 use slop_ninja_detect_page::origins::Origins;
 use slop_ninja_detect_page::page::{Page, Run};
 use slop_ninja_detect_page::queue::Job;
@@ -24,7 +25,7 @@ use slop_ninja_detect_worker::db::{Io, IoError};
 use slop_ninja_detect_worker::doc::{DOC_V, RunDoc, Serving, StoredResult};
 use slop_ninja_detect_worker::keys::{self, Pepper, Peppers, StoreKeys};
 use slop_ninja_detect_worker::ops::{self, OpCtx};
-use slop_ninja_detect_worker::share::{Keys, Sealed, share};
+use slop_ninja_detect_worker::save::{Keys, Sealed, save};
 use slop_ninja_detect_worker::{canon, reads};
 use slop_ninja_signed_op as sop;
 
@@ -290,17 +291,28 @@ fn principal(n: u8) -> Principal {
     Principal { user_id: UserId([n; 16]), auth_time_ms: 1, flags: 0 }
 }
 
-/// A secret page (Get a link), saved by `who` when given.
+/// The next text number: each secret page has a text of its own.
+static TEXT_N: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
+
+/// A secret page of a text of its own (a check's save), saved by `who`
+/// when given: its slug and manage token.
 fn secret_page(w: &World, who: Option<Principal>) -> (String, String) {
+    let n = TEXT_N.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    let (slug, manage, _) = secret_page_of(w, &format!("{TEXT} Note {n}."), who);
+    (slug, manage.expect("a new page"))
+}
+
+/// The save of `text`: its slug, the manage token when the save made the
+/// page, and whether it did.
+fn secret_page_of(w: &World, text: &str, who: Option<Principal>) -> (String, Option<String>, bool) {
     let mut result = stored(fixture("15-secret-text").run.as_ref().unwrap(), "load-new");
     result.spans.clear();
     let mut nonce = vec![0u8; 12];
     w.h.fill(&mut nonce);
-    let sealed = Sealed { text_sha256: canon::text_sha256(TEXT), nonce, result };
-    let req =
-        ShareRequest { text: TEXT.into(), seal: "s".into(), expiry: Expiry::Keep, save: who.is_some(), source: None };
-    let a = block_on(share(&w.h, w.keys(), &req, Some(sealed), who)).unwrap();
-    (a.slug, a.manage)
+    let sealed = Sealed { text_sha256: canon::text_sha256(text), nonce, result };
+    let req = SaveRequest { text: text.into(), seal: "s".into(), save: who.is_some() };
+    let a = block_on(save(&w.h, w.keys(), &req, Some(sealed), who)).unwrap();
+    (a.slug, a.manage, a.made)
 }
 
 fn copyright(scope: &'static str) -> Vec<(&'static str, &'static str)> {
@@ -317,7 +329,7 @@ fn copyright(scope: &'static str) -> Vec<(&'static str, &'static str)> {
 }
 
 fn state(w: &World, slug: &str, secret: bool) -> String {
-    let id = if secret { w.peppers.current().id_h(slug) } else { keys::public_id_h(slug) };
+    let id = if secret { w.peppers.current().secret_id_h(slug) } else { keys::public_id_h(slug) };
     w.h.db.query_row("SELECT state FROM detections WHERE id_h = ?1", [id.to_vec()], |r| r.get(0)).unwrap()
 }
 
@@ -1153,7 +1165,7 @@ VALUES (?1, ?2, 'illegal', 'accepted', 1, 1, 'c/' || ?1)",
 fn an_illegal_report_disables_the_family_and_a_removal_quarantines_it() {
     let w = World::new();
     let (slug, _) = secret_page(&w, Some(principal(5)));
-    let id = w.peppers.current().id_h(&slug);
+    let id = w.peppers.current().secret_id_h(&slug);
     // A re-run copy of the page.
     w.h.db
         .execute(
@@ -1218,13 +1230,14 @@ fn a_paid_page_whose_job_never_scored_returns_failed_from_a_review() {
     let fields = [("category", "other"), ("explanation", "it is illegal"), ("good_faith", "yes")];
     for how in ["reject", "restore"] {
         let w = World::new();
-        let (slug, _) = secret_page(&w, Some(principal(7)));
-        let idx = hex::encode(w.peppers.current().id_h(&slug));
-        // The page as a paid start leaves it: pending, its job running, no
-        // document yet.
+        // A paid page (a drawn 20-character slug) as a paid start leaves it:
+        // pending, owned, its job running, no document yet.
+        let slug = "7hq2kd9m4xw8rt3vn6pb".to_owned();
+        let idx = hex::encode(w.peppers.current().secret_id_h(&slug));
         w.h.exec(&format!(
-            "UPDATE detections SET kind = 'private_paid', owner_via = 'paid', state = 'pending', doc_key = NULL, \
-             doc_bytes = NULL WHERE id_h = x'{idx}'"
+            "INSERT INTO detections (id_h, pepper_v, kind, platform, state, created_at, updated_at, owner_h, \
+             owner_via) VALUES (x'{idx}', 1, 'private_paid', 'paste', 'pending', 1, 1, x'{}', 'paid')",
+            hex::encode(w.store.owner_h(&[7u8; 16]))
         ));
         block_on(w.h.doc_delete(&[format!("p/{idx}")])).unwrap();
         w.h.exec(&format!(
@@ -1256,7 +1269,7 @@ fn a_paid_page_whose_job_never_scored_returns_failed_from_a_review() {
     // A paid page with its document (its job scored) comes back live.
     let w = World::new();
     let (slug, _) = secret_page(&w, Some(principal(7)));
-    let idx = hex::encode(w.peppers.current().id_h(&slug));
+    let idx = hex::encode(w.peppers.current().secret_id_h(&slug));
     w.h.exec(&format!("UPDATE detections SET kind = 'private_paid', owner_via = 'paid' WHERE id_h = x'{idx}'"));
     let (case_id, _, _) = w.send(CaseKind::Illegal, &slug, &fields, None);
     assert_eq!(state(&w, &slug, true), "disabled");
@@ -1371,7 +1384,7 @@ fn a_counter_notice_needs_the_manage_token_or_the_owner_and_never_keeps_it() {
     assert_eq!(r["pages"], 1, "{r}");
     assert_eq!(state(&w, &slug, true), "live");
     assert_eq!(w.page(&slug).unwrap().state.as_str(), "live");
-    assert!(w.h.doc(&cases::quarantine_key(&case_id, &w.peppers.current().id_h(&slug))).is_none());
+    assert!(w.h.doc(&cases::quarantine_key(&case_id, &w.peppers.current().secret_id_h(&slug))).is_none());
     for c in [&case_id, &cn] {
         assert_eq!(w.text(&format!("SELECT state FROM cases WHERE case_id = '{c}'")), "restored", "{c}");
     }
@@ -1451,7 +1464,7 @@ fn a_due_counter_notice_restores_through_either_case_id() {
     let r = w.op("restore", json!({"case_id": cn, "reason": "counter-notice wait passed"})).unwrap();
     assert_eq!((r["pages"].clone(), r["restored_cases"].clone()), (json!(1), json!([x])), "{r}");
     assert_eq!(state(&w, &slug, true), "live");
-    assert!(w.h.doc(&cases::quarantine_key(&x, &w.peppers.current().id_h(&slug))).is_none());
+    assert!(w.h.doc(&cases::quarantine_key(&x, &w.peppers.current().secret_id_h(&slug))).is_none());
     for c in [&x, &cn] {
         assert_eq!(w.text(&format!("SELECT state FROM cases WHERE case_id = '{c}'")), "restored", "{c}");
     }
@@ -1477,7 +1490,7 @@ fn strikes_count_created_pages_and_claimed_ones_after_review() {
     let (a, _) = secret_page(&w, Some(principal(1)));
     let (b, manage_b) = secret_page(&w, None);
     // The second page is claimed by account 2 with its manage token.
-    let id_b = w.peppers.current().id_h(&b);
+    let id_b = w.peppers.current().secret_id_h(&b);
     w.h.db
         .execute(
             "UPDATE detections SET owner_h = ?1, owner_via = 'claimed' WHERE id_h = ?2",
@@ -1792,7 +1805,7 @@ fn store_ops_apply_with_their_journal_row() {
     );
     w.op("set_switch", json!({"name": "DETECT_PAGES", "state": "on", "reason": "over"})).unwrap();
     let (slug, _) = secret_page(&w, None);
-    let id = w.peppers.current().id_h(&slug);
+    let id = w.peppers.current().secret_id_h(&slug);
     let r = w.op("delete_private", json!({"id_h": hex::encode(id), "reason": "court order"})).unwrap();
     assert_eq!(r["deleted"], 1);
     assert_eq!(state(&w, &slug, true), "deleted");
@@ -1935,10 +1948,14 @@ fn a_purge_naming_a_secret_page_keeps_no_slug_in_the_journal() {
     verify_row(&w, &op, &sig);
     for (url, secret) in [
         ("https://site.example/d/k7m2xq9/card.png", false),
-        ("https://site.example/detect/removals/", false),
+        ("https://site.example/detect/", false),
         ("https://s.site.example/anything", true),
         ("https://elsewhere.example/x", true),
         ("https://site.example/abcdefghjkmnpqrstvwxyz", true),
+        // A text slug typed on the wrong host, and any run of its length
+        // (which only redacts the row).
+        ("https://site.example/uM07zZQv", true),
+        ("https://site.example/detect/removals/", true),
     ] {
         assert_eq!(ops::names_secret(&w.origins, url), secret, "{url}");
     }
@@ -1969,7 +1986,7 @@ fn every_legal_step_purges_the_pages_cached_copies_at_once() {
     let w = World::new();
     w.h.purge_token.set(true);
     let (slug, _) = secret_page(&w, Some(principal(5)));
-    let id = w.peppers.current().id_h(&slug);
+    let id = w.peppers.current().secret_id_h(&slug);
     let copy = [0x77u8; 32];
     w.h.db
         .execute(
@@ -2027,4 +2044,91 @@ fn a_purge_without_a_token_or_refused_never_stops_the_step() {
     w.op("remove", json!({"case_id": case_id, "reason": "illegal"})).unwrap();
     assert_eq!(state(&w, &slug, true), "removed");
     assert_eq!(w.h.metric_count("error", "purge"), 1);
+}
+
+// ------------------------------------------------------- holds on a text
+
+/// Deleting a disabled page holds its text: the same text gets no new page
+/// while the notice is reviewed. A reject of every case that targets the
+/// page clears the hold (one case still open keeps it), and `release_text`
+/// is the operator's way past it, journaled without the slug. Then the
+/// text's next check makes the next generation, under a new slug.
+#[test]
+fn a_deleted_disabled_page_holds_its_text_until_its_cases_end() {
+    let fields = [("category", "other"), ("explanation", "it is illegal"), ("good_faith", "yes")];
+    for how in ["reject", "release_text"] {
+        let w = World::new();
+        let text = format!("{TEXT} A held note for {how}.");
+        let save_of = |w: &World| {
+            let mut result = stored(fixture("15-secret-text").run.as_ref().unwrap(), "load-new");
+            result.spans.clear();
+            let mut nonce = vec![0u8; 12];
+            w.h.fill(&mut nonce);
+            let sealed = Sealed { text_sha256: canon::text_sha256(&text), nonce, result };
+            let req = SaveRequest { text: text.clone(), seal: "s".into(), save: false };
+            block_on(save(&w.h, w.keys(), &req, Some(sealed), None))
+        };
+        let (slug, manage, made) = secret_page_of(&w, &text, None);
+        assert!(made);
+        let url = format!("https://s.site.example/{slug}");
+        let (c1, _, auto) = w.send(CaseKind::Illegal, &url, &fields, None);
+        assert_eq!(auto, Some(AutoStep::Disabled));
+        let (c2, _, _) = w.send(CaseKind::Illegal, &url, &fields, None);
+        assert_eq!(save_of(&w).unwrap_err(), RefusalCode::TextOnHold, "{how}: disabled");
+        let del = slop_ninja_detect_page::api::ManageRequest {
+            slug: slug.clone(),
+            manage: manage.unwrap(),
+            action: slop_ninja_detect_page::codes::ManageAction::Delete,
+        };
+        block_on(slop_ninja_detect_worker::manage::manage(&w.h, w.keys(), &w.origins, &del)).unwrap();
+        assert_eq!(state(&w, &slug, true), "deleted");
+        assert_eq!(w.h.count("SELECT count(*) FROM texts WHERE hold = 'notice'"), 1, "{how}");
+        assert_eq!(save_of(&w).unwrap_err(), RefusalCode::TextOnHold, "{how}: deleted while disabled");
+        if how == "reject" {
+            w.op("reject", json!({"case_id": c1, "reason": "not illegal"})).unwrap();
+            assert_eq!(w.h.count("SELECT count(*) FROM texts WHERE hold = 'notice'"), 1, "another case is open");
+            w.op("reject", json!({"case_id": c2, "reason": "not illegal"})).unwrap();
+        } else {
+            let n = w.h.count("SELECT count(*) FROM op_journal");
+            let r = w.op("release_text", json!({"slug": slug, "reason": "decided outside the cases"})).unwrap();
+            assert_eq!(r["released"], 1, "{r}");
+            let row = w.text("SELECT op FROM op_journal ORDER BY seq DESC LIMIT 1");
+            assert!(!row.contains(&slug), "no slug in the journal: {row}");
+            assert_eq!(w.h.count("SELECT count(*) FROM op_journal"), n + 1);
+            assert_eq!(w.h.count("SELECT count(*) FROM op_journal WHERE signature IS NULL"), 1, "redacted");
+            // A public slug, or one of no form, is refused.
+            assert_eq!(
+                w.op("release_text", json!({"slug": "k7m2xq9", "reason": "r"})).err(),
+                Some(RefusalCode::OpMalformed)
+            );
+        }
+        assert_eq!(w.h.count("SELECT count(*) FROM texts WHERE hold IS NOT NULL"), 0, "{how}");
+        let a = save_of(&w).unwrap();
+        assert!(a.made && a.slug != slug && a.manage.is_some(), "{how}: the next generation");
+        assert_eq!(state(&w, &slug, true), "deleted", "{how}: the old link stays dead");
+    }
+}
+
+/// A removed page holds its text for as long as it is removed (it cannot be
+/// deleted), and its restore lands the text's next check on it again.
+#[test]
+fn a_removed_page_holds_its_text_and_its_restore_lands_on_it() {
+    let fields = [("category", "other"), ("explanation", "it is illegal"), ("good_faith", "yes")];
+    let w = World::new();
+    let text = format!("{TEXT} A removed note.");
+    let (slug, _, _) = secret_page_of(&w, &text, None);
+    let (case_id, _, _) = w.send(CaseKind::Illegal, &format!("https://s.site.example/{slug}"), &fields, None);
+    w.op("remove", json!({"case_id": case_id, "reason": "illegal"})).unwrap();
+    assert_eq!(state(&w, &slug, true), "removed");
+    let mut result = stored(fixture("15-secret-text").run.as_ref().unwrap(), "load-new");
+    result.spans.clear();
+    let mut nonce = vec![0u8; 12];
+    w.h.fill(&mut nonce);
+    let sealed = Sealed { text_sha256: canon::text_sha256(&text), nonce, result };
+    let req = SaveRequest { text: text.clone(), seal: "s".into(), save: false };
+    assert_eq!(block_on(save(&w.h, w.keys(), &req, Some(sealed.clone()), None)), Err(RefusalCode::TextOnHold));
+    w.op("restore", json!({"case_id": case_id, "reason": "review done"})).unwrap();
+    assert_eq!(state(&w, &slug, true), "live");
+    let a = block_on(save(&w.h, w.keys(), &req, Some(sealed), None)).unwrap();
+    assert_eq!((a.slug, a.made), (slug, false));
 }

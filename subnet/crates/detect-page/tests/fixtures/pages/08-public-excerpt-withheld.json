@@ -1,5 +1,5 @@
 {
-  "schema": "slop_ninja_detect_page_v2",
+  "schema": "slop_ninja_detect_page_v3",
   "slug": "k7m2xq9",
   "host": "site",
   "kind": "public_url",
@@ -7,7 +7,6 @@
   "state": "excerpt_withheld",
   "state_v": 2,
   "created_at": 1795169040000,
-  "expires_at": null,
   "robots": "noindex",
   "canonical": "k7m2xq9",
   "superseded_by": null,
@@ -45,6 +44,7 @@
     "markers": [],
     "invisible": false
   },
+  "history": [],
   "sections": null,
   "text": {
     "body": null,
@@ -86,5 +86,6 @@
   },
   "ninja": null,
   "receipt": null,
-  "paid_open": null
+  "paid_open": null,
+  "check_all": false
 }

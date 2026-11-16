@@ -19,7 +19,8 @@
 //! encrypted beside the case and never in D1, and `owner_match`, whose
 //! cursor is an account id and which changes nothing. A `purge` that names
 //! a secret page keeps a redacted row too (its site URLs and the count of
-//! the others), so no slug is journaled. A row names a post only by the
+//! the others), and so does `release_text` (its reason only), so no secret
+//! slug is journaled. A row names a post only by the
 //! hash its tombstone keeps (`x_remove`'s `canon_key`), never by its link
 //! or id.
 //!
@@ -38,6 +39,7 @@
 //! | `set_switch` | `name` (a detect switch), `state` |
 //! | `index_force` | `slug`, `value` (`on`, `off` or null) |
 //! | `delete_private` | `id_h` (64 lowercase hex digits) |
+//! | `release_text` | `slug` (a pasted text's page: its text, held after the page was deleted while disabled, can get a new page again) |
 //! | `purge` | `urls` |
 //! | `set_examples` | `slots` (`[{slot, public_slug}]` or `[{slot, doc_key}]`) |
 //! | `status` | none |
@@ -58,7 +60,7 @@ use crate::cases::{self, Accounts, Basis, CaseRow, XCase, XReason};
 use crate::db::{Io, Stmt, Val};
 use crate::keys::{Bytes32, parse_key_hex};
 use crate::lookup::{SlugForm, slug_form};
-use crate::share::Keys;
+use crate::save::Keys;
 use crate::store_ops::{self, ExampleSlot};
 
 /// The longest op body read: an envelope with a note of at most
@@ -172,15 +174,17 @@ fn hex32(s: &str) -> Option<Bytes32> {
 }
 
 /// Whether a purge URL may name a secret page: any URL not on the site
-/// origin, and one on it whose path holds a run of a secret slug's length
-/// in the slug alphabet (as a page path folds it).
+/// origin, and one on it whose path holds a run of ASCII letters and digits
+/// as long as the shortest secret slug (a text slug's [`slug::TEXT_MIN_LEN`];
+/// a drawn slug's 20 characters are such a run too). It may count a page of
+/// the site as secret, which only redacts its journal row.
 pub fn names_secret(origins: &Origins, url: &str) -> bool {
     let on = |o: &str| url.strip_prefix(o).filter(|rest| rest.starts_with('/'));
     let (Some(path), None) = (on(origins.site.as_str()), on(origins.secret.as_str())) else { return true };
     let mut run = 0;
     for b in path.bytes() {
-        run = if slug::value(cases::fold_byte(b)).is_some() { run + 1 } else { 0 };
-        if run >= slug::SECRET_LEN {
+        run = if b.is_ascii_alphanumeric() { run + 1 } else { 0 };
+        if run >= slug::TEXT_MIN_LEN {
             return true;
         }
     }
@@ -387,9 +391,10 @@ async fn dispatch<A: Accounts>(io: &impl Io, ctx: &OpCtx<'_, A>, o: &Op<'_>, nam
             o.only(&["id_h"])?;
             let id = IdH(hex32(o.str("id_h")?).ok_or(RefusalCode::OpMalformed)?);
             let done = apply(io, o, store_ops::delete_private(&id, o.now)).await?;
-            let deleted = done.get(1).map_or(0, |d| d.changes);
+            // The journal row, the hold, the tombstone, the copies.
+            let deleted = done.get(2).map_or(0, |d| d.changes);
             let empty = crate::db::Done::default();
-            let copies = done.get(2).unwrap_or(&empty);
+            let copies = done.get(3).unwrap_or(&empty);
             let keys = store_ops::delete_private_docs(&id, copies);
             let docs_pending = u64::from(deleted > 0 && crate::db::delete_docs(io, &keys).await.is_err());
             if deleted > 0 {
@@ -398,6 +403,23 @@ async fn dispatch<A: Accounts>(io: &impl Io, ctx: &OpCtx<'_, A>, o: &Op<'_>, nam
                 crate::purge::purge_pages(io, &ended).await;
             }
             Ok(json!({"deleted": deleted, "docs_pending": docs_pending}))
+        }
+        "release_text" => {
+            o.only(&["slug"])?;
+            let slug_ = o.str("slug")?;
+            if !slug_form(slug_).is_some_and(SlugForm::is_secret) {
+                return Err(RefusalCode::OpMalformed);
+            }
+            let (found, _) = crate::lookup::secret_lookup(io, ctx.keys.peppers, slug_)
+                .await
+                .map_err(|_| RefusalCode::Unavailable)?;
+            let found = found.ok_or(RefusalCode::NotFound)?;
+            let journal = journal_redacted(o.v, json!({"reason": o.str("reason")?}), o.now);
+            let done = io
+                .batch(vec![journal, store_ops::release_text(&found.row.id_h, o.now)])
+                .await
+                .map_err(|_| RefusalCode::Unavailable)?;
+            Ok(json!({"released": done.get(1).map_or(0, |d| d.changes)}))
         }
         "purge" => {
             o.only(&["urls"])?;

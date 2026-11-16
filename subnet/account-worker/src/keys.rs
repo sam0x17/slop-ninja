@@ -155,7 +155,6 @@ mod tests {
             total_sections: None,
             words: 120,
             created_at: 1,
-            expires_at: Some(2),
         }
     }
 

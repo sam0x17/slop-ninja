@@ -40,7 +40,7 @@ use slop_ninja_detect_page::queue::{Job, QueueMessage};
 
 use crate::db::{Io, IoError, Stmt, Val, delete_docs};
 use crate::keys::{Bytes32, StoreKeys, open_with};
-use crate::manage::{DELETE_BY_OWNER, DELETE_COPIES};
+use crate::manage::{DELETE_BATCH_LEN, DELETE_BY_OWNER, HOLD_BY_OWNER, delete_batch};
 use crate::store::secret_doc_key;
 
 /// What the URL pipeline's messages need besides the store.
@@ -49,7 +49,7 @@ pub struct UrlDeps<'a, F, P> {
     pub ping: &'a P,
     pub origins: &'a slop_ninja_detect_page::origins::Origins,
     pub serving: &'a crate::doc::Serving,
-    pub keys: crate::share::Keys<'a>,
+    pub keys: crate::save::Keys<'a>,
     /// `INDEXNOW_KEY` (a secret); `None` drops every ping.
     pub indexnow_key: Option<String>,
 }
@@ -94,7 +94,7 @@ async fn indexnow<F, P: crate::net::Pinger>(
 ) {
     let Some(key) = d.indexnow_key.as_deref() else { return };
     let robots =
-        crate::reads::page(io, crate::share::Keys { store: d.keys.store, peppers: d.keys.peppers }, d.serving, slug)
+        crate::reads::page(io, crate::save::Keys { store: d.keys.store, peppers: d.keys.peppers }, d.serving, slug)
             .await
             .ok()
             .map(|p| p.robots);
@@ -215,22 +215,27 @@ async fn owner_purge(io: &impl Io, keys: &StoreKeys, user_id: UserId, mode: Purg
             }
             rounds += 1;
             let now = io.now_ms();
-            let mut batch = Vec::with_capacity(ids.len() * 3);
+            let mut batch = Vec::with_capacity(ids.len() * DELETE_BATCH_LEN);
             for id in &ids {
-                batch.push(Stmt::new(DELETE_BY_OWNER, vec![Val::blob(id), Val::blob(&o), Val::int(now)]));
-                batch.push(Stmt::new(DELETE_COPIES, vec![Val::blob(id), Val::int(now)]));
-                batch.push(Stmt::new(crate::paid::CANCEL_DELETED, vec![Val::blob(id), Val::int(now)]));
+                // A disabled page's text is held first, as every delete does.
+                let guard = vec![Val::blob(id), Val::blob(&o), Val::int(now)];
+                batch.extend(delete_batch(
+                    Stmt::new(HOLD_BY_OWNER, guard.clone()),
+                    Stmt::new(DELETE_BY_OWNER, guard),
+                    id,
+                    now,
+                ));
             }
             let done = io.batch(batch).await?;
             let mut gone = Vec::new();
-            for (part, id) in done.chunks(3).zip(&ids) {
-                if part.first().is_some_and(|x| x.changes == 1) {
+            for (part, id) in done.chunks(DELETE_BATCH_LEN).zip(&ids) {
+                if part.get(1).is_some_and(|x| x.changes == 1) {
                     gone.push(*id);
-                    if let Some(c) = part.get(1) {
+                    if let Some(c) = part.get(2) {
                         gone.extend(c.rows.iter().filter_map(|r| r.hex32("id_h")));
                     }
                     // A paid page's running job: its hold goes back.
-                    crate::paid::after_cancel(io, part.get(2)).await;
+                    crate::paid::after_cancel(io, part.get(3)).await;
                 }
             }
             let docs: Vec<String> = gone.iter().map(secret_doc_key).collect();

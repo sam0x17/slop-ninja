@@ -158,6 +158,11 @@ pub const CATALOG: &[(Target, &str)] = &[
     (Target::Detect, "release_claim"),
     (Target::Detect, "purge"),
     (Target::Detect, "delete_private"),
+    // `release_text {slug, reason}`: the hold on a pasted text whose page
+    // was deleted while disabled goes, so the text's next check makes a new
+    // page (the operator's path past a hold no case decision cleared). Its
+    // journal row is redacted: it keeps the reason, never the slug.
+    (Target::Detect, "release_text"),
     (Target::Detect, "index_force"),
     // `x_purge {reason, dry_run}`: deletes every X run, run document and
     // source row as a class, in `x_purge_page` messages, and leaves each X

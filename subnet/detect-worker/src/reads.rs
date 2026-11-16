@@ -29,7 +29,7 @@ use crate::doc::{RunDoc, SecretDoc, Serving};
 use crate::keys::public_id_h;
 use crate::lookup::{SELECT_SWITCHES, SlugForm, SwitchRows, secret_lookup, slug_form};
 use crate::page::{PageCtx, PublicExtras, public_page, secret_page, unstored_page};
-use crate::share::{Keys, Sealed};
+use crate::save::{Keys, Sealed};
 use crate::store::{DetRow, SELECT_DET, run_doc_key, secret_doc_key};
 
 /// A public page's source.
@@ -75,7 +75,7 @@ async fn receipt_for(io: &impl Io, state: DetState, result: Option<&crate::doc::
 /// The page JSON of a slug.
 pub async fn page(io: &impl Io, keys: Keys<'_>, serving: &Serving, slug: &str) -> Result<Page, RefusalCode> {
     match slug_form(slug).ok_or(RefusalCode::NotFound)? {
-        SlugForm::Secret => secret(io, keys, serving, slug).await,
+        SlugForm::Secret | SlugForm::Text => secret(io, keys, serving, slug).await,
         SlugForm::Public => public(io, serving, slug).await,
     }
 }
@@ -88,7 +88,7 @@ async fn secret(io: &impl Io, keys: Keys<'_>, serving: &Serving, slug: &str) -> 
     }
     let found = found.ok_or(RefusalCode::NotFound)?;
     let now = io.now_ms();
-    let state = found.row.state_at(now);
+    let state = found.row.state;
     let mut doc = None;
     let mut job = None;
     if state == DetState::Live {
@@ -111,7 +111,7 @@ async fn secret(io: &impl Io, keys: Keys<'_>, serving: &Serving, slug: &str) -> 
     }
     // A paid document's receipt is issued for its strongest section.
     let paid_input = doc.as_ref().and_then(crate::paid::receipt_input);
-    let input = paid_input.as_ref().or(doc.as_ref().map(|d| &d.result_full));
+    let input = paid_input.as_ref().or(doc.as_ref().and_then(SecretDoc::latest));
     let receipt = receipt_for(io, state, input).await;
     let ctx = PageCtx { serving, switches: sw, now, receipt };
     secret_page(slug, &found.row, doc.as_ref(), job, &ctx).map(|p| tagged(p, &found.row.id_h))
@@ -165,7 +165,7 @@ async fn public(io: &impl Io, serving: &Serving, slug: &str) -> Result<Page, Ref
         lease_ended: done.get(5).and_then(Done::first).and_then(|r| r.u64("lease_until")).is_none_or(|t| t <= now),
         host_opted_out: done.get(6).and_then(Done::first).is_some(),
     };
-    let state = row.state_at(now);
+    let state = row.state;
     let mut doc = None;
     let shown = matches!(state, DetState::Live | DetState::ExcerptWithheld);
     let purged = sw.x_purged && row.platform == slop_ninja_detect_page::codes::Platform::X;
@@ -219,7 +219,7 @@ pub async fn state(io: &impl Io, slug: &str) -> Result<StateAnswer, RefusalCode>
         return Err(RefusalCode::NotFound);
     }
     let now = io.now_ms();
-    let state = row.state_at(now);
+    let state = row.state;
     Ok(StateAnswer {
         state,
         lease_ended: done.get(1).and_then(Done::first).and_then(|r| r.u64("lease_until")).is_none_or(|t| t <= now),

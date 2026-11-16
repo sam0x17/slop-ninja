@@ -1,5 +1,5 @@
 {
-  "schema": "slop_ninja_detect_page_v2",
+  "schema": "slop_ninja_detect_page_v3",
   "slug": "k7m2xq9",
   "host": "site",
   "kind": "public_url",
@@ -7,7 +7,6 @@
   "state": "live",
   "state_v": 1,
   "created_at": 1795169040000,
-  "expires_at": null,
   "robots": "noindex",
   "canonical": "k7m2xq9",
   "superseded_by": null,
@@ -45,6 +44,7 @@
     "markers": [],
     "invisible": false
   },
+  "history": [],
   "sections": null,
   "text": {
     "body": null,
@@ -100,5 +100,6 @@
   },
   "ninja": "stoic",
   "receipt": "0f1e2d3c4b5a69788796a5b4c3d2e1f0.strong.451_1000.00112233445566778899aabbccddeeff",
-  "paid_open": null
+  "paid_open": null,
+  "check_all": false
 }

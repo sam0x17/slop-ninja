@@ -15,20 +15,27 @@ names, are not written here: the miner guide's
 [Where to find current values](miner-guide.md#where-to-find-current-values)
 says where to read each one.
 
-The recipe gives you a pipeline that produces an admissible artifact. It is
-not a strong detector, and nothing here measures how it would score in a
+The recipe gives you a pipeline that produces an artifact with document
+heads only, which is admissible under an artifact spec without
+`span_requirements` ([Spans](#what-matters-for-training)). It is not a
+strong detector, and nothing here measures how it would score in a
 cohort. Improving the data and the training is the miner's job.
 
 ## Where this guide stops
 
 Steps 1 to 13 run offline after the downloads, apart from one read of the
-cohort's artifact spec in step 13, and end with `check` exiting 3 (every
-local check passed; no cohort to compare with). With the release trust file
-set (`SLOP_NINJA_TRUST`; [Choose the endpoints](miner-guide.md#choose-the-endpoints)),
+cohort's artifact spec in step 13. When that spec has no
+`span_requirements`, they end with `check` exiting 3 (every local check
+passed; no cohort to compare with). When it has them, the recipe's
+artifact, which has no token head, is refused with `token_head_required`:
+`check-dir` exits 2 and `check` exits 1
+([Spans](#what-matters-for-training)). With the release trust file set
+(`SLOP_NINJA_TRUST`; [Choose the endpoints](miner-guide.md#choose-the-endpoints)),
 `check` and `next-cohort` read the admitting cohort, or the next one, from
 the coordinator's unsigned cohort read at the origin the trust file pins.
 `check` compares the object with that cohort's contract, size bound and
-artifact spec, and exits 0 on a pass; otherwise it exits 3. The miner
+artifact spec, and exits 0 on a pass and 1 on a refusal; with no cohort to
+compare with, it exits 3 when nothing refused the artifact. The miner
 guide's [Commit](miner-guide.md#commit) and [Upload](miner-guide.md#upload)
 sections take it from there. A commitment counts for one cohort only, and a
 model you entered before counts as a published copy and is not executed, so
@@ -39,7 +46,8 @@ enter a new model in each cohort.
 The recipe runs from a checkout of the SlopNinja repository at a revision
 that contains this guide, including its `datasets/` directory. The public
 repository is <https://github.com/sam0x17/slop-ninja>. The commands fetch everything else from public sources: Rust crates
-(including rtao from GitHub), Python wheels and ModernBERT-base.
+(including rtao, at the version the subnet's crates pin), Python wheels and
+ModernBERT-base.
 
 ## What matters for training
 
@@ -68,9 +76,9 @@ repository is <https://github.com/sam0x17/slop-ninja>. The commands fetch everyt
   class and trains no token head. If your cohort's artifact spec has
   `span_requirements` (`slop_ninja_artifact_check --spec <id> spec | jq
   .spec.span_requirements`), admission refuses it (`token_head_required`);
-  if your cohort's manifest enforces the span gate under an earlier spec, it
-  fails the gate at scoring. Either way the artifact needs a token head
-  with the 24-word decoder floor ([Spans](miner-guide.md#rewards)).
+  if your cohort's manifest enforces the span gate under a spec without
+  them, it fails the gate at scoring. Either way the artifact needs a token
+  head with the 24-word decoder floor ([Spans](miner-guide.md#rewards)).
 - **Reused human documents.** Testnet cohorts may reuse human documents that
   earlier cohorts used, and those documents may be exposed.
 
@@ -175,7 +183,7 @@ these with any copy of the data.
 
 ## What you must keep, and what you may change
 
-The checker admits only artifacts that keep these fixed:
+A recipe artifact stays admissible only while it keeps these fixed:
 
 - the graph class the recipe exports, `a-plain-f32band-v1`: exported by
   `export_a_onnx.py --variant plain` in the pinned environment, from a
@@ -231,10 +239,9 @@ each cohort.
 
 ### Training data and evaluation text
 
-- The [terms](terms.md) require that you have the rights to what your artifact
-  derives from, training data included. They set no other limit on training
-  data, and the published snapshots' Test splits are data like any other. If
-  you train on a Test split, it no longer gives you a held-out check.
+- The [terms](terms.md#your-submission) set what your artifact may derive
+  from, training data included. If you train on a snapshot's Test split, it
+  no longer gives you a held-out check.
 - The whitepaper's rules govern what an artifact carries, not what it saw
   (its section "Benchmark scoring and native rewards", subsection "Lookup
   exposure and the canary"). Admission takes only the allow-listed graph and

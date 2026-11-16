@@ -41,7 +41,8 @@ per cohort. A cohort runs like this:
 6. **Close.** The coordinator publishes the cohort's quantized result and
    every admitted entrant's opening. A cohort pays the entrants that pass the
    gates and reach its cutoff, and the first of them in rank order that also
-   passes the promotion checks becomes the next reference.
+   beats `R_k` by the margin and passes the promotion checks becomes the next
+   reference ([Rewards](#rewards)).
 7. **Payment.** If the cohort produced a target, validators commit its row
    every tempo from the close until a later cohort's target replaces it.
 
@@ -68,7 +69,7 @@ endpoint), and the public status host is <https://testnet.slop.ninja>
 | The finalized block and the confirmed epoch | the first line of `slop_ninja_miner next-cohort`; the cohort read's `finalized_block` and `confirmed_epoch` |
 | Your hotkey's intake state | `slop_ninja_miner status`; status API `miners.rows[]`; the status page, with your miner set |
 | The current reference and its predecessor | the status page; `v1/reference/current.json` and `v1/reference/previous.json` on the public status host |
-| Reference packages (`R_0`, the span gate's anchor) | `v1/reference/packages/index.json` on the public status host, by `role` |
+| Every staged reference package (among them `R_0` and the span gate's anchor) | `v1/reference/packages/index.json` on the public status host, by `role` |
 | Which row validators commit (a cohort's target or the burn row) | `v1/status.json` `mode` and `notice`; `v1/authorizations/current.json` |
 | A closed cohort's grid width, cutoff, bands and gate bits | `v1/cohorts/<label>/summary.json`; `v1/leaderboard.json`; status API `cohorts/<label>` |
 | Whether promotions run the lookup canary | `v1/leaderboard.json` `promotion_rule` |
@@ -114,7 +115,10 @@ The whole path, with the section for each step and what tells you it worked:
 4. **Train an artifact** with the [training guide](training-guide.md)
    ([Train an artifact](#train-an-artifact)):
    `slop_ninja_artifact_check --spec "$SPEC" check-dir` exits 0 on the result,
-   with `SPEC` the spec your cohort names.
+   with `SPEC` the spec your cohort names. The guide's recipe trains no token
+   head, so its artifact passes only under a spec without
+   `span_requirements`; under one with them, add a token head
+   ([Spans](#rewards)).
 5. **Pack and check it** with the release trust file set
    ([Pack and check](#pack-and-check), [Choose the endpoints](#choose-the-endpoints)):
    `slop_ninja_miner check` exits 0. It exits 3 when it had no cohort to check
@@ -125,8 +129,8 @@ The whole path, with the section for each step and what tells you it worked:
    prints `admitting cohort <N>` with its planned cutoff.
 7. **Commit and upload** in that cohort's window ([Commit](#commit),
    [Upload](#upload)), or let
-   `slop_ninja_miner resolve --artifact <object> --watch` do both: `upload`
-   prints `session <id> in cohort <N>: verified` and exits 0.
+   `slop_ninja_miner resolve --network test --artifact <object> --watch` do
+   both: `upload` prints `session <id> in cohort <N>: verified` and exits 0.
 8. **Follow the cohort** with `slop_ninja_miner status` and the
    [status page](https://slop.ninja/testnet/status/)
    ([Follow your entry](#follow-your-entry)). After the cutoff your entry reads
@@ -243,8 +247,8 @@ slop_ninja_artifact_check --version
 To build a release's own source instead of `main`, run
 `git checkout <release tag>` before the build; the landing page's release
 table names the commit each release was built from. The build compiles rtao
-from Git at the revision the subnet's crates pin and needs no Python or
-btcli; some dependencies need a C compiler. The trust file is
+at the version the subnet's crates pin and needs no Python or btcli; some
+dependencies need a C compiler. The trust file is
 `subnet/coordinator/testnet-trust.json` in the checkout.
 
 The checker's commands: `check-dir DIR` and `check-object FILE` run the
@@ -254,9 +258,11 @@ reference stream) and its parameter count; `spec` prints the whole spec as
 JSON; `canonical DIR OUT` writes a copy of a model directory with its JSON
 files re-encoded in their canonical layouts and checks it. Put `--spec <id>`
 before the command, with a short id such as `v3` or a full one such as
-`slop_ninja_a_artifact_spec_v3`; without it the checker uses spec v1, which
-no cohort admits by. Its `pack DIR OUT` and `files DIR OUT` are operator
-tools: to pack an artifact, use `slop_ninja_miner pack`.
+`slop_ninja_a_artifact_spec_v3`. Always pass it: without it the checker uses
+the default its usage line names (`slop_ninja_artifact_check --help`), which
+need not be the spec your cohort names. Its `pack DIR OUT` and
+`files DIR OUT` are operator tools: to pack an artifact, use
+`slop_ninja_miner pack`.
 
 ### rtao, for wallets and registration
 
@@ -337,11 +343,12 @@ Facts that matter for a miner:
 
 ## Train an artifact
 
-Follow the [training guide](training-guide.md), which trains an admissible
-artifact from ModernBERT-base and public data and ends with `pack` and
-`check`. The current reference's published files let you score locally
-against the model you have to beat, and `R_0`'s package and training
-companion let you start from R0's encoder
+Follow the [training guide](training-guide.md), which trains an artifact
+from ModernBERT-base and public data and ends with `pack` and `check`. Its
+recipe trains no token head, so the artifact is admissible only under a spec
+without `span_requirements` ([Spans](#rewards)). The current reference's
+published files let you score locally against the model you have to beat,
+and `R_0`'s package and training companion let you start from R0's encoder
 ([Optional local tools](#optional-local-tools)).
 
 The release trainer in the repository
@@ -522,8 +529,10 @@ inference/a-container-serve/target/release/slop_ninja_a_local_score \
   --spec "$SPEC" --ort-lib /path/to/libonnxruntime.so.<version>
 ```
 
-Always pass `--spec` with the spec your cohort names; without it the local
-scorer admits by its build's default.
+Always pass `--spec`: for your own artifact the spec your cohort names, and
+for a reference a spec that admits it
+([The current reference](#the-current-reference-optional)). Without it the
+local scorer admits by its build's default.
 
 Each line of `my-docs.jsonl` is `{"id", "text"}`, optionally with
 `"involved"` (true when AI was involved) and `"share"` (the AI-written
@@ -581,16 +590,24 @@ for _ in range(count):  # each file: name, role byte, SHA-256, u64 length
 mkdir ref-artifact
 while read -r h name; do curl -fsS -o "ref-artifact/$name" "$HOST/blobs/sha256/$h"; done < ref-files.txt
 sed 's#^\([0-9a-f]*\) #\1  ref-artifact/#' ref-files.txt | sha256sum -c
-slop_ninja_artifact_check --spec "$SPEC" check-dir ref-artifact | jq -r .content_sha256
+REFSPEC=$SPEC   # or another spec that admits the reference; see below
+slop_ninja_artifact_check --spec "$REFSPEC" check-dir ref-artifact | jq -r .content_sha256
 jq -r .content ref-current.json
 ```
 
 `sha256sum -c` must print `OK` for the header and for every file, and the
-last two commands must print the same inference-content digest.
-`ref-artifact` is then the directory to give the
-[local scorer](#score-it-locally-optional). A promoted entrant's artifact was
-published when its cohort's scoring started, under the CC BY-SA 4.0 licence
-its miner granted. The published artifacts' licence notice, which says how
+last two commands must print the same inference-content digest. Check and
+score a reference under a spec that admits it. That is `$SPEC`, unless
+`$SPEC` has `span_requirements` and the reference has no token head: then
+`check-dir` refuses it with `token_head_required` and prints no digest, so
+set `REFSPEC` to the newest spec your checker defines without them
+(`slop_ninja_artifact_check --version` lists the specs, and
+`slop_ninja_artifact_check --spec <id> spec | jq .spec.span_requirements`
+prints `null` for one without them). `ref-artifact` is then the directory to
+give the [local scorer](#score-it-locally-optional), with
+`--spec "$REFSPEC"`. A promoted entrant's artifact was published when its
+cohort's scoring started, under the CC BY-SA 4.0 licence its miner
+granted. The published artifacts' licence notice, which says how
 to attribute one and gives the base model's licence, sits beside them under
 `artifacts/v2/` on the public status host
 ([licences](licences.md#entrant-artifacts); its text is
@@ -601,16 +618,19 @@ is admitted but never executed ([Copies](#rewards)).
 ### Reference packages (optional)
 
 SlopNinja publishes reference packages on the public status host
-([reference packages](reference-packages.md)): `R_0`, the first reference,
-with its training companion, and span package d24, the span gate's fixed
-anchor ([Spans](#rewards)), which is not a reference. The package index
-lists each by `role` (`R_0`, `span_head`), with its package digest, its
-inference-content digest, its graph class, the specs that admit it and its
-`path`. To download one in the parts layout and check it (needs `jq`):
+([reference packages](reference-packages.md)). The package index lists every
+staged package by `role`, among them `R_0`, the first reference, with its
+training companion, and span package d24 (role `span_head`), the span gate's
+fixed anchor ([Spans](#rewards)). Which artifact is the reference, and which
+its predecessor, is what `v1/reference/current.json` and `previous.json` say
+([The current reference](#the-current-reference-optional)). Each index entry
+gives the package digest, the inference-content digest, the graph class, the
+specs that admit it and the `path`. To download one in the parts layout and
+check it (needs `jq`):
 
 ```sh
 HOST=https://testnet.slop.ninja
-ROLE=R_0   # or span_head
+ROLE=R_0   # or another role the index lists, such as span_head
 curl -fsS "$HOST/v1/reference/packages/index.json" |
   jq --arg r "$ROLE" '.packages[] | select(.role == $r)' > pkg.json
 # or, for a reference pointer that names a package (ref-current.json as above):
@@ -855,8 +875,8 @@ locally when that opening is for another artifact than `--artifact` (after
 ## Commit
 
 ```sh
-slop_ninja_miner commit --artifact ./my-artifact.bin --dry-run
-slop_ninja_miner commit --artifact ./my-artifact.bin
+slop_ninja_miner commit --network test --artifact ./my-artifact.bin --dry-run
+slop_ninja_miner commit --network test --artifact ./my-artifact.bin
 ```
 
 Both forms need only the coordinator's cohort read and the chain; nothing
@@ -871,8 +891,9 @@ the state directory with mode 0600 before it signs anything. It then signs
 commitment back at finality. `--dry-run` prints the opening and the call and
 stores, signs and submits nothing. It also reads your registration: for a
 hotkey without a UID it stops with `<address> is not registered on subnet 601
-at finalized block <B>` (exit 2). `--network` defaults to `test`; `--rpc`
-names endpoints.
+at finalized block <B>` (exit 2). Always pass `--network test`, as the
+commands here do, rather than rely on the default
+(`slop_ninja_miner commit --help` prints it); `--rpc` names endpoints.
 
 Rules:
 
@@ -1063,8 +1084,8 @@ answers the same questions. The fields and their sources are in the
 ### Resolve intake automatically
 
 ```sh
-slop_ninja_miner resolve --artifact ./my-artifact.bin            # one pass
-slop_ninja_miner resolve --artifact ./my-artifact.bin --watch    # until verified
+slop_ninja_miner resolve --network test --artifact ./my-artifact.bin            # one pass
+slop_ninja_miner resolve --network test --artifact ./my-artifact.bin --watch    # until verified
 ```
 
 `resolve` reads what `status` reads plus the chain's finalized registration
@@ -1186,6 +1207,13 @@ What becomes public, and what never does
   a recorded legal removal, listed in the public [removal record](removals.md),
   which changes no score, result, row or payment
   ([terms](terms.md#legal-notices-and-removals)).
+- **During scoring, if your cohort's template releases live values:** each
+  executed entrant's quantized score, or its withheld outcome, shown as
+  pre-finalized once it is fixed, and a few noised `live-v1` segment
+  readings under the cohort's own privacy budget, which the operator can
+  stop ([pre-finalized scores and readings](../agents/rewards.md#quantization-noise-and-the-bit-budget)).
+  The status API discovery document's `notes` say which values it serves and
+  when ([The status API](#the-status-api)).
 - **Public no later than the close:** your quantized score (the result's `q`
   field), unless it is withheld ([Rewards](#rewards)).
 - **Public at the close:** your opening, and the rest of the cohort's
@@ -1213,25 +1241,31 @@ documents and 0 for human-only ones. The published result's `q` field, the
 status page's scores and the leaderboard hold quantized utility scores, and
 the cutoff and band edges are given on the same scale.
 
-**Gates.** Artifact qualification, the public-copy gate, share, attribution
-and the per-entrant pure-human false-positive tier are gates: they decide
-eligibility and carry no reward weight. Each cohort's signed manifest freezes
-its gate thresholds; the published result carries only the gate bits, and
-the private score package records each failed gate with its reason. A failed
-gate earns nothing.
+**Gates.** Artifact qualification, the public-copy gate, share, attribution,
+the per-entrant pure-human false-positive tier, and the span gate where the
+cohort's manifest enforces it, are gates: they decide eligibility and carry
+no reward weight. Each cohort's signed manifest freezes its gate
+thresholds; the published result carries only the gate bits, and the private
+score package records each failed gate with its reason. A failed gate earns
+nothing.
 
-**Spans.** Spans are required once a cohort's manifest enforces the span
-gate. If your cohort's template names the span gate, the gate first runs in
-report mode: each entrant's AI spans are measured against span package d24,
-the gate's fixed anchor ([Reference packages](#reference-packages-optional)),
-on the same batch under the 24-word floor, and the outcome is published
-without failing anyone. Under enforcement, every entry must carry a
-token-level head whose decoder never emits a span under 24 words, and an
-entrant that fails the gate earns nothing. A cohort whose artifact spec has
-`span_requirements` refuses an artifact without such a head at admission
-(`token_head_required`, `span_decoder_floor`); a manifest that enforces the
-gate under an earlier spec fails such an entrant at scoring instead. The
-training guide's recipe trains no token head.
+**Spans.** The span gate measures each entrant's AI spans against span
+package d24, the gate's fixed anchor
+([Reference packages](#reference-packages-optional)), on the cohort's batch
+under the 24-word floor. Your cohort's template decides whether the gate
+runs and in which mode. If it runs the gate in report mode, the spans are
+measured and the gate fails no one. If it enforces the gate, every entry must
+carry a token-level head whose decoder never emits a span under 24 words,
+and an entrant that fails the gate earns nothing. In either mode the
+coordinator signs each scored entrant's span outcome, and whether the gate
+applied, was waived or was voided for the cohort, in a separate span-gate
+record, apart from the quantized result; the
+[public layout](public-layout.md#one-cohort-v1cohortslabel) lists every file
+a cohort publishes. A cohort whose artifact spec has `span_requirements`
+refuses an artifact without such a head at admission (`token_head_required`,
+`span_decoder_floor`); a manifest that enforces the gate under a spec without
+them fails such an entrant at scoring instead. The training guide's recipe
+trains no token head.
 
 **Released scores are quantized and noisy.** Exact scores never leave the
 coordinator. Every released score, yours and both references', is the exact

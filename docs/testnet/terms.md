@@ -164,9 +164,10 @@ pass the gates and reach its cutoff, which is the reference's score plus the
 margin or, when nobody reaches that and a predecessor reference exists, a
 fallback cutoff above the predecessor's score. A cohort that pays no one
 leaves the previous target in force. The burn row, which pays no miner, is
-the active target only when no cohort target exists: on testnet it was the
-active target from launch until `testnet-r1-30`'s target replaced it on
-November 15, 2026, and only an operator's restart of the record
+the active target only when no cohort target exists: on the current record it
+was the active target from the record's start on November 6, 2026 until
+`testnet-r1-30`'s target replaced it on November 15, 2026, and only an
+operator's restart of the record
 ([below](#operator-decisions)) brings it back. Validators commit the active
 target's row on chain each tempo; the
 [miner guide](miner-guide.md#13-rewards) says what that means.

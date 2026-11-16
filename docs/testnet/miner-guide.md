@@ -75,7 +75,7 @@ predecessor ([Rewards](#13-rewards)).
 | Coordinator signed admission routes, used by `upload`, `repair` and the hotkey view of `status`; the artifact goes straight to R2 under presigned URLs they return | open to every hotkey registered on subnet 601 since November 7, 2026; an unregistered hotkey is answered `not_registered` |
 | Public status host (`--public`), <https://testnet.slop.ninja>: the status snapshot, cohort index and summaries, leaderboard, reference pointers, reference packages, the coordinator's signed rows and the published artifacts | live since November 13, 2026; `status` and `next-cohort` read it with `--public`, and the coordinator's unsigned cohort read without it |
 | The coordinator's admission origin pinned in the release trust file | pinned: `https://testnet-admission.slop.ninja` |
-| Validators committing the active target's row ([Rewards](#13-rewards)) | live: validators commit and reveal the active target's signed row on subnet 601 each tempo; the launch burn row was the active target from November 3, 2026 until `testnet-r1-30`'s target activated at its close on November 15, 2026; the status snapshot's `mode` says which is active |
+| Validators committing the active target's row ([Rewards](#13-rewards)) | live: validators commit and reveal the active target's signed row on subnet 601 each tempo; on the current record the launch burn row was the active target from the record's start on November 6, 2026 until `testnet-r1-30`'s target activated at its close on November 15, 2026; the status snapshot's `mode` says which is active |
 | The current reference `R_k`, which the [status page](https://slop.ninja/testnet/status/) names | a reference promoted from a cohort is that cohort's published artifact on the public status host ([The current reference](#the-current-reference-optional)) |
 | `R_0` reference package and training companion | built and checked; attached to the testnet release ([`R_0` archives](#r_0-archives-optional)), and on the public status host in the parts layout |
 | Span package d24, SlopNinja's span-serving package | built and checked; on the public status host ([Span package d24](#span-package-d24-optional)) |
@@ -1259,12 +1259,12 @@ full roster.
 **Which row validators commit.** Validators commit the active target's
 signed row each tempo (see the [validator guide](validator-guide.md)), and
 the public status host's `v1/authorizations/current.json` names the
-authorization and row in force. Until a cohort target first activated, the
-active target was the launch burn row, which gives the whole pool to the
-subnet owner hotkey's UID, which burns it; validators committed it on subnet
-601 from November 3, 2026. `testnet-r1-30`, closed on November 15, 2026, was
-the first cohort of this record with a gated entrant at the margin cutoff, so
-its target replaced the burn row. A later cohort that produces no new target
+authorization and row in force. A record starts with the launch burn row as
+its active target, which gives the whole pool to the subnet owner hotkey's
+UID, which burns it; validators first committed it on subnet 601 on November
+3, 2026. On this record, which started on November 6, 2026, `testnet-r1-30`,
+closed on November 15, 2026, was the first cohort with a gated entrant at the
+margin cutoff, so its target replaced the burn row. A later cohort that produces no new target
 leaves the previous target in force (below). Nothing in this record
 authorizes the burn row again; only an operator's switch to burn, which
 starts a fresh record, brings it back ([terms](terms.md#operator-decisions)).

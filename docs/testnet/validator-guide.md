@@ -60,7 +60,7 @@ the hidden evaluation is part of the protocol.
 | Published rows on the public status host, <https://testnet.slop.ninja> | live since November 13, 2026: `v1/authorizations/current.json` names the authorization in force and the coordinator's signed row ([Fetching the coordinator's row](#fetching-the-coordinators-row)) |
 | The row fetcher (`[fetch]`) | built and tested offline against the publisher's layout; it reads the public status host or a local mirror, and without it you install each row bundle by hand (below). The coordinator signs each closed cohort's authorization itself, so the pointer names the current one with no operator step |
 | Continuous dispatch, successor supersession and persistent user units | built and tested offline; not yet run unattended across cohorts on subnet 601 |
-| Committing the active target's row | live on subnet 601: both SlopNinja validators committed and revealed the launch burn row each tempo under rtao's owner-row opt-in (below), from the first native commit and reveal on November 3, 2026 until `testnet-r1-30`'s target activated at its close on November 15, 2026; since then they commit and reveal that target's row. The status snapshot's `mode` says which is active |
+| Committing the active target's row | live on subnet 601: both SlopNinja validators commit and reveal the active target's row each tempo, committing a burn row under rtao's owner-row opt-in (below); their first native commit and reveal of the launch burn row was on November 3, 2026. On the current record the burn row was the active target from the record's start on November 6, 2026 until `testnet-r1-30`'s target activated at its close on November 15, 2026; since then they commit and reveal that target's row. The status snapshot's `mode` says which is active |
 | Release public key | published on the [landing page](README.md#release-key) |
 | Public repository | [sam0x17/slop-ninja](https://github.com/sam0x17/slop-ninja) |
 | Validator release binaries (Linux x86_64) | live: `testnet-v0.2.0`, published November 11, 2026, holds `slop_ninja_validator` and `slop-ninja-journal`, built from the public repository, signed and smoke-tested ([section 2](#2-install)); the miner client stays in `testnet-v0.1.0` |
@@ -771,8 +771,10 @@ nothing for any miner UID. They committed it under the launch authorization,
 which, like every authorization, does not expire
 ([Fetching the coordinator's row](#fetching-the-coordinators-row)): it stops only
 when a successor target supersedes it or a signed revocation withdraws it.
-`testnet-r1-30`'s target superseded it at that cohort's close on November 15,
-2026, and both validators now commit and reveal that target's row.
+The testnet record restart on November 6, 2026 began the current record under
+a new launch authorization of the burn row; `testnet-r1-30`'s target
+superseded it at that cohort's close on November 15, 2026, and both
+validators now commit and reveal that target's row.
 
 ## The journal
 

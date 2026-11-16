@@ -81,9 +81,10 @@ not state yet:
 
 One testnet limit also applies, as the miner guide explains: the gate
 thresholds are provisional, frozen in each signed cohort manifest.
-Validators commit the active target's row each tempo; the launch burn row,
-which pays no miner, was the active target until `testnet-r1-30`'s target
-activated on November 15, 2026 ([Rewards](miner-guide.md#13-rewards)).
+Validators commit the active target's row each tempo; on the current record
+the launch burn row, which pays no miner, was the active target from the
+record's start on November 6, 2026 until `testnet-r1-30`'s target activated
+on November 15, 2026 ([Rewards](miner-guide.md#13-rewards)).
 
 ## What the recipe reproduces of R0, and what it does not
 

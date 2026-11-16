@@ -2580,11 +2580,9 @@ ticks until it has.
 
 After the announcement. A restart installs a fresh R_0 with no predecessor,
 which outside miners would see as a reset of the reference chain they
-entered. Decision U2 allows exactly one change of reference after the
-announcement: R0 replaced once, by the round-2 reference, after it passes
-every gate, announced in advance on the status page, as a `k = 1` successor
-of R_0 on the same chain record (a plan with a predecessor), never as a
-restart. So no restart runs after the announcement without a new recorded
+entered. After the announcement, references change by promotion or by a
+reference decision on the same chain record, never by a restart. So no
+restart runs after the announcement without a new recorded
 decision from the user, and `restart` requires `--decision <reference>`
 naming the decision record it runs under; the restart record keeps it.
 

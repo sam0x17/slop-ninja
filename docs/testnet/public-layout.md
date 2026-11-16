@@ -242,7 +242,7 @@ that:
 
 - belongs to an operator or synthetic hotkey;
 - has a listed reference digest (header or content);
-- is an initial reference (`R_0` or its single replacement) that any
+- is an initial reference (a reference at index 0, such as `R_0`) that any
   manifest named, even after the manifest chain stopped naming it (the index
   lists them in `initial_references`). References are published as reference
   packages instead, never as entrant artifacts.
@@ -277,8 +277,8 @@ them.
 
 `v1/reference/current.json` names `R_k` by content digest and artifact
 SHA-256. It has a `path` when `R_k` is a promoted miner artifact published
-here. When `R_k` is a staged reference package (`R_0` and its replacement are
-published this way), it has `package`, the package's directory, and
+here. When `R_k` is a staged reference package (as `R_0` is), it has
+`package`, the package's directory, and
 `licence`, `CC-BY-SA-4.0`; the publisher links a package only when the public
 bucket holds its parts manifest and that manifest's SHA-256 is the
 reference's artifact digest. Otherwise it has a `withheld` reason
@@ -528,9 +528,9 @@ copied them. `manifest`, `package` and `closure`
 are record digests, so a fetcher can check that it holds the records the index
 names. `active_target` is the target of the last listed cohort that produced
 one, or the launch burn row (`source: "launch_burn"`) if no listed cohort has
-produced one yet. `initial_references` lists each initial reference (`R_0`
-or its replacement) a listed cohort named, by content digest and artifact
-SHA-256, with the first cohort that named it.
+produced one yet. `initial_references` lists each initial reference (a
+reference at index 0, such as `R_0`) a listed cohort named, by content digest
+and artifact SHA-256, with the first cohort that named it.
 
 The public record (decision U2's restarted record) holds the closed cohorts
 whose manifest opened at or after the epoch the operator configures

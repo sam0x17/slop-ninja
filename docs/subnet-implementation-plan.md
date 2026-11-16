@@ -55,12 +55,10 @@ its own quality, funding, and payment checks.
   artifact (`R_0` once its public package is published).
 - Rewards follow `reward-v2`, the `reward-v1` band rule on `quant-v1`
   quantized scores: a reference model that changes by cohort promotion or by a
-  signed operator reference decision with a recorded reason (on testnet, `R_0`
-  on a fresh chain record, whose position passes to the first span package by
-  the span-equivalent decision before the first cohort that enforces the span
-  gate, and one replacement, announced in advance, by the next qualified
-  reference; mainnet opens a fresh chain record with the reference testnet
-  then holds), SN78's geometric
+  signed operator reference decision with a recorded reason (on testnet, a
+  fresh chain record from `R_0`, which `R_1` replaced through ordinary
+  promotion in `testnet-r1-30`; mainnet opens a fresh chain record with the
+  reference testnet then holds), SN78's geometric
   band mechanism with frozen signed parameters, no credit for exact or near
   copies of published artifacts, equal splits
   within near-duplicate clusters, a 15% fallback cutoff against
@@ -390,13 +388,9 @@ registration.
 
    The input contract is raw text, and the seed-17 document model of the
    baseline release candidate is the first reference `R_0`. Testnet opens a fresh chain record with `R_0` and
-   no predecessor; it may replace `R_0` once, announced in advance on the status
-   page, by the next reference SlopNinja trains (retrained and recalibrated on
-   normalised, length-matched positives), only if that model passes every
-   required gate. The first span-serving package takes `R_0`'s position only
-   through the signed span-equivalent reference decision before the first
-   cohort that enforces the span gate; that decision is not the replacement,
-   so the replacement stays available. Re-export `R_0` with synthetic replay cases, run the
+   no predecessor; `R_0` was replaced by `R_1` through ordinary promotion in
+   `testnet-r1-30`. The first span-serving package is the span gate's fixed
+   anchor, not a reference. Re-export `R_0` with synthetic replay cases, run the
    package-corpus scan, and publish it under CC BY-SA 4.0. Admit text
    artifacts (ONNX graph, fixed tokenizer, heads, calibration) with supported
    operators, never arbitrary miner plugins. A

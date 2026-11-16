@@ -28,7 +28,7 @@ v3 package, the package the `testnet-r1-` cohorts name for `R_0`.
 
 | | `R_0` | Span package d24 |
 |---|---|---|
-| Role | the first testnet reference `R_0`; since `testnet-r1-30` promoted `R_1`, its predecessor, scored in every cohort while it is the current reference's predecessor | SlopNinja's span-serving package (role `span_head`); not `R_0` until a signed span-equivalent reference decision passes it `R_0`'s position, before the first cohort that enforces the span gate |
+| Role | the first testnet reference `R_0`; since `testnet-r1-30` promoted `R_1`, its predecessor, scored in every cohort while it is the current reference's predecessor | SlopNinja's span-serving package (role `span_head`) and the span gate's fixed anchor; not a reference |
 | Model | R0, the released *A* document model | R0's encoder and document heads, unchanged, with the S2c span tower and token head, the 24-word span decoder and a span confidence map refitted under that floor |
 | Graph class | `a-plain-f32band-v1` | `a-tower-f32band-v1` |
 | Spec | v1 to v4 | v3 to v5 |

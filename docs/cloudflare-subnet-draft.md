@@ -921,21 +921,14 @@ scores, no near-equal drop, and the absence of runtime versions:
   retained cluster head in rank order that passes every promotion condition is
   promoted instead. Otherwise the reference does not change.
 - **Testnet reference.** Testnet opens a fresh chain record of cohorts and
-  references with `R_0` as the first reference and no predecessor. It may
-  replace `R_0` once, by the next reference SlopNinja trains (retrained and
-  recalibrated on normalised, length-matched positives), only if that model
-  passes every required gate; the status page announces this in advance. The
-  replacement takes `R_0`'s position with no predecessor, appears in the next
-  signed manifest, and moves no earned credit, because credit is bound to its
-  own cohort's package and target; it sets the margin for later cohorts and,
-  while the launch burn lasts, the bar that ends it. Before the first cohort
-  that enforces the span gate, one signed span-equivalent reference decision
-  passes `R_0`'s position to span package d24, whose document outputs are
-  `R_0`'s and whose probe predictions match `R_0`'s within the measured
-  difference between scorer hosts, so no reward input changes; d24 first runs
-  once as an ordinary entry, so its artifact is published, indexed and
-  fingerprinted. That decision is not the one replacement, which stays
-  available.
+  references with `R_0` as the first reference and no predecessor. `R_0` was
+  replaced by `R_1` through ordinary promotion in `testnet-r1-30`, and `R_0`
+  is now its predecessor. Outside the promotion rule, a signed reference
+  decision with a recorded reason may set the current and previous
+  references; it appears in the next signed manifest and moves no earned
+  credit, because credit is bound to its own cohort's package and target; it
+  sets the margin for later cohorts. Span package d24, whose document outputs
+  are `R_0`'s, is the span gate's fixed anchor, not a reference.
 - **Mainnet reference.** Mainnet opens its own fresh chain record whose first
   reference is the one testnet holds at that time, with no predecessor and no
   separate one-time replacement. A testnet promotion can rest partly on lookup
@@ -1441,9 +1434,8 @@ closed (its number is never reused); refuse to pay a finished cohort by
 declining its closure, abandoning it late, or naming it in a switch to burn;
 start over by switching the coordinator to burn, which sets a restart floor,
 names every cohort that opened before it without being handled, and is followed
-by a fresh record whose first manifest names its first reference, `R_0` or,
-once the span-equivalent decision has passed `R_0`'s position to span package
-d24, that package; change the reward rule only
+by a fresh record whose first manifest names its first reference, `R_0`;
+change the reward rule only
 through such a fresh record; set the current and previous references by a
 reference decision with a recorded reason; and rotate the authorization key
 when the subnet is registered again. Each decision is journaled before it takes
@@ -3639,8 +3631,7 @@ gate's anchor, the span gate's form (margins against that anchor on the same
 batch, report mode on live cohorts before any manifest enforces it, artifact
 spec v5), the Common Crawl stock rules (domain rules v3, share
 table v5, cohort profile v1 and gate definitions v2), the writer-profile basis,
-the licences and reference-package publication, the testnet reference with the
-span-equivalent decision and its one advance-announced replacement, the
+the licences and reference-package publication, the testnet reference, the
 mainnet opening reference, the testnet rule that
 cohorts without a working outside entrant reuse exposed documents instead of
 drawing fresh stock, with the testnet-only lift of their reuse limits,

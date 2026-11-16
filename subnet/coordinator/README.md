@@ -2541,9 +2541,8 @@ held target is restarted separately (`POST /signing/restart`, above), and a nati
 validator holding the earlier chain's target runs `reset-target` (validator
 README). Runbook: TESTNET.md, "Chain-record restart". A restart installs a
 fresh R_0 with no predecessor, so it belongs before the announcement: after
-it, a change of reference is decision U2's single, pre-announced replacement
-(the round-2 reference as `k = 1`, a successor of R_0 on the same record),
-and any restart needs a new recorded decision from the user
+it, references change by promotion or by a reference decision on the same
+record, and any restart needs a new recorded decision from the user
 (`slop_ninja_eval_ops restart --decision` names it).
 
 **Scorer loads and the artifact spec.** A plan may name the artifact spec of

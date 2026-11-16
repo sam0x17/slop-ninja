@@ -213,7 +213,7 @@ store.
     are decoded once their declared file count is within the artifact spec's
     table;
   - withholds for good a header or content digest in `PRIVATE_DIGESTS`, or an
-    initial reference (`R_0` or its single replacement) any manifest named
+    initial reference (a reference at index 0, such as `R_0`) any manifest named
     (the index keeps them in `initial_references`; references are published
     as reference packages instead);
   - compares each listed file's stored size and SHA-256 with the header (no

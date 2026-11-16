@@ -130,8 +130,8 @@ Section 6 specifies these journaled decision paths:
   authorization issued at that epoch, and names in the signed restart record
   every cohort that opened before the floor without being handled. The operator
   then opens a fresh record whose first manifest names its first reference,
-  with no predecessor: R_0, or, once the span-equivalent decision has passed
-  R_0's position to span package d24, that package.
+  R_0, with no predecessor; a reference decision with a recorded reason can
+  then set another.
   Winners of the earlier record are never paid again. Validators accept the
   restart through that launch authorization and refuse rows from before its
   floor; none needs a manual reset.

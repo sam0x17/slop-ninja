@@ -96,14 +96,11 @@ keeps R0's encoder and document heads frozen, so on the same CPU class its
 document outputs are bit-identical to R0's, and adds S2c's seed-17 tower and
 token head with the 24-word decoder and a span confidence map fitted on the
 Calibration split under the floor (whitepaper Section 3). Since November 9 it
-is the span-serving package (span package d24). Testnet scores R0 as R_0 on a
-fresh chain record. Before the first cohort that enforces the span gate, one
-signed span-equivalent reference decision passes R_0's position to d24, after
-d24 runs once as an ordinary entry (published, fingerprinted); it changes no
-reward input and is not the planned replacement. Later reference changes follow
-cohort promotion or a signed operator reference decision with a recorded reason; one
-is planned on testnet, announced in advance: replacing R_0 by the next
-reference SlopNinja trains, only if it passes every gate. Mainnet opens a fresh
+is the span-serving package (span package d24), and it stays the span gate's
+fixed anchor; it is not a reference. Testnet's fresh chain record started from
+R0 as R_0; R_0 was replaced by R_1 through ordinary promotion in testnet-r1-30,
+and R_0 is now its predecessor. Reference changes follow cohort promotion or a
+signed operator reference decision with a recorded reason. Mainnet opens a fresh
 chain record whose first reference is the one testnet then holds, with no
 predecessor; reference decisions remain available there.
 Faithful word-level explanations are later A extensions; grammar-level

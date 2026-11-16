@@ -170,6 +170,10 @@ struct MockSession {
     recorded: BTreeMap<String, u64>,
     /// Objects a repair URL was minted for (their next entity tag is taken).
     repairing: BTreeSet<String>,
+    /// With `MockState::stale_repair_reads`: the repair list as the last
+    /// repair request headed it, which session reads keep answering until
+    /// the next repair request heads the objects again.
+    stale_repair: Option<Vec<String>>,
     state: SessionState,
     refusal: Option<Refusal>,
     position: Option<Position>,
@@ -233,6 +237,10 @@ pub struct MockState {
     /// Lose these stored objects at the next completion request, as a lost
     /// object would, so completion answers `objects_missing`.
     pub drop_before_complete: Vec<Match>,
+    /// Session reads answer the repair list of the last repair request
+    /// until another repair request heads the objects again, as the
+    /// coordinator records a repaired object only when it heads it.
+    pub stale_repair_reads: bool,
     /// The block of the commitment reader's last completed poll; `None`
     /// stands for a reader that is always caught up (see `wait_for_reader`).
     pub reader_polled: Option<u64>,
@@ -362,6 +370,7 @@ impl Mock {
             edge_errors: 0,
             expired_with_cursor: true,
             drop_before_complete: Vec::new(),
+            stale_repair_reads: false,
             reader_polled: None,
             commit_waits: HashMap::new(),
             commitment_block_hints: Vec::new(),
@@ -1156,6 +1165,9 @@ impl MockState {
         if s.published {
             return Vec::new();
         }
+        if let Some(stale) = &s.stale_repair {
+            return stale.clone();
+        }
         s.recorded
             .keys()
             .filter(|k| self.head(&self.key_of(&s.id, k)).is_none())
@@ -1559,6 +1571,7 @@ impl MockState {
                 header: None,
                 recorded: BTreeMap::new(),
                 repairing: BTreeSet::new(),
+                stale_repair: None,
                 state: SessionState::Uploading,
                 refusal: None,
                 position: None,
@@ -1910,6 +1923,8 @@ impl MockState {
             return reply;
         }
         self.refresh(id);
+        // A repair request heads every recorded object again.
+        self.sessions.get_mut(id).unwrap().stale_repair = None;
         let s = &self.sessions[id];
         let needed: Vec<String> = s
             .recorded
@@ -1921,6 +1936,10 @@ impl MockState {
             return error(ErrorCode::NotNeeded, "nothing to repair", Detail::default());
         }
         let uploads = needed.iter().map(|k| self.mint(id, k)).collect();
+        if self.stale_repair_reads {
+            let listed = self.repair_needed(&self.sessions[id]);
+            self.sessions.get_mut(id).unwrap().stale_repair = Some(listed);
+        }
         self.sessions.get_mut(id).unwrap().repairing.extend(needed);
         ok(200, &self.session_json(&self.sessions[id], uploads))
     }

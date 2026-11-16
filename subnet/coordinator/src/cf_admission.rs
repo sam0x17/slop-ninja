@@ -869,6 +869,8 @@ impl EvalCohort {
             engine::Work::AdmissionCleanup => self.cleanup().await,
             engine::Work::AdmissionReconcile => self.reconcile_step().await,
             engine::Work::OpenNext { label, plan } => self.open_next(cfg, &label, plan).await,
+            engine::Work::ReferencePin { content } => self.reference_pin(&content).await,
+            engine::Work::ReferencePresence => self.reference_presence(cfg).await,
             _ => Ok(()),
         }
     }

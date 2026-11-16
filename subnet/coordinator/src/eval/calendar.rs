@@ -488,12 +488,23 @@ pub fn resolve_record(sql: &impl Sql, content: &str) -> R<Option<ArtifactJson>> 
     resolve(sql, content)
 }
 
+/// The record the chain resolves for `content`: its pinned record once its
+/// pin is written (`eval::pins`: the files at their reference locations),
+/// else the stored record ([`resolve_source`]).
+fn resolve(sql: &impl Sql, content: &str) -> R<Option<ArtifactJson>> {
+    if let Some(a) = crate::eval::pins::pinned(sql, content)? {
+        return Ok(Some(a));
+    }
+    resolve_source(sql, content)
+}
+
 /// The stored artifact record whose content digest is `content`: a v3
 /// cohort's reference, predecessor or entrant. Two indexed reads, whatever
 /// the number of cohorts: the cohort that published the content (a promoted
 /// entrant is published at its cohort's close), else the newest v3 cohort
 /// (every cohort names the chain's current reference and its predecessor).
-fn resolve(sql: &impl Sql, content: &str) -> R<Option<ArtifactJson>> {
+/// The source a reference pin copies from.
+pub fn resolve_source(sql: &impl Sql, content: &str) -> R<Option<ArtifactJson>> {
     // D10(b): an operator reference decision names its own records, read
     // before any cohort's (the cohort records may name another package of
     // the same content).
@@ -560,6 +571,23 @@ fn references(sql: &impl Sql, t: &Template) -> R<NextReferences> {
 /// A promotion decided by the cohort now in its transition (applied at its
 /// close), as the next references.
 fn pending_promotion(sql: &impl Sql) -> R<Option<NextReferences>> {
+    let Some(mut p) = pending_unpinned(sql)? else { return Ok(None) };
+    // Each pinned reference is named by its pinned record (`eval::pins`).
+    if let Some((current, previous)) = &p.contents {
+        if let Some(a) = crate::eval::pins::pinned(sql, current)? {
+            p.reference = a;
+        }
+        if let (Some(c), Some(prev)) = (previous, p.previous.as_mut())
+            && let Some(a) = crate::eval::pins::pinned(sql, c)?
+        {
+            *prev = a;
+        }
+    }
+    Ok(Some(p))
+}
+
+/// [`pending_promotion`] as the cohort records name it, before any pin.
+fn pending_unpinned(sql: &impl Sql) -> R<Option<NextReferences>> {
     let rows = sql.exec(
         "SELECT seq FROM cohorts WHERE phase = 'transition' AND v3 IS NOT NULL ORDER BY seq DESC LIMIT 1",
         &[],
@@ -581,6 +609,45 @@ fn pending_promotion(sql: &impl Sql) -> R<Option<NextReferences>> {
         contents,
         pending_seq: Some(seq),
     }))
+}
+
+/// The entrant a cohort in its transition promotes (its content and its
+/// record as a reference, before any pin), for the pin that copies it
+/// before the next cohort names it (`eval::pins`).
+pub fn pending_promoted(sql: &impl Sql) -> R<Option<(String, ArtifactJson)>> {
+    Ok(pending_unpinned(sql)?.and_then(|p| p.contents.map(|(c, _)| (c, p.reference))))
+}
+
+/// The references the next cohort names (`None` while neither a template
+/// nor a chain names any, or while the chain does not resolve): the
+/// pending promotion, the chain, else the installed template's own. A read.
+pub fn next_references(sql: &impl Sql) -> R<Option<NextReferences>> {
+    let refs = match stored(sql)? {
+        Some((t, _)) => references(sql, &t),
+        None => match pending_promotion(sql) {
+            Ok(Some(p)) => Ok(p),
+            Ok(None) => match chain_references(sql) {
+                Ok(Some(c)) => Ok(c),
+                Ok(None) => return Ok(None),
+                Err(e) => Err(e),
+            },
+            Err(e) => Err(e),
+        },
+    };
+    match refs {
+        Ok(r) => Ok(Some(r)),
+        Err(EvalError::Plan(_)) => Ok(None),
+        Err(e) => Err(e),
+    }
+}
+
+/// The number the calendar would give a cohort it queues now, while one is
+/// due (`template_ready`); `None` otherwise. A read.
+pub fn due_number(sql: &impl Sql, first_cohort: u64) -> R<Option<u64>> {
+    if template_ready(sql)?.is_none() {
+        return Ok(None);
+    }
+    next_number(sql, first_cohort).map(Some)
 }
 
 /// The chain as `reference_state` holds it, resolved to stored artifact
@@ -656,8 +723,20 @@ pub fn check_probe_cut(sql: &impl Sql, plan: &CohortPlan, existing: &[engine::Co
     )?;
     e(pending_promotion(sql)?.is_none(), "probe_cut: a promotion is pending in a cohort's transition (cut after its close)")?;
     let chain = chain_references(sql)?.ok_or(EvalError::Plan("probe_cut: no reference chain"))?;
+    // Each reference as the chain resolves it (its pinned record, once
+    // pinned) or as the stored cohort records name it: the same content,
+    // which is all a cut fingerprints.
+    let (current, previous) = chain.contents.clone().unwrap_or_default();
+    let named = |a: &ArtifactJson, resolved: &ArtifactJson, content: &str| -> R<bool> {
+        Ok(a == resolved || resolve_source(sql, content)?.as_ref() == Some(a))
+    };
+    let previous_ok = match (&plan.previous_reference, &chain.previous, &previous) {
+        (None, None, _) => true,
+        (Some(a), Some(r), Some(c)) => named(a, r, c)?,
+        _ => false,
+    };
     e(
-        plan.reference == chain.reference && plan.previous_reference == chain.previous,
+        named(&plan.reference, &chain.reference, &current)? && previous_ok,
         "probe_cut: the references must be the chain's current ones, as the stored records name them",
     )?;
     Ok(())
@@ -674,19 +753,26 @@ pub fn due(sql: &impl Sql, cfg: &EvalConfig) -> R<Option<(String, Vec<u8>)>> {
     if cfg.authority.is_retired() {
         return Ok(None);
     }
+    // The next cohort's references must be pinned and present
+    // (`eval::pins::gate`); the calendar waits otherwise, unpaused, with
+    // the reason on the status.
+    if template_ready(sql)?.is_none() || crate::eval::pins::gate(sql, cfg.authority.first_cohort())?.is_some() {
+        return Ok(None);
+    }
     due_any(sql, cfg.authority.first_cohort())
 }
 
 /// Whether the calendar has a cohort to open under `cfg`, as a pure read:
-/// the conditions of [`due`] without naming the references, so it writes
-/// nothing and reads no cohort records. Status and the step's reason to run
-/// use this; only the calendar's own step ([`due`]) records a reference
-/// error and pauses the template.
+/// the conditions of [`due`] without building its plan, so it writes
+/// nothing. While a cohort is due it reads the next references for the
+/// reference gate (`eval::pins::gate`); otherwise no cohort record. Status
+/// and the step's reason to run use this; only the calendar's own step
+/// ([`due`]) records a reference error and pauses the template.
 pub fn ready(sql: &impl Sql, cfg: &EvalConfig) -> R<bool> {
     if cfg.authority.is_retired() {
         return Ok(false);
     }
-    Ok(template_ready(sql)?.is_some())
+    Ok(template_ready(sql)?.is_some() && crate::eval::pins::gate(sql, cfg.authority.first_cohort())?.is_none())
 }
 
 /// The installed template when it is not paused, nothing is queued and the

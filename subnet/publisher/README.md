@@ -389,7 +389,11 @@ outcome recomputation, which the test's 2 MiB allowance inside
 
 ## Alerts
 
-The rule set is `slop_ninja.publisher.alerts/v16` (v16 adds
+The rule set is `slop_ninja.publisher.alerts/v18` (v18 adds
+`reference_objects_missing`, `reference_pin_failed` and
+`reference_presence_unchecked`, and words an
+`operator_clear_needed` for missing objects as a repair; v17 adds the
+live-value rules; v16 adds
 `commit_stalled` and `signing_backing_off`; v15 adds
 `row_record_stalled`; v14 adds `operator_clear_needed`, names a fault's
 cause and any jobs at the receipt bound in the fault rules' detail, and
@@ -423,7 +427,26 @@ The table is in `alerts.rs`:
   not clearing by itself (`operator_clear_needed`: not a probed outage in
   a work phase nor an admission outage it re-reads) also raises
   `operator_clear_needed`, so a pause that waits for an operator is told
-  apart from one a probe resolves;
+  apart from one a probe resolves; (v18) when the coordinator reports that
+  the probe found an artifact's objects absent or changed
+  (`objects_missing`), the detail says to restore them (a repair: the
+  miner's `repair` for an admitted entrant, the pinned copy or a re-stage
+  for a reference), after which the probe resumes the cohort by itself, and
+  not to clear or abandon it;
+- (v18) the eval Worker's reference guards (`references` on its status):
+  `reference_objects_missing` at once when its presence check found a file
+  of a reference package absent or no longer at its pinned entity tag (the
+  calendar does not queue a cohort whose references miss one), and
+  `reference_presence_unchecked` after the unreachable hold when the calendar
+  waits for a presence check or the latest check reports a read error. This
+  reports unverified storage access, not a confirmed missing file; failed reads
+  retry automatically. An unanswered status read retains an open alert.
+  `reference_pin_failed` at once for a reference pin that failed in a way
+  waiting does not fix, or after the unreachable hold for one that keeps
+  failing on a retried code, counting only pins whose content the chain or
+  a pending promotion still names (`named`); the detail names the package, file or content
+  prefix and the code, and the operator's way on is
+  `POST /eval/references/recheck` once the cause is fixed;
 - (v11) alert-only cohort conditions, none of which pauses anything: a
   cohort past a budget guard (`scorer_budget_fault` from `budget_alert`;
   spend is tracked, never capped), and a cohort whose chunks got

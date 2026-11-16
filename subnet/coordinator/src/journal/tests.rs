@@ -687,6 +687,8 @@ fn migrations_are_pinned_by_content() {
         // v30: operator decisions (self-lock phase 1; drops v29's empty
         // interim reference_decisions table; never deployed).
         "6bee5d9d53f3bb89",
+        // v31: reference pins and the presence check (`eval::pins`).
+        "681035e8a564c24f",
     ];
     // v1-v10 are deployed on both testnet Workers; v11 is the stuck-states
     // lane's; v12 the automatic target handoff's; v13 the signed coordinator

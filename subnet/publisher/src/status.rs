@@ -287,6 +287,11 @@ pub struct CohortView {
     /// clear by itself (`operator_clear_needed`): an operator clear or an
     /// abandonment is needed. Absent from coordinators that do not report it.
     pub operator_clear_needed: Option<bool>,
+    /// Whether the cohort's fault is a probe that found an artifact's
+    /// objects absent or changed (`objects_missing`): the operator restores
+    /// the objects (a repair), never a clear or an abandonment. Absent from
+    /// coordinators that do not report it.
+    pub objects_missing: Option<bool>,
     /// Jobs whose attempts no further extension fits under the receipt bound
     /// (`receipt_bound_reached_jobs`).
     pub receipt_bound_reached_jobs: Vec<u64>,
@@ -447,6 +452,29 @@ pub struct EvalView {
     /// The admission cohorts (`admission.cohorts[]`) with their freeze and,
     /// when reported, per-hotkey states.
     pub admission: Vec<AdmissionCohortView>,
+    /// The reference pins and the presence check of the references' objects
+    /// (`references`); `None` from coordinators that do not report them.
+    pub references: Option<ReferencesView>,
+}
+
+/// The coordinator's reference pins and presence check (`references`,
+/// rule `slop_ninja_reference_pins_v1`), as content-free lines.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct ReferencesView {
+    /// Why the calendar does not queue its next cohort (`gate`), if it waits.
+    pub gate: Option<String>,
+    /// A failed presence read, distinct from a confirmed absent object.
+    pub presence_error: Option<String>,
+    /// Each file the latest presence check found absent or changed:
+    /// `package <8 hex> <file>: <reason>`.
+    pub missing: Vec<String>,
+    /// Each pin that failed (held for the operator's recheck) for a content
+    /// the chain or a pending promotion still names:
+    /// `content <8 hex>: <code>`.
+    pub pins_failed: Vec<String>,
+    /// Each pin still pending after a failed attempt (retried each tick):
+    /// `content <8 hex>: <code> (<attempts> attempts)`.
+    pub pins_retrying: Vec<String>,
 }
 
 /// The coordinator's UID map rule this publisher reads.
@@ -754,6 +782,86 @@ struct EvalJson {
     calendar: Option<CalendarJson>,
     admission: Option<AdmissionJson>,
     uid_map: Option<UidMapJson>,
+    references: Option<RefGuardsJson>,
+}
+
+#[derive(Deserialize, Default)]
+#[serde(default)]
+struct RefGuardsJson {
+    gate: Option<String>,
+    pins: Vec<PinJson>,
+    presence: Option<PresenceJson>,
+}
+
+#[derive(Deserialize, Default)]
+#[serde(default)]
+struct PinJson {
+    content: Option<String>,
+    state: Option<String>,
+    attempts: Option<u64>,
+    error: Option<String>,
+    /// Whether the chain or a pending promotion names the content now
+    /// (`None` from coordinators that do not report it).
+    named: Option<bool>,
+}
+
+#[derive(Deserialize, Default)]
+#[serde(default)]
+struct PresenceJson {
+    missing: Vec<MissingJson>,
+    error: Option<String>,
+}
+
+#[derive(Deserialize, Default)]
+#[serde(default)]
+struct MissingJson {
+    package: Option<String>,
+    file: Option<String>,
+    reason: Option<String>,
+}
+
+/// A digest's first eight characters, for a content-free line.
+fn short(d: Option<&str>) -> String {
+    d.unwrap_or("?").chars().take(8).collect()
+}
+
+fn references_view(j: RefGuardsJson) -> ReferencesView {
+    // A pin for a content nothing names any more holds nothing back: the
+    // operator's recheck drops it, and it raises no alert meanwhile.
+    let live = || j.pins.iter().filter(|p| p.named != Some(false));
+    let pins_failed = live()
+        .filter(|p| p.state.as_deref() == Some("failed"))
+        .map(|p| format!("content {}: {}", short(p.content.as_deref()), p.error.as_deref().unwrap_or("?")))
+        .collect();
+    let pins_retrying = live()
+        .filter(|p| p.state.as_deref() == Some("pending") && p.error.is_some())
+        .map(|p| {
+            format!(
+                "content {}: {} ({} attempts)",
+                short(p.content.as_deref()),
+                p.error.as_deref().unwrap_or("?"),
+                p.attempts.unwrap_or(0)
+            )
+        })
+        .collect();
+    let presence_error = j.presence.as_ref().and_then(|p| p.error.clone());
+    let missing = j
+        .presence
+        .map(|p| {
+            p.missing
+                .iter()
+                .map(|m| {
+                    format!(
+                        "package {} {}: {}",
+                        short(m.package.as_deref()),
+                        m.file.as_deref().unwrap_or("?"),
+                        m.reason.as_deref().unwrap_or("?")
+                    )
+                })
+                .collect()
+        })
+        .unwrap_or_default();
+    ReferencesView { gate: j.gate, presence_error, missing, pins_failed, pins_retrying }
 }
 
 #[derive(Deserialize, Default)]
@@ -1021,6 +1129,7 @@ struct CohortJson {
     attempt_extensions: Option<u64>,
     fault_cause: Option<String>,
     operator_clear_needed: Option<bool>,
+    objects_missing: Option<bool>,
     receipt_bound_reached_jobs: Option<Vec<u64>>,
     opened_block: Option<u64>,
     packaged_epoch: Option<u64>,
@@ -1262,6 +1371,7 @@ fn eval_view(j: EvalJson) -> EvalView {
                 attempt_extensions: c.attempt_extensions,
                 fault_cause: c.fault_cause,
                 operator_clear_needed: c.operator_clear_needed,
+                objects_missing: c.objects_missing,
                 receipt_bound_reached_jobs: c.receipt_bound_reached_jobs.unwrap_or_default(),
                 dash: CohortDash {
                     opened_block: c.opened_block,
@@ -1350,6 +1460,7 @@ fn eval_view(j: EvalJson) -> EvalView {
             .unwrap_or_default(),
         epoch: j.observed.epoch.and_then(|e| e.index),
         uid_map: j.uid_map.and_then(uid_map_view),
+        references: j.references.map(references_view),
         watermark_epoch: j.watermark_epoch,
         active_tempos: j.observed.active_tempos,
         cohorts,

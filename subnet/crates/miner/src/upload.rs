@@ -792,6 +792,36 @@ pub async fn repair(
         }
     }
     let client = &mut *run.client;
+    settled_after_repair(client, session_id, options).await
+}
+
+/// The session once the coordinator has re-checked the objects just sent.
+/// A plain session read can still list an object R2 already holds: the
+/// coordinator records a repaired object when it heads it again, which
+/// another `repair` request does at once (it heads every recorded object
+/// first) and its own sweep does later. So the client asks for that
+/// re-check (`not_needed`: every recorded object is present), and only an
+/// object still listed after it, and after the options' retries with their
+/// backoff, is reported as missing.
+async fn settled_after_repair(
+    client: &mut AdmissionClient,
+    session_id: &str,
+    options: &UploadOptions,
+) -> Result<Session> {
+    let mut wait = options.backoff;
+    let mut tries = 0;
+    loop {
+        tries += 1;
+        match retry(options, async || client.repair(session_id).await).await {
+            Ok(s) if !s.repair_needed.is_empty() && tries < options.attempts => {
+                tokio::time::sleep(wait).await;
+                wait = wait.saturating_mul(2);
+            }
+            Ok(_) => break,
+            Err(error) if error.code() == Some(ErrorCode::NotNeeded) => break,
+            Err(error) => return Err(error.into()),
+        }
+    }
     Ok(retry(options, async || client.session(session_id).await).await?)
 }
 

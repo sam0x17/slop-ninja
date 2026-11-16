@@ -484,3 +484,40 @@ async fn repair_restores_recorded_objects_that_went_missing() {
         Some(ErrorCode::NotNeeded)
     );
 }
+
+/// A repair whose PUTs R2 stored, while the coordinator's session read
+/// still lists them until it heads the objects again: the client asks for
+/// that re-check (another repair request heads every recorded object)
+/// before it reports anything missing, so a completed repair ends clean.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn repair_reads_the_session_again_after_the_coordinator_rechecks() {
+    let dir = tempfile::tempdir().unwrap();
+    let store = Store::open(&dir.path().join("state")).unwrap();
+    let mock = Mock::start(config(), 1_950).await;
+    let (path, art) = packed(dir.path(), 0x1b, "{}");
+    let a = entrant(&mock, &store, "//Alice", 12, &art, 2_000);
+    let mut c = client(&mock, a.signer.clone()).await;
+    let session = finished(
+        upload(&mut c, &store, &a.prepared.file, &path, &art, &quick())
+            .await
+            .unwrap(),
+    );
+    mock.close();
+    assert_eq!(
+        mock.lose_objects(&session.session, |key| key.contains("/f/")),
+        3
+    );
+    mock.with(|s| s.stale_repair_reads = true);
+    let before = mock.puts();
+    let repaired = repair(&mut c, &session.session, &path, &art, &quick())
+        .await
+        .unwrap();
+    assert_eq!(mock.puts(), before + 3, "every lost object was sent once");
+    assert!(repaired.repair_needed.is_empty(), "{repaired:?}");
+    assert_eq!(repaired.state(), Some(SessionState::Admitted));
+    assert!(
+        !describe(&repaired).contains("went missing"),
+        "{}",
+        describe(&repaired)
+    );
+}

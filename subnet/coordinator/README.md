@@ -1577,7 +1577,8 @@ A fault pauses the cohort with its state intact. Two kinds:
   pinned entity tag (`scorer_client::OBJECT_CODES`) sets `objects_missing`
   and `operator_clear_needed` too: no wait restores an object, so the
   operator is told, and the probe still resumes the cohort by itself once
-  the objects load again. A cohort that pauses
+  the objects load again; the publisher's alert says to restore the objects
+  (a repair), not to clear or abandon the cohort. A cohort that pauses
   again with no chunk committed or generation answered since its last
   automatic clear (a platform only partly back) is still probed and
   cleared, never held: each such clear doubles the wait before the next
@@ -2195,6 +2196,51 @@ store v25; [admission API](../../docs/testnet/admission-api.md)):
   objects by entity tag, so the cohorts that name it as a reference read
   them; once nothing names it, the reconciliation deletes them. While they
   are kept, `repair` re-PUTs a lost one as for any admitted entrant.
+- **Reference pins** (`slop_ninja_reference_pins_v1`, `src/eval/pins.rs`,
+  store v31). Every reference the chain names (`R_k`, `R_k-1`) and a
+  promotion pending in a cohort's transition is copied once into the
+  reference storage the staged packages use: each file to
+  `reference/v2/files/<sha256>` in the admission bucket (read pinned to its
+  recorded entity tag, R2 verifying the copy's SHA-256), the copies headed
+  and their tags pinned, and a pinned files manifest written to
+  `artifacts/packages/<package>.json` in the eval bucket. A staged package,
+  whose files are at their reference keys already, is its own pin. The pin
+  keeps the content and the artifact digest (both name files by role,
+  digest and length); only the package digest and manifest key are new. The
+  chain's resolution (`calendar::resolve_record`) reads the pinned record
+  first, so the next cohort and its lanes load both references from the
+  reference prefix, which no clean-up, observer, queued delete or
+  reconciliation touches (`object_deletes_due` never returns a key under
+  it). Pinning runs as its own step and is idempotent: a reference with no
+  pin row gets one at the next step, which is also the backfill of the
+  references a deploy finds. A copy that fails for a platform reason is
+  retried after a tick; one that waiting cannot fix (a source object absent
+  or changed, other bytes at a reference key) is held as `failed` until
+  `POST /eval/references/recheck`, which drops the failed rows and
+  re-creates one only for a content the chain or a pending promotion still
+  names, from the record it names now (so a pin that failed on an older
+  source is retried from the current one, and one nothing names is
+  dropped). Each pin on the status carries `named`.
+- **Presence check and reference gate.** Before the calendar queues a
+  cohort, and whenever the packages the references resolve to change (a
+  promotion, a decision, a pin, a cohort queued or closed), a step heads
+  every file of the next cohort's references and of each open cohort's
+  references against the entity tag its files manifest pins; a check that
+  is not clean runs again after a tick. The calendar queues only when both
+  next references are pinned and a clean check ran for that cohort's
+  number (`pins::gate`: `reference_pin_pending`, `reference_pin_failed`,
+  `reference_presence_unchecked`, `reference_objects_missing`); it waits
+  unpaused otherwise. `/eval/status` reports the pins, the latest check
+  (each missing file by package, name, key and reason) and the gate under
+  `references`, and the publisher alerts on them
+  (`reference_objects_missing`, `reference_pin_failed`). Failed presence
+  reads or an unchecked gate persisting past the publisher's unreachable
+  hold raise `reference_presence_unchecked`; a failed read does not establish
+  that an object is absent. The operator's
+  `POST /eval/cohort/start` still queues past the gate, and
+  `POST /eval/references/recheck` reruns the pins and the check, so the
+  gate never locks the operator out. Neither runs before a reference chain
+  exists.
 - A verdict run's platform failures pause the cohort (`scorer_unavailable`),
   and so does a commitment resolution whose reads keep serving no state
   while the hotkey has a session uploading or verifying
@@ -2860,7 +2906,8 @@ Each decision is one request shape (`src/operator.rs`):
 | `POST /eval/abandon` with `decision` | abandon any unclosed cohort (`expect {phase}`): queued, admission, a drain of running lanes, or in place in packaging or the transition; abandonment record v2. A faulted cohort can still be abandoned by its fault with the token alone (`POST /eval/abandon` without `decision`) | scoring (live scores may show final values), packaging, transition |
 | `POST /eval/closure/decline` | decline a faulted closure (`expect {phase: closed, closure: faulted}`); `closure-declined.signed` | yes |
 | `POST /eval/release-objects` | record every undecided entrant `withheld` (`expect {phase}`); signed `eval-decision` | no |
-| `POST /eval/cohort/start` | queue one cohort from the installed template, paused or not (`expect {next_cohort}`) | no |
+| `POST /eval/cohort/start` | queue one cohort from the installed template, paused or not (`expect {next_cohort}`); also the way past the reference gate below | no |
+| `POST /eval/references/recheck` | drop every failed reference pin, re-create pins for the contents the chain or a pending promotion names now from the records they name now, and run the presence check again at the next step (`eval::pins::recheck`; the effect names the pins it retries and those it drops); changes no reference, plan or record | no |
 | `POST /eval/references/decision` | `override`, or `span_equivalent` (R_0's position, index 0, no predecessor; candidate published with stored vectors, staged as a reference package the installed template's spec admits, its export manifest's init fit equal to R_0's by recorded digests: encoder and selected checkpoint from R_0's export manifest, fit and heads digests of R_0's fit directory as the decision lists them in `r0_fit`; the signed `byte_comparison` of encoder initializers and document heads naming each side's recorded file digests; vectors within `tolerance_ppb`. Refusals `candidate_not_staged`, `reference_not_admitted`, `static_identity_mismatch`, `byte_comparison_mismatch`, `not_document_equivalent`. The cohort object reads both packages' files manifests and pinned export manifests itself, each within a bound its control holds beside the request (a shaped files manifest's longest layout; 128 KiB for an export manifest), refusing a longer one unread: `files_manifest_too_large`, `export_manifest_too_large`; `export_manifest_changed` when its entity tag or length moved. The route's body is at most 64 KiB) | yes |
 | `POST /signing/decide`, `action: restart` | switch to burn at floor F <= finalized + 1, launch issued at F, `past`/`unlisted` equal to the journal's restart set, `expect {held}`; `chain-restarts/<F>/restart.signed` | yes, once `OPERATOR_DECISION_KEY` is configured; token-level before (logged unsigned, the record names no statement) |
 | `POST /signing/decide`, `action: attempt_resolve` | rerun the live attempt's evidence check now (`expect {state}`) | no |

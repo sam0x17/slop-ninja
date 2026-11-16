@@ -994,5 +994,12 @@ pub const EVAL_COHORT_SCHEMA: Schema = Schema {
             version: 30,
             statements: crate::eval::decide::SCHEMA_V30,
         },
+        // v31: reference pins (each reference copied once into the
+        // reference storage, its pinned record) and the latest presence
+        // check of the references' objects (`eval::pins`).
+        Migration {
+            version: 31,
+            statements: crate::eval::pins::SCHEMA_V31,
+        },
     ],
 };

@@ -139,6 +139,21 @@ digest and length of the package's
 files behind their header record) as the checker build that staged the
 package printed them; the current public checker prints neither.
 
+## Where the coordinator keeps a reference
+
+The coordinator loads every reference from its own reference storage: each
+file at `reference/v2/files/<sha256>` in its private admission bucket, under a
+pinned files manifest that fixes each file's entity tag. A package the
+operator stages is written there directly. A promoted entrant is copied there
+once, before the first cohort that names it as `R_k` (each copy verified by
+SHA-256), and keeps its inference content and artifact digest; only its
+package digest, the digest of the pinned files manifest, is new. A cohort's
+plan names a reference by that pinned record, so the package digest a later
+cohort names for `R_k` can differ from the one its own cohort published, while
+the content digest stays the same. Before each cohort is queued the
+coordinator checks that every file of its references is present at its pinned
+tag (`references` on the eval status).
+
 ## Provenance rewrite
 
 The tools that wrote both models recorded some local locations as absolute

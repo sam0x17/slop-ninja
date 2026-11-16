@@ -51,7 +51,9 @@
 //! | `attempts_extended` | a cohort not yet closed has a chunk whose infrastructure failures (lost leases, crashes, failed requests) used the plan's `max_attempts` and got another round (`attempt_extensions`); nothing is paused |
 //! | `epoch_deferred` | the epoch index at the eval status's confirmed watermark is two or more past its stored epoch: increments have waited for a head-epoch reading through a whole tempo of watermark progress (failed or refused head reads), so the cohort schedule is not advancing |
 //! | `inclusion_unknown` | a recent coordinator commit operation settled `inclusion_unverifiable`: its nonce was consumed but the inclusion could not be read, so whether that epoch's commit landed is unknown (the signer keeps running; one alert per operation) |
-//! | `operator_clear_needed` | a cohort the other fault rules report is paused by a fault the coordinator says does not clear by itself (`operator_clear_needed`: not a probed outage in a work phase, nor an admission outage whose subjects it re-reads; for example a store-caused or definitive scorer pause, `unresolved_infrastructure` with jobs at the receipt bound, or a terminal fault): it stays paused until an operator clears or abandons it. The detail names the fault, its cause and any jobs at the receipt bound |
+//! | `operator_clear_needed` | a cohort the other fault rules report is paused by a fault the coordinator says does not clear by itself (`operator_clear_needed`: not a probed outage in a work phase, nor an admission outage whose subjects it re-reads; for example a store-caused or definitive scorer pause, `unresolved_infrastructure` with jobs at the receipt bound, or a terminal fault): it stays paused until an operator clears or abandons it. The detail names the fault, its cause and any jobs at the receipt bound. A probed fault whose probe found an artifact's objects absent or changed (`objects_missing`) is reported here too, and its detail says to restore the objects (a repair), after which the probe resumes the cohort by itself, never to clear or abandon it |
+//! | `reference_objects_missing` | the eval Worker's presence check (`references.presence`) found a file of a reference package absent or no longer at the entity tag its files manifest pins; while it is one of the next cohort's references the calendar does not queue it (`references.gate`). The detail names each package, file and reason, and the operator restores them, then rechecks (`POST /eval/references/recheck`) |
+//! | `reference_pin_failed` | a reference pin (`references.pins`: the copy of a promoted or decided `R_k` into the reference storage) failed in a way waiting does not fix, at once; or keeps failing on a retried code past the unreachable hold. Only pins for a content the chain or a pending promotion still names count (`named`). While the pin is one of the next cohort's references (`references.gate`) that cohort does not queue until it is written; the operator fixes the cause and rechecks (which retries the pin from the record named now and drops one nothing names), or queues by `cohort/start` |
 //! | `cohort_fault` | a cohort not yet closed is paused by any other fault (for example `framing_unavailable` while admission waits on a framing step, or `step_refused` when a root step fails in a way no wait changes), or a closed cohort's closure step is paused; or such a cohort's root step has kept failing on a retried (transient) code through a whole tempo of chain progress (its stored epoch two past the one it first failed in), which pauses nothing |
 //! | `ledger_threshold` | the spend ledger's billing month (settled spend plus open reservations) is past the deployment's private alert threshold; tracking only, nothing is refused |
 //! | `retention_stalled` | the eval status reports a due cohort whose detailed receipts remain after a further completion, or a predecessor authority not yet finished after one (judged by completions, never a clock): deletion is not keeping up with the N+2 rule (a failing step or unreadable authorization pointer, named by its last error); or (subject `public_receipts`) the publisher's own N+2 reading of the public record disagrees with the coordinator's retirement markers, which alone delete public receipts: a marker whose due point the record reached while the public reading still holds the cohort, or a cohort the public reading found due with no marker after two further completions |
@@ -92,7 +94,11 @@ pub use slop_ninja_alerts_wire::{
     AlertState, Condition, Entry, Event, EventKind, acknowledge, attempt, due, event_id,
 };
 
-/// v17: the live-value rules (`live_fault`, `live_over_bound`,
+/// v18: `reference_objects_missing`, `reference_pin_failed` and
+/// `reference_presence_unchecked` (the eval
+/// Worker's reference pins and presence check), and an
+/// `operator_clear_needed` with `objects_missing` says to restore the
+/// objects rather than clear or abandon the cohort; v17: the live-value rules (`live_fault`, `live_over_bound`,
 /// `prefinal_mismatch`, `live_value_changed`, `live_dropped`), decided by
 /// the publisher's own pass at the `live` roster level; v16: `commit_stalled` and `signing_backing_off` (the coordinator's
 /// signer stalled 14 hours from epoch 137 with health `backing_off`, and
@@ -123,7 +129,7 @@ pub use slop_ninja_alerts_wire::{
 /// decide, and alerts after its hold, `status_unreachable` and
 /// `status_incomplete`; v3: `config_warning`, and resolutions of attempted
 /// firings).
-pub const RULES_ID: &str = "slop_ninja.publisher.alerts/v17";
+pub const RULES_ID: &str = "slop_ninja.publisher.alerts/v18";
 /// The post schema (each event carries its id and the last-notified time
 /// it is derived from, so the alerts relay sends a retried post once).
 pub const ALERT_SCHEMA: &str = slop_ninja_alerts_wire::POST_SCHEMA;
@@ -278,6 +284,80 @@ fn cond(rule: &'static str, subject: &str, detail: String, hold_ms: u64) -> Cond
         subject: subject.to_owned(),
         detail,
         hold_ms,
+    }
+}
+
+/// `operator_clear_needed`'s detail: what the operator does. A probe that
+/// found an artifact's objects absent or changed (`objects_missing`) needs
+/// the objects restored (an admitted entrant's by its miner's `repair`, a
+/// reference's from its pinned copy or by re-staging it); the probe then
+/// resumes the cohort by itself, and a clear or an abandonment would only
+/// lose the cohort. Any other such fault needs an operator clear or an
+/// abandonment.
+fn clear_needed_detail(detail: &str, c: &crate::status::CohortView) -> String {
+    if c.objects_missing == Some(true) {
+        format!(
+            "{detail}: artifact objects missing; restore them (repair), and the probe resumes the cohort by itself; \
+             do not /eval/clear or /eval/abandon"
+        )
+    } else {
+        format!("{detail}: no automatic clear; /eval/clear or /eval/abandon")
+    }
+}
+
+/// The reference rules (`references` on the eval status): a presence check
+/// that found a reference file absent or changed (`reference_objects_missing`,
+/// at once: the calendar does not queue a cohort whose references miss a
+/// file), and a reference pin that failed for good, or keeps failing on a
+/// retried code past the unreachable hold (`reference_pin_failed`).
+fn reference_conditions(refs: &crate::status::ReferencesView, r: &Rules, out: &mut Vec<Condition>) {
+    if refs.gate.as_deref() == Some("reference_presence_unchecked") || refs.presence_error.is_some() {
+        let waits = if refs.gate.as_deref() == Some("reference_presence_unchecked") {
+            " (the next cohort does not queue)"
+        } else {
+            ""
+        };
+        out.push(cond(
+            "reference_presence_unchecked",
+            "references",
+            format!(
+                "reference presence not verified{waits}: {}; check storage access and the eval worker; failed reads retry automatically",
+                refs.presence_error.as_deref().unwrap_or("check pending")
+            ),
+            r.unreachable_hold_ms,
+        ));
+    }
+    if !refs.missing.is_empty() {
+        let gate = refs.gate.as_deref().map_or(String::new(), |g| format!(" (calendar waits: {g})"));
+        out.push(cond(
+            "reference_objects_missing",
+            "references",
+            format!(
+                "{} reference objects missing{gate}: {}; restore them, then POST /eval/references/recheck",
+                refs.missing.len(),
+                refs.missing.join("; ")
+            ),
+            0,
+        ));
+    }
+    if !refs.pins_failed.is_empty() {
+        let waits = if refs.gate.as_deref() == Some("reference_pin_failed") { " (the next cohort does not queue)" } else { "" };
+        out.push(cond(
+            "reference_pin_failed",
+            "references",
+            format!(
+                "reference pins failed{waits}: {}; fix the cause, then POST /eval/references/recheck",
+                refs.pins_failed.join("; ")
+            ),
+            0,
+        ));
+    } else if !refs.pins_retrying.is_empty() {
+        out.push(cond(
+            "reference_pin_failed",
+            "references",
+            format!("reference pins retrying: {}", refs.pins_retrying.join("; ")),
+            r.unreachable_hold_ms,
+        ));
     }
 }
 
@@ -489,12 +569,7 @@ pub fn evaluate(o: &Observed, p: &PublisherObs, r: &Rules) -> Vec<Condition> {
                 // an operator clear or abandonment is needed, unlike a
                 // probed outage that resumes once the platform answers.
                 if c.operator_clear_needed == Some(true) {
-                    out.push(cond(
-                        "operator_clear_needed",
-                        &c.label,
-                        format!("{detail}: no automatic clear; /eval/clear or /eval/abandon"),
-                        0,
-                    ));
+                    out.push(cond("operator_clear_needed", &c.label, clear_needed_detail(&detail, c), 0));
                 }
             } else if let Some(code) = c.budget_alert.as_ref().filter(|_| c.active()) {
                 out.push(cond(
@@ -539,6 +614,9 @@ pub fn evaluate(o: &Observed, p: &PublisherObs, r: &Rules) -> Vec<Condition> {
                     0,
                 ));
             }
+        }
+        if let Some(refs) = &e.references {
+            reference_conditions(refs, r, &mut out);
         }
         if let (Some(w), Some(stored)) = (e.watermark_epoch, e.epoch)
             && w >= stored.saturating_add(DEFERRED_EPOCHS)
@@ -826,6 +904,9 @@ pub const STATUS_RULES: &[&str] = &[
     "inclusion_unknown",
     "cohort_fault",
     "operator_clear_needed",
+    "reference_objects_missing",
+    "reference_pin_failed",
+    "reference_presence_unchecked",
     "ledger_threshold",
     "retention_stalled",
     "ledger_threshold_unset",
@@ -932,6 +1013,9 @@ pub fn needs(rule: &str, subject: &str, o: &Observed) -> Vec<Need> {
         "watermark_stalled" => need_worker(o, subject, &[], &mut n),
         "scorer_budget_fault" | "cohort_fault" | "attempts_extended" | "operator_clear_needed" => {
             need_eval(o, Some(COHORTS), &mut n)
+        }
+        "reference_objects_missing" | "reference_pin_failed" | "reference_presence_unchecked" => {
+            need_eval(o, Some(("references", |e| e.references.is_some())), &mut n)
         }
         "epoch_deferred" => need_eval(
             o,
@@ -1369,6 +1453,136 @@ mod tests {
         let c = at("step_refused", Value::Null, Value::Null, Value::Null);
         assert_eq!(rules_of(&c), vec!["cohort_fault"]);
         assert!(STATUS_RULES.contains(&"operator_clear_needed"));
+    }
+
+    /// v18 (G3): a probe that found an artifact's objects missing
+    /// (`objects_missing`) is told to restore them (a repair), never to
+    /// clear or abandon the cohort.
+    #[test]
+    fn missing_objects_ask_for_a_repair_not_a_clear_or_an_abandon() {
+        let (r, p) = (rules(), PublisherObs::default());
+        let mut j = eval_status("scoring");
+        j["cohorts"][1]["fault"] = json!("scorer_unavailable");
+        j["cohorts"][1]["fault_cause"] = json!("slot");
+        j["cohorts"][1]["self_clearing"] = json!(true);
+        j["cohorts"][1]["objects_missing"] = json!(true);
+        j["cohorts"][1]["operator_clear_needed"] = json!(true);
+        let mut e = parse_eval(&j);
+        e.ledger_over_threshold = Some(false);
+        let mut o = healthy();
+        o.coordinator.as_mut().unwrap().signing = None;
+        o.eval = Some(e);
+        let c = evaluate(&o, &p, &r);
+        assert_eq!(rules_of(&c), vec!["scorer_budget_fault", "operator_clear_needed"]);
+        assert!(c[1].detail.contains("restore them (repair)"), "{c:?}");
+        assert!(c[1].detail.contains("do not /eval/clear or /eval/abandon"), "{c:?}");
+        assert!(!c[1].detail.contains("no automatic clear"), "{c:?}");
+    }
+
+    /// v18 (G2): the eval Worker's reference block raises
+    /// `reference_objects_missing` for a presence check that found files
+    /// missing, and `reference_pin_failed` for a failed pin at once (a
+    /// retrying one after the unreachable hold); a coordinator without the
+    /// block raises neither, and an open entry's read without it is unknown.
+    #[test]
+    fn reference_presence_and_pin_failures_alert() {
+        let (r, p) = (rules(), PublisherObs::default());
+        let at = |refs: Value| -> Vec<Condition> {
+            let mut j = eval_status("scoring");
+            j["references"] = refs;
+            let mut e = parse_eval(&j);
+            e.ledger_over_threshold = Some(false);
+            let mut o = healthy();
+            o.coordinator.as_mut().unwrap().signing = None;
+            o.eval = Some(e);
+            evaluate(&o, &p, &r)
+        };
+        assert!(rules_of(&at(Value::Null)).is_empty());
+        let clean = json!({"gate": null, "pins": [{"content": "ab".repeat(32), "state": "pinned", "attempts": 1}],
+            "presence": {"ok": true, "missing": []}});
+        assert!(rules_of(&at(clean)).is_empty());
+        let missing = json!({"gate": "reference_objects_missing", "pins": [],
+            "presence": {"ok": false, "missing": [{"package": "cd".repeat(32), "file": "a.onnx", "key": "k", "reason": "absent"}]}});
+        let c = at(missing);
+        assert_eq!(rules_of(&c), vec!["reference_objects_missing"]);
+        assert_eq!(c[0].subject, "references");
+        assert!(c[0].detail.contains("package cdcdcdcd a.onnx: absent") && c[0].detail.contains("calendar waits"), "{c:?}");
+        assert_eq!(c[0].hold_ms, 0);
+        let failed = json!({"gate": "reference_pin_failed", "pins": [{"content": "ef".repeat(32), "state": "failed", "attempts": 1, "error": "source_absent"}],
+            "presence": null});
+        let c = at(failed);
+        assert_eq!(rules_of(&c), vec!["reference_pin_failed"]);
+        assert!(c[0].detail.contains("content efefefef: source_absent"), "{c:?}");
+        assert!(c[0].detail.contains("the next cohort does not queue"), "{c:?}");
+        assert_eq!(c[0].hold_ms, 0);
+        // A failed pin for a content nothing names any more raises nothing;
+        // one still named while the calendar waits on something else does
+        // not claim the queue waits on it.
+        let stale = json!({"gate": null, "pins": [{"content": "ef".repeat(32), "state": "failed", "attempts": 1, "error": "source_absent", "named": false}],
+            "presence": {"ok": true, "missing": []}});
+        assert!(rules_of(&at(stale)).is_empty());
+        let named = json!({"gate": null, "pins": [{"content": "ef".repeat(32), "state": "failed", "attempts": 1, "error": "source_absent", "named": true}],
+            "presence": {"ok": true, "missing": []}});
+        let c = at(named);
+        assert_eq!(rules_of(&c), vec!["reference_pin_failed"]);
+        assert!(!c[0].detail.contains("does not queue"), "{c:?}");
+        let retrying = json!({"gate": "reference_pin_pending", "pins": [{"content": "ef".repeat(32), "state": "pending", "attempts": 3, "error": "copy_failed"}]});
+        let c = at(retrying);
+        assert_eq!(rules_of(&c), vec!["reference_pin_failed"]);
+        assert_eq!(c[0].hold_ms, r.unreachable_hold_ms);
+        assert!(STATUS_RULES.contains(&"reference_objects_missing") && STATUS_RULES.contains(&"reference_pin_failed"));
+        let mut o = healthy();
+        o.eval.as_mut().unwrap().references = None;
+        assert_eq!(needs("reference_objects_missing", "references", &o), vec![Need::Field("eval", "references")]);
+    }
+
+    #[test]
+    fn unchecked_reference_presence_waits_alerts_survives_unknown_reads_and_resolves() {
+        let (r, p) = (rules(), PublisherObs::default());
+        let at = |refs: Value| {
+            let mut j = eval_status("scoring");
+            j["references"] = refs;
+            let mut o = healthy();
+            let mut e = parse_eval(&j);
+            e.ledger_over_threshold = Some(false);
+            o.eval = Some(e);
+            o.coordinator.as_mut().unwrap().signing = None;
+            o
+        };
+        let bad = at(json!({"gate": "reference_presence_unchecked", "pins": [],
+            "presence": {"ok": false, "missing": [], "error": "head_failed"}}));
+        let c = evaluate(&bad, &p, &r);
+        assert_eq!(rules_of(&c), vec!["reference_presence_unchecked"]);
+        assert!(c[0].detail.contains("head_failed") && c[0].detail.contains("does not queue"));
+        assert_eq!(c[0].hold_ms, r.unreachable_hold_ms);
+        let pending = at(json!({"gate": "reference_presence_unchecked", "pins": [], "presence": null}));
+        assert_eq!(rules_of(&evaluate(&pending, &p, &r)), vec!["reference_presence_unchecked"]);
+        let open = at(json!({"gate": null, "pins": [], "presence": {"error": "head_failed", "missing": []}}));
+        let c = evaluate(&open, &p, &r);
+        assert_eq!(rules_of(&c), vec!["reference_presence_unchecked"]);
+        assert!(!c[0].detail.contains("does not queue"));
+        let mut st = AlertState::default();
+        let t = 1_000_000;
+        observe(&mut st, &conditions(&bad, &p, &r, &AlertState::default(), t), t);
+        assert!(due(&st, t, 3_600_000).is_empty());
+        let t = t + r.unreachable_hold_ms;
+        let c = conditions(&bad, &p, &r, &st, t);
+        observe(&mut st, &c, t);
+        let ev = due(&st, t, 3_600_000);
+        assert_eq!(ev.len(), 1);
+        assert_eq!(ev[0].state, EventKind::Firing);
+        acknowledge(&mut st, &ev, t);
+        for unknown in [at(Value::Null), { let mut o = bad.clone(); o.eval = None; o }] {
+            assert!(!needs("reference_presence_unchecked", "references", &unknown).is_empty());
+            let c = conditions(&unknown, &p, &r, &st, t + 1);
+            observe(&mut st, &c, t + 1);
+            assert!(!due(&st, t + 1, 3_600_000).iter().any(|e| e.state == EventKind::Resolved));
+        }
+        let good = at(json!({"gate": null, "pins": [], "presence": {"ok": true, "missing": [], "error": null}}));
+        let c = conditions(&good, &p, &r, &st, t + 2);
+        observe(&mut st, &c, t + 2);
+        let ev = due(&st, t + 2, 3_600_000);
+        assert!(ev.iter().any(|e| e.rule == "reference_presence_unchecked" && e.state == EventKind::Resolved));
     }
 
     /// The coordinator's status during the 2026-11-05/06 signing stall, on

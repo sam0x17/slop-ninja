@@ -78,7 +78,15 @@ completion rather than tempos, wall time, or adoption. Keep the evaluation copie
 of R_k and R_{k-1} while they are references; delete admission-bucket copies of
 entrant artifacts once their cohort closes and publication is recorded, except
 those of a promoted entrant while it is R_k or R_{k-1} or an open cohort names
-it. Preserve signed per-miner score/calculation records, roots/counts, rows,
+it. Each reference (a promoted entrant before the next cohort names it, or a
+decided one) is copied once into the immutable reference storage, verified by
+SHA-256, and cohorts load R_k and R_{k-1} from that pinned copy, which no
+clean-up deletes. Before the calendar queues a cohort, every file of its
+references is checked present at its pinned entity tag; a missing file or a
+failed pin holds the queue and alerts. Repeated presence-read failures also
+alert after the publisher's unreachable hold without claiming files are missing,
+and retry automatically. The operator can request a journaled recheck or
+start the cohort past the gate. Preserve signed per-miner score/calculation records, roots/counts, rows,
 signed row records, observation certificates, and chain/accounting recovery state.
 Validators' commitments need only the signed row; submitted obligations recover
 without expired receipts. No indefinite detailed receipt archive. The testnet

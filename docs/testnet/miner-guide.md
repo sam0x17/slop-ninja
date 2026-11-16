@@ -973,7 +973,9 @@ each file's bytes, rate and time left (`--quiet` turns them off).
   side (a platform fault, never yours), `status` lists it and
   `slop_ninja_miner repair --artifact ./my-artifact.bin` (or `status --repair
   --artifact ...`) sends it again from your local object, also after the
-  cutoff. Keep the object until your cohort's scoring starts.
+  cutoff. After sending, it asks the coordinator to check the objects again
+  and exits 0 once none is missing; it reports an object as still missing
+  only after that check. Keep the object until your cohort's scoring starts.
 
 The session ends as `verified` or `refused`.
 

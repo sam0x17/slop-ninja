@@ -2451,6 +2451,12 @@ pub enum Work {
     /// Write one queued operator decision record
     /// (`decide::record_of`), then mark it written.
     DecisionRecord { id: i64 },
+    /// Pin one reference: copy its files into the reference storage and
+    /// write its pinned files manifest (`eval::pins`).
+    ReferencePin { content: String },
+    /// Head every file of the next cohort's references and of the open
+    /// cohorts' references (`eval::pins::presence_due`).
+    ReferencePresence,
 }
 
 /// The next root step or sweep, if any. Phase moves that need no I/O (all

@@ -32,6 +32,8 @@
 //! - [`retention`]: detailed receipt deletion after N+1 and N+2 complete.
 //! - [`probe_cut`]: the operator's preparation of a same-authority probe
 //!   cut and the template reinstall naming its version.
+//! - [`pins`]: reference pins (each R_k copied once into the reference
+//!   storage) and the presence check before a cohort is queued.
 //! - [`reference`]: reference staging (`slop_ninja_reference_staging_v1`):
 //!   the operator's reference packages staged by presigned PUTs that R2
 //!   verifies, then pinned.
@@ -63,6 +65,7 @@ pub mod textgen;
 pub mod package;
 pub mod plan;
 pub mod pool;
+pub mod pins;
 pub mod probe_cut;
 pub mod reference;
 pub mod receipts;

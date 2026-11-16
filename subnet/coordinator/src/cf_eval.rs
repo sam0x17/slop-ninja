@@ -948,6 +948,11 @@ impl DurableObject for EvalCohort {
                     // Structural stalls (completions, never a clock): the
                     // publisher's `retention_stalled` reads this list.
                     v["receipt_retention"]["stalled"] = j!(crate::eval::retention::stalled(sql, &c2)?);
+                    // The reference pins, the latest presence check of the
+                    // references' objects and the calendar's reference gate
+                    // (`eval::pins`): the publisher alerts on its
+                    // `objects_missing` and `pin_failed`.
+                    v["references"] = crate::eval::pins::status(sql, c2.authority.first_cohort())?;
                     Ok::<_, engine::EvalError>(v)
                 }) {
                     Ok(mut v) => {
@@ -1144,6 +1149,30 @@ impl DurableObject for EvalCohort {
                 }
                 let c2 = cfg.clone();
                 match transaction(&storage, move |sql| crate::eval::decide::reference_decision(sql, &c2, &r, key.as_ref(), &evidence, now)) {
+                    Ok(Ok(v)) => {
+                        storage.set_alarm(500i64).await?;
+                        json(&v)
+                    }
+                    Ok(Err(code)) => error(code, 409),
+                    Err(TxError::Operation(e)) => error(e.code(), 422),
+                    Err(_) => error("store_unavailable", 503),
+                }
+            }
+            // The operator's journaled recheck of the reference pins and
+            // the presence check (`eval::pins::recheck`): retries every
+            // failed pin and re-heads the references at the next step.
+            (Method::Post, "/references/recheck") if main => {
+                let body = match super::cf_io::request_json::<Value>(&mut req, OPERATOR_BODY_BYTES).await {
+                    Ok(v) => v,
+                    Err(super::cf_io::JsonError::Parse) => return error("bad_request", 400),
+                    Err(e) => return error(e.code(), e.status()),
+                };
+                let r = match crate::operator::parse(body) {
+                    Ok(r) => r,
+                    Err(code) => return error(code, 400),
+                };
+                let c2 = cfg.clone();
+                match transaction(&storage, move |sql| crate::eval::pins::recheck(sql, &c2, &r, now)) {
                     Ok(Ok(v)) => {
                         storage.set_alarm(500i64).await?;
                         json(&v)
@@ -1754,6 +1783,8 @@ impl EvalCohort {
                     | Work::AdmissionSweep
                     | Work::AdmissionReconcile
                     | Work::OpenNext { .. }
+                    | Work::ReferencePin { .. }
+                    | Work::ReferencePresence
             ) {
                 // An arena refusal faults the admitting or closing cohort the
                 // step serves (none: nothing to fault).
@@ -2001,7 +2032,9 @@ impl EvalCohort {
                 | Work::AdmissionClose
                 | Work::AdmissionSweep
                 | Work::AdmissionReconcile
-                | Work::OpenNext { .. } => {}
+                | Work::OpenNext { .. }
+                | Work::ReferencePin { .. }
+                | Work::ReferencePresence => {}
                 Work::Probe { seq, code, probe } => {
                     // One bounded probe of a paused cohort's outage. Its start
                     // (the next probe's time, the bound charged if no outcome

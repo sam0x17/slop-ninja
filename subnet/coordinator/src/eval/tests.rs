@@ -386,6 +386,12 @@ struct Sim<'a> {
     /// document.
     span_facts: Option<FactsHook<'a>>,
     spans: Option<SpanHook<'a>>,
+    /// Bucket objects (artifact files) the sim's buckets no longer hold,
+    /// by key: every other key a files manifest names is present at the
+    /// entity tag it pins (`eval::pins`).
+    lost: BTreeSet<String>,
+    /// Reference copies the pins made (`reference/v2/files/<sha256>`).
+    reference_copies: BTreeSet<String>,
 }
 
 /// A scoring lane's load facts by job.
@@ -449,6 +455,8 @@ impl<'a> Sim<'a> {
             gen_probes: Vec::new(),
             span_facts: None,
             spans: None,
+            lost: BTreeSet::new(),
+            reference_copies: BTreeSet::new(),
         }
     }
 
@@ -627,6 +635,26 @@ impl<'a> Sim<'a> {
                 }
                 Work::OpenNext { plan, .. } => {
                     tx(self.db, |s| engine::queue(s, &c, &plan, now)).unwrap();
+                }
+                // Mirrors `cf_reference`'s pin step: the source manifest from
+                // the eval bucket, each file copied to its reference key
+                // (unless the source object is lost), the copies headed and
+                // the pinned manifest written.
+                Work::ReferencePin { content } => {
+                    let job = tx(self.db, |s| super::pins::due(s, now)).unwrap().filter(|j| j.content == content).unwrap();
+                    let outcome = self.pin(&job);
+                    tx(self.db, |s| match &outcome {
+                        Ok((record, copied)) => super::pins::pin_done(s, &content, record, *copied, now),
+                        Err(f) => super::pins::pin_failed(s, &content, f, now),
+                    })
+                    .unwrap();
+                }
+                // Mirrors `cf_reference`'s presence step.
+                Work::ReferencePresence => {
+                    let first = c.authority.first_cohort();
+                    let job = tx(self.db, |s| super::pins::presence_due(s, first, now)).unwrap().unwrap();
+                    let checked = self.presence(&job);
+                    tx(self.db, |s| super::pins::presence_done(s, &job, &checked, now)).unwrap();
                 }
                 // Mirrors `cf_eval::run_probe`: a generation probe asks the
                 // simulated provider; a scorer probe starts a fresh instance
@@ -832,6 +860,62 @@ impl<'a> Sim<'a> {
         };
         tx(self.db, |s| v3::apply_draw(s, &c, seq, &d, &parents, &texts, &pool::Used::default(), now)).unwrap();
         Ok(())
+    }
+
+    /// One reference pin, as `cf_reference` runs it.
+    fn pin(&mut self, job: &super::pins::PinJob) -> Result<(super::plan::ArtifactJson, u64), super::pins::PinFailure> {
+        use super::admission::{Head, Stored};
+        use super::pins::PinFailure;
+        let Some(bytes) = self.eval.get(&job.source.manifest_key).cloned() else {
+            return Err(PinFailure::Permanent("source_manifest_absent"));
+        };
+        let plan = super::pins::plan_copy(&bytes)?;
+        if plan.as_is {
+            return Ok((job.source.clone(), 0));
+        }
+        let mut copied = 0;
+        for item in &plan.items {
+            if self.reference_copies.contains(&item.dst_key) && !self.lost.contains(&item.dst_key) {
+                continue;
+            }
+            if self.lost.contains(&item.src_key) {
+                return Err(PinFailure::Permanent("source_absent"));
+            }
+            self.lost.remove(&item.dst_key);
+            self.reference_copies.insert(item.dst_key.clone());
+            copied += 1;
+        }
+        let heads: Vec<Head> = plan
+            .items
+            .iter()
+            .map(|c| {
+                let mut sha = [0u8; 32];
+                hex::decode_to_slice(&c.sha256, &mut sha).unwrap();
+                Head::Present(Stored { size: c.bytes, sha256: Some(sha), etag: format!("ref-{}", &c.sha256[..16]), clean: true })
+            })
+            .collect();
+        let pinned = super::pins::finish(plan, &heads)?;
+        self.eval.insert(super::admission::manifest_key(&pinned.package), pinned.bytes);
+        Ok((super::pins::pinned_record(&job.source, &pinned.package), copied))
+    }
+
+    /// One presence check, as `cf_reference` runs it: a file is present
+    /// unless its key is lost.
+    fn presence(&self, job: &super::pins::PresenceJob) -> Vec<super::pins::Checked> {
+        use super::pins::{Checked, FileCheck};
+        let mut out = Vec::new();
+        for t in &job.targets {
+            let Some(b) = self.eval.get(&t.manifest_key) else {
+                out.push(Checked { package: t.package.clone(), file: "files_manifest".into(), key: t.manifest_key.clone(), outcome: FileCheck::Missing("manifest_absent") });
+                continue;
+            };
+            let m: slop_ninja_artifact_check::files_manifest::FilesManifest = serde_json::from_slice(b).unwrap();
+            for f in &m.files {
+                let outcome = if self.lost.contains(&f.key) { FileCheck::Missing("absent") } else { FileCheck::Present };
+                out.push(Checked { package: t.package.clone(), file: f.name.clone(), key: f.key.clone(), outcome });
+            }
+        }
+        out
     }
 
     fn artifact_digests(&self, a: &super::plan::ArtifactJson) -> v3::ArtifactDigests {
@@ -2917,7 +3001,7 @@ fn the_v3_cohort_store_migrates_in_place_to_v7() {
         )
         .unwrap();
     let report = sql::migrate(&db, &EVAL_COHORT_SCHEMA).unwrap();
-    assert_eq!((report.from, report.to), (3, 30));
+    assert_eq!((report.from, report.to), (3, 31));
     let st = status(&db, 5);
     assert_eq!(st["cohorts"][0]["phase"], "closed");
     assert_eq!(st["cohorts"][0]["jobs"][0]["status"], "done", "the jobs table was rebuilt with its rows");
@@ -7286,7 +7370,10 @@ fn a_probe_cut_runs_beside_open_cohorts_and_the_reinstalled_template_governs_onl
     assert_eq!(l5, "testnet-t-5");
     let p5: CohortPlan = serde_json::from_slice(&p5).unwrap();
     assert_eq!(p5.reward_v1.as_ref().unwrap().probes, vec![v2]);
-    assert_eq!(p5.reference, weak, "the chain's reference");
+    // The chain's reference, as its pinned record names it (`eval::pins`).
+    let r0 = chain_row(&db).1;
+    assert_eq!(Some(p5.reference.clone()), tx(&db, |s| super::pins::pinned(s, &r0)).unwrap(), "the chain's reference");
+    assert_eq!(sim.artifact_digests(&p5.reference), sim.artifact_digests(&weak));
     assert_eq!(p5.fanout.as_ref().unwrap().generation.failures_before_pause, Some(10));
     assert!(p5.reward_v1.as_ref().unwrap().seeded_task_order());
     let bytes = serde_json::to_vec(&p5).unwrap();
@@ -7615,7 +7702,7 @@ fn store_v23_seeds_the_boundary_journal_from_cohort_history_without_work_times()
         )
         .unwrap();
     let report = sql::migrate(&db, &EVAL_COHORT_SCHEMA).unwrap();
-    assert_eq!((report.from, report.to), (22, 30));
+    assert_eq!((report.from, report.to), (22, 31));
     let got: Vec<(u64, Option<u64>, Option<u64>)> = journal(&db).iter().map(|r| (r.epoch, r.block, r.observed_ms)).collect();
     assert_eq!(
         got,
@@ -8486,7 +8573,11 @@ fn a_span_equivalent_reference_decision_replaces_r0_only_on_its_evidence() {
         .unwrap();
     let (pairs, r0_record) = tx(&db, |s| super::decide::span_reads(s, &op_req(good()))).unwrap().unwrap();
     assert_eq!(pairs, vec![(1, "vectors/cand-v1".to_owned(), r0_key, 20)]);
-    assert_eq!(r0_record.manifest_key, weak.manifest_key, "the Worker reads R_0's files manifest at its record's key");
+    // R_0 as the chain resolves it: its pinned record (`eval::pins`), the
+    // same content at the reference keys.
+    let pinned_r0 = tx(&db, |s| super::pins::pinned(s, &r0)).unwrap().expect("R_0 is pinned");
+    assert_eq!(r0_record, pinned_r0, "the Worker reads R_0's files manifest at its record's key");
+    assert_eq!(v3::content_of(&sim.eval[&r0_record.manifest_key]), v3::content_of(&sim.eval[&weak.manifest_key]));
     // Staged: the files manifest at the staged key, every file at its
     // reference location.
     assert_eq!(decide(&signed("drill-r2", good()), &SpanEvidence { candidate_manifest: None, ..full.clone() }), Err("candidate_not_staged"));
@@ -8673,4 +8764,282 @@ fn arena_witness_a_span_equivalent_decision_fits_the_cohort_footprint() {
     });
     assert_eq!(answer, Ok(true), "the decision accepts");
     eprintln!("span-equivalent decision: peak live {peak} B of {COHORT_CONTROL_BYTES} B (body {unpadded} B unpadded)");
+}
+
+// ------------------------------------------------- reference pins (eval::pins)
+
+/// The files a stored record's files manifest names, by key.
+fn manifest_files(sim: &Sim<'_>, a: &super::plan::ArtifactJson) -> Vec<slop_ninja_artifact_check::files_manifest::FileEntry> {
+    serde_json::from_slice::<slop_ninja_artifact_check::files_manifest::FilesManifest>(&sim.eval[&a.manifest_key]).unwrap().files
+}
+
+/// The chain's `(k, current, predecessor)`.
+fn chain_row(db: &Sqlite) -> (i64, String, Option<String>) {
+    db.conn
+        .query_row("SELECT k, current, predecessor FROM reference_state WHERE id = 1", [], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)))
+        .unwrap()
+}
+
+/// A cohort that promotes its one strong entrant over `weak` (R_0), run to
+/// its close: the chain is then (R_1, R_0). Returns the entrant's record.
+fn promoted_world(sim: &mut Sim<'_>, db: &Sqlite, weak: &super::plan::ArtifactJson, probe: &super::plan::ProbeRef) -> super::plan::ArtifactJson {
+    let id = super::plan::tests::identity;
+    let good = v3_artifact(sim, id(23, 0xc3), [1, 2, 3, 23, 5]);
+    let mut p = plan_v3(2, "testnet-t-2", 20, weak.clone());
+    p.entrants = vec![good.clone()];
+    p.allow_list = vec![id(23, 0xc3)];
+    p.reward_v1.as_mut().unwrap().probes = vec![probe.clone()];
+    sim.predict = Some(Box::new(|job, kind, task| {
+        let c = match job {
+            0 => model_conf(1, kind, task, (35.0, 65.0, 70.0), 10.0),
+            _ => model_conf(4, kind, task, (3.0, 95.0, 97.0), 7.0),
+        };
+        (c, c * 0.4)
+    }));
+    let seq = open_cohort(db, &p, 20, sim.now);
+    run_to_close(sim, db, seq, 22);
+    assert_eq!(sim.packages_v3.pop().unwrap().package.promoted, Some(AccountId([0xc3; 32])));
+    good
+}
+
+/// The latest cohort the calendar queued (not a probe build), if any.
+fn queued_from_template(db: &Sqlite) -> Option<engine::Cohort> {
+    tx(db, engine::cohorts).unwrap().into_iter().rev().find(|c| c.phase == "queued")
+}
+
+/// G1 and G2: a promotion's transition pins the promoted entrant (its files
+/// copied to `reference/v2/files/<sha256>`, a pinned files manifest), and
+/// the chain's R_0 is pinned the same way. With a pinned file of the next
+/// cohort's references missing, the presence check refuses to let the
+/// calendar queue (`reference_objects_missing`, on the status); once it is
+/// back the check passes after a tick. The admission clean-up then takes
+/// the promoted entrant's own objects, and the next cohort still names, and
+/// loads, both references from their pinned records: same content, files at
+/// the reference keys only.
+#[test]
+fn a_promoted_reference_is_pinned_and_the_next_cohort_loads_it_from_the_pinned_record() {
+    use slop_ninja_artifact_check::files_manifest::reference_file_key;
+    let db = Sqlite::open();
+    let (mut sim, weak, v1) = probe_built(&db);
+    let good = promoted_world(&mut sim, &db, &weak, &v1);
+    let (k, r1, r0) = chain_row(&db);
+    assert_eq!(k, 1);
+    let r0 = r0.expect("R_0 is the predecessor");
+    assert_eq!(r1, sim.artifact_digests(&good).content.0.to_string());
+    // Both references are pinned; R_1's pin ran during the transition.
+    let p1 = tx(&db, |s| super::pins::pinned(s, &r1)).unwrap().expect("R_1 pinned");
+    let p0 = tx(&db, |s| super::pins::pinned(s, &r0)).unwrap().expect("R_0 pinned");
+    for (pinned, source) in [(&p1, &good), (&p0, &weak)] {
+        assert_ne!(pinned.package_sha256, source.package_sha256);
+        assert_eq!(pinned.manifest_key, super::admission::manifest_key(&pinned.package_sha256));
+        assert_eq!((&pinned.owner, &pinned.model_sha256), (&source.owner, &source.model_sha256));
+        assert_eq!(sim.artifact_digests(pinned), sim.artifact_digests(source), "same content and artifact digest");
+        for f in manifest_files(&sim, pinned) {
+            assert_eq!((f.bucket.as_str(), f.key.clone()), ("admission", reference_file_key(&f.sha256)));
+            assert!(f.etag.is_some());
+        }
+    }
+    // A pinned file of R_1 is missing: the calendar does not queue.
+    let lost = manifest_files(&sim, &p1)[0].key.clone();
+    sim.lost.insert(lost.clone());
+    let mut base = plan_v3(0, "testnet-t-template", 20, weak.clone());
+    base.reward_v1.as_mut().unwrap().canary.draw_humans = 4;
+    template_install(&db, &standing_of("testnet-t", base, vec![v1.clone()]), sim.now).unwrap();
+    for _ in 0..4 {
+        sim.tick();
+    }
+    assert!(queued_from_template(&db).is_none(), "nothing queues while a reference file is missing");
+    let refs = tx(&db, |s| super::pins::status(s, 0)).unwrap();
+    assert_eq!(refs["gate"], json!(super::pins::GATE_MISSING));
+    assert_eq!(refs["objects_missing"], json!(true));
+    assert_eq!(refs["presence"]["missing"][0]["key"], json!(lost));
+    assert!(!tx(&db, |s| super::calendar::ready(s, &cfg())).unwrap());
+    // Restored, and the admission clean-up deletes R_1's admission-side
+    // objects (and R_0's original files): the check passes after a tick.
+    sim.lost.remove(&lost);
+    for f in manifest_files(&sim, &good).into_iter().chain(manifest_files(&sim, &weak)) {
+        sim.lost.insert(f.key);
+    }
+    sim.now += super::admission::TICK_MS;
+    for _ in 0..4 {
+        sim.tick();
+    }
+    let next = queued_from_template(&db).expect("the next cohort is queued");
+    assert_eq!(next.plan.reference, p1, "R_1 from its pinned record");
+    assert_eq!(next.plan.previous_reference.as_ref(), Some(&p0), "R_0 from its pinned record");
+    let refs = tx(&db, |s| super::pins::status(s, 0)).unwrap();
+    assert_eq!((refs["presence"]["ok"].clone(), refs["gate"].clone()), (json!(true), Value::Null));
+    // The lanes load what the plan names: every file at a reference key the
+    // sim still holds, with the content the chain names.
+    for a in [&next.plan.reference, next.plan.previous_reference.as_ref().unwrap()] {
+        assert!(manifest_files(&sim, a).iter().all(|f| !sim.lost.contains(&f.key) && f.key.starts_with("reference/v2/files/")));
+    }
+    assert_eq!(sim.artifact_digests(&next.plan.reference).content.0.to_string(), r1);
+    // Deletes never touch the reference prefix, whatever queued them.
+    db.conn
+        .execute("INSERT INTO adm_object_deletes (key, upload_id, created_ms) VALUES (?1, NULL, 0)", [&reference_file_key(&"ab".repeat(32))])
+        .unwrap();
+    assert!(tx(&db, |s| super::admission::object_deletes_due(s, 8, sim.now)).unwrap().is_empty());
+}
+
+/// G1's backfill: the references a store already holds get pinned by the
+/// same step, once; running it again changes nothing, and a lost pin row is
+/// rebuilt to the same record. A staged package (files at their reference
+/// keys with pinned tags) is its own pin and copies nothing. A pin whose
+/// source is gone fails for good (`reference_pin_failed`): the calendar
+/// waits, the operator's `cohort/start` still queues, and the journaled
+/// recheck retries it once the source is back.
+#[test]
+fn reference_pins_backfill_idempotently_and_a_failed_pin_waits_for_the_operator_recheck() {
+    let db = Sqlite::open();
+    let (mut sim, weak, v1) = probe_built(&db);
+    for _ in 0..2 {
+        sim.tick();
+    }
+    let (_, r0, _) = chain_row(&db);
+    let pinned = tx(&db, |s| super::pins::pinned(s, &r0)).unwrap().expect("R_0 pinned by the backfill");
+    let rows = |db: &Sqlite| db.conn.query_row("SELECT COUNT(*) FROM reference_pins", [], |r| r.get::<_, i64>(0)).unwrap();
+    assert_eq!(rows(&db), 1);
+    for _ in 0..2 {
+        tx(&db, |s| super::pins::ensure(s, sim.now)).unwrap();
+        sim.tick();
+    }
+    assert_eq!(rows(&db), 1);
+    assert_eq!(tx(&db, |s| super::pins::pinned(s, &r0)).unwrap().as_ref(), Some(&pinned), "unchanged");
+    // A lost row is rebuilt to the same record (the copies are in place).
+    db.conn.execute("DELETE FROM reference_pins", []).unwrap();
+    sim.tick();
+    assert_eq!(tx(&db, |s| super::pins::pinned(s, &r0)).unwrap().as_ref(), Some(&pinned));
+    // A staged package is its own pin.
+    let (staged, package) = staged_reference_manifest(0x41);
+    let plan = super::pins::plan_copy(&staged).unwrap();
+    assert!(plan.as_is);
+    assert_eq!(slop_ninja_artifact_check::files_manifest::FilesManifest::package_of(&staged), package);
+
+    // The pin's source and its copies are gone: the pin fails for good.
+    db.conn.execute("DELETE FROM reference_pins", []).unwrap();
+    sim.reference_copies.clear();
+    for f in manifest_files(&sim, &weak) {
+        sim.lost.insert(f.key);
+    }
+    let mut base = plan_v3(0, "testnet-t-template", 20, weak.clone());
+    base.reward_v1.as_mut().unwrap().canary.draw_humans = 4;
+    template_install(&db, &standing_of("testnet-t", base, vec![v1.clone()]), sim.now).unwrap();
+    for _ in 0..3 {
+        sim.tick();
+    }
+    let refs = tx(&db, |s| super::pins::status(s, 0)).unwrap();
+    assert_eq!(refs["pins"][0]["state"], json!("failed"));
+    assert_eq!(refs["pins"][0]["error"], json!("source_absent"));
+    assert_eq!((refs["gate"].clone(), refs["pin_failed"].clone()), (json!(super::pins::GATE_PIN_FAILED), json!(true)));
+    assert!(queued_from_template(&db).is_none(), "the calendar waits");
+    // A failed pin is not retried by time: only the operator's recheck.
+    let attempts = |db: &Sqlite| db.conn.query_row("SELECT attempts FROM reference_pins", [], |r| r.get::<_, i64>(0)).unwrap();
+    let before = attempts(&db);
+    sim.now += 10 * super::admission::TICK_MS;
+    for _ in 0..3 {
+        sim.tick();
+    }
+    assert_eq!((attempts(&db), refs_state(&db, &r0)), (before, "failed".to_owned()));
+    assert!(tx(&db, |s| super::pins::due(s, sim.now)).unwrap().is_none());
+    // The operator's cohort/start is still a path past the gate.
+    let (next, _, _) = tx(&db, |s| super::calendar::start_now(s, &cfg())).unwrap().unwrap();
+    assert!(next > 0);
+    // The source is back; the journaled recheck retries the pin.
+    for f in manifest_files(&sim, &weak) {
+        sim.lost.remove(&f.key);
+    }
+    let preview = op_req(json!({"decision": "drill-p0", "reason": "operator_decision", "preview": true, "expect": {}}));
+    let v = tx(&db, |s| super::pins::recheck(s, &cfg(), &preview, sim.now)).unwrap().unwrap();
+    assert_eq!(v["effect"]["pins_retried"], json!([r0]));
+    assert_eq!(refs_state(&db, &r0), "failed", "a preview changes nothing");
+    let req = op_req(json!({"decision": "drill-p1", "reason": "operator_decision", "expect": {}}));
+    let v = tx(&db, |s| super::pins::recheck(s, &cfg(), &req, sim.now)).unwrap().unwrap();
+    assert!(v["operator_seq"].as_i64().is_some(), "journaled");
+    let again = tx(&db, |s| super::pins::recheck(s, &cfg(), &req, sim.now + 1)).unwrap().unwrap();
+    assert_eq!(again["pins_retried"], v["pins_retried"], "a replay answers its effect");
+    for _ in 0..4 {
+        sim.tick();
+    }
+    assert_eq!(refs_state(&db, &r0), "pinned");
+    assert_eq!(tx(&db, |s| super::pins::pinned(s, &r0)).unwrap().as_ref(), Some(&pinned), "the same pinned record");
+    assert!(queued_from_template(&db).is_some(), "the calendar queues once the pin is written and present");
+}
+
+/// A failed copy can outlive its source or the reference that required it.
+/// Recheck must use today's source for retained content and forget obsolete
+/// failures, without changing a preview or replaying an already applied action.
+#[test]
+fn reference_recheck_replaces_a_stale_source_and_drops_unnamed_failures() {
+    let db = Sqlite::open();
+    let (mut sim, _, _) = probe_built(&db);
+    for _ in 0..2 {
+        sim.tick();
+    }
+    let (_, r0, _) = chain_row(&db);
+    let current = tx(&db, |s| super::calendar::resolve_source(s, &r0)).unwrap().unwrap();
+    let mut stale = current.clone();
+    stale.package_sha256 = "ee".repeat(32);
+    stale.manifest_key = format!("artifacts/packages/{}.json", stale.package_sha256);
+    let stale_json = serde_json::to_string(&stale).unwrap();
+    db.conn.execute(
+        "UPDATE reference_pins SET source_record = ?1, record = NULL, state = 'failed', error = 'source_absent' WHERE content = ?2",
+        rusqlite::params![stale_json, r0],
+    ).unwrap();
+    let obsolete = "ff".repeat(32);
+    db.conn.execute(
+        "INSERT INTO reference_pins(content, source_record, state, error, at_ms) VALUES (?1, ?2, 'failed', 'source_absent', 0)",
+        rusqlite::params![obsolete, stale_json],
+    ).unwrap();
+    let source = || db.conn.query_row("SELECT source_record FROM reference_pins WHERE content = ?1", [&r0], |r| r.get::<_, String>(0)).unwrap();
+    let count = || db.conn.query_row("SELECT COUNT(*) FROM reference_pins WHERE content = ?1", [&obsolete], |r| r.get::<_, i64>(0)).unwrap();
+    let preview = op_req(json!({"decision": "replace-preview", "reason": "operator_decision", "preview": true, "expect": {}}));
+    let v = tx(&db, |s| super::pins::recheck(s, &cfg(), &preview, sim.now)).unwrap().unwrap();
+    assert_eq!(v["effect"]["pins_retried"], json!([r0]));
+    assert_eq!(v["effect"]["pins_dropped"], json!([obsolete]));
+    assert_eq!((source(), count(), refs_state(&db, &r0)), (stale_json, 1, "failed".into()));
+    let req = op_req(json!({"decision": "replace-source", "reason": "operator_decision", "expect": {}}));
+    let v = tx(&db, |s| super::pins::recheck(s, &cfg(), &req, sim.now)).unwrap().unwrap();
+    assert_eq!(v["pins_retried"], json!([r0]));
+    assert_eq!(v["pins_dropped"], json!([obsolete]));
+    assert_eq!(serde_json::from_str::<super::plan::ArtifactJson>(&source()).unwrap(), current);
+    assert_eq!((count(), refs_state(&db, &r0)), (0, "pending".into()));
+    // The simulator loads the replacement source and finishes its pin.
+    sim.reference_copies.clear();
+    sim.tick();
+    assert_eq!(refs_state(&db, &r0), "pinned");
+    let again = tx(&db, |s| super::pins::recheck(s, &cfg(), &req, sim.now + 1)).unwrap().unwrap();
+    assert_eq!(again, json!({"pins_retried": [r0], "pins_dropped": [obsolete], "presence_rechecked": true}));
+    assert_eq!(refs_state(&db, &r0), "pinned", "replay does not restart a completed pin");
+}
+
+#[test]
+fn reference_presence_read_errors_hold_the_calendar_without_claiming_missing_files() {
+    let db = Sqlite::open();
+    let (mut sim, weak, v1) = probe_built(&db);
+    for _ in 0..2 { sim.tick(); }
+    let mut base = plan_v3(0, "testnet-t-template", 20, weak);
+    base.reward_v1.as_mut().unwrap().canary.draw_humans = 4;
+    template_install(&db, &standing_of("testnet-t", base, vec![v1]), sim.now).unwrap();
+    let job = tx(&db, |s| super::pins::presence_due(s, 0, sim.now)).unwrap().unwrap();
+    let mut checked = sim.presence(&job);
+    assert!(!checked.is_empty());
+    checked[0].outcome = super::pins::FileCheck::Error;
+    assert!(!tx(&db, |s| super::pins::presence_done(s, &job, &checked, sim.now)).unwrap());
+    let refs = tx(&db, |s| super::pins::status(s, 0)).unwrap();
+    assert_eq!(refs["gate"], json!(super::pins::GATE_UNCHECKED));
+    assert_eq!(refs["presence"]["error"], json!("head_failed"));
+    assert_eq!(refs["presence"]["missing"], json!([]));
+    assert_eq!(refs["objects_missing"], json!(false));
+    assert!(!tx(&db, |s| super::calendar::ready(s, &cfg())).unwrap());
+    assert!(tx(&db, |s| super::pins::presence_due(s, 0, sim.now)).unwrap().is_none());
+    sim.now += super::admission::TICK_MS;
+    for _ in 0..4 { sim.tick(); }
+    assert!(queued_from_template(&db).is_some(), "a successful retry resumes the calendar without an operator call");
+    let refs = tx(&db, |s| super::pins::status(s, 0)).unwrap();
+    assert_eq!((refs["gate"].clone(), refs["presence"]["error"].clone()), (Value::Null, Value::Null));
+}
+
+fn refs_state(db: &Sqlite, content: &str) -> String {
+    db.conn.query_row("SELECT state FROM reference_pins WHERE content = ?1", [content], |r| r.get(0)).unwrap()
 }

@@ -2168,8 +2168,12 @@ async fn eval_route(mut req: Request, env: Env) -> Result<Response> {
         // the operator's withheld release of a cohort's objects, one cohort
         // started from the installed template, and a reference decision
         // (the general override or the narrow span-equivalent replacement of
-        // R_0), each under the offline operator-decision key where it needs it.
-        (Method::Post, "/closure/decline" | "/release-objects" | "/cohort/start" | "/references/decision") if instance == "main" => {
+        // R_0), each under the offline operator-decision key where it needs it,
+        // and the journaled recheck of the reference pins and the presence
+        // check (`eval::pins::recheck`).
+        (Method::Post, "/closure/decline" | "/release-objects" | "/cohort/start" | "/references/decision" | "/references/recheck")
+            if instance == "main" =>
+        {
             eval_do::forward(&env, instance, Method::Post, &rest, raw).await
         }
         // The operator action log (`crate::operator`), paged by sequence.

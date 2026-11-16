@@ -3699,10 +3699,17 @@ fn cleanup_enqueue(sql: &impl Sql, now_ms: u64) -> R<()> {
 
 /// The queued object deletes whose backoff after a failed delete has
 /// passed: `(key, upload_id)`, oldest first.
+///
+/// A key under the reference prefix (`layout::REFERENCE_PREFIX`: the
+/// immutable reference storage every pinned `R_k` loads from,
+/// `eval::pins`) is never returned, whatever queued it: the clean-up, the
+/// observer and the reconciliation act only on admission and canary keys.
 pub fn object_deletes_due(sql: &impl Sql, limit: i64, now_ms: u64) -> R<Vec<(String, Option<String>)>> {
+    use slop_ninja_r2_presign::layout::REFERENCE_PREFIX;
     sql.exec(
-        "SELECT key, upload_id FROM adm_object_deletes WHERE not_before_ms <= ? ORDER BY created_ms, key LIMIT ?",
-        &[bind_u64(now_ms)?, i(limit)],
+        "SELECT key, upload_id FROM adm_object_deletes WHERE not_before_ms <= ? AND substr(key, 1, ?) <> ?
+         ORDER BY created_ms, key LIMIT ?",
+        &[bind_u64(now_ms)?, i(REFERENCE_PREFIX.len() as i64), s(REFERENCE_PREFIX), i(limit)],
     )?
     .iter()
     .map(|r| Ok((text(r, 0)?.to_owned(), opt_text(r, 1))))
@@ -4958,6 +4965,10 @@ pub fn has_outside_entrant(sql: &impl Sql, seq: i64) -> R<bool> {
 
 // ------------------------------------------------------------- the step
 
+// `has_work` names the reference prefix literally ([`object_deletes_due`]
+// never returns a key under it).
+const _: () = assert!(matches!(slop_ninja_r2_presign::layout::REFERENCE_PREFIX.as_bytes(), b"reference/v2/files/"));
+
 /// Whether admission has work for the cohort object's step, or the calendar
 /// has a cohort to open under `cfg` (`calendar::ready`: never for a retired
 /// authority). A pure read: status calls it, so it never records an error
@@ -4980,7 +4991,7 @@ pub fn has_work(sql: &impl Sql, cfg: &EvalConfig, due_by: Option<u64>) -> R<bool
                OR (state = 'admitted' AND stage = 'audit' AND step_after_ms <= ?)
              UNION ALL SELECT 1 FROM adm_cohorts WHERE state = 'closing' AND (close_recorded = 1 OR close_after_ms <= ?)
              UNION ALL SELECT 1 FROM adm_charges
-             UNION ALL SELECT 1 FROM adm_object_deletes WHERE not_before_ms <= ?
+             UNION ALL SELECT 1 FROM adm_object_deletes WHERE not_before_ms <= ? AND key NOT LIKE 'reference/v2/files/%'
              UNION ALL SELECT 1 FROM adm_sessions s JOIN adm_cohorts c ON c.seq = s.seq
                WHERE s.cleaned = 0 AND ((s.state IN ('refused','overflow','superseded') AND c.state IN ('frozen','abandoned'))
                  OR (s.state = 'admitted' AND c.state = 'abandoned'))
@@ -4992,6 +5003,9 @@ pub fn has_work(sql: &impl Sql, cfg: &EvalConfig, due_by: Option<u64>) -> R<bool
         return Ok(true);
     }
     let Some(now) = due_by else { return Ok(false) };
+    if !cfg.authority.is_retired() && crate::eval::pins::has_work(sql, cfg.authority.first_cohort(), now)? {
+        return Ok(true);
+    }
     Ok(canary_due(sql, now)?.is_some() || sweep_due(sql, now)? || reconcile_begin(sql, now)?.is_some())
 }
 
@@ -5045,6 +5059,16 @@ pub fn next_work(sql: &impl Sql, cfg: &EvalConfig, now_ms: u64) -> R<Option<engi
     }
     if !object_deletes_due(sql, 1, now_ms)?.is_empty() {
         return Ok(Some(engine::Work::AdmissionCleanup));
+    }
+    // The references the next cohort names are pinned and checked present
+    // before the calendar queues it (`eval::pins`).
+    if !cfg.authority.is_retired() {
+        if let Some(job) = crate::eval::pins::due(sql, now_ms)? {
+            return Ok(Some(engine::Work::ReferencePin { content: job.content }));
+        }
+        if crate::eval::pins::presence_due(sql, cfg.authority.first_cohort(), now_ms)?.is_some() {
+            return Ok(Some(engine::Work::ReferencePresence));
+        }
     }
     if let Some((label, plan)) = crate::eval::calendar::due(sql, cfg)? {
         return Ok(Some(engine::Work::OpenNext { label, plan }));

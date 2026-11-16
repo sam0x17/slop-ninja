@@ -922,13 +922,14 @@ subnet).
   only verify the digest of the bytes it receives.
 - On the miner's machine, the object and the openings are files of mode 0600.
 
-## 10. Public reads the client depends on (planned public layout)
+## 10. Public reads the client depends on (public layout)
 
 With `--public`, `status` and `next-cohort` read the public status snapshot,
 unauthenticated; otherwise they read the coordinator's unsigned cohort read
 (`GET /admission/v2/cohort`).
-The public publisher owns the layout, which is planned and not yet published;
-the client reads only these fields and ignores the rest:
+The public publisher owns the layout ([public layout](public-layout.md)),
+served at `https://testnet.slop.ninja`; the client reads only these fields and
+ignores the rest:
 
 `GET {public}/v1/status.json`
 

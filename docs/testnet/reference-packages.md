@@ -13,22 +13,22 @@ export manifest binds.
 
 The packages are published under the
 [Creative Commons Attribution-ShareAlike 4.0](https://creativecommons.org/licenses/by-sa/4.0/)
-licence (CC BY-SA 4.0). They go to the testnet public bucket, where public
-access stays off until the announce. Until public access opens, the `R_0`
-package and its [training companion](#training-companion) are attached to
-the testnet release `testnet-v0.1.0` as
+licence (CC BY-SA 4.0). They are on the public status host,
+<https://testnet.slop.ninja>, under the [public layout](public-layout.md)'s
+`v1/reference/packages/<package digest>/` paths: `R_0` in the parts layout
+(`143ca2d9…`) with its [training companion](#training-companion), and span
+package d24 (`4bc3d49c…`). The `R_0` package in the files layout and its
+companion are also attached to the testnet release `testnet-v0.1.0` as
 `slop-ninja-r0-reference-package-3c0ecc37.tar` and
 `slop-ninja-r0-training-companion-3c0ecc37.tar`
 ([`R_0` archives](miner-guide.md#r_0-archives-optional)): R0's artifact spec
-v3 package in the files layout, the package the `testnet-r1-` cohorts name.
-The span package d24 is not downloadable until then. The [public layout](public-layout.md)
-gives their paths.
+v3 package, the package the `testnet-r1-` cohorts name for `R_0`.
 
 ## The two packages
 
 | | `R_0` | Span package d24 |
 |---|---|---|
-| Role | the testnet reference `R_0`, scored in every cohort | SlopNinja's span-serving package (role `span_head`); not `R_0` until a signed span-equivalent reference decision passes it `R_0`'s position, before the first cohort that enforces the span gate |
+| Role | the first testnet reference `R_0`; since `testnet-r1-30` promoted `R_1`, its predecessor, scored in every cohort while it is the current reference's predecessor | SlopNinja's span-serving package (role `span_head`); not `R_0` until a signed span-equivalent reference decision passes it `R_0`'s position, before the first cohort that enforces the span gate |
 | Model | R0, the released *A* document model | R0's encoder and document heads, unchanged, with the S2c span tower and token head, the 24-word span decoder and a span confidence map refitted under that floor |
 | Graph class | `a-plain-f32band-v1` | `a-tower-f32band-v1` |
 | Spec | v1 to v4 | v3 to v5 |

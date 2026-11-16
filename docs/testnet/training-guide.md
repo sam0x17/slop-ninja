@@ -42,45 +42,48 @@ repository is <https://github.com/sam0x17/slop-ninja>. The commands fetch everyt
 
 ## The testnet reference
 
-- The testnet reference is **R0**, scored in every cohort. Its
+- The current testnet reference and its predecessor are scored in every
+  cohort. The [status page](https://slop.ninja/testnet/status/) names the
+  current one, and the
+  [miner guide](miner-guide.md#the-current-reference-optional) shows how to
+  download it and score against it. R0, SlopNinja's released model, was the
+  first reference; `testnet-r1-30` promoted an entrant to R1 by the standard
+  rule on November 15, 2026, and R0 became its predecessor. R0 is the model
+  this guide's recipe and warm start build on. Its
   [reference package](reference-packages.md) is published under CC BY-SA 4.0
-  with a training companion that holds R0's encoder. Until public access
-  opens, both are attached to the testnet release as two tar archives
-  ([miner guide](miner-guide.md#r_0-archives-optional)). The recipe below
-  starts from ModernBERT-base and public data; you can start from R0's
-  encoder instead ([Warm start from R0](#warm-start-from-r0)).
+  with a training companion that holds R0's encoder; both are attached to the
+  testnet release as two tar archives
+  ([miner guide](miner-guide.md#r_0-archives-optional)) and are on the public
+  status host in the parts layout. The recipe below starts from
+  ModernBERT-base and public data; you can start from R0's encoder instead
+  ([Warm start from R0](#warm-start-from-r0)).
 - **Promotion applies.** An entrant that beats the reference by the margin δ
   and passes the promotion checks becomes the next reference, as the
   whitepaper's promotion rule says. Its artifact was published when its
   cohort's scoring started, like every admitted artifact.
-- **Reference decisions.** Separately, the operator may set the reference by
-  a recorded decision ([terms](terms.md#operator-decisions)). Before the
-  first cohort that enforces the span gate (a check of each entrant's AI
-  spans against d24's on the same batch; no cohort enforces it yet), one signed
-  span-equivalent reference decision passes R0's position to span package
-  d24 ([reference packages](reference-packages.md)), after d24 runs once as
-  an ordinary entry, so that it is published and fingerprinted; it changes no
-  reward input and is not the planned replacement. That replacement is
-  planned separately: replacing R0 by the next reference SlopNinja trains,
-  only if that model passes every required gate, announced in advance on the
-  status page.
-- **The burn rule.** Testnet follows the whitepaper's rule: no miner earns,
-  and the pool burns, until an entrant beats the reference by δ. The
-  [miner guide's Rewards section](miner-guide.md#13-rewards) gives the score,
-  δ and the credit rule.
+- **Reference decisions.** Separately, the operator may set the current and
+  previous references by a recorded decision
+  ([terms](terms.md#operator-decisions)).
+- **The cutoff.** A cohort pays only entrants that pass the gates and reach
+  its cutoff; the [miner guide's Rewards section](miner-guide.md#13-rewards)
+  gives the score, δ, the fallback cutoff and the credit rule.
+- **Spans.** Spans become required once a manifest enforces the span gate
+  (artifact spec v5: a token-level head with the 24-word decoder floor); no
+  cohort names the gate yet, and this recipe trains no token head
+  ([miner guide](miner-guide.md#13-rewards)).
 - At most 40 entrants are admitted to a cohort.
 
 Otherwise testnet follows the whitepaper, with one rule the whitepaper does
 not state yet:
 
-- **Reused human documents.** While no outside miner has a working artifact,
-  testnet cohorts reuse human documents that earlier cohorts already used.
-  Fresh human stock is drawn only once outside miners have working artifacts.
+- **Reused human documents.** Testnet cohorts may reuse human documents that
+  earlier cohorts used, and those documents may be exposed.
 
 One testnet limit also applies, as the miner guide explains: the gate
-thresholds are provisional, frozen in each signed cohort manifest. Until an
-entrant beats the reference by δ, SlopNinja's validators commit the launch
-burn row, which pays no miner ([Rewards](miner-guide.md#13-rewards)).
+thresholds are provisional, frozen in each signed cohort manifest.
+Validators commit the active target's row each tempo; the launch burn row,
+which pays no miner, was the active target until `testnet-r1-30`'s target
+activated on November 15, 2026 ([Rewards](miner-guide.md#13-rewards)).
 
 ## What the recipe reproduces of R0, and what it does not
 
@@ -529,10 +532,12 @@ upload), with a registered hotkey ([steps 3 and 4](miner-guide.md#3-wallet-and-h
 (`model/encoder.safetensors`, 598,442,828 bytes, SHA-256
 `a167c6072e946be3ce23aa06a1f6ea0e0150dd29dafa3fb387980fe90c236927`) and its
 classifier config, listed in the package's `training/companion.json` as
-64 MiB parts, under the same CC BY-SA 4.0 licence. Until public access
-opens, the companion is attached to the testnet release as
-`slop-ninja-r0-training-companion-3c0ecc37.tar`; then its parts are also
-downloadable from the [public layout](public-layout.md). To start from R0's
+64 MiB parts, under the same CC BY-SA 4.0 licence. The companion is
+attached to the testnet release as
+`slop-ninja-r0-training-companion-3c0ecc37.tar`, and its parts are also
+downloadable from the public status host, under the
+[public layout](public-layout.md)'s path for `R_0`'s package (`training/`).
+To start from R0's
 encoder instead of ModernBERT-base, rebuild the file from its parts and check
 its SHA-256 (the [miner guide](miner-guide.md#r_0-archives-optional) gives
 the commands, which write it to `r0-companion/model/encoder.safetensors` in

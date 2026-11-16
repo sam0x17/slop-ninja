@@ -132,8 +132,8 @@ package `3c0ecc37…22c9fe`). The scorer refuses a
 served profile's id. A reference packed for a cohort keeps R0's deployed
 package digest only through `slop_ninja_a_served_profile pack`, which writes
 the served profile's id. R0's published files are SlopNinja's `R_0`
-[reference package](reference-packages.md), published under CC BY-SA 4.0 and
-attached to the testnet release until public access opens; with them, anyone
+[reference package](reference-packages.md), published under CC BY-SA 4.0,
+attached to the testnet release and on the public status host; with them, anyone
 can check the published R0 digests and run the R0 tests below.
 
 ## Checks, in order

@@ -12,15 +12,14 @@ coordinator's unsigned cohort read, `GET /admission/v2/cohort`) read these
 paths. The JSON status API the website serves from the dashboard documents
 is described [at the end](#the-public-status-api-slopninjaapi).
 
-**State: public access not yet enabled.** The publisher is deployed and
-writes this layout to the testnet public bucket, but the bucket is not yet
-readable: the public host, its domain (decision D5) and public access are set
-up at announce time. Until then, `R_0`'s reference package and its training
-companion are attached to the testnet release as two tar archives that
-extract to `R_0`'s package directory below
-([`R_0` archives](miner-guide.md#r_0-archives-optional)); the span
-package is not downloadable until public access opens. `{public}` below is
-the host's base URL.
+**State: live.** The publisher writes this layout to the testnet public
+bucket, which the public status host `https://testnet.slop.ninja` has served
+read-only since November 13, 2026 (`{public}` below). `R_0`'s reference
+package in the parts layout (`143ca2d9…`) with its training companion, and
+span package d24 (`4bc3d49c…`), are under `v1/reference/packages/`.
+`R_0`'s spec v3 package in the files layout, the one the cohorts name, and its
+companion are attached to the testnet release as two tar archives
+([`R_0` archives](miner-guide.md#r_0-archives-optional)).
 
 ## Rules
 

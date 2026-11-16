@@ -430,9 +430,12 @@ diagnostic, not the cohort score, which uses the cohort's hidden documents,
 its source balancing and its failure rules.
 
 ONNX Runtime 1.31.1 is loaded from `--ort-lib` or `A_ORT_LIB`. The hidden
-scorer's library is `onnxruntime/capi/libonnxruntime.so.1.31.1` from the
-onnxruntime 1.31.1 cp312 manylinux_2_28_x86_64 wheel (SHA-256
-`fc44112fbe06d7d689c57e11d3862031f64711007e4ee020f8eed5185fd2c1d3`). The summary
+scorer's library is `onnxruntime/capi/libonnxruntime.so.1.31.1` (the
+library's SHA-256 is
+`fc44112fbe06d7d689c57e11d3862031f64711007e4ee020f8eed5185fd2c1d3`) from the
+onnxruntime 1.31.1 cp312 manylinux_2_28_x86_64 wheel (the wheel's SHA-256 is
+`1f3dea47f2f0e5117c2404cea7d21fd253ae7836a3bf167a501cdfbb2600d536`, as the
+training recipe's lock file pins it). The summary
 says whether the library given is that one; another build can differ in the
 last bits. The crate builds on Linux x86_64 (tested) and needs no Python.
 

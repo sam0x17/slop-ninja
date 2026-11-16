@@ -7,9 +7,8 @@ of words AI wrote or rewrote, with conditional human and AI attribution.
 Miners submit models, not answers: each cohort, the coordinator scores every
 submitted model on the same hidden batch and signs the weight row the scores
 imply, and every validator verifies that row against pinned keys and commits
-it on chain. On testnet, until outside miners have working artifacts, that
-batch reuses public human documents that earlier cohorts used
-([terms](terms.md)).
+it on chain. On testnet that batch may reuse public human documents that
+earlier cohorts used ([terms](terms.md)).
 
 Testnet subnet 601 is the rehearsal. It has no monetary value.
 
@@ -41,11 +40,11 @@ Testnet subnet 601 is the rehearsal. It has no monetary value.
 | What you submit | one *A* artifact per hotkey per cohort: an ONNX graph of the allow-listed ModernBERT-base architecture, heads, calibration, contract and the pinned tokenizer ([artifact spec](artifact-spec.md)) |
 | Cohorts | one a day: 20 tempos of 360 blocks; admission lasts 16 tempos (about 19 hours) under the testnet template (at least one tempo by the rules; a cohort keeps the window it was queued with; `next-cohort` prints a cohort's window once the coordinator has planned it) |
 | Roster cap | 40 entrants per cohort, earliest finalized commitment first |
-| Batch | about 1,000 hidden documents per cohort, human-only, mixed and model-only |
+| Batch | about 1,000 hidden documents per cohort, human-only, mixed and model-only; from `testnet-r1-31` on, the cohort's plan takes half the AI-side text from frontier models the coordinator has access to through configured credentials and half from open models on Workers AI |
 | Reward | AI-involvement Brier, against the reference `R_k`; share, attribution and false-positive tiers are gates; released scores are quantized on a grid with seeded noise (`quant-v1`), and the cutoff, credit and rank use them alone |
-| Burn regime | until an entrant beats the reference by the margin, no miner earns and the pool burns |
+| Payment | a cohort pays only gated entrants at or above its cutoff; validators commit the active target's row each tempo (the launch burn row, which pays no miner, until `testnet-r1-30`'s target activated on November 15, 2026; the status snapshot's `mode` says which is in force) |
 | Revenue pot | planned, separate from emissions: the detection products' revenue pays the mainnet registration, then buys mainnet alpha, half burned and half distributed to testnet miners in proportion to the testnet-era revenue earned by their models that beat the reference and took its place; a planned operator policy, not an entitlement ([terms](terms.md#the-pots-planned-distribution)) |
-| Reference | `R_0`, scored every cohort; its [reference package](reference-packages.md) (`3c0ecc37`) is published under CC BY-SA 4.0, attached to the testnet release until public access opens; it changes by promotion or by a recorded operator reference decision ([terms](terms.md#operator-decisions)) |
+| Reference | the current `R_k`, which the [status page](https://slop.ninja/testnet/status/) names, scored every cohort with its predecessor (`testnet-r1-30` promoted `R_1` on November 15, 2026, and the first reference, `R_0`, became its predecessor); `R_0`'s [reference package](reference-packages.md) (`3c0ecc37`) is published under CC BY-SA 4.0, attached to the testnet release and on the public status host in the parts layout; the reference changes by promotion or by a recorded operator reference decision ([terms](terms.md#operator-decisions)) |
 | Your artifact | private until its cohort's scoring starts, then public under CC BY-SA 4.0; it counts as a published copy in every later cohort, so enter a new model each time |
 | Code and docs | MIT OR Apache-2.0 |
 | Platforms | Linux x86_64 tested; macOS untested |
@@ -82,17 +81,17 @@ Testnet subnet 601 is the rehearsal. It has no monetary value.
 | Signed validator release (Linux x86_64) | live: `testnet-v0.2.0`, published November 11, 2026, holds the validator and its journal tool with their `THIRD-PARTY-LICENSES`, built from the public repository, signed and smoke-tested; install it with the [validator guide](validator-guide.md#2-install). Upgrading to it is roll-forward only |
 | Coordinator unsigned cohort read (`check`, `commit`, `status`, `next-cohort`), at `https://testnet-admission.slop.ninja` (pinned in `testnet-trust.json`) | live |
 | Coordinator signed admission routes (used by `upload`, `repair` and the hotkey view of `status`; the artifact goes straight to R2 under presigned URLs they return) | open to every hotkey registered on subnet 601 since November 7, 2026 |
-| Public status host (the data host the clients read with `--public`, separate from the status page): status snapshot, cohort index, signed packages, leaderboard, published artifacts | not yet live |
-| Validator package fetcher | built and tested offline; waits for the public status host |
-| Validators committing the launch burn row | live since November 3, 2026: both SlopNinja validators commit and reveal it on subnet 601 each tempo, under a launch authorization that does not expire |
-| `R_0` reference package and training companion (CC BY-SA 4.0) | built and checked; attached to the testnet release as two tar archives until public access opens |
-| Span package d24 (CC BY-SA 4.0), SlopNinja's span-serving package | built and checked; downloadable when public access opens |
+| Public status host (the data host the clients read with `--public`, separate from the status page), <https://testnet.slop.ninja>: status snapshot, cohort index and summaries, leaderboard, reference pointers, reference packages, the coordinator's signed rows, published artifacts | live since November 13, 2026 |
+| Validator package fetcher | built and tested offline; the public status host it reads is live |
+| Validators committing the active target's row | live: the launch burn row from November 3, 2026, under a launch authorization that does not expire, and since `testnet-r1-30` closed on November 15, 2026, a cohort target's row; the status snapshot's `mode` says which |
+| `R_0` reference package and training companion (CC BY-SA 4.0) | built and checked; attached to the testnet release as two tar archives, and on the public status host in the parts layout |
+| Span package d24 (CC BY-SA 4.0), SlopNinja's span-serving package | built and checked; on the public status host ([miner guide](miner-guide.md#span-package-d24-optional)) |
 
 Links:
 
 - public repository: <https://github.com/sam0x17/slop-ninja>, with its **Issues** tab as the issue tracker;
 - Discord: the SlopNinja channel for testnet subnet 601 on the Bittensor Discord, <https://discord.com/channels/799672011265015819/1569363956831756318>; the link opens for members of the Bittensor community server, whose invite <https://discord.gg/rY4XsCGrd2> does not expire;
-- status page: <https://slop.ninja/testnet/status/>; public API: <https://slop.ninja/api/>; the public status host is not yet live;
+- status page: <https://slop.ninja/testnet/status/>; public API: <https://slop.ninja/api/>; public status host: <https://testnet.slop.ninja>;
 - release public key: [below](#release-key);
 - private security contact: [security@slop.ninja](mailto:security@slop.ninja) ([security policy](../../SECURITY.md));
 - legal notices, such as copyright notices about published material: the address in the [terms](terms.md#legal-notices-and-removals) ([removal record](removals.md)).
@@ -155,9 +154,10 @@ or the [validator guide](validator-guide.md#2-install) shows.
 | `SHA256SUMS`, `SHA256SUMS.sig` | the digests of the five files above, and the signature over them |
 | `allowed_signers`, `slop-ninja-release-testnet.pub` | copies of the key above, for convenience only |
 
-The two `R_0` archives are attached because the public data host is not
-enabled yet; the [miner guide](miner-guide.md#r_0-archives-optional) says how
-to verify and unpack them.
+The two `R_0` archives hold the spec v3 package `3c0ecc37` that the cohorts
+name; the public status host also serves `R_0`'s package in the parts layout,
+with its training companion. The [miner guide](miner-guide.md#r_0-archives-optional)
+says how to verify and unpack them.
 
 `testnet-v0.2.0` holds:
 

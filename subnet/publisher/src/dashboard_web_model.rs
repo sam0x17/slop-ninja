@@ -326,6 +326,25 @@ pub struct NowDoc {
     /// rest of the document is kept.
     #[serde(deserialize_with = "lenient_uids")]
     pub uids: Option<Uids>,
+    /// `R_k` and `R_k-1` by digest, from the public reference pointers;
+    /// `None` before the publisher reports them.
+    pub references: Option<RosterReferences>,
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct ModelDigests {
+    pub content: String,
+    pub artifact: String,
+}
+
+/// `R_k` and `R_k-1` by digest.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct RosterReferences {
+    pub index: u64,
+    pub current: ModelDigests,
+    pub predecessor: Option<ModelDigests>,
 }
 
 /// The subnet's UID-to-hotkey map, as public chain facts: for each UID, the

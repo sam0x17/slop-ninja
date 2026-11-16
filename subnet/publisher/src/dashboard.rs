@@ -463,6 +463,12 @@ pub struct NowDoc {
     /// The subnet's UID-to-hotkey map as of a tempo boundary, from the
     /// coordinator's commitment log.
     pub uids: Option<Uids>,
+    /// `R_k` (`best.index`) and `R_k-1` by content and artifact digest,
+    /// from the public reference pointers ([`now_references`]). Left out
+    /// when there are none, so a document without them is the one a website
+    /// built before this field reads.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub references: Option<RosterReferences>,
 }
 
 /// The subnet's UID-to-hotkey map as public chain facts: for each UID, the
@@ -789,6 +795,14 @@ const NOW_PATHS: &[&str] = &[
     "uids.rows",
     "uids.rows[].uid",
     "uids.rows[].hotkey",
+    "references",
+    "references.index",
+    "references.current",
+    "references.current.content",
+    "references.current.artifact",
+    "references.predecessor",
+    "references.predecessor.content",
+    "references.predecessor.artifact",
 ];
 
 const ROW: &[&str] = &[
@@ -1357,6 +1371,7 @@ fn row_points(r: &mut CohortRow) -> Vec<Pt<'_>> {
 pub fn clean_now(d: &mut NowDoc) {
     clean_weights(d);
     clean_uids(d);
+    clean_references(d);
     let c = &mut d.cohort;
     let earliest = Some((c.expected.close_epoch, c.expected.close_block));
     clean_bounds(&mut c.bounds, &c.phases, earliest);
@@ -1374,6 +1389,22 @@ pub fn clean_now(d: &mut NowDoc) {
     let mut pts: Vec<Pt<'_>> = phases.iter_mut().map(pt_phase).collect();
     pts.extend(bound_points(bounds));
     clean_points(&mut pts, d.generated_at, d.clock.tempo_blocks, reference);
+}
+
+/// The website's rule for `references`: dropped without `best`, when its
+/// index is not `best.index`, when a digest is not 64 lowercase hex digits,
+/// or when `R_0` has a predecessor.
+fn clean_references(d: &mut NowDoc) {
+    let ok = d.references.as_ref().is_none_or(|r| {
+        d.best.as_ref().is_some_and(|b| b.index == r.index)
+            && std::iter::once(&r.current)
+                .chain(r.predecessor.as_ref())
+                .all(|m| roster::hex64(&m.content) && roster::hex64(&m.artifact))
+            && (r.index > 0 || r.predecessor.is_none())
+    });
+    if !ok {
+        d.references = None;
+    }
 }
 
 /// The website's rule for `weights`: dropped without a chain head, when its
@@ -2116,6 +2147,35 @@ pub struct BestFacts<'a> {
     pub since: Option<&'a CohortEntry>,
     pub summary: Option<&'a CohortSummary>,
     pub artifacts: &'a [ArtifactEntry],
+    /// The public reference pointers (`v1/reference/current.json` and
+    /// `previous.json`), as the publisher last wrote them.
+    pub current: Option<&'a crate::index::ReferencePointer>,
+    pub previous: Option<&'a crate::index::ReferencePointer>,
+}
+
+/// `R_k` and `R_k-1` by content and artifact digest: from the current
+/// reference pointer when it names `R_k` (index `b.index`), with the
+/// previous pointer when it names `R_k-1`. `None` while the current pointer
+/// names another index (a cohort that changed the reference and is not
+/// listed yet) or does not exist.
+pub fn now_references(b: &BestFacts<'_>) -> Option<RosterReferences> {
+    let digests = |p: &crate::index::ReferencePointer| {
+        (roster::hex64(&p.content) && roster::hex64(&p.artifact)).then(|| ModelDigests {
+            content: p.content.clone(),
+            artifact: p.artifact.clone(),
+        })
+    };
+    let current = b.current.filter(|p| p.index == b.index).and_then(digests)?;
+    let predecessor = b
+        .index
+        .checked_sub(1)
+        .and_then(|k| b.previous.filter(|p| p.index == k))
+        .and_then(digests);
+    Some(RosterReferences {
+        index: b.index,
+        current,
+        predecessor,
+    })
 }
 
 /// The cohort whose promotion made the current reference `R_k`: the newest
@@ -2172,7 +2232,8 @@ fn best(b: &BestFacts<'_>) -> Best {
         latest_score_label: latest.as_ref().map(|(_, label, _)| label.clone()),
         quantization: latest.map(|(.., block)| block),
         artifact: promoted.and_then(|h| b.artifacts.iter().find(|a| a.hotkey == h).map(artifact_of)),
-        licence: None,
+        // A staged reference package's licence, as its pointer names it.
+        licence: b.current.filter(|p| p.index == b.index).and_then(|p| p.licence.clone()),
     }
 }
 
@@ -2355,6 +2416,7 @@ pub fn now_doc(
         sources_ok: Some(sources_ok),
         weights: None,
         uids: o.eval.as_ref().and_then(|e| e.uid_map.as_ref()).map(uids),
+        references: best_facts.and_then(now_references),
     };
     d.weights = weights(o, d.clock.confirmed_block, d.clock.confirmed_epoch);
     clean_now(&mut d);
@@ -3035,6 +3097,30 @@ async fn cohort_facts<'b, S: Store>(
     })
 }
 
+/// The public reference pointers (`v1/reference/current.json`,
+/// `previous.json`), each read within [`POINTER_BOUND`]. One that is
+/// missing, larger, unreadable or not reserved reads as absent: `now.json`
+/// then carries no `references` until a run reads it.
+async fn reference_pointers<S: Store>(
+    public: &crate::store::PublicStore<'_, S>,
+    budget: &crate::arena::Budget,
+) -> (Option<crate::index::ReferencePointer>, Option<crate::index::ReferencePointer>) {
+    let read = |key: &'static str| async move {
+        let _hold = budget.reserve(POINTER_BOUND.saturating_mul(HELD_PER_READ_BYTE)).ok()?;
+        let bytes = public.get(key, POINTER_BOUND).await.ok()??;
+        serde_json::from_slice::<crate::index::ReferencePointer>(&bytes).ok()
+    };
+    (
+        read(crate::layout::REFERENCE_CURRENT).await,
+        read(crate::layout::REFERENCE_PREVIOUS).await,
+    )
+}
+
+/// The largest reference pointer read: its fixed fields, three 64-hex
+/// digests, a header path, a package directory and a short reason, within
+/// 4 KiB.
+const POINTER_BOUND: u64 = 4096;
+
 /// The running cohort's published artifacts record
 /// (`v1/cohorts/<label>/artifacts.json`, written by this publisher at
 /// scoring start), read within the cohort document's bound and its stored
@@ -3107,11 +3193,14 @@ pub async fn publish<S: Store>(
             None
         }
     };
+    let (current, previous) = reference_pointers(public, i.budget).await;
     let facts = k.map(|index| BestFacts {
         index,
         since,
         summary: since_facts.as_ref().and_then(|f| f.summary.as_ref()),
         artifacts: since_facts.as_ref().map_or(&[][..], |f| &f.artifacts),
+        current: current.as_ref(),
+        previous: previous.as_ref(),
     });
     let now = now_doc(s, i.observed, i.index, facts.as_ref(), memo, i.now_ms);
     write(out, &Doc::Now("a"), &now, &mut pass).await;

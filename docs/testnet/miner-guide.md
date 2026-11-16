@@ -1345,11 +1345,17 @@ curl -s https://testnet.slop.ninja/v1/reference/previous.json
 ```
 
 When a pointer has no `path` or `package`, its `withheld` reason says why.
+A pointer names a staged reference package (`package`) when the package's
+`artifact-files.json`, in either layout, lists the header the pointer's
+`artifact` digest names; `R_0`'s pointer, for example, names it by header
+digest `9fbc9716…` and links its parts-layout package `143ca2d9…`.
 Testnet's record started from `R_0`, SlopNinja's released *A* document model.
 `testnet-r1-30` (closed November 15, 2026) promoted one of its entrants by
 the standard promotion rule, so `R_1` became the reference, with `R_0` as its
 predecessor. A promoted entrant's artifact was published when its cohort's
-scoring started, under the CC BY-SA 4.0 licence its miner granted;
+scoring started, under the CC BY-SA 4.0 licence its miner granted (the
+notice beside the published artifacts, `artifacts/v2/NOTICE.md` on the public
+status host, says how to attribute one and gives the base model's licence);
 [The current reference](#the-current-reference-optional) shows how to
 download it and score it locally with the same engine as your own artifact.
 `R_0`'s [reference package](reference-packages.md) (the six files as the

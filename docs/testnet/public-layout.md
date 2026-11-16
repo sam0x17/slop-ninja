@@ -55,7 +55,7 @@ companion are attached to the testnet release as two tar archives
   predictions, spend figures or credentials. The
   [redaction rules](../../subnet/publisher/src/redact.rs) say how this is
   enforced. A publisher built from this tree publishes only what the
-  versioned allow-list (`slop_ninja.public.allowlist/v3`,
+  versioned allow-list (`slop_ninja.public.allowlist/v4`,
   [`allowlist.rs`](../../subnet/publisher/src/allowlist.rs)) names. Per
   cohort that is a summary ([below](#the-cohort-summary-summaryjson)) of
   the coordinator's quantized scores under `quant-v1`: the grid width,
@@ -90,9 +90,10 @@ companion are attached to the testnet release as two tar archives
 | `v1/cohorts/<label>/publication.json` | The publisher's record of the cohort, schema `slop_ninja.public.publication/v1` | when an artifact lands |
 | `v1/leaderboard.json` | The newest listed cohort's leaderboard, schema `slop_ninja.public.leaderboard/v4`: its summary's rows in roster order with each artifact's state, no rank or exact score ([below](#the-leaderboard-v1leaderboardjson)) | when the newest cohort is listed or one of its pending artifacts is settled; deleted at a record restart |
 | `v1/reference/current.json`, `v1/reference/previous.json` | `R_k` and `R_k-1` after the newest cohort's close, schema `slop_ninja.public.reference/v1` | with `v1/leaderboard.json` |
-| `v1/reference/packages/<sha256>/...` | One staged [reference package](reference-packages.md), named by its parts manifest's SHA-256: `artifact-files.json`, `parts/<sha256>`, `package.json`, `NOTICE.md`, `upstream/` and `reference/`, and for `R_0` its training companion `training/` | never, once staged |
+| `v1/reference/packages/<sha256>/...` | One staged [reference package](reference-packages.md), named by its manifest's SHA-256: `artifact-files.json`, `parts/<sha256>`, `package.json`, `NOTICE.md`, `upstream/` and `reference/`, and for `R_0` its training companion `training/` | never, once staged |
 | `artifacts/v2/<sha256>/header` | An admitted entrant's artifact header (the file table), named by its SHA-256, the digest the cohort's result names | never, once written |
 | `blobs/sha256/<sha256>` | One artifact file, named by its SHA-256 and shared by every artifact that lists it | never, once written |
+| `artifacts/v2/NOTICE.md`, `artifacts/v2/ModernBERT-base-LICENSE` | The licence notice for the published artifacts (CC BY-SA 4.0, attribution, the base model) and the base model's Apache-2.0 licence, written by the publisher ([Licences](licences.md#entrant-artifacts)) | when the publisher's compiled text changes |
 | `v1/authorizations/current.json` | The authorization validators commit under now, any renew-by hint refresh, the revocation set and the coordinator's signed row, schema `slop_ninja.public.authorization/v2` | when the coordinator installs an authorization, journals a revocation or signs a row |
 | `v1/authorizations/<sha256>.signed` | One signed authorization, refresh, revocation set or coordinator row, named by its SHA-256 | never, once written |
 | `v1/trust/testnet-trust.json` | The trust roots, byte-identical to the release's file | when the roots rotate (decision D20) |
@@ -279,16 +280,24 @@ them.
 SHA-256. It has a `path` when `R_k` is a promoted miner artifact published
 here. When `R_k` is a staged reference package (as `R_0` is), it has
 `package`, the package's directory, and
-`licence`, `CC-BY-SA-4.0`; the publisher links a package only when the public
-bucket holds its parts manifest and that manifest's SHA-256 is the
-reference's artifact digest. Otherwise it has a `withheld` reason
-(`reference package not yet staged`).
+`licence`, `CC-BY-SA-4.0`. The publisher links a staged package whose
+manifest (`artifact-files.json`, in the parts or the files layout, its
+SHA-256 the directory's name) lists the header the reference is named by:
+the manifest's files (name, SHA-256 and length) give a header whose
+inference-content digest is the reference's content digest and whose record
+SHA-256 is its artifact digest. Both layouts of one package give the same
+two digests. A package whose manifest's own SHA-256 is the reference's
+artifact digest is linked too. Otherwise the pointer has a `withheld` reason
+(`reference package not yet staged`), and the first run after the package is
+staged links it, in both pointers and the leaderboard.
 
 ### Reference packages: `v1/reference/packages/<sha256>/`
 
 The operator stages each reference package once; the publisher never writes
 under this prefix. The directory is named by the package digest, the SHA-256
-of its parts manifest:
+of its manifest (the parts manifest below; a package staged in the files
+layout has its files manifest there and `files/<sha256>` in place of
+`parts/`):
 
 | Object | Content |
 | --- | --- |

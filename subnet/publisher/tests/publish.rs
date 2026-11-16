@@ -399,6 +399,127 @@ fn a_staged_manifest_with_another_digest_is_not_linked() {
     assert!(pointer_of(&x, &artifact).0.package.is_none());
 }
 
+/// A synthetic artifact listed under the spec's file table, as a staged
+/// package's manifest in the parts layout (`parts`) or the files layout,
+/// with the content and header digests a coordinator names it by.
+fn staged_manifest(parts: bool) -> (Vec<u8>, slop_ninja_protocol::Digest, slop_ninja_protocol::Digest) {
+    let files: Vec<serde_json::Value> = [
+        "a-fp32band.onnx",
+        "heads.json",
+        "contract.json",
+        "calibration.json",
+        "manifest.json",
+        "tokenizer.json",
+    ]
+    .iter()
+    .enumerate()
+    .map(|(i, name)| {
+        let sha = hex::encode([0x40 + i as u8; 32]);
+        let mut f = serde_json::json!({"name": name, "role": "r", "bytes": 10 + i, "sha256": sha});
+        if parts {
+            f["parts"] = serde_json::json!([{"sha256": sha, "bytes": 10 + i}]);
+        } else {
+            f["bucket"] = "admission".into();
+            f["key"] = format!("reference/v2/files/{sha}").into();
+        }
+        f
+    })
+    .collect();
+    let schema = if parts {
+        "slop_ninja_a_artifact_files_v1"
+    } else {
+        "slop_ninja_a_artifact_files_v2"
+    };
+    let bytes = serde_json::to_vec_pretty(&serde_json::json!({"schema": schema, "profile_id": "p",
+        "contract": "slop_ninja_full_a_contract_v2", "graph": "a-fp32band.onnx", "files": files}))
+    .unwrap();
+    let (content, artifact) = slop_ninja_publisher::index::header_digests(&bytes).unwrap();
+    (bytes, content, artifact)
+}
+
+/// Renames the previous reference, in its pointer and the leaderboard, to
+/// `content` and `artifact`: the reference a later record names by its
+/// header digest, as the coordinator does from the files layout on.
+fn name_previous(x: &Buckets3, content: &slop_ninja_protocol::Digest, artifact: &slop_ninja_protocol::Digest) {
+    let mut p: serde_json::Value = public_json(x, layout::REFERENCE_PREVIOUS);
+    let mut doc: serde_json::Value = public_json(x, layout::LEADERBOARD);
+    for v in [&mut p, &mut doc["previous_reference"]] {
+        assert!(v["path"].is_null() && v["package"].is_null(), "{v}");
+        v["content"] = content.hex().into();
+        v["artifact"] = artifact.hex().into();
+    }
+    x.public.insert(layout::REFERENCE_PREVIOUS, serde_json::to_vec_pretty(&p).unwrap());
+    x.public.insert(layout::LEADERBOARD, serde_json::to_vec_pretty(&doc).unwrap());
+}
+
+/// A reference named by its header digest links the staged package that
+/// lists that header, in either layout, at the next run after it is
+/// staged (not only at the next close): the pointer and the leaderboard's
+/// copy name the package's directory, which is named by the manifest's own
+/// SHA-256.
+#[test]
+fn a_reference_named_by_header_links_its_package_in_either_layout() {
+    for parts in [true, false] {
+        let b = build(0);
+        let x = buckets(&b);
+        let cfg = config(Some(0), false);
+        run(&cfg, &x, &mut Memo::default()).1.unwrap();
+        let (manifest, content, artifact) = staged_manifest(parts);
+        name_previous(&x, &content, &artifact);
+        // Nothing staged: the run leaves the pointer withheld.
+        let (report, idx) = run(&cfg, &x, &mut Memo::default());
+        idx.unwrap();
+        assert!(report.pending.is_empty(), "{report:?}");
+        let p: slop_ninja_publisher::index::ReferencePointer = public_json(&x, layout::REFERENCE_PREVIOUS);
+        assert_eq!(p.withheld.as_deref(), Some(slop_ninja_publisher::index::REFERENCE_NOT_STAGED));
+        // Staged under its own digest: linked by the next run.
+        let package = object_sha256(&manifest);
+        x.public
+            .insert(&layout::reference_package_manifest(&package), manifest.clone());
+        let (report, idx) = run(&cfg, &x, &mut Memo::default());
+        idx.unwrap();
+        assert!(report.pending.is_empty(), "{report:?}");
+        let p: slop_ninja_publisher::index::ReferencePointer = public_json(&x, layout::REFERENCE_PREVIOUS);
+        assert_eq!(p.package, Some(layout::reference_package(&package)), "parts {parts}");
+        assert_eq!(p.licence.as_deref(), Some("CC-BY-SA-4.0"));
+        assert!(p.path.is_none() && p.withheld.is_none());
+        assert_eq!((p.content, p.artifact), (content.hex(), artifact.hex()));
+        let doc: LeaderboardDoc = public_json(&x, layout::LEADERBOARD);
+        assert_eq!(doc.previous_reference.as_ref(), Some(&public_json(&x, layout::REFERENCE_PREVIOUS)));
+        // Linked pointers are left alone.
+        let before = x.public.bytes(layout::REFERENCE_PREVIOUS);
+        run(&cfg, &x, &mut Memo::default()).1.unwrap();
+        assert_eq!(x.public.bytes(layout::REFERENCE_PREVIOUS), before);
+    }
+}
+
+/// A manifest staged under a directory that is not its SHA-256, or one
+/// listing another content digest, links nothing.
+#[test]
+fn a_header_named_reference_needs_its_own_package() {
+    let b = build(0);
+    let x = buckets(&b);
+    let cfg = config(Some(0), false);
+    run(&cfg, &x, &mut Memo::default()).1.unwrap();
+    let (manifest, content, artifact) = staged_manifest(true);
+    name_previous(&x, &unrelated(), &artifact);
+    x.public.insert(
+        &layout::reference_package_manifest(&object_sha256(&manifest)),
+        manifest.clone(),
+    );
+    x.public
+        .insert(&layout::reference_package_manifest(&unrelated()), manifest.clone());
+    run(&cfg, &x, &mut Memo::default()).1.unwrap();
+    let p: slop_ninja_publisher::index::ReferencePointer = public_json(&x, layout::REFERENCE_PREVIOUS);
+    assert!(p.package.is_none() && p.path.is_none());
+    // With the right content digest, only the directory named by the
+    // manifest's own SHA-256 is linked.
+    name_previous(&x, &content, &artifact);
+    run(&cfg, &x, &mut Memo::default()).1.unwrap();
+    let p: slop_ninja_publisher::index::ReferencePointer = public_json(&x, layout::REFERENCE_PREVIOUS);
+    assert_eq!(p.package, Some(layout::reference_package(&object_sha256(&manifest))));
+}
+
 #[test]
 fn the_package_manifest_bound_is_the_specs() {
     let spec = include_str!("../../crates/artifact-check/src/spec.rs");
@@ -415,6 +536,7 @@ fn public_text_carries_no_rights_hold_wording() {
         include_str!("../src/config.rs"),
         include_str!("../src/lib.rs"),
         include_str!("../README.md"),
+        include_str!("../notices/artifacts-v2-NOTICE.md"),
         include_str!("../wrangler.toml"),
         include_str!("../../../site/index.html"),
     ];
@@ -767,12 +889,34 @@ fn uploaded(b: &Built, uid: u16) -> Uploaded {
     split(&fx::artifact_bytes(spec))
 }
 
+/// The published artifact objects: headers and files, not the fixed
+/// notices beside them.
 fn published_keys(x: &Buckets3) -> Vec<String> {
     x.public
         .keys()
         .into_iter()
         .filter(|k| k.starts_with("artifacts/") || k.starts_with("blobs/"))
+        .filter(|k| layout::notice_bytes(k).is_none())
         .collect()
+}
+
+/// Every run keeps the notice and the base model's licence beside the
+/// artifacts, publication enabled or not, and restores an edited copy.
+#[test]
+fn the_artifact_notices_are_kept_beside_the_artifacts() {
+    let b = build(0);
+    let x = buckets(&b);
+    let cfg = config(Some(0), false);
+    run(&cfg, &x, &mut Memo::default()).1.unwrap();
+    for (key, bytes) in layout::ARTIFACT_NOTICES {
+        assert_eq!(x.public.bytes(key).as_deref(), Some(bytes), "{key}");
+    }
+    x.public.insert(layout::ARTIFACT_NOTICE, b"edited".to_vec());
+    run(&cfg, &x, &mut Memo::default()).1.unwrap();
+    assert_eq!(
+        x.public.bytes(layout::ARTIFACT_NOTICE).as_deref(),
+        Some(layout::ARTIFACT_NOTICE_TEXT)
+    );
 }
 
 /// Publication at scoring start, on a roster shaped like the rehearsal's

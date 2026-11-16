@@ -62,11 +62,19 @@ into static public objects. Once a minute it:
    (`artifacts/v2/<sha256>/header`, `blobs/sha256/<sha256>`), files first,
    never a reference's or an operator's; a closed cohort's record then
    reports what was published, checked against the result's header
-   digests. No copy happens at closure;
+   digests. No copy happens at closure. Every run also keeps the licence
+   notice and the base model's licence beside them
+   (`artifacts/v2/NOTICE.md`, `artifacts/v2/ModernBERT-base-LICENSE`, the
+   compiled `notices/artifacts-v2-NOTICE.md` and the repository's
+   `LICENSE-APACHE`);
 5. writes the cohort index, the leaderboard (JSON and a static page rendered
    from `site/`) and the reference pointers. A pointer links the reference's
    staged reference package (`v1/reference/packages/<sha256>/`, CC BY-SA 4.0)
-   when the public bucket holds its parts manifest with that SHA-256; the
+   whose manifest, in the parts or the files layout, lists the header the
+   reference is named by (its content digest and header record digest), or
+   whose manifest's own SHA-256 is the reference's artifact digest; the
+   directory is named by that manifest's SHA-256. A pointer left without a
+   link is linked by the first run after its package is staged. The
    operator stages packages and the publisher never writes under that prefix;
 6. (run at step 2) copies the current validator authorization, any renew-by
    hint refresh, the revocation set and the coordinator's signed row (copied

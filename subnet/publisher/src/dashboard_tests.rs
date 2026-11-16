@@ -968,6 +968,8 @@ fn no_private_status_field_reaches_a_document() {
             since,
             summary: Some(&sm),
             artifacts: &arts,
+            current: None,
+            previous: None,
         };
         let rows = listed(&s, &idx, o.eval.as_ref());
         let docs = [
@@ -1001,6 +1003,8 @@ fn the_best_model_is_the_cohort_that_promoted_the_current_reference() {
         since: promoted_by(&idx, 1),
         summary: Some(&sm),
         artifacts: &arts,
+        current: None,
+        previous: None,
     };
     let o = observed(eval_json(118, "scoring", LOG_SCORING, json!({})));
     let memo = Memo::default();
@@ -1214,6 +1218,86 @@ fn the_scan_allows_the_contract_keys_only_where_the_contract_puts_them() {
     assert!(scan(&json!({"x": "a".repeat(crate::redact::MAX_PUBLIC_STRING + 1)})).is_err());
 }
 
+/// A public reference pointer naming `R_index` by digests of `tag`.
+fn pointer(role: &str, index: u64, tag: u8) -> crate::index::ReferencePointer {
+    crate::index::ReferencePointer {
+        schema: crate::index::REFERENCE_SCHEMA.into(),
+        role: role.into(),
+        index,
+        content: hex::encode([tag; 32]),
+        artifact: hex::encode([tag.wrapping_add(1); 32]),
+        as_of_cohort: 6,
+        path: None,
+        withheld: Some(crate::index::REFERENCE_NOT_STAGED.into()),
+        package: None,
+        licence: None,
+    }
+}
+
+/// `now.json` names `R_k` and `R_k-1` by digest from the public reference
+/// pointers when the current one names `R_k`, and `best.licence` is the
+/// current pointer's (a staged package's licence).
+#[test]
+fn now_names_the_references_from_the_pointers() {
+    let c = chain();
+    let s = settings(&c);
+    let idx = index_with(&[(5, "testnet-r0-c5", Some(9), 0), (6, "testnet-r0-c6", Some(1), 1)]);
+    let o = observed(eval_json(118, "scoring", LOG_SCORING, json!({})));
+    let mut memo = saved_at(118);
+    rolled(&o, &mut memo, time_of(118));
+    let sm = summary_for("testnet-r0-c6", 6, 4, Some(1));
+    let arts = artifacts_for(&sm);
+    let (mut current, mut previous) = (pointer("current", 2, 0x22), pointer("previous", 1, 0x11));
+    let now = |current: Option<&crate::index::ReferencePointer>, previous: Option<&crate::index::ReferencePointer>, index: u64| {
+        let facts = BestFacts {
+            index,
+            since: promoted_by(&idx, index),
+            summary: Some(&sm),
+            artifacts: &arts,
+            current,
+            previous,
+        };
+        let d = now_doc(&s, &o, Some(&idx), Some(&facts), &memo, time_of(118));
+        checked(&Doc::Now("a"), &d);
+        round_trips::<web_model::NowDoc>(&value(&d));
+        d
+    };
+    let d = now(Some(&current), Some(&previous), 2);
+    let r = d.references.as_ref().unwrap();
+    assert_eq!(r.index, 2);
+    assert_eq!(r.current.content, "22".repeat(32));
+    assert_eq!(r.current.artifact, "23".repeat(32));
+    let p = r.predecessor.as_ref().unwrap();
+    assert_eq!((p.content.as_str(), p.artifact.as_str()), ("11".repeat(32).as_str(), "12".repeat(32).as_str()));
+    assert_eq!(d.best.as_ref().unwrap().licence, None);
+    // A linked package's licence; a predecessor pointer for another index
+    // is left out.
+    current.link_package(&slop_ninja_protocol::Digest([0x33; 32]));
+    previous.index = 0;
+    let d = now(Some(&current), Some(&previous), 2);
+    assert_eq!(d.best.as_ref().unwrap().licence.as_deref(), Some("CC-BY-SA-4.0"));
+    assert!(d.references.as_ref().unwrap().predecessor.is_none());
+    // A current pointer for another index (a promotion not listed yet), or
+    // none, gives no references and no licence.
+    let d = now(Some(&current), Some(&previous), 3);
+    assert!(d.references.is_none() && d.best.as_ref().unwrap().licence.is_none());
+    assert!(now(None, Some(&previous), 2).references.is_none());
+    // R_0 has no predecessor.
+    current.index = 0;
+    let d = now(Some(&current), Some(&previous), 0);
+    assert!(d.references.as_ref().is_some_and(|r| r.index == 0 && r.predecessor.is_none()));
+    // A digest that is not 64 lowercase hex digits drops the block.
+    current.content = "AB".repeat(32);
+    assert!(now(Some(&current), None, 0).references.is_none());
+    // The website's rule refuses a block for another index or an R_0
+    // predecessor.
+    let mut d = now(Some(&pointer("current", 2, 0x22)), Some(&pointer("previous", 1, 0x11)), 2);
+    d.references.as_mut().unwrap().index = 1;
+    let mut e = d.clone();
+    clean_now(&mut e);
+    assert!(e.references.is_none());
+}
+
 /// The allow-list names exactly the website model's fields: every path a
 /// fully populated document has is allowed, and nothing more is.
 #[test]
@@ -1226,11 +1310,14 @@ fn the_allow_list_is_exactly_the_contract() {
     rolled(&o, &mut memo, time_of(118));
     let sm = summary_for("testnet-r0-c6", 6, 4, Some(1));
     let arts = artifacts_for(&sm);
+    let (current, previous) = (pointer("current", 2, 0x22), pointer("previous", 1, 0x11));
     let facts = BestFacts {
         index: 2,
         since: promoted_by(&idx, 2),
         summary: Some(&sm),
         artifacts: &arts,
+        current: Some(&current),
+        previous: Some(&previous),
     };
     // Fill every optional block so each allowed path occurs.
     let mut now = value(&now_doc(&s, &o, Some(&idx), Some(&facts), &memo, time_of(118)));

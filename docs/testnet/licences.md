@@ -11,7 +11,7 @@ about published material to the address in the
 | Dataset snapshots in `datasets/` | each snapshot's own; corpus text keeps its source licences | each snapshot's `README.md` and, where present, `NOTICE.md`, `LICENSE.fix-slop` or `LICENSES.md`, `licenses/` copies and per-row rights records ([datasets](../../datasets/README.md)) |
 | Release binaries | SlopNinja's code: MIT OR Apache-2.0; the third-party Rust packages built into them: their own | [Release binaries](#release-binaries) |
 | Reference packages (`R_0` and span package d24) | CC BY-SA 4.0 | each package directory's `NOTICE.md` and `upstream/ModernBERT-base-LICENSE` ([reference packages](reference-packages.md#licence)) |
-| Entrant artifacts | CC BY-SA 4.0, granted by the miner that entered each one ([terms](terms.md#your-submission)) | [Entrant artifacts](#entrant-artifacts) |
+| Entrant artifacts | CC BY-SA 4.0, granted by the miner that entered each one ([terms](terms.md#your-submission)) | `artifacts/v2/NOTICE.md` and `artifacts/v2/ModernBERT-base-LICENSE` on the public status host ([Entrant artifacts](#entrant-artifacts)) |
 | The SlopNinja name and the logo in `assets/brand/` | not licensed by any of the above | |
 
 ## Release binaries
@@ -52,8 +52,10 @@ for byte the copy in each reference package's
 `upstream/ModernBERT-base-LICENSE`.
 
 The public status host, <https://testnet.slop.ninja>, where artifacts are
-published, has been live since November 13, 2026. A notice for the published
-artifacts, with a copy of the base model's licence, is planned beside them
-under `artifacts/v2/` and is not published yet; the
-[public layout](public-layout.md) will give its paths once the publisher
-writes them.
+published, has been live since November 13, 2026. Beside the published
+artifacts, the publisher keeps their notice, `artifacts/v2/NOTICE.md` (the
+licence, how to attribute an artifact, and the base model's attribution),
+and a copy of the base model's licence, `artifacts/v2/ModernBERT-base-LICENSE`
+(the repository's `LICENSE-APACHE`, byte for byte); the
+[public layout](public-layout.md) lists both. The notice's text is
+`subnet/publisher/notices/artifacts-v2-NOTICE.md` in this repository.

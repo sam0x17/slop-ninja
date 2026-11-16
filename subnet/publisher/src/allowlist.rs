@@ -1,5 +1,5 @@
 //! The versioned allow-list of everything the public host may carry
-//! (`slop_ninja.public.allowlist/v3`).
+//! (`slop_ninja.public.allowlist/v4`).
 //!
 //! Validators and the public never learn held-out data (user rule,
 //! 2026-11-04): every object in the public bucket must be one this module
@@ -56,6 +56,10 @@
 //! Version 3 moved artifacts to the header-and-files layout published at
 //! scoring start (layout v1's `v1/artifacts/<sha256>.bin` objects are no
 //! longer allowed) and added the scoring-start record `artifacts.json`.
+//! Version 4 adds the notice beside the published artifacts
+//! (`artifacts/v2/NOTICE.md`) and the base model's licence
+//! (`artifacts/v2/ModernBERT-base-LICENSE`), each the compiled text byte for
+//! byte ([`crate::layout::ARTIFACT_NOTICES`]).
 //!
 //! Every cohort object other than `summary.json`, `publication.json` and
 //! `artifacts.json`
@@ -73,7 +77,7 @@ use slop_ninja_protocol::{
 
 use crate::layout;
 
-pub const ALLOWLIST_VERSION: &str = "slop_ninja.public.allowlist/v3";
+pub const ALLOWLIST_VERSION: &str = "slop_ninja.public.allowlist/v4";
 
 /// What a public key holds.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -92,6 +96,8 @@ pub enum Kind {
     Reference,
     ReferencePackage,
     Artifact,
+    /// A fixed notice beside the artifacts ([`layout::ARTIFACT_NOTICES`]).
+    Notice,
     AuthorizationPointer,
     SignedObject,
     Trust,
@@ -130,6 +136,7 @@ pub fn classify(key: &str) -> Option<Kind> {
         layout::REFERENCE_CURRENT | layout::REFERENCE_PREVIOUS => return Some(Kind::Reference),
         layout::AUTHORIZATION_CURRENT => return Some(Kind::AuthorizationPointer),
         layout::TRUST => return Some(Kind::Trust),
+        layout::ARTIFACT_NOTICE | layout::ARTIFACT_BASE_LICENCE => return Some(Kind::Notice),
         _ => {}
     }
     if let Some(rest) = key.strip_prefix("v1/cohorts/") {
@@ -622,6 +629,9 @@ pub fn check_object(key: &str, bytes: &[u8]) -> Result<(), String> {
         Kind::Trust => (bytes == crate::config::TRUST_FILE)
             .then_some(())
             .ok_or_else(|| format!("{key}: not the compiled trust file")),
+        Kind::Notice => (layout::notice_bytes(key) == Some(bytes))
+            .then_some(())
+            .ok_or_else(|| format!("{key}: not the compiled notice")),
         Kind::SignedObject => signed_object(bytes)
             .then_some(())
             .ok_or_else(|| format!("{key}: not a signed object the pointer may name")),
@@ -940,6 +950,22 @@ mod tests {
         assert!(check_object(key, b"not json").is_err());
         assert!(check_object("v1/trust/testnet-trust.json", b"{}").is_err());
         check_object("v1/trust/testnet-trust.json", crate::config::TRUST_FILE).unwrap();
+        // The notices beside the artifacts: the compiled bytes only, at
+        // their two keys only.
+        for (key, bytes) in layout::ARTIFACT_NOTICES {
+            assert_eq!(classify(key), Some(Kind::Notice));
+            check_object(key, bytes).unwrap();
+            assert!(check_object(key, b"edited").is_err());
+        }
+        assert!(check_object(layout::ARTIFACT_NOTICE, layout::ARTIFACT_BASE_LICENCE_TEXT).is_err());
+        for key in [
+            "artifacts/v2/LICENSE",
+            "artifacts/v2/NOTICE",
+            "artifacts/NOTICE.md",
+            "NOTICE.md",
+        ] {
+            assert_eq!(classify(key), None, "{key}");
+        }
         assert!(
             check_object(
                 &format!("v1/authorizations/{}.signed", "ab".repeat(32)),

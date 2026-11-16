@@ -266,7 +266,19 @@ netuid}`, `generated_at` (unix seconds, floored to the minute) and
 - `best{index, label, since_cohort, since_label, owner{uid, hotkey},
   latest_score, latest_score_label, quantization, artifact{state, download},
   licence}`: the current reference `R_k` and the cohort whose promotion
-  made it.
+  made it. `licence` is the public reference pointer's
+  (`v1/reference/current.json`) when it names `R_k`: `CC-BY-SA-4.0` for a
+  staged reference package, `null` otherwise.
+- `references{index, current{content, artifact}, predecessor{content,
+  artifact}}`, or absent: `R_k` (`index` is `best.index`) and `R_k-1` by
+  content digest and artifact digest (64 lowercase hex digits each), from
+  the public reference pointers `v1/reference/current.json` and
+  `previous.json`. It is absent while the current pointer names another
+  index (a cohort that changed the reference and is not listed yet) or none;
+  `predecessor` is `null` when the previous pointer names no `R_k-1`, and
+  always for `R_0`. Both sides drop the block when `best` is absent or names
+  another index, when a digest is not 64 lowercase hex digits, or when `R_0`
+  has a predecessor. A website built before this field ignores it.
 - `latest_cohort`, `notice` (kinds only: `testnet`, `burn`, `target`,
   `operator`), `advisory` (always `null`), `sources_ok`.
 - `weights{epoch, commit_block, commit_index, reveal, reveal_block}` or

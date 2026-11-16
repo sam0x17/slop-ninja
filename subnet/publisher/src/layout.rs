@@ -66,6 +66,35 @@ pub fn header(sha256: &Digest) -> String {
         .to_owned()
 }
 
+/// The notice beside the published artifacts: their CC BY-SA 4.0 licence,
+/// how to attribute one, and the base model's attribution and licence.
+/// The publisher keeps it at [`ARTIFACT_NOTICE_TEXT`], byte for byte.
+pub const ARTIFACT_NOTICE: &str = "artifacts/v2/NOTICE.md";
+pub const ARTIFACT_NOTICE_TEXT: &[u8] = include_bytes!("../notices/artifacts-v2-NOTICE.md");
+
+/// The base model's licence beside the published artifacts, which contain
+/// ModernBERT-base's tokenizer and, trained from its weights, a modified
+/// version of them: the Apache License 2.0, byte for byte the repository's
+/// `LICENSE-APACHE` (and each reference package's
+/// `upstream/ModernBERT-base-LICENSE`).
+pub const ARTIFACT_BASE_LICENCE: &str = "artifacts/v2/ModernBERT-base-LICENSE";
+pub const ARTIFACT_BASE_LICENCE_TEXT: &[u8] = include_bytes!("../../../LICENSE-APACHE");
+
+/// The fixed objects the publisher keeps beside the artifacts, each with
+/// its compiled bytes.
+pub const ARTIFACT_NOTICES: [(&str, &[u8]); 2] = [
+    (ARTIFACT_NOTICE, ARTIFACT_NOTICE_TEXT),
+    (ARTIFACT_BASE_LICENCE, ARTIFACT_BASE_LICENCE_TEXT),
+];
+
+/// The compiled bytes of a fixed notice object, by key.
+pub fn notice_bytes(key: &str) -> Option<&'static [u8]> {
+    ARTIFACT_NOTICES
+        .iter()
+        .find(|(k, _)| *k == key)
+        .map(|(_, b)| *b)
+}
+
 /// A published artifact file, shared by digest across artifacts:
 /// `blobs/sha256/<file sha256>`.
 pub fn blob(sha256: &Digest) -> String {
@@ -81,15 +110,20 @@ pub fn artifacts_record(label: &str) -> String {
 }
 
 /// A staged reference package's public directory (trailing slash), by the
-/// SHA-256 of its parts manifest: the parts manifest, its parts and its
-/// licence notices, staged by the operator. The publisher never writes under
-/// it; it only checks the parts manifest ([`reference_package_manifest`]).
+/// SHA-256 of its manifest (a parts manifest, or a files manifest): the
+/// manifest, its parts or files and its licence notices, staged by the
+/// operator. The publisher never writes under it; it only reads the
+/// manifest ([`reference_package_manifest`]).
 pub fn reference_package(sha256: &Digest) -> String {
-    format!("v1/reference/packages/{}/", sha256.hex())
+    format!("{REFERENCE_PACKAGES}{}/", sha256.hex())
 }
 
-/// The parts manifest of a staged reference package, whose SHA-256 is the
-/// directory's digest.
+/// Where the operator stages reference packages, one directory each
+/// ([`reference_package`]).
+pub const REFERENCE_PACKAGES: &str = "v1/reference/packages/";
+
+/// The manifest of a staged reference package (`artifact-files.json`, in
+/// the parts or the files layout), whose SHA-256 is the directory's digest.
 pub fn reference_package_manifest(sha256: &Digest) -> String {
     format!("{}artifact-files.json", reference_package(sha256))
 }
@@ -141,8 +175,12 @@ pub fn rel_of_private_key<'a>(label: &str, key: &'a str) -> Option<&'a str> {
 
 /// Content type of a published object, by extension.
 pub fn content_type(key: &str) -> &'static str {
+    if key == ARTIFACT_BASE_LICENCE {
+        return "text/plain; charset=utf-8";
+    }
     match key.rsplit('.').next() {
         Some("json") => "application/json",
+        Some("md") => "text/markdown; charset=utf-8",
         Some("html") => "text/html; charset=utf-8",
         Some("css") => "text/css; charset=utf-8",
         _ => "application/octet-stream",
@@ -196,5 +234,38 @@ mod tests {
         assert_eq!(rel_of_private_key("c1", "cohorts/c10/x.bin"), None);
         assert_eq!(rel_of_private_key("c1", "cohorts/c1/../c2/x.bin"), None);
         assert_eq!(rel_of_private_key("c1", "pools/c1/x.bin"), None);
+    }
+
+    #[test]
+    fn the_artifact_notices() {
+        assert_eq!(notice_bytes(ARTIFACT_NOTICE), Some(ARTIFACT_NOTICE_TEXT));
+        assert_eq!(
+            notice_bytes(ARTIFACT_BASE_LICENCE),
+            Some(ARTIFACT_BASE_LICENCE_TEXT)
+        );
+        assert_eq!(notice_bytes("artifacts/v2/LICENSE"), None);
+        assert_eq!(
+            content_type(ARTIFACT_NOTICE),
+            "text/markdown; charset=utf-8"
+        );
+        assert_eq!(
+            content_type(ARTIFACT_BASE_LICENCE),
+            "text/plain; charset=utf-8"
+        );
+        // The repository's Apache-2.0 text, which the notice names.
+        let licence = std::str::from_utf8(ARTIFACT_BASE_LICENCE_TEXT).unwrap();
+        assert!(
+            licence.contains("Apache License") && licence.contains("Version 2.0, January 2004")
+        );
+        let notice = std::str::from_utf8(ARTIFACT_NOTICE_TEXT).unwrap();
+        for needle in [
+            "CC BY-SA 4.0",
+            "https://creativecommons.org/licenses/by-sa/4.0/legalcode",
+            ARTIFACT_BASE_LICENCE,
+            "8949b909ec900327062f0ebf497f51aef5e6f0c8",
+            "v1/cohorts/<label>/artifacts.json",
+        ] {
+            assert!(notice.contains(needle), "{needle}");
+        }
     }
 }

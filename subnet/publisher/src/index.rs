@@ -629,40 +629,141 @@ pub struct ReferencePointer {
 pub const REFERENCE_NOT_STAGED: &str = "reference package not yet staged";
 
 impl ReferencePointer {
-    /// Links the staged reference package of this pointer's artifact.
-    pub fn link_package(&mut self) {
-        self.package = Some(layout::reference_package(&parse(&self.artifact)));
+    /// Links the staged reference package `package` (its directory's
+    /// digest, [`StagedPackage::package`]).
+    pub fn link_package(&mut self, package: &slop_ninja_protocol::Digest) {
+        self.package = Some(layout::reference_package(package));
         self.licence = Some(layout::REFERENCE_PACKAGE_LICENCE.to_owned());
         self.withheld = None;
+    }
+
+    /// Neither a download nor a package: the pointer a later run may still
+    /// link once the reference's package is staged.
+    pub fn unlinked(&self) -> bool {
+        self.path.is_none() && self.package.is_none()
+    }
+
+    /// The pointer's content and artifact digests, when both parse.
+    pub fn digests(&self) -> Option<(slop_ninja_protocol::Digest, slop_ninja_protocol::Digest)> {
+        Some((digest(&self.content)?, digest(&self.artifact)?))
+    }
+}
+
+/// A staged reference package, as its manifest (`artifact-files.json`)
+/// names it: the package digest (the manifest's SHA-256, the directory's
+/// name) and, when the manifest reads as a parts or files manifest, the
+/// digests a cohort manifest names a reference by.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct StagedPackage {
+    pub package: slop_ninja_protocol::Digest,
+    /// The inference-content digest of the header the manifest lists, and
+    /// that header record's SHA-256 ([`header_digests`]).
+    pub named: Option<(slop_ninja_protocol::Digest, slop_ninja_protocol::Digest)>,
+}
+
+/// The fields both manifest layouts share: the parts manifest
+/// (`slop_ninja_a_artifact_files_v1`, each file split into parts) and the
+/// files manifest (`slop_ninja_a_artifact_files_v2`, each file whole). The
+/// other fields (profile, graph, roles, parts, storage keys) do not enter
+/// the header.
+#[derive(Deserialize)]
+struct PackageManifest {
+    schema: String,
+    contract: String,
+    files: Vec<PackageFile>,
+}
+
+#[derive(Deserialize)]
+struct PackageFile {
+    name: String,
+    sha256: String,
+    bytes: u64,
+}
+
+/// The content digest and the artifact digest of the artifact a parts or
+/// files manifest lists: the header its files give (name, SHA-256 and
+/// length, under the spec's file table), that header's inference-content
+/// digest, and the SHA-256 of the header record, which is the artifact
+/// digest the coordinator names a reference by (the eval Worker's
+/// `artifact_digests`, re-encoding the header from the reference's
+/// manifest). Both layouts of one artifact give the same two digests.
+/// `None` for any other document.
+pub fn header_digests(
+    manifest: &[u8],
+) -> Option<(slop_ninja_protocol::Digest, slop_ninja_protocol::Digest)> {
+    use slop_ninja_artifact_check::{files_manifest::FILES_SCHEMA_V2, spec::PARTS_SCHEMA};
+    let m: PackageManifest = serde_json::from_slice(manifest).ok()?;
+    if m.schema != PARTS_SCHEMA && m.schema != FILES_SCHEMA_V2 {
+        return None;
+    }
+    let list: Vec<(&str, &str, u64)> = m
+        .files
+        .iter()
+        .map(|f| (f.name.as_str(), f.sha256.as_str(), f.bytes))
+        .collect();
+    let header = slop_ninja_artifact_check::header_from_listing(&m.contract, &list).ok()?;
+    let content = header.content().ok()?.digest().ok()?;
+    let artifact = slop_ninja_protocol::object_sha256(&header.to_bytes().ok()?);
+    Some((content, artifact))
+}
+
+impl StagedPackage {
+    /// Reads a staged package's manifest bytes.
+    pub fn read(manifest: &[u8]) -> Self {
+        Self {
+            package: slop_ninja_protocol::object_sha256(manifest),
+            named: header_digests(manifest),
+        }
+    }
+
+    /// Whether this package is the reference a cohort manifest names by
+    /// `content` and `artifact`: the manifest's own SHA-256 is the artifact
+    /// digest (the records that named a reference by its parts manifest),
+    /// or the manifest lists the header whose content and record digests
+    /// these are (the records that name it by header, as the files layout
+    /// does), in either layout.
+    pub fn is(
+        &self,
+        content: &slop_ninja_protocol::Digest,
+        artifact: &slop_ninja_protocol::Digest,
+    ) -> bool {
+        self.package == *artifact || self.named == Some((*content, *artifact))
     }
 }
 
 /// The reference chain after `v` closed: a promotion makes the promoted
 /// entrant `R_k+1` and the old `R_k` its predecessor. `published` says
 /// whether an artifact SHA-256 is a published miner artifact, `staged`
-/// whether it has a staged reference package.
+/// which staged reference package (its package digest) holds the reference
+/// named by a content and an artifact digest.
 pub fn references_after(
     v: &VerifiedCohort,
     published: impl Fn(&str) -> bool,
-    staged: impl Fn(&str) -> bool,
+    staged: impl Fn(
+        &slop_ninja_protocol::Digest,
+        &slop_ninja_protocol::Digest,
+    ) -> Option<slop_ninja_protocol::Digest>,
 ) -> (ReferencePointer, Option<ReferencePointer>) {
     let refs = &v.manifest.references;
-    let pointer = |role: &str, index: u64, content: String, artifact: String| {
-        let path = published(&artifact).then(|| layout::header(&parse(&artifact)));
+    let pointer = |role: &str, index: u64, m: &slop_ninja_protocol::ReferenceModel| {
+        let artifact = m.artifact.hex();
+        let path = published(&artifact).then(|| layout::header(&m.artifact));
         let mut p = ReferencePointer {
             schema: REFERENCE_SCHEMA.into(),
             role: role.into(),
             index,
             withheld: path.is_none().then(|| REFERENCE_NOT_STAGED.to_owned()),
-            content,
+            content: m.content.hex(),
             artifact,
             as_of_cohort: v.manifest.cohort,
             path,
             package: None,
             licence: None,
         };
-        if p.path.is_none() && staged(&p.artifact) {
-            p.link_package();
+        if p.path.is_none()
+            && let Some(package) = staged(&m.content, &m.artifact)
+        {
+            p.link_package(&package);
         }
         p
     };
@@ -672,39 +773,172 @@ pub fn references_after(
         .and_then(|h| v.result.entrants.iter().find(|e| e.hotkey == h));
     match promoted {
         Some(e) => (
-            pointer("current", refs.index + 1, e.content.hex(), e.artifact.hex()),
-            Some(pointer(
-                "previous",
-                refs.index,
-                refs.current.content.hex(),
-                refs.current.artifact.hex(),
-            )),
-        ),
-        None => (
             pointer(
                 "current",
-                refs.index,
-                refs.current.content.hex(),
-                refs.current.artifact.hex(),
+                refs.index + 1,
+                &slop_ninja_protocol::ReferenceModel {
+                    content: e.content,
+                    artifact: e.artifact,
+                },
             ),
-            refs.predecessor.map(|p| {
-                pointer(
-                    "previous",
-                    refs.index.saturating_sub(1),
-                    p.content.hex(),
-                    p.artifact.hex(),
-                )
-            }),
+            Some(pointer("previous", refs.index, &refs.current)),
+        ),
+        None => (
+            pointer("current", refs.index, &refs.current),
+            refs.predecessor
+                .map(|p| pointer("previous", refs.index.saturating_sub(1), &p)),
         ),
     }
 }
 
-fn parse(hex_digest: &str) -> slop_ninja_protocol::Digest {
+/// A 64-hex digest.
+fn digest(hex_digest: &str) -> Option<slop_ninja_protocol::Digest> {
     let mut out = [0u8; 32];
-    if let Ok(b) = hex::decode(hex_digest)
-        && b.len() == 32
-    {
-        out.copy_from_slice(&b);
+    hex::decode_to_slice(hex_digest, &mut out).ok()?;
+    Some(slop_ninja_protocol::Digest(out))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use slop_ninja_protocol::Digest;
+
+    /// A synthetic six-file listing under the spec's file table:
+    /// `(name, sha256 hex, bytes)`, the graph split into two parts.
+    fn files(tag: u8) -> Vec<(&'static str, String, u64)> {
+        [
+            "a-fp32band.onnx",
+            "heads.json",
+            "contract.json",
+            "calibration.json",
+            "manifest.json",
+            "tokenizer.json",
+        ]
+        .iter()
+        .enumerate()
+        .map(|(i, n)| {
+            (
+                *n,
+                hex::encode([tag.wrapping_add(i as u8); 32]),
+                100 + i as u64,
+            )
+        })
+        .collect()
     }
-    slop_ninja_protocol::Digest(out)
+
+    /// The parts manifest (`slop_ninja_a_artifact_files_v1`) of `files`.
+    fn parts_manifest(files: &[(&str, String, u64)]) -> Vec<u8> {
+        let files: Vec<_> = files
+            .iter()
+            .map(|(name, sha, bytes)| {
+                serde_json::json!({"name": name, "role": "r", "bytes": bytes, "sha256": sha,
+                    "parts": [{"sha256": "ab".repeat(32), "bytes": bytes}]})
+            })
+            .collect();
+        serde_json::to_vec_pretty(&serde_json::json!({"schema": "slop_ninja_a_artifact_files_v1",
+            "profile_id": "slop_ninja_a_artifact_spec_v2/a-plain-f32band-v1",
+            "contract": "slop_ninja_full_a_contract_v2", "graph": "a-fp32band.onnx", "files": files}))
+        .unwrap()
+    }
+
+    /// The files manifest (`slop_ninja_a_artifact_files_v2`) of `files`.
+    fn files_manifest(files: &[(&str, String, u64)]) -> Vec<u8> {
+        let files: Vec<_> = files
+            .iter()
+            .map(|(name, sha, bytes)| {
+                serde_json::json!({"name": name, "role": "r", "bytes": bytes, "sha256": sha,
+                    "bucket": "admission", "key": format!("reference/v2/files/{sha}")})
+            })
+            .collect();
+        serde_json::to_vec_pretty(&serde_json::json!({"schema": "slop_ninja_a_artifact_files_v2",
+            "profile_id": "slop_ninja_a_artifact_spec_v3/a-plain-f32band-v1",
+            "contract": "slop_ninja_full_a_contract_v2", "graph": "a-fp32band.onnx", "files": files}))
+        .unwrap()
+    }
+
+    /// The header the listing gives, its content digest and record digest,
+    /// computed independently of [`header_digests`].
+    fn expected(files: &[(&str, String, u64)]) -> (Digest, Digest) {
+        let list: Vec<(&str, &str, u64)> =
+            files.iter().map(|(n, s, b)| (*n, s.as_str(), *b)).collect();
+        let h =
+            slop_ninja_artifact_check::header_from_listing("slop_ninja_full_a_contract_v2", &list)
+                .unwrap();
+        (
+            h.content().unwrap().digest().unwrap(),
+            slop_ninja_protocol::object_sha256(&h.to_bytes().unwrap()),
+        )
+    }
+
+    #[test]
+    fn both_manifest_layouts_name_the_same_header() {
+        let f = files(0x10);
+        let (parts, whole) = (parts_manifest(&f), files_manifest(&f));
+        assert_eq!(header_digests(&parts), Some(expected(&f)));
+        assert_eq!(header_digests(&whole), Some(expected(&f)));
+        // The two packages differ; the reference they hold does not.
+        let (a, b) = (StagedPackage::read(&parts), StagedPackage::read(&whole));
+        assert_ne!(a.package, b.package);
+        assert_eq!(a.named, b.named);
+        let (content, artifact) = expected(&f);
+        assert!(a.is(&content, &artifact) && b.is(&content, &artifact));
+        // Another artifact's digests, or the right artifact with another
+        // content digest, are not this package.
+        let (other_content, other_artifact) = expected(&files(0x20));
+        assert!(!a.is(&other_content, &other_artifact));
+        assert!(!a.is(&other_content, &artifact));
+        assert!(!a.is(&content, &other_artifact));
+        // A reference named by the parts manifest's own SHA-256 (the earlier
+        // records' naming) links whatever the bytes are.
+        assert!(a.is(&other_content, &a.package));
+        let opaque = StagedPackage::read(b"not a manifest");
+        assert_eq!(opaque.named, None);
+        assert!(opaque.is(
+            &content,
+            &slop_ninja_protocol::object_sha256(b"not a manifest")
+        ));
+    }
+
+    #[test]
+    fn other_documents_name_no_header() {
+        let f = files(0x30);
+        let mut v: serde_json::Value = serde_json::from_slice(&parts_manifest(&f)).unwrap();
+        v["schema"] = "slop_ninja_a_artifact_files_v3".into();
+        assert_eq!(header_digests(&serde_json::to_vec(&v).unwrap()), None);
+        // A file outside the spec's table, or a malformed digest.
+        let mut g = f.clone();
+        g[1].0 = "extra.json";
+        assert_eq!(header_digests(&parts_manifest(&g)), None);
+        let mut g = f.clone();
+        g[2].1 = "zz".repeat(32);
+        assert_eq!(header_digests(&files_manifest(&g)), None);
+        assert_eq!(header_digests(b"{}"), None);
+    }
+
+    #[test]
+    fn a_linked_pointer_names_the_package_directory() {
+        let mut p = ReferencePointer {
+            schema: REFERENCE_SCHEMA.into(),
+            role: "previous".into(),
+            index: 0,
+            content: "aa".repeat(32),
+            artifact: "bb".repeat(32),
+            as_of_cohort: 30,
+            path: None,
+            withheld: Some(REFERENCE_NOT_STAGED.into()),
+            package: None,
+            licence: None,
+        };
+        assert!(p.unlinked());
+        assert_eq!(p.digests(), Some((Digest([0xaa; 32]), Digest([0xbb; 32]))));
+        p.link_package(&Digest([0xcc; 32]));
+        assert_eq!(
+            p.package,
+            Some(format!("v1/reference/packages/{}/", "cc".repeat(32)))
+        );
+        assert_eq!(p.licence.as_deref(), Some("CC-BY-SA-4.0"));
+        assert!(p.withheld.is_none() && !p.unlinked());
+        p.content = "x".into();
+        assert_eq!(p.digests(), None);
+    }
 }

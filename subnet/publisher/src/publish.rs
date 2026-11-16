@@ -638,6 +638,13 @@ impl<S: Store, K: Keepalive> Run<'_, S, K> {
         put_if_changed(b.public, layout::TRUST, TRUST_FILE.to_vec(), Cache::Index)
             .await
             .map_err(|e| format!("trust file: {e}"))?;
+        // The licence notice and the base model's licence beside the
+        // published artifacts.
+        for (key, bytes) in layout::ARTIFACT_NOTICES {
+            put_if_changed(b.public, key, bytes.to_vec(), Cache::Index)
+                .await
+                .map_err(|e| format!("{key}: {e}"))?;
+        }
         if b.public
             .head(layout::SITE_INDEX)
             .await
@@ -753,6 +760,11 @@ impl<S: Store, K: Keepalive> Run<'_, S, K> {
         match self.cfg.publish_from_epoch {
             Some(from) => self.new_cohorts(from, &mut idx, memo, report).await?,
             None => report.publication_disabled = true,
+        }
+        // A reference package staged after its cohort was listed is linked
+        // by the next run, not only at the next close.
+        if let Err(e) = self.relink_references().await {
+            report.pending.push(("reference pointers".into(), e));
         }
         // No public receipts: nothing to cross-check (`Report::retention_mismatch`).
         report.retention_checked = true;
@@ -1547,39 +1559,167 @@ impl<S: Store, K: Keepalive> Run<'_, S, K> {
                 .and_then(|h| v.result.entrants.iter().find(|e| e.hotkey == h))
                 .map(|e| e.artifact),
         );
-        let (mut published, mut staged) = (Vec::new(), Vec::new());
+        let mut published = Vec::new();
+        let mut unpublished = false;
         for c in candidates {
             if let Some(meta) = self.buckets.public.head(&layout::header(&c)).await?
                 && meta.sha256.is_none_or(|s| s == c)
             {
                 published.push(c.hex());
-            } else if self.staged_package(&c).await? {
-                staged.push(c.hex());
+            } else {
+                unpublished = true;
             }
         }
+        let staged = if unpublished {
+            self.staged_packages().await?
+        } else {
+            Vec::new()
+        };
         Ok(index::references_after(
             v,
             |sha| published.iter().any(|p| p == sha),
-            |sha| staged.iter().any(|p| p == sha),
+            |content, artifact| {
+                staged
+                    .iter()
+                    .find(|p| p.is(content, artifact))
+                    .map(|p| p.package)
+            },
         ))
     }
 
-    /// Whether the public bucket holds a staged reference package for
-    /// `artifact`: a parts manifest at [`layout::reference_package_manifest`],
-    /// within the scorer's manifest bound, whose SHA-256 is `artifact`. The
-    /// operator stages packages; the publisher only links them.
-    async fn staged_package(&self, artifact: &Digest) -> Result<bool, StoreError> {
-        let key = layout::reference_package_manifest(artifact);
-        let bound = layout::REFERENCE_PACKAGE_MANIFEST_BOUND.min(self.budget.remaining());
-        let bytes = match self.buckets.public.get(&key, bound).await {
-            Ok(Some(b)) => b,
-            Ok(None) | Err(StoreError::TooLarge { .. }) => return Ok(false),
+    /// The staged reference packages on the public bucket: every directory
+    /// under [`layout::REFERENCE_PACKAGES`] named by a digest whose manifest
+    /// ([`layout::reference_package_manifest`]), within the scorer's
+    /// manifest bound, has that SHA-256 and reads as a parts or files
+    /// manifest ([`index::StagedPackage::read`]). The operator stages
+    /// packages; the publisher only links them, matching a reference by the
+    /// content and artifact digests its manifest gives
+    /// ([`index::StagedPackage::is`]), so a package in either layout links
+    /// whatever digest names its directory.
+    async fn staged_packages(&self) -> Result<Vec<index::StagedPackage>, StoreError> {
+        let mut out = Vec::new();
+        for dir in self
+            .buckets
+            .public
+            .list_dirs(layout::REFERENCE_PACKAGES)
+            .await?
+        {
+            let Some(package) = dir
+                .strip_prefix(layout::REFERENCE_PACKAGES)
+                .and_then(|d| d.strip_suffix('/'))
+                .filter(|d| d.len() == 64)
+                .and_then(digest_hex)
+            else {
+                continue;
+            };
+            let key = layout::reference_package_manifest(&package);
+            let bound = layout::REFERENCE_PACKAGE_MANIFEST_BOUND.min(self.budget.remaining());
+            let bytes = match self.buckets.public.get(&key, bound).await {
+                Ok(Some(b)) => b,
+                Ok(None) | Err(StoreError::TooLarge { .. }) => continue,
+                Err(e) => return Err(e),
+            };
+            let Ok(_hold) = self.budget.reserve(bytes.len() as u64) else {
+                continue;
+            };
+            let staged = index::StagedPackage::read(&bytes);
+            if staged.package == package {
+                out.push(staged);
+            }
+        }
+        Ok(out)
+    }
+
+    /// Links each of `pointers` that has neither a download nor a package
+    /// to the staged package that holds its reference, listing the staged
+    /// packages only when one needs it. Whether any changed.
+    async fn link_staged<'p>(
+        &self,
+        pointers: impl IntoIterator<Item = &'p mut ReferencePointer>,
+    ) -> Result<bool, StoreError> {
+        let mut staged: Option<Vec<index::StagedPackage>> = None;
+        let mut changed = false;
+        for pointer in pointers {
+            let Some((content, artifact)) = pointer.digests().filter(|_| pointer.unlinked()) else {
+                continue;
+            };
+            if staged.is_none() {
+                staged = Some(self.staged_packages().await?);
+            }
+            if let Some(p) = staged.iter().flatten().find(|p| p.is(&content, &artifact)) {
+                pointer.link_package(&p.package);
+                changed = true;
+            }
+        }
+        Ok(changed)
+    }
+
+    /// Links a reference pointer whose package was staged after its cohort
+    /// was listed: when `v1/reference/current.json` or `previous.json` has
+    /// neither a download nor a package and a staged package now holds its
+    /// reference, both pointers and the leaderboard's copies are rewritten
+    /// with the link, and the page with them. Otherwise nothing is written;
+    /// a run reads the two pointers and nothing else.
+    pub async fn relink_references(&self) -> Result<bool, String> {
+        let p = self.buckets.public;
+        let mut current =
+            get_json::<S, ReferencePointer>(p, layout::REFERENCE_CURRENT, self.budget).await?;
+        let mut previous =
+            get_json::<S, ReferencePointer>(p, layout::REFERENCE_PREVIOUS, self.budget).await?;
+        if !current
+            .iter()
+            .chain(&previous)
+            .any(ReferencePointer::unlinked)
+        {
+            return Ok(false);
+        }
+        if !self
+            .link_staged(current.iter_mut().chain(previous.iter_mut()))
+            .await
+            .map_err(|e| e.to_string())?
+        {
+            return Ok(false);
+        }
+        let doc = match get_json::<S, LeaderboardDoc>(p, layout::LEADERBOARD, self.budget).await {
+            Ok(Some(mut doc)) => {
+                for (mine, linked) in [
+                    (Some(&mut doc.current_reference), current.as_ref()),
+                    (doc.previous_reference.as_mut(), previous.as_ref()),
+                ] {
+                    if let (Some(mine), Some(linked)) = (mine, linked)
+                        && mine.unlinked()
+                        && mine.role == linked.role
+                        && mine.index == linked.index
+                        && mine.content == linked.content
+                        && mine.artifact == linked.artifact
+                    {
+                        *mine = linked.clone();
+                    }
+                }
+                put_json(p, layout::LEADERBOARD, &doc, Cache::Index)
+                    .await
+                    .map_err(|e| e.to_string())?;
+                Some(doc)
+            }
+            Ok(None) => None,
             Err(e) => return Err(e),
         };
-        let Ok(_hold) = self.budget.reserve(bytes.len() as u64) else {
-            return Ok(false);
-        };
-        Ok(slop_ninja_protocol::object_sha256(&bytes) == *artifact)
+        if let Some(c) = &current {
+            put_json(p, layout::REFERENCE_CURRENT, c, Cache::Index)
+                .await
+                .map_err(|e| e.to_string())?;
+        }
+        if let Some(prev) = &previous {
+            put_json(p, layout::REFERENCE_PREVIOUS, prev, Cache::Index)
+                .await
+                .map_err(|e| e.to_string())?;
+        }
+        if doc.is_some() {
+            self.write_site(doc.as_ref())
+                .await
+                .map_err(|e| e.to_string())?;
+        }
+        Ok(true)
     }
 
     async fn write_site(&self, doc: Option<&LeaderboardDoc>) -> Result<(), StoreError> {
@@ -1720,14 +1860,12 @@ impl<S: Store, K: Keepalive> Run<'_, S, K> {
                 pointer.package = None;
                 pointer.licence = None;
                 pointer.withheld = None;
-            } else if pointer.path.is_none()
-                && pointer.package.is_none()
-                && let Some(sha) = digest_hex(&pointer.artifact)
-                && self.staged_package(&sha).await?
-            {
-                pointer.link_package();
             }
         }
+        self.link_staged(
+            std::iter::once(&mut doc.current_reference).chain(doc.previous_reference.as_mut()),
+        )
+        .await?;
         put_json(p, layout::LEADERBOARD, &doc, Cache::Index).await?;
         put_json(
             p,

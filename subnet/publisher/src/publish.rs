@@ -212,8 +212,8 @@ pub struct Memo {
     pub unverifiable: BTreeMap<String, Remembered>,
     /// In-record cohorts this build refused: label to the reason.
     pub refused: BTreeMap<String, Remembered>,
-    /// Every initial reference (`R_0` and its replacement) any opened
-    /// manifest named, inside or outside the record.
+    /// Every initial reference (a reference at index 0, such as `R_0`) any
+    /// opened manifest named, inside or outside the record.
     pub references: BTreeSet<ReferenceDigests>,
     /// Cohorts whose publication at scoring start is decided for every
     /// roster entry (or that have nothing to publish): never read again for
@@ -266,7 +266,7 @@ pub struct Report {
 
 pub const WITHHELD_OPERATOR: &str = "an operator or synthetic hotkey";
 pub const WITHHELD_LISTED: &str = "a listed reference digest: references are published as reference packages, not as entrant artifacts";
-pub const WITHHELD_INITIAL: &str = "an initial reference R_0 (or its replacement): published as a reference package, not as an entrant artifact";
+pub const WITHHELD_INITIAL: &str = "an initial reference (a reference at index 0, such as R_0): published as a reference package, not as an entrant artifact";
 pub const WITHHELD_START: &str = "withheld at scoring start";
 pub const WAIT_DISABLED: &str = "publication at scoring start is not enabled (ARTIFACTS_FROM_EPOCH)";
 pub const WAIT_START: &str = "not yet published at scoring start";

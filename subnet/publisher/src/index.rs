@@ -113,7 +113,7 @@ pub struct ActiveTarget {
     pub cohort: Option<u64>,
 }
 
-/// An initial reference (`R_0`, or its single replacement) some listed
+/// An initial reference (a reference at index 0, such as `R_0`) some listed
 /// cohort's manifest named. It is published as a reference package, never as
 /// an entrant artifact, so its artifacts stay withheld as entrant artifacts
 /// for every later cohort, after the manifest chain no longer names it.
@@ -544,8 +544,8 @@ pub fn for_record_check(v: &serde_json::Value) -> Result<CohortIndex, String> {
 }
 
 /// The initial reference a manifest's reference set names: the current one
-/// at index 0 (`R_0` or its replacement), its predecessor at index 1, else
-/// none (later references are promoted miner artifacts).
+/// at index 0 (such as `R_0`), its predecessor at index 1, else none (later
+/// references are promoted miner artifacts).
 pub fn initial_reference(
     refs: &slop_ninja_protocol::ReferenceSet,
 ) -> Option<slop_ninja_protocol::ReferenceModel> {
@@ -617,7 +617,7 @@ pub struct ReferencePointer {
     pub path: Option<String>,
     pub withheld: Option<String>,
     /// The staged reference package's directory, when the reference is one
-    /// (`R_0` and its replacement are published this way).
+    /// (initial references, such as `R_0`, are published this way).
     #[serde(default)]
     pub package: Option<String>,
     /// The package's licence, with `package`.

@@ -141,7 +141,6 @@ pub fn summary(kind: Kind, r: &StoredResult, created_at: u64) -> Summary {
     Summary {
         kind,
         band: r.band,
-        short: r.short,
         strong_sections: None,
         total_sections: None,
         words: r.total_words,

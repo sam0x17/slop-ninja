@@ -30,7 +30,10 @@
 //!
 //! The load refuses a graph that lacks an output its heads read. A document's
 //! sentences and spans are computed only when a score request asks for them.
+use crate::full_a::RawOutputs;
 use crate::full_a_tower::{SpanTowerHeads, TokenInput, TokenStates};
+use crate::involvement_calibration::{Map, origin_scaled};
+use crate::shared::sigmoid;
 use crate::load_guard;
 use crate::profile::sha256_hex as sha;
 use anyhow::{Context, Result, anyhow, ensure};
@@ -324,6 +327,36 @@ pub fn word_mask(text: &str, offsets: &[(usize, usize)]) -> Result<Vec<bool>> {
     Ok(out)
 }
 
+/// What a score request asks for beyond the document outputs.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct Options {
+    /// Sentences and spans, when the artifact has a token head.
+    pub spans: bool,
+    /// With `spans`: keep the sentences in the reply.
+    pub sentences: bool,
+    /// The calibration map's input ([`calibration_input`]).
+    pub calibration_input: bool,
+}
+
+/// The value the package's isotonic calibration map reads for a document:
+/// sigmoid of the origin-temperature-scaled involvement logit for
+/// `isotonic_v1_clipped` (computed as `Map::apply_origin` computes it), and
+/// sigmoid of the involvement logit for `isotonic_v1` and
+/// `isotonic_bounded_v2`. `None` (JSON `null`) for a map that is not
+/// isotonic, or a value that is not finite. A reader can fit its own map on
+/// this value (the detect Worker's per-length maps, `subnet/detect-worker`);
+/// it is a score, like the confidence, and carries no text.
+pub fn calibration_input(map: &Map, raw: &RawOutputs) -> Option<f64> {
+    let x = match map {
+        Map::ClippedIsotonic { temperature, .. } => {
+            origin_scaled(&raw.origin_logits, raw.involvement_logit, *temperature).ok()?.0
+        }
+        Map::Isotonic(_) | Map::BoundedIsotonic { .. } => raw.involvement_logit,
+        _ => return None,
+    };
+    Some(sigmoid(x)).filter(|v| v.is_finite())
+}
+
 pub struct Model {
     pub tokenizer: Tokenizer,
     pub heads: SpanTowerHeads,
@@ -531,6 +564,15 @@ impl Model {
     /// sentences and keeps the spans. `span_output_sha256` is the same either
     /// way: it is computed over both before the sentences are left out.
     pub fn score_with_sentences(&self, id: &str, text: &str, spans: bool, sentences: bool) -> Value {
+        self.score_with_options(id, text, Options { spans, sentences, calibration_input: false })
+    }
+
+    /// [`Model::score_with_sentences`] with `options`. With
+    /// `calibration_input`, an `ok` result also carries `calibration_input`
+    /// ([`calibration_input`]): a field beside the prediction, never inside
+    /// it, so `output_sha256` and `span_output_sha256` are the same either way.
+    pub fn score_with_options(&self, id: &str, text: &str, options: Options) -> Value {
+        let Options { spans, sentences, calibration_input: with_input } = options;
         let t0 = Instant::now();
         let text_sha = sha(text.as_bytes());
         if text.trim().is_empty() {
@@ -613,6 +655,9 @@ impl Model {
                 let output_sha = sha(&serde_json::to_vec(&prediction).unwrap_or_default());
                 let mut r = json!({"id": id, "status": "ok", "text_sha256": text_sha, "token_count": ids.len(),
                     "prediction": prediction.clone(), "output_sha256": output_sha});
+                if with_input {
+                    r["calibration_input"] = json!(calibration_input(&self.heads.calibration, &out.raw));
+                }
                 if emit {
                     let states = TokenStates { final_norm: &tokens, span_tower: tower.as_deref() };
                     let emitted = match emission_error {
@@ -647,6 +692,44 @@ impl Model {
             Err(_) => json!({"id": id, "status": "error", "reason": "model", "text_sha256": text_sha,
                 "token_count": ids.len(), "prediction": null}),
         }
+    }
+}
+
+#[cfg(test)]
+mod calibration_input_tests {
+    use super::*;
+    use crate::involvement_calibration::{Knot, isotonic_predict_score};
+
+    fn knot(score: f64, involvement: f64) -> Knot {
+        Knot { score, involvement, weight: 1., weighted_positives: involvement, rows: 1 }
+    }
+
+    fn raw(origin_logits: Vec<f64>, involvement_logit: f64) -> RawOutputs {
+        RawOutputs { origin_logits, involvement_logit, conditional_mixed_share: 0.5, token_mean: None, pooled_token_logit: None }
+    }
+
+    /// The package's own map applied to the input is its calibrated
+    /// involvement, bit for bit; non-isotonic maps have no input.
+    #[test]
+    fn the_input_is_what_the_map_reads() {
+        let knots = vec![knot(0.1, 0.02), knot(0.4, 0.3), knot(0.7, 0.3), knot(0.95, 0.97)];
+        let clipped = Map::ClippedIsotonic { temperature: 1.1274968515793757, knots: knots.clone(), lo: 0.01, hi: 0.99 };
+        // Origin logits and an involvement logit (any span-gate offset is in g).
+        for (l, g) in [([0.3, -1.2, 0.8], 0.1), ([-2.0, 1.5, 0.4], 3.2), ([4.0, -3.0, -2.5], -6.0)] {
+            let r = raw(l.to_vec(), g);
+            let x = calibration_input(&clipped, &r).unwrap();
+            let (p, _) = clipped.apply_origin(&r.origin_logits, g).unwrap();
+            assert_eq!(isotonic_predict_score(&knots, x).clamp(0.01, 0.99), p);
+            assert_eq!(calibration_input(&Map::Isotonic(knots.clone()), &r), Some(sigmoid(g)));
+            assert_eq!(
+                calibration_input(&Map::BoundedIsotonic { knots: knots.clone(), epsilon: 0.01 }, &r),
+                Some(sigmoid(g))
+            );
+            for m in [Map::Identity, Map::Temperature(1.5), Map::OriginTemperature(1.2)] {
+                assert_eq!(calibration_input(&m, &r), None, "{}", m.method());
+            }
+        }
+        assert_eq!(calibration_input(&clipped, &raw(vec![f64::NAN, 0., 0.], 0.)), None);
     }
 }
 

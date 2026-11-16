@@ -9,7 +9,9 @@
 //! whose document is missing answers `report_unavailable` (503, never
 //! cached) instead of a page.
 
-use slop_ninja_detect_page::codes::{CardVariant, DetState, HostRole, Kind, Platform, RemovalScope, Robots, SpansNote};
+use slop_ninja_detect_page::codes::{
+    CardVariant, DetState, HostRole, Kind, LengthBin, Platform, RemovalScope, Robots, SpansNote,
+};
 use slop_ninja_detect_page::page::{
     CardRef, Ended, Failure, HistoryEntry, HistoryPackage, JobProgress, Page, PageSchema, Pending, Removal, XPost,
 };
@@ -90,7 +92,7 @@ fn card_ref(page: &Page, generic: bool) -> Option<CardRef> {
     // As the card renderer's own choice (`Card::from_page`).
     let variant = if page.is_paid_document() {
         CardVariant::PaidDocument
-    } else if run.short.is_some() {
+    } else if run.length.is_some_and(LengthBin::is_short) {
         CardVariant::Short
     } else if generic || page.state == DetState::ExcerptWithheld {
         CardVariant::Generic
@@ -279,7 +281,6 @@ pub fn public_page(slug: &str, row: &DetRow, ex: &PublicExtras, doc: Option<&Run
         state,
         platform: row.platform,
         words: p.run.as_ref().map(|r| r.words),
-        short: p.run.as_ref().is_some_and(|r| r.short.is_some()),
         source: ex.source.as_ref().map(|s| (s.state, s.reputation)),
         host_opted_out: ex.host_opted_out,
         full_analysis,

@@ -250,12 +250,21 @@ ONNX Runtime library and the binary only; no model.
     already loading or loaded, 409 `missing_chunks` (with the list),
     `not_prepared` or `instance_bound`.
   `POST /v1/score` scores up to 128 documents (`{"package", "cohort"?,
-  "spans"?, "docs": [{"id", "text"}]}`) across the session pool and returns,
+  "spans"?, "sentences"?, "calibration_input"?, "docs": [{"id", "text"}]}`)
+  across the session pool and returns,
   per document, the status, text digest, token count, prediction and output
   digest, with process and cgroup CPU time. With `"spans": true` and a token
   head, the prediction also carries `sentences` and `spans`, with
   `span_status` and `span_output_sha256`; the document prediction and
-  `output_sha256` are the same with or without spans. `GET /healthz` reports
+  `output_sha256` are the same with or without spans. With
+  `"calibration_input": true`, an `ok` document also carries
+  `calibration_input` beside its prediction: the value the package's
+  isotonic calibration map reads (sigmoid of the origin-temperature-scaled
+  involvement logit for `isotonic_v1_clipped`, `null` for a map that is not
+  isotonic). The prediction and both digests are unchanged by it, and no
+  cohort request asks for it; the detect Worker asks for it to apply its
+  per-length maps to short texts. `build.score_fields` lists the optional
+  fields (`spans`, `sentences`, `calibration_input`). `GET /healthz` reports
   `empty`, `loading`, `ready` or `failed`, the binding, the build identity and
   the limits, which list the specs a load may name (`specs`, by id and digest)
   and the one a load that names none gets (`unnamed_load_spec`).

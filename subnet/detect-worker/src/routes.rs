@@ -830,7 +830,7 @@ mod tests {
             package_load: "f".repeat(64),
             policy_v: "x".repeat(32),
             result_full: ResultFull {
-                band: "no_strong_signs".into(),
+                band: "very_strong".into(),
                 confidence_tenths: Some(u16::MAX),
                 confidence_text: Some("above 99.9%".into()),
                 share_text: Some("about 100%".into()),

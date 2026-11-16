@@ -1,14 +1,13 @@
 {
   "schema": "slop_ninja_detect_card_v1",
   "variant": "short",
-  "band": null,
+  "band": "weak",
   "gauge": {
     "level": null,
-    "band": null,
-    "short": "none",
+    "band": "weak",
     "document": false
   },
-  "confidence_text": null,
+  "confidence_text": "12.4%",
   "share_text": null,
   "headline": "No strong signs of AI involvement.",
   "source_label": "a post on Bluesky",

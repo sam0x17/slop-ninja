@@ -348,15 +348,7 @@ impl Io for CfStore<'_> {
     }
 
     async fn receipt(&self, r: &StoredResult) -> Option<String> {
-        use slop_ninja_detect_page::codes::{Band, ShortResult};
-        let band = match (r.band, r.short) {
-            (Some(Band::VeryStrong), None) => "very_strong",
-            (Some(Band::Strong), None) | (None, Some(ShortResult::Strong)) => "strong",
-            (Some(Band::Unclear), None) => "unclear",
-            (Some(Band::Weak), None) => "weak",
-            (None, Some(ShortResult::None)) => "no_strong_signs",
-            _ => return None,
-        };
+        let band = r.band?.as_str();
         let length = r.length?.as_str();
         let ns = self.env.durable_object("DETECT_FEEDBACK").ok()?;
         let stub = ns.id_from_name("feedback").ok()?.get_stub().ok()?;

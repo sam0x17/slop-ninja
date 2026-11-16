@@ -210,7 +210,7 @@ fn save(
         "/internal/v1/owned/add",
         json!({
             "user_id": user, "slug": slug, "id_h": hex::encode([det; 32]), "is_owner": owner,
-            "summary": {"kind": "private_text", "band": null, "short": null, "strong_sections": null,
+            "summary": {"kind": "private_text", "band": null, "strong_sections": null,
                         "total_sections": null, "words": 300, "created_at": 1, "expires_at": null}
         }),
     )

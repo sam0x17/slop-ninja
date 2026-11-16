@@ -5,7 +5,7 @@
 //!   and, for a subset, the letter ends. `UPDATE_GOLDEN=1` rewrites the
 //!   file; `RENDER_DIR=<dir>` also writes each PNG there for a look.
 //! - Secret cards: two secret pages that differ only in slug give equal
-//!   cards and equal PNG bytes, for every band, the short results, the free
+//!   cards and equal PNG bytes, for every band, the short texts, the free
 //!   cut and the paid document; no secret card's JSON, PNG chunk or download
 //!   name holds a slug, and its link prints only the secret host.
 //! - Hostile strings (XML specials, bidi and invisible controls, characters
@@ -142,7 +142,7 @@ fn secret_cards_that_differ_only_in_slug_render_the_same_bytes() {
     let other = |s: &str| if s == "c3jf8kq1zw5ty7hn2mdx" { "7hq2kd9m4xw8rt3vn6pb" } else { "c3jf8kq1zw5ty7hn2mdx" };
     let mut pages: Vec<(String, Page)> = Vec::new();
     for name in
-        ["15-secret-text", "16-secret-short-strong", "17-secret-short-none", "20-secret-free-cut", "24-paid-document"]
+        ["15-secret-text", "16-secret-short-strong", "17-secret-short-weak", "20-secret-free-cut", "24-paid-document"]
     {
         pages.push((name.into(), page(name)));
     }

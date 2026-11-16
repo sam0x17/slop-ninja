@@ -9,6 +9,7 @@
 pub mod instance;
 pub mod markers;
 pub mod result;
+pub mod short_maps;
 
 #[cfg(target_arch = "wasm32")]
 mod cf {

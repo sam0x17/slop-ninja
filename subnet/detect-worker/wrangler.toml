@@ -48,8 +48,8 @@
 # is a deploy of new values, recorded by the wrapper. The switches are vars
 # AND rows of the store's switches table: a var set to its off state is the
 # hard off, and the set_switch op flips the rest at once; when the table
-# cannot be read the var decides. With DETECT_SPANS off, texts under 150
-# words are refused, since their rule reads passages. SITE_ORIGIN and
+# cannot be read the var decides. With DETECT_SPANS off, no passage is
+# shown; every length is still scored. SITE_ORIGIN and
 # SECRET_ORIGIN are the two public origins every host check derives from. No
 # account ID belongs here. The hourly cron runs the store's expiry sweep,
 # orphan backstop, stale claims and sitemap shards.
@@ -114,13 +114,15 @@ PUBLICATION = "pending"
 # rates come from: stored with every result, so they change with the
 # package vars.
 PACKAGE_LABEL = "span package d24"
-EVIDENCE_ID = "evidence-d24-web-v1"
+EVIDENCE_ID = "evidence-d24-web-v2"
 # Where the copy's files sit: the staged manifest's own bucket label.
 PACKAGE_BUCKET_LABEL = "admission"
-# Scorer build identity: the instance must report these digests (the
-# pinned a-scorer image, as the eval Worker pins it).
+# Scorer build identity: the instance must report these digests. The ORT
+# library is the eval Worker's; the binary is this lane's own a-scorer build
+# (the same Dockerfile and build), newer than the eval Worker's pin: it
+# answers the `calibration_input` request field the short-text maps read.
 SCORER_ORT_SHA256 = "fc44112fbe06d7d689c57e11d3862031f64711007e4ee020f8eed5185fd2c1d3"
-SCORER_BINARY_SHA256 = "7030a86f46114b72929d64e71c377b6416d9bdad9ca71d92e9fd467c94e6a74f"
+SCORER_BINARY_SHA256 = "ccf4ab14744bd0982961010ab063a3186f23b96d2b7a54717668e134f65bb56a"
 # Liveness parameters from measured times (re-measured at the launch gate):
 # a fresh instance answered within seconds but a start during a Container
 # rollout stalled past a minute; R0's cold load took 26-41 s, the span
@@ -294,10 +296,10 @@ DETECT_URLS = "off"
 DETECT_X = "off"
 PUBLICATION = "pending"
 PACKAGE_LABEL = "span package d24"
-EVIDENCE_ID = "evidence-d24-web-v1"
+EVIDENCE_ID = "evidence-d24-web-v2"
 PACKAGE_BUCKET_LABEL = "admission"
 SCORER_ORT_SHA256 = "fc44112fbe06d7d689c57e11d3862031f64711007e4ee020f8eed5185fd2c1d3"
-SCORER_BINARY_SHA256 = "7030a86f46114b72929d64e71c377b6416d9bdad9ca71d92e9fd467c94e6a74f"
+SCORER_BINARY_SHA256 = "ccf4ab14744bd0982961010ab063a3186f23b96d2b7a54717668e134f65bb56a"
 SCORER_START_WAIT_MS = "60000"
 LOAD_WAIT_MS = "180000"
 SCORE_WAIT_MS = "60000"
@@ -452,12 +454,15 @@ DETECT_URLS = "on"
 DETECT_X = "on"
 PUBLICATION = "pending"
 PACKAGE_LABEL = "span package d24"
-EVIDENCE_ID = "evidence-d24-web-v1"
+EVIDENCE_ID = "evidence-d24-web-v2"
 PACKAGE_BUCKET_LABEL = "dev"
 PACKAGE_MANIFEST_KEY = "dev-package/files-manifest.json"
 PACKAGE_SHA256 = "db9397d929a050b388f871a0e6aece65e39a84f561aed6f493db7c44768c8919"
 PACKAGE_SPEC_SHA256 = "7d5a105aa23968bcbc67eb1cbe18a89e3a4d3d272b69845e7bdedcda46b97ae8"
-PUBLISHED_PACKAGE_DIGEST = "0290801880c50982080b59aca74d52219a4b6141fbd82cd352049285bf71be41"
+# Span package d24's published digest, as the deployed envs serve it: the
+# short-text maps are bound to it, so the dev session scores texts of 24 to
+# 149 words as they do (the stub scorer answers their calibration input).
+PUBLISHED_PACKAGE_DIGEST = "4bc3d49ce183d4a9ab150867eb4ec23280565351e07c041d161c9e728e19eac3"
 SCORER_ORT_SHA256 = "85eb103773fb94effc8e09c6436574c758417696d461388cd8aa795818bb772c"
 SCORER_BINARY_SHA256 = "3ffbc438d30b0210277cc731ebd171399193bdc792e8b1f68bb34c4862a94eea"
 SCORER_START_WAIT_MS = "10000"

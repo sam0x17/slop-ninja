@@ -16,7 +16,8 @@
 //! it, and the bytes reach this process only from the coordinator's lane.
 //! `POST /v1/score` then scores a batch of documents for that package and returns,
 //! per document, digests, counts and the prediction; with `"spans": true` and a token
-//! head, also sentences and spans.
+//! head, also sentences and spans; with `"calibration_input": true`, also the
+//! calibration map's input beside the prediction (the detect Worker's short texts).
 //!
 //! **Single use.** The first accepted load binds the process to its package, cohort
 //! (absent cohort included) and spec for its whole life, whatever the load's outcome.
@@ -42,7 +43,7 @@
 //! A_SESSIONS (1-8, default 4), A_THREADS (1-16, default 1), A_WORK_DIR (/tmp/a-scorer),
 //! A_ORT_LIB (/opt/ort/libonnxruntime.so.1.31.1).
 use a_container_serve::artifact::{FilesManifest, MAX_MANIFEST_BYTES, Placement, write_chunk};
-use a_container_serve::engine::Model;
+use a_container_serve::engine::{Model, Options};
 use a_container_serve::instance::{Binding, Load, load_query};
 use a_container_serve::limits::{self, MAX_DOCS, MAX_INFLIGHT, MAX_SCORE_BODY};
 use a_container_serve::profile::ServedProfile;
@@ -192,6 +193,11 @@ struct ScoreRequest {
     /// scoring reads the spans only). Advertised in `/healthz` `build.score_fields`.
     #[serde(default = "yes")]
     sentences: bool,
+    /// Also return each `ok` document's `calibration_input`, the calibration
+    /// map's input (`engine::calibration_input`), beside its prediction.
+    /// Advertised in `/healthz` `build.score_fields`.
+    #[serde(default)]
+    calibration_input: bool,
     docs: Vec<Doc>,
 }
 
@@ -228,7 +234,8 @@ fn score(cfg: &Config, state: &State, body: &[u8]) -> Result<(u16, Value)> {
                 loop {
                     let i = next.fetch_add(1, SeqCst);
                     let Some(d) = r.docs.get(i) else { break };
-                    *results[i].lock().unwrap() = model.score_with_sentences(&d.id, &d.text, r.spans, r.sentences);
+                    let options = Options { spans: r.spans, sentences: r.sentences, calibration_input: r.calibration_input };
+                    *results[i].lock().unwrap() = model.score_with_options(&d.id, &d.text, options);
                 }
             });
         }
@@ -278,7 +285,7 @@ fn main() -> Result<()> {
         "sessions": cfg.sessions,
         "threads": cfg.threads,
         "limits": limits::report(cfg.sessions),
-        "score_fields": ["spans", "sentences"],
+        "score_fields": ["spans", "sentences", "calibration_input"],
     });
     let state = Arc::new(State {
         slot: Mutex::new(Slot::Empty),

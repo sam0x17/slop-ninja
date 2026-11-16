@@ -2,21 +2,22 @@
 
 SlopNinja's free detection page, planned at `slop.ninja/detect/`, scores one
 pasted English text with *A*, SlopNinja's AI-text detector. For each text of
-150 words or more the page shows:
+24 words or more the page shows:
 
 - an **evidence band** (very strong, strong, unclear, or weak or none);
-- *A*'s two document percentages: the **confidence** that AI was involved at
-  all, a probability from a calibration map fitted for a mix in which about
-  two in three documents involve AI (see "The base rate behind the
-  confidence"), and the **estimated AI share**, the expected fraction of the
+- the **confidence** that AI was involved at all, a probability from a
+  calibration map fitted for a mix in which about two in three documents
+  involve AI (see "The base rate behind the confidence");
+- from 150 words, the **estimated AI share**, the expected fraction of the
   final text's words in passages an AI model wrote or rewrote;
 - in the strong and very strong bands only, **highlighted passages**: runs of
-  24 words or more that *A* estimates AI wrote, each with its own confidence.
+  24 words or more that *A* estimates AI wrote, each with its own confidence
+  from 150 words.
 
-For a text of 24 to 149 words the page shows one result instead: **strong
-signs of AI involvement**, with its highlighted passages, or **no strong
-signs**. It shows no percentage, no share and no very strong band at these
-lengths (see "Short texts").
+For a text of 24 to 149 words the confidence comes from a calibration map
+fitted on texts of that length, in three bins (24-49, 50-99 and 100-149
+words), and each bin has its own band cuts. The page shows no share and no
+passage confidence at these lengths (see "Short texts").
 
 The page scores English text of 24 words or more and withholds results for
 text that fails its English screen. It scores at most the first 1,000 words
@@ -232,8 +233,8 @@ themselves, the screen would refuse 4; the 150-450 row includes them.)
   as often as at 150-450 words, and some reach the very strong band. The
   spoken conversations rise far more (from 1 of 866 at full length to 5.0% at
   50-99 words); the learner essays stay below 1% (0.25% at full length). The page
-  therefore does not use the four bands under 150 words; it applies the
-  stricter rule of "Short texts" below.
+  therefore does not use the release's cuts under 150 words; it applies each
+  length bin's own calibration and cuts ("Short texts" below).
 - The short excerpts are leading parts of longer human texts, not texts written
   to be short (emails, posts, short answers), which may behave differently.
 - This table measures the human side only. "Short texts" below adds a 24-49-word
@@ -242,11 +243,11 @@ themselves, the screen would refuse 4; the 150-450 row includes them.)
 
 ## Short texts
 
-Below 150 words the four bands do not hold: their cuts flag far more human
+Below 150 words the release's cuts do not hold: they flag far more human
 text, and the confidence overstates the chance of AI involvement. The page
-therefore gives texts of 24 to 149 words one result, under a rule that also
-reads the confidence of a highlighted passage. Under 24 words, the shortest
-passage the package can highlight, it gives no score.
+therefore scores texts of 24 to 149 words through a calibration map and band
+cuts fitted for their own length bin. Under 24 words, the shortest passage the
+package can highlight, it gives no score.
 
 **How the short texts were made.** Every Test and CAL document, human and
 AI-involved, was cut into excerpts by the rule of "Length" above: a run of
@@ -284,66 +285,90 @@ In the top tenth of the scale the mean confidence is 0.987, 0.993 and 0.994,
 while the share of AI-involved excerpts there is 0.872, 0.935 and 0.980 (at
 150-450: 0.995 and 0.992). Calibration maps fitted per bin on CAL excerpts
 bring the error to 0.018, 0.019 and 0.015, so the gap comes from length; the
-page does not use such maps. The estimated share fares worse still: 36% of the
-24-49-word primary human excerpts show a share of 25% or more (23% at 50-99,
-11% at 100-149, 5.5% at 150-450).
+page uses those maps ("Per-length calibration" below). The estimated share
+fares worse still: 36% of the 24-49-word primary human excerpts show a share of
+25% or more (23% at 50-99, 11% at 100-149, 5.5% at 150-450), and on mixed
+excerpts it is off by 23.7, 22.5 and 18.7 percentage points (15.5 at 150-450),
+so the page shows no share below 150 words.
 
-### The short-text rule
+### Per-length calibration
 
-A text of 24 to 149 words gets "strong signs of AI involvement" only when both
-hold:
+For each bin, an isotonic calibration map was fitted on the CAL excerpts of
+that length, from the value the release's own map reads (the scorer's
+calibration input: the sigmoid of the origin-temperature-scaled involvement
+logit) to the probability that the excerpt holds an AI-written word. The fit
+is the release's: weighted pool-adjacent-violators over every CAL population,
+with the balanced weights of "The base rate behind the confidence"
+recomputed per bin, each level clamped to the release's bounds (1 / (2 x human
+excerpts) and 1 - 1 / (2 x AI excerpts)), and the map applied linearly
+between adjacent knots and constant outside them. Each bin's band cuts were
+then chosen on CAL by the release's rule: strong is the lowest level at which
+at most 1% of the bin's CAL human-document excerpts reach it (rounded down: 21
+of 2,109 at 24-49 words, 11 of 1,123 at 50-99 and 11 of 1,112 at 100-149),
+very strong the same at 0.1% (2, 1 and 1), and unclear starts at 50%.
 
-- its confidence reaches a level of the release's calibration map, and
-- it has a highlighted passage whose own confidence (the package's passage
-  confidence map, a separate calibrated output) reaches a level of that map.
+| Words | Strong from | Very strong from | CAL human excerpts at strong or above (allowed) | At very strong (allowed) | Test Brier / ECE (balanced) |
+|---|---|---|---:|---:|---|
+| 24-49 | 93.74% (0.9374105837343678) | 98.85% (0.9885387244785764) | 20 (21) | 2 (2) | 0.118 / 0.018 |
+| 50-99 | 96.97% (0.9696816574027286) | 99.986% (0.9998631261976457, the top level) | 3 (11) | 0 (1) | 0.083 / 0.019 |
+| 100-149 | 89.59% (0.8959405374499715) | 99.987% (0.999869007073618, the top level) | 11 (11) | 0 (1) | 0.065 / 0.015 |
 
-| Words | Confidence at least | And a passage at least |
-|---|---|---|
-| 24-49 | 99.988% (the top level, 0.9998820476527482) | 96.38% (0.9637746785002717) |
-| 50-99 | 99.988% (the top level) | 96.38% |
-| 100-149 | 90.9% (0.9090909090909091) | 94.20% (0.9420289855072465) |
+The detect Worker compiles the three maps in as one file of numbers only
+(`subnet/detect-worker/short-maps-d24.json`, SHA-256
+`121d8d1c3623e914813685f6ab3ad0f44b9e9377ad872faa9f03a7b4aff11dbc`): the knots,
+levels and bounds, no text. The maps belong to span package d24 and apply only
+while it serves; under another package a text under 150 words is treated as
+too short until that package is measured. Scoring a short text needs the
+scorer to return its calibration input beside the prediction (the scorer's
+`calibration_input` request field, which leaves the prediction unchanged).
 
-Otherwise the result is "no strong signs". Both levels are compared the way
-the bands are: the printed percentage against the level times 100. Each bin's
-pair was chosen on CAL by the release's 1% rule: among every release level of
-90.9% or more, paired with every passage level of 90% or more or with no
-passage condition, the pair that flags the most CAL AI-involved excerpts while
-flagging at most 1% of CAL human-document excerpts (rounded down: 21 of 2,109
-at 24-49 words, 11 of 1,123 at 50-99 and 11 of 1,112 at 100-149). The chosen
-pairs flag 21, 9 and 9 of those human excerpts. No rule on the confidence alone
-qualifies at 24-49 or 50-99: even the top level flags 83 and 21 of them. The
-rule depends on passages, so when passages are switched off or fail, the page
-treats a text under 150 words as too short.
+On the Test (maps and cuts chosen on CAL, rates measured on the consumed Test),
+each row gives the share of excerpts in each band:
 
-On the Test (rule chosen on CAL, rates measured on the consumed Test):
+| Words | Population | Excerpts | Very strong | Strong | Unclear | Weak | Strong or above |
+|---|---|---:|---:|---:|---:|---:|---:|
+| 24-49 | primary humans | 5,909 | 12 (0.20%) | 26 (0.44%) | 613 (10.4%) | 5,258 (89.0%) | 38 (0.64%, 0.47-0.88%) |
+| 24-49 | human parts of AI documents | 2,087 | 3 | 10 | 203 | 1,871 | 13 (0.62%) |
+| 24-49 | learner essays | 3,488 | 0 | 2 | 32 | 3,454 | 2 (0.06%) |
+| 24-49 | spoken conversations | 1,693 | 3 | 7 | 177 | 1,506 | 10 (0.59%) |
+| 24-49 | AI-involved, primary and frontier | 11,461 | 2,822 (24.6%) | 1,835 (16.0%) | 4,340 (37.9%) | 2,464 (21.5%) | 4,657 (40.6%) |
+| 24-49 | frontier | 1,271 | 172 (13.5%) | 189 (14.9%) | 546 (43.0%) | 364 (28.6%) | 361 (28.4%) |
+| 50-99 | primary humans | 3,164 | 5 (0.16%) | 10 (0.32%) | 372 (11.8%) | 2,777 (87.8%) | 15 (0.47%, 0.29-0.78%) |
+| 50-99 | human parts of AI documents | 850 | 1 | 2 | 93 | 754 | 3 (0.35%) |
+| 50-99 | AI-involved, primary and frontier | 6,265 | 3,141 (50.1%) | 661 (10.6%) | 1,765 (28.2%) | 698 (11.1%) | 3,802 (60.7%) |
+| 50-99 | frontier | 690 | 245 (35.5%) | 84 (12.2%) | 259 (37.5%) | 102 (14.8%) | 329 (47.7%) |
+| 100-149 | primary humans | 3,156 | 7 (0.22%) | 30 (0.95%) | 240 (7.6%) | 2,879 (91.2%) | 37 (1.17%, 0.85-1.61%) |
+| 100-149 | human parts of AI documents | 517 | 0 | 4 | 44 | 469 | 4 (0.77%) |
+| 100-149 | AI-involved, primary and frontier | 6,593 | 4,653 (70.6%) | 696 (10.6%) | 684 (10.4%) | 560 (8.5%) | 5,349 (81.1%) |
+| 100-149 | frontier | 742 | 464 (62.5%) | 112 (15.1%) | 86 (11.6%) | 80 (10.8%) | 576 (77.6%) |
 
-| Words | Primary humans flagged | Learner essays | Spoken conversations | Human parts of AI documents | AI-involved, primary and frontier | Frontier | AI texts left at "no strong signs" |
-|---|---:|---:|---:|---:|---:|---:|---:|
-| 24-49 | 34 of 5,909 (0.58%, 0.41-0.80%) | 5 of 3,488 (0.14%) | 13 of 1,693 (0.77%) | 12 of 2,087 (0.58%) | 4,311 of 11,461 (37.6%) | 332 of 1,271 (26.1%) | 62.4% |
-| 50-99 | 30 of 3,164 (0.95%, 0.67-1.35%) | 2 of 1,847 (0.11%) | 1 of 863 (0.12%) | 7 of 850 (0.82%) | 3,875 of 6,265 (61.9%) | 362 of 690 (52.5%) | 38.1% |
-| 100-149 | 31 of 3,156 (0.98%, 0.69-1.39%) | 3 of 1,856 (0.16%) | 3 of 859 (0.35%) | 3 of 517 (0.58%) | 5,079 of 6,593 (77.0%) | 535 of 742 (72.1%) | 23.0% |
-
+- **What the bands mean below 150 words.** The strong band flags about 1 in
+  160 human texts of 24-49 words, 1 in 210 at 50-99 and 1 in 85 at 100-149,
+  against 1.31% at 150-450 under the release's cuts; the very strong band
+  about 1 in 500, 1 in 630 and 1 in 450. A weak result is common for AI text
+  this short: 21.5% of the AI-involved excerpts at 24-49 words, 11.1% at 50-99
+  and 8.5% at 100-149 land there, and more land in the unclear band, so a
+  short text's weak or unclear result does not show that a person wrote it.
 - **AI-involved excerpts.** Most are wholly AI-written: an excerpt of a mixed
-  document is usually all human or all AI. Wholly AI-written excerpts are
-  flagged far more often than excerpts that mix human and AI text: 39.1%
-  against 7.0% at 24-49 words, 68.7% against 21.2% at 50-99, and 88.8% against
-  45.3% at 100-149. Base-model continuations and splices (the robustness set)
-  are almost never flagged: 7 of 967, 3 of 85 and 21 of 1,308.
-- **Web text runs higher.** By domain, FineWeb web text has 7 of 409 (1.7%),
-  4 of 215 (1.9%) and 8 of 218 (3.7%) flagged; Wikinews 4 of 159 (2.5%) at
-  50-99 words and Wikisource 5 of 133 (3.8%) at 100-149 are higher still.
-  Court opinions, the student essays, Ubuntu IRC and the Federal Register
-  have none in any bin. The counts are small.
-- **Where the excerpt starts.** At 24-49 words, excerpts from document starts
-  were flagged somewhat more often than excerpts from inside documents: humans
-  21 of 2,726 (0.77%) against 13 of 3,183 (0.41%), AI-involved 40.8% against
-  34.7%. The 50-99 and 100-149 bins use document starts only.
-- **Every flagged text has a highlighted passage**, so the human rates above
-  are also the rates at which a human text gets a highlight. A text under 48
+  document is usually all human or all AI. Excerpts that mix human and AI text
+  are caught far less often: strong or above for 10.1% of them at 24-49 words
+  (42.1% of the wholly AI-written ones), 20.1% at 50-99 (67.5%) and 53.1% at
+  100-149 (91.6%). Base-model continuations and splices (the robustness set)
+  are almost never flagged: 2 of 967, 2 of 85 and 23 of 1,308.
+- **Where the excerpt starts.** At 24-49 words the bin pools excerpts from
+  document starts and from inside documents; the 50-99 and 100-149 bins use
+  document starts only.
+- **Learner essays and spoken conversations** were measured under the maps at
+  24-49 words only: at 50-99 and 100-149 words their excerpts were scored
+  without the calibration input, so the maps could not be applied to them.
+- **Passages.** In the strong bands a passage is highlighted when the
+  package's span decoder finds one of 24 words or more, as from 150 words, but
+  it shows no confidence of its own: the passage confidence map was not
+  measured on short texts. A text under 48
   words can hold at most one passage.
-- **No very strong result.** A stricter pair chosen the same way for 0.1% would
-  rest on one or two CAL human excerpts, too few to choose a rule, so the page
-  has no second positive result under 150 words.
+- **The page's figures.** The page prints the bin's confidence and band, not
+  the share. These rates are for the measured package only: the maps and cuts
+  belong to span package d24.
 
 ## Long texts
 
@@ -595,7 +620,7 @@ and the human sets), under the 24-word floor:
   documents; 12 of them (all mixed) are out of scope because none of their AI
   passages has 24 words, leaving the first row's 6,240. The rows count
   documents of every length: of the 6,240, 271 are under 150 words (130 mixed,
-  141 model-only), texts the page would not score, and 50 to 52 are over 450
+  141 model-only), texts the page scores under its short-text maps, and 50 to 52 are over 450
   (all 50 such model-only documents and up to 2 mixed ones). Restricted to 150 words or more, the "strong or very strong, mixed only"
   row becomes 2,591
   documents with character precision 0.936 and recall 0.872, passage precision
@@ -654,11 +679,12 @@ and the human sets), under the 24-word floor:
   deliberate evasion were not measured, and base-model continuations (the
   robustness set) are mostly missed.
 - The short-length rates use parts of longer Test documents, not texts written
-  to be short (emails, posts, short answers), and the short-text rule was
-  chosen on CAL after the Test had been opened. CAL holds about 1,100 human
-  documents, so each bin's rule was chosen with room for only 11 to 21
-  flagged human excerpts. The rule belongs to span package d24: another package needs its
-  own measurement.
+  to be short (emails, posts, short answers), and the per-length maps and
+  cuts were fitted on CAL after the Test had been opened. CAL holds about
+  1,100 human documents, so each bin's strong cut was chosen with room for
+  only 11 to 21 flagged human excerpts and its very strong cut for one or two.
+  The maps belong to span package d24: another package needs its own
+  measurement.
 - Long texts were built, not found: natural long human text covers Project
   Gutenberg books and ELLIPSE essays only, and the other domains rest on
   joined documents, which change topic at each join. No natural long AI text
@@ -673,7 +699,7 @@ and the human sets), under the 24-word floor:
 - The Common Crawl pilot's documents are web pages from before the cutoff, not
   documented human writing; its hand review covered a sample of the flagged
   documents.
-- Apart from the short-text comparison above, this document measures neither
+- Apart from the short-text calibration above, this document measures neither
   the document confidence's calibration nor the share's accuracy on
   AI-involved text. It quotes one summary figure for
   each from other documents: on the Test, R0's involvement Brier score

@@ -208,7 +208,6 @@ async fn page_summary(io: &impl Io, slug: &str, f: &Found<'_>) -> Result<Summary
     let empty = Summary {
         kind: row.kind,
         band: None,
-        short: None,
         strong_sections: None,
         total_sections: None,
         words: 0,

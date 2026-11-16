@@ -17,11 +17,15 @@ production payment or delivery service is implemented by this guide.
 
 Testnet runs for several months before the mainnet subnet is registered. The
 first product is a free detection page at `/detect/`: a visitor pastes text
-without an account, the page sets no cookie and stores no text, and SlopNinja's
-span package d24 scores it in SlopNinja's own runtime, so the text reaches no
-miner. The page reports one of four evidence bands with their measured rates,
-scores no text under 150 words, and highlights spans of at least 24 words only
-in the two strongest bands. No advertising or analytics script runs on the
+without an account, the page sets no cookie, and SlopNinja's span package d24
+scores it in SlopNinja's own runtime, so the text reaches no miner. Every check
+gets its own permanent link; a pasted text's page is unlisted and not indexed,
+so only people the visitor shares the link with can find it, while a check of
+a public page's address is public and can be indexed. The page reports one of
+four evidence bands with their measured rates, scores texts of 24 words or
+more (below 150 words through a calibration fitted for the text's length, with
+no share shown), and highlights spans of at least 24 words only in the two
+strongest bands. No advertising or analytics script runs on the
 page that holds pasted text; ads run only on approved content pages. A paid
 detection API follows once the package is published, paid through a
 merchant-of-record card processor or directly in TAO, and settles through the

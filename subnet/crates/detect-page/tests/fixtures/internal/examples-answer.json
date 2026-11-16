@@ -34,7 +34,6 @@
           "policy": "long-v1",
           "evidence": "evidence-d24-web-v1",
           "band": "very_strong",
-          "short": null,
           "confidence_tenths": 999,
           "confidence_text": "above 99.9%",
           "share_pct": 86,

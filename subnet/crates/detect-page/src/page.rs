@@ -217,17 +217,16 @@ pub struct Run {
     pub policy: String,
     /// The evidence table the rates come from.
     pub evidence: String,
-    /// The band, for a text of 150 words and more; `null` for a short text
-    /// and a paid document.
+    /// The band; `null` for a paid document. A short text's (24 to 149
+    /// words) is cut at its length bin's own levels.
     pub band: Option<Band>,
-    /// A short text's result.
-    pub short: Option<ShortResult>,
-    /// Confidence floored to tenths of a percent (`null` when short or paid).
+    /// Confidence floored to tenths of a percent (`null` when paid).
     pub confidence_tenths: Option<u16>,
     /// "97.3%", "above 99.9%", "below 1%".
     pub confidence_text: Option<String>,
     /// The dial's bare number: the share floored, never above the
-    /// confidence.
+    /// confidence; `null` for a short text (no share is shown below 150
+    /// words) and a paid document.
     pub share_pct: Option<u8>,
     /// "about 86%" or "below 1%".
     pub share_text: Option<String>,
@@ -554,9 +553,9 @@ impl Page {
         if self.is_paid_document() {
             return Some(NinjaInput::PaidDocument);
         }
-        match (run.band, run.short, run.share_pct) {
-            (Some(band), None, Some(share_pct)) => Some(NinjaInput::Banded { band, share_pct }),
-            (None, Some(s), None) => Some(NinjaInput::Short(s)),
+        match (run.band, run.share_pct, run.length.is_some_and(LengthBin::is_short)) {
+            (Some(band), Some(share_pct), false) => Some(NinjaInput::Banded { band, share_pct }),
+            (Some(band), None, true) => Some(NinjaInput::Short(band)),
             _ => None,
         }
     }
@@ -668,7 +667,7 @@ impl Page {
         need(self.text.is_some() || self.is_x_post(), "a live page has its text block")?;
         if self.is_paid_document() {
             let s = self.sections.as_ref().ok_or(PageError("a paid document has sections"))?;
-            need(run.band.is_none() && run.short.is_none() && run.length.is_none(), "a paid document has no band")?;
+            need(run.band.is_none() && run.length.is_none(), "a paid document has no band")?;
             need(s.items.len() as u32 == s.document.total_sections && !s.items.is_empty(), "section count")?;
             let strong = s.items.iter().filter(|x| x.band.is_strong()).count() as u32;
             need(strong == s.document.strong_sections, "strong section count")?;
@@ -681,24 +680,16 @@ impl Page {
             need(self.ninja.is_none(), "a paid document has no ninja")?;
         } else {
             need(self.sections.is_none(), "sections only on paid documents")?;
-            match (run.band, run.short) {
-                (Some(_), None) => {
-                    need(run.confidence_text.is_some() && run.share_text.is_some(), "banded figures")?;
-                    need(run.confidence_tenths.is_some() && run.share_pct.is_some(), "banded numbers")?;
-                    need(run.length.is_some_and(|l| !l.is_short()), "banded length")?;
-                }
-                (None, Some(_)) => {
-                    need(
-                        run.confidence_text.is_none() && run.share_text.is_none(),
-                        "a short text prints no percentage",
-                    )?;
-                    need(run.confidence_tenths.is_none() && run.share_pct.is_none(), "a short text has no numbers")?;
-                    need(run.length.is_some_and(|l| l.is_short()), "short length")?;
-                    need(run.spans.iter().all(|s| s.confidence.is_none()), "short passages carry no confidence")?;
-                }
-                _ => return Err(PageError("exactly one of band and short")),
+            let length = run.length.ok_or(PageError("a text's run has its length"))?;
+            need(run.band.is_some(), "a text's run has its band")?;
+            need(run.confidence_text.is_some() && run.confidence_tenths.is_some(), "the confidence")?;
+            if length.is_short() {
+                need(run.share_text.is_none() && run.share_pct.is_none(), "a short text shows no share")?;
+                need(run.spans.iter().all(|s| s.confidence.is_none()), "short passages carry no confidence")?;
+            } else {
+                need(run.share_text.is_some() && run.share_pct.is_some(), "the share from 150 words")?;
             }
-            let strong = run.band.is_some_and(|b| b.is_strong()) || run.short == Some(ShortResult::Strong);
+            let strong = run.band.is_some_and(|b| b.is_strong());
             need(strong || run.spans.is_empty(), "passages only in the strong bands")?;
             if let (Some(n), Some(input)) = (self.ninja, self.ninja_input()) {
                 need(ninja_state(input, false) == Some(n), "the ninja follows the rule")?;

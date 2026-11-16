@@ -2489,15 +2489,20 @@ Testnet runs for several months before the mainnet subnet is registered, and
 the paper's [paid-service section](../whitepaper/sections/06-paid-inference.tex)
 plans revenue during that period. The first product is a free detection page at
 `/detect/`, which is not a subnet page: a visitor pastes text without an
-account, the page sets no cookie and stores no text, and the text is scored by
+account, the page sets no cookie, every check gets its own permanent link
+(unlisted and not indexed for pasted text, so only people the visitor shares
+it with can find it; public and indexable for a check of a public page's
+address), and the text is scored by
 SlopNinja's span package d24 on one scorer Container in SlopNinja's own
 runtime, so it reaches no miner and is not reused for training without
 consent. The headline is one of four evidence bands, set at the package's
 calibrated 1% and 0.1% human false-positive points and 50%, each shown with the
 rates of human and AI-involved Test documents that fell in it, followed by the
-two document percentages. Human false positives were measured only on texts of
-150 to 450 words, so the page scores no text under 150 words and marks longer
-texts as outside the measured range; spans of at least 24 words are
+two document percentages. The release's human false positives were measured on
+texts of 150 to 450 words and, for texts that end at a sentence end, 451 to
+1,000 words; texts of 24 to 149 words are scored through calibration maps and
+band cuts fitted for their own length, with the confidence and no share, and
+nothing under 24 words is scored; spans of at least 24 words are
 highlighted only in the two strongest bands, and the page gives no human
 verdict. No advertising or analytics script runs on the page that holds pasted
 text. Ads run only on the site's content pages, once an advertising network has

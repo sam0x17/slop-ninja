@@ -12,6 +12,7 @@
 //! | `spans=auto\|none\|off\|bad\|short` | passages: `auto` (default) one passage over every word in a strong band, or the marked regions; `none` an empty list; `off` `span_status` unsupported; `bad` a passage whose byte offsets disagree with its characters; `short` a passage under 24 words |
 //! | `span-begin`, `span-end` | a passage region: from the first word after `span-begin` to the last word before the next `span-end` (or the end) |
 //! | `span_conf=<0..100>` | each passage's `ai_confidence_percent` (default 99) |
+//! | `input=<0..1>` | the exact `calibration_input` (asked for by the detect Worker on a text of 24 to 149 words); without it the stub picks one in the asked band under the text's length bin's map ([`crate::short_maps`]) |
 //! | `status=ok\|unsupported_length\|empty_text\|no_word_tokens\|error_tokenize\|error_model` | the document's status |
 //! | `http=<status>` | the whole reply answers this status (400, 404, 409, 413, 422, 500, 503) |
 //! | `delay_ms=<n>` | the reply waits `n` ms first (at most 300,000) |
@@ -92,6 +93,8 @@ pub struct Directives {
     pub share: Option<f64>,
     pub spans: SpanMode,
     pub span_conf: Option<f64>,
+    /// The exact calibration input (`input=`).
+    pub input: Option<f64>,
     pub status: Option<DocStatus>,
     pub http: Option<u16>,
     pub delay_ms: Option<u64>,
@@ -144,6 +147,9 @@ pub fn parse(text: &str) -> Directives {
             "conf" => d.conf = percent(value).or(d.conf),
             "share" => d.share = percent(value).or(d.share),
             "span_conf" => d.span_conf = percent(value).or(d.span_conf),
+            "input" => {
+                d.input = value.parse::<f64>().ok().filter(|x| x.is_finite() && (0.0..=1.0).contains(x)).or(d.input)
+            }
             "spans" => {
                 d.spans = match value {
                     "auto" => SpanMode::Auto,

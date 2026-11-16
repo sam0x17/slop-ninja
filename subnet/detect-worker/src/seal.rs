@@ -56,9 +56,10 @@ pub const TAG_BYTES: usize = 16;
 pub const SECRET_BYTES: usize = 32;
 /// One UTC day.
 pub const DAY_MS: u64 = 86_400_000;
-/// The result policy the free check applies (`long-v1`: the free cut, the
-/// length bins and the bands of the detect-long rules).
-pub const POLICY_V: &str = "long-v1";
+/// The result policy the free check applies (`short-maps-v1`: the free cut,
+/// the length bins and the bands of `long-v1` from 150 words, and from 24
+/// to 149 words each bin's own map and cuts, `policy::SHORT_MAPS_SHA256`).
+pub const POLICY_V: &str = "short-maps-v1";
 
 /// What a seal is for.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

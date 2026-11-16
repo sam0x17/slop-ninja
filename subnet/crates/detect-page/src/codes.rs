@@ -50,8 +50,10 @@ macro_rules! code_enum {
 }
 
 code_enum! {
-    /// The evidence band of a text of 150 words and more (the built detect
-    /// Worker's codes). A short text has a [`ShortResult`] instead.
+    /// The evidence band of a text (the built detect Worker's codes). From
+    /// 150 words the cuts are the release's (shown below); from 24 to 149
+    /// words each length bin has its own strong and very strong cuts, from
+    /// its own calibration map ([`LengthBin::is_short`]).
     pub enum Band {
         /// Band 1, "No strong signs" (confidence under 50%).
         Weak = "weak",
@@ -77,16 +79,6 @@ impl Band {
 }
 
 code_enum! {
-    /// The result of a short text (24 to 149 words): no percentages.
-    pub enum ShortResult {
-        /// "Strong signs of AI involvement."
-        Strong = "strong",
-        /// "No strong signs of AI involvement."
-        None = "none",
-    }
-}
-
-code_enum! {
     /// Where the scored words sit against the measured ranges (built codes).
     pub enum LengthBin {
         Short24 = "24_49",
@@ -98,6 +90,8 @@ code_enum! {
 }
 
 impl LengthBin {
+    /// 24 to 149 words: the bin's own map and cuts, the confidence and no
+    /// share.
     pub fn is_short(self) -> bool {
         matches!(self, LengthBin::Short24 | LengthBin::Short50 | LengthBin::Short100)
     }
@@ -253,7 +247,8 @@ code_enum! {
     pub enum CardVariant {
         /// A text of 150 words and more: the band card.
         Band = "band",
-        /// A short text: the result, no percentages.
+        /// A short text (24 to 149 words): the band and confidence, no share
+        /// and so no needle.
         Short = "short",
         /// A paid whole document: the neutral dial and the section ladder.
         PaidDocument = "paid_document",

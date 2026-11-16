@@ -7,11 +7,9 @@
 //!   that a small AI part is caught less often in a longer text. The free
 //!   check scores at most the first 1,000 words, cut back to a sentence end
 //!   (`crate::cut`), and the bin is that of the words scored. From 24 to 149
-//!   words the page gives
-//!   one positive result under a per-bin rule measured on excerpts of the
-//!   consumed Test and chosen on the Calibration split
-//!   (`docs/detect-evidence.md`, short texts); under 24 words, the span floor,
-//!   it gives no score.
+//!   words, in three bins (24-49, 50-99, 100-149), the confidence comes from
+//!   the bin's own calibration map ([`ShortMaps`]); under 24 words, the span
+//!   floor, the page gives no score.
 //! - **Bands.** Four evidence bands on the calibrated involvement
 //!   probability, cut at the release's Calibration-split operating points
 //!   (`docs/a-baseline-release.md`): the 1% human-FPR point and the 0.1%
@@ -20,18 +18,27 @@
 //!   by 100 is monotone in floating point, so comparing the percentage with
 //!   each cut times 100, computed the same way, is the same comparison.
 //! - **Short texts.** Below 150 words the release's confidence is not
-//!   calibrated and its cuts flag too many human texts, so the result is
-//!   "strong signs" only when the document confidence reaches a release
-//!   level and a highlighted passage's own confidence (the span confidence
-//!   map, a separate calibrated output) reaches a level, both per bin.
-//!   Otherwise it is "no strong signs". No percentage, share or very strong
-//!   band is shown. The rule reads passages, so with spans off or failed a
-//!   short text gets the span-free minimum of 150 words instead.
-//! - **Spans.** Passages are shown only in the two strong bands (below 150
-//!   words, only in the strong result), only when the span switch is on, and
-//!   never under 24 words.
+//!   calibrated and its cuts flag too many human texts
+//!   (`docs/detect-evidence.md`, short texts). Each short bin has its own
+//!   isotonic map, fitted on Calibration-split excerpts of that length, from
+//!   the scorer's `calibration_input` (the release map's own input) to the
+//!   confidence the page prints, and its own cuts, chosen on the
+//!   Calibration split by the release's rule: strong at the 1% point, very
+//!   strong at the 0.1% point, unclear from 50%. The maps belong to one
+//!   package (span package d24, by its published digest) and are bound by
+//!   their file's digest ([`SHORT_MAPS_SHA256`]); under another package, or
+//!   without the input, a short text gets the measured minimum of 150 words
+//!   instead. The share is not shown below 150 words: on short excerpts it
+//!   read 25% or more on a third of human texts of 24 to 49 words and was
+//!   never recalibrated.
+//! - **Spans.** Passages are shown only in the two strong bands, only when
+//!   the span switch is on, and never under 24 words. Below 150 words they
+//!   carry no confidence of their own: the span confidence map was not
+//!   measured on short texts.
 //! - **Notices.** Control markers the tokenizer reads as special tokens, and
 //!   invisible or control characters, are named, never removed.
+
+use std::sync::OnceLock;
 
 /// The 1% human-FPR operating point on the Calibration split.
 pub const STRONG_CUT: f64 = 0.9090909090909091;
@@ -41,27 +48,29 @@ pub const VERY_STRONG_CUT: f64 = 0.9998820476527482;
 pub const UNCLEAR_CUT: f64 = 0.5;
 /// The span floor: no passage under 24 words is ever shown.
 pub const SPAN_MIN_WORDS: u64 = 24;
-/// A level of package d24's span confidence map: the passage condition of
-/// the short-text rule at 24 to 99 words.
-pub const SHORT_SPAN_LEVEL: f64 = 0.9637746785002717;
-/// The span confidence map level of the 100-149-word rule.
-pub const SHORT_SPAN_LEVEL_100: f64 = 0.9420289855072465;
+
+/// The short-text maps (schema `slop_ninja_detect_short_maps_v1`): one
+/// isotonic map and its cuts per short bin, fitted for one package. Only
+/// numbers: knots, levels and bounds, no text.
+pub const SHORT_MAPS_JSON: &str = include_str!("../short-maps-d24.json");
+/// SHA-256 of [`SHORT_MAPS_JSON`], the digest the evidence names (a test
+/// recomputes it).
+pub const SHORT_MAPS_SHA256: &str = "121d8d1c3623e914813685f6ab3ad0f44b9e9377ad872faa9f03a7b4aff11dbc";
 
 /// The raw added tokens of the pinned tokenizer (its special tokens), which
 /// the scorer splits out of the text before normalization. A test checks
 /// the list against the compiled-in table.
 pub const MARKERS: &[&str] = &["<|padding|>", "<|endoftext|>", "[UNK]", "[CLS]", "[SEP]", "[PAD]", "[MASK]"];
 
-/// An evidence band, or a short text's result.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+/// An evidence band. From 150 words it is cut at the release's points
+/// ([`Band::of_percent`]); from 24 to 149 words, at the bin's own
+/// ([`ShortMap::band`]).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub enum Band {
     Weak,
     Unclear,
     Strong,
     VeryStrong,
-    /// A short text (24 to 149 words) that does not meet its bin's rule.
-    /// Short texts get this or [`Band::Strong`], never another band.
-    NoStrongSigns,
 }
 
 impl Band {
@@ -87,12 +96,11 @@ impl Band {
             Band::Strong => "strong",
             Band::Unclear => "unclear",
             Band::Weak => "weak",
-            Band::NoStrongSigns => "no_strong_signs",
         }
     }
 
     pub fn from_code(s: &str) -> Option<Band> {
-        [Band::VeryStrong, Band::Strong, Band::Unclear, Band::Weak, Band::NoStrongSigns]
+        [Band::VeryStrong, Band::Strong, Band::Unclear, Band::Weak]
             .into_iter()
             .find(|b| b.code() == s)
     }
@@ -106,39 +114,17 @@ impl Band {
 /// Where a text's length sits against the measured ranges.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum LengthBin {
-    /// 24 to 49 words: the short-text rule.
+    /// 24 to 49 words: its own map and cuts.
     Short24,
-    /// 50 to 99 words: the short-text rule.
+    /// 50 to 99 words: its own map and cuts.
     Short50,
-    /// 100 to 149 words: the short-text rule.
+    /// 100 to 149 words: its own map and cuts.
     Short100,
     /// 150 to 450 words: the band table.
     Measured,
     /// 451 to 1,000 scored words: the band table's human rates measured to
     /// hold; the AI side caught less often when the AI part is small.
     Long,
-}
-
-/// A short bin's rule: the result is "strong signs" when the document's
-/// `ai_confidence_percent` reaches `confidence_level` × 100 and some
-/// passage's `ai_confidence_percent` reaches `span_level` × 100, compared as
-/// [`Band::of_percent`] compares. Each pair was chosen on the Calibration
-/// split by the release's 1% rule (the most AI excerpts flagged with at most
-/// 1% of human excerpts) and measured on the consumed Test. Both levels are
-/// package d24's: a release isotonic level and a span confidence map level.
-#[derive(Clone, Copy, Debug, PartialEq)]
-pub struct ShortRule {
-    pub confidence_level: f64,
-    pub span_level: f64,
-}
-
-impl ShortRule {
-    /// Whether a document confidence and its passages' confidences meet
-    /// the rule.
-    pub fn strong(self, confidence_percent: f64, span_percents: impl IntoIterator<Item = f64>) -> bool {
-        confidence_percent >= self.confidence_level * 100.
-            && span_percents.into_iter().any(|p| p >= self.span_level * 100.)
-    }
 }
 
 impl LengthBin {
@@ -158,19 +144,170 @@ impl LengthBin {
             .find(|b| b.code() == s)
     }
 
-    /// The short-text rule of a bin under 150 words, `None` from 150 on.
-    pub fn short_rule(self) -> Option<ShortRule> {
-        match self {
-            LengthBin::Short24 | LengthBin::Short50 => {
-                Some(ShortRule { confidence_level: VERY_STRONG_CUT, span_level: SHORT_SPAN_LEVEL })
-            }
-            LengthBin::Short100 => Some(ShortRule { confidence_level: STRONG_CUT, span_level: SHORT_SPAN_LEVEL_100 }),
-            LengthBin::Measured | LengthBin::Long => None,
-        }
+    pub fn is_short(self) -> bool {
+        matches!(self, LengthBin::Short24 | LengthBin::Short50 | LengthBin::Short100)
     }
 
-    pub fn is_short(self) -> bool {
-        self.short_rule().is_some()
+    /// The bin's map under the package published as `published` (a parts
+    /// manifest digest): `None` from 150 words, and for a short bin when
+    /// the maps are not that package's (or do not check out).
+    pub fn short_map(self, published: &str) -> Option<&'static ShortMap> {
+        let maps = ShortMaps::get()?;
+        if maps.published_digest != published {
+            return None;
+        }
+        maps.bins.iter().find(|m| m.length == self)
+    }
+}
+
+/// One short bin's calibration map and cuts.
+#[derive(Clone, Debug, PartialEq)]
+pub struct ShortMap {
+    pub length: LengthBin,
+    pub lo: f64,
+    pub hi: f64,
+    /// The bin's cuts, as probabilities: each a level of the map.
+    pub strong: f64,
+    pub very_strong: f64,
+    pub unclear: f64,
+    /// `(input, confidence)`, inputs strictly increasing.
+    pub knots: Vec<(f64, f64)>,
+}
+
+impl ShortMap {
+    /// The calibrated involvement probability of a scorer's
+    /// `calibration_input` `x`: linear between adjacent knots, constant
+    /// outside them, as the release's map applies its own, computed in the
+    /// order the measurement computed it (`None` for an input that is not a
+    /// probability).
+    pub fn confidence(&self, x: f64) -> Option<f64> {
+        if !x.is_finite() || !(0.0..=1.0).contains(&x) {
+            return None;
+        }
+        let (first, last) = (self.knots.first()?, self.knots.last()?);
+        if x <= first.0 {
+            return Some(first.1);
+        }
+        if x >= last.0 {
+            return Some(last.1);
+        }
+        let upper = self.knots.partition_point(|k| k.0 <= x);
+        let (&(x0, y0), &(x1, y1)) = (self.knots.get(upper.checked_sub(1)?)?, self.knots.get(upper)?);
+        Some(y0 + (y1 - y0) * (x - x0) / (x1 - x0))
+    }
+
+    /// The band of a confidence `p` (a probability) under the bin's cuts.
+    pub fn band(&self, p: f64) -> Band {
+        if p >= self.very_strong {
+            Band::VeryStrong
+        } else if p >= self.strong {
+            Band::Strong
+        } else if p >= self.unclear {
+            Band::Unclear
+        } else {
+            Band::Weak
+        }
+    }
+}
+
+/// The maps file as stored; its prose fields are not read.
+#[derive(serde::Deserialize)]
+struct MapsFile {
+    schema: String,
+    package: MapsPackage,
+    bins: Vec<MapsBin>,
+}
+
+#[derive(serde::Deserialize)]
+struct MapsPackage {
+    published_digest: String,
+}
+
+#[derive(serde::Deserialize)]
+struct MapsBin {
+    length: String,
+    min_words: u64,
+    max_words: u64,
+    lo: f64,
+    hi: f64,
+    strong: f64,
+    very_strong: f64,
+    unclear: f64,
+    knots: Vec<[f64; 2]>,
+}
+
+/// The parsed short-text maps: the package they were fitted for and one map
+/// per short bin, in bin order.
+#[derive(Debug, PartialEq)]
+pub struct ShortMaps {
+    pub published_digest: String,
+    pub bins: Vec<ShortMap>,
+}
+
+impl ShortMaps {
+    /// [`SHORT_MAPS_JSON`], parsed and checked once; `None` when it does not
+    /// check out ([`ShortMaps::parse`]), which leaves every short bin
+    /// unscored.
+    pub fn get() -> Option<&'static ShortMaps> {
+        static MAPS: OnceLock<Option<ShortMaps>> = OnceLock::new();
+        MAPS.get_or_init(|| ShortMaps::parse(SHORT_MAPS_JSON)).as_ref()
+    }
+
+    /// Parses a maps file and checks it: the schema, a 64-hex package digest,
+    /// exactly the three short bins in order with their word ranges, inputs
+    /// strictly increasing inside [0, 1], levels non-decreasing inside
+    /// [lo, hi], and cuts that are levels of the map with
+    /// unclear < strong < very strong.
+    pub fn parse(json: &str) -> Option<ShortMaps> {
+        let file: MapsFile = serde_json::from_str(json).ok()?;
+        if file.schema != "slop_ninja_detect_short_maps_v1" {
+            return None;
+        }
+        let published_digest = file.package.published_digest;
+        if published_digest.len() != 64 || !published_digest.bytes().all(|b| matches!(b, b'0'..=b'9' | b'a'..=b'f')) {
+            return None;
+        }
+        let want = [(LengthBin::Short24, 24, 49), (LengthBin::Short50, 50, 99), (LengthBin::Short100, 100, 149)];
+        if file.bins.len() != want.len() {
+            return None;
+        }
+        let mut out = Vec::with_capacity(want.len());
+        for (b, (length, min, max)) in file.bins.into_iter().zip(want) {
+            let words_ok = b.min_words == min
+                && b.max_words == max
+                && length_bin(min as usize) == Ok(length)
+                && length_bin(max as usize) == Ok(length);
+            if b.length != length.code() || !words_ok {
+                return None;
+            }
+            let m = ShortMap {
+                length,
+                lo: b.lo,
+                hi: b.hi,
+                strong: b.strong,
+                very_strong: b.very_strong,
+                unclear: b.unclear,
+                knots: b.knots.into_iter().map(|[x, y]| (x, y)).collect(),
+            };
+            let pairs = || m.knots.iter().zip(m.knots.iter().skip(1));
+            let inputs_ok =
+                pairs().all(|(a, b)| a.0 < b.0) && m.knots.iter().all(|k| k.0.is_finite() && (0.0..=1.0).contains(&k.0));
+            let levels_ok =
+                pairs().all(|(a, b)| a.1 <= b.1) && m.knots.iter().all(|k| k.1.is_finite() && m.lo <= k.1 && k.1 <= m.hi);
+            let is_level = |c: f64| m.knots.iter().any(|k| k.1 == c);
+            let cuts_ok = [m.lo, m.hi, m.unclear, m.strong, m.very_strong].iter().all(|c| c.is_finite())
+                && 0.0 < m.lo
+                && m.hi < 1.0
+                && m.unclear < m.strong
+                && m.strong < m.very_strong
+                && is_level(m.strong)
+                && is_level(m.very_strong);
+            if m.knots.len() < 2 || !inputs_ok || !levels_ok || !cuts_ok {
+                return None;
+            }
+            out.push(m);
+        }
+        Some(ShortMaps { published_digest, bins: out })
     }
 }
 
@@ -195,10 +332,15 @@ pub fn length_bin(words: usize) -> Result<LengthBin, usize> {
     })
 }
 
-/// The fewest words the page scores: 24 with spans on, and 150 with spans
-/// off, since the short-text rule reads passages.
-pub fn min_words(spans_on: bool) -> usize {
-    if spans_on { crate::bound::MIN_WORDS } else { crate::bound::MEASURED_MIN_WORDS }
+/// The fewest words the page scores under the package published as
+/// `published`: 24 when the short-text maps are that package's, and 150,
+/// where the measured bands start, otherwise.
+pub fn min_words(published: &str) -> usize {
+    if LengthBin::Short24.short_map(published).is_some() {
+        crate::bound::MIN_WORDS
+    } else {
+        crate::bound::MEASURED_MIN_WORDS
+    }
 }
 
 /// The control markers present in `s`, in [`MARKERS`] order.
@@ -277,9 +419,10 @@ mod tests {
         assert_eq!(Band::of_percent(100.5), None);
         assert!(Band::Strong.shows_spans() && Band::VeryStrong.shows_spans());
         assert!(!Band::Unclear.shows_spans() && !Band::Weak.shows_spans());
-        for b in [Band::VeryStrong, Band::Strong, Band::Unclear, Band::Weak, Band::NoStrongSigns] {
+        for b in [Band::VeryStrong, Band::Strong, Band::Unclear, Band::Weak] {
             assert_eq!(Band::from_code(b.code()), Some(b));
         }
+        assert_eq!(Band::from_code("no_strong_signs"), None);
     }
 
     #[test]
@@ -299,7 +442,7 @@ mod tests {
         assert_eq!(LengthBin::Long.code(), "451_1000");
         assert_eq!(LengthBin::from_code("over_450"), None);
         assert_eq!(words("  one\ttwo\nthree  "), 3);
-        assert_eq!((min_words(true), min_words(false)), (24, 150));
+        assert_eq!((min_words(D24), min_words(&"0".repeat(64))), (24, 150));
         for b in [LengthBin::Short24, LengthBin::Short50, LengthBin::Short100, LengthBin::Measured, LengthBin::Long] {
             assert_eq!(LengthBin::from_code(b.code()), Some(b));
             assert_eq!(b.is_short(), !matches!(b, LengthBin::Measured | LengthBin::Long));
@@ -309,33 +452,107 @@ mod tests {
         assert_eq!(crate::bound::MIN_WORDS as u64, SPAN_MIN_WORDS);
     }
 
-    /// The short rules as measured (`docs/detect-evidence.md`): both levels
-    /// compared as the bands compare, each condition necessary.
+    /// Span package d24's published digest, the maps' package.
+    const D24: &str = "4bc3d49ce183d4a9ab150867eb4ec23280565351e07c041d161c9e728e19eac3";
+
+    /// The levels the measurement chose on the Calibration split
+    /// (`docs/detect-evidence.md`, short texts): (bin, strong, very strong).
+    const CUTS: [(LengthBin, f64, f64); 3] = [
+        (LengthBin::Short24, 0.9374105837343678, 0.9885387244785764),
+        (LengthBin::Short50, 0.9696816574027286, 0.9998631261976457),
+        (LengthBin::Short100, 0.8959405374499715, 0.999869007073618),
+    ];
+
+    fn below(x: f64) -> f64 {
+        f64::from_bits(x.to_bits() - 1)
+    }
+
     #[test]
-    fn short_rules() {
-        let top = VERY_STRONG_CUT * 100.;
-        let span = SHORT_SPAN_LEVEL * 100.;
-        // The scorer prints level × 100, the same product.
-        assert_eq!(span, 96.37746785002716);
-        let below = |x: f64| f64::from_bits(x.to_bits() - 1);
-        for b in [LengthBin::Short24, LengthBin::Short50] {
-            let r = b.short_rule().unwrap();
-            assert!(r.strong(top, [span]));
-            assert!(r.strong(top, [10.0, span, 50.0]));
-            assert!(!r.strong(below(top), [span]), "{b:?}: the document must reach the top level");
-            assert!(!r.strong(top, [below(span)]), "{b:?}: a passage must reach the span level");
-            assert!(!r.strong(top, []), "{b:?}: no passage, no strong result");
-            assert!(!r.strong(STRONG_CUT * 100., [99.0]));
+    fn the_maps_are_bound_by_digest() {
+        use sha2::{Digest, Sha256};
+        assert_eq!(hex::encode(Sha256::digest(SHORT_MAPS_JSON.as_bytes())), SHORT_MAPS_SHA256);
+        let maps = ShortMaps::get().expect("the maps check out");
+        assert_eq!(maps.published_digest, D24);
+        assert_eq!(maps.bins.len(), 3);
+        // Only under their own package, only for the short bins.
+        for (b, strong, very_strong) in CUTS {
+            let m = b.short_map(D24).unwrap();
+            assert_eq!((m.length, m.strong, m.very_strong, m.unclear), (b, strong, very_strong, 0.5));
+            assert_eq!(b.short_map(&"a".repeat(64)), None);
         }
-        let r = LengthBin::Short100.short_rule().unwrap();
-        let span100 = SHORT_SPAN_LEVEL_100 * 100.;
-        assert_eq!(span100, 94.20289855072464);
-        assert!(r.strong(STRONG_CUT * 100., [span100]));
-        assert!(!r.strong(below(STRONG_CUT * 100.), [span100]));
-        assert!(!r.strong(STRONG_CUT * 100., [below(span100)]));
-        assert!(!r.strong(99.99, []));
-        assert!(LengthBin::Measured.short_rule().is_none() && LengthBin::Long.short_rule().is_none());
-        assert!(!Band::NoStrongSigns.shows_spans());
+        assert!(LengthBin::Measured.short_map(D24).is_none() && LengthBin::Long.short_map(D24).is_none());
+    }
+
+    /// Each bin's map at, between and outside its knots, and its cuts at
+    /// their edges: the input of the first knot at a cut's level is in that
+    /// band, the largest input below it is not.
+    #[test]
+    fn each_bin_has_its_own_map_and_cuts() {
+        for (b, strong, very_strong) in CUTS {
+            let m = b.short_map(D24).unwrap();
+            let (first, last) = (m.knots[0], *m.knots.last().unwrap());
+            assert_eq!(m.confidence(0.0), Some(first.1));
+            assert_eq!(m.confidence(first.0), Some(first.1));
+            assert_eq!(m.confidence(1.0), Some(last.1));
+            assert_eq!((first.1, last.1), (m.lo, m.hi));
+            for x in [f64::NAN, -0.1, 1.5, f64::INFINITY] {
+                assert_eq!(m.confidence(x), None);
+            }
+            for w in m.knots.windows(2) {
+                let ((x0, y0), (x1, y1)) = (w[0], w[1]);
+                assert_eq!(m.confidence(x0), Some(y0));
+                let mid = m.confidence(x0 + (x1 - x0) / 2.).unwrap();
+                assert!(y0 <= mid && mid <= y1, "{b:?}: {mid} outside [{y0}, {y1}]");
+            }
+            for (cut, band) in [(strong, Band::Strong), (very_strong, Band::VeryStrong)] {
+                let at = m.knots.iter().position(|k| k.1 == cut).unwrap();
+                let x = m.knots[at].0;
+                assert_eq!(m.band(m.confidence(x).unwrap()), band, "{b:?} at {cut}");
+                let x_before = m.knots[at - 1].0;
+                let p_between = m.confidence(x_before + (x - x_before) / 2.).unwrap();
+                assert!(m.band(p_between) < band, "{b:?} below {cut}: {p_between}");
+                assert_eq!(m.band(cut), band);
+                assert!(m.band(below(cut)) < band);
+            }
+            assert_eq!(m.band(0.5), Band::Unclear);
+            assert_eq!(m.band(below(0.5)), Band::Weak);
+            assert_eq!(m.band(m.hi), Band::VeryStrong);
+            assert_eq!(m.band(m.lo), Band::Weak);
+        }
+        // The cuts differ by bin: one confidence, three bands.
+        let p = 0.95;
+        let bands: Vec<Band> = CUTS.iter().map(|(b, ..)| b.short_map(D24).unwrap().band(p)).collect();
+        assert_eq!(bands, [Band::Strong, Band::Unclear, Band::Strong]);
+        assert_eq!(Band::of_percent(p * 100.), Some(Band::Strong));
+        let q = 0.99;
+        let bands: Vec<Band> = CUTS.iter().map(|(b, ..)| b.short_map(D24).unwrap().band(q)).collect();
+        assert_eq!(bands, [Band::VeryStrong, Band::Strong, Band::Strong]);
+    }
+
+    /// A maps file that does not check out leaves every short bin unscored.
+    #[test]
+    fn a_maps_file_that_does_not_check_out_is_refused() {
+        let good: serde_json::Value = serde_json::from_str(SHORT_MAPS_JSON).unwrap();
+        assert!(ShortMaps::parse(SHORT_MAPS_JSON).is_some());
+        let bad = |edit: &dyn Fn(&mut serde_json::Value)| {
+            let mut v = good.clone();
+            edit(&mut v);
+            ShortMaps::parse(&v.to_string()).is_none()
+        };
+        assert!(bad(&|v| v["schema"] = "slop_ninja_detect_short_maps_v0".into()));
+        assert!(bad(&|v| v["package"]["published_digest"] = "ABC".into()));
+        assert!(bad(&|v| {
+            v["bins"].as_array_mut().unwrap().pop();
+        }));
+        assert!(bad(&|v| v["bins"].as_array_mut().unwrap().swap(0, 1)));
+        assert!(bad(&|v| v["bins"][0]["min_words"] = 23.into()));
+        assert!(bad(&|v| v["bins"][2]["max_words"] = 150.into()));
+        assert!(bad(&|v| v["bins"][1]["strong"] = 0.97.into()));
+        assert!(bad(&|v| v["bins"][1]["very_strong"] = v["bins"][1]["strong"].clone()));
+        assert!(bad(&|v| v["bins"][0]["knots"].as_array_mut().unwrap().swap(3, 4)));
+        assert!(bad(&|v| v["bins"][0]["knots"][5][1] = 0.0.into()));
+        assert!(bad(&|v| v["bins"][0]["knots"][5] = serde_json::json!([0.5])));
+        assert!(bad(&|v| v["bins"][0]["lo"] = 0.0.into()));
     }
 
     #[test]

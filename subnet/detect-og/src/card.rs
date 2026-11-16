@@ -5,9 +5,10 @@
 //! - Left: the slop gauge (the dial with its 25, 50 and 75 marks, the lit
 //!   arc and needle at the estimated share, the human and slop ends), the
 //!   share under the hub, the band chip and the four-band scale. A short
-//!   text's gauge has no needle, level or number ("No share") and a two-step
-//!   scale; a whole-document check's has a neutral needle and its section ladder in
-//!   place of the chip and scale.
+//!   text's (24 to 149 words) gauge has no needle, level or number ("No
+//!   share"), with its band's chip and the four-band scale; a whole-document
+//!   check's has a neutral needle and its section ladder in place of the
+//!   chip and scale.
 //! - Middle: the headline, the confidence line (or the document line), the
 //!   source ("a page on <host>", "a post on Bluesky", "a post on X" or the
 //!   secret label), the scan date and a free-cut note.
@@ -29,7 +30,7 @@ use crate::fonts::{self, ASCENDER, DESCENDER, Face, UPPER_HEIGHT, Weight};
 use crate::layout;
 use crate::svg::{N, put, text};
 use slop_ninja_detect_page::card::{self, Card, CardLink};
-use slop_ninja_detect_page::{Band, CardVariant, GaugeEnds, NinjaState, Origins, ShortResult};
+use slop_ninja_detect_page::{Band, CardVariant, GaugeEnds, NinjaState, Origins};
 
 pub const WIDTH: u32 = 1200;
 pub const HEIGHT: u32 = 630;
@@ -62,8 +63,8 @@ const COBALT_TEXT: &str = "#b9ccff";
 const MUTED: &str = "#a6b8c1";
 const SOFT: &str = "#c7dcda";
 
-/// What colours a card: the band's, a short result's, or the neutral of a
-/// whole-document check.
+/// What colours a card: the band's, or the neutral of a whole-document
+/// check.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum Tone {
     Mint,
@@ -150,15 +151,6 @@ fn band_chip(b: Band) -> Chip {
             fill: (MINT, 0.06),
             glow: false,
         },
-    }
-}
-
-fn short_chip(r: ShortResult) -> Chip {
-    match r {
-        ShortResult::Strong => Chip { glyph: "!", words: "Strong signs of AI involvement", ..band_chip(Band::Strong) },
-        ShortResult::None => {
-            Chip { glyph: "\u{00B7}", words: "No strong signs of AI involvement", ..band_chip(Band::Weak) }
-        }
     }
 }
 
@@ -334,11 +326,9 @@ pub fn svg(c: &Card, origins: &Origins, ends: GaugeEnds) -> Result<String, CardR
         regular: Face::of(Weight::Regular).ok_or(CardRefusal::Assets)?,
         bold: Face::of(Weight::Bold).ok_or(CardRefusal::Assets)?,
     };
-    let tone = match (c.variant, c.band, c.gauge.short) {
-        (CardVariant::PaidDocument, _, _) => Tone::Neutral,
-        (CardVariant::Short, _, Some(ShortResult::Strong)) => Tone::Gold,
-        (CardVariant::Short, _, _) => Tone::Mint,
-        (_, Some(b), _) => Tone::of_band(b),
+    let tone = match (c.variant, c.band) {
+        (CardVariant::PaidDocument, _) => Tone::Neutral,
+        (_, Some(b)) => Tone::of_band(b),
         _ => Tone::Grey,
     };
     let mut out = String::with_capacity(160 * 1024);
@@ -527,13 +517,9 @@ fn gauge(out: &mut String, c: &Card, tone: Tone, ends: GaugeEnds, f: &Faces) -> 
     }
 
     let chip_top = GAUGE_Y + GAUGE_H + 10.0;
-    match (c.variant, c.band, c.gauge.short) {
-        (CardVariant::PaidDocument, _, _) => sections(out, &c.ladder, chip_top),
-        (CardVariant::Short, _, Some(r)) => {
-            let bottom = chip(out, &short_chip(r), chip_top, &f.bold);
-            short_scale(out, r, bottom + 12.0);
-        }
-        (_, Some(b), _) => {
+    match (c.variant, c.band) {
+        (CardVariant::PaidDocument, _) => sections(out, &c.ladder, chip_top),
+        (_, Some(b)) => {
             let bottom = chip(out, &band_chip(b), chip_top, &f.bold);
             band_scale(out, b, bottom + 12.0);
         }
@@ -723,71 +709,6 @@ fn band_scale(out: &mut String, here: Band, top: f32) {
             if lit { SOFT } else { GREY },
             "middle",
             glyph,
-        );
-    }
-}
-
-/// A short text's two-step scale.
-fn short_scale(out: &mut String, r: ShortResult, top: f32) {
-    let (w, gap, h) = (300.0f32, 3.0f32, 10.0f32);
-    let seg = (w - gap) / 2.0;
-    let x0 = MID - w / 2.0;
-    for (i, (b, words, lit)) in [
-        (Band::Weak, "no strong signs", r == ShortResult::None),
-        (Band::Strong, "strong signs", r == ShortResult::Strong),
-    ]
-    .into_iter()
-    .enumerate()
-    {
-        let x = x0 + i as f32 * (seg + gap);
-        if lit {
-            let (fill, (ring, ro)) = segment_here(b);
-            put(
-                out,
-                format_args!(
-                    r##"<rect x="{}" y="{}" width="{}" height="{}" rx="4" fill="{ring}" fill-opacity="{}"/><rect x="{}" y="{}" width="{}" height="{}" rx="3" fill="#0b1014"/><rect x="{}" y="{}" width="{}" height="{}" rx="2" fill="{fill}"/>"##,
-                    N(x - 2.0),
-                    N(top - 2.0),
-                    N(seg + 4.0),
-                    N(h + 4.0),
-                    N(ro),
-                    N(x - 1.0),
-                    N(top - 1.0),
-                    N(seg + 2.0),
-                    N(h + 2.0),
-                    N(x),
-                    N(top),
-                    N(seg),
-                    N(h)
-                ),
-            );
-        } else {
-            put(
-                out,
-                format_args!(
-                    r##"<rect x="{}" y="{}" width="{}" height="{}" rx="2" fill="{}"/><rect x="{}" y="{}" width="{}" height="{}" rx="2" fill="#0b1014" fill-opacity=".45"/>"##,
-                    N(x),
-                    N(top),
-                    N(seg),
-                    N(h),
-                    segment_fill(b),
-                    N(x),
-                    N(top),
-                    N(seg),
-                    N(h)
-                ),
-            );
-        }
-        text_el(
-            out,
-            x + seg / 2.0,
-            baseline(top + 14.0, 15.0, 1.21),
-            15.0,
-            Weight::Bold,
-            0.0,
-            if lit { SOFT } else { GREY },
-            "middle",
-            words,
         );
     }
 }

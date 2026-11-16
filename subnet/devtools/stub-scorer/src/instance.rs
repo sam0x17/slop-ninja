@@ -164,6 +164,8 @@ struct ScoreRequest {
     spans: bool,
     #[serde(default = "yes")]
     sentences: bool,
+    #[serde(default)]
+    calibration_input: bool,
     docs: Vec<Doc>,
 }
 
@@ -216,7 +218,7 @@ impl Instance {
             "limits": {"specs": specs, "unnamed_load_spec": UNNAMED_LOAD_SPEC.id(), "tokens_max": result::MAX_TOKENS,
                 "score_body_bytes_max": MAX_SCORE_BODY, "docs_max": MAX_DOCS, "manifest_bytes_max": MAX_MANIFEST_BYTES,
                 "range_bytes_max": PART_BYTES},
-            "score_fields": ["spans", "sentences"],
+            "score_fields": ["spans", "sentences", "calibration_input"],
             "stub": "slop_ninja_dev_stub_scorer",
         })
     }
@@ -386,7 +388,12 @@ impl Instance {
         if let Some(status) = all.iter().find_map(|d| d.http) {
             return Reply::json(status, &json!({"error": "stub"})).with_delay(delay);
         }
-        let ask = Ask { spans: r.spans, sentences: r.sentences, token_head: self.switches.token_head };
+        let ask = Ask {
+            spans: r.spans,
+            sentences: r.sentences,
+            calibration_input: r.calibration_input,
+            token_head: self.switches.token_head,
+        };
         let mut results: Vec<Value> = r.docs.iter().map(|d| result::document(&d.id, &d.text, ask)).collect();
         match all.iter().find_map(|d| d.reply) {
             Some(ReplyFault::Garbage) => return Reply::text(200, "this is not JSON").with_delay(delay),

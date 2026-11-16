@@ -29,7 +29,6 @@
     "policy": "long-v1",
     "evidence": "evidence-d24-web-v1",
     "band": "weak",
-    "short": null,
     "confidence_tenths": 120,
     "confidence_text": "12.0%",
     "share_pct": 4,

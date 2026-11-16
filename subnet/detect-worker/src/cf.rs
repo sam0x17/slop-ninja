@@ -563,7 +563,8 @@ struct WarmAnswer {
     state: &'static str,
     tool: bool,
     spans: bool,
-    /// The fewest words scored: 24, or 150 with spans off.
+    /// The fewest words scored: 24 under the short-text maps' package, 150
+    /// otherwise.
     min_words: usize,
     #[serde(skip_serializing_if = "Option::is_none")]
     package: Option<PackageLine>,
@@ -604,12 +605,13 @@ async fn warm(req: &Request, env: &Env) -> web_sys::Response {
             "starting"
         }
     };
+    let pkg = package(env);
     let body = WarmAnswer {
         state,
         tool,
         spans,
-        min_words: policy::min_words(spans),
-        package: package(env).map(|p| PackageLine { digest: p.published, publication_pending: p.pending }),
+        min_words: pkg.as_ref().map_or(bound::MEASURED_MIN_WORDS, |p| policy::min_words(&p.published)),
+        package: pkg.map(|p| PackageLine { digest: p.published, publication_pending: p.pending }),
     };
     json_raw(200, &serde_json::to_vec(&body).unwrap_or_default(), false)
 }
@@ -821,6 +823,9 @@ struct Phase {
 struct Forward<'a> {
     package: &'a str,
     spans: bool,
+    /// Asked for a short text only: its bin's map reads it.
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    calibration_input: bool,
     docs: [ForwardDoc<'a>; 1],
 }
 
@@ -909,7 +914,7 @@ impl<'a> Accepted<'a> {
         channel: Channel,
     ) -> Option<Accepted<'a>> {
         let length = policy::length_bin(words).ok().filter(|l| !l.is_short())?;
-        let fwd = Forward { package: &pkg.load, spans: true, docs: [ForwardDoc { id: "d", text }] };
+        let fwd = Forward { package: &pkg.load, spans: true, calibration_input: false, docs: [ForwardDoc { id: "d", text }] };
         let fwd = serde_json::to_string(&fwd).ok().filter(|f| f.len() as u64 <= bound::SCORER_MAX_BODY)?;
         let cut = Cut { scored: text, kind: cut::Kind::Whole, total_words: words, scored_words: words, tokens };
         Some(Accepted {
@@ -1055,9 +1060,10 @@ async fn score(mut req: Request, env: Env, answer: &Answer) {
 /// The free check's part before any ticket, on `canonical` (`canon_v1` of
 /// the text), within `reservation`: the free cut (at most the first 1,000
 /// words, never inside a sentence, within the scorer's tokens, counted
-/// exactly), the floor (the span-free minimum with spans off: a short
-/// text's rule reads passages) and the English screen, then the scorer's
-/// body. A refusal is counted as a `submit` point of `route`.
+/// exactly), the floor (24 words when the short-text maps are the serving
+/// package's, 150 otherwise: `policy::min_words`) and the English screen,
+/// then the scorer's body, which asks a short text's calibration input. A
+/// refusal is counted as a `submit` point of `route`.
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn prepare<'a>(
     env: &Env,
@@ -1086,13 +1092,18 @@ pub(crate) fn prepare<'a>(
         Err(NoCut::Count(_)) => return Err(ApiRefusal::new(RefusalCode::Busy)),
     };
     let length = match policy::length_bin(cut.scored_words) {
-        Ok(l) if spans_on || !l.is_short() => l,
-        _ => return Err(refused(too_short(&cut, policy::min_words(spans_on)))),
+        Ok(l) if !l.is_short() || l.short_map(&pkg.published).is_some() => l,
+        _ => return Err(refused(too_short(&cut, policy::min_words(&pkg.published)))),
     };
     if english::english_screen(cut.scored).is_some() {
         return Err(refused(of_cut(RefusalCode::NotEnglish, &cut)));
     }
-    let fwd = Forward { package: &pkg.load, spans: true, docs: [ForwardDoc { id: "d", text: cut.scored }] };
+    let fwd = Forward {
+        package: &pkg.load,
+        spans: true,
+        calibration_input: length.is_short(),
+        docs: [ForwardDoc { id: "d", text: cut.scored }],
+    };
     let Ok(fwd) = serde_json::to_string(&fwd) else { return Err(ApiRefusal::new(RefusalCode::Internal)) };
     if fwd.len() as u64 > bound::SCORER_MAX_BODY {
         return Err(refused(ApiRefusal { tokens: Some(u32_of(cut.tokens)), ..ApiRefusal::new(RefusalCode::TooLong) }));
@@ -1305,7 +1316,7 @@ pub(crate) async fn run(
             return refused(code);
         }
     };
-    let outcome = answer::read(&reply, &a.pkg.load, cut.scored, a.spans_on, length);
+    let outcome = answer::read(&reply, &a.pkg.load, cut.scored, a.spans_on, length, length.short_map(&a.pkg.published));
     drop(reply);
     match outcome {
         Outcome::Scored(scored) => {
@@ -1342,9 +1353,9 @@ pub(crate) async fn run(
             );
             Scan::Result(line)
         }
-        Outcome::ShortWithoutSpans => {
+        Outcome::ShortUnmapped => {
             let _ = gate_tell(env, "/done", &done(Some(served), count(RefusalCode::TooShort.as_str())), hold).await;
-            point(env, ae::detect::ERROR, &["short_without_spans"], served as f64);
+            point(env, ae::detect::ERROR, &["short_unmapped"], served as f64);
             Scan::Refused(too_short(cut, bound::MEASURED_MIN_WORDS))
         }
         Outcome::Declined(code) => {

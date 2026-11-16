@@ -81,10 +81,9 @@ impl CardLink {
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct CardGauge {
     /// The needle (the share, or a paid document's share); `null` on a short
-    /// text.
+    /// text, which shows no share.
     pub level: Option<u8>,
     pub band: Option<Band>,
-    pub short: Option<ShortResult>,
     /// The neutral paid-document dial.
     pub document: bool,
 }
@@ -96,7 +95,7 @@ pub struct Card {
     pub variant: CardVariant,
     pub band: Option<Band>,
     pub gauge: CardGauge,
-    /// "97.3%" or "above 99.9%"; `null` on short and paid cards.
+    /// "97.3%" or "above 99.9%"; `null` on paid cards.
     pub confidence_text: Option<String>,
     pub share_text: Option<String>,
     pub headline: String,
@@ -141,14 +140,6 @@ pub fn band_headline(band: Band) -> &'static str {
         Band::Unclear => "Unclear evidence of AI involvement.",
         Band::Strong => "Strong evidence of AI involvement.",
         Band::VeryStrong => "Very strong evidence of AI involvement.",
-    }
-}
-
-/// The headline of a short text.
-pub fn short_headline(r: ShortResult) -> &'static str {
-    match r {
-        ShortResult::Strong => "Strong signs of AI involvement.",
-        ShortResult::None => "No strong signs of AI involvement.",
     }
 }
 
@@ -234,7 +225,7 @@ impl Card {
                 schema: CARD_SCHEMA.into(),
                 variant: CardVariant::PaidDocument,
                 band: None,
-                gauge: CardGauge { level: Some(s.document.share_pct), band: None, short: None, document: true },
+                gauge: CardGauge { level: Some(s.document.share_pct), band: None, document: true },
                 confidence_text: None,
                 share_text: Some(s.document.share_text.clone()),
                 headline: document_headline(s.document.strong_sections, s.document.total_sections),
@@ -249,16 +240,17 @@ impl Card {
                 cache_tag: page.cache_tag.clone(),
             });
         }
-        let (variant, headline) = match (run.band, run.short) {
-            (None, Some(r)) => (CardVariant::Short, short_headline(r)),
-            (Some(b), None) => (if generic { CardVariant::Generic } else { CardVariant::Band }, band_headline(b)),
-            _ => return Err(NoCard::NoRun),
+        let short = run.length.is_some_and(LengthBin::is_short);
+        let (variant, headline) = match run.band {
+            Some(b) if short => (CardVariant::Short, band_headline(b)),
+            Some(b) => (if generic { CardVariant::Generic } else { CardVariant::Band }, band_headline(b)),
+            None => return Err(NoCard::NoRun),
         };
         Ok(Card {
             schema: CARD_SCHEMA.into(),
             variant,
             band: run.band,
-            gauge: CardGauge { level: run.share_pct, band: run.band, short: run.short, document: false },
+            gauge: CardGauge { level: run.share_pct, band: run.band, document: false },
             confidence_text: run.confidence_text.clone(),
             share_text: run.share_text.clone(),
             headline: headline.to_owned(),
@@ -302,14 +294,16 @@ impl Card {
             need(crate::slug::is_canonical(slug, crate::slug::PUBLIC_LEN), "public link slug")?;
         }
         match self.variant {
-            CardVariant::Band => {
-                need(self.band.is_some() && self.gauge.short.is_none() && self.gauge.level.is_some(), "band card")?
-            }
+            CardVariant::Band => need(
+                self.band.is_some() && self.gauge.level.is_some() && self.share_text.is_some(),
+                "band card",
+            )?,
             CardVariant::Generic => need(self.band.is_some() && self.ninja.is_none(), "generic card")?,
             CardVariant::Short => need(
-                self.gauge.short.is_some()
-                    && self.band.is_none()
-                    && self.confidence_text.is_none()
+                self.band.is_some()
+                    && self.gauge.band == self.band
+                    && self.confidence_text.is_some()
+                    && self.gauge.level.is_none()
                     && self.share_text.is_none(),
                 "short card",
             )?,

@@ -1,19 +1,18 @@
 {
   "schema": "slop_ninja_detect_card_v1",
-  "variant": "band",
-  "band": "very_strong",
+  "variant": "short",
+  "band": "strong",
   "gauge": {
-    "level": 86,
-    "band": "very_strong",
-    "short": null,
+    "level": null,
+    "band": "strong",
     "document": false
   },
-  "confidence_text": "above 99.9%",
-  "share_text": "about 86%",
-  "headline": "Very strong evidence of AI involvement.",
+  "confidence_text": "98.4%",
+  "share_text": null,
+  "headline": "Strong evidence of AI involvement.",
   "source_label": "Private text · secret link",
   "date": "2026-11-20",
-  "ninja": "strike",
+  "ninja": "ready",
   "link": {
     "kind": "secret_host"
   },

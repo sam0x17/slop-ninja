@@ -98,7 +98,6 @@ fn banded_run(band: Band, conf_tenths: u16, conf_text: &str, share: u8, w: u32, 
         policy: "long-v1".into(),
         evidence: "evidence-d24-web-v1".into(),
         band: Some(band),
-        short: None,
         confidence_tenths: Some(conf_tenths),
         confidence_text: Some(conf_text.into()),
         share_pct: Some(share),
@@ -115,17 +114,22 @@ fn banded_run(band: Band, conf_tenths: u16, conf_text: &str, share: u8, w: u32, 
     }
 }
 
-fn short_run(r: ShortResult, w: u32) -> Run {
-    Run {
-        band: None,
-        short: Some(r),
-        confidence_tenths: None,
-        confidence_text: None,
-        share_pct: None,
-        share_text: None,
-        spans_note: if r == ShortResult::Strong { None } else { Some(SpansNote::StrongBandsOnly) },
-        ..banded_run(Band::Strong, 0, "", 0, w, w, CutKind::None)
-    }
+/// A short text's run (24 to 149 words): its band and confidence from its
+/// length bin's own map, no share.
+fn short_run(band: Band, conf_tenths: u16, conf_text: &str, w: u32) -> Run {
+    assert!(LengthBin::of_words(w).is_some_and(LengthBin::is_short));
+    Run { share_pct: None, share_text: None, ..banded_run(band, conf_tenths, conf_text, 0, w, w, CutKind::None) }
+}
+
+/// The strong short run of the fixtures (a 50-99-word text: that bin's
+/// strong band runs from 96.9% to 99.98%).
+fn short_strong(w: u32) -> Run {
+    short_run(Band::Strong, 984, "98.4%", w)
+}
+
+/// The weak short run of the fixtures.
+fn short_weak(w: u32) -> Run {
+    short_run(Band::Weak, 124, "12.4%", w)
 }
 
 fn base(kind: Kind, slug: Option<&str>, state: DetState) -> Page {
@@ -212,18 +216,12 @@ fn card_ref(p: &Page, variant: CardVariant) -> CardRef {
 }
 
 /// A live page's feedback receipt, in the built form
-/// `<id>.<band>.<length bin>.<tag>`: the band as the receipt names it (a
-/// short text's `strong` or `no_strong_signs`) and the run's length bin. A
+/// `<id>.<band>.<length bin>.<tag>`: the run's band and length bin. A
 /// paid document has neither; its fixture keeps placeholder values there
 /// (the receipt is opaque to the page contract).
 fn receipt(p: &Page) -> String {
     let run = p.run.as_ref().expect("a live page has a run");
-    let band = match (run.band, run.short) {
-        (Some(b), None) => b.as_str(),
-        (None, Some(ShortResult::Strong)) => "strong",
-        (None, Some(ShortResult::None)) => "no_strong_signs",
-        _ => Band::VeryStrong.as_str(),
-    };
+    let band = run.band.unwrap_or(Band::VeryStrong).as_str();
     let len = run.length.unwrap_or(LengthBin::Long);
     format!("{RECEIPT_ID}.{band}.{len}.{RECEIPT_TAG}")
 }
@@ -382,11 +380,11 @@ fn short_body(strong: bool) -> String {
     if strong { format!("{P1} {P2}") } else { format!("{H1} {H2} {H3} We will try the beans again next spring.") }
 }
 
-fn secret_short(r: ShortResult) -> Page {
+fn secret_short(strong: bool) -> Page {
     let mut p = base(Kind::PrivateText, Some(TEXT), DetState::Live);
-    let body = short_body(r == ShortResult::Strong);
-    let mut run = short_run(r, words(&body));
-    if r == ShortResult::Strong {
+    let body = short_body(strong);
+    let mut run = if strong { short_strong(words(&body)) } else { short_weak(words(&body)) };
+    if strong {
         run.spans = vec![span(&body, &body, None)];
     }
     p.run = Some(run);
@@ -402,7 +400,7 @@ fn submitted(host: &str) -> Source {
 /// Pasted text whose source is an X post: ordinary paste, stored and shown
 /// with its whole text (`platform = paste`), with the plain host line.
 fn pasted_post() -> Page {
-    let mut p = secret_short(ShortResult::Strong);
+    let mut p = secret_short(true);
     p.source = Some(submitted("x.com"));
     p
 }
@@ -456,14 +454,14 @@ fn x_post(id: u64, mut run: Run, reputation: Reputation) -> Page {
     live(p)
 }
 
-/// A short post (60 words), "Strong signs".
+/// A short post (60 words), in its bin's strong band: no share.
 fn x_post_short() -> Page {
-    x_post(2, short_run(ShortResult::Strong, 60), Reputation::Ranked)
+    x_post(2, short_strong(60), Reputation::Ranked)
 }
 
-/// A banded X result, for the card renderer's "a post on X" band variant
-/// only: every post the free embed shows in full is under 150 words, so no
-/// page fixture is banded.
+/// An X result with a share, for the card renderer's "a post on X" band
+/// variant only: every post the free embed shows in full is under 150
+/// words, so no page fixture shows a share.
 fn x_post_long() -> Page {
     x_post(3, banded_run(Band::Strong, 973, "97.3%", 43, 412, 412, CutKind::None), Reputation::Ranked)
 }
@@ -648,7 +646,7 @@ fn pages() -> Vec<(&'static str, &'static str, Page)> {
     p.platform = Platform::Bluesky;
     p.robots = Robots::Noindex;
     let body = short_body(true);
-    let mut run = short_run(ShortResult::Strong, words(&body));
+    let mut run = short_strong(words(&body));
     run.spans = vec![span(&body, &body, None)];
     p.run = Some(run);
     p.text = Some(Text { shown: Shown::Excerpt, ..full(&body) });
@@ -663,10 +661,10 @@ fn pages() -> Vec<(&'static str, &'static str, Page)> {
     v.push(("15-secret-text", "private_text: whole text, secret notice", secret_strong()));
     v.push((
         "16-secret-short-strong",
-        "run.short strong: short gauge, ready, neutral shade",
-        secret_short(ShortResult::Strong),
+        "short text (50-99 words), strong band: confidence, no share, ready, passage without confidence",
+        secret_short(true),
     ));
-    v.push(("17-secret-short-none", "run.short none: short gauge, stoic", secret_short(ShortResult::None)));
+    v.push(("17-secret-short-weak", "short text (50-99 words), weak band: confidence, no share, stoic", secret_short(false)));
     v.push(("18-secret-pasted-post", "pasted post: source given by the submitter, not checked", pasted_post()));
     v.push((
         "19-secret-pasted-x-source",
@@ -828,14 +826,14 @@ fn cards() -> Vec<(String, Card)> {
     }
     let mut bsky = pages().into_iter().find(|x| x.0 == "14-bluesky-post").unwrap().2;
     v.push(("short-strong-bluesky".into(), Card::from_page(&bsky, false).unwrap()));
-    bsky.run = Some(short_run(ShortResult::None, 40));
+    bsky.run = Some(short_weak(40));
     bsky.ninja = Some(NinjaState::Stoic);
-    v.push(("short-none-bluesky".into(), Card::from_page(&bsky, false).unwrap()));
-    v.push(("secret-band-very_strong-strike".into(), Card::from_page(&secret_strong(), false).unwrap()));
-    v.push(("secret-short-strong-ready".into(), Card::from_page(&secret_short(ShortResult::Strong), false).unwrap()));
-    v.push(("secret-short-none-stoic".into(), Card::from_page(&secret_short(ShortResult::None), false).unwrap()));
+    v.push(("short-weak-bluesky".into(), Card::from_page(&bsky, false).unwrap()));
+    v.push(("pasted-band-very_strong-strike".into(), Card::from_page(&secret_strong(), false).unwrap()));
+    v.push(("pasted-short-strong-ready".into(), Card::from_page(&secret_short(true), false).unwrap()));
+    v.push(("pasted-short-weak-stoic".into(), Card::from_page(&secret_short(false), false).unwrap()));
     let free_cut = pages().into_iter().find(|x| x.0 == "20-secret-free-cut").unwrap().2;
-    v.push(("secret-free-cut".into(), Card::from_page(&free_cut, false).unwrap()));
+    v.push(("pasted-free-cut".into(), Card::from_page(&free_cut, false).unwrap()));
     v.push(("x-post-short-strong".into(), Card::from_page(&x_post_short(), false).unwrap()));
     v.push(("x-post-band-strong".into(), Card::from_page(&x_post_long(), false).unwrap()));
     v.push(("paid-document".into(), Card::from_page(&paid_document(), false).unwrap()));
@@ -848,7 +846,6 @@ fn summary() -> Summary {
     Summary {
         kind: Kind::PrivateText,
         band: Some(Band::VeryStrong),
-        short: None,
         strong_sections: None,
         total_sections: None,
         words: 150,
@@ -1223,8 +1220,13 @@ fn the_page_set_covers_every_plan_step() {
             "public band {b}"
         );
     }
-    for r in ShortResult::ALL {
-        assert!(has(&|p| p.run.as_ref().is_some_and(|x| x.short == Some(*r))), "short {r}");
+    for strong in [true, false] {
+        assert!(
+            has(&|p| p.run.as_ref().is_some_and(|x| {
+                x.length.is_some_and(LengthBin::is_short) && x.band.is_some_and(Band::is_strong) == strong
+            })),
+            "a short text, strong {strong}"
+        );
     }
     for w in WithheldReason::ALL {
         assert!(has(&|p| p.text.as_ref().is_some_and(|t| t.withheld_reason == Some(*w))), "withheld {w}");
@@ -1270,8 +1272,8 @@ fn the_page_set_covers_every_plan_step() {
     // Posts on X: short (every post the free embed shows in full is under
     // 150 words), pending, and every way an X page ends, each with its
     // status.
-    assert!(has(&|p| p.is_x_post() && p.run.as_ref().is_some_and(|r| r.short.is_some())));
-    assert!(!has(&|p| p.is_x_post() && p.run.as_ref().is_some_and(|r| r.band.is_some())));
+    assert!(has(&|p| p.is_x_post() && p.run.as_ref().is_some_and(|r| r.length.is_some_and(LengthBin::is_short))));
+    assert!(!has(&|p| p.is_x_post() && p.run.as_ref().is_some_and(|r| r.share_pct.is_some())));
     assert!(has(&|p| p.is_x_post() && p.state == DetState::Pending));
     for (code, status) in [(RefusalCode::XGone, 410), (RefusalCode::XPurged, 410), (RefusalCode::XRemoved, 451)] {
         assert!(

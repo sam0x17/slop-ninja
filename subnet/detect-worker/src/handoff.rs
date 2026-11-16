@@ -13,7 +13,7 @@
 //! new check. Every value a seal of this Worker carries converts; anything
 //! else is refused, never repaired.
 
-use slop_ninja_detect_page::codes::{Band, CutKind, LengthBin, ShortResult, SpansNote};
+use slop_ninja_detect_page::codes::{Band, CutKind, LengthBin, SpansNote};
 use slop_ninja_detect_page::page::Span;
 use slop_ninja_detect_page::refusal::RefusalCode;
 
@@ -39,18 +39,6 @@ fn note_of(n: answer::SpansNote) -> SpansNote {
     }
 }
 
-/// The band of a text of 150 words and more, or a short text's result.
-fn band_of(band: &str, length: LengthBin) -> Result<(Option<Band>, Option<ShortResult>), Mismatch> {
-    if length.is_short() {
-        return match band {
-            "strong" => Ok((None, Some(ShortResult::Strong))),
-            "no_strong_signs" => Ok((None, Some(ShortResult::None))),
-            _ => Err(Mismatch),
-        };
-    }
-    Band::parse(band).map(|b| (Some(b), None)).ok_or(Mismatch)
-}
-
 /// The store's record of a result scored at `scored_at` by `package_load`
 /// under `policy`, while `serving` serves.
 pub fn stored_result(
@@ -64,7 +52,7 @@ pub fn stored_result(
         return Err(Mismatch);
     }
     let length = LengthBin::parse(&full.length).ok_or(Mismatch)?;
-    let (band, short) = band_of(&full.band, length)?;
+    let band = Band::parse(&full.band).ok_or(Mismatch)?;
     let spans = full
         .spans
         .as_deref()
@@ -79,22 +67,20 @@ pub fn stored_result(
             })
         })
         .collect::<Result<Vec<_>, Mismatch>>()?;
-    // What the page contract requires of a shown result (`Page::check`): a
-    // banded result prints its figures, a short one none (and its passages
-    // no confidence); passages only in the strong results; the scored words
-    // within the text, all of them unless it was cut.
-    let numbers = [
-        full.confidence_tenths.is_some(),
-        full.confidence_text.is_some(),
-        full.share_text.is_some(),
-        full.share_pct.is_some(),
-    ];
-    let shown = if short.is_some() {
-        numbers.iter().all(|n| !n) && spans.iter().all(|s| s.confidence.is_none())
-    } else {
-        numbers.iter().all(|n| *n) && full.share_pct.is_some_and(|p| p <= 100)
-    };
-    let strong = band.is_some_and(Band::is_strong) || short == Some(ShortResult::Strong);
+    // What the page contract requires of a shown result (`Page::check`):
+    // every result prints its confidence; from 150 words also the share,
+    // below it no share and no passage confidence; passages only in the
+    // strong bands; the scored words within the text, all of them unless it
+    // was cut.
+    let confidence = full.confidence_tenths.is_some() && full.confidence_text.is_some();
+    let share = [full.share_text.is_some(), full.share_pct.is_some()];
+    let shown = confidence
+        && if length.is_short() {
+            share.iter().all(|n| !n) && spans.iter().all(|s| s.confidence.is_none())
+        } else {
+            share.iter().all(|n| *n) && full.share_pct.is_some_and(|p| p <= 100)
+        };
+    let strong = band.is_strong();
     let cut = CutKind::parse(&full.cut).ok_or(Mismatch)?;
     let words_ok = full.words <= full.total_words && ((cut == CutKind::None) == (full.words == full.total_words));
     if !shown || !(strong || spans.is_empty()) || !words_ok {
@@ -109,8 +95,8 @@ pub fn stored_result(
         scorer_build: serving.scorer_build.clone(),
         policy: policy.to_owned(),
         evidence: serving.evidence.clone(),
-        band,
-        short,
+        band: Some(band),
+        legacy_short: None,
         confidence_tenths: full.confidence_tenths,
         confidence_text: full.confidence_text.clone(),
         share_pct: full.share_pct,
@@ -182,7 +168,7 @@ mod tests {
     fn a_long_result_keeps_every_printed_value() {
         let s = serving();
         let r = stored_result(&full("very_strong", "150_450"), 5, &s.load, "long-v1", &s).unwrap();
-        assert_eq!((r.band, r.short), (Some(Band::VeryStrong), None));
+        assert_eq!(r.band, Some(Band::VeryStrong));
         assert_eq!((r.confidence_tenths, r.share_pct), (Some(999), Some(86)));
         assert_eq!(r.spans, vec![Span { start: 10, end: 300, words: 40, confidence: Some(93) }]);
         assert_eq!((r.words, r.total_words, r.tokens, r.cut), (300, 1200, 400, CutKind::FirstWords));
@@ -193,14 +179,15 @@ mod tests {
         assert!(r.publication_pending && r.raw.is_none());
     }
 
-    /// A short text's line: no percentages, passages without confidence.
+    /// A short text's line: the confidence, no share, passages without
+    /// confidence.
     fn short(band: &str, length: &str) -> ResultFull {
         let mut f = full(band, length);
-        (f.confidence_tenths, f.confidence_text, f.share_text, f.share_pct) = (None, None, None, None);
+        (f.share_text, f.share_pct) = (None, None);
         for s in f.spans.iter_mut().flatten() {
             s.confidence = None;
         }
-        if band != "strong" {
+        if !matches!(band, "strong" | "very_strong") {
             f.spans = None;
             f.spans_note = Some(answer::SpansNote::StrongBandsOnly);
         }
@@ -208,15 +195,17 @@ mod tests {
     }
 
     #[test]
-    fn a_short_result_is_the_short_rule_s() {
+    fn a_short_result_keeps_its_band_and_confidence() {
         let s = serving();
-        let r = stored_result(&short("strong", "50_99"), 5, &s.load, "long-v1", &s).unwrap();
-        assert_eq!((r.band, r.short), (None, Some(ShortResult::Strong)));
-        assert_eq!(r.spans[0].confidence, None);
-        let r = stored_result(&short("no_strong_signs", "24_49"), 5, &s.load, "long-v1", &s).unwrap();
-        assert_eq!((r.band, r.short, r.spans_note), (None, Some(ShortResult::None), Some(SpansNote::StrongBandsOnly)));
-        // A band the length cannot have.
-        assert_eq!(stored_result(&short("very_strong", "24_49"), 5, &s.load, "x", &s), Err(Mismatch));
+        for (band, length) in [("strong", "50_99"), ("very_strong", "24_49"), ("unclear", "100_149"), ("weak", "24_49")] {
+            let r = stored_result(&short(band, length), 5, &s.load, "short-maps-v1", &s).unwrap();
+            assert_eq!(r.band, Band::parse(band));
+            assert_eq!((r.confidence_text.as_deref(), r.share_text.as_deref(), r.share_pct), (Some("above 99.9%"), None, None));
+            assert!(r.spans.iter().all(|x| x.confidence.is_none()));
+            assert_eq!(r.length, LengthBin::parse(length));
+        }
+        // The earlier short rule's code is no band.
+        assert_eq!(stored_result(&short("no_strong_signs", "24_49"), 5, &s.load, "x", &s), Err(Mismatch));
         assert_eq!(stored_result(&full("no_strong_signs", "150_450"), 5, &s.load, "x", &s), Err(Mismatch));
     }
 
@@ -225,10 +214,14 @@ mod tests {
         let s = serving();
         let ok = |f: &ResultFull| stored_result(f, 5, &s.load, "long-v1", &s).is_ok();
         assert!(ok(&full("strong", "150_450")) && ok(&short("strong", "24_49")));
-        // A short text that prints a percentage, or a passage confidence.
+        // A short text that prints a share, or a passage confidence, or no
+        // confidence.
         assert!(!ok(&full("strong", "24_49")));
         let mut f = short("strong", "24_49");
         f.spans.as_mut().unwrap()[0].confidence = Some(90);
+        assert!(!ok(&f));
+        let mut f = short("weak", "24_49");
+        f.confidence_text = None;
         assert!(!ok(&f));
         // A banded text without its figures.
         let mut f = full("strong", "150_450");

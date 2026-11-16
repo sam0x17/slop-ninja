@@ -195,7 +195,7 @@ mod tests {
     #[test]
     fn short_receipts_verify_and_fit_the_feedback_body() {
         let key = [7u8; 32];
-        let bands = [Band::VeryStrong, Band::Strong, Band::Unclear, Band::Weak, Band::NoStrongSigns];
+        let bands = [Band::VeryStrong, Band::Strong, Band::Unclear, Band::Weak];
         let bins = [LengthBin::Short24, LengthBin::Short50, LengthBin::Short100, LengthBin::Measured, LengthBin::Long];
         for band in bands {
             for len in bins {
@@ -207,7 +207,7 @@ mod tests {
                 }
             }
         }
-        let r = issue(&key, &[5u8; 16], Band::NoStrongSigns, LengthBin::Short24).unwrap();
+        let r = issue(&key, &[5u8; 16], Band::Weak, LengthBin::Short24).unwrap();
         assert_eq!(verify(&key, &r.replace(".24_49.", ".50_99.")), None);
     }
 

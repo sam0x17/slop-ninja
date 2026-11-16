@@ -207,6 +207,7 @@ Answers come from markers in the text, one token each (`sn-stub:<key>=<value>`);
 | `band=very_strong`, `strong`, `unclear`, `weak` | confidence 99.995, 95, 70 or 12.5, with a share below it |
 | `conf=<p>`, `share=<p>` | exact percentages |
 | `spans=auto`, `none`, `off`, `bad`, `short`; `span-begin` ... `span-end`; `span_conf=<p>` | passages: by default one over the whole text in a strong band, or the marked regions; never under 24 words except `short` |
+| `input=<x>` | the exact `calibration_input` (0 to 1) a short text's request asks for; without it, one that the detect Worker's map for the text's length bin (`detect-worker/short-maps-d24.json`) puts in the band the other markers ask for |
 | `status=unsupported_length`, `empty_text`, `no_word_tokens`, `error_tokenize`, `error_model` | the document's status |
 | `http=<status>`, `delay_ms=<n>`, `package=other`, `reply=garbage`, `two`, `none` | faults of the whole reply |
 

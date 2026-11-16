@@ -49,7 +49,7 @@ fn stored(run: &Run, load: &str) -> StoredResult {
         policy: run.policy.clone(),
         evidence: run.evidence.clone(),
         band: run.band,
-        short: run.short,
+        legacy_short: None,
         confidence_tenths: run.confidence_tenths,
         confidence_text: run.confidence_text.clone(),
         share_pct: run.share_pct,
@@ -114,7 +114,7 @@ fn secret_pages_match_their_fixtures() {
     for name in [
         "15-secret-text",
         "16-secret-short-strong",
-        "17-secret-short-none",
+        "17-secret-short-weak",
         "18-secret-pasted-post",
         "19-secret-pasted-x-source",
         "20-secret-free-cut",

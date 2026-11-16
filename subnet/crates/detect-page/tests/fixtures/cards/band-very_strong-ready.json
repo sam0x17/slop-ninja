@@ -5,7 +5,6 @@
   "gauge": {
     "level": 63,
     "band": "very_strong",
-    "short": null,
     "document": false
   },
   "confidence_text": "above 99.9%",

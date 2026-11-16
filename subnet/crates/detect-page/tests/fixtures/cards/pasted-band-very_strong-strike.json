@@ -5,7 +5,6 @@
   "gauge": {
     "level": 86,
     "band": "very_strong",
-    "short": null,
     "document": false
   },
   "confidence_text": "above 99.9%",
@@ -18,7 +17,7 @@
     "kind": "secret_host"
   },
   "model_line": "span package d24 · e2536d12 · publication pending",
-  "free_cut_note": "First 986 of 1,361 words",
+  "free_cut_note": null,
   "document_note": null,
   "ladder": []
 }

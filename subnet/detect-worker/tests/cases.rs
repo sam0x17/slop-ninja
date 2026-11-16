@@ -172,7 +172,7 @@ fn stored(run: &Run, load: &str) -> StoredResult {
         policy: run.policy.clone(),
         evidence: run.evidence.clone(),
         band: run.band,
-        short: run.short,
+        legacy_short: None,
         confidence_tenths: run.confidence_tenths,
         confidence_text: run.confidence_text.clone(),
         share_pct: run.share_pct,

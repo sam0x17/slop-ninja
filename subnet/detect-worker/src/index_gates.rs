@@ -7,7 +7,7 @@
 //!
 //! 1. the fetch succeeded, the text reached the floor, and it is long-form:
 //!    a web page whose scored part has at least [`LONG_FORM_WORDS`] words
-//!    (posts on Bluesky and X, and short results, stay `noindex`);
+//!    (posts on Bluesky and X, and shorter texts, stay `noindex`);
 //! 2. the source is indexable: its state is `ok` (not `unlisted`,
 //!    `opted_out` or `gone`). Capability URLs never reach a page (the URL
 //!    rules refuse them before a slug is drawn), and a source that asks not
@@ -30,9 +30,9 @@ use slop_ninja_detect_page::codes::{DetState, IndexForce, Platform, Reputation, 
 /// The gates' version.
 pub const INDEX_GATES_V: &str = "index-gates/v1";
 
-/// The fewest scored words of a long-form page: the measured band table's
-/// floor. Below it the short-text rule applies and the page shows no
-/// figures, so it is not long-form.
+/// The fewest scored words of a long-form page: the floor of the release's
+/// own band table. A shorter text is scored under its length bin's map, and
+/// its page shows no share, so it is not long-form.
 pub const LONG_FORM_WORDS: u32 = 150;
 
 /// What the gates read of a page.
@@ -42,8 +42,6 @@ pub struct GateInput {
     pub platform: Platform,
     /// The scored part's words (`None` with no run).
     pub words: Option<u32>,
-    /// Whether the run is a short result (the short-text rule applied).
-    pub short: bool,
     /// The source's state and reputation (`None` with no source row).
     pub source: Option<(SourceStatus, Reputation)>,
     /// Whether the page's host has an opt-out row.
@@ -57,7 +55,7 @@ pub struct GateInput {
 
 /// Whether each of the five gates passes, in order.
 pub fn gates(g: &GateInput) -> [bool; 5] {
-    let g1 = g.platform == Platform::Web && !g.short && g.words.is_some_and(|w| w >= LONG_FORM_WORDS);
+    let g1 = g.platform == Platform::Web && g.words.is_some_and(|w| w >= LONG_FORM_WORDS);
     let g2 = g.source.is_some_and(|(s, _)| s == SourceStatus::Ok);
     let g3 = g.state == DetState::Live && !g.host_opted_out;
     let g4 = g.source.is_some_and(|(_, r)| r == Reputation::Ranked);
@@ -93,7 +91,6 @@ mod tests {
             state: DetState::Live,
             platform: Platform::Web,
             words: Some(400),
-            short: false,
             source: Some((SourceStatus::Ok, Reputation::Ranked)),
             host_opted_out: false,
             full_analysis: true,
@@ -109,7 +106,7 @@ mod tests {
         let fails: Vec<(&str, GateInput)> = vec![
             ("bluesky", GateInput { platform: Platform::Bluesky, ..passing() }),
             ("x", GateInput { platform: Platform::X, ..passing() }),
-            ("short result", GateInput { short: true, words: Some(100), ..passing() }),
+            ("100 words", GateInput { words: Some(100), ..passing() }),
             ("149 words", GateInput { words: Some(LONG_FORM_WORDS - 1), ..passing() }),
             ("no run", GateInput { words: None, ..passing() }),
             ("unlisted", GateInput { source: Some((SourceStatus::Unlisted, Reputation::Ranked)), ..passing() }),
@@ -137,7 +134,7 @@ mod tests {
         for g in [
             GateInput { source: Some((SourceStatus::Ok, Reputation::Unranked)), ..passing() },
             GateInput { full_analysis: false, ..passing() },
-            GateInput { short: true, words: Some(60), ..passing() },
+            GateInput { words: Some(60), ..passing() },
         ] {
             assert!(indexed(&on(g)));
         }
@@ -160,7 +157,6 @@ mod tests {
             state: _,
             platform: _,
             words: _,
-            short: _,
             source: _,
             host_opted_out: _,
             full_analysis: _,

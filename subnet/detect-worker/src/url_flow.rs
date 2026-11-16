@@ -964,11 +964,7 @@ fn insert_run(
     extract_v: &str,
 ) -> Stmt {
     let r = &doc.result_full;
-    let band = match (r.band, r.short) {
-        (Some(b), _) => b.as_str().to_owned(),
-        (None, Some(s)) => format!("short_{}", s.as_str()),
-        (None, None) => "none".to_owned(),
-    };
+    let band = r.band.map_or("none", |b| b.as_str()).to_owned();
     Stmt::owned(
         format!(
             "INSERT INTO runs (run_id, content_key, package_load, package_pub, package_label, policy_v, canon_v, \

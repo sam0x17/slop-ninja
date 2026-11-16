@@ -108,14 +108,14 @@
     "ad_page_kind": "secret",
     "canonical": null,
     "robots": "noindex, nofollow, noarchive, nosnippet, noimageindex",
-    "shows": "run.short strong: short gauge, ready, neutral shade",
+    "shows": "short text (50-99 words), strong band: confidence, no share, ready, passage without confidence",
     "status": 200
   },
-  "17-secret-short-none": {
+  "17-secret-short-weak": {
     "ad_page_kind": "secret",
     "canonical": null,
     "robots": "noindex, nofollow, noarchive, nosnippet, noimageindex",
-    "shows": "run.short none: short gauge, stoic",
+    "shows": "short text (50-99 words), weak band: confidence, no share, stoic",
     "status": 200
   },
   "18-secret-pasted-post": {

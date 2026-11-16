@@ -1,7 +1,7 @@
 //! The stored result and the documents the store keeps in R2.
 //!
 //! - [`StoredResult`] (`result_full`) is a run as the page prints it, fixed
-//!   at scoring time: the band or short result, the printed figures, the
+//!   at scoring time: the band, the printed figures, the
 //!   counts, the passages and the package line. The raw floats are kept for
 //!   the internal record and never rendered. Passage offsets are UTF-16
 //!   offsets into the document's text: the whole text of a secret page, or
@@ -24,7 +24,7 @@
 //! never guesses at a shape.
 
 use serde::{Deserialize, Serialize};
-use slop_ninja_detect_page::codes::{Band, CutKind, LengthBin, ShortResult, SpansNote};
+use slop_ninja_detect_page::codes::{Band, CutKind, LengthBin, SpansNote};
 use slop_ninja_detect_page::page::{Anchor, FurtherPassage, PackageLine, Run, Sections, Span};
 
 /// The document version of public runs and paid pages (one run).
@@ -57,7 +57,12 @@ pub struct StoredResult {
     pub policy: String,
     pub evidence: String,
     pub band: Option<Band>,
-    pub short: Option<ShortResult>,
+    /// The earlier short-text rule's result field (`null` on every other
+    /// result): read and ignored, never written, so documents stored before
+    /// a short text got its band still open. Such a short result has no
+    /// band and its page does not render.
+    #[serde(default, skip_serializing, rename = "short")]
+    pub legacy_short: Option<serde::de::IgnoredAny>,
     pub confidence_tenths: Option<u16>,
     pub confidence_text: Option<String>,
     pub share_pct: Option<u8>,
@@ -120,7 +125,6 @@ impl StoredResult {
             policy: self.policy.clone(),
             evidence: self.evidence.clone(),
             band: self.band,
-            short: self.short,
             confidence_tenths: self.confidence_tenths,
             confidence_text: self.confidence_text.clone(),
             share_pct: self.share_pct,
@@ -137,9 +141,9 @@ impl StoredResult {
         }
     }
 
-    /// Whether the result is in a strong band (or the short strong result).
+    /// Whether the result is in a strong band.
     pub fn is_strong(&self) -> bool {
-        self.band.is_some_and(Band::is_strong) || self.short == Some(ShortResult::Strong)
+        self.band.is_some_and(Band::is_strong)
     }
 }
 

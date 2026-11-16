@@ -263,11 +263,13 @@ fn ninja_state_matches_the_mockup_edges() {
     for (share, band, want) in pairs {
         assert_eq!(ninja_state(NinjaInput::Banded { band, share_pct: share }, false), Some(want), "{share} {band}");
     }
-    assert_eq!(ninja_state(NinjaInput::Short(ShortResult::Strong), false), Some(Ready));
-    assert_eq!(ninja_state(NinjaInput::Short(ShortResult::None), false), Some(Stoic));
+    // A short text has no share: ready in the strong bands, stoic otherwise.
+    for (band, want) in [(Band::VeryStrong, Ready), (Band::Strong, Ready), (Band::Unclear, Stoic), (Band::Weak, Stoic)] {
+        assert_eq!(ninja_state(NinjaInput::Short(band), false), Some(want), "{band}");
+        assert!(allowed(band).contains(&want), "{band}: within the band's states");
+    }
     assert_eq!(ninja_state(NinjaInput::PaidDocument, false), None);
-    for input in [NinjaInput::Banded { band: Band::VeryStrong, share_pct: 90 }, NinjaInput::Short(ShortResult::Strong)]
-    {
+    for input in [NinjaInput::Banded { band: Band::VeryStrong, share_pct: 90 }, NinjaInput::Short(Band::Strong)] {
         assert_eq!(ninja_state(input, true), None, "generic cards drop the state");
     }
 }
@@ -353,6 +355,17 @@ fn cards_follow_their_page() {
     assert_eq!(c.link.printed(&test_origins()), "site.example/d/x4m8q2t");
     assert!(c.check().is_ok());
     assert_eq!(Card::from_page(&fixture("33-x-post-gone"), false), Err(card::NoCard::NotShown));
+    // A short text's card: its band and confidence, no share, so no needle.
+    let c = Card::from_page(&fixture("16-secret-short-strong"), false).unwrap();
+    assert_eq!(
+        (c.variant, c.band, c.gauge.level, c.share_text.as_deref(), c.confidence_text.as_deref()),
+        (CardVariant::Short, Some(Band::Strong), None, None, Some("98.4%"))
+    );
+    assert_eq!(c.headline, "Strong evidence of AI involvement.");
+    assert!(c.check().is_ok());
+    let mut bad = c.clone();
+    bad.gauge.level = Some(40);
+    assert!(bad.check().is_err(), "a short card has no needle");
     // A paste whose source is an X post is a secret card like any other.
     let c = Card::from_page(&fixture("19-secret-pasted-x-source"), false).unwrap();
     assert_eq!((c.source_label.as_str(), &c.link), (card::SECRET_LABEL, &CardLink::SecretHost));
@@ -450,8 +463,21 @@ fn page_status_and_invariants() {
     p.run.as_mut().unwrap().spans = vec![Span { start: 0, end: 10, words: 30, confidence: Some(90) }];
     assert!(p.check().is_err(), "passages outside the strong bands");
     let mut p = fixture("16-secret-short-strong");
-    p.run.as_mut().unwrap().confidence_text = Some("97.3%".into());
-    assert!(p.check().is_err(), "a short text prints no percentage");
+    p.run.as_mut().unwrap().share_text = Some("about 40%".into());
+    p.run.as_mut().unwrap().share_pct = Some(40);
+    assert!(p.check().is_err(), "a short text shows no share");
+    let mut p = fixture("16-secret-short-strong");
+    p.run.as_mut().unwrap().confidence_text = None;
+    assert!(p.check().is_err(), "a short text prints its confidence");
+    let mut p = fixture("16-secret-short-strong");
+    p.run.as_mut().unwrap().spans[0].confidence = Some(97);
+    assert!(p.check().is_err(), "a short text's passages carry no confidence");
+    let mut p = fixture("17-secret-short-weak");
+    p.run.as_mut().unwrap().band = None;
+    assert!(p.check().is_err(), "a short text has its band");
+    let mut p = fixture("02-public-strong");
+    p.run.as_mut().unwrap().share_text = None;
+    assert!(p.check().is_err(), "the share from 150 words");
     let mut p = fixture("01-public-very-strong");
     p.ninja = Some(NinjaState::Bow);
     assert!(p.check().is_err(), "the ninja follows the rule");

@@ -96,8 +96,8 @@ pub struct StateEntry {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Summary {
     pub kind: Kind,
+    /// `null` for a paid document.
     pub band: Option<Band>,
-    pub short: Option<ShortResult>,
     /// A paid document's strong and total sections.
     pub strong_sections: Option<u32>,
     pub total_sections: Option<u32>,

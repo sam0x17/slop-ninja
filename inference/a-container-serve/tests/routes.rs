@@ -240,8 +240,9 @@ fn the_scorer_starts_with_a_clean_work_directory_and_no_core_dumps() {
     let h = s.health();
     assert_eq!(h["state"], "empty");
     assert!(h["build"]["limits"]["memory_limit"].as_u64().is_some_and(|m| m > 0), "{h}");
-    // The optional score request fields: `sentences: false` asks for spans only.
-    assert_eq!(h["build"]["score_fields"], serde_json::json!(["spans", "sentences"]), "{h}");
+    // The optional score request fields: `sentences: false` asks for spans
+    // only, and `calibration_input: true` adds the calibration map's input.
+    assert_eq!(h["build"]["score_fields"], serde_json::json!(["spans", "sentences", "calibration_input"]), "{h}");
     drop(s);
 }
 
@@ -427,6 +428,30 @@ fn r0_scores_through_the_routes_without_echoing_text_and_stays_bound() {
     }
     assert_eq!(results[0]["id"], SENTINEL_ID);
     assert_eq!(results[0]["text_sha256"], a_container_serve::profile::sha256_hex(SENTINEL_TEXT.as_bytes()));
+    // With `calibration_input`, each result gains that one key and nothing
+    // else changes: the prediction and its digest are the same, and R0's own
+    // map applied to the value is the document confidence.
+    let mut asked: Value = serde_json::from_slice(&score_body(&p, Some("testnet-routes-1"))).unwrap();
+    asked["calibration_input"] = json!(true);
+    let (code, w) = s.http("POST", "/v1/score", &serde_json::to_vec(&asked).unwrap());
+    assert_eq!(code, 200, "{w}");
+    let cal: Value = serde_json::from_slice(&std::fs::read(r0.join("calibration.json")).unwrap()).unwrap();
+    let map = a_container_serve::involvement_calibration::Map::from_description(&cal["involvement"]["selected"]).unwrap();
+    let a_container_serve::involvement_calibration::Map::ClippedIsotonic { knots, lo, hi, .. } = &map else {
+        panic!("R0's map is isotonic_v1_clipped")
+    };
+    for (r, plain) in w["results"].as_array().unwrap().iter().zip(results) {
+        let x = r["calibration_input"].as_f64().unwrap_or_else(|| panic!("{r}"));
+        assert!(x > 0.0 && x < 1.0, "{r}");
+        let mut same = r.clone();
+        same.as_object_mut().unwrap().remove("calibration_input");
+        same.as_object_mut().unwrap().remove("ms");
+        let mut plain = plain.clone();
+        plain.as_object_mut().unwrap().remove("ms");
+        assert_eq!(same, plain, "only calibration_input is added");
+        let p = a_container_serve::involvement_calibration::isotonic_predict_score(knots, x).clamp(*lo, *hi);
+        assert_eq!(p * 100., r["prediction"]["ai_confidence_percent"].as_f64().unwrap(), "{r}");
+    }
     // Ready and bound: another cohort, no cohort or another package is refused.
     let other = "ab".repeat(32);
     for (pkg, cohort) in [(p.as_str(), Some("testnet-routes-2")), (p.as_str(), None), (other.as_str(), Some("testnet-routes-1"))] {

@@ -2,15 +2,14 @@
 //! widest display policy (`display_v1`) may show, and nothing more. The
 //! page's full text is never stored.
 //!
-//! - **A web page in a strong band** (and a short text with strong signs):
+//! - **A web page in a strong band**:
 //!   the highlighted passages, most confident first, each with one sentence
 //!   of greyed context (the sentence before it, or after it when it opens
 //!   the text), up to about a quarter of the scored words; the first passage
 //!   is always quoted. Every other passage is listed by its word range, its
 //!   confidence and a text-fragment link to the source.
-//! - **A web page in a weak or unclear band** (and a short text with no
-//!   strong signs): at most the first sentence, when it fits the same
-//!   quarter.
+//! - **A web page in a weak or unclear band**: at most the first sentence,
+//!   when it fits the same quarter.
 //! - **A post on Bluesky**: the whole post, as the platform's terms allow.
 //!
 //! Passages and anchors are UTF-16 offsets into the document's `body`; word
@@ -288,9 +287,11 @@ pub fn x_run_doc(result: &StoredResult) -> RunDoc {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use slop_ninja_detect_page::codes::{Band, CutKind, ShortResult};
+    use slop_ninja_detect_page::codes::{Band, CutKind};
 
-    fn result(band: Option<Band>, short: Option<ShortResult>, spans: Vec<Span>, words: u32) -> StoredResult {
+    /// A result; `short` leaves out the share and the passages' confidence
+    /// is the caller's.
+    fn result(band: Option<Band>, short: bool, spans: Vec<Span>, words: u32) -> StoredResult {
         StoredResult {
             scored_at: 1,
             package_load: "l".into(),
@@ -301,11 +302,11 @@ mod tests {
             policy: "long-v1".into(),
             evidence: "e".into(),
             band,
-            short,
+            legacy_short: None,
             confidence_tenths: band.map(|_| 973),
             confidence_text: band.map(|_| "97.3%".into()),
-            share_pct: band.map(|_| 43),
-            share_text: band.map(|_| "about 43%".into()),
+            share_pct: band.filter(|_| !short).map(|_| 43),
+            share_text: band.filter(|_| !short).map(|_| "about 43%".into()),
             words,
             total_words: words,
             cut: CutKind::None,
@@ -350,7 +351,7 @@ organizers can unlock unprecedented yields while ensuring that every volunteer f
     #[test]
     fn strong_pages_quote_passages_with_context_and_list_the_rest() {
         let text = page(12);
-        let r = result(Some(Band::Strong), None, vec![span_of(&text, A1, Some(91)), span_of(&text, A2, Some(97))], 300);
+        let r = result(Some(Band::Strong), false, vec![span_of(&text, A1, Some(91)), span_of(&text, A2, Some(97))], 300);
         let d = run_doc(&text, SourceKind::Web, 300, Some("h".into()), &r);
         // The most confident passage is quoted; the budget (a quarter) left
         // the other one listed.
@@ -382,7 +383,7 @@ organizers can unlock unprecedented yields while ensuring that every volunteer f
     #[test]
     fn weak_pages_keep_at_most_the_first_sentence() {
         let text = page(12);
-        let d = run_doc(&text, SourceKind::Web, 200, None, &result(Some(Band::Weak), None, Vec::new(), 200));
+        let d = run_doc(&text, SourceKind::Web, 200, None, &result(Some(Band::Weak), false, Vec::new(), 200));
         assert_eq!(d.body, H);
         assert_eq!(d.anchors.len(), 1);
         assert_eq!(d.anchors[0].role, AnchorRole::FirstSentence);
@@ -390,14 +391,14 @@ organizers can unlock unprecedented yields while ensuring that every volunteer f
         assert!(d.further.is_empty() && d.result_full.spans.is_empty());
         // A first sentence longer than the quarter is not quoted.
         let long = format!("{} {}", A1.trim_end_matches('.'), page(1));
-        let d = run_doc(&long, SourceKind::Web, 60, None, &result(Some(Band::Unclear), None, Vec::new(), 60));
+        let d = run_doc(&long, SourceKind::Web, 60, None, &result(Some(Band::Unclear), false, Vec::new(), 60));
         assert!(d.body.is_empty() && d.anchors.is_empty());
     }
 
     #[test]
     fn short_strong_texts_quote_their_passage_and_social_posts_stay_whole() {
         let text = format!("{H} {A1}");
-        let r = result(None, Some(ShortResult::Strong), vec![span_of(&text, A1, None)], 60);
+        let r = result(Some(Band::Strong), true, vec![span_of(&text, A1, None)], 60);
         let d = run_doc(&text, SourceKind::Web, 60, None, &r);
         assert!(d.body.contains(A1));
         assert_eq!(d.result_full.spans[0].confidence, None);
@@ -418,7 +419,7 @@ organizers can unlock unprecedented yields while ensuring that every volunteer f
     #[test]
     fn x_documents_hold_the_result_only() {
         let text = page(2);
-        let r = result(None, Some(ShortResult::Strong), vec![span_of(&text, H, None)], 30);
+        let r = result(Some(Band::Strong), true, vec![span_of(&text, H, None)], 30);
         let d = x_run_doc(&r);
         assert!(d.body.is_empty() && d.anchors.is_empty() && d.further.is_empty() && d.page_hash.is_none());
         assert!(d.result_full.spans.is_empty());
@@ -429,7 +430,7 @@ organizers can unlock unprecedented yields while ensuring that every volunteer f
     #[test]
     fn offsets_survive_astral_characters() {
         let text = format!("\u{1F331} {H} {A1}");
-        let r = result(Some(Band::VeryStrong), None, vec![span_of(&text, A1, Some(99))], 60);
+        let r = result(Some(Band::VeryStrong), false, vec![span_of(&text, A1, Some(99))], 60);
         let d = run_doc(&text, SourceKind::Web, 60, None, &r);
         let units: Vec<u16> = d.body.encode_utf16().collect();
         let s = &d.result_full.spans[0];

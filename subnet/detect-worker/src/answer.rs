@@ -8,8 +8,9 @@
 //! prints them, the word and token counts, the length label, the free cut
 //! (the sent text's words, which part was scored and where it ends),
 //! notices, and the spans when the band and the span switch allow them. A short text
-//! (24 to 149 words) gets only its result, "strong" or "no_strong_signs",
-//! with no percentage, share or passage confidence. Each span carries
+//! (24 to 149 words) gets its band and confidence from its bin's own map
+//! (`policy::ShortMap`), applied to the scorer's `calibration_input`, and no
+//! share or passage confidence. Each span carries
 //! UTF-16 offsets into the exact text the page sent (the scored part is its
 //! prefix), computed here from the scorer's character offsets (and checked
 //! against its byte offsets), so
@@ -17,7 +18,7 @@
 //! span; nothing is repaired.
 
 use crate::cut::Cut;
-use crate::policy::{self, Band, LengthBin};
+use crate::policy::{self, Band, LengthBin, ShortMap};
 use serde::{Deserialize, Serialize};
 
 /// The fields read from the scorer's `/v1/score` reply; serde ignores the
@@ -39,6 +40,9 @@ struct Doc {
     prediction: Option<Prediction>,
     #[serde(default)]
     span_status: Option<serde_json::Value>,
+    /// The calibration map's input, asked for short texts only.
+    #[serde(default)]
+    calibration_input: Option<f64>,
 }
 
 #[derive(Deserialize)]
@@ -67,7 +71,7 @@ pub struct Span {
     pub end: usize,
     pub words: u64,
     /// "AI-like passage: 92%": whole percent, floored; absent for a short
-    /// text, which shows no percentage.
+    /// text (the span confidence map was not measured below 150 words).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub confidence: Option<u32>,
 }
@@ -76,8 +80,7 @@ pub struct Span {
 #[derive(Serialize, Deserialize, Debug, PartialEq, Clone, Copy)]
 #[serde(rename_all = "snake_case")]
 pub enum SpansNote {
-    /// The document is not in a strong band (or a short text has no strong
-    /// result).
+    /// The document is not in a strong band.
     StrongBandsOnly,
     /// The operator turned spans off.
     Off,
@@ -98,7 +101,7 @@ pub struct PackageLine {
 pub struct Answer {
     pub state: &'static str,
     pub band: &'static str,
-    /// The percentages, from 150 words only.
+    /// The confidence; the share from 150 words only.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub confidence_tenths: Option<u16>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -196,9 +199,12 @@ impl Answer {
 #[derive(Debug, PartialEq)]
 pub struct Scored {
     pub band: Band,
-    /// The scorer's (confidence, share) percentages; `None` for a short
-    /// text, which shows neither.
-    pub percents: Option<(f64, f64)>,
+    /// The confidence percentage: the scorer's from 150 words, the bin's
+    /// map's below.
+    pub confidence: f64,
+    /// The scorer's share percentage; `None` for a short text, which shows
+    /// none.
+    pub share: Option<f64>,
     pub tokens: u64,
     pub spans: Result<Vec<Span>, SpansNote>,
 }
@@ -207,9 +213,10 @@ pub struct Scored {
 #[derive(Debug, PartialEq)]
 pub enum Outcome {
     Scored(Scored),
-    /// A short text whose passages are off or unavailable: its rule cannot
-    /// be applied, so it is refused under the span-free minimum.
-    ShortWithoutSpans,
+    /// A short text with no map to read it (another package's maps, or no
+    /// valid `calibration_input` in the reply): refused under the measured
+    /// minimum of 150 words.
+    ShortUnmapped,
     /// The scorer declined the text (a fixed code for the page).
     Declined(&'static str),
     /// The reply is not what was asked for: never shown.
@@ -217,8 +224,16 @@ pub enum Outcome {
 }
 
 /// Reads a scorer reply for `package` (the load digest sent) about `text`,
-/// the scored part, of length bin `length`.
-pub fn read(reply: &[u8], package: &str, text: &str, spans_on: bool, length: LengthBin) -> Outcome {
+/// the scored part, of length bin `length`. A short bin reads its map
+/// `short`, the serving package's ([`LengthBin::short_map`]).
+pub fn read(
+    reply: &[u8],
+    package: &str,
+    text: &str,
+    spans_on: bool,
+    length: LengthBin,
+    short: Option<&ShortMap>,
+) -> Outcome {
     let Ok(r) = serde_json::from_slice::<Reply>(reply) else { return Outcome::Fault };
     if r.package != package || r.results.len() != 1 {
         return Outcome::Fault;
@@ -233,29 +248,20 @@ pub fn read(reply: &[u8], package: &str, text: &str, spans_on: bool, length: Len
         };
     }
     let (Some(p), Some(tokens)) = (d.prediction, d.token_count) else { return Outcome::Fault };
-    let Some(band) = Band::of_percent(p.ai_confidence_percent) else { return Outcome::Fault };
+    let Some(released) = Band::of_percent(p.ai_confidence_percent) else { return Outcome::Fault };
     if !p.ai_share_percent.is_finite() || !(0.0..=100.0).contains(&p.ai_share_percent) {
         return Outcome::Fault;
     }
+    // From 150 words, the release's confidence and bands; below, the bin's
+    // map on the release map's own input, and no share.
+    let (band, confidence, share) = if length.is_short() {
+        let Some(m) = short.filter(|m| m.length == length) else { return Outcome::ShortUnmapped };
+        let Some(c) = d.calibration_input.and_then(|x| m.confidence(x)) else { return Outcome::ShortUnmapped };
+        (m.band(c), c * 100., None)
+    } else {
+        (released, p.ai_confidence_percent, Some(p.ai_share_percent))
+    };
     let spans_ok = d.span_status.as_ref().and_then(|v| v.as_str()) == Some("ok");
-    if let Some(rule) = length.short_rule() {
-        // Every passage must check out, as in a strong band; the rule then
-        // reads their confidences, which are never shown.
-        let checked = match p.spans.as_deref() {
-            Some(s) if spans_on && spans_ok => utf16_spans(text, s).map(|v| (s, v)),
-            _ => None,
-        };
-        let Some((raw, mut shown)) = checked else { return Outcome::ShortWithoutSpans };
-        let strong = rule.strong(p.ai_confidence_percent, raw.iter().map(|s| s.ai_confidence_percent));
-        for s in &mut shown {
-            s.confidence = None;
-        }
-        return Outcome::Scored(if strong {
-            Scored { band: Band::Strong, percents: None, tokens, spans: Ok(shown) }
-        } else {
-            Scored { band: Band::NoStrongSigns, percents: None, tokens, spans: Err(SpansNote::StrongBandsOnly) }
-        });
-    }
     let spans = if !band.shows_spans() {
         Err(SpansNote::StrongBandsOnly)
     } else if !spans_on {
@@ -266,7 +272,16 @@ pub fn read(reply: &[u8], package: &str, text: &str, spans_on: bool, length: Len
             _ => Err(SpansNote::Unavailable),
         }
     };
-    Outcome::Scored(Scored { band, percents: Some((p.ai_confidence_percent, p.ai_share_percent)), tokens, spans })
+    // Below 150 words a passage shows no confidence of its own.
+    let spans = spans.map(|mut v| {
+        if share.is_none() {
+            for s in &mut v {
+                s.confidence = None;
+            }
+        }
+        v
+    });
+    Outcome::Scored(Scored { band, confidence, share, tokens, spans })
 }
 
 /// The spans with UTF-16 offsets, or `None` if any span is out of order,
@@ -306,7 +321,7 @@ fn utf16_spans(text: &str, spans: &[ScorerSpan]) -> Option<Vec<Span>> {
 /// The browser's result for a scored text: `cut` is the free check's scored
 /// part of what was sent. Notices name what is in the scored part.
 pub fn answer(scored: Scored, length: LengthBin, cut: &Cut<'_>, package: PackageLine, receipt: String) -> Answer {
-    let Scored { band, percents, tokens, spans } = scored;
+    let Scored { band, confidence, share, tokens, spans } = scored;
     let text = cut.scored;
     let (spans, spans_note) = match spans {
         Ok(s) => (Some(s), None),
@@ -315,10 +330,10 @@ pub fn answer(scored: Scored, length: LengthBin, cut: &Cut<'_>, package: Package
     Answer {
         state: "result",
         band: band.code(),
-        confidence_tenths: percents.map(|(c, _)| policy::tenths_floor(c)),
-        confidence_text: percents.map(|(c, _)| policy::confidence_text(c)),
-        share_text: percents.map(|(c, s)| policy::share_text(s, c)),
-        share_pct: percents.map(|(c, s)| policy::share_pct(s, c)),
+        confidence_tenths: Some(policy::tenths_floor(confidence)),
+        confidence_text: Some(policy::confidence_text(confidence)),
+        share_text: share.map(|s| policy::share_text(s, confidence)),
+        share_pct: share.map(|s| policy::share_pct(s, confidence)),
         words: cut.scored_words,
         total_words: cut.total_words,
         cut: cut.kind.code(),
@@ -381,7 +396,6 @@ pub fn sealed_result(line: &mut Answer, text: &str, canonical: &str) -> ResultFu
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::policy::{SHORT_SPAN_LEVEL, SHORT_SPAN_LEVEL_100, STRONG_CUT, VERY_STRONG_CUT};
     use serde_json::json;
 
     const PKG: &str = "ab12";
@@ -439,7 +453,7 @@ mod tests {
     fn the_sealed_result_is_the_answer_line() {
         let text = words(200);
         let s = text.find("word word").unwrap();
-        let sc = scored(read(&reply(97.3, 34.0, json!([span_json(&text, s, s + 150, 30)])), PKG, &text, true, M));
+        let sc = scored(read(&reply(97.3, 34.0, json!([span_json(&text, s, s + 150, 30)])), PKG, &text, true, M, None));
         let mut a = answer(sc, M, &whole(&text), pkg(), "r".into());
         a.seal = Some("sealed".into());
         let mut line = serde_json::to_value(&a).unwrap();
@@ -463,7 +477,7 @@ mod tests {
         let sent = format!("\r\n  cafe\u{301} {}  \r\n", words(199));
         assert_eq!(&*crate::canon::canon_v1(&sent), canonical.as_str());
         let sp = json!([span_json(&canonical, 5, 5 + 30 * 5 - 1, 30)]);
-        let sc = scored(read(&reply(99.99, 60.0, sp), PKG, &canonical, true, M));
+        let sc = scored(read(&reply(99.99, 60.0, sp), PKG, &canonical, true, M, None));
         let mut a = answer(sc, M, &whole(&canonical), pkg(), "r".into());
         assert_eq!((a.spans.as_ref().unwrap()[0].start, a.scored_end), (5, canonical.len() - 1));
         to_original(&mut a, &sent, &canonical);
@@ -479,7 +493,7 @@ mod tests {
         assert_eq!(a.scored_end, before);
         // Offsets that do not map drop every passage.
         let mut bad = answer(
-            scored(read(&reply(99.99, 60.0, json!([span_json(&canonical, 5, 154, 30)])), PKG, &canonical, true, M)),
+            scored(read(&reply(99.99, 60.0, json!([span_json(&canonical, 5, 154, 30)])), PKG, &canonical, true, M, None)),
             M,
             &whole(&canonical),
             pkg(),
@@ -499,7 +513,7 @@ mod tests {
         let sent = format!("\r\n  cafe\u{301} {}  \r\n", words(199));
         let line = || {
             let sp = json!([span_json(&canonical, 5, 5 + 30 * 5 - 1, 30)]);
-            let sc = scored(read(&reply(99.99, 60.0, sp), PKG, &canonical, true, M));
+            let sc = scored(read(&reply(99.99, 60.0, sp), PKG, &canonical, true, M, None));
             answer(sc, M, &whole(&canonical), pkg(), "r".into())
         };
         let mut a = line();
@@ -530,7 +544,7 @@ mod tests {
     #[test]
     fn hashes_and_attribution_never_leave() {
         let text = words(200);
-        let sc = scored(read(&reply(97.3, 34.0, json!([])), PKG, &text, true, M));
+        let sc = scored(read(&reply(97.3, 34.0, json!([])), PKG, &text, true, M, None));
         let a = answer(sc, M, &whole(&text), pkg(), "r".into());
         let s = serde_json::to_string(&a).unwrap();
         for leak in ["f00d", "beef", "cafe", "text_sha256", "attribution", "origin", "other_ai", "\"ms\"", "sentences"]
@@ -547,11 +561,11 @@ mod tests {
     fn spans_only_in_strong_bands_and_when_on() {
         let text = words(200);
         let sp = json!([span_json(&text, 0, 30 * 5 - 1, 30)]);
-        let weak = scored(read(&reply(60.0, 10.0, sp.clone()), PKG, &text, true, M));
+        let weak = scored(read(&reply(60.0, 10.0, sp.clone()), PKG, &text, true, M, None));
         assert_eq!(weak.spans, Err(SpansNote::StrongBandsOnly));
-        let off = scored(read(&reply(99.99, 60.0, sp.clone()), PKG, &text, false, M));
+        let off = scored(read(&reply(99.99, 60.0, sp.clone()), PKG, &text, false, M, None));
         assert_eq!(off.spans, Err(SpansNote::Off));
-        let on = scored(read(&reply(99.99, 60.0, sp), PKG, &text, true, M));
+        let on = scored(read(&reply(99.99, 60.0, sp), PKG, &text, true, M, None));
         assert_eq!(on.band, Band::VeryStrong);
         assert_eq!(on.spans, Ok(vec![Span { start: 0, end: 149, words: 30, confidence: Some(92) }]));
     }
@@ -562,7 +576,7 @@ mod tests {
         let start = 3; // after the emoji, é and the space
         let end = text.chars().count();
         let sp = json!([span_json(&text, start, end, 40)]);
-        let Ok(s) = scored(read(&reply(95.0, 50.0, sp), PKG, &text, true, M)).spans else { panic!() };
+        let Ok(s) = scored(read(&reply(95.0, 50.0, sp), PKG, &text, true, M, None)).spans else { panic!() };
         // The emoji is two UTF-16 units: offsets 0-1; é is 2; space is 3.
         assert_eq!(s[0].start, 4);
         let units: Vec<u16> = text.encode_utf16().collect();
@@ -573,7 +587,7 @@ mod tests {
     fn inconsistent_spans_drop_all() {
         let text = words(200);
         let unavailable = |sp: serde_json::Value| {
-            scored(read(&reply(95.0, 50.0, sp), PKG, &text, true, M)).spans == Err(SpansNote::Unavailable)
+            scored(read(&reply(95.0, 50.0, sp), PKG, &text, true, M, None)).spans == Err(SpansNote::Unavailable)
         };
         let mut bad = span_json(&text, 0, 100, 25);
         bad["start_byte"] = json!(1);
@@ -586,97 +600,140 @@ mod tests {
     #[test]
     fn faults_and_declines() {
         let text = words(200);
-        assert_eq!(read(b"not json", PKG, &text, true, M), Outcome::Fault);
-        assert_eq!(read(&reply(95.0, 50.0, json!([])), "other", &text, true, M), Outcome::Fault);
-        assert_eq!(read(&reply(101.0, 50.0, json!([])), PKG, &text, true, M), Outcome::Fault);
+        assert_eq!(read(b"not json", PKG, &text, true, M, None), Outcome::Fault);
+        assert_eq!(read(&reply(95.0, 50.0, json!([])), "other", &text, true, M, None), Outcome::Fault);
+        assert_eq!(read(&reply(101.0, 50.0, json!([])), PKG, &text, true, M, None), Outcome::Fault);
         let long = json!({"package": PKG, "results": [{"status": "unsupported_input", "reason": "unsupported_length",
             "text_sha256": "x", "token_count": 3000, "prediction": null}]});
-        assert_eq!(read(long.to_string().as_bytes(), PKG, &text, true, M), Outcome::Declined("too_long"));
+        assert_eq!(read(long.to_string().as_bytes(), PKG, &text, true, M, None), Outcome::Declined("too_long"));
         // A short text's reply is checked the same way.
         let short = words(30);
         let s24 = LengthBin::Short24;
-        assert_eq!(read(&reply(101.0, 50.0, json!([])), PKG, &short, true, s24), Outcome::Fault);
-        assert_eq!(read(&reply(99.99, 101.0, json!([])), PKG, &short, true, s24), Outcome::Fault);
+        let m = s24.short_map(D24);
+        assert_eq!(read(&reply(101.0, 50.0, json!([])), PKG, &short, true, s24, m), Outcome::Fault);
+        assert_eq!(read(&reply(99.99, 101.0, json!([])), PKG, &short, true, s24, m), Outcome::Fault);
     }
 
-    /// A 30-word text with one passage over all of it.
-    fn short_case(conf: f64, span: f64) -> (String, Vec<u8>) {
-        let text = words(30);
+    /// Span package d24's published digest, the maps' package.
+    const D24: &str = "4bc3d49ce183d4a9ab150867eb4ec23280565351e07c041d161c9e728e19eac3";
+
+    fn map(b: LengthBin) -> &'static ShortMap {
+        b.short_map(D24).unwrap()
+    }
+
+    /// The input of the first knot at `level` in `b`'s map.
+    fn input_at(b: LengthBin, level: f64) -> f64 {
+        map(b).knots.iter().find(|k| k.1 == level).unwrap().0
+    }
+
+    /// A reply for an `n`-word text with one passage over all of it, the
+    /// scorer's own figures `conf` and `share`, and `input` as the
+    /// calibration input.
+    fn short_case(n: usize, conf: f64, input: serde_json::Value) -> (String, Vec<u8>) {
+        let text = words(n);
         let end = text.chars().count();
-        let r = reply(conf, 80.0, json!([span_conf(&text, 0, end, 30, span)]));
-        (text, r)
+        let mut v: serde_json::Value =
+            serde_json::from_slice(&reply(conf, 80.0, json!([span_conf(&text, 0, end, n as u64, 97.0)]))).unwrap();
+        v["results"][0]["calibration_input"] = input;
+        (text, v.to_string().into_bytes())
     }
 
+    fn short_read(n: usize, conf: f64, input: f64, b: LengthBin, spans_on: bool) -> Outcome {
+        let (text, r) = short_case(n, conf, json!(input));
+        read(&r, PKG, &text, spans_on, b, Some(map(b)))
+    }
+
+    /// A short text prints its bin's confidence and band, never the share or
+    /// a passage's confidence; the scorer's own confidence is not used.
     #[test]
-    fn short_texts_get_one_result_without_percentages() {
-        let top = VERY_STRONG_CUT * 100.;
-        let level = SHORT_SPAN_LEVEL * 100.;
+    fn short_texts_get_their_bins_confidence_and_band() {
         let s24 = LengthBin::Short24;
-        let (text, r) = short_case(top, level);
-        let sc = scored(read(&r, PKG, &text, true, s24));
-        assert_eq!(sc.band, Band::Strong);
-        assert_eq!(sc.percents, None);
-        assert_eq!(sc.spans, Ok(vec![Span { start: 0, end: text.len(), words: 30, confidence: None }]));
-        let a = answer(sc, s24, &whole(&text), pkg(), "r".into());
-        assert_eq!(a.length, "24_49");
-        let s = serde_json::to_value(&a).unwrap();
-        for absent in ["confidence_tenths", "confidence_text", "share_text", "share_pct", "spans_note"] {
-            assert!(s.get(absent).is_none(), "{absent} in {s}");
+        let m = map(s24);
+        for (level, band) in [(m.strong, Band::Strong), (m.very_strong, Band::VeryStrong)] {
+            // The scorer's own confidence would be weak: the map decides.
+            let sc = scored(short_read(30, 12.0, input_at(s24, level), s24, true));
+            assert_eq!((sc.band, sc.confidence, sc.share), (band, level * 100., None));
+            assert_eq!(sc.spans, Ok(vec![Span { start: 0, end: words(30).len(), words: 30, confidence: None }]));
+            let a = answer(sc, s24, &whole(&words(30)), pkg(), "r".into());
+            let v = serde_json::to_value(&a).unwrap();
+            assert_eq!((v["band"].as_str(), v["length"].as_str()), (Some(band.code()), Some("24_49")));
+            assert_eq!(v["confidence_text"], json!(policy::confidence_text(level * 100.)));
+            assert_eq!(v["confidence_tenths"], json!(policy::tenths_floor(level * 100.)));
+            for absent in ["share_text", "share_pct", "spans_note"] {
+                assert!(v.get(absent).is_none(), "{absent} in {v}");
+            }
+            assert!(v["spans"][0].get("confidence").is_none());
         }
-        assert!(s["spans"][0].get("confidence").is_none());
-        assert_eq!(s["band"], "strong");
-
-        // Either condition short of its level: no strong signs, no passage.
-        let below = |x: f64| f64::from_bits(x.to_bits() - 1);
-        for (conf, span) in [(below(top), level), (top, below(level)), (99.0, 99.0)] {
-            let (text, r) = short_case(conf, span);
-            let sc = scored(read(&r, PKG, &text, true, s24));
-            assert_eq!(sc.band, Band::NoStrongSigns, "{conf} {span}");
-            assert_eq!(sc.spans, Err(SpansNote::StrongBandsOnly));
-            let a = answer(sc, s24, &whole(&text), pkg(), "r".into());
-            let s = serde_json::to_value(&a).unwrap();
-            assert_eq!(s["band"], "no_strong_signs");
-            assert!(s.get("spans").is_none() && s.get("confidence_text").is_none() && s.get("share_text").is_none());
-        }
-        // No passage at all: no strong signs, even at the top level.
-        let text = words(30);
-        let sc = scored(read(&reply(top, 80.0, json!([])), PKG, &text, true, s24));
-        assert_eq!(sc.band, Band::NoStrongSigns);
+        assert_eq!(policy::confidence_text(m.strong * 100.), "93.7%");
+        assert_eq!(policy::confidence_text(m.very_strong * 100.), "98.8%");
+        // Below the strong cut: no passage, whatever the scorer's own band.
+        let sc = scored(short_read(30, 99.99, 0.5, s24, true));
+        assert_eq!((sc.band, sc.spans.clone()), (Band::Weak, Err(SpansNote::StrongBandsOnly)));
+        let v = serde_json::to_value(answer(sc, s24, &whole(&words(30)), pkg(), "r".into())).unwrap();
+        assert_eq!((v["band"].as_str(), v["confidence_text"].as_str()), (Some("weak"), Some("26.6%")));
+        assert!(v.get("spans").is_none() && v.get("share_text").is_none());
     }
 
+    /// One input, three bins, three readings; from 150 words the input is
+    /// ignored and the scorer's own figures apply.
     #[test]
-    fn short_bins_use_their_own_rule() {
-        let strong = STRONG_CUT * 100.;
-        let (l96, l94) = (SHORT_SPAN_LEVEL * 100., SHORT_SPAN_LEVEL_100 * 100.);
-        let text = words(120);
-        let end = text.chars().count();
-        let case = |conf: f64, span: f64, bin: LengthBin| {
-            let r = reply(conf, 50.0, json!([span_conf(&text, 0, end, 120, span)]));
-            scored(read(&r, PKG, &text, true, bin)).band
+    fn short_bins_use_their_own_map() {
+        let case = |n: usize, b: LengthBin| {
+            let sc = scored(short_read(n, 50.0, 0.999, b, true));
+            (sc.band, sc.confidence)
         };
-        assert_eq!(case(strong, l94, LengthBin::Short100), Band::Strong);
-        assert_eq!(case(strong, l94, LengthBin::Short50), Band::NoStrongSigns);
-        assert_eq!(case(VERY_STRONG_CUT * 100., l96, LengthBin::Short50), Band::Strong);
-        // From 150 words the bands apply, with percentages.
-        let sc = scored(read(&reply(strong, 50.0, json!([])), PKG, &text, true, M));
-        assert_eq!((sc.band, sc.percents.is_some()), (Band::Strong, true));
+        assert_eq!(case(30, LengthBin::Short24), (Band::Strong, 0.956931583582583 * 100.));
+        assert_eq!(case(60, LengthBin::Short50), (Band::Strong, 0.9749711066165848 * 100.));
+        assert_eq!(case(120, LengthBin::Short100), (Band::VeryStrong, 0.999869007073618 * 100.));
+        let (text, r) = short_case(200, 50.0, json!(0.999));
+        let sc = scored(read(&r, PKG, &text, true, M, None));
+        assert_eq!((sc.band, sc.confidence, sc.share), (Band::Unclear, 50.0, Some(80.0)));
     }
 
+    /// Without its map (another package's, or another bin's) or a valid
+    /// input, a short text is refused under the measured minimum.
     #[test]
-    fn short_texts_need_spans() {
-        let (text, r) = short_case(99.999, 99.0);
+    fn short_texts_need_their_map_and_input() {
         let s24 = LengthBin::Short24;
-        // Switch off, scorer span failure, missing or inconsistent spans.
-        assert_eq!(read(&r, PKG, &text, false, s24), Outcome::ShortWithoutSpans);
-        let failed = reply_with(99.999, 80.0, json!([]), "failed");
-        assert_eq!(read(&failed, PKG, &text, true, s24), Outcome::ShortWithoutSpans);
-        let none = reply_with(99.999, 80.0, serde_json::Value::Null, "ok");
-        assert_eq!(read(&none, PKG, &text, true, s24), Outcome::ShortWithoutSpans);
-        let mut bad = span_conf(&text, 0, 20, 24, 99.0);
-        bad["end_byte"] = json!(3);
-        assert_eq!(read(&reply(99.999, 80.0, json!([bad])), PKG, &text, true, s24), Outcome::ShortWithoutSpans);
-        let under_floor = span_conf(&text, 0, 20, 4, 99.0);
-        assert_eq!(read(&reply(99.999, 80.0, json!([under_floor])), PKG, &text, true, s24), Outcome::ShortWithoutSpans);
+        let x = input_at(s24, map(s24).strong);
+        for input in [serde_json::Value::Null, json!(1.5), json!(-0.1), json!(f64::MAX)] {
+            let (text, r) = short_case(30, 99.0, input.clone());
+            assert_eq!(read(&r, PKG, &text, true, s24, Some(map(s24))), Outcome::ShortUnmapped, "{input}");
+        }
+        // An older scorer's reply has no such field.
+        let (text, r) = short_case(30, 99.0, json!(x));
+        let mut v: serde_json::Value = serde_json::from_slice(&r).unwrap();
+        v["results"][0].as_object_mut().unwrap().remove("calibration_input");
+        assert_eq!(read(v.to_string().as_bytes(), PKG, &text, true, s24, Some(map(s24))), Outcome::ShortUnmapped);
+        // A value of another type is not the scorer's reply.
+        let (text, r) = short_case(30, 99.0, json!("0.99"));
+        assert_eq!(read(&r, PKG, &text, true, s24, Some(map(s24))), Outcome::Fault);
+        let (text, r) = short_case(30, 99.0, json!(x));
+        assert_eq!(read(&r, PKG, &text, true, s24, None), Outcome::ShortUnmapped);
+        assert_eq!(read(&r, PKG, &text, true, s24, Some(map(LengthBin::Short50))), Outcome::ShortUnmapped);
+        // A reply that is not the scorer's is still a fault.
+        assert_eq!(read(&reply(101.0, 50.0, json!([])), PKG, &text, true, s24, Some(map(s24))), Outcome::Fault);
+    }
+
+    /// Spans off or failed leave a short text scored, without passages; no
+    /// passage under 24 words is ever drawn.
+    #[test]
+    fn short_texts_do_not_need_spans() {
+        let s24 = LengthBin::Short24;
+        let x = input_at(s24, map(s24).strong);
+        let sc = scored(short_read(30, 99.0, x, s24, false));
+        assert_eq!((sc.band, sc.spans), (Band::Strong, Err(SpansNote::Off)));
+        let text = words(30);
+        let mut failed: serde_json::Value =
+            serde_json::from_slice(&reply_with(99.0, 80.0, serde_json::Value::Null, "failed")).unwrap();
+        failed["results"][0]["calibration_input"] = json!(x);
+        let sc = scored(read(failed.to_string().as_bytes(), PKG, &text, true, s24, Some(map(s24))));
+        assert_eq!((sc.band, sc.spans), (Band::Strong, Err(SpansNote::Unavailable)));
+        let mut under: serde_json::Value =
+            serde_json::from_slice(&reply(99.0, 80.0, json!([span_conf(&text, 0, 20, 4, 99.0)]))).unwrap();
+        under["results"][0]["calibration_input"] = json!(x);
+        let sc = scored(read(under.to_string().as_bytes(), PKG, &text, true, s24, Some(map(s24))));
+        assert_eq!((sc.band, sc.spans), (Band::Strong, Err(SpansNote::Unavailable)));
     }
 
     /// A long text's first 1,000 words, cut at a sentence end: the answer
@@ -694,7 +751,7 @@ mod tests {
         assert_eq!(length, LengthBin::Long);
         let end = c.scored.chars().count();
         let sp = json!([span_json(c.scored, end - 200, end, 30)]);
-        let sc = scored(read(&reply(99.99, 60.0, sp), PKG, c.scored, true, length));
+        let sc = scored(read(&reply(99.99, 60.0, sp), PKG, c.scored, true, length, None));
         let a = answer(sc, length, &c, pkg(), "r".into());
         let v = serde_json::to_value(&a).unwrap();
         assert_eq!((v["words"].as_u64(), v["total_words"].as_u64()), (Some(986), Some(1500)));
@@ -706,7 +763,7 @@ mod tests {
         assert_eq!(a.spans.as_ref().unwrap()[0].end, scored_end);
         // A whole text says so.
         let text = words(200);
-        let sc = scored(read(&reply(20.0, 5.0, json!([])), PKG, &text, true, M));
+        let sc = scored(read(&reply(20.0, 5.0, json!([])), PKG, &text, true, M, None));
         let v = serde_json::to_value(answer(sc, M, &whole(&text), pkg(), "r".into())).unwrap();
         assert_eq!(
             (v["cut"].as_str(), v["words"].as_u64(), v["total_words"].as_u64()),

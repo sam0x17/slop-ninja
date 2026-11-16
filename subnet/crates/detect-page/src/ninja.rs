@@ -13,14 +13,15 @@
 //! | 25 to 49 | stoic | | strong | bow to ready |
 //! | under 25 | bow | | very strong | stoic to strike |
 //!
-//! A short text stands ready ("Strong signs") or stoic ("No strong signs"),
-//! never with the sword drawn and never bowing. A paid whole document and a
-//! generic card have no state. The page JSON carries the state, so the page
-//! and its card agree.
+//! A short text (24 to 149 words) shows no share, so its state comes from its
+//! band alone: ready in the strong bands, stoic otherwise, never with the
+//! sword drawn and never bowing. A paid whole document and a generic card
+//! have no state. The page JSON carries the state, so the page and its card
+//! agree.
 
 use std::ops::RangeInclusive;
 
-use crate::codes::{Band, NinjaState, ShortResult};
+use crate::codes::{Band, NinjaState};
 
 /// The share's own state.
 pub fn share_state(share_pct: u8) -> NinjaState {
@@ -47,8 +48,8 @@ pub fn allowed(band: Band) -> RangeInclusive<NinjaState> {
 pub enum NinjaInput {
     /// A text of 150 words and more.
     Banded { band: Band, share_pct: u8 },
-    /// A short text.
-    Short(ShortResult),
+    /// A short text: its band, no share.
+    Short(Band),
     /// A paid whole document.
     PaidDocument,
 }
@@ -60,8 +61,7 @@ pub fn ninja_state(input: NinjaInput, cards_generic: bool) -> Option<NinjaState>
     }
     match input {
         NinjaInput::PaidDocument => None,
-        NinjaInput::Short(ShortResult::Strong) => Some(NinjaState::Ready),
-        NinjaInput::Short(ShortResult::None) => Some(NinjaState::Stoic),
+        NinjaInput::Short(band) => Some(if band.is_strong() { NinjaState::Ready } else { NinjaState::Stoic }),
         NinjaInput::Banded { band, share_pct } => {
             let r = allowed(band);
             Some(Ord::clamp(share_state(share_pct), *r.start(), *r.end()))

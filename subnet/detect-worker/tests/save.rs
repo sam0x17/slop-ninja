@@ -74,7 +74,7 @@ fn result(load: &str, scored_at: u64) -> StoredResult {
         policy: run.policy,
         evidence: run.evidence,
         band: run.band,
-        short: run.short,
+        legacy_short: None,
         confidence_tenths: run.confidence_tenths,
         confidence_text: run.confidence_text,
         share_pct: run.share_pct,

@@ -10,7 +10,7 @@
 //! library); without it each prints a notice and passes without loading a
 //! graph. The admission test needs no library. No model is loaded and nothing
 //! leaves the host.
-use a_container_serve::engine::{Model, TOKEN_STATES, TOWER_STATES, content_mask, word_mask};
+use a_container_serve::engine::{Model, Options, TOKEN_STATES, TOWER_STATES, content_mask, word_mask};
 use a_container_serve::full_a_spans;
 use a_container_serve::full_a_tower::{self, SpanTowerHeads, TokenStates};
 use a_container_serve::profile::sha256_hex;
@@ -489,6 +489,17 @@ fn a_heads_v2_token_head_reads_the_final_norm_states_and_emits_spans() {
         assert_eq!(only["prediction"]["spans"], spans["prediction"]["spans"]);
         assert_eq!(only["output_sha256"], spans["output_sha256"]);
         assert_eq!(only["span_output_sha256"], spans["span_output_sha256"]);
+        // The calibration input sits beside the prediction and changes
+        // nothing else; an identity map has none.
+        let asked = Options { spans: true, sentences: true, calibration_input: true };
+        let mut with_input = model.score_with_options(&i.to_string(), d, asked);
+        let input = with_input.as_object_mut().unwrap().remove("calibration_input");
+        assert_eq!(input, Some(Value::Null), "the synthetic heads' identity map reads no isotonic input");
+        let mut plain_spans = spans.clone();
+        for v in [&mut with_input, &mut plain_spans] {
+            v.as_object_mut().unwrap().remove("ms");
+        }
+        assert_eq!(with_input, plain_spans);
         // The tower's states would give other logits: the head reads the declared states.
         let other = h.heads().token_logits(&tower, &words).unwrap().unwrap();
         assert_ne!(other, logits);

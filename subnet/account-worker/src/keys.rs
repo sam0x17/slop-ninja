@@ -150,7 +150,6 @@ mod tests {
         Summary {
             kind: Kind::PrivateText,
             band: None,
-            short: None,
             strong_sections: None,
             total_sections: None,
             words: 120,

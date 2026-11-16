@@ -11,7 +11,7 @@ use slop_ninja_detect_fetch_wire::{
     Adapter, FetchAnswer, FetchRequest, Meta, Outcome, X_CHECK_K, XCheckAnswer, XCheckRequest, XControl, XExists,
     XPostAnswer, XPostRequest,
 };
-use slop_ninja_detect_page::codes::{Band, CutKind, LengthBin, Reputation, ShortResult};
+use slop_ninja_detect_page::codes::{Band, CutKind, LengthBin, Reputation};
 use slop_ninja_detect_page::page::Span;
 use slop_ninja_detect_page::refusal::{ApiRefusal, RefusalCode};
 use slop_ninja_detect_worker::db::IoError;
@@ -194,8 +194,8 @@ impl HostApi for HostStub {
 // ---------------------------------------------------------------- scorer
 
 /// Scores by markers: under 24 words `too_short`; `[fr]` `not_english`;
-/// under 150 words a short result (strong when an AI sentence is present);
-/// otherwise band strong with each AI sentence a passage.
+/// strong with each AI sentence a passage, weak without one; under 150
+/// words without a share or passage confidence.
 #[derive(Default)]
 pub struct ScorerStub {
     pub calls: Cell<u32>,
@@ -244,10 +244,10 @@ impl UrlScorer for ScorerStub {
             scorer_build: s.scorer_build.clone(),
             policy: "long-v1".into(),
             evidence: s.evidence.clone(),
-            band: (!short).then_some(if strong { Band::Strong } else { Band::Weak }),
-            short: short.then_some(if strong { ShortResult::Strong } else { ShortResult::None }),
-            confidence_tenths: (!short).then_some(if strong { 973 } else { 312 }),
-            confidence_text: (!short).then(|| if strong { "97.3%".into() } else { "31.2%".into() }),
+            band: Some(if strong { Band::Strong } else { Band::Weak }),
+            legacy_short: None,
+            confidence_tenths: Some(if strong { 973 } else { 312 }),
+            confidence_text: Some(if strong { "97.3%".into() } else { "31.2%".into() }),
             share_pct: (!short).then_some(if strong { 43 } else { 2 }),
             share_text: (!short).then(|| if strong { "about 43%".into() } else { "about 2%".into() }),
             words,

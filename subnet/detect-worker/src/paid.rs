@@ -823,7 +823,6 @@ pub async fn start(
         summary: Summary {
             kind: Kind::PrivatePaid,
             band: None,
-            short: None,
             strong_sections: None,
             total_sections: Some(k),
             words: job.header.plan.total_words,
@@ -1630,7 +1629,7 @@ pub fn assemble(
         policy: seal::POLICY_V.to_owned(),
         evidence: serving.evidence.clone(),
         band: None,
-        short: None,
+        legacy_short: None,
         confidence_tenths: None,
         confidence_text: None,
         share_pct: None,

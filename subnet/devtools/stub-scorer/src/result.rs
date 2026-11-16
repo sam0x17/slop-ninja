@@ -3,7 +3,8 @@
 //! `status`, `text_sha256`, `token_count`, `prediction` (origin,
 //! `ai_confidence_percent`, `ai_share_percent`, attribution, and with spans
 //! asked for and a token head, `sentences` and `spans`), `output_sha256`,
-//! `span_status`, `span_output_sha256` and `ms`. The values come from the
+//! `span_status`, `span_output_sha256`, `ms` and, when asked for,
+//! `calibration_input` beside the prediction. The values come from the
 //! text's markers ([`crate::markers`]); the token count is the scorer's own,
 //! from the compiled-in tokenizer table.
 
@@ -30,6 +31,9 @@ pub fn sha(b: &[u8]) -> String {
 pub struct Ask {
     pub spans: bool,
     pub sentences: bool,
+    /// The calibration map's input beside the prediction
+    /// ([`crate::short_maps`]).
+    pub calibration_input: bool,
     /// Whether the loaded package has a token head (spans are emitted only
     /// with one).
     pub token_head: bool,
@@ -161,6 +165,9 @@ pub fn document(id: &str, text: &str, ask: Ask) -> Value {
     });
     let output_sha = sha(prediction.to_string().as_bytes());
     let mut r = json!({"id": id, "status": "ok", "text_sha256": text_sha, "token_count": n, "output_sha256": output_sha});
+    if ask.calibration_input {
+        r["calibration_input"] = json!(crate::short_maps::input(text, &d));
+    }
     if ask.spans && ask.token_head {
         if d.spans == SpanMode::Off {
             prediction["sentences"] = Value::Null;
@@ -189,7 +196,7 @@ pub fn document(id: &str, text: &str, ask: Ask) -> Value {
 mod tests {
     use super::*;
 
-    const ASK: Ask = Ask { spans: true, sentences: true, token_head: true };
+    const ASK: Ask = Ask { spans: true, sentences: true, calibration_input: false, token_head: true };
 
     fn prose(n: usize) -> String {
         (0..n).map(|i| if i % 10 == 9 { "word." } else { "word" }).collect::<Vec<_>>().join(" ")
@@ -257,6 +264,21 @@ mod tests {
         }
         let r = document("d", &t, Ask { sentences: false, ..ASK });
         assert!(r["prediction"].get("sentences").is_none() && r["prediction"]["spans"].is_array());
+    }
+
+    /// `calibration_input` sits beside the prediction only when asked for,
+    /// and changes nothing else.
+    #[test]
+    fn the_calibration_input_only_when_asked() {
+        let t = format!("sn-stub:band=strong {}", prose(40));
+        let plain = document("d", &t, ASK);
+        assert!(plain.get("calibration_input").is_none());
+        let mut asked = document("d", &t, Ask { calibration_input: true, ..ASK });
+        let x = asked.as_object_mut().unwrap().remove("calibration_input").unwrap();
+        assert_eq!(x.as_f64(), Some(crate::short_maps::input(&t, &markers::parse(&t))));
+        assert_eq!(asked, plain);
+        let refused = document("d", "  \n", Ask { calibration_input: true, ..ASK });
+        assert!(refused.get("calibration_input").is_none());
     }
 
     #[test]

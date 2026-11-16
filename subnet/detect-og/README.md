@@ -19,8 +19,9 @@ needle at the estimated share, the human and robot busts at its ends), the
 share, the band chip and the four-band scale; the headline, the confidence
 line, the source ("a page on <host>", "a post on Bluesky", "a post on X" or
 "Private text · secret link"), the scan date and a free-cut note; the ninja in
-its state; the link and the model line. A short text's gauge has no needle,
-level or number and a two-step scale. A paid document's has a neutral needle,
+its state; the link and the model line. A short text's (24 to 149 words)
+gauge has no needle, level or number, since it shows no share; its band chip,
+scale and confidence line are as on any other card. A paid document's has a neutral needle,
 its section ladder in place of the chip and scale, and no ninja. A generic
 card has no ninja. No card shows text from the page, a rate or a "not proof"
 line.

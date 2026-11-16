@@ -6,8 +6,8 @@ service bindings (`DETECT_TESTNET`). This Worker has no route, no custom
 domain, no default `workers_dev` subdomain and no preview URLs. It scores one pasted text with A's
 reference span package on one scorer Container and returns an evidence band,
 the two document percentages and, in the strong bands only, highlighted
-passages. A text of 24 to 149 words gets one result instead, "strong signs"
-(with its passages) or "no strong signs", with no percentage. A text of more
+passages. A text of 24 to 149 words gets its band and confidence from a
+calibration map and cuts fitted for its length, and no share. A text of more
 than 1,000 words is scored on its first 1,000 words, cut back to the last
 sentence end, and the result says how many words it scored of how many.
 Until the reference package's public bucket opens, every result's
@@ -82,8 +82,8 @@ counts some codes carry, under the HTTP status of its code
       string the page sent;
   11. the free cut (`cut.rs`, "The free cut" below), with exact token counts
       from the scorer's own tokenizer table;
-  12. the scored part's length floor (24 words, or 150 with the span switch
-      off) and the English screen on it.
+  12. the scored part's length floor (24 words while the short-text maps are
+      the serving package's, 150 otherwise) and the English screen on it.
 
   Only the scored part is forwarded to the scorer. Every refusal before a
   ticket is an AE `submit` point and nothing else.
@@ -504,22 +504,21 @@ the launch gate; they are not abuse thresholds.
   `451_1000`, so the page can say so and add that a small AI part in a long
   text is caught less often; `docs/detect-evidence.md`, "Long texts"). A
   longer text is scored on its first 1,000 words ("The free cut").
-- From 24 to 149 words (bins `24_49`, `50_99`, `100_149`) the result is
-  `strong` only when the confidence reaches a release level and a passage's
-  own confidence reaches a level of the span confidence map, per bin: 24-99
-  words, the top level (99.988%) and a passage at 96.38% or more; 100-149
-  words, 90.9% and a passage at 94.20% or more. Otherwise it is
-  `no_strong_signs`. The pairs were chosen on the Calibration split by the
-  release's 1% rule and measured on the consumed Test
-  (`docs/detect-evidence.md`, "Short texts"); they belong to span package
-  d24. A short result carries no percentage, share or passage confidence,
-  and passages only when `strong`.
-- A short text needs passages: with the span switch off it is refused as
-  `too_short` with `min_words` 150, and so is a scored short text whose
-  passages are missing or fail the checks below. Under 24 words (the span
-  floor) nothing is scored.
+- From 24 to 149 words (bins `24_49`, `50_99`, `100_149`) each bin has its
+  own isotonic calibration map from the scorer's `calibration_input` (the
+  value the release's map reads, asked for on short texts only) to the
+  printed confidence, and its own cuts, chosen on the Calibration split by
+  the release's rule: strong from 93.74%, 96.97% and 89.59%, very strong
+  from 98.85%, 99.986% and 99.987%, unclear from 50% (`policy.rs`,
+  `short-maps-d24.json`, bound by its SHA-256; `docs/detect-evidence.md`,
+  "Short texts"). The maps belong to span package d24: under another package
+  (by its published digest) a text under 150 words is refused as
+  `too_short` with `min_words` 150, and so is a short text whose reply lacks
+  a valid calibration input. A short result carries its band and
+  confidence, no share, and passages without a confidence of their own.
+  Under 24 words (the span floor) nothing is scored.
 - Passages are shown only in the two strong bands, only with the span switch
-  on, never under 24 words, with UTF-16 offsets checked against the scorer's
+  on (with it off every length is still scored), never under 24 words, with UTF-16 offsets checked against the scorer's
   byte offsets (any mismatch drops every passage).
 - Confidence is floored to one decimal, "above 99.9%" at the top and
   "below 1%" at the bottom; share is whole percent and never reads above

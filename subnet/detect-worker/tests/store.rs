@@ -90,7 +90,7 @@ fn stored(run: &Run, load: &str) -> StoredResult {
         policy: run.policy.clone(),
         evidence: run.evidence.clone(),
         band: run.band,
-        short: run.short,
+        legacy_short: None,
         confidence_tenths: run.confidence_tenths,
         confidence_text: run.confidence_text.clone(),
         share_pct: run.share_pct,
@@ -1107,11 +1107,12 @@ fn a_free_check_s_seal_becomes_a_link() {
     let w = World::new();
     let secret: [u8; 32] = *b"store secret bytes, for tests ok";
     let now = 1_795_169_040_000;
-    // A short text's line, as the score route writes it: no percentages.
+    // A short text's line, as the score route writes it: its band and
+    // confidence, no share.
     let full = ResultFull {
         band: "strong".into(),
-        confidence_tenths: None,
-        confidence_text: None,
+        confidence_tenths: Some(984),
+        confidence_text: Some("98.4%".into()),
         share_text: None,
         share_pct: None,
         words: 52,
@@ -1146,7 +1147,8 @@ fn a_free_check_s_seal_becomes_a_link() {
     let a = block_on(save(&w.h, w.keys(), &req(TEXT, false), Some(sealed), None)).unwrap();
     let p = page(&w, &a.slug).unwrap();
     let run = p.run.as_ref().unwrap();
-    assert_eq!(run.short, Some(slop_ninja_detect_page::codes::ShortResult::Strong));
+    assert_eq!((run.band, run.confidence_text.as_deref()), (Some(slop_ninja_detect_page::codes::Band::Strong), Some("98.4%")));
+    assert_eq!((run.share_text.as_deref(), run.length), (None, Some(slop_ninja_detect_page::codes::LengthBin::Short50)));
     assert_eq!(run.spans.len(), 1);
     assert_eq!((run.spans[0].start, run.spans[0].end), (14, 200));
     assert_eq!((run.scorer_build.as_str(), run.evidence.as_str()), ("7030a86f", "evidence-d24-web-v1"));

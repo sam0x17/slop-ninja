@@ -163,10 +163,15 @@ routes in `cf_routes.rs`:
 website's `POST /detect/result` sends the sealed free check to
 `/internal/v1/save` (with `X-SN-Principal` only when the reader ticked "Save
 to my detections") and the browser lands on the page. A pasted text's slug is
-the first `DETECT_TEXT_SLUG_LEN` (8 by default, 8 to 19) base62 characters
+the first `DETECT_TEXT_SLUG_LEN` (10 by default, 8 to 19) base62 characters
 derived from a keyed hash of its `canon_v1` form, extended one character at
 a time past a slug any row holds; the store keeps the text's keyed address
-(`texts`), never the slug. The same text lands on the same page with no new
+(`texts`), never the slug, and the length the text got, so a page made at 8
+characters keeps its link. A 10-character slug is one of 62^10 (about
+8.4 × 10^17, 59.5 bits). The page is unlisted, not unguessable: with a
+million pages, one network trying 1,000 slugs a second for a year finds
+about 0.04 of them, many networks together find more, and no limit on wrong
+guesses is built. The same text lands on the same page with no new
 manage token (the first saver's is shown once); a later saver's account
 keeps a bookmark. A check under a newer package adds its run to the page,
 which shows the newest and lists the earlier ones. No page ends by time: a

@@ -161,12 +161,12 @@ fn a_save_stores_the_text_encrypted_and_only_its_keyed_address_in_d1() {
     let a = save_as(&w, TEXT, "load-new", None).unwrap();
     let (slug, manage_t) = (a.slug.clone(), a.manage.clone().unwrap());
     assert_eq!((a.made, a.updated, a.saved, a.reason), (true, false, None, None));
-    assert_eq!(slug.len(), 8, "permalink-policy/v1's default length");
+    assert_eq!(slug.len(), 10, "permalink-policy/v1's default length");
     assert!(slug.bytes().all(|b| b.is_ascii_alphanumeric()));
     assert_eq!(manage_t.len(), 26);
     // The slug is the text's own: derived from its keyed hash.
     let text = canon::canon_v1(TEXT);
-    assert_eq!(slug, w.peppers.current().text_slug_chars(&text, 0)[..8]);
+    assert_eq!(slug, w.peppers.current().text_slug_chars(&text, 0)[..10]);
     let id = id_of(&w, &slug);
     let doc = w.h.doc(&secret_doc_key(&id)).unwrap();
     // The document is ciphertext; it opens only under the page's own key.
@@ -191,7 +191,7 @@ fn a_save_stores_the_text_encrypted_and_only_its_keyed_address_in_d1() {
                 |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
             )
             .unwrap();
-    assert_eq!((gen_, len, det), (0, 8, id.to_vec()));
+    assert_eq!((gen_, len, det), (0, 10, id.to_vec()));
     let (kind, platform, state, exp, owner): (String, String, String, Option<i64>, Option<Vec<u8>>) =
         w.h.db
             .query_row(

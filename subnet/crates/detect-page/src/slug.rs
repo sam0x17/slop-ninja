@@ -17,6 +17,12 @@
 //!   text ([`text_chars`] is the character rule). It is case-sensitive and
 //!   never folded. The two secret forms cannot meet: text slugs stop at 19
 //!   characters, drawn ones are 20.
+//! - A new text's slug has [`TEXT_DEFAULT_LEN`] characters (10: 62^10, about
+//!   8.4 × 10^17 or 59.5 bits), and a text keeps the length it got, so a page
+//!   made at 8 keeps its link. An unlisted page is not unguessable: with a
+//!   million pages, one network trying 1,000 slugs a second for a year finds
+//!   about 0.04 of them, many networks together find more, and nothing limits
+//!   wrong guesses.
 //! - **Folding** (the Crockford forms only). Uppercase folds to lowercase,
 //!   `i` and `l` to `1`, `o` to `0`; a folded path answers 301 to the
 //!   canonical one. A segment of the wrong length or with any other
@@ -49,13 +55,15 @@ const fn alphabet62() -> [u8; 62] {
     out
 }
 
-/// The shortest text slug (`permalink-policy/v1`'s floor).
+/// The shortest text slug (`permalink-policy/v1`'s floor, which pages made
+/// at 8 characters keep).
 pub const TEXT_MIN_LEN: usize = 8;
 /// The longest text slug: one short of [`SECRET_LEN`], so the two secret
 /// forms never meet.
 pub const TEXT_MAX_LEN: usize = 19;
-/// The policy's default length (`DETECT_TEXT_SLUG_LEN`).
-pub const TEXT_DEFAULT_LEN: usize = 8;
+/// The policy's default length (`DETECT_TEXT_SLUG_LEN`): 10 characters,
+/// about 59.5 bits.
+pub const TEXT_DEFAULT_LEN: usize = 10;
 /// The derivation keeps a stream byte below this bound only: 248 = 4 × 62,
 /// so every character of [`ALPHABET62`] is equally likely.
 pub const TEXT_BYTE_BOUND: u8 = 248;

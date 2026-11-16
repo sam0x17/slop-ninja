@@ -37,7 +37,8 @@ const NEWER: &str = "p4r8tz2";
 /// A drawn 20-character secret slug: paid pages, and pasted-text pages made
 /// before text slugs.
 const SECRET: &str = "7hq2kd9m4xw8rt3vn6pb";
-/// A pasted text's slug (`permalink-policy/v1`'s worked example).
+/// A pasted text's slug (`permalink-policy/v1`'s worked example at 8
+/// characters: new texts get 10, and a page made at 8 keeps its link).
 const TEXT: &str = "uM07zZQv";
 const SECRET2: &str = "c3jf8kq1zw5ty7hn2mdx";
 /// A feedback receipt's id and tag (`<id>.<band>.<length bin>.<tag>`).

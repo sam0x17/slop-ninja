@@ -157,14 +157,15 @@ fn page_paths_and_their_301_forms() {
     assert_eq!(slug::match_path(Secret, &format!("/{s}/x")), PathMatch::NoMatch);
     // A text slug: 8 to 19 base62 characters, exactly as written (no
     // folding), with its card, its manage shell and its 301 for a trailing
-    // slash.
-    let t = "uM07zZQv";
+    // slash. New texts get 10; a page made at 8 keeps its link.
+    let t = "uM07zZQvek";
     assert_eq!(slug::match_path(Secret, &format!("/{t}")), serve(SlugRoute::Page, t));
     assert_eq!(slug::match_path(Secret, &format!("/{t}/card.png")), serve(SlugRoute::Card, t));
     assert_eq!(slug::match_path(Secret, &format!("/{t}/manage")), serve(SlugRoute::Manage, t));
     assert_eq!(slug::match_path(Secret, &format!("/{t}/")), to(&format!("/{t}")));
-    assert_eq!(slug::match_path(Secret, "/UM07ZZQV"), serve(SlugRoute::Page, "UM07ZZQV"), "case is kept");
-    assert_eq!(slug::match_path(Secret, "/uM07zZQvek"), serve(SlugRoute::Page, "uM07zZQvek"));
+    assert_eq!(slug::match_path(Secret, "/UM07ZZQVEK"), serve(SlugRoute::Page, "UM07ZZQVEK"), "case is kept");
+    assert_eq!(slug::match_path(Secret, "/uM07zZQv"), serve(SlugRoute::Page, "uM07zZQv"), "8 characters");
+    assert_eq!(slug::match_path(Secret, "/uM07zZQv/manage"), serve(SlugRoute::Manage, "uM07zZQv"));
     assert_eq!(slug::match_path(Secret, &format!("/{}", "a".repeat(19))), serve(SlugRoute::Page, &"a".repeat(19)));
     assert_eq!(slug::match_path(Secret, "/uM07zZQ"), PathMatch::NoMatch, "7 characters");
     assert_eq!(slug::match_path(Secret, "/uM07zZQ-"), PathMatch::NoMatch);
@@ -197,7 +198,7 @@ fn text_slugs_form_and_characters() {
     let s = slug::text_chars(&all);
     assert!(s[..9].starts_with(&s[..8]));
     // The form.
-    assert!(slug::is_text_slug("uM07zZQv"));
+    assert!(slug::is_text_slug("uM07zZQvek") && slug::is_text_slug("uM07zZQv"));
     assert!(slug::is_text_slug(&"Z".repeat(19)));
     assert!(!slug::is_text_slug(&"Z".repeat(20)));
     assert!(!slug::is_text_slug("uM07zZQ"));
@@ -214,6 +215,7 @@ fn text_slugs_form_and_characters() {
     }
     const { assert!(slug::TEXT_MAX_LEN < slug::SECRET_LEN, "the two secret forms never meet") };
     const { assert!(slug::TEXT_MIN_LEN <= slug::TEXT_DEFAULT_LEN && slug::TEXT_DEFAULT_LEN <= slug::TEXT_MAX_LEN) };
+    assert_eq!((slug::TEXT_MIN_LEN, slug::TEXT_DEFAULT_LEN, slug::TEXT_MAX_LEN), (8, 10, 19));
 }
 
 // ---------------------------------------------------------------- ninja

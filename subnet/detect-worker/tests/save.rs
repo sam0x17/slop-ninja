@@ -129,32 +129,32 @@ fn set_state(w: &World, slug: &str, state: &str) {
 }
 
 /// The worked example, steps 1, 2, 5 and 6: the first check makes
-/// `uM07zZQv`; a signed-in reader's check of the same text lands on it as a
+/// `uM07zZQvek`; a signed-in reader's check of the same text lands on it as a
 /// bookmark; after a delete the old link stays 410 and the text's next
-/// check makes generation 1, `XxXl3YyG`, with its own manage token.
+/// check makes generation 1, `XxXl3YyGso`, with its own manage token.
 #[test]
 fn the_worked_example() {
     let w = World::new();
     let a = save_as(&w, T, "load-new", None).unwrap();
-    assert_eq!((a.slug.as_str(), a.made), ("uM07zZQv", true));
+    assert_eq!((a.slug.as_str(), a.made), ("uM07zZQvek", true));
     let token = a.manage.clone().unwrap();
     let b = save_as(&w, T, "load-new", Some(principal(2))).unwrap();
-    assert_eq!((b.slug.as_str(), b.made, b.manage, b.saved), ("uM07zZQv", false, None, Some(SavedAs::Bookmark)));
+    assert_eq!((b.slug.as_str(), b.made, b.manage, b.saved), ("uM07zZQvek", false, None, Some(SavedAs::Bookmark)));
     // Edge spaces and a CRLF: the same text.
     let c = save_as(&w, &format!("  {T}\r\n"), "load-new", None).unwrap();
-    assert_eq!(c.slug, "uM07zZQv");
+    assert_eq!(c.slug, "uM07zZQvek");
     // One comma removed: another text.
     let other = T.replacen(',', "", 1);
-    assert_ne!(save_as(&w, &other, "load-new", None).unwrap().slug, "uM07zZQv");
+    assert_ne!(save_as(&w, &other, "load-new", None).unwrap().slug, "uM07zZQvek");
     // The first reader deletes the page.
-    delete(&w, "uM07zZQv", &token);
-    assert_eq!(page(&w, "uM07zZQv").unwrap().http_status(), 410);
+    delete(&w, "uM07zZQvek", &token);
+    assert_eq!(page(&w, "uM07zZQvek").unwrap().http_status(), 410);
     // A third reader's check: generation 1, a new slug and a new token.
     let d = save_as(&w, T, "load-new", None).unwrap();
-    assert_eq!((d.slug.as_str(), d.made), ("XxXl3YyG", true));
+    assert_eq!((d.slug.as_str(), d.made), ("XxXl3YyGso", true));
     assert!(d.manage.is_some() && d.manage.as_deref() != Some(token.as_str()));
-    assert_eq!(page(&w, "uM07zZQv").unwrap().http_status(), 410, "the old link stays dead");
-    assert_eq!(page(&w, "XxXl3YyG").unwrap().state, DetState::Live);
+    assert_eq!(page(&w, "uM07zZQvek").unwrap().http_status(), 410, "the old link stays dead");
+    assert_eq!(page(&w, "XxXl3YyGso").unwrap().state, DetState::Live);
     let gen_: i64 = w.h.count("SELECT gen FROM texts WHERE gen > 0");
     assert_eq!(gen_, 1);
 }
@@ -167,27 +167,27 @@ fn a_collision_extends_the_slug_and_the_text_keeps_it() {
     let w = World::new();
     let p = w.peppers.current();
     let chars = p.text_slug_chars(T, 0);
-    // Another page holds `uM07zZQv` (any state: a tombstone holds it too).
+    // Another page holds `uM07zZQvek` (any state: a tombstone holds it too).
     w.h.db
         .execute(
             "INSERT INTO detections (id_h, pepper_v, kind, platform, state, created_at, updated_at) \
              VALUES (?1, 1, 'private_text', 'paste', 'deleted', 1, 1)",
-            [p.text_id_h(&chars[..8]).to_vec()],
+            [p.text_id_h(&chars[..10]).to_vec()],
         )
         .unwrap();
     let a = save_as(&w, T, "load-new", None).unwrap();
-    assert_eq!(a.slug, "uM07zZQve");
+    assert_eq!(a.slug, "uM07zZQvekQ");
     let len: i64 = w.h.count("SELECT slug_len FROM texts");
-    assert_eq!(len, 9);
+    assert_eq!(len, 11);
     // The later save lands on it with no probe: one batch reads the text
     // row, and nothing is written.
     let before = (w.h.statements.get(), w.h.dump());
     let b = save_as(&w, T, "load-new", None).unwrap();
-    assert_eq!((b.slug.as_str(), b.made), ("uM07zZQve", false));
+    assert_eq!((b.slug.as_str(), b.made), ("uM07zZQvekQ", false));
     assert_eq!(w.h.dump(), before.1);
     assert!(w.h.statements.get() - before.0 <= 3, "one read batch, no probe");
-    assert_eq!(page(&w, "uM07zZQve").unwrap().state, DetState::Live);
-    assert_eq!(page(&w, "uM07zZQv").unwrap().http_status(), 410);
+    assert_eq!(page(&w, "uM07zZQvekQ").unwrap().state, DetState::Live);
+    assert_eq!(page(&w, "uM07zZQvek").unwrap().http_status(), 410);
 }
 
 /// Two saves of different texts whose candidates meet: the one whose claim
@@ -197,7 +197,7 @@ fn a_collision_extends_the_slug_and_the_text_keeps_it() {
 fn the_different_text_collision_race() {
     let w = World::new();
     let p = w.peppers.current();
-    let cand = p.text_slug_chars(T, 0)[..8].to_owned();
+    let cand = p.text_slug_chars(T, 0)[..10].to_owned();
     let id = p.text_id_h(&cand);
     // Another text's save claims `cand` just before this save's claim.
     w.h.before("INSERT INTO detections (id_h, pepper_v, kind, platform, state, state_v", move |db| {
@@ -209,7 +209,7 @@ fn the_different_text_collision_race() {
         .unwrap();
     });
     let a = save_as(&w, T, "load-new", None).unwrap();
-    assert_eq!(a.slug, format!("{cand}e"));
+    assert_eq!(a.slug, format!("{cand}Q"));
     assert!(w.h.doc(&secret_doc_key(&id)).is_none(), "the loser writes nothing under the winner's id");
     assert_eq!(w.h.count("SELECT count(*) FROM texts"), 1);
 }
@@ -245,8 +245,8 @@ fn a_failed_put_tombstones_the_claim_and_the_next_save_takes_the_next_generation
     assert_eq!(st, "deleted");
     assert_eq!(w.h.count("SELECT count(*) FROM detections WHERE seal_nonce_h IS NOT NULL"), 0);
     let a = save_with(&w, T, s, None).unwrap();
-    assert_eq!((a.slug.as_str(), a.made), ("XxXl3YyG", true));
-    assert_eq!(page(&w, "uM07zZQv").unwrap().http_status(), 410);
+    assert_eq!((a.slug.as_str(), a.made), ("XxXl3YyGso", true));
+    assert_eq!(page(&w, "uM07zZQvek").unwrap().http_status(), 410);
 }
 
 /// A disabled page holds its text: no new page while the notice is
@@ -290,7 +290,7 @@ fn legal_states_hold_the_text() {
             slop_ninja_detect_worker::store_ops::release_text(&id_of(&w, &a.slug), w.h.now.get()),
         ))
         .unwrap();
-        assert_eq!(save_as(&w, T, "load-new", None).unwrap().slug, "XxXl3YyG", "{path}");
+        assert_eq!(save_as(&w, T, "load-new", None).unwrap().slug, "XxXl3YyGso", "{path}");
     }
     // A wrong token deletes nothing and holds nothing.
     let w = World::new();
@@ -341,18 +341,31 @@ fn a_newer_packages_check_adds_its_run() {
     assert_eq!(page(&w, &a.slug).unwrap().history.len(), 1);
 }
 
-/// `permalink-policy/v1`'s var: a longer length applies to new texts only,
-/// and a value outside 8 to 19 refuses every save (the check still
-/// answers elsewhere).
+/// `permalink-policy/v1`'s var: a new text gets 10 characters by default;
+/// another length applies to new texts only, so a page made at 8 characters
+/// keeps its link; and a value outside 8 to 19 refuses every save (the check
+/// still answers elsewhere).
 #[test]
 fn the_policy_length() {
+    assert_eq!(slop_ninja_detect_page::slug::TEXT_DEFAULT_LEN, 10);
     let w = World::new();
+    // A page made while the length was 8.
+    w.h.vars.borrow_mut().insert(save::SLUG_LEN_VAR.into(), "8".into());
     let a = save_as(&w, T, "load-new", None).unwrap();
-    w.h.vars.borrow_mut().insert(save::SLUG_LEN_VAR.into(), "10".into());
+    assert_eq!((a.slug.as_str(), a.made), ("uM07zZQv", true));
+    // The default: a new text gets 10 characters, and the old text keeps 8.
+    w.h.vars.borrow_mut().remove(save::SLUG_LEN_VAR);
     let other = format!("{T} Next quarter looks the same.");
     let b = save_as(&w, &other, "load-new", None).unwrap();
-    assert_eq!(b.slug.len(), 10);
-    assert_eq!(save_as(&w, T, "load-new", None).unwrap().slug, a.slug, "an existing text keeps its length");
+    assert_eq!((b.slug.len(), b.made), (10, true));
+    let again = save_as(&w, T, "load-new", None).unwrap();
+    assert_eq!((again.slug.as_str(), again.made), ("uM07zZQv", false), "an existing text keeps its length");
+    assert_eq!(page(&w, "uM07zZQv").unwrap().state, DetState::Live);
+    // A longer length applies to new texts only.
+    w.h.vars.borrow_mut().insert(save::SLUG_LEN_VAR.into(), "12".into());
+    let third = format!("{T} The year ends well.");
+    assert_eq!(save_as(&w, &third, "load-new", None).unwrap().slug.len(), 12);
+    assert_eq!(save_as(&w, &other, "load-new", None).unwrap().slug, b.slug);
     for bad in ["7", "20", "eight", ""] {
         w.h.vars.borrow_mut().insert(save::SLUG_LEN_VAR.into(), bad.into());
         if bad.is_empty() {
@@ -362,6 +375,43 @@ fn the_policy_length() {
         assert_eq!(save_as(&w, &third, "load-new", None), Err(RefusalCode::SaveUnavailable), "{bad}");
     }
     assert!(w.h.metric_count("error", "policy") >= 3);
+}
+
+/// From the default 10 characters, a candidate another row holds extends
+/// the slug one character at a time up to 19, and the text keeps that
+/// length; with every length from 10 to 19 taken the save refuses
+/// `slug_exhausted` (ten exact collisions in a row, which only a test
+/// reaches).
+#[test]
+fn a_collision_extends_from_ten_up_to_nineteen() {
+    let take = |w: &World, upto: usize| {
+        let p = w.peppers.current();
+        let chars = p.text_slug_chars(T, 0);
+        for len in slop_ninja_detect_page::slug::TEXT_DEFAULT_LEN..=upto {
+            w.h.db
+                .execute(
+                    "INSERT INTO detections (id_h, pepper_v, kind, platform, state, created_at, updated_at) \
+                     VALUES (?1, 1, 'private_text', 'paste', 'deleted', 1, 1)",
+                    [p.text_id_h(&chars[..len]).to_vec()],
+                )
+                .unwrap();
+        }
+    };
+    let w = World::new();
+    take(&w, 18);
+    let a = save_as(&w, T, "load-new", None).unwrap();
+    assert_eq!((a.slug.as_str(), a.made), ("uM07zZQvekQkoFpGFa6", true));
+    assert_eq!(w.h.count("SELECT slug_len FROM texts"), 19);
+    assert_eq!(page(&w, &a.slug).unwrap().state, DetState::Live);
+    // A later save rebuilds the 19-character slug from the row.
+    let b = save_as(&w, T, "load-new", None).unwrap();
+    assert_eq!((b.slug.as_str(), b.made), (a.slug.as_str(), false));
+    // Every length taken: refused, and nothing is written for the text.
+    let w = World::new();
+    take(&w, 19);
+    assert_eq!(save_as(&w, T, "load-new", None), Err(RefusalCode::SlugExhausted));
+    assert_eq!(w.h.metric_count("error", "slug_exhausted"), 1);
+    assert_eq!(w.h.count("SELECT count(*) FROM texts"), 0);
 }
 
 /// What a dump of D1 and R2 holds without the Worker's secrets: no text, no

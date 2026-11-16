@@ -485,12 +485,20 @@ mod tests {
         let g0 = p.text_slug_chars(t, 0);
         assert_eq!(&g0[..8], "uM07zZQv");
         assert_eq!(&g0[..9], "uM07zZQve");
-        assert_eq!(&g0[..10], "uM07zZQvek");
+        assert_eq!(&g0[..10], "uM07zZQvek", "the default length");
+        assert_eq!(&g0[..11], "uM07zZQvekQ");
+        assert_eq!(&g0[..19], "uM07zZQvekQkoFpGFa6");
         assert!(g0.len() >= 19, "about 62 characters");
+        assert_eq!(
+            hexs(&p.text_id_h("uM07zZQvek")),
+            "1e24d5e9bab8785f683825b07c6d0d4111b058feaa341c82713e64fbadf257b3"
+        );
+        // A page made at 8 characters keeps its id.
         assert_eq!(hexs(&p.text_id_h("uM07zZQv")), "e11824480849a6f31f041cfb6785e9fb2941e5c7d4b75f1915a1dcd96ac3a197");
         assert_eq!(p.secret_id_h("uM07zZQv"), p.text_id_h("uM07zZQv"));
         assert_eq!(p.secret_id_h("7hq2kd9m4xw8rt3vn6pb"), p.id_h("7hq2kd9m4xw8rt3vn6pb"));
         assert_ne!(p.text_id_h("uM07zZQv"), p.id_h("uM07zZQv"), "the two forms' ids are separated");
+        assert_eq!(&p.text_slug_chars(t, 1)[..10], "XxXl3YyGso");
         assert_eq!(&p.text_slug_chars(t, 1)[..8], "XxXl3YyG");
         // The collision pair at a floor of 2 characters.
         let n8 = "Synthetic example text number 8 for the collision test.";

@@ -621,7 +621,9 @@ committed bytes but a stored attribute (an unsigned `Content-Type`) is
 deleted and listed missing too, so it can be PUT again cleanly. Valid in any
 phase while the objects are still needed: until the cohort is closed and the
 entrant's publication is recorded (an admitted entrant's scoring lanes read
-them until the close); after that it answers `not_needed`. It needs no
+them until the close), and for as long as the entrant is a reference (a
+promoted entrant's objects are what the cohorts naming it as the reference
+or previous reference load); after that it answers `not_needed`. It needs no
 current registration. The session's `repair_needed` lists such objects; a
 scoring lane or publication that meets one absent starts the same check, and
 waits, uncounted, until the object is back; it is never skipped.
@@ -907,7 +909,9 @@ subnet).
   freezes and are never published. Admitted objects are deleted from the
   admission bucket once the cohort closes and their publication is recorded
   (the publisher reports each entrant published or withheld to the eval
-  Worker, and an absent object as missing, which starts its repair).
+  Worker, and an absent object as missing, which starts its repair), except
+  while the entrant is a reference: a promoted entrant's objects stay until
+  neither the reference chain nor any open cohort names it.
 - A standing reconciliation lists `admission/v2/` and deletes any object no
   open session, verifying session or admitted entrant still needing it holds
   (a stale URL can recreate one); a delete queued after a failed one never

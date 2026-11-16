@@ -1572,7 +1572,12 @@ A fault pauses the cohort with its state intact. Two kinds:
   of a reference (`definitive:<role>`, or `definitive:probe` when a probe
   met one) wait for an operator clear, paused and visible
   (`operator_clear_needed` on `/eval/status`, which the publisher alerts
-  on), so a fault the probe cannot see never loops. A cohort that pauses
+  on), so a fault the probe cannot see never loops. A probe that fails
+  because an object of the artifact it loads is absent or no longer has its
+  pinned entity tag (`scorer_client::OBJECT_CODES`) sets `objects_missing`
+  and `operator_clear_needed` too: no wait restores an object, so the
+  operator is told, and the probe still resumes the cohort by itself once
+  the objects load again. A cohort that pauses
   again with no chunk committed or generation answered since its last
   automatic clear (a platform only partly back) is still probed and
   cleared, never held: each such clear doubles the wait before the next
@@ -2172,7 +2177,8 @@ store v25; [admission API](../../docs/testnet/admission-api.md)):
   its session to an audit: an absent object is the platform's (the run
   waits, the session lists `repair_needed`, and `repair` mints a URL for
   exactly that recorded key, digest and length while the object is still
-  needed, before its publication is recorded); one present with its digest
+  needed: before its publication is recorded, or while it backs a
+  reference, as below); one present with its digest
   but another entity tag or a forbidden attribute refuses the session
   `object_replaced` (the miner's, never a cohort pause).
 - **Retention.** Superseded sessions' objects are deleted at once, those of
@@ -2180,7 +2186,15 @@ store v25; [admission API](../../docs/testnet/admission-api.md)):
   their publication is recorded and their cohort closed; a standing
   reconciliation lists `admission/v2/` one page a step and deletes any key
   no live session holds (a stale URL can recreate one). It never ends on time
-  or on an empty list and gates nothing. There is no lifecycle rule.
+  or on an empty list and gates nothing. There is no lifecycle rule. An
+  admitted entrant's objects are kept, whatever its cohort's state, while
+  they back a reference (`admission::BACKS_REFERENCE`): the reference chain
+  names its content as `R_k` or `R_k-1`, or a cohort neither closed nor
+  abandoned names its package as its reference, previous reference or an
+  entrant. A promoted entrant keeps its files manifest, which pins these
+  objects by entity tag, so the cohorts that name it as a reference read
+  them; once nothing names it, the reconciliation deletes them. While they
+  are kept, `repair` re-PUTs a lost one as for any admitted entrant.
 - A verdict run's platform failures pause the cohort (`scorer_unavailable`),
   and so does a commitment resolution whose reads keep serving no state
   while the hotkey has a session uploading or verifying

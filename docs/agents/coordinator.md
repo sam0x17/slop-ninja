@@ -76,9 +76,10 @@ Delete cohort N's detailed receipts and index after N+1
 and N+2 complete and N's target is superseded, based on durable coordinator
 completion rather than tempos, wall time, or adoption. Keep the evaluation copies
 of R_k and R_{k-1} while they are references; delete admission-bucket copies of
-entrant artifacts once their cohort closes and publication is recorded. Preserve
-signed per-miner score/calculation records, roots/counts, rows, signed row
-records, observation certificates, and chain/accounting recovery state.
+entrant artifacts once their cohort closes and publication is recorded, except
+those of a promoted entrant while it is R_k or R_{k-1} or an open cohort names
+it. Preserve signed per-miner score/calculation records, roots/counts, rows,
+signed row records, observation certificates, and chain/accounting recovery state.
 Validators' commitments need only the signed row; submitted obligations recover
 without expired receipts. No indefinite detailed receipt archive. The testnet
 evaluation service runs this deletion; the receipts of the cohorts just before

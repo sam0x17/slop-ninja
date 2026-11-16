@@ -4450,6 +4450,115 @@ fn an_admitted_entrants_lost_object_is_audited_listed_and_repaired() {
     assert_eq!(stage_of(&db, &id).as_deref(), Some("audit"));
 }
 
+/// A promoted entrant becomes the reference with the same files manifest,
+/// which pins its admission-bucket objects by entity tag: promotion, then
+/// the close with its publication recorded, then the next cohort, which
+/// loads it as `R_k`. While the reference chain names its content, or a
+/// cohort neither closed nor abandoned names its package, neither the
+/// clean-up, the reconciliation, an object-create event nor a queued delete
+/// removes its objects, and the miner's repair restores one that was lost.
+/// Once nothing names it, they go like any closed cohort's.
+#[test]
+fn a_promoted_entrants_objects_stay_while_a_reference_names_them() {
+    let (db, m) = admitted_one(0x51);
+    let id = m.session();
+    let package = package_of_session(&db, &id);
+    let content = m.upload.opening.content.hex();
+    let keys: Vec<String> = tx(&db, |s| objects_of(s, &id)).unwrap().iter()
+        .map(|o| object_key(1, &m.upload.commitment, o.kind)).collect();
+    assert_eq!(keys.len(), 7);
+    let exec = |db: &Sqlite, q: &str, a: &[SqlValue]| tx(db, |s| s.exec(q, a).map(|_| ())).unwrap();
+    // Cohort 1 promoted its entrant at packaging and is in its transition;
+    // its publication is recorded.
+    let entry = PublicationEntry { commitment: m.upload.commitment.hex(), state: "published".into() };
+    let v = tx(&db, |s| publication_report(s, 1, "testnet-c1", &[entry], NOW)).unwrap();
+    assert_eq!(v["recorded"].as_u64(), Some(1));
+    let entrant = tx(&db, |s| engine::cohort(s, 1)).unwrap().plan.entrants[0].clone();
+    assert_eq!(entrant.package_sha256, package);
+    exec(&db, "UPDATE cohorts SET phase = 'transition' WHERE seq = 1", &[]);
+    // The next cohort, queued during the transition, names it as R_k+1
+    // (`calendar::pending_promotion`).
+    let mut p2 = admission_plan(2, 2);
+    p2.previous_reference = Some(p2.reference.clone());
+    p2.reference = plan::ArtifactJson { opening_nonce: None, extrinsic_index: None, object_key: None, ..entrant };
+    let seq2 = tx(&db, |s| engine::queue(s, &cfg(), &serde_json::to_vec(&p2).unwrap(), NOW)).unwrap();
+    // Cohort 1 closes: the chain moves to the entrant (`v3::close`).
+    exec(&db, "UPDATE cohorts SET phase = 'closed' WHERE seq = 1", &[]);
+    let chain_at = |db: &Sqlite, current: &str, predecessor: &str| {
+        exec(
+            db,
+            "INSERT INTO reference_state (id, k, current, predecessor) VALUES (1, 1, ?, ?)
+             ON CONFLICT (id) DO UPDATE SET current = excluded.current, predecessor = excluded.predecessor",
+            &[SqlValue::Text(current.into()), SqlValue::Text(predecessor.into())],
+        )
+    };
+    let (r0, other) = (hex::encode([0x01u8; 32]), hex::encode([0x02u8; 32]));
+    chain_at(&db, &content, &r0);
+    let req = m.signed(&db, "GET", &format!("/admission/v2/sessions/{id}"), &[]);
+    let rq = m.post(&db, "repair");
+    let kept = |db: &Sqlite, why: &str| {
+        for k in &keys {
+            let oid = ObjectId::parse(k).unwrap();
+            assert!(tx(db, |s| live_holder(s, &oid)).unwrap().is_some(), "{why}: held {k}");
+            assert!(!tx(db, |s| queued_delete_allowed(s, k)).unwrap(), "{why}: no queued delete of {k}");
+            assert!(!matches!(tx(db, |s| observe(s, k)).unwrap(), Observed::Delete(_)), "{why}: no event delete of {k}");
+        }
+        assert!(tx(db, |s| reconcile_page(s, &keys, None, NOW)).unwrap().is_empty(), "{why}: the reconciliation keeps them");
+        tx(db, |s| next_work(s, &cfg(), NOW)).unwrap();
+        let due = tx(db, |s| object_deletes_due(s, 100, crate::wire::MAX_SAFE_INTEGER)).unwrap();
+        assert!(!due.iter().any(|(d, _)| keys.contains(d)), "{why}: the clean-up queues none: {due:?}");
+        assert!(
+            matches!(tx(db, |s| Ok::<_, EvalError>(repair(s, &chain(), &rq, &id))).unwrap(), Step::Heads(_)),
+            "{why}: the miner may repair"
+        );
+    };
+    kept(&db, "closed and published, named by the chain and the next cohort");
+    // The lost objects (all seven) are listed and repaired by the miner's
+    // re-PUT of the committed bytes, under the recorded entity tags.
+    let Step::Heads(rp) = tx(&db, |s| Ok::<_, EvalError>(repair(s, &chain(), &rq, &id))).unwrap() else { panic!() };
+    assert_eq!(rp.len(), 7);
+    let gone: Vec<(Probe, Head)> = rp.iter().cloned().map(|p| (p, Head::Absent)).collect();
+    tx(&db, |s| apply_heads(s, &gone, Recorder::Recorded, NOW)).unwrap();
+    assert_eq!(stage_of(&db, &id).as_deref(), Some("repair"));
+    let r = tx(&db, |s| Ok::<_, EvalError>(read(s, &chain(), &req, &id))).unwrap();
+    assert_eq!(r.body["repair_needed"].as_array().map(Vec::len), Some(7), "{}", r.body);
+    let (_, job) = drive(&db, tx(&db, |s| Ok::<_, EvalError>(repair_after(s, &id))).unwrap());
+    assert_eq!(job.unwrap().entries.len(), 7, "a URL for each");
+    let back: Vec<(Probe, Head)> = rp.iter().cloned().map(|p| {
+        let h = stored(p.sha256, p.len, p.etag.as_deref().unwrap());
+        (p, h)
+    }).collect();
+    tx(&db, |s| apply_heads(s, &back, Recorder::Recorded, NOW)).unwrap();
+    assert_eq!(stage_of(&db, &id).as_deref(), None, "repaired");
+    let r = tx(&db, |s| Ok::<_, EvalError>(read(s, &chain(), &req, &id))).unwrap();
+    assert_eq!(r.body["repair_needed"].as_array().map(Vec::len).unwrap_or(0), 0);
+    // Each holder alone keeps them: the next cohort's plan with no chain
+    // yet, the chain naming it as R_k, then as R_k-1 once the next cohort
+    // closed.
+    exec(&db, "DELETE FROM reference_state", &[]);
+    kept(&db, "named by the next cohort's plan only");
+    chain_at(&db, &content, &r0);
+    exec(&db, "UPDATE cohorts SET phase = 'closed' WHERE seq = ?", &[SqlValue::Integer(seq2)]);
+    kept(&db, "named by the chain as R_k only");
+    chain_at(&db, &other, &content);
+    kept(&db, "named by the chain as R_k-1 only");
+    // An abandoned cohort that named it holds nothing.
+    exec(&db, "UPDATE cohorts SET phase = 'abandoned' WHERE seq = ?", &[SqlValue::Integer(seq2)]);
+    chain_at(&db, &other, &r0);
+    for k in &keys {
+        let oid = ObjectId::parse(k).unwrap();
+        assert!(tx(&db, |s| live_holder(s, &oid)).unwrap().is_none(), "released {k}");
+        assert!(tx(&db, |s| queued_delete_allowed(s, k)).unwrap());
+    }
+    assert_eq!(code(&drive(&db, tx(&db, |s| Ok::<_, EvalError>(repair(s, &chain(), &rq, &id))).unwrap()).0), "not_needed");
+    assert_eq!(tx(&db, |s| reconcile_page(s, &keys, None, NOW)).unwrap().len(), keys.len());
+    tx(&db, |s| next_work(s, &cfg(), NOW)).unwrap();
+    let due = tx(&db, |s| object_deletes_due(s, 100, crate::wire::MAX_SAFE_INTEGER)).unwrap();
+    for k in &keys {
+        assert!(due.iter().any(|(d, _)| d == k), "{k} queued");
+    }
+}
+
 /// Review finding (correctness 3, skeptic K1): a recorded object found
 /// present with its committed bytes but a forbidden stored attribute (a
 /// repair PUT with an unsigned Content-Type) is deleted (only while still

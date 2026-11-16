@@ -535,6 +535,17 @@ pub fn probed_cause(cause: Option<&str>) -> bool {
     matches!(cause, Some("slot" | "slot:previous_reference"))
 }
 
+/// Whether the probe of a cohort's probed `fault` ([`probed_cause`]) last
+/// failed because an object of the artifact it loads (the reference's, or
+/// the previous reference's) is absent from its bucket or no longer has the
+/// entity tag its files manifest pins (`scorer_client::OBJECT_CODES`). No
+/// wait clears that: the probe keeps failing until the objects are
+/// restored, so status reports the pause as needing the operator.
+pub fn probe_found_objects_missing(phase: &str, fault: Option<&str>, cause: Option<&str>, probe_last: Option<&str>) -> bool {
+    fault.is_some_and(|f| f == SCORER_UNAVAILABLE && self_clearing(phase, f, cause))
+        && probe_last.is_some_and(|l| crate::eval::scorer_client::OBJECT_CODES.contains(&l))
+}
+
 /// Whether fault `code` of a cohort in `phase`, raised by `cause`, clears
 /// without an operator: a probed outage in a work phase ([`probe_due`]:
 /// a generation outage, or a scorer outage of a [`probed_cause`]), or an
@@ -4255,6 +4266,7 @@ pub fn status(sql: &impl Sql, now_ms: u64) -> R<Value> {
         } else {
             Value::Null
         };
+        let objects_missing = probe_found_objects_missing(&c.phase, c.fault.as_deref(), opt_text(row, 35).as_deref(), opt_text(row, 32).as_deref());
         out.push(json!({
             "cohort": c.plan.cohort, "label": c.label, "phase": c.phase, "fault": c.fault,
             "n": c.plan.n, "k_tempos": c.plan.k_tempos, "plan_sha256": c.plan_sha256,
@@ -4306,10 +4318,17 @@ pub fn status(sql: &impl Sql, now_ms: u64) -> R<Value> {
             // the fault clears by itself (`self_clearing`: a probed outage in
             // a work phase, or an admission outage whose subjects are
             // re-read each step) or needs an operator clear or abandonment
-            // (`operator_clear_needed`, which the publisher alerts on).
+            // (`operator_clear_needed`, which the publisher alerts on). A
+            // probed fault whose last probe found the probed artifact's
+            // objects absent or changed (`objects_missing`) also needs the
+            // operator: no probe passes until the objects are restored, so it
+            // is reported as needing one, while the probe still resumes the
+            // cohort by itself once they load.
             "fault_cause": opt_text(row, 35),
             "self_clearing": c.fault.as_deref().is_some_and(|f| self_clearing(&c.phase, f, opt_text(row, 35).as_deref())),
-            "operator_clear_needed": c.fault.as_deref().is_some_and(|f| !self_clearing(&c.phase, f, opt_text(row, 35).as_deref())),
+            "objects_missing": objects_missing,
+            "operator_clear_needed": objects_missing
+                || c.fault.as_deref().is_some_and(|f| !self_clearing(&c.phase, f, opt_text(row, 35).as_deref())),
             // The automatic outage probe (`probe_due`): runs, consecutive
             // failures, measured time and spend (with the bound held for a
             // probe in flight and its deadline), last outcome, next run,

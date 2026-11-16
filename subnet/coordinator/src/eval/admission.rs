@@ -1909,9 +1909,10 @@ pub fn complete_after(sql: &impl Sql, chain: &ChainBinding, req: &Signed, id: &s
 /// `POST /admission/v2/sessions/{session}/repair`: for a recorded object
 /// that went missing (a platform fault, never the miner's), a fresh URL for
 /// exactly that recorded key, digest and length, so R2 again fixes the
-/// content. Valid in any phase while the object is still needed (before its
-/// publication is recorded); the recorded objects are headed first
-/// ([`Step::Heads`], then [`repair_after`]).
+/// content. Valid in any phase while the object is still needed ([`needed`]:
+/// before its publication is recorded, or while it backs a reference); the
+/// recorded objects are headed first ([`Step::Heads`], then
+/// [`repair_after`]).
 pub fn repair(sql: &impl Sql, chain: &ChainBinding, req: &Signed, id: &str) -> Step {
     let go = || -> A<Step> {
         let (signer, _) = signer(sql, chain, req)?;
@@ -1927,7 +1928,8 @@ pub fn repair(sql: &impl Sql, chain: &ChainBinding, req: &Signed, id: &str) -> S
 
 /// Whether a session's recorded objects are still needed: verifying,
 /// verified, or admitted until its cohort is closed and its publication
-/// recorded.
+/// recorded, and admitted while its objects back a reference
+/// ([`BACKS_REFERENCE`]).
 fn needed(sql: &impl Sql, r: &Row) -> R<bool> {
     Ok(match r.state {
         SessionState::Verifying | SessionState::Verified => true,
@@ -1935,7 +1937,9 @@ fn needed(sql: &impl Sql, r: &Row) -> R<bool> {
         // (the files manifest names the admission bucket) and what
         // publication copies: needed until the cohort is closed AND its
         // publication is recorded (the clean-up's own condition,
-        // `cleanup_enqueue`), or until the cohort is abandoned.
+        // `cleanup_enqueue`), or until the cohort is abandoned. A promoted
+        // entrant's files manifest keeps naming the same objects as a
+        // reference, so they stay needed while one holds them.
         SessionState::Admitted => {
             let rows = sql.exec(
                 "SELECT (SELECT phase FROM cohorts WHERE seq = ?), (SELECT state FROM adm_cohorts WHERE seq = ?)",
@@ -1944,10 +1948,40 @@ fn needed(sql: &impl Sql, r: &Row) -> R<bool> {
             let row = rows.first();
             let closed = row.and_then(|x| opt_text(x, 0)).as_deref() == Some("closed");
             let abandoned = row.and_then(|x| opt_text(x, 1)).as_deref() == Some("abandoned");
-            !abandoned && !(closed && r.published)
+            (!abandoned && !(closed && r.published)) || backs_reference(sql, &r.session)?
         }
         _ => false,
     })
+}
+
+/// The condition (on an `adm_sessions` row aliased `s`) under which an
+/// admitted session's objects back a reference and are kept whatever its
+/// own cohort's state: the reference chain (`reference_state`) names its
+/// content as `R_k` or `R_k-1`, or a cohort neither closed nor abandoned
+/// names its package as its reference, previous reference or an entrant.
+///
+/// A promoted entrant becomes `R_k+1` with the same files manifest, whose
+/// entries pin these admission-bucket objects by entity tag
+/// (`cf_lanes` load); the cohorts that name it read them until the chain
+/// moves past it. Matching the chain by content keeps every session of
+/// that content, a superset of the record the calendar resolves
+/// (`calendar::resolve_record`). Once nothing names it, the standing
+/// reconciliation deletes the objects ([`reconcile_page`]).
+const BACKS_REFERENCE: &str = "(s.content IN (SELECT current FROM reference_state WHERE id = 1
+        UNION ALL SELECT predecessor FROM reference_state WHERE id = 1 AND predecessor IS NOT NULL)
+    OR (s.package_sha256 IS NOT NULL AND EXISTS (SELECT 1 FROM cohorts k
+        WHERE k.phase NOT IN ('closed', 'abandoned') AND (
+            json_extract(k.plan, '$.reference.package_sha256') = s.package_sha256
+            OR json_extract(k.plan, '$.previous_reference.package_sha256') = s.package_sha256
+            OR EXISTS (SELECT 1 FROM json_each(k.plan, '$.entrants') e
+                WHERE json_extract(e.value, '$.package_sha256') = s.package_sha256)))))";
+
+/// Whether admitted session `id`'s objects back a reference
+/// ([`BACKS_REFERENCE`]).
+fn backs_reference(sql: &impl Sql, id: &str) -> R<bool> {
+    Ok(!sql
+        .exec(&format!("SELECT 1 FROM adm_sessions s WHERE s.session = ? AND {BACKS_REFERENCE} LIMIT 1"), &[s(id)])?
+        .is_empty())
 }
 
 fn not_needed() -> ApiError {
@@ -2731,8 +2765,9 @@ pub enum Observed {
     Heads(Vec<Probe>),
 }
 
-/// The live session holding `key` (uploading, verifying, verified, or
-/// admitted and not yet published), and that object's record.
+/// The live session holding `key` (uploading, verifying, verified,
+/// admitted and not yet published, or admitted and backing a reference:
+/// [`needed`]), and that object's record.
 fn live_holder(sql: &impl Sql, id: &ObjectId) -> R<Option<(Row, Obj)>> {
     let rows = sql.exec(
         &format!("SELECT {SESSION_COLUMNS} FROM adm_sessions WHERE cohort = ? AND commitment = ? LIMIT 1"),
@@ -3639,16 +3674,19 @@ fn close_finish(sql: &impl Sql, seq: i64, now_ms: u64) -> R<()> {
 /// Queues the objects of sessions that will never be needed again for
 /// deletion: sessions that ended without admission once their cohort froze
 /// or was abandoned, admitted ones of an abandoned cohort, and admitted
-/// ones whose publication is recorded once their cohort closed.
+/// ones whose publication is recorded once their cohort closed; never an
+/// admitted one whose objects back a reference ([`BACKS_REFERENCE`]). Such a
+/// session stays uncleaned, and the standing reconciliation deletes its
+/// objects once nothing names it.
 fn cleanup_enqueue(sql: &impl Sql, now_ms: u64) -> R<()> {
     let rows = sql.exec(
         &format!(
             "SELECT {SESSION_COLUMNS} FROM adm_sessions s WHERE s.cleaned = 0 AND (
                (s.state IN ('refused','overflow','superseded')
                   AND (SELECT state FROM adm_cohorts c WHERE c.seq = s.seq) IN ('frozen','abandoned'))
-               OR (s.state = 'admitted' AND (SELECT state FROM adm_cohorts c WHERE c.seq = s.seq) = 'abandoned')
-               OR (s.state = 'admitted' AND s.published = 1
-                  AND (SELECT phase FROM cohorts k WHERE k.seq = s.seq) = 'closed'))
+               OR (s.state = 'admitted' AND NOT {BACKS_REFERENCE} AND (
+                  (SELECT state FROM adm_cohorts c WHERE c.seq = s.seq) = 'abandoned'
+                  OR (s.published = 1 AND (SELECT phase FROM cohorts k WHERE k.seq = s.seq) = 'closed'))))
              LIMIT ?"
         ),
         &[i(R2_CALLS_PER_STEP as i64)],

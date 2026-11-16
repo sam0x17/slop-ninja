@@ -2371,6 +2371,53 @@ fn a_probe_outcome_never_applies_to_a_later_fault_with_the_same_code() {
     }
 }
 
+/// A probe that meets the probed artifact's objects absent from their bucket
+/// (or no longer under their pinned entity tag) reports the pause as needing
+/// the operator (`objects_missing`, `operator_clear_needed`, which the
+/// publisher alerts on): no wait restores an object. The probe keeps
+/// running, and once the objects load again it resumes the same cohort by
+/// itself, with nothing cleared by hand.
+#[test]
+fn a_probe_that_meets_missing_reference_objects_asks_for_the_operator_and_still_resumes() {
+    use crate::eval::scorer_client::{OBJECT_CHANGED, OBJECT_MISSING};
+    let db = Sqlite::open();
+    sql::migrate(&db, &EVAL_COHORT_SCHEMA).unwrap();
+    let seq = open_cohort(&db, &wide(20, 1), 10, 1_000_000);
+    let now = 2_000_000;
+    tx(&db, |s| engine::fault_with_cause(s, seq, engine::SCORER_UNAVAILABLE, Some("slot"), now)).unwrap();
+    let probe = engine::Probe::Scorer { lane: "x".into(), body: json!({}), admit: false };
+    let flags = |at: u64| {
+        let st = status(&db, at);
+        let c = &st["cohorts"][0];
+        (c["self_clearing"].as_bool(), c["objects_missing"].as_bool(), c["operator_clear_needed"].as_bool())
+    };
+    assert_eq!(flags(now), (Some(true), Some(false), Some(false)), "a probed outage clears by itself");
+    let outcome = |ok: bool, note: &str| engine::ProbeOutcome { ok, definitive: false, ms: 1, nanousd: 1, note: note.into() };
+    let mut at = now;
+    for (note, missing) in [(OBJECT_MISSING, true), ("lane_unreachable", false), (OBJECT_CHANGED, true)] {
+        at += 10;
+        let t = tx(&db, |s| engine::probe_begin(s, seq, &probe, at)).unwrap();
+        assert!(!tx(&db, |s| engine::probe_done(s, seq, engine::SCORER_UNAVAILABLE, &t, &outcome(false, note), at + 1)).unwrap());
+        assert_eq!(flags(at + 1), (Some(true), Some(missing), Some(missing)), "{note}");
+        assert_eq!(status(&db, at + 1)["cohorts"][0]["probes"]["probed"], true, "still probed");
+    }
+    // A fault the probe does not exercise is never reported as missing
+    // objects, whatever the last probe met.
+    db.conn.execute("UPDATE cohorts SET fault_cause = 'store' WHERE seq = ?1", [seq]).unwrap();
+    assert_eq!(flags(at + 2), (Some(false), Some(false), Some(true)));
+    db.conn.execute("UPDATE cohorts SET fault_cause = 'slot' WHERE seq = ?1", [seq]).unwrap();
+    // The objects are restored: the next probe loads them and resumes the
+    // cohort with no operator clear.
+    at += 10;
+    let t = tx(&db, |s| engine::probe_begin(s, seq, &probe, at)).unwrap();
+    assert!(tx(&db, |s| engine::probe_done(s, seq, engine::SCORER_UNAVAILABLE, &t, &outcome(true, "ok"), at + 1)).unwrap());
+    assert_eq!(fault_of(&db, seq), None);
+    assert_eq!(flags(at + 1), (Some(false), Some(false), Some(false)));
+    let log = st_log(&db, seq);
+    assert!(log.iter().any(|n| n.starts_with("fault_auto_cleared:scorer_unavailable")), "{log:?}");
+    assert!(!log.iter().any(|n| n == "fault_cleared"), "no operator clear");
+}
+
 /// L2 review r2 (item 1): a probe that takes minutes never holds the
 /// bookkeeping of an earlier cohort while a later one stays paused: the
 /// purge of private predictions, the spend settle and the signed

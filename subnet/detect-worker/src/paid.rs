@@ -93,7 +93,13 @@
 //! **A hold ends** through [`end_hold`] (the `commit_hold` message, the
 //! hourly sweep): a `scored` job commits, a `failed` or `cancelled` one
 //! releases (and its job objects go), each once, by the ledger's own
-//! idempotency. A commit that finds its hold released (no path above makes
+//! idempotency. A running job nobody drives keeps its hold only
+//! for [`JOB_HOLD_IDLE_MS`] (seven days) from its last move: only a
+//! reader's open drives a job (the sweep holds no slug, so it cannot open
+//! the job text), and past that clock the hourly sweep cancels the job and
+//! fails its page `job_stopped` in one batch, guarded so that a reader who
+//! opened it meanwhile keeps it; the hold then goes back as a cancelled
+//! job's does. A commit that finds its hold released (no path above makes
 //! one) keeps the page, records `hold_released` on the job and writes the
 //! `job {commit_found_released}` point, which raises an alert.
 //!
@@ -1786,6 +1792,36 @@ pub fn hour_of(ms: u64) -> String {
     crate::counters::hour_key(ms)
 }
 
+/// How long a paid job's hold lasts while the job stands still: seven days
+/// from its last move (a driver's claim, a section done, a clean stop).
+/// Only a reader's open drives a job, and the sweep cannot: the job text
+/// and its sections are sealed under the page's key, which derives from a
+/// slug the store never holds. So a job its payer never opens again would
+/// keep its hold, and the payer's tokens, for good; past this clock the
+/// sweep stops it ([`CANCEL_IDLE`]) and the hold goes back. It is the
+/// hold's clock, not the page's: the page stays, failed `job_stopped`
+/// ("nothing was charged"), until its own delete.
+pub const JOB_HOLD_IDLE_MS: u64 = 7 * 86_400_000;
+/// Running jobs past their hold's end ([`JOB_HOLD_IDLE_MS`] since `?1`),
+/// with no driver's lease live at `?2` and the page still pending, the
+/// longest still first.
+pub const SELECT_IDLE_RUNNING: &str = "SELECT hex(j.det_id_h) AS id_h FROM jobs j JOIN detections d \
+ON d.id_h = j.det_id_h WHERE j.state = 'running' AND d.state = 'pending' AND j.updated_at <= ?1 \
+AND (j.lease_until IS NULL OR j.lease_until < ?2) ORDER BY j.updated_at, j.det_id_h LIMIT ?3";
+/// CANCEL for a job past its hold's end, under the select's own guard, so
+/// a reader who opened the page since the read (a CLAIM moves `updated_at`
+/// and takes the lease) keeps the job: `?1` the job, `?2` now, `?3` the
+/// cutoff.
+pub const CANCEL_IDLE: &str = "UPDATE jobs SET state = 'cancelled', lease_token = NULL, lease_until = NULL, \
+updated_at = ?2 WHERE det_id_h = ?1 AND state = 'running' AND updated_at <= ?3 \
+AND (lease_until IS NULL OR lease_until < ?2) \
+AND EXISTS (SELECT 1 FROM detections WHERE id_h = ?1 AND state = 'pending') RETURNING hold_ref";
+/// The page of a job [`CANCEL_IDLE`] stopped fails `job_stopped` in the
+/// same batch, only beside its cancelled job.
+pub const DET_STOPPED: &str = "UPDATE detections SET state = 'failed', refusal = 'job_stopped', \
+state_v = state_v + 1, updated_at = ?2 WHERE id_h = ?1 AND state = 'pending' \
+AND EXISTS (SELECT 1 FROM jobs WHERE det_id_h = ?1 AND state = 'cancelled')";
+
 /// Running jobs whose page ended: the sweep cancels them.
 pub const SELECT_ENDED_RUNNING: &str = "SELECT hex(j.det_id_h) AS id_h FROM jobs j JOIN detections d \
 ON d.id_h = j.det_id_h WHERE j.state = 'running' AND d.state <> 'pending' LIMIT ?1";
@@ -1800,8 +1836,11 @@ pub const SWEEP_JOBS: u64 = 50;
 pub const UNENDED_GRACE_MS: u64 = 3_600_000;
 
 /// The hourly sweep's paid part: cancel running jobs whose page ended,
-/// and ask again for every hold whose end is overdue; each goes to
-/// the `commit_hold` consumer ([`end_hold`]). Answers how many it sent.
+/// stop running jobs past their hold's end ([`JOB_HOLD_IDLE_MS`]; the job
+/// and its page in one batch, the page failed `job_stopped`), and ask again
+/// for every hold whose end is overdue; each goes to the `commit_hold`
+/// consumer ([`end_hold`]), which releases a cancelled job's hold. Answers
+/// how many it sent.
 pub async fn sweep(io: &impl Io) -> Result<usize, crate::db::IoError> {
     let now = io.now_ms();
     let ended = io.run(Stmt::new(SELECT_ENDED_RUNNING, vec![Val::int(SWEEP_JOBS)])).await?;
@@ -1812,6 +1851,26 @@ pub async fn sweep(io: &impl Io) -> Result<usize, crate::db::IoError> {
         if !c.rows.is_empty() {
             ids.push(id);
         }
+    }
+    let cutoff = now.saturating_sub(JOB_HOLD_IDLE_MS);
+    let idle =
+        io.run(Stmt::new(SELECT_IDLE_RUNNING, vec![Val::int(cutoff), Val::int(now), Val::int(SWEEP_JOBS)])).await?;
+    let mut stopped = 0u64;
+    for r in &idle.rows {
+        let Some(id) = r.hex32("id_h") else { continue };
+        let d = io
+            .batch(vec![
+                Stmt::new(CANCEL_IDLE, vec![Val::blob(&id), Val::int(now), Val::int(cutoff)]),
+                Stmt::new(DET_STOPPED, vec![Val::blob(&id), Val::int(now)]),
+            ])
+            .await?;
+        if d.first().is_some_and(|c| !c.rows.is_empty()) {
+            ids.push(id);
+            stopped += 1;
+        }
+    }
+    if stopped > 0 {
+        io.metric_n("job", &["hold_idle"], stopped as f64);
     }
     let due = io
         .run(Stmt::new(SELECT_UNENDED, vec![Val::int(now.saturating_sub(UNENDED_GRACE_MS)), Val::int(SWEEP_JOBS)]))

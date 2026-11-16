@@ -2,7 +2,9 @@
 //! quote, the start, the fenced job driver end to end, two drivers on one
 //! job (side by side, and one whose lease lapsed), a cancel mid-job, a
 //! section refused for good, a failed commit, the pause, the subrequest
-//! calls of a long job, the sweep, a quote whose hold was given back, and
+//! calls of a long job, the sweep, a job nobody opens stopped at its hold's
+//! end (and a reader's open racing that stop), a quote whose hold was given
+//! back, and
 //! the hourly sweep of starts left behind racing a confirm sent again, a
 //! second start of one quote and another sweep; the lease's heartbeat
 //! through a long section, a beat that finds the lease gone, and a reload
@@ -1273,6 +1275,103 @@ fn an_ended_page_s_running_job_is_cancelled_by_the_sweep() {
     block_on(paid::end_hold(&w.h, &l, &ids[0])).unwrap();
     assert_eq!(l.credit.get(), 1_000_000);
     assert_eq!(w.docs_under("j/"), 0);
+}
+
+/// A paid job its payer never opens again. Only a reader's open drives a
+/// job (the sweep holds no slug, so it cannot open the job text), so its
+/// hold, and the payer's tokens, would stay for good. Seven days after its
+/// last move, with no lease live, the hourly sweep stops it: the job
+/// cancelled and its page failed `job_stopped` in one batch, the hold
+/// released, the job objects gone. The page stays and says nothing was
+/// charged.
+#[test]
+fn a_job_nobody_opens_is_stopped_at_its_hold_s_end_and_charges_nothing() {
+    let w = World::new();
+    let l = FakeLedger::with(1_000_000);
+    let (_, slug, _, _) = started(&w, &l, 6_000);
+    // A reader drives it part way and leaves (a clean stop lets the lease go).
+    let s = FakeScorer::default();
+    s.refuse_on.set(Some((3, ScoreFail::Transient)));
+    assert_eq!(drive(&w, &l, &s, &slug).0, JobEnd::Stopped);
+    w.h.queue.borrow_mut().clear();
+    w.h.advance(paid::JOB_HOLD_IDLE_MS - 1);
+    assert_eq!(block_on(paid::sweep(&w.h)).unwrap(), 0, "not before its hold's end");
+    assert_eq!((job_state(&w), det_state(&w)), ("running".into(), "pending".into()));
+    assert!(commit_holds(&w).is_empty());
+    w.h.advance(1);
+    let h = block_on(slop_ninja_detect_worker::cron::hourly(&w.h, &w.origins)).unwrap();
+    assert_eq!(h.holds, 1);
+    assert_eq!((job_state(&w), det_state(&w)), ("cancelled".into(), "failed".into()));
+    assert_eq!(w.h.metric_count("job", "hold_idle"), 1);
+    let ids = commit_holds(&w);
+    assert_eq!(ids.len(), 1);
+    block_on(paid::end_hold(&w.h, &l, &ids[0])).unwrap();
+    assert_eq!((l.releases.get(), l.commits.get()), (1, 0));
+    assert_eq!(l.credit.get(), 1_000_000, "the hold came back whole");
+    assert_eq!(w.docs_under("j/"), 0);
+    assert_eq!(w.h.count("SELECT count(*) FROM jobs WHERE hold_ended_at IS NOT NULL"), 1);
+    let p = w.page(&slug).unwrap();
+    p.check().unwrap();
+    assert_eq!(p.state, DetState::Failed);
+    assert_eq!(p.failure.unwrap().code, RefusalCode::JobStopped);
+    // Opening it now says why and drives nothing.
+    let next = FakeScorer::default();
+    assert_eq!(drive(&w, &l, &next, &slug), (JobEnd::Shown, vec![JobLine::Failed { code: RefusalCode::JobStopped }]));
+    assert_eq!(next.calls.get(), 0);
+    // Later sweeps find nothing more to stop or end.
+    w.h.queue.borrow_mut().clear();
+    w.h.advance(paid::JOB_HOLD_IDLE_MS + paid::UNENDED_GRACE_MS);
+    assert_eq!(block_on(paid::sweep(&w.h)).unwrap(), 0);
+    assert_eq!((l.releases.get(), w.h.metric_count("job", "hold_idle")), (1, 1));
+}
+
+/// The hold's clock runs from the job's last move: a reader who opens the
+/// page on the last day starts it again, and a driver whose lease is live
+/// is never stopped, however old its last move; once that lease lapses the
+/// job is past its end.
+#[test]
+fn a_reader_s_open_restarts_the_hold_s_clock_and_a_live_lease_keeps_the_job() {
+    let w = World::new();
+    let l = FakeLedger::with(1_000_000);
+    let (_, slug, _, _) = started(&w, &l, 6_000);
+    w.h.advance(paid::JOB_HOLD_IDLE_MS - 1);
+    let s = FakeScorer::default();
+    s.refuse_on.set(Some((2, ScoreFail::Transient)));
+    assert_eq!(drive(&w, &l, &s, &slug).0, JobEnd::Stopped);
+    w.h.advance(paid::JOB_HOLD_IDLE_MS - 1);
+    assert_eq!(block_on(paid::sweep(&w.h)).unwrap(), 0);
+    assert_eq!(job_state(&w), "running");
+    // A driver holding a live lease, its last move long past.
+    let until = w.h.now_ms() + LEASE;
+    w.h.exec(&format!("UPDATE jobs SET updated_at = 0, lease_token = x'00', lease_until = {until}"));
+    assert_eq!(block_on(paid::sweep(&w.h)).unwrap(), 0, "a live lease keeps the job");
+    assert_eq!((job_state(&w), det_state(&w)), ("running".into(), "pending".into()));
+    w.h.advance(LEASE + 1);
+    assert_eq!(block_on(paid::sweep(&w.h)).unwrap(), 1, "its lease lapsed");
+    assert_eq!((job_state(&w), det_state(&w)), ("cancelled".into(), "failed".into()));
+    block_on(paid::end_hold(&w.h, &l, &commit_holds(&w)[0])).unwrap();
+    assert_eq!(l.credit.get(), 1_000_000);
+}
+
+/// A reader opens the job between the sweep's read of the jobs past their
+/// hold's end and its cancel: the cancel's own guard (the claim moved the
+/// job and took its lease) leaves the job to the reader, whose check
+/// finishes and is charged once.
+#[test]
+fn a_reader_who_opens_the_job_while_the_sweep_runs_keeps_it() {
+    let w = World::new();
+    let l = FakeLedger::with(1_000_000);
+    let (_, slug, _, _) = started(&w, &l, 3_000);
+    w.h.advance(paid::JOB_HOLD_IDLE_MS + 1);
+    w.h.pause_at("SET state = 'cancelled'");
+    let s = FakeScorer::default();
+    let (swept, (end, _)) = common::interleave(paid::sweep(&w.h), async { drive(&w, &l, &s, &slug) });
+    assert_eq!(end, JobEnd::Done);
+    assert_eq!(swept.unwrap(), 0, "the sweep stopped nothing");
+    assert_eq!((job_state(&w), det_state(&w)), ("committed".into(), "live".into()));
+    assert_eq!((l.releases.get(), l.commits.get()), (0, 1));
+    assert_eq!(w.h.metric_count("job", "hold_idle"), 0);
+    w.page(&slug).unwrap().check().unwrap();
 }
 
 #[test]

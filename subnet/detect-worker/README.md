@@ -292,6 +292,15 @@ the `ACCOUNT` binding; at launch only operator grants back it.
   the same way. A paid page whose job never scored, disabled or removed by a
   review and then rejected or restored, returns `failed` (`job_stopped`),
   never live without its document.
+  Only a reader's open drives a job: the job text is sealed under the page's
+  key, which needs the slug the store never holds, so the hourly sweep cannot
+  resume one. A running job nobody has opened for seven days
+  (`JOB_HOLD_IDLE_MS`, from its last claim, section or clean stop; no lease
+  live) is past its hold's end: the sweep cancels it and fails its page
+  `job_stopped` ("nothing was charged") in one batch, guarded so that a
+  reader who opened it meanwhile keeps it, and the hold goes back through
+  `commit_hold` (AE `job {hold_idle}`). The page itself stays until its own
+  delete.
 
 **Sections** (rules W1 to W6): at most 1,000 words and 2,046 content tokens
 each, cut with the free check's own rule; consecutive sections overlap by at

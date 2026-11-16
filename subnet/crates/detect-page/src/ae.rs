@@ -59,6 +59,8 @@ pub mod detect {
     ///   their lease ended (1 per takeover, the hourly release's number);
     /// - `hold_expired`: holds of paid starts left behind that the hourly
     ///   sweep released;
+    /// - `hold_idle`: running paid jobs past their hold's end (seven days
+    ///   without a move) that the hourly sweep stopped, its number;
     /// - `commit_found_released`: a commit that found its hold released (the
     ///   page was served with no debit), 1 each; raises
     ///   [`COMMIT_FOUND_RELEASED`].

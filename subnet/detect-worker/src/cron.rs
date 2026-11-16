@@ -14,7 +14,9 @@
 //!   Objects younger than [`BACKSTOP_MIN_AGE_MS`] are left alone, so a page
 //!   being made is never touched.
 //! - **Paid jobs** (`crate::paid::sweep`). Running jobs whose page ended are
-//!   cancelled, and every hold whose end is an hour overdue is
+//!   cancelled, running jobs past their hold's end (`crate::paid::
+//!   JOB_HOLD_IDLE_MS` without a move) are cancelled with their page failed
+//!   `job_stopped`, and every hold whose end is an hour overdue is
 //!   asked for again (`job {commit_retry}`); each goes to the
 //!   `commit_hold` consumer. Paid starts left behind (`crate::paid::
 //!   sweep_starts`, which needs the ledger) run beside this work in the

@@ -85,7 +85,7 @@ Testnet subnet 601 is the rehearsal. It has no monetary value.
 | Validator package fetcher | built and tested offline; the public status host it reads is live |
 | Validators committing the active target's row | live since November 3, 2026, each row under an authorization that does not expire: on the current record, the launch burn row from the record's start on November 6, 2026, and since `testnet-r1-30` closed on November 15, 2026, a cohort target's row; the status snapshot's `mode` says which |
 | `R_0` reference package and training companion (CC BY-SA 4.0) | built and checked; attached to the testnet release as two tar archives, and on the public status host in the parts layout |
-| Span package d24 (CC BY-SA 4.0), SlopNinja's span-serving package | built and checked; on the public status host ([miner guide](miner-guide.md#span-package-d24-optional)) |
+| Span package d24 (CC BY-SA 4.0), SlopNinja's span-serving package | built and checked; on the public status host ([miner guide](miner-guide.md#reference-packages-optional)) |
 
 Links:
 
@@ -134,7 +134,7 @@ and the second `OK` for every file. Stop if either does not. If you did not
 download every file of a release (for example the two `R_0` archives of
 `testnet-v0.1.0`), run `sha256sum -c --ignore-missing SHA256SUMS` instead and
 check that it prints `OK` for each file you did download. Then install the
-binaries as the [miner guide](miner-guide.md#release-binaries-linux-x86_64)
+binaries as the [miner guide](miner-guide.md#release-binaries)
 or the [validator guide](validator-guide.md#2-install) shows.
 
 | Release | Published | For | Built from |

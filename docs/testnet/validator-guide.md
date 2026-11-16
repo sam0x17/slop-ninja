@@ -188,7 +188,7 @@ operation](#persistent-operation)).
 
 ### Register and stake
 
-Register and stake with rtao, as the [miner guide](miner-guide.md#4-register-on-subnet-601)
+Register and stake with rtao, as the [miner guide](miner-guide.md#register-on-subnet-601)
 shows for a miner hotkey:
 
 ```sh

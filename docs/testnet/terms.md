@@ -170,7 +170,7 @@ was the active target from the record's start on November 6, 2026 until
 operator's restart of the record
 ([below](#operator-decisions)) brings it back. Validators commit the active
 target's row on chain each tempo; the
-[miner guide](miner-guide.md#13-rewards) says what that means.
+[miner guide](miner-guide.md#rewards) says what that means.
 
 ## Operator decisions
 

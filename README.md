@@ -73,7 +73,7 @@ Testnet subnet 601 is the rehearsal. It has no monetary value.
   tool. On other platforms, build from source as the guides describe.
 - **Scores:** every released score is quantized on a grid with seeded noise
   (`quant-v1`), and credit and rank follow the quantized scores; exact scores
-  stay with the coordinator. The [miner guide](docs/testnet/miner-guide.md#13-rewards)
+  stay with the coordinator. The [miner guide](docs/testnet/miner-guide.md#rewards)
   explains the grid, the noise and the cutoff.
 - **Revenue pot (planned):** the detection products' revenue is to go into a
   public pot that pays the mainnet registration, then buys mainnet alpha, half

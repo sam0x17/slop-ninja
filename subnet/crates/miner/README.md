@@ -340,7 +340,7 @@ them; the artifact-check crate's own tests run R0 through the same checks.
 These tests do not cover the live `commit` submission path, R2's behaviour on
 real presigned PUTs (design gates G0 to G13) or an upload to the real
 coordinator. The coordinator's admission v2 routes are live on testnet
-([what is live](../../../docs/testnet/miner-guide.md#what-is-live)).
+([miner guide](../../../docs/testnet/miner-guide.md#how-mining-works)).
 
 ## Operator tool: `slop_ninja_reference_stage`
 

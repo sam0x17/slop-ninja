@@ -5,11 +5,15 @@ This guide trains an *A* artifact for testnet subnet 601 from
 redistributable datasets under [`datasets/`](../../datasets/README.md). It
 needs no private data, account or credential. The result is the six-file
 artifact of the [artifact spec](artifact-spec.md), packed and checked with
-`slop_ninja_miner pack` and `check`. It is step 5 of the
-[miner guide](miner-guide.md), which covers everything around it: installing
-the client, the wallet and hotkey, registration on subnet 601 (with rtao; no
-btcli or Python), the commitment and the upload. The
-[landing page](README.md) lists what is live.
+`slop_ninja_miner pack` and `check`. It is the
+[Train an artifact](miner-guide.md#train-an-artifact) step of the
+[miner guide](miner-guide.md), which covers everything around it: how mining
+works, installing the client, the wallet and hotkey, registration on subnet
+601 (with rtao; no btcli or Python), the commitment and the upload. Values
+that change, such as the current reference and the artifact spec a cohort
+names, are not written here: the miner guide's
+[Where to find current values](miner-guide.md#where-to-find-current-values)
+says where to read each one.
 
 The recipe gives you a pipeline that produces an admissible artifact. It is
 not a strong detector, and nothing here measures how it would score in a
@@ -17,21 +21,18 @@ cohort. Improving the data and the training is the miner's job.
 
 ## Where this guide stops
 
-Steps 1 to 13 run offline after the downloads, and end with `check`
-exiting 3 (every local check passed; no cohort to compare with). With the
-release trust file set (`SLOP_NINJA_TRUST`; [miner guide step
-7](miner-guide.md#7-choose-the-endpoints)), `check` and `next-cohort` read the
-admitting cohort, or the next one, from the coordinator's unsigned cohort
-read at the origin the trust file pins. `check` compares the object with the
-admitting cohort's contract and size bound, or between windows with the next
-cohort's when the read names them (note `next_cohort`), and exits 0 on a
-pass; otherwise it exits 3. `commit` needs only that unsigned read and the
-chain, so while a cohort admits it signs and submits an on-chain commitment
-for any registered hotkey. `upload`, `repair` and the hotkey view of `status`
-need the coordinator's signed admission routes, which are open to every
-registered hotkey ([What is live](miner-guide.md#what-is-live)). A commitment
-counts for one cohort only, and a model you entered before counts as a
-published copy and is not executed, so enter a new model in each cohort.
+Steps 1 to 13 run offline after the downloads, apart from one read of the
+cohort's artifact spec in step 13, and end with `check` exiting 3 (every
+local check passed; no cohort to compare with). With the release trust file
+set (`SLOP_NINJA_TRUST`; [Choose the endpoints](miner-guide.md#choose-the-endpoints)),
+`check` and `next-cohort` read the admitting cohort, or the next one, from
+the coordinator's unsigned cohort read at the origin the trust file pins.
+`check` compares the object with that cohort's contract, size bound and
+artifact spec, and exits 0 on a pass; otherwise it exits 3. The miner
+guide's [Commit](miner-guide.md#commit) and [Upload](miner-guide.md#upload)
+sections take it from there. A commitment counts for one cohort only, and a
+model you entered before counts as a published copy and is not executed, so
+enter a new model in each cohort.
 
 ## Getting the code
 
@@ -40,51 +41,38 @@ that contains this guide, including its `datasets/` directory. The public
 repository is <https://github.com/sam0x17/slop-ninja>. The commands fetch everything else from public sources: Rust crates
 (including rtao from GitHub), Python wheels and ModernBERT-base.
 
-## The testnet reference
+## What matters for training
 
-- The current testnet reference and its predecessor are scored in every
-  cohort. The [status page](https://slop.ninja/testnet/status/) names the
-  current one, and the
-  [miner guide](miner-guide.md#the-current-reference-optional) shows how to
-  download it and score against it. R0, SlopNinja's released model, was the
-  first reference; `testnet-r1-30` promoted an entrant to R1 by the standard
-  rule on November 15, 2026, and R0 became its predecessor. R0 is the model
-  this guide's recipe and warm start build on. Its
-  [reference package](reference-packages.md) is published under CC BY-SA 4.0
-  with a training companion that holds R0's encoder; both are attached to the
-  testnet release as two tar archives
-  ([miner guide](miner-guide.md#r_0-archives-optional)) and are on the public
-  status host in the parts layout. The recipe below starts from
-  ModernBERT-base and public data; you can start from R0's encoder instead
-  ([Warm start from R0](#warm-start-from-r0)).
-- **Promotion applies.** An entrant that beats the reference by the margin δ
-  and passes the promotion checks becomes the next reference, as the
-  whitepaper's promotion rule says. Its artifact was published when its
-  cohort's scoring started, like every admitted artifact.
-- **Reference decisions.** Separately, the operator may set the current and
-  previous references by a recorded decision
-  ([terms](terms.md#operator-decisions)).
-- **The cutoff.** A cohort pays only entrants that pass the gates and reach
-  its cutoff; the [miner guide's Rewards section](miner-guide.md#13-rewards)
-  gives the score, δ, the fallback cutoff and the credit rule.
-- **Spans.** Spans become required once a manifest enforces the span gate
-  (artifact spec v5: a token-level head with the 24-word decoder floor); no
-  cohort names the gate yet, and this recipe trains no token head
-  ([miner guide](miner-guide.md#13-rewards)).
-- At most 40 entrants are admitted to a cohort.
-
-Otherwise testnet follows the whitepaper, with one rule the whitepaper does
-not state yet:
-
+- **The model to beat.** Every cohort scores the current reference `R_k` and
+  its predecessor on its batch. The [status page](https://slop.ninja/testnet/status/)
+  names the current one, and the miner guide shows how to
+  [download it](miner-guide.md#the-current-reference-optional) and score
+  against it. This recipe and its warm start build on R0, the first
+  reference `R_0`, whose [reference package](reference-packages.md) is
+  published under CC BY-SA 4.0 with a training companion that holds R0's
+  encoder ([`R_0` archives](miner-guide.md#r_0-archives-optional)). The
+  recipe below starts from ModernBERT-base and public data; you can start
+  from R0's encoder instead ([Warm start from R0](#warm-start-from-r0)).
+- **The cutoff and promotion.** A cohort pays only entrants that pass the
+  gates and reach its cutoff, and the first that also passes the promotion
+  checks becomes the next reference; the operator may also set references by
+  a recorded decision ([terms](terms.md#operator-decisions)). The miner
+  guide's [Rewards](miner-guide.md#rewards) section gives the score, the
+  cutoff, the gates and the credit rule.
+- **Copies.** An artifact with the inference content of any published
+  artifact (an earlier entry, yours included, or a reference) is not executed
+  and earns nothing, and a near copy of a published artifact or of either
+  reference fails the public-copy gate ([copies](../agents/rewards.md#copies)).
+  Train a new model for each cohort.
+- **Spans.** This recipe exports a document-heads-only artifact of the plain
+  class and trains no token head. If your cohort's artifact spec has
+  `span_requirements` (`slop_ninja_artifact_check --spec <id> spec | jq
+  .spec.span_requirements`), admission refuses it (`token_head_required`);
+  if your cohort's manifest enforces the span gate under an earlier spec, it
+  fails the gate at scoring. Either way the artifact needs a token head
+  with the 24-word decoder floor ([Spans](miner-guide.md#rewards)).
 - **Reused human documents.** Testnet cohorts may reuse human documents that
   earlier cohorts used, and those documents may be exposed.
-
-One testnet limit also applies, as the miner guide explains: the gate
-thresholds are provisional, frozen in each signed cohort manifest.
-Validators commit the active target's row each tempo; on the current record
-the launch burn row, which pays no miner, was the active target from the
-record's start on November 6, 2026 until `testnet-r1-30`'s target activated
-on November 15, 2026 ([Rewards](miner-guide.md#13-rewards)).
 
 ## What the recipe reproduces of R0, and what it does not
 
@@ -95,13 +83,13 @@ format. It does not reproduce R0's weights, data or scores.
 | | R0 | This recipe |
 |---|---|---|
 | Starting model | the V6 detector, itself fine-tuned from ModernBERT-base; not distributed | ModernBERT-base at revision `8949b909…`, with a new three-label head |
-| Train data | 86,575 rows from the project corpus, including sources that are not published here (local open-weight generations, hosted frontier generations, RAID and others) | 4,201 rows from five published snapshots |
-| Generators with Train rows | all 33 names of the fixed roster | 2 of the 33 (`qwen3.6`, `phi4`) |
+| Train data | 86,575 rows from the project corpus, including sources that are not published here (local open-weight generations, hosted frontier generations, RAID and others) | the Train rows of five published snapshots ([Data](#data)) |
+| Generators with Train rows | all 33 names of the fixed roster | those the snapshots' Train rows carry (two in the [smoke run](#smoke-run): `qwen3.6`, `phi4`) |
 | Arm | `E1aux`: style adversary and generator-contrastive head, which need voice metadata | `E1`: the plain arm (R0's recipe F) |
 | Optimizer and schedule | AdamW, encoder 1e-5, heads 3e-4, cosine, 6% warm-up, 2 epochs, batch 32, attribution weight 0.25 | the same |
 | Train weighting | the corpus assembler's row weights | `family_origin_balanced` (source groups and origin cells balanced) |
 | Seeds and selection | three seeds; Dev-iter early stopping, then a Dev-select choice between finalists | one seed (17); Dev-iter early stopping only |
-| Calibration | CAL only, 5,379 documents; origin temperature, then `isotonic_v1_clipped` | the same policy on 1,131 CAL documents (94 human) |
+| Calibration | CAL only, 5,379 documents; origin temperature, then `isotonic_v1_clipped` | the same policy on the bundle's CAL rows |
 | Export | banded f32 graph, class `a-plain-f32band-v1` | the same exporter and class |
 | Tokenizer, contract fields, roster names | pinned by the spec | the same bytes and values |
 
@@ -110,6 +98,9 @@ So the checker treats them the same way, but their weights and quality are
 unrelated.
 
 ## Tested platforms
+
+The combinations the [smoke run](#smoke-run) used, and what has not been run.
+They record evidence, not requirements:
 
 | OS | Architecture | Runtime | Status |
 |---|---|---|---|
@@ -157,10 +148,9 @@ also:
 - keeps the first copy of an exact text and drops later copies;
 - gives every row cohort weight 1.
 
-Result on the current snapshots: 6,137 rows (4,201 Train, 805 Dev-iter,
-1,131 CAL) from 473 source groups. Excluded: 80 rows without a measured share,
-66 model rows without a single generator identity, 70 Train rows of generators
-outside the roster and 24 duplicate texts.
+The bundle builder prints its row counts and exclusions and writes them to
+`bundle/MANIFEST.json` and `bundle/exclusions.jsonl` (step 6); the
+[smoke run](#smoke-run) lists the counts it gave.
 
 The human rows are historical texts (public-domain books, Wikipedia,
 Wikinews, PLOS abstracts) used as proxies for human writing; the snapshots
@@ -187,10 +177,12 @@ these with any copy of the data.
 
 The checker admits only artifacts that keep these fixed:
 
-- the graph class `a-plain-f32band-v1`: exported by `export_a_onnx.py` in the
-  pinned environment, from a ModernBERT-base-shaped encoder with the document
-  heads. The span class (spec v2) and the tower class (spec v3) are served
-  too, but the recipe trains neither;
+- the graph class the recipe exports, `a-plain-f32band-v1`: exported by
+  `export_a_onnx.py --variant plain` in the pinned environment, from a
+  ModernBERT-base-shaped encoder with the document heads. The cohort's spec
+  lists every class it serves
+  (`slop_ninja_artifact_check --spec <id> spec | jq '.spec.graph.classes[].id'`);
+  the recipe trains no other;
 - the tokenizer bytes. The parent step rebuilds them from the upstream
   tokenizer and refuses any other bytes;
 - the contract's pinned fields, including the 33 AI roster names in
@@ -199,11 +191,14 @@ The checker admits only artifacts that keep these fixed:
   roster unsupervised;
 - the calibration policy in
   [`policy.json`](../../grammar/crates/grammar-eval/python/public_a/policy.json)
-  and the file schemas (heads v1, export manifest v2, calibration v2).
+  and the file schemas the recipe writes (heads v1, export manifest v2,
+  calibration v2), which the spec's `forms` admit.
 
 You may change the data, the weighting, the hyperparameters, the seed, the
-number of epochs and the arm, provided the arm has no span or token head and
-the protocol keeps its `ai_roster` entry.
+number of epochs and the arm, provided the protocol keeps its `ai_roster`
+entry. The recipe's arms train no span or token head; the
+[Spans](#what-matters-for-training) point above says when an artifact needs
+one.
 
 To train with another seed, list it in `seeds` in `config/protocol.json`
 (both `protocol.json` and `protocol-smoke.json` ship with `"seeds": [17]`),
@@ -227,10 +222,9 @@ The recipe is deterministic on one platform: two runs of the smoke on the
 tested host produced byte-identical encoder weights and graph (digests in the
 [smoke run](#smoke-run)). Another GPU, driver or library version can change
 the weights. So two miners who run the recipe unchanged on the same software
-can get identical or nearly identical artifacts. Under the reward rule
-(`reward-v2`; the [miner guide's Rewards section](miner-guide.md#13-rewards),
-and the whitepaper's section "Benchmark scoring and native rewards",
-subsection "From scores to credits"), near-duplicate artifacts share one
+can get identical or nearly identical artifacts. Under the reward rules
+([copies](../agents/rewards.md#copies); the miner guide's
+[Rewards](miner-guide.md#rewards)), near-duplicate artifacts share one
 credit, and copies of a published artifact earn nothing, your own earlier
 entries included. Change something that matters, and train a new model for
 each cohort.
@@ -250,44 +244,42 @@ each cohort.
   produced.
 - Before an entrant becomes the reference, a lookup canary audits it. Two
   flags block its promotion, with no reward penalty: the next qualifying
-  entrant is promoted instead. **Testnet only:** promotions on testnet run
-  without the lookup canary (decision D12b), and the leaderboard says so; an
-  operator drill of the blocking path can still flag a candidate. The canary
-  is required before mainnet.
+  entrant is promoted instead. The leaderboard's `promotion_rule`
+  (`v1/leaderboard.json` on the public status host) says whether the current
+  record's promotions run the canary.
 - Recognition learned in the weights cannot be excluded. Testnet's human
-  stock is public text, and cohorts now reuse human documents that earlier
+  stock is public text, and cohorts may reuse human documents that earlier
   cohorts used. A testnet score therefore shows that an artifact runs and is
   scored; it is not evidence that it detects AI involvement in unseen text.
 
 ## What you need
 
 - The repository checkout described in [Getting the code](#getting-the-code).
-- Linux x86_64 and an NVIDIA GPU whose driver runs the CUDA 12.8 wheels. Only
-  a 24 GB card was tested (see [Tested platforms](#tested-platforms) and
+- Linux x86_64 and an NVIDIA GPU whose driver runs the CUDA 12.8 wheels the
+  lock file pins ([Tested platforms](#tested-platforms),
   [GPU memory](#gpu-memory)).
-- Rust 1.89 or later (tested: 1.99.1) and a C compiler;
-  [uv](https://docs.astral.sh/uv/), which also fetches Python 3.12 if the host
-  lacks it; `curl` and `sha256sum`. No other host Python is needed.
-- About 16 GB of free disk: 14 GB in the working directory (6.8 GB of it the
-  Python environment, 0.6 GB the ModernBERT-base download, 3.4 GB trainer
-  checkpoints), about 1.2 GB of Rust build output in the checkout and 0.13 GB
-  of restored datasets. uv's cache (`~/.cache/uv` by default) also holds the
+- A current stable Rust toolchain (`rustup update stable`; cargo names any
+  minimum version a crate declares that yours does not meet) and a C
+  compiler; [uv](https://docs.astral.sh/uv/), which also fetches Python 3.12
+  if the host lacks it; `curl`, `jq` and `sha256sum`. No other host Python is
+  needed.
+- Free disk and host memory as the [smoke run](#smoke-run) measured them:
+  about 16 GB of disk (the working directory, the Rust build output in the
+  checkout and the restored datasets) and a host memory peak of a few GB
+  during training. uv's cache (`~/.cache/uv` by default) also holds the
   downloaded wheels; `uv cache clean` removes them after the install.
-- Host memory: the largest peak in the smoke was 3.7 GB (training).
 
 ### GPU memory
 
-The protocol caps the trainer at a fraction of the GPU's memory
-(`cuda_memory_fraction`: 0.45 in `protocol.json`, 0.35 in the smoke), and an
-allocation past the cap fails as out of memory. In the smoke on a 24 GB card,
-the trainer's peak CUDA allocation was 4.7 GB (batch 32), and the device
-showed at most 8.6 GB in use, PyTorch's cache and the CUDA context included.
-At the default 0.45 the cap is below that peak on cards under about 11 GB.
-On such a card, raise `cuda_memory_fraction` in `config/protocol.json`,
-leaving some headroom; the trainer accepts at most 0.95, so a card under
-about 5 GB cannot hold the peak at all. Only the 24 GB card was tested. The
-checker does not pin the protocol, but the role files record its digest, so
-any change to it changes their digests.
+The protocol caps the trainer at the fraction of the GPU's memory that
+`cuda_memory_fraction` in `config/protocol.json` sets, and an allocation past
+the cap fails as out of memory. The [smoke run](#smoke-run) records the
+trainer's peak CUDA allocation at batch 32 on its card; a card whose capped
+memory is below that peak needs a higher fraction, leaving some headroom
+(the trainer accepts at most 0.95), and a card too small to hold the peak at
+0.95 cannot run the recipe as it is. The checker does not pin the protocol,
+but the role files record its digest, so any change to it changes their
+digests.
 
 ## Steps
 
@@ -450,8 +442,8 @@ $PY $PYDIR/public_a.py train --data bundle --config config --parent parent \
 The trainer evaluates Dev-iter eight times per epoch, keeps the checkpoint
 with the lowest uncalibrated balanced involvement Brier score, and stops
 after four evaluations without improvement. It resumes from its last
-evaluation if interrupted. The protocol caps the process at 45% of the GPU's
-memory (`cuda_memory_fraction`).
+evaluation if interrupted. The protocol's `cuda_memory_fraction` caps the
+process's share of the GPU's memory ([GPU memory](#gpu-memory)).
 
 `public_a.py` runs the release trainer (`train_full_a.py`) unchanged, except
 that it replaces the trainer's loader for the V6 parent and its classifier
@@ -498,11 +490,17 @@ class digest and every validation output is finite.
 ```sh
 $PY $PYDIR/public_a.py assemble --release release --graph graph/a-fp32band.onnx \
   --record graph/export.json --out artifact
-$B/slop_ninja_artifact_check --spec slop_ninja_a_artifact_spec_v3 check-dir artifact
+ORIGIN=$(jq -r '.admission_origins[0]' $REPO/subnet/coordinator/testnet-trust.json)
+SPEC=$(curl -fsS "$ORIGIN/admission/v2/cohort" | jq -r '(.admitting // .next).artifact_spec.id')
+echo "$SPEC"
+$B/slop_ninja_artifact_check --spec "$SPEC" check-dir artifact
 ```
 
-The checker checks the directory under spec v3 (named here by its full id),
-the spec the testnet cohorts name. It prints its report and exits 0 when the
+`SPEC` is the artifact spec the admitting cohort, or else the next one,
+names ([Where to find current values](miner-guide.md#where-to-find-current-values));
+if it prints `null`, the coordinator has not named the next cohort's plan, so
+read it again later or name the spec yourself. The checker checks the
+directory under that spec. It prints its report and exits 0 when the
 directory passes. A refusal prints `refused <code>: <detail>` and exits 2; a
 path it cannot read is reported as `refused object`. It exits 64 on a usage
 error and 0 for `--help`. Then pack the directory and check the object:
@@ -518,14 +516,17 @@ cohort read names no next plan, exits 3 ("incomplete") when every local
 check passes, because it cannot compare the artifact with a cohort's contract
 and object bound. Exit 1 means refused, with the spec's
 refusal code; exit 2 means an error such as a missing file, with nothing
-decided about the artifact. The [miner guide](miner-guide.md#6-pack-and-check)
-lists the codes.
+decided about the artifact. The [miner guide](miner-guide.md#pack-and-check)
+gives the exit statuses, and its
+[Refusals](miner-guide.md#refusals-and-what-they-mean) the codes.
 
 `pack` writes `artifact.obj` with mode 0600. Keep it, and the working
 directory's other copies of the weights, private until the cohort's scoring
 starts. Continue with the miner guide from
-[step 7](miner-guide.md#7-choose-the-endpoints) (endpoints, commitment and
-upload), with a registered hotkey ([steps 3 and 4](miner-guide.md#3-wallet-and-hotkey)).
+[Choose the endpoints](miner-guide.md#choose-the-endpoints) (endpoints,
+commitment and upload), with a registered hotkey
+([Wallet and hotkey](miner-guide.md#wallet-and-hotkey),
+[Register](miner-guide.md#register-on-subnet-601)).
 
 ## Warm start from R0
 
@@ -557,23 +558,25 @@ the file's digest, so the parent has its own `artifact_id`. Steps 6 to 13 are
 unchanged; step 7 fits the normalization to the new parent's output.
 
 - **Copies earn nothing.** An artifact within the near-copy distance of
-  either reference fails the public-copy gate unless it scores more than half
-  a band above it ([miner guide](miner-guide.md#13-rewards)). A warm start
-  must move away from R0 by more than retraining noise.
+  either reference, or of any published artifact, fails the public-copy gate
+  unless it scores more than half a band above it
+  ([copies](../agents/rewards.md#copies)). A warm start must move away from
+  R0 by more than retraining noise.
 - **What is served, not how it is trained.** The allow-listed graph classes
   limit what the scorer serves. You may train larger teachers privately and
   distil them into a served class.
 - **Attribution.** R0's package `NOTICE.md`, which also covers the
   companion, says how to credit R0 and its base model. The companion archive
-  does not yet carry its own copy of that notice or of the base model's
+  does not carry its own copy of that notice or of the base model's
   licence: both are in the reference-package archive, as `NOTICE.md` and
   `upstream/ModernBERT-base-LICENSE`, so keep the two archives together when
   you pass the companion on.
 
 ## Smoke run
 
-Run on November 1, 2026, on the maintainers' Linux x86_64 host (the tested
-platform above), with the commands above and one difference: step 8 ran
+A dated record of one run. Run on November 1, 2026, on the maintainers'
+Linux x86_64 host (the tested platform above), with the commands as they
+stood at the revision named below and one difference: step 8 ran
 `cp $RECIPE/protocol-smoke.json config/protocol.json` in place of
 `cp $RECIPE/protocol.json config/protocol.json`, so the trainer used
 [`protocol-smoke.json`](../../grammar/crates/grammar-eval/python/public_a/protocol-smoke.json)
@@ -586,7 +589,7 @@ both chose the checkpoint and reports it.
 | Step | Wall time | Peak host memory | Notes |
 |---|---:|---:|---|
 | Parent (CPU) | about 1 min | | parent config and tokenizer equal the pinned bytes |
-| Bundle | seconds | | 6,137 rows: 4,201 Train, 805 Dev-iter, 1,131 CAL |
+| Bundle | seconds | | 6,137 rows from 473 source groups: 4,201 Train, 805 Dev-iter, 1,131 CAL; excluded 80 rows without a measured share, 66 model rows without a single generator identity, 70 Train rows of generators outside the roster and 24 duplicate texts |
 | Embed (GPU) | 1 min 41 s | 1.4 GB | 4,201 Train rows, none unsupported |
 | Train (GPU) | 6 min 26 s | 3.7 GB | 132 steps of 32 rows; peak CUDA allocation 4.7 GB, peak device memory in use 8.6 GB |
 | CAL heads (GPU) | 54 s | 2.0 GB | 1,131 rows |
@@ -637,8 +640,8 @@ in their recorded digests alone. The table below is for the revision whose
 `56cb6469b5df35b1e29e7d206de5aeb6663c889d7e0135f9cba9f4156e4a91c0`, before the
 normalization fit and the release exporter recorded portable paths. Their own
 digests are recorded too, so at later revisions the contract and the files
-that bind it are expected to differ in recorded digests alone; the smoke has
-not been rerun since. The smoke gave:
+that bind it are expected to differ in recorded digests alone. The smoke
+gave:
 
 | Output | SHA-256 |
 |---|---|
@@ -653,8 +656,8 @@ not been rerun since. The smoke gave:
 | inference content (`pack`) | `4b2dc52b7e68de854fe09b70aa3e330dfa67ab2a04e8895e73613129f9f56808` |
 | package (`check-dir`) | `8b54e717cd65dc681da651519880b43e1fec8eb9fd766ea8b5b4ce8c99a3c164` |
 
-`sha256sum` gives the file digests. These come from the smoke protocol; the
-full protocol has not been run.
+`sha256sum` gives the file digests. These come from the smoke protocol, not
+the full one.
 
 Disk: about 14 GB for the working directory, of which 6.8 GB is the Python
 environment, 0.6 GB the download and 3.4 GB trainer checkpoints. The Rust
@@ -666,34 +669,35 @@ build output in the checkout adds about 1.2 GB and the restored datasets
 - **No quality claim.** The recipe has not been evaluated on a held-out
   cohort, against R0 or against any detector. Dev-iter chose the checkpoint,
   so its score is optimistic.
-- **Narrow data.** Two generators have Train rows; the other 31 roster names
-  have none, so their attribution is untrained. The human rows are historical
+- **Narrow data.** Only the generators the snapshots carry have Train rows
+  (two in the smoke run); the other roster names have none, so their
+  attribution is untrained. The human rows are historical
   proxies, mostly book excerpts and encyclopedia text.
 - **Exposed data.** Every row is public, and some appeared in earlier
   research. Published texts are not hidden evaluation data.
-- **Platforms.** Only Linux x86_64 with CUDA 12.8 wheels was run (see the
-  table). The ONNX export is tied to the pinned torch and transformers
+- **Platforms.** Only the combinations in [Tested platforms](#tested-platforms)
+  were run. The ONNX export is tied to the pinned torch and transformers
   versions.
 - **The roster rule text.** The contract's `ai_roster_rule` text is pinned by
   the spec and describes how R0 derived its roster ("sorted generator labels
   of Train rows with a positive cohort weight"). A recipe artifact must carry
   the same text, so its contract describes its fixed 33-name roster wrongly:
-  only 2 names are supervised. `fit/fit.json` and the release manifest's
+  only the names with Train rows are supervised. `fit/fit.json` and the release manifest's
   `limits` list the supervised names. Changing the text is a new spec
   version.
-- **Warm start not trained end to end.** A parent built from R0's encoder was
-  built and loaded on CPU on November 2, 2026; no training run has started
-  from one.
+- **Warm start not trained end to end.** The warm start was tested up to
+  building a parent from R0's encoder and loading it on CPU (November 2,
+  2026); no training run from such a parent is recorded here.
 - **No small sample.** No small artifact passes `check`: the graph class fixes
-  the graph at 601,028,257 bytes of a real export. The smoke run is the
+  the graph's structure and length to those of a real export. The smoke run is the
   shortest path to a passing artifact.
 
 ## Reporting problems
 
 Ask questions about the recipe in the SlopNinja channel for testnet subnet
 601 on the Bittensor Discord or in an issue; the miner guide's
-[step 15](miner-guide.md#15-reporting-problems) gives the channel link and
-the server invite. Report a problem with the recipe or its tools as that step
+[Getting help](miner-guide.md#getting-help-and-reporting-problems) gives the
+channel link and the server invite. Report a problem with the recipe or its tools as that step
 says, with the step, the command and its output. Report a security problem
 privately by email to [security@slop.ninja](mailto:security@slop.ninja), not in a public issue
 ([security policy](../../SECURITY.md)). Never post your mnemonic, keyfiles or

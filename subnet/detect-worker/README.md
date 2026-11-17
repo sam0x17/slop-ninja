@@ -10,8 +10,10 @@ passages. A text of 24 to 149 words gets its band and confidence from a
 calibration map and cuts fitted for its length, and no share. A text of more
 than 1,000 words is scored on its first 1,000 words, cut back to the last
 sentence end, and the result says how many words it scored of how many.
-Until the reference package's public bucket opens, every result's
-version line says "publication pending".
+Span package d24 is publicly downloadable through the
+[reference-package layout](../../docs/testnet/reference-packages.md).
+The deployed-environment configurations mark it published; the local stub
+keeps its pending-publication fixture.
 
 It shares no Container instance, Durable Object, binding or bucket with
 hidden evaluation, and it never sees evaluation text.

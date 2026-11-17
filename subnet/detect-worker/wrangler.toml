@@ -107,9 +107,8 @@ DETECT_TOOL = "on"
 DETECT_SPANS = "on"
 DETECT_URLS = "off"
 DETECT_X = "off"
-# The page's version line says "publication pending" until this is
-# "published" (the reference package bucket's public-access go).
-PUBLICATION = "pending"
+# Span package d24 is available through the public reference-package layout.
+PUBLICATION = "published"
 # The serving package's name on pages and cards, and the evidence table its
 # rates come from: stored with every result, so they change with the
 # package vars.
@@ -295,7 +294,7 @@ DETECT_TOOL = "on"
 DETECT_SPANS = "on"
 DETECT_URLS = "off"
 DETECT_X = "off"
-PUBLICATION = "pending"
+PUBLICATION = "published"
 PACKAGE_LABEL = "span package d24"
 EVIDENCE_ID = "evidence-d24-web-v2"
 PACKAGE_BUCKET_LABEL = "admission"

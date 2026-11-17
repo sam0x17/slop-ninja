@@ -1339,6 +1339,10 @@ which is in force.
 **The revenue pot is separate.** Revenue from SlopNinja's detection products
 goes into a public pot, which changes no score, row or emission; the
 [terms](terms.md#the-pots-planned-distribution) say what it is and is not.
+The planned miner distribution uses each winning model's share of all
+qualifying detection requests before mainnet launches, under a counting
+rule published before the pot's first deposit. Requests served by the
+operator's models remain in the total; their portion is burned.
 
 ### Reference model
 

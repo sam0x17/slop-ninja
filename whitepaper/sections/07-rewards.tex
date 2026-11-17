@@ -99,15 +99,23 @@ would instead raise the paired standard error by 17--21\%. A model's
 \emph{headroom} is one minus its score, its remaining Brier loss
 (Section~\ref{detection}); margins, band widths, and gains are stated as
 fractions of the reference's headroom. Three headroom
-figures appear in this paper, each a different estimand computed from the same
-\(R_0\) predictions on the consumed Test: 0.0518 is its balanced involvement
+figures computed on the consumed Test appear here, each a different estimand
+from the same \(R_0\) predictions: 0.0518 is its balanced involvement
 Brier under the Test's own pre-registered document weights
 (Table~\ref{tab:tier-c}); about 0.053 weights documents equally within each
 domain\(\times\)origin cell at the Test's origin mass of about 34/34/32; and
-about 0.062 is the self-weighting estimand of a launch batch, under 20/55/25 as
-under 40/40/20. Over the eighteen domains of the consumed Test and the testnet
-stock, a 1,000-case batch holds six to ten human-only documents per domain,
-minimum to median, so per-domain slices serve as diagnostics.
+about 0.062 is the self-weighting estimand of a launch-mix batch drawn from the
+consumed Test, under 20/55/25 as under 40/40/20. Other populations leave
+\(R_0\) more headroom: 0.112 on a Common Crawl-parented mock cohort
+(Section~\ref{cc-stock-evidence}) and 0.172 on documents built the way testnet
+builds its batches, weighted 20/55/25 (Section~\ref{next-reference-evidence}).
+Figures stated below in score units, such as the unrounded margin, scale with
+the headroom of the population scored, which each manifest re-derives, and the
+simulations below assume 0.062; at 0.172 the unrounded margin at 1,000 cases is
+about 0.012, still under one grid step. Over the eighteen domains of the
+consumed Test and the testnet stock, a 1,000-case batch holds six to ten
+human-only documents per domain, minimum to median, so per-domain slices serve
+as diagnostics.
 
 About 200 human-only documents in a 1,000-case batch measure a human
 false-positive rate at the frozen 1\% operating point only to about \(\pm1.6\)
@@ -273,8 +281,9 @@ cohort may parent again, at most once in a cohort, after the cohort's own
 negatives and never-parented stock, least recently parented first, and the 570
 development documents join as parents only. The gate policy that the manifest
 binds names the rule, so no manifest binds a limit that its draw lifted, and
-the coordinator refuses the rule off testnet or beside a fresh pool. As of
-November 11 the rule is built and awaits installation between two cohorts. A
+the coordinator refuses the rule off testnet or beside a fresh pool. The
+standing template has named the rule since November 11, from cohort
+\texttt{testnet-r1-27} on. A
 score on reused documents can rest on recognizing the text, so it shows that
 an artifact runs and is scored, not how it performs on unseen text, and
 testnet scores are not evidence of mainnet quality.
@@ -396,7 +405,8 @@ Section~\ref{span-outputs}.
 Report three-class origin Brier, calibration, sensitivity at fixed human
 false-positive rates, and population slices separately. Attribution reports
 include retrieval accuracy, reciprocal rank, open-set rejection, and performance
-on withheld writers and generators. Rejection means declining named attribution
+on withheld writers and on generators absent from the gallery, such as models
+released after training. Rejection means declining named attribution
 as defined in Section~\ref{author-and-origin-detection}, including
 \emph{Other human} and \emph{Other AI}. These comparisons use independent
 reference and query works. A profile match cannot override the origin output,
@@ -423,8 +433,8 @@ launch thresholds themselves are not yet chosen
 The reward baseline is the current reference model \(R_k\). The sequence
 starts at \(R_0\), the document model of the \textit{A} baseline release
 candidate described in Section~\ref{existing-evidence-and-implementation-status},
-to be published like every reference once its package has been re-exported
-without evaluation text (Section~\ref{model-interfaces-and-starter-architectures}). Each cohort re-runs
+whose package, re-exported without evaluation text, is published like every
+reference's (Section~\ref{model-interfaces-and-starter-architectures}). Each cohort re-runs
 \(R_k\), and its predecessor \(R_{k-1}\) when one exists, on that cohort's batch.
 Only a cohort scored against the margin cutoff (Section~\ref{reward-v1}) has
 promotion candidates: its retained cluster heads, in rank order. Each is
@@ -510,25 +520,21 @@ outscore it. False promotion and the drift it allows are stated limits of the
 shared margin; their size on simulated rosters is measured before launch
 (Section~\ref{protocol-checks-before-launch}).
 
-Testnet opens a fresh record of cohorts and references, with \(R_0\) as its
-first reference and no predecessor. Outside the promotion rule, the operator
+Testnet opened a fresh record of cohorts and references, with \(R_0\) as its
+first reference and no predecessor. \(R_0\) was replaced by \(R_1\) through
+ordinary promotion in \texttt{testnet-r1-30}, and \(R_0\) is now its
+predecessor. Outside the promotion rule, the operator
 may also set the current and previous references by a signed reference
 decision that records its reason (Section~\ref{operator-decisions}). The
 decision appears in the next signed manifest, so the sequence of signed
 manifests is its record, and it never changes a sealed cohort. Credit is bound
 to its own cohort's package and target (Section~\ref{lagged-payout}), so a
 reference decision moves no earned reward; it sets the margin for later cohorts
-and, while the launch burn lasts, the bar that ends it. Before the first cohort
-that enforces the span gate (Section~\ref{span-outputs}), SlopNinja makes one
-span-equivalent decision on testnet: \(R_0\)'s position passes to its first
-span package, whose document outputs are \(R_0\)'s and whose probe
-predictions match \(R_0\)'s within the measured difference between scorer
-hosts, so no reward input changes. SlopNinja also plans one replacement, announced in
-advance on the public status page: replacing \(R_0\) by the next reference it
-trains, retrained and recalibrated on normalised, length-matched positives
-(Section~\ref{human-stock}), only if that model passes every required gate, the
-span gate included; the replacement takes \(R_0\)'s position, with no
-predecessor. Mainnet opens its own
+and, while the launch burn lasts, the bar that ends it. Span package d24
+remains the span gate's fixed anchor; it is not a reference. A promoted
+entrant's artifact was already published when its cohort's scoring started,
+and its content digest and probe fingerprint are recorded under the same
+rules as every other entrant. Mainnet opens its own
 fresh record, whose first reference is the one testnet holds at that
 time, with no predecessor; reference decisions remain available there under
 the same signed public records. A testnet
@@ -551,8 +557,7 @@ that of any such artifact is not executed. An executed entrant within the
 near-copy distance of an earlier artifact (Section~\ref{reward-v1}) fails the public-copy gate unless its exact score is
 more than \(w_S/2\) above that artifact's, where \(w_S\) is the unrounded band
 width computed from \(R_k\)'s exact score. This applies to
-\(R_k\) and \(R_{k-1}\), including \(R_0\) before its package is published, and to every
-earlier entrant's artifact, the author's own included. A miner therefore earns again only with a model that differs
+\(R_k\) and \(R_{k-1}\) and to every earlier entrant's artifact, the author's own included. A miner therefore earns again only with a model that differs
 measurably from everything already published, such as an independent retrain or
 a weight soup of published models, or that improves on its source by half the
 promotion margin. The gate removes exact and recalibrated copies; it sets a
@@ -612,8 +617,11 @@ publication; a cohort over budget is held, never published or skipped. The
 total may not exceed \(nh/F\) bits, where \(h\) approximates the bits needed
 to single out one human document within its domain's pool and \(F\) is a
 safety factor, so the released values stay \(F\) times short of naming every
-batch document. Testnet sets \(h=8\), below the median of 8.6 bits that its
-public stock's documents take, and \(F=10\): at 1,000 cases, at most 800
+batch document. Testnet sets \(h=8\), below the median of 8.6 bits measured on
+the human documents its cohorts drew, each singled out within its domain's
+part of the exposed pools those cohorts draw from (in the public stock's larger
+domains, such as Wikipedia's 51,000 documents, a document takes over 15 bits),
+and \(F=10\): at 1,000 cases, at most 800
 bits, of which a full roster of 40 executed entrants takes at most 746 before
 readings and records. The bit budget caps what is released; it is not a
 differential-privacy guarantee.
@@ -1009,9 +1017,9 @@ Pooling two independent measurements of 128 noise realizations each, on
 40/40/20 batches, it cleared the gate on the batch and against \(R_0\)'s probe
 fingerprint together in about 89\% to 99\% of 1,000-case cohorts, for an
 average of about \(3.5\times10^{-4}\) to \(4.8\times10^{-4}\) of expected score:
-0.6\% to 0.8\% of the reference's headroom, or 0.07 to 0.10 of an unrounded band
-at that measurement's \(\sigma=0.040\), about a tenth of a band. At 4,000
-cases the batch comparison alone is cleared nearer the floor, but the
+0.6\% to 0.8\% of the reference's headroom on those batches, or 0.07 to 0.10
+of an unrounded band at that measurement's \(\sigma=0.040\), about a tenth of a
+band. At 4,000 cases the batch comparison alone is cleared nearer the floor, but the
 1,024-document probe comparison with \(R_k\)'s fingerprint
 (Section~\ref{public-copies}) then binds: clearing both in about 99\% of cohorts
 costs about \(4.7\times10^{-4}\), about a fifth of a band. That cheapest copy
@@ -1155,7 +1163,9 @@ count, or receipt value. Each quantized score and withheld outcome in it is
 shown on the status page, marked pre-finalized, as soon as it is fixed
 (Section~\ref{pre-finalized-scores}); its remaining allow-listed values are
 published when the cohort closes, on the public status host and the status
-page at \texttt{slop.ninja/testnet/status} for testnet; the artifacts were
+page at \texttt{slop.ninja/testnet/status} for testnet, whose closed-cohort
+view also ranks the entrants that passed every gate and, when the cohort has a
+target, shows each one's share of its row; the artifacts were
 published when scoring started, and the commitment openings follow at the
 close. A separate signed record gives, for each scored entrant that is not
 withheld, whether it passed the span gate, and for the cohort whether the gate

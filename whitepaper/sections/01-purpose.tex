@@ -1,14 +1,15 @@
 \section{Purpose and scope}\label{purpose-and-scope}
 
 SlopNinja's primary goal is to transform writing so it sounds natural and
-matches the author's intended voice. Mechanism \textit{B} serves that goal by
-revising authorized text to remove unwanted formulaic prose and reduce detectable
-model-writing patterns while preserving meaning, readability, and tone.
+matches whatever voice the user chooses, their own or any other. Mechanism
+\textit{B} serves that goal by revising text to remove unwanted formulaic prose
+and reduce detectable model-writing patterns while preserving meaning,
+readability, and tone.
 Mechanism \textit{A} supplies detection and attribution signals that support
 \textit{B}'s revision search and evaluation, alongside separate preservation and
 editorial checks. Together they form an adversarial training subnet:
-\textit{B} trains against public \textit{A} detectors, and authorized
-\textit{B} revisions challenge future \textit{A} training after evaluation
+\textit{B} trains against public \textit{A} detectors, and \textit{B}'s
+revisions challenge future \textit{A} training after evaluation
 retirement. \textit{A} seeks to identify AI involvement even when \textit{B}
 succeeds at reducing its visible signatures.
 The subnet launches with \textit{A} alone; this development
@@ -55,8 +56,8 @@ locates AI spans of at least 24 words. Entrant models are
 published, licensed CC BY-SA 4.0, when each daily evaluation cohort's scoring
 starts.
 Launch includes \textit{A} alone.
-\item \textit{B}, authorized transformation: a private model proposes revisions
-that improve fit to a writer's brief and reduce detector scores while preserving
+\item \textit{B}, writing transformation: a private model proposes revisions
+that fit the user's brief and chosen voice, reduce detector scores, and preserve
 meaning, readability, and intended tone. It activates separately.
 \item \textit{C}, grammar improvement for \textit{B}: accepted reusable lexical
 and structural contributions to the grammar that \textit{B} uses for edits earn
@@ -78,9 +79,12 @@ human-only origin. An unavailable prediction must remain an error or abstention,
 never a default human label.
 
 The launch evaluates English documents within declared length and resource
-bounds. The evidence so far comes from passages whose human documents are
-whole-paragraph excerpts of 150 to 450 words; other lengths need their own
-measurements. Span outputs rely on retained exact span labels; multilingual
+bounds. The main evidence so far comes from passages whose human documents
+are whole-paragraph excerpts of 150 to 450 words; other lengths need their own
+measurements, such as those behind the detection page's own confidence maps
+for texts of 24 to 149 words and its use of the package's bands up to 1,000
+words
+(Sections~\ref{short-text-evidence} and~\ref{long-text-evidence}). Span outputs rely on retained exact span labels; multilingual
 detection and manuscript-scale support each require suitable data and
 measurements. Handling an embedded
 foreign phrase, equation, or code block does not establish detection quality
@@ -119,39 +123,48 @@ The first paid product is hosted AI detection for applications, publishers,
 researchers, and document workflows that need to assess AI involvement in
 writing, with origin probabilities and attribution as additional detail.
 \textit{A} artifacts become freely executable when their cohort's scoring starts. Paid
-access, through the detection API or quoted jobs, offers maintained attribution profiles, bounded execution of a qualified
+access, through paid checks, the detection API, or quoted jobs, offers maintained attribution profiles, bounded execution of a qualified
 artifact, private delivery, and integration convenience. An \textit{A} detection job
 runs the raw-text model alone, with no grammar parse. Publishing a model does not establish
 that users will pay for hosting it; the commercial pilot must measure repeat
 use, willingness to pay, false-positive disputes, and delivery cost.
 
 Testnet runs for several months before the mainnet subnet is registered.
-During that period SlopNinja plans to earn revenue from free,
-advertising-supported public detection pages served by \textit{A} and from
-other products, accruing in a publicly visible pot (Section~\ref{testnet-revenue}).
+During that period SlopNinja plans to earn revenue from a free public
+detection page served by \textit{A}, supported by advertising on the site's
+content pages, and from other products, accruing in a publicly visible pot
+(Section~\ref{testnet-revenue}).
 The pot pays the mainnet subnet's registration once it holds about 1.5 times
 its cost. After the launch, the rest buys the subnet's alpha: half is burned,
-and half is distributed to testnet miners in proportion to the revenue earned
-by their winning models, those that beat the reference, with any part left
-undistributed burned; all later revenue buys and burns alpha.
-The detection page itself carries no advertising and stores no text; ads run
-on the site's content pages, and a paid detection API follows once the served package is
-published. The pot is a published multisignature TAO account with a public
+and half is distributed to testnet miners, each receiving a fraction of it
+equal to its winning models' share of all detection requests served before
+the launch (winning models beat the reference and took its place); the
+fraction for requests served by SlopNinja's own models is burned, and all
+later revenue buys and burns alpha.
+The detection page scores every text of 24 words or more, and every check
+gets a page whose link does not expire: a checked public web page or post gets
+a public result page that search engines can find, and a pasted text an
+unlisted short link derived from the text itself. SlopNinja does not list those
+pages and asks search engines not to index them. Pages that hold pasted text
+carry no advertising. Paid checks of longer documents and a paid
+detection API follow. The pot is a published multisignature TAO account with a public
 ledger of every payout, conversion, purchase, burn, and claim.
 The coordinator decides when measured quality is sufficient to open sales and
 which workloads may be sold. Benchmark eligibility alone does not enable
-checkout. The initial price hypothesis aims below Pangram's standalone API
-rate, subject to an independently evaluated quality comparison and measured
-costs. The principal of a quoted paid job buys and burns alpha, while the
-detection API's revenue joins the pot. Spendable operating
+checkout. For quoted jobs, the initial price hypothesis aims below Pangram's
+standalone API rate, subject to an independently evaluated quality comparison
+and measured costs; the detection products carry their own published prices.
+The principal of a quoted paid job buys and burns alpha, while the detection
+products' revenue joins the pot. Spendable operating
 funds and refund reserves must come from an explicitly funded treasury,
 independently of the burn (Section~\ref{revenue-and-costs}).
 
 The main intended writing product, activated after the initial detection service,
-serves users who supply samples of their own writing. A private writer profile
-summarizes those samples from \textit{A}'s encoder and stylometric features;
-\textit{A} compares successive revisions with that profile, and \textit{B} uses
-its author-fit signal to guide editing toward the requested voice. No profile
+serves users who supply samples of the voice they want, their own writing or
+anyone else's. A private writer profile summarizes those samples from
+\textit{A}'s encoder and stylometric features; \textit{A} compares successive
+revisions with that profile, and \textit{B} uses its author-fit signal to guide
+editing toward the requested voice. No profile
 tested so far ranks rewrites toward a writer reliably, so this workflow waits
 for a learned matcher qualified on fresh writers
 (Section~\ref{author-and-origin-detection}). It aims to
@@ -163,10 +176,9 @@ improvement and attainment of a strict detector target are also separate claims
 (Section~\ref{transformation-and-improvement-utility}).
 
 The intended adversarial training loop uses public detectors during
-private revision search and reuses authorized revisions after evaluation
+private revision search and reuses \textit{B}'s revisions after evaluation
 retirement. It must measure whether adaptive editing improves prose or merely
 exploits the current judges. Writer consent and source rights limit training
 reuse; customer jobs do not become benchmark material by default. The same
-tools can be used to obscure provenance or impersonate a writer. Product claims
-must preserve that risk and must not represent detector evasion as evidence of
-human authorship.
+tools can be used to obscure provenance. Product claims must preserve that risk
+and must not represent detector evasion as evidence of human authorship.

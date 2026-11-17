@@ -55,8 +55,10 @@ references, \(R_0\) and any later reference it trains
 (Section~\ref{reference-model}), on the same terms. A public reference package
 carries no evaluation text: its replay cases are synthetic rather than
 development documents, and the package passes a scan for corpus text before
-release. \(R_0\) is published once its package has been re-exported in this
-way. Miners can also start from a public training recipe~\cite{trainingguide}:
+release. \(R_0\)'s package, re-exported in this way, was published with
+testnet's first signed release on November 9, 2026, and the first span
+package (Section~\ref{span-outputs}) is published as well
+(Section~\ref{implementation-status}). Miners can also start from a public training recipe~\cite{trainingguide}:
 it fine-tunes ModernBERT-base on about 4,200 Train rows from five
 redistributable dataset snapshots and packs and checks an admissible artifact
 with the miner client. It reproduces \(R_0\)'s pipeline and artifact format,
@@ -195,8 +197,9 @@ measured on withheld writers and on real style-transfer data. Until a profile
 type passes it, neither \emph{Provided writer} nor \textit{B}'s author-fit
 feedback is offered.
 
-Open-set rejection is evaluated on withheld writers and
-generators, separately from choosing among known profiles. Rejection means a
+Open-set rejection is evaluated on withheld writers and on generators absent
+from the gallery, such as models released after training, separately from
+choosing among known profiles. Rejection means a
 completed attribution decision that accepts no named match for the evaluated
 writer or generator role, including \emph{Other human} and \emph{Other AI}.
 Evaluate each documented contributor role, including both roles in mixed work,
@@ -223,8 +226,9 @@ token-level head on the shared encoder. It returns an AI probability for every
 token, decodes those probabilities into AI spans with exact character offsets
 into the canonical text and a confidence for each span, and derives per-sentence
 AI share and AI-involvement confidence from the same token probabilities. The
-document-level outputs keep their meanings, and the span outputs are made to
-agree with them by construction. In the runtime's emission, a word's
+document-level outputs keep their meanings. The emission enforces two numerical
+relations: sentence shares aggregate to document share, and sentence and span
+confidences do not exceed document confidence. In the runtime's emission, a word's
 probability is the mean probability of its tokens, and a share tilt shifts every
 word's logit by one common bias so that the mean word probability equals the
 emitted document share. A sentence's
@@ -235,6 +239,17 @@ because neighboring sentences are dependent: neither averaging sentence
 confidences nor multiplying their complements yields a document probability.
 It remains the document head's calibrated output, and sentence and span
 confidences are capped at it.
+
+These relations do not make all outputs probabilities from one coherent
+distribution over production histories. A sentence's estimated share can exceed
+its capped involvement confidence, even though an expected AI-word fraction
+cannot exceed the probability of any AI involvement in that sentence. For
+example, two equally long sentences with shares 0.79 and 0.01 aggregate to a
+document share of 0.40; a document confidence of 0.50 then caps both sentence
+confidences below the first sentence's share. The released emission does not
+exclude this configuration. Sentence probability consistency and calibration
+therefore remain qualification work; changing the emission requires a new
+qualified version and does not revise earlier measurements.
 
 Span localization covers AI-written spans of at least 24 words. A shorter
 edit, such as a replaced word, a clause, or one short sentence, carries too
@@ -261,8 +276,9 @@ precision, recall, and F1, span precision and recall, with decoded runs matched
 one to one to gold spans at an intersection over union of at least 0.5, recall
 in span-length bands of 24--49, 50--99, and 100 or more words, the number of
 human documents that carry a decoded span, and the calibration of span and
-sentence confidences. Agreement with the document
-outputs needs no gate, because the emission guarantees it; the gap between mean
+sentence confidences. The aggregate-share relation and confidence caps are
+checked in emission replay; they do not replace sentence probability-consistency
+checks. The gap between mean
 word probability and document share before the tilt is reported as a
 diagnostic, since the tilt costs word-level accuracy wherever the document
 share is the less accurate estimate. The span gate includes the in-context
@@ -327,20 +343,16 @@ F1 is 0.639 (Section~\ref{span-package-evidence}). The tower adds 18--20\% of
 the encoder's CPU time, and its graph forms a separate allow-listed class with
 its own parameter bound (Section~\ref{a-artifact-execution}). Since November 9,
 2026 it is SlopNinja's span-serving package, the model its public detection
-pages are to run first (Section~\ref{testnet-revenue}). Because its document outputs
-are \(R_0\)'s, this package is to take \(R_0\)'s position on testnet before
-the first cohort that enforces the gate, by a signed reference decision
-(Section~\ref{operator-decisions}) that leaves the record without a
-predecessor and changes no score, margin, or cutoff; it is not the planned
-replacement by a retrained reference. Before that decision it runs once as an
-ordinary cohort entry, so that, as for any reference, its artifact is
-published, its content digest enters the published-artifact index, and its
-probe fingerprint is recorded. The artifact spec that testnet cohorts name
-today checks only that a decoder's minimum span length is at least one word;
-artifact spec v5 refuses an artifact without a token-level head or with a
-decoder whose minimum span is under 24 words. Spec v5 and the gate's report
-mode are built but not yet deployed, so no cohort has yet evaluated spans
-(Section~\ref{implementation-status}).
+pages are to run first (Section~\ref{testnet-revenue}). It has run once as an
+ordinary testnet cohort entry, so its artifact is published and its content
+digest is in the published-artifact index. It stays the span gate's anchor when
+the reference changes: \(R_1\), promoted through the ordinary rule in
+\texttt{testnet-r1-30}, carries its own span head (Section~\ref{reference-model}). The artifact
+spec that testnet cohorts name today checks only that a decoder's minimum span
+length is at least one word; artifact spec v5 refuses an artifact without a
+token-level head or with a decoder whose minimum span is under 24 words. Spec v5
+and the gate's report mode are built, but no cohort template names them yet, so
+no cohort has yet evaluated spans (Section~\ref{implementation-status}).
 
 A further extension could identify words and constructions that materially
 influence a score, starting from the token-level outputs. Test explanations by
@@ -368,8 +380,9 @@ head (Section~\ref{span-outputs}).
 The reference \(R_0\) is a ModernBERT-base encoder~\cite{modernbert} of
 about 150M parameters with a 2,048-token limit, fine-tuned from the earlier V6
 detector on raw tokens, with origin, share, and attribution heads
-(Section~\ref{existing-evidence-and-implementation-status}); the release
-package adds the token-level span head. Its architecture,
+(Section~\ref{existing-evidence-and-implementation-status}). SlopNinja's
+first span package keeps that encoder and those heads and adds a span tower
+with a token-level head (Section~\ref{span-outputs}). \(R_0\)'s architecture,
 with or without a token-level span head, defines the graphs that admission
 allows (Section~\ref{a-artifact-execution}).
 
@@ -431,9 +444,20 @@ embedding lookup: the reference's ModernBERT-base architecture; the same
 architecture exposing its final-norm token states to a token-level span head;
 and a tower class that adds trained copies of encoder layers 18--21 and the
 final norm for that head (Section~\ref{span-outputs}). Each class has its own
-parameter bound, derived from its structure: 160 million parameters for the
+parameter bound: 160 million parameters for the
 first two classes and 173.5 million for the tower class, against 150.3 million
-in \(R_0\)'s package and 170.6 million in the first span package. An artifact's tokenizer
+in \(R_0\)'s package and 170.6 million in the first span package. The bound
+counts the graph's parameters together with the weights in the artifact's heads
+file. A class fixes its graph's shapes, so the graph alone stays below the
+bound, at about 150.1 million parameters in the first two classes and
+170.2 million in the tower class, and the bound limits what the heads file can
+add. The tower class's bound is derived from its structure: its graph's
+parameters plus the largest heads its schemas admit, the fixed document heads
+(about 0.24 million parameters) and a token head of the widest admitted size,
+4,096 hidden units (about 3.15 million). The first two classes' bound is not
+derived: it is a round number chosen in the first artifact spec, about
+9.9 million parameters above their graph, and kept so that every artifact
+admitted earlier still passes. An artifact's tokenizer
 must match the allow-listed tokenizer byte for byte. Its calibration, contract,
 and other declared files must validate against fixed schemas for their roles,
 such as a monotone piecewise-linear calibration map whose knot count the schema
@@ -443,8 +467,9 @@ class, and every other file is bounded by its schema or by the runtime that
 reads it, so no separate byte cap applies; \(R_0\)'s artifact object is
 610.6 MB. The scorer serves all three classes, and testnet cohorts admit them
 under the current artifact spec~\cite{artifactspec}. Where a limit is needed it
-derives in this way from structure, such as the allow-list, a schema, or a
-measured bound, and is versioned in the manifest rather than hard-wired, because
+derives from structure where it can, as the file lengths and the tower class's
+bound do, from the allow-list, a schema, or a measured bound, and every limit,
+derived or chosen, is versioned in the manifest rather than hard-wired, because
 a fixed limit that later models outgrow can
 strand a subnet. The allow-list widens only through a versioned manifest. The
 bound limits what an artifact can memorize, an estimated 40--72 MB of learned
@@ -542,11 +567,13 @@ finish without it; the detection service stops serving that package.
 Within a cohort, identical inference content, or predictions within the
 near-copy distance on the cohort batch, forms one cluster that receives one
 credit split equally among its members (Section~\ref{reward-v1}). The
-commitment nonce is excluded from content identity. The finalized commitment
-block and extrinsic index, the admission order, choose which member heads a
-cluster, whose quantized score then places the whole cluster, and break ties
-between equal quantized scores, and so choose which of the tied cluster heads
-can become the next reference. This order
+commitment nonce is excluded from content identity. Under the proposed successor
+rule, the finalized commitment block and extrinsic index, the admission order,
+choose which member heads a cluster, whose quantized score then places the whole
+cluster. Testnet's current \texttt{reward-v2} instead applies the cutoff first
+and chooses the highest-ranked eligible member. Under both rules admission order
+breaks equal-score ties, including the order in which tied cluster heads are
+tested for promotion (Section~\ref{reward-v1}). This order
 assigns no authorship: it cannot establish who originally trained a model.
 Already-published artifacts may enter but earn nothing
 (Section~\ref{public-copies}), apart from those of a cohort abandoned after its

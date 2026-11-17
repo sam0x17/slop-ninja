@@ -3,17 +3,17 @@
 SlopNinja proposes an adversarial training subnet on Bittensor, pairing
 mechanism \textit{A}'s AI detection with mechanism \textit{B}'s writing
 transformation. \textit{B} is the main product objective: private models revise
-authorized text toward the author's intended voice while preserving meaning,
-readability, and tone. \textit{A} learns to detect AI involvement, including in
-\textit{B}'s revisions; \textit{B} learns to remove unwanted formulaic prose and
-evade \textit{A}'s detection. Public \textit{A} models supply training feedback
-for \textit{B}, while authorized \textit{B} revisions provide challenging
-examples for future \textit{A} training after evaluation retirement. This
-competition is intended to improve both mechanisms; gains must hold on fresh
-evaluation data. \textit{A} is also intended to supply author-fit feedback
-against a private writer profile built from a user's own samples, once a
-learned profile matcher qualifies. A lower detector score neither establishes
-better writing nor changes a document's production history.
+text toward whatever voice the user chooses, their own or any other, while
+preserving meaning, readability, and tone. \textit{A} learns to detect AI
+involvement, including in \textit{B}'s revisions; \textit{B} learns to remove
+unwanted formulaic prose and evade \textit{A}'s detection. Public \textit{A}
+models supply training feedback for \textit{B}, while \textit{B}'s revisions
+provide challenging examples for future \textit{A} training after evaluation
+retirement. This competition is intended to improve both mechanisms; gains must
+hold on fresh evaluation data. \textit{A} is also intended to supply author-fit
+feedback against a private writer profile built from samples of the chosen
+voice, once a learned profile matcher qualifies. A lower detector score neither
+establishes better writing nor changes a document's production history.
 
 The subnet launches with \textit{A} alone as the initial evaluator and detection
 service; \textit{B} activates after its editing, private-serving, and reward
@@ -87,19 +87,20 @@ November 7, 2026 its admission opened to every registered hotkey, and a cohort
 with an outside entrant has since run end to end there. Mainnet will open a
 fresh record of cohorts with the reference testnet then holds. During testnet,
 SlopNinja plans to earn revenue from a free public detection page served by
-\textit{A}, with no advertising on the page that holds pasted text, and from
+\textit{A}, with no advertising on the pages that hold pasted text, and from
 other products. Their payouts go into a publicly visible pot of native TAO in a
 published two-of-three multisignature account with an independent third
 signer, which lists every payout, conversion, purchase, burn, and claim. Once
 the pot holds about 1.5 times the cost of a mainnet registration, SlopNinja
 registers the mainnet subnet with it. After the subnet launches, the rest
-buys its alpha in daily tranches bound to that registration: half is burned,
-and half is distributed through a claim contract to testnet miners in
-proportion to the testnet-era revenue earned by their winning models, which
-must first have beaten the reference; any part of that half left undistributed
-is burned. From the launch on, all revenue buys
+buys its alpha in daily tranches bound to that registration. Half is burned.
+The other half goes through a claim contract to testnet miners, each
+receiving a fraction of it equal to its winning models' share of all
+detection requests served before the launch (a winning model beat the
+reference and took its place); the fraction for requests served by
+SlopNinja's own models is burned. From the launch on, all revenue buys
 and burns alpha; if SlopNinja abandons mainnet, the pot's TAO is burned. Customers
 may also fund quoted paid detection jobs by card, TAO, or subnet alpha, whose
-principal converts to alpha and is burned. Pricing, any emissions assigned to
-paid use, and the mainnet split of emissions among owner, validators, and
+principal converts to alpha and is burned. The price of quoted jobs, any
+emissions assigned to paid use, and the mainnet split of emissions among owner, validators, and
 miners are not selected.

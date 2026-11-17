@@ -95,6 +95,19 @@ as the original text. \textit{B}'s parsing and ambiguity resolution, including
 any LLM resolver, run within the same SlopNinja and Cloudflare trust boundary;
 miners receive neither resolver inputs nor outputs.
 
+The detection products of Section~\ref{testnet-revenue} keep only what a
+result page needs, for as long as the page exists. Pages do not expire: each
+ends when its owner deletes it, when a removal case or legal step removes it,
+or when its source requires it. Every check of a pasted text stores the text
+and its result at an unlisted page, encrypted under that page's own key; the
+service does not list the page and sends instructions asking search engines
+not to index it. Anyone with its link can reach it, as can anyone who checks
+exactly the same text, since the link is derived from the text. Search engines
+control whether they follow the indexing instructions. A public result page
+keeps at most the passages its display rules
+may show; a page about a post on X keeps the post's identifier, not its text;
+and no submitted text is reused for training without consent.
+
 Each attempt binds its customer, job, assignment generation, model and pipeline
 version, output key, and resource limits. State from one customer must not enter
 another job. Recovery resumes only authorized durable state; reassignment

@@ -52,7 +52,7 @@ an entrant beats it by the required margin, no miner earns and the pool burns.
 *B* and *C* activate separately. *B* is trained adversarially against *A* and
 uses the native English grammar (CFG) to define its edit units.
 
-The [whitepaper](whitepaper/slop_ninja.pdf) (draft 0.65) describes the full
+The [whitepaper](whitepaper/slop_ninja.pdf) (draft 0.66) describes the full
 design, its trust model and its evidence boundaries.
 
 ## Testnet status
@@ -76,11 +76,12 @@ Testnet subnet 601 is the rehearsal. It has no monetary value.
   stay with the coordinator. The [miner guide](docs/testnet/miner-guide.md#rewards)
   explains the grid, the noise and the cutoff.
 - **Revenue pot (planned):** the detection products' revenue is to go into a
-  public pot that pays the mainnet registration, then buys mainnet alpha, half
-  burned and half distributed to testnet miners in proportion to the
-  testnet-era revenue earned by their models that beat the reference and took
-  its place. It is a planned operator policy, not an entitlement, and has
-  received no money yet
+  public pot that pays the mainnet registration (any of that cost later
+  refunded goes back to the pot), then buys mainnet alpha, half burned and
+  half distributed to testnet miners by the share of all testnet-era detection
+  requests that their models served after beating the reference and taking
+  its place; the share served by SlopNinja's own models is burned. It is a
+  planned operator policy, not an entitlement, and has received no money yet
   ([terms](docs/testnet/terms.md#the-pots-planned-distribution)).
 - **Follow along:** the [status page](https://slop.ninja/testnet/status/), the
   [public API](https://slop.ninja/api/), the [whitepaper](whitepaper/slop_ninja.pdf),

@@ -1,11 +1,9 @@
 # Testnet terms
 
-Version 5, November 16, 2026. It replaces version 4 of November 11, 2026
-(which replaced version 3 of the same day, which replaced version 2 of
-November 9, 2026, which replaced version 1, the unnumbered terms published
-before it). It changes no term and no rule: it brings up to date which model
-is the reference and how it changes, which row validators commit, and that
-the public status host is open. A commitment made after version 5 is
+Version 6, November 16, 2026. It replaces version 5 of November 16, 2026
+(which replaced version 4 of November 11, 2026). It states how the planned
+distribution from the revenue pot is divided by inference requests served
+by winning models. A commitment made after version 6 is
 published accepts it; an earlier commitment stays under the version in force
 when it was made, except that a legal removal
 ([Legal notices and removals](#legal-notices-and-removals)) can apply to
@@ -28,18 +26,20 @@ this. SlopNinja does not provide test TAO.
 ## The pot's planned distribution
 
 SlopNinja plans to put the revenue of its detection products (a free detection
-page with advertising on the site's content pages, a paid detection API and
-other products) into a public pot, and to use it as section 8 of the
+page with advertising on the site's content pages, paid checks of longer
+documents, a paid detection API and other products) into a public pot, and to use it as section 8 of the
 [whitepaper](../../whitepaper/slop_ninja.pdf) describes. Once the pot holds
 about 1.5 times the cost of a mainnet subnet registration, SlopNinja registers
 the mainnet subnet with that money; any part of that cost later returned to the
 subnet's owner account goes back to the pot and is listed on its public page.
 Once that subnet launches, the money left from revenue earned before the
 launch buys the mainnet subnet's alpha: half of it is burned, and half is
-distributed to testnet miners on mainnet through a claim contract, in
-proportion to the testnet-era revenue earned by their winning models; any
-part of that half left undistributed is burned. After the launch, all revenue
-buys and burns alpha.
+distributed to testnet miners on mainnet through a claim contract, by
+inference requests. Each miner receives the fraction of that half that the
+requests served by its winning models form of all requests the detection
+products served before the launch; the part for requests not credited to a
+miner's winning model, such as those served by SlopNinja's own models, is
+burned. After the launch, all revenue buys and burns alpha.
 
 What the distribution is:
 
@@ -47,16 +47,19 @@ What the distribution is:
   money, set out in the whitepaper and to be set out in the pot's charter. It
   is not a term of participation and gives no one an entitlement to any
   amount. Under the charter, a change to what the pot's money may be used for applies only to
-  money received after the change is published. As of November 11, 2026 the
+  money received after the change is published. As of November 15, 2026 the
   pot has received no money.
-- **For winning models only.** Revenue is credited only to a model that has
-  beaten the reference and taken its place, under an attribution rule,
-  published before it is used, that credits revenue the detection products
-  earn while that model is the reference, subject to serving checks,
+- **For winning models only.** A request is credited only to a model that has
+  beaten the reference and taken its place, subject to serving checks,
   published before the pot's first deposit, that state what a promoted model
-  must show before it serves and is credited. Revenue earned while one of
-  SlopNinja's own models is the reference is credited to no miner, and a model
-  that earns emissions without becoming the reference is credited nothing.
+  must show before it serves and is credited. Requests served while one of
+  SlopNinja's own models is the reference count in the total but are credited
+  to no miner, and a model that earns emissions without becoming the
+  reference is credited nothing.
+- **Counted under a published rule.** Requests are counted under a counting
+  rule, published before the pot's first deposit, that says what counts as one
+  request and which model it is credited to. SlopNinja's own test requests are
+  not counted.
 - **Paid in mainnet alpha.** The alpha is bought on the mainnet subnet with
   the pot's TAO and claimed on mainnet through a claim contract whose rules
   are published before it is used.
@@ -69,15 +72,17 @@ What it is not:
 - **Not part of the reward mechanism.** It changes no score, gate, promotion,
   weight row or emission, and validators do not check it.
 - **Not a promise of any amount or of mainnet.** What a miner receives
-  depends on the revenue credited to its models and on what the pot's
-  remaining money buys. If the pot never reaches the registration point, or no
-  revenue is credited to your model, you receive nothing. If SlopNinja
-  publicly abandons mainnet, the pot's TAO, including any registration cost
-  returned to it, is burned and nothing is distributed.
-- **Not a reward for traffic.** Do not visit, use, share or click anything,
-  advertising included, to raise what anyone receives: SlopNinja watches
-  traffic to pages with ads for invalid activity and switches the ads off
-  when it appears.
+  depends on the requests credited to its models, on all requests counted and
+  on what the pot's remaining money buys. If the pot never reaches the
+  registration point, or no request is credited to your model, you receive
+  nothing. If SlopNinja publicly abandons mainnet, the pot's TAO, including
+  any registration cost returned to it, is burned and nothing is distributed.
+- **Not a reward for traffic made to raise it.** Do not visit, use, share or
+  click anything, advertising included, or send, buy or reward requests, to
+  raise a count or what anyone receives. Credit never follows views of or
+  clicks on ads; SlopNinja watches traffic to pages with ads for invalid
+  activity and switches the ads off when it appears, and the counting rule
+  says how requests made to raise a count are treated.
 
 The plan and its wording are reviewed by legal and tax advisers before the pot
 takes its first deposit and may change before then.

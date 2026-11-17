@@ -1,7 +1,7 @@
 # Subnet implementation plan
 
 November 10, 2026. This plan implements the [Cloudflare design](cloudflare-subnet-draft.md)
-and [whitepaper draft 0.65](../whitepaper/main.tex). It describes work to build and qualify;
+and [whitepaper draft 0.66](../whitepaper/main.tex). It describes work to build and qualify;
 it does not establish a deployed subnet. Launch includes A alone. B and C have
 separate activation requirements. A reads raw text; the native grammar serves
 later B and C. The shared protocol crate implements the `reward-v2`
@@ -52,7 +52,7 @@ its own quality, funding, and payment checks.
   reference it trains) are published under CC BY-SA 4.0 like any `R_k`; a
   public reference package uses synthetic replay cases, carries no evaluation
   text, and passes a package-corpus scan. Paid A serves a published, qualified
-  artifact (`R_0` once its public package is published).
+  artifact (`R_0`, whose package `testnet-v0.1.0` publishes).
 - Rewards follow `reward-v2`, the `reward-v1` band rule on `quant-v1`
   quantized scores: a reference model that changes by cohort promotion or by a
   signed operator reference decision with a recorded reason (on testnet, a
@@ -306,7 +306,8 @@ registration.
    restart the record also need the separate offline operator-decision key,
    verified only by the coordinator and the evaluation service. No outage
    triggers one, and none reassigns paid rewards. Most of these paths and the
-   key's verification are built but not yet deployed
+   key's verification are deployed; the key has been configured since
+   November 12, and no decision has used it yet
    ([coordinator rules](agents/coordinator.md) list what is not built yet).
 
    Done when missed/duplicate/reordered webhooks, a delivery stall that enters and
@@ -438,7 +439,7 @@ registration.
    v1, the public-candidate refill and earlier testnet draws), redrawing them as
    negatives without limit while parent uses keep the use limit and gap unless
    the plan names the versioned testnet-only exposed-pool reuse rule, which
-   lifts both for exposed pools (built, not yet deployed; refused off testnet
+   lifts both for exposed pools (active from `testnet-r1-27`; refused off testnet
    or beside a fresh pool); fresh
    stock is drawn only for a cohort with such an entrant, and the coordinator
    refuses any other pool (`EXPOSED_POOLS`, `fresh_stock_refused`). When a domain or the stock runs short, reweight or
@@ -483,7 +484,8 @@ registration.
    measurement on the sealed batches of closed testnet cohorts, with that
    package as the anchor, and run the gate in report mode on at least three
    live cohorts before any manifest enforces it; report mode and artifact spec
-   v5 are built but not yet deployed.
+   v5 are built. The evaluation side is deployed, but the scorer's
+   decoder-minimum load fact is not, and no cohort template names the gate.
 
    Done when one private artifact completes a hidden cohort within funded
    serverless limits, with reproducible scoring, a published package, and no
@@ -536,7 +538,7 @@ registration.
    segment readings during scoring under their own privacy parameter, counted
    in the bit budget, with an operator stop. Release no rank, band, cutoff
    mode, gate, public-copy, cluster or unit value before the close. Both are
-   built but not yet deployed; they change nothing until a cohort template
+   deployed but disabled; they change nothing until a cohort template
    names them ([rewards rules](agents/rewards.md)).
 
    Validators verify the coordinator's row record under their pinned keys,
@@ -663,13 +665,22 @@ registration.
    open with quality-only rewards. Price markup and alpha burning do not guarantee
    miner solvency or a particular market price.
 
-   Before mainnet, the detection product earns revenue on its own route. The
+   Before mainnet, the detection products earn revenue on their own route. The
    [detect Worker](../subnet/detect-worker/README.md) behind the free page at
-   `/detect/` is built but not yet deployed. The page scores pasted text with
-   span package d24 in SlopNinja's own runtime, stores none, and opens only
-   after its serving parity, abuse controls and wording are checked. A paid
-   detection API follows once the package is published, paid through a
-   merchant-of-record card processor or directly in TAO. Its revenue and every
+   `/detect/` is built but not deployed to production. The page scores up to
+   1,000 words of pasted text or of a public page or post with span package d24
+   in SlopNinja's own runtime, from 24 words with its own confidence maps under
+   150 words, keeps every result as a page whose link never expires (an
+   indexable public result page for a public source, an unlisted
+   content-addressed short link for pasted text), and opens only after its
+   serving parity, abuse controls and wording are checked. The per-length
+   maps, the page for every check, content-addressed links and public-page
+   indexing controls are built. The initial release accepts pasted text only;
+   public URL and X checks remain disabled pending their activation checks,
+   and the X fetching routes remain unfinished. Paid checks score longer
+   documents whole on the account ledger, backed at launch only by operator grants; a paid detection API
+   follows once the package is published, paid through a merchant-of-record
+   card processor or directly in TAO. Their revenue and every
    advertising, sponsor and processor payout go into the public pot (native TAO
    in a published two-of-three multisignature account with an independent third
    signer and a public ledger), not through the per-job burn route. Qualify the
@@ -679,15 +690,15 @@ registration.
    part of that cost later returned to the subnet's owner account goes back to
    the pot; after the launch the rest buys that subnet's alpha in daily
    tranches bound to the registration, half burned and half distributed through
-   a claim contract to
-   testnet miners in proportion to the testnet-era revenue earned by their
-   winning models (those that beat the reference; SlopNinja's own models earn
-   no miner credit); later revenue all buys and burns alpha; and its TAO is
-   burned if mainnet is abandoned. Build, before they are used: the serving
-   checks that let the detection products serve the reigning reference, the
-   attribution rule and its ledger rows, and the claim contract with its
-   testnet rehearsal. The paid detection API and the pot are not yet
-   implemented.
+   a claim contract to testnet miners, each receiving a fraction of that half
+   equal to its winning models' share of all detection requests served before
+   the launch (winning models beat the reference and took its place), with the
+   fraction for requests served by SlopNinja's own models burned; later revenue all buys and
+   burns alpha; and its TAO is burned if mainnet is abandoned. Build, before
+   they are used: the serving checks that let the detection products serve the
+   reigning reference, the counting rule with its request counters and ledger
+   rows, and the claim contract with its testnet rehearsal. The payment processor, API keys
+   and the pot are not yet implemented.
 
    Done when sandbox-funded jobs survive timeouts and duplicate callbacks, return
    the quoted refunds, and burn the correct principal once after valid delivery.

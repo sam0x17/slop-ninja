@@ -61,8 +61,10 @@ The public-result probe found that the API and report removed a terminal LF;
 this motivates the later \textit{B} text profile's restriction without establishing
 a general preprocessing contract. The report exposed the analyzed text through
 an undocumented public endpoint, with no provider signature or immutable model
-identity established. Report URLs therefore stay out of public receipts and
-logs~\cite{reportprobe}.
+identity established~\cite{reportprobe}. Pangram links and ids may therefore
+be published only where they serve verification, a public report link is never
+requested for private or held-out text, and Pangram's per-text scores are kept
+privately and never published; only set-level comparisons are reported.
 
 Repeatability probes found consistent document fractions for three texts, with
 auxiliary variation and no observation near the strict 10\% boundary. They

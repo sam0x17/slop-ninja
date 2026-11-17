@@ -1,7 +1,7 @@
 # Draft Cloudflare subnet design
 
-Draft 0.41, November 11, 2026. Implementation design notes accompanying
-[whitepaper draft 0.65](../whitepaper/main.tex). Both describe a proposal;
+Draft 0.42, November 16, 2026. Implementation design notes accompanying
+[whitepaper draft 0.66](../whitepaper/main.tex). Both describe a proposal;
 neither establishes a deployed or qualified subnet.
 
 The [implementation plan](subnet-implementation-plan.md) defines the build
@@ -29,12 +29,12 @@ Paid inference opens when the coordinator judges measured quality sufficient.
 Customers pay for bounded jobs using a card, subnet alpha, or TAO, with
 Coinbase Onramp selected for card-to-native-TAO funding of those jobs, subject to integration
 qualification. A paid job's principal buys and burns alpha. Before mainnet,
-the detection product's revenue (advertising on the site's content pages, never
-on the detection page itself, and a paid detection API once the served package
-is published, paid through a merchant-of-record card processor or directly in
-TAO) goes into a public pot instead of being burned job by job. The pot pays
+the detection products' revenue (advertising on the site's content pages, never
+on the page that holds pasted text, paid checks of longer documents, and a paid
+detection API once the served package is published, paid through a
+merchant-of-record card processor or directly in TAO) goes into a public pot instead of being burned job by job. The pot pays
 the mainnet registration, then buys alpha, half burned and half distributed to
-testnet miners whose winning models earned that revenue
+testnet miners by the share of detection requests their winning models served
 ([Revenue before mainnet](#revenue-before-mainnet-the-detection-page-and-the-public-pot)).
 Pricing multipliers and any inference
 share of emissions remain separately calibrated hyperparameters.
@@ -313,7 +313,8 @@ probabilities remain separately measured. Known-author/model attribution and
 open-set rejection are measured separately, including for previously unseen
 generators. Attribution is a qualification gate only: it adds no reward weight
 and breaks no ties, and there is no separate origin-only participation track.
-Report "Other AI" use on withheld generators and ambiguous listed-model cases,
+Report "Other AI" use on generators absent from the gallery (such as models
+released after training) and ambiguous listed-model cases,
 with fallback frequency on listed models. Report "Other human" use on withheld
 writers and ambiguous listed-writer cases, with fallback frequency on listed writers.
 Neither fallback earns credit for a correct named identity.
@@ -343,8 +344,8 @@ The goal is AI span localization; sentences are one view of it. A token-level
 head on the shared encoder returns an AI probability per token. Those
 probabilities decode into AI spans with exact character offsets and a confidence
 per span, and they give per-sentence AI share and confidence. Document-level
-outputs keep their meanings, and the runtime's emission makes the spans agree
-with them by construction: a word's probability is the mean of its token
+outputs keep their meanings. The runtime enforces share aggregation and a cap
+on regional confidence: a word's probability is the mean of its token
 probabilities, and a share tilt shifts every word's logit by one bias so that
 the mean word probability equals the emitted document share. Sentence shares
 are means of tilted word probabilities, so they aggregate to the document share
@@ -354,14 +355,25 @@ do not justify averaging confidences or multiplying their complements; it stays
 the document head's calibrated output, and sentence and span confidences are
 capped at it.
 
+These relations do not establish a coherent probability distribution across
+all outputs. A sentence's estimated share can exceed its capped involvement
+confidence. For example, equally long sentences with shares 0.79 and 0.01
+aggregate to document share 0.40, but document confidence 0.50 caps the first
+sentence's confidence below its share. An expected AI-word fraction cannot
+exceed the probability of any AI involvement in that sentence. The released
+emission does not exclude this configuration. Sentence probability consistency
+and calibration remain qualification work; any correction requires a new
+qualified emission version and preserves earlier measurements.
+
 Training labels already exist: the retained exact model-produced spans for mixed
 documents, all-AI labels for model-only documents, and all-human labels for
 human-only documents. Qualification measures token-level Brier, character-span
 IoU and F1 against the retained spans, boundary error, and sentence-level
 calibration. Each cohort reports them as a qualification gate whose thresholds
 are fixed after measurement; spans earn no reward, and document involvement
-Brier remains the reward. Agreement with the document outputs needs no gate,
-because the emission guarantees it; the pre-tilt gap between mean word
+Brier remains the reward. Replay checks verify the share aggregation and
+confidence caps; broader probability consistency needs separate qualification.
+The pre-tilt gap between mean word
 probability and document share is reported as a diagnostic, since the tilt
 costs word-level accuracy wherever the document share is the less accurate
 estimate. The span gate includes the false-positive rate of
@@ -436,8 +448,9 @@ cohorts: a cohort whose template names the gate requests spans for every
 document, adds an anchor job when the anchor is not the reference, and signs a
 separate per-entrant record of the outcome, failing no one. Report mode and
 artifact spec v5, which refuses an artifact without a token-level head or with
-a decoder minimum under 24 words, are built but not yet deployed, so no cohort
-has yet evaluated spans. Until a manifest enforces the gate, the token-level
+a decoder minimum under 24 words, are built. The evaluation side is deployed;
+the scorer's decoder-minimum load fact is not, and no cohort template names
+the gate, so no cohort has yet evaluated spans. Until a manifest enforces the gate, the token-level
 head is optional and a document-heads-only entrant like `R_0` is admissible;
 from that manifest on, every entrant must provide it. Enforcing the gate does
 not itself change the reference; reference changes follow the rules under
@@ -518,7 +531,8 @@ them. SlopNinja publishes its own references (`R_0` and any later reference it
 trains) on the same CC BY-SA 4.0 terms. A public reference package carries no
 evaluation text: it is re-exported with synthetic replay cases instead of the
 Dev-iter replay cases, and it passes a package-corpus scan before release.
-`R_0` is published once its package has been re-exported this way. Miners can
+`R_0`'s package, re-exported this way, is published with testnet's first signed
+release (`testnet-v0.1.0`). Miners can
 also start from the public training recipe (`docs/testnet/training-guide.md`): it
 fine-tunes ModernBERT-base on about 4,200 Train rows from five redistributable
 dataset snapshots and packs and checks an admissible artifact with the miner
@@ -527,9 +541,13 @@ point, data or weights, and is not a strong detector. Miners may keep training r
 datasets private.
 An executable's license does not grant rights to its training texts. Existing
 Blog Authorship Corpus experiments retain their research-only restrictions;
-commercial starter material needs the corresponding use rights. Project policy
-permits publishing Pangram row-level results, hosted and open-weight model
-outputs, and fifteen Creative Commons-licensed collections, each with its
+commercial starter material needs the corresponding use rights. Pangram's
+per-text scores are kept privately and not published (only set-level
+comparisons are reported), and they never become origin labels or training
+targets; Pangram links and ids may be published where they serve
+verification, but a public report link is never requested for private or
+held-out text. Project policy permits publishing hosted and open-weight model
+outputs and fifteen Creative Commons-licensed collections, each with its
 licence notice; FineWeb page text, Reddit, Amazon reviews,
 Ubuntu IRC, RAID and SBCSAE text are not published, and Common Crawl text is
 never redistributed. Hidden/live
@@ -548,16 +566,18 @@ classes, each with matching operators and shapes: the reference's
 ModernBERT-base architecture, the same architecture exposing its final-norm
 token states to a token-level span head, and the tower class that adds trained
 copies of encoder layers 18–21 and the final norm for that head. Each class has
-a parameter bound derived from its structure: 160M for the first two and
-173.5M for the tower class. The tokenizer
+a parameter bound counting graph and head weights: 173.5M for the tower class,
+derived from its structure (its fixed graph plus the largest heads its schemas
+admit), and 160M for the first two, a round number chosen in the first artifact
+spec, about 9.9M above their fixed graph. The tokenizer
 must match the allow-listed tokenizer byte for byte; calibration, contract and
 other declared files must validate against fixed schemas for their roles (for
 example a monotone piecewise-linear calibration map whose knot count the schema
 bounds); a file without a declared role is rejected. These rules bound the
 total at about 700 MB, so no separate byte cap applies. Where a limit is
-needed it derives from structure (allow-lists, schemas, measured bounds) and is
-versioned in the manifest, never hard-wired, because a fixed limit that later
-models outgrow can strand a subnet. The allow-list widens only by a versioned
+needed it derives from structure where it can (allow-lists, schemas, measured
+bounds), and every limit is versioned in the manifest, never hard-wired,
+because a fixed limit that later models outgrow can strand a subnet. The allow-list widens only by a versioned
 manifest. The cap bounds learned capacity (an estimated 40–72 MB: 160M
 parameters at the measured 2–3.6 bits per parameter, and up to about 78 MB in
 the tower class) available for memorizing
@@ -798,8 +818,8 @@ first seen in an earlier cohort may parent again, at most once in a cohort,
 after the cohort's own negatives and never-parented stock, least recently
 parented first, and the 570 Dev-iter humans join as parents only. The gate
 policy that the manifest binds names the rule, and the coordinator refuses it
-off testnet or beside a fresh pool. As of November 10 the rule is built but
-not yet deployed.
+off testnet or beside a fresh pool. The standing template has named the rule
+since November 11, from `testnet-r1-27` onward.
 Fresh stock (the reserved public stock above) is drawn only
 for a cohort with such an entrant. The coordinator enforces this: it draws only
 from pools in its `EXPOSED_POOLS` list, refuses at queue time any plan naming
@@ -1448,9 +1468,9 @@ abandonment from scoring on needs that key, since pre-finalized scores may
 already be public, while a cohort stopped by a fault can still be abandoned for
 that fault without it. The paths stay available on mainnet, no outage triggers
 one, a decision changes only future work and payment, and rewards already paid
-are never reassigned. Most of them, with the key's verification, are built but
-not yet deployed; the record restart and the abandonment of a faulted cohort
-already run in their earlier, deployed form without the key. The
+are never reassigned. Most of them, with the key's verification, are deployed;
+the key has been configured since November 12, and no decision has used it yet.
+The earlier record restart and faulted-cohort abandonment ran without the key. The
 [coordinator rules](agents/coordinator.md) list each path and what is not built
 yet.
 
@@ -2488,44 +2508,99 @@ these stock, flow, cost-recovery, and abuse constraints with scenario graphs.
 Testnet runs for several months before the mainnet subnet is registered, and
 the paper's [paid-service section](../whitepaper/sections/06-paid-inference.tex)
 plans revenue during that period. The first product is a free detection page at
-`/detect/`, which is not a subnet page: a visitor pastes text without an
-account, the page sets no cookie, every check gets its own permanent link
-(unlisted and not indexed for pasted text, so only people the visitor shares
-it with can find it; public and indexable for a check of a public page's
-address), and the text is scored by
-SlopNinja's span package d24 on one scorer Container in SlopNinja's own
-runtime, so it reaches no miner and is not reused for training without
-consent. The headline is one of four evidence bands, set at the package's
-calibrated 1% and 0.1% human false-positive points and 50%, each shown with the
-rates of human and AI-involved Test documents that fell in it, followed by the
-two document percentages. The release's human false positives were measured on
-texts of 150 to 450 words and, for texts that end at a sentence end, 451 to
-1,000 words; texts of 24 to 149 words are scored through calibration maps and
-band cuts fitted for their own length, with the confidence and no share, and
-nothing under 24 words is scored; spans of at least 24 words are
-highlighted only in the two strongest bands, and the page gives no human
-verdict. No advertising or analytics script runs on the page that holds pasted
-text. Ads run only on the site's content pages, once an advertising network has
+`/detect/`, which is not a subnet page. A visitor pastes text, or the address
+of a public web page or of a post on Bluesky or X, and needs no account. The
+text is scored by SlopNinja's span package d24 on one scorer Container in
+SlopNinja's own runtime, so it reaches no miner and is not reused for training
+without consent; each result names the model version that produced it. Abuse
+control runs at Cloudflare's edge, whose rules protect the routes that start a
+check, with no challenge inside the page and no forced wait. Every text of 24
+words or more gets a score. The headline is one of four evidence bands, set at
+calibrated 1% and 0.1% human false-positive points and 50%, shown on a gauge
+with the confidence; the band from 50% to the 1% point is shown as unclear.
+The rates of human and AI-involved Test documents in each band, and the mix the
+confidence assumes, are published in the [detect evidence](detect-evidence.md),
+not on each result, and no result or share card carries a "not proof" line or
+a measured-rate sentence. From 150 to 1,000 words the bands and the confidence
+come from the package's own map and points, whose human false-positive rates
+were measured at 150 to 450 words and, for texts that end at a sentence end, at
+451 to 1,000 words, and the share is shown beside the confidence. Below 150
+words that map flags far more human text and is not calibrated
+([detect evidence](detect-evidence.md#short-texts)), so each of the ranges
+24-49, 50-99 and 100-149 words has its own confidence map and its own 1% and
+0.1% points, fitted on Calibration-split excerpts of that length by the method
+of the package's map; the share, not recalibrated at those lengths, is not
+shown, and fewer AI-involved texts reach the strong bands the shorter they
+are. A longer text is scored on its first 1,000 words, cut back to the last
+sentence end or blank line, never inside a sentence, and the result says how
+many words it scored; a text that stops inside a sentence reads as AI-like at
+every length, and a small AI-edited part of a long document is caught less
+often ([detect evidence](detect-evidence.md#long-texts)). Nothing under 24
+words is scored. Spans of at least 24 words (the floor of every span output)
+are highlighted only in the two strongest bands, and the page gives no human
+verdict.
+
+Every check is kept as a page with its own link, made as soon as the result is
+ready, and the browser goes straight to it; sharing the link is the reader's
+choice. No link expires: a page ends only when its manage link or owning
+account deletes it, a removal case or legal step removes it, or its source
+requires it (an X post's page goes when the post does). A checked public web
+page or post gets a public result page eligible for search-engine indexing,
+whatever its length or platform: it links to the source and quotes only what
+its display policy allows. The service asks search engines not to index it
+under a consent, legal or safety limit: a source or site that opts out or asks not to be indexed, a page
+removed or under a legal state, or a domain a family filter blocks for malware
+or adult content. Search engines control actual indexing. A pasted text's page
+is unlisted: the service excludes it from listings and sitemaps and asks search
+engines not to index it. It keeps
+its text encrypted under that page's own key, and its link is a short
+content-addressed slug derived from the exact text by a keyed hash, so the same
+text always leads to the same page and anyone who checks exactly that text
+reaches it too. A post on X is checked only through X's free embed: its page
+keeps the post's id and the result, never the post's text; the post is checked
+again daily and the page is removed once the post is gone. Accounts are optional and
+serve only to save and manage links (email link, Google, GitHub or a Bittensor
+wallet). Every result page links to a removal form; copyright notices and
+counter-notices, illegal-content reports, wrong-result reports and a post
+author's request open recorded removal cases, which the operator decides
+through signed ops, separately from the legal removal of a published artifact.
+An author request awaits verification before a signed removal decision.
+A document longer than 1,000 words can be checked whole by a paid check, kept
+at an unlisted page under a random link of its own, owned by the payer: overlapping sections of at most 1,000 words, each cut by the
+free rule, with only the tokens past the free cut billed. Paid checks run on
+the account ledger, whose only credit at launch is operator grants (non-cash,
+never counted for the pot); a payment processor follows. A paid detection API,
+reached by key, follows once the package is published. The detection products
+are priced on their own, by prices published with each offer, not by the
+per-job multiplier: pay-as-you-go credit in fixed reload sizes that never
+expires, or a monthly plan whose document allowance resets each month and never
+carries over. They are paid through a merchant-of-record card processor or
+directly in TAO and settle through the pot, not job by job, before and after
+the subnet's launch.
+
+No advertising or analytics script runs on the check page or on any page that
+holds pasted text.
+Ads run only on the site's content pages, once an advertising network has
 approved them, with text-humanizing, essay-writing and detection-bypass
 advertisers blocked and no ads on the pages for writers who were flagged, on
-the pot's page or on policy pages; no page or post suggests that visiting, using, sharing or
-clicking anything increases burns or what any miner receives, and the detection
-page does not promote the pot. A paid detection API follows once the package is published; it and any
-later detection product are paid through a merchant-of-record card processor
-or directly in TAO and settle through the pot, not job by job, before and
-after the subnet's launch.
+the pot's page or on policy pages. A miner's credit follows requests to the
+detection products, never views of or clicks on ads; no page or post invites
+anyone to visit, use, share or click anything to raise burns, a request count
+or what any miner receives, and the detection page does not promote the pot.
 
 Later, the detection products are to serve the reigning reference model
 `R_k` whenever it passes serving checks published before the pot's first
-deposit, so that a miner's model that has beaten the reference can earn
-revenue. Promotion can rest on release noise or partly on recognizing testnet
-documents, and testnet promotions run without the lookup canary, so the checks
-decide what real users are served, and a credited model inherits those limits;
-the checks and the attribution rule are to state what a promoted model must
-show before it serves and is credited. They change no reward, promotion or
-row.
+deposit, so that a miner's model that has beaten the reference serves the
+products' requests and is credited with them. Promotion can rest on batch
+noise in the margin test or partly on recognizing testnet documents, and
+testnet's lookup canary has no anchors, so the checks decide what real users
+are served, and a credited model inherits those limits; the checks and the
+counting rule are to state what a promoted model must show before it serves
+and is credited. They change no reward, promotion or row.
 
-Everything the detection products' advertising networks, sponsors and payment
+SlopNinja operates the detection products and slop.ninja as SlopNinja LLC, a
+Maryland limited liability company, as the site's privacy and terms pages
+name it. Everything the detection products' advertising networks, sponsors and payment
 processors pay out to SlopNinja goes into the pot, net of the fees they deduct
 at source and before any of SlopNinja's own costs, which SlopNinja pays
 separately and never from the pot, except the mainnet registration below. The
@@ -2534,10 +2609,10 @@ main Bittensor chain, whose signers are distinct from every subnet and
 operator key, one of them held by an independent person. Payouts are converted
 to TAO each month. A public page lists gross payouts, conversions, the
 balance, the registration, purchases, burns and claims, each with its
-transaction, and the revenue credited to each model, together with a signed
-monthly statement whose hash is recorded on chain. As of November 11, 2026 the
-pot has received no money, so these rules govern all of it. The money is used
-in three steps:
+transaction, and the detection requests counted for each model, together with
+a signed monthly statement whose hash is recorded on chain. As of November 15,
+2026 the pot has received no money, so these rules govern all of it. The money
+is used in three steps:
 
 1. **Registration.** Once the pot holds about 1.5 times the cost of
    registering a subnet on the main chain, SlopNinja registers the mainnet
@@ -2549,23 +2624,31 @@ in three steps:
    the pot's public page, so an abandonment burns it as well.
 2. **Purchases for the testnet era.** Once the registered subnet launches
    (its emissions have started), the TAO left from revenue earned before the
-   launch buys that subnet's alpha in daily limit-priced tranches sized to the
-   subnet's pool, each bound to the registration by its network number,
-   registration block and owner account; if any of them no longer matches,
-   purchases stop until SlopNinja publishes what happens next. Half of the
-   alpha bought is burned. The other half is distributed to testnet miners on
-   mainnet through a claim contract, in proportion to the testnet-era revenue
-   earned by their winning models. A model counts as winning only once it has
-   beaten the reference and taken its place, so revenue earned while one of
-   SlopNinja's own models is the reference is credited to no miner; if no miner's model
-   was credited with any revenue, this half is burned as well. If only part of
-   the testnet-era revenue was credited to miners' models, the attribution
-   rule, published before the pot's first deposit, fixes how this half is
-   divided: either the credited miners share all of it in proportion to their
-   credited revenue, or each receives the fraction of it that its credited
-   revenue forms of all testnet-era revenue, with the uncredited rest burned.
-   The attribution rule that credits each payout to the models that earned it,
-   and the claim contract's rules, are published before they are used.
+   launch, net of the registration, buys that subnet's alpha in daily
+   limit-priced tranches sized to the subnet's pool, each bound to the
+   registration by its network number, registration block and owner account;
+   if any of them no longer matches, purchases stop until SlopNinja publishes
+   what happens next. Half of the
+   alpha bought is burned. The other half is the whole amount distributed, so
+   the registration's cost reduces it as it reduces the pot: it is half of the
+   alpha bought with what the testnet-era revenue leaves after the
+   registration. It is distributed to testnet miners on mainnet through a
+   claim contract, by inference requests: all requests the
+   detection products served before the launch form one total, and each miner
+   receives the fraction of this half that the requests served by its winning
+   models form of that total. A model counts as winning only once it has
+   beaten the reference and taken its place. Requests not credited to a
+   miner's winning model, such as those served while one of SlopNinja's own
+   models is the reference, count in the total but credit no miner, and their
+   part of this half is burned; if no request is credited to a miner, the
+   whole half is burned. SlopNinja's own test requests are not counted. The
+   counting rule, published before the pot's first deposit, says what counts
+   as one request and which model it is credited to; it and the claim
+   contract's rules are published before they are used. Each counted request
+   carries the same fraction of the miners' half, so a credited miner gains by
+   sending, buying or rewarding requests whenever one costs less than that
+   fraction is worth; how the counting rule finds and treats requests made to
+   raise a count is settled when it is published.
 3. **After the launch.** All revenue from *A* and later *B* products buys and
    burns the subnet's alpha, with nothing distributed.
 
@@ -2577,15 +2660,17 @@ money already received, SlopNinja may re-plan the timing and size of purchases
 by a published notice, but not these uses.
 The distribution changes no score, weight row or emission, and no validator
 checks it. Legal and tax advisers review the charter, these rules, the
-attribution rule and the page wording before the first deposit, and the pot's
+counting rule and the page wording before the first deposit, and the pot's
 custody, monthly statement and tranche mechanics are rehearsed on testnet with
 test funds first, as are its registration payment and claim contract before
 they are used.
 
 The service behind the page, the [detect Worker](../subnet/detect-worker/README.md),
-is built but not yet deployed, and the page opens only after its serving
-parity, abuse controls and wording are checked. The paid detection API and the
-pot are not yet implemented.
+is built but not deployed to production, and the page opens only after its
+serving parity, abuse controls and wording are checked. The initial release is
+paste-only; public URL and X checks remain disabled pending their activation
+checks, and the X fetching routes remain unfinished. The payment processor,
+API keys and pot are not yet implemented.
 
 ### Configurable pricing and measured costs
 
@@ -3610,18 +3695,18 @@ Deferred requirements apply before their respective features activate.
 | [Purpose](../whitepaper/sections/01-purpose.tex) | A-only launch, coordinator-controlled sales, document-level AI share/confidence, AI spans with the span gate against SlopNinja's first span package, and attribution; the 150–450-word range of the evidence so far; B, C, and explanations activate later; the grammar's role in later B editing and why A uses no CFG features; testnet revenue from the detection page into the public pot. |
 | [Related work](../whitepaper/sections/related-work.tex) | Research and service comparisons with limits on novelty and performance claims. |
 | [Participants](../whitepaper/sections/02-participants.tex) | Rust miners and other validators using rtao; the lead validator is the serverless Workers coordinator. Free rtao-rpc access and its live block webhooks support its chain work. Other validators commit the coordinator's signed row; the coordinator's finalized certificate is later consistency evidence. |
-| [Models](../whitepaper/sections/03-models.tex) | Shared-encoder text A artifact, licences and reference-package publication, AI spans under the 24-word floor and the span gate (margins against the first span package, report mode, artifact spec v5), the first span package with the S2c head as the span-serving package and its span-equivalent reference decision, conditional attribution, encoder-plus-stylometry writer profiles awaiting a learned matcher, the raw-text input contract with the dated CFG evidence, execution contracts, the three allow-listed graph classes and their parameter bounds, the object format, galleries, private submission, and clustering. |
+| [Models](../whitepaper/sections/03-models.tex) | Shared-encoder text A artifact, licences and reference-package publication, AI spans under the 24-word floor and the span gate (margins against the first span package, report mode, artifact spec v5), the first span package with the S2c head as the span-serving package and the span gate's anchor, conditional attribution, encoder-plus-stylometry writer profiles awaiting a learned matcher, the raw-text input contract with the dated CFG evidence, execution contracts, the three allow-listed graph classes and their parameter bounds, the object format, galleries, private submission, and clustering. |
 | [Training data](../whitepaper/sections/04-training-data.tex) | Production and authorship records, controlled-rewrite share labels, permissions, source-family splits, retired-only reuse, and funded canary anchors. |
-| [Rewards](../whitepaper/sections/07-rewards.tex) | The cohort batch, reuse rule and rewrite ledger, the Common Crawl stock (domain rules, share caps, cohort generation profile, era gates), the testnet stock, its no-fresh-stock rule and the testnet-only rule that lifts the reuse limits for exposed pools, lookup exposure and the canary, involvement Brier utility, the reference model, reference decisions, the span-equivalent decision, the testnet's one advance-announced replacement and the mainnet opening reference, `reward-v2` bands on quantized scores (`quant-v1`, the bit budget) and the max-upscaled committed row, pre-finalized scores and `live-v1` segment readings, the public-copy gate and fingerprint probe, clusters and their placement by the earliest-admitted member under `reward-v2`'s successor, retained-head promotion and fallback cutoff, failure rules, burns, the open mainnet emission split, and optional C/paid-use allocations. |
+| [Rewards](../whitepaper/sections/07-rewards.tex) | The cohort batch, reuse rule and rewrite ledger, the Common Crawl stock (domain rules, share caps, cohort generation profile, era gates), the testnet stock, its no-fresh-stock rule and the testnet-only rule that lifts the reuse limits for exposed pools, lookup exposure and the canary, involvement Brier utility, the reference model, reference decisions, the testnet promotion and the mainnet opening reference, `reward-v2` bands on quantized scores (`quant-v1`, the bit budget) and the max-upscaled committed row, pre-finalized scores and `live-v1` segment readings, the public-copy gate and fingerprint probe, clusters and their placement by the earliest-admitted member under `reward-v2`'s successor, retained-head promotion and fallback cutoff, failure rules, burns, the open mainnet emission split, and optional C/paid-use allocations. |
 | [Cohorts](../whitepaper/sections/07b-cohorts.tex) | Daily 20-tempo cohorts, lagged payout with per-tempo re-commits, native abstention from all-burn rows, the launch and reward-intent authorizations, which never expire, durable active-target records, fan-out evaluation lanes, durable recovery, the operator decisions and the offline operator-decision key, receipt retention, the runtime-version rule, automatic updates/migrations, and parallel validator commit/reveal with no coordinator finality or adoption barrier. |
 | [Confidentiality](../whitepaper/sections/05-confidentiality.tex) | Central A execution and proposed miner-owned Cloudflare B accounts; provider/operator trust, content isolation, private weights, and remaining logging tests. |
-| [Paid inference](../whitepaper/sections/06-paid-inference.tex) | Revenue before mainnet (the free detection page with its evidence bands and advertising rules, the paid detection API, and the public pot's custody, ledger, registration payment, burns and distribution to testnet miners), operator quotes, bounded asynchronous jobs, card/TAO/alpha burns for paid jobs, private delivery, operator receipts, payer assignments, and refunds. |
+| [Paid inference](../whitepaper/sections/06-paid-inference.tex) | Revenue before mainnet (the free detection page with its evidence bands from 24 words, 1,000-word cut, a page and a link that never expires for every check, indexable public result pages, content-addressed unlisted links, optional accounts, removal cases and advertising rules, paid checks of longer documents, the paid detection API and the products' own price structure, and the public pot's custody, ledger, registration payment, burns and distribution to testnet miners), operator quotes, bounded asynchronous jobs, card/TAO/alpha burns for paid jobs, private delivery, operator receipts, payer assignments, and refunds. |
 | [Tokenomics](../whitepaper/sections/06a-tokenomics.tex) | Cost and price scenarios, burn hypothesis, emission allocation, liquidity, self-purchase incentives, and sensitivity graphs. |
 | [Later transformation](../whitepaper/sections/07a-adjudication.tex) | The CFG as B's edit representation, author fit, preservation/readability/tone, nonregression, exact-byte evidence, and service obligations; B authority and settlement remain undecided. |
 | [Grammar contributions](../whitepaper/sections/07c-grammar.tex) | Later one-time credit for accepted reusable contributions to the grammar used by later B, with correctness and overlap rules to qualify. |
 | [External comparisons](../whitepaper/sections/08-pangram-audits.tex) | Independent labels, continuing Pangram comparison, anchor replacement, exact report identity, funded observations, and scoped disclosure. |
 | [Trust](../whitepaper/sections/09-trust.tex) | Coordinator honesty, hidden-label curation, model isolation, provider trust, native-consensus limits, and validator refusal. |
-| [Existing evidence](../whitepaper/sections/10-evidence.tex) | The baseline release candidate and its span head, the adopted S2c head, the first span package under the 24-word floor, the sealed Test against Pangram, Container serving, cohort sizing, the cohort mix and context bleed, copy-policy measurements, the public stock, the Common Crawl pilot and stock qualification, the writer-profile comparison, testnet weight commitments, the `reward-v1` testnet rehearsal, the testnet record restart and open cohorts, and implementation status at the rtao `fa83052d` pin, including what is built but not yet deployed, with their populations and limitations kept separate from launch qualification. |
+| [Existing evidence](../whitepaper/sections/10-evidence.tex) | The baseline release candidate and its span head, the adopted S2c head, the first span package under the 24-word floor, the sealed Test against Pangram, the candidate comparison on testnet-form text, the detection page's short and long texts, Container serving, cohort sizing, the cohort mix and context bleed, copy-policy measurements, the public stock, the Common Crawl pilot and stock qualification, the writer-profile comparison, testnet weight commitments, the `reward-v1` testnet rehearsal, the testnet record restart and open cohorts, and implementation status at the rtao `fa83052d` pin, including what is built but not yet deployed, with their populations and limitations kept separate from launch qualification. |
 | [Launch criteria](../whitepaper/sections/11-launch.tex) | A quality, including the span gate's margins measured on closed testnet cohorts and artifact spec v5's client release; recovery and chain rehearsals; mainnet's `live-v1` budget and the timing channel to close before mainnet; funded commercial activation, including the detection API's processor and a testnet rehearsal of the pot; and separate later B/C qualification. |
 | [Appendix: earlier checkpoints](../whitepaper/sections/12-earlier-checkpoints.tex) | Dated research checkpoints that precede `R_0` and gate nothing at launch: the origin detector baseline, grammar and CFG-vector results, V6 and its adaptation, and earlier author experiments. |
 
@@ -3643,7 +3728,7 @@ drawing fresh stock, with the testnet-only lift of their reuse limits,
 pre-finalized scores and testnet `live-v1` readings, cluster placement by the
 earliest-admitted member for `reward-v2`'s successor, the operator decisions,
 and the detection page with the public pot's custody, registration payment,
-burns and distribution to testnet miners. Whitepaper draft 0.65 incorporates the proposal with the following choices marked open; each must be
+burns and distribution to testnet miners. Whitepaper draft 0.66 incorporates the proposal with the following choices marked open; each must be
 settled before the corresponding feature goes live:
 
 1. *A*'s supported numerical architectures, identity policy, profile pooling,
@@ -3705,8 +3790,8 @@ settled before the corresponding feature goes live:
    the detection API; the advisers' review of the pot's charter, rules and
    wording and a testnet rehearsal of its custody, monthly statement and
    tranche mechanics before the first deposit; the serving checks under which
-   the detection products serve the reigning reference, the attribution rule
-   that credits revenue to winning models, and the claim contract with its
+   the detection products serve the reigning reference, the counting rule
+   that credits detection requests to winning models, and the claim contract with its
    testnet rehearsal, each published before it is used; and the registration
    and each purchase, burn and claim checked against finalized chain state.
 5. Before later *B*: model/base qualification, content-privacy controls, panel

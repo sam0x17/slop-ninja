@@ -131,8 +131,13 @@ Section 6 specifies these journaled decision paths:
   stopped by a fault can still be abandoned for that fault without it.
 - Refusal to pay: the operator may refuse to pay a finished cohort by declining
   its closure, by abandoning it late, or by naming it in a switch to burn, each
-  under the operator-decision key. A declined result is never installed;
-  continuing after a refusal goes through a switch to burn and a fresh record.
+  under the operator-decision key. A declined result is never installed. A
+  late abandonment ends the cohort before it closes: it produces no target, the
+  next package is sealed against the target still active, and the record runs
+  on. A closure is declined after the cohort closed; when its package named a
+  new target, the next package is sealed against that target, which the
+  coordinator never installs, so continuing after such a declined closure goes
+  through a switch to burn and a fresh record.
 - Start over: the operator switches the coordinator to burn. With signing
   paused, the coordinator sets a restart floor one epoch after the last
   finalized one, installs the burn row from the floor under a launch

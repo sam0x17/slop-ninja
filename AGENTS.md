@@ -29,10 +29,10 @@ covered by the code licence.
 SlopNinja publishes its own references (R0 and later) like any R_k; a public
 reference package carries no evaluation text (synthetic replay cases, never
 Dev-iter ones) and passes a package-corpus scan. Paid A serves a published,
-qualified artifact (R0 once its public package is published).
+qualified artifact (R0, whose package testnet-v0.1.0 publishes).
 Update the whitepaper's baseline evidence at meaningful evaluated milestones,
 not after every experiment. Keep both A and B's measured limits explicit.
-Whitepaper draft 0.65 and `docs/cloudflare-subnet-draft.md` describe the current plan: launch A
+Whitepaper draft 0.66 and `docs/cloudflare-subnet-draft.md` describe the current plan: launch A
 alone; B transformation and C (shared contributions to the grammar B uses)
 activate separately, each by its own decision, and C may activate before B so
 the grammar can grow first. A reads raw text; the native CFG is a later B input
@@ -43,22 +43,28 @@ Testnet (subnet 601) runs for several months before the mainnet subnet is
 registered, with admission open to every registered hotkey. Testnet subnet
 pages live under `/testnet/<page>`, their unprefixed paths reserved for
 mainnet; the detection product, not a subnet page, lives at `/detect/`.
-Revenue starts on testnet: a free AI-detection page in SlopNinja's own runtime
-(every check gets a permanent link: a pasted text's page is unlisted, so only
-people its link is shared with can find it, and a check of a public page's
-address is public and indexable; no ad or analytics script; ads only on
-approved content pages), later serving the reigning reference, a paid
-detection API (card processor or TAO) once its package is published, and
-other products. Payouts
+Revenue starts on testnet: a free detection page in SlopNinja's runtime
+scoring every text of 24 words or more (its own confidence maps under 150
+words; spans keep the 24-word floor), up to 1,000 words cut at a sentence end
+(every check gets a page whose link never expires: public result pages for
+public sources, X posts included, always indexable except opt-outs, removed
+or legal-state pages and family-filter blocks; content-addressed unlisted
+short links for pasted text; optional accounts, removal requests; no ad or
+analytics script on the pages that hold pasted text; ads only on approved
+content pages; operator SlopNinja LLC, a Maryland LLC), later serving the reigning
+reference, paid checks of longer documents (operator grants only at launch), a
+paid detection API (card processor or TAO) once its package is published, and
+other products, priced on their own published terms. Payouts
 go into a public pot, native TAO in a published two-of-three multisig with an
-independent third signer and a public ledger (whitepaper Section 8): at about
-1.5x the registration cost it pays the mainnet registration (refunds go back
-to the pot), then buys alpha, half burned and half claimable by testnet miners
-pro rata to the testnet-era revenue of their winning models (models that beat
-the reference and took its place); later revenue all buys and burns alpha;
-abandoning mainnet burns its TAO. The distribution changes no score, row or
-emission. Describe the pot operationally, never in terms of price, value to
-holders or returns. The page's Worker is built, not deployed.
+independent third signer and public ledger (whitepaper Section 8): at about
+1.5x the registration cost it pays the mainnet registration (refunds return
+to the pot), then buys alpha, half burned, half claimable by testnet miners by
+their winning models' share of testnet-era detection requests (models that
+beat the reference and took its place; the rest burned); later revenue all
+buys and burns alpha; abandoning mainnet burns its TAO. The distribution
+changes no score, row or emission. Describe the pot operationally, never in
+terms of price, value to holders or returns. The page's Worker is built, not
+deployed.
 B is the main product objective: writing transformation toward a target voice
 the user chooses (their own or any other), with meaning, readability, and tone
 preserved. A is a supporting detection and attribution mechanism and the
@@ -76,8 +82,11 @@ spans and needs measured fractional supervision. Keep expected share between
 model-only probability and involvement probability. There is no required boolean output.
 A also localizes AI text: a token-level head gives per-token AI probabilities,
 decoded into AI spans with exact character offsets and per-span confidence, and
-per-sentence AI share and confidence derive from the same probabilities,
-consistent with the document outputs. Document confidence Brier is the only
+per-sentence AI share and confidence derive from the same probabilities.
+Sentence shares aggregate to document share, and sentence and span confidences
+are capped at document confidence. These relations do not establish joint
+probability consistency: sentence share can exceed its capped confidence, so
+sentence consistency and calibration remain qualification work. Document confidence Brier is the only
 reward; share, attribution and spans are qualification gates only. Spans are
 required: from the first manifest enforcing the span gate, every entry carries
 a token-level head with the 24-word decoder floor (artifact spec v5, with a
@@ -114,8 +123,11 @@ The manifest's allow-list names three graph classes: R0's ModernBERT-base
 architecture; the same architecture exposing its final-norm token states to a
 token-level span head; and a tower class adding trained copies of encoder
 layers 18-21 and the final norm for that head. Each class has a parameter bound
-derived from its structure: 160M for the first two and 173.5M for the tower
-class; R0's package has 150.3M and the first span package 170.6M. The tokenizer
+over graph and head weights: 173.5M for the tower class, derived from its
+structure (its fixed graph plus the largest heads its schemas admit), and 160M
+for the first two, a round number chosen in the first artifact spec above their
+fixed graph; R0's package has 150.3M and the first span package 170.6M.
+The tokenizer
 byte-matches the allow-listed one and other files validate against fixed role
 schemas, with no separate byte cap.
 The allow-list widens only by a versioned manifest. Avoid arbitrary caps that

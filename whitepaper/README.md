@@ -1,12 +1,13 @@
 # Whitepaper
 
-[Draft 0.65](slop_ninja.pdf), November 11, 2026, describes a subnet whose main
-objective is B: transforming authorized writing toward the author's intended
-voice while preserving meaning, readability, and tone. A supplies supporting
-detection and attribution signals for that editing process and launches first.
-The intended training is adversarial: B learns against public A detectors,
-while authorized B revisions supply challenging examples for future A training
-after evaluation retirement. Improvement must be measured on fresh held-out data.
+[Draft 0.66](slop_ninja.pdf), November 16, 2026, describes a subnet whose main
+objective is B: transforming writing toward whatever voice the user chooses,
+their own or any other, while preserving meaning, readability, and tone. A
+supplies supporting detection and attribution signals for that editing process
+and launches first. The intended training is adversarial: B learns against
+public A detectors, while B's revisions supply challenging examples for future
+A training after evaluation retirement. Improvement must be measured on fresh
+held-out data.
 
 The A-only launch uses one text model that reports document-level AI share,
 AI-involvement confidence, AI spans of at least 24 words with per-sentence
@@ -40,7 +41,7 @@ reuse limits for those documents. SlopNinja publishes its own
 reference weights under CC BY-SA 4.0 too, with synthetic replay cases and no
 evaluation text. Testnet starts from the baseline release candidate; the
 reference changes when an entrant beats it or when the operator sets it by a
-recorded decision, as planned for the next qualified reference. Mainnet opens a
+recorded decision. Mainnet opens a
 fresh record with the reference testnet holds at that time. Rewards port subnet 78's
 geometric band mechanism, computed from quantized scores released with seeded
 noise under a per-cohort privacy budget, with no credit for detected copies of
@@ -79,17 +80,20 @@ testnet through fault drills without a duplicate, and rehearsal cohorts ran
 from R0 on November 6, admission opened to every registered hotkey on
 November 7, and a `reward-v2` cohort with an outside entrant has since run end
 to end (on-chain commitments, direct uploads, publication at scoring start,
-scoring and close), with a second one scored. No live row has yet paid more than one UID, validators still
-trust the coordinator's published-artifact index, receipt deletion runs except
-for the cohorts just before the record restart, and the signed updater and
-cluster placement by the earliest-admitted member are not yet implemented.
-Most operator decisions with the operator-decision key's verification, the
-span gate in report mode with artifact spec v5, pre-finalized scores and
-segment readings, and the service behind the detection page are built but, as
-of November 11, not yet deployed, so no cohort has yet evaluated spans;
-enforcing the gate is not yet implemented. The record restart and the
-abandonment of a faulted cohort already run in their earlier, deployed form,
-without the key. Validators can follow a restart without a manual reset from
+scoring and close), with a second one scored. Outside entrants have since
+passed every gate. No live row has yet paid more than one
+UID, validators still trust the coordinator's published-artifact index, and the
+signed updater and cluster placement by the earliest-admitted member are not
+yet implemented. Most operator decisions, with the operator-decision key's
+verification, are deployed and not yet used. The span gate in report mode with
+artifact spec v5, and pre-finalized scores and segment readings, are built and
+partly deployed, but as of November 15 no cohort template names them, so no
+cohort has yet evaluated spans; enforcing the gate is not yet implemented.
+Frontier generation for cohorts is deployed and enabled from `testnet-r1-31`, and the
+detection products are built but not deployed to production. `R_0` was replaced
+by `R_1` through ordinary promotion in `testnet-r1-30`; `R_0` is now its
+predecessor, and span package d24 remains the span gate's fixed anchor.
+Validators can follow a restart without a manual reset from
 `testnet-v0.2.0`, the first signed release with validator binaries, published
 on November 11. Dated research results remain
 distinct from a qualified model or live service.
@@ -116,23 +120,33 @@ the provider pauses a subscription, which an operator must resume. The webhook
 receiver and Workers chain signing remain integration work to qualify.
 
 Testnet runs for several months before the mainnet subnet is registered.
-Revenue from ad-supported public detection pages served by A, and from other
+Revenue from a free public detection page served by A, and from other
 products, accrues in a publicly visible pot. The detection page first runs the
 span package, later the reigning reference model once it passes published
-serving checks; it stores no text and carries no advertising, and ads run on
-content pages. The pot takes everything the detection products' networks and
+serving checks. It scores every text of 24 words or more, with its own
+confidence maps under 150 words, up to 1,000 words cut at a sentence end, and
+paid checks score longer documents whole. Every check gets a page whose link
+does not expire: a checked public web page or post gets a public result page
+that search engines can find, and a pasted text an unlisted short link derived
+from the text itself. Pages that hold pasted text carry no advertising; ads run
+on the site's content pages. SlopNinja LLC, a Maryland limited liability
+company, operates the site. The pot takes everything the detection products' networks and
 processors pay out, holds it as native TAO in a published two-of-three
 multisignature account with an independent third signer, and lists every
 payout, conversion, purchase, burn and claim. Once it holds about 1.5 times
 the cost of a mainnet registration, SlopNinja registers the mainnet subnet
-with it. After the launch, the rest buys the subnet's alpha in daily tranches
-bound to that registration: half is burned, and half is distributed through a
-claim contract to testnet miners in proportion to the testnet-era revenue
-earned by their winning models, which must first have beaten the reference;
-revenue earned while one of SlopNinja's own models is the reference is
-credited to no miner. From the launch on, all revenue buys and burns alpha. If
-mainnet is abandoned, the pot's TAO is burned. The distribution changes no
-score, row or emission.
+with it; any part of that cost later returned to the subnet's owner account
+goes back to the pot. After the launch, the rest buys the subnet's alpha in
+daily tranches bound to that registration: half is burned, and half is
+distributed through a claim contract to testnet miners by inference requests.
+Each miner receives a fraction of that half equal to its winning models'
+share of all detection requests served before the launch (winning models beat
+the reference and took its place), counted under a rule published before the
+pot's first deposit; the fraction for requests served by SlopNinja's own
+models is burned.
+From the launch on, all revenue buys and burns alpha. If mainnet is
+abandoned, the pot's TAO, including any registration cost returned to it, is
+burned. The distribution changes no score, row or emission.
 
 The tokenomics analysis covers burn demand, cost recovery, emission allocation,
 operating liquidity, and self-purchase incentives. Its graphs use the dated
@@ -157,7 +171,7 @@ TeX Gyre Pagella/Heros and Latin Modern Mono fonts. It renders the SVG diagram
 and compiles the native LaTeX source, including the PGFPlots graphs. Build output
 stays in ignored `build/`. The PDF and PDF diagram are checked in.
 
-Draft 0.65 was built on the authorized compute host with `build.sh` inside a local Docker image
+Draft 0.66 was built on the authorized compute host with `build.sh` inside a local Docker image
 derived from `texlive/texlive:TL2025-historic`, pinned by digest
 `sha256:7056390eac37715fd3e01875037ceb4016cb17d44c611f7bbbfa7a012007979f`,
 with Debian's `librsvg2-bin` 2.63.3 added and the XeLaTeX format prebuilt. The
@@ -174,6 +188,6 @@ RUN fmtutil-sys --byfmt xelatex
 EOF
 docker build -t slop-ninja-whitepaper-tex:TL2025-historic-rsvg .
 docker run --rm --network none -u "$(id -u):$(id -g)" -e HOME=/tmp \
-  -e SOURCE_DATE_EPOCH=1794355200 \
+  -e SOURCE_DATE_EPOCH=1794787200 \
   -v "$PWD/whitepaper:/w" -w /w slop-ninja-whitepaper-tex:TL2025-historic-rsvg bash build.sh
 ```

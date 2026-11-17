@@ -18,11 +18,12 @@ reference \(R_0\) was compared with Pangram on a sealed, pre-registered
 Test (Section~\ref{existing-evidence-and-implementation-status}). It was
 noninferior as a single artifact, but its recipe missed the legal-opinions slice
 limit. Later reference changes follow Section~\ref{reference-model}: the cohort
-promotion rule, plus signed operator reference decisions with recorded reasons,
-among them the span-equivalent decision that passes \(R_0\)'s position to
-SlopNinja's first span package and a planned replacement of the testnet's
-\(R_0\), announced in advance, by the next reference SlopNinja trains, only if
-it passes every required gate; external comparisons continue under
+promotion rule, plus signed operator reference decisions with recorded reasons.
+Testnet's \(R_0\) was replaced by \(R_1\) through ordinary promotion in
+\texttt{testnet-r1-30}. SlopNinja's own candidates qualify on fresh text built the way
+testnet builds its cohort batches, from testnet's generators, rather than on
+the labels of earlier local generators (Section~\ref{next-reference-evidence});
+external comparisons continue under
 Section~\ref{pangram-evidence-and-assigned-audits}. Within each new architecture,
 compare the joint model with origin-only and attribution-only controls using
 matched encoder capacity, data, and training budgets. Measure whether
@@ -32,12 +33,13 @@ improves attribution, including cases where either task is harmed.
 Keep each source work and its generated or edited descendants together across
 Train, Development, Calibration, and Test, and freeze gallery policy, model
 versions, and thresholds before opening final evaluation data. The qualification
-set needs independent reference/query works, withheld writers, unseen generator
-families and versions, mixed editing histories, and cross-topic controls.
+set needs independent reference/query works, withheld writers, generator models and
+versions released after training, mixed editing histories, and cross-topic controls.
 Human proxies and documented human-only histories remain separate strata.
 Report AI-involvement Brier score, calibration, sensitivity at declared human
 false-positive operating points, and source-family uncertainty. Report
-attribution and open-set rejection separately, including unseen generators,
+attribution and open-set rejection separately, including generators released
+after training,
 ambiguous listed-model cases, and mixed work with a supported human match.
 Qualify both conditional fallback categories on the documented contributor
 roles, including mixed work with neither identity in the gallery. Assess absent
@@ -81,7 +83,8 @@ Qualify document-level AI share on controlled partial rewrites with measured
 final-span fractions, including zero and complete replacement, dispersed edits,
 and small rewritten regions in long documents. Keep all versions of each source
 in one split. Report source-balanced share error, failures, uncertainty, and
-transfer to held-out generators and editing procedures alongside binary-label
+transfer to generators released after training and to held-out editing
+procedures alongside binary-label
 confidence calibration. Neither a calibrated involvement score nor accurate
 pure-human/pure-model classification establishes fractional accuracy.
 Measure span outputs under the 24-word floor on the sealed batches of closed
@@ -320,8 +323,9 @@ lever. Also settle before mainnet what the entrants of a cohort abandoned after
 its scoring started keep (Section~\ref{operator-decisions}): whether the
 abandonment first lets the publication of their artifacts finish, and whether
 their contents join the published-artifact index at the abandonment, so that
-copies of them earn nothing, or the entrants carry over to the next cohort
-without committing again. Before live rewards, settle active-time accounting,
+copies of them earn nothing, or the entrants carry over, without committing
+again, to the next cohort of the record, which the abandonment leaves running.
+Before live rewards, settle active-time accounting,
 retry and canonical-attempt rules, gate thresholds, including both
 false-positive tiers, correction authority, the criteria of the signed review
 that clears a blocked candidate, and shared-failure treatment, choosing them on
@@ -350,18 +354,26 @@ wallet requirements, transfer holds, and any additional Solana entry route.
 Verify burn authority under the actual ownership or lease arrangement.
 Test duplicate provider events, late finality, failed conversion, burn
 allocation, and original-payment refunds, and qualify the merchant-of-record
-processor for the detection API. Rehearse the revenue pot's multisignature custody,
+processor for the detection products. Before the detection page opens, check
+that eligible public result pages permit indexing and appear in the site's
+sitemaps, outside the opt-out, legal and family-filter exceptions; that
+unlisted pages send \texttt{noindex} instructions and appear in no sitemap;
+that a
+deletion or removal ends a page and its link, and that the site's
+privacy and terms pages state that every checked text and its result are kept
+at an unlisted link that does not expire, reached by those given the link or
+checking the same text (Section~\ref{testnet-revenue}). Rehearse the revenue pot's multisignature custody,
 monthly statement, and tranche mechanics on testnet with test funds before its
 first deposit, and its registration payment and claim contract before they are
 used (Section~\ref{testnet-revenue}); reconcile its published balance with its
-payout records and its credited revenue with its attribution rule, and verify
+payout records and its counted requests with its counting rule, and verify
 the registration and each purchase, burn, and claim against finalized chain
 state. Burned principal is unavailable for
 refunds or operations, so operating funds and reserves must exist separately.
 
 Measure actual pipeline costs before fixing the pricing multiplier or promising
-a price below Pangram. The exploratory multiplier of 25 and the detection
-price range of \$0.01--\$0.03 require representative document lengths,
+a price below Pangram. The exploratory multiplier of 25 and the price range of
+\$0.01--\$0.03 for quoted detection jobs require representative document lengths,
 Container utilization and idle time, retries, and matched competitor volumes. Public-artifact
 serving and hosted \textit{A} evaluation costs belong to SlopNinja. Miners fund
 their own training; later \textit{B} miners also absorb bounded evaluation

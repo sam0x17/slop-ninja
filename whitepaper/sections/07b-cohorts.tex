@@ -379,20 +379,24 @@ publication finish, is settled before mainnet
 \item \emph{Refusal to pay.} The operator may refuse to pay a finished cohort by
 declining its closure, by abandoning it late, or by naming it in a switch to
 burn, each under the operator-decision key. A declined result is never
-installed. Later targets chain from each cohort's target, so continuing after a
-refusal goes through a switch to burn and a fresh record.
+installed. The routes differ in what follows. A late abandonment ends the
+cohort before it closes, so it produces no target and moves no reference: the
+next package is sealed against the target still active, and the record runs on
+with only that cohort unpaid. A closure is declined after the cohort has
+closed. When its package named a new target as the one active after it, the
+next cohort's package is sealed against that target, which the coordinator
+never installs; the coordinator keeps holding the earlier target, which no
+later target names as its predecessor, so continuing after such a declined
+closure goes through a switch to burn and a fresh record. Naming a cohort in a
+switch to burn is itself that restart.
 \item \emph{Start over.} To stop paying the current record, the operator switches
 the coordinator to burn. With signing paused, the coordinator sets a restart
 floor one epoch after the last finalized one, installs the burn row from the
 floor under a launch authorization issued at that epoch, and names in the
 signed restart record every cohort that opened before the floor without being
 handled, so no cohort is dropped silently. The operator then opens a fresh
-record. Its first manifest names its first reference, with no predecessor:
-\(R_0\) itself, or, once the span-equivalent decision of
-Section~\ref{reference-model} has passed \(R_0\)'s position to SlopNinja's
-first span package, that package. This holds on mainnet too, where a restart
-therefore returns to \(R_0\)'s position, whether \(R_0\) or that span package
-occupies it, rather than to the reference that mainnet's first record opened with;
+record. Its first manifest names \(R_0\) as its first reference, with no
+predecessor (Section~\ref{reference-model}). This holds on mainnet too;
 a reference decision with a recorded reason can then set another. Winners of the earlier record are never paid again. Validators accept the restart through that
 launch authorization, which was issued after the target they hold, and refuse
 rows from before its floor; none needs a manual reset.
@@ -483,10 +487,11 @@ as a positive signal within Bittensor and accepting the reveal delay. It adds
 no copy protection, since the signed row is published off chain before any
 reveal.
 The enabled flag check below enforces that configured submission policy.
-The recognized subnet owner sets
-\texttt{commit\_reveal\_weights\_enabled = true}, through the agreed
-owner-authorized execution path under a lease; the operator verifies the
-effective setting before live submission
+The recognized subnet owner, SlopNinja's owner account on testnet and on
+mainnet as planned (Section~\ref{participants-and-the-two-kinds-of-work}), sets
+\texttt{commit\_reveal\_weights\_enabled = true}; under a lease it would act
+through the owner-authorized execution path that the lease secures. The
+operator verifies the effective setting before live submission
 \cite{weightsubmissionmode,commitreveal}. Validators check that setting against
 finalized state at startup and fresh submission state before signing. An
 unexpected disabled flag pauses new weight commitments rather than silently
@@ -623,11 +628,8 @@ deletes eligible objects,
 invalidates access, and records completion. Delete managed replicas and caches
 as well; do not retain a separate indefinite archive of these detailed receipts.
 Previously downloaded copies cannot be recalled. The testnet evaluation service
-runs this deletion. One gap remains as of November 11: the receipts of the
-cohorts run just before the testnet record restart
-(Section~\ref{testnet-r1}) are not yet deleted, because the step that lets the
-new record release them waits on an older record's store that no longer
-answers.
+runs this deletion, since November 11 also for the cohorts run just before the
+testnet record restart (Section~\ref{testnet-r1}).
 
 Two completed successors are a deliberate pilot retention choice: they keep
 recent audit evidence available while limiting the number of completed cohorts

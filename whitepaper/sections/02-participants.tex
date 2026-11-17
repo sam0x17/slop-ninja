@@ -19,11 +19,15 @@ served \textit{A} inference. Benchmark rewards depend on measured performance,
 not a claim about training expenditure.
 
 SlopNinja is the subnet \emph{operator}. The \emph{subnet owner} is the account
-recognized on chain; SlopNinja may operate through ownership or a lease.
-A lease must secure an owner-authorized execution path for required
-hyperparameter changes, including enabling commit--reveal, and any owner-only
-burn operations. Operating the service alone grants neither those powers nor
-the owner's emission entitlement.
+recognized on chain, which holds the owner's emission entitlement and makes
+the owner-only calls: required hyperparameter changes, including enabling
+commit--reveal, and any owner-only burn operations. SlopNinja registered
+testnet subnet 601 and holds its owner account, and it is to register the
+mainnet subnet from the pot of Section~\ref{testnet-revenue} and hold that
+owner account as well. A lease is not planned; if SlopNinja ever operated a
+subnet through one, the lease would have to secure an owner-authorized
+execution path for those calls. Operating the service alone grants neither
+those powers nor the owner's emission entitlement.
 
 One lead validator, operated by SlopNinja, serves as the \emph{coordinator}.
 This validator is the serverless service: it administers the daily frozen
@@ -75,7 +79,7 @@ delivery and certificate publication also do not gate cohorts or other validator
 Curators maintain authorized evaluation collections, production histories,
 hidden labels, and source-group splits. Access to these materials follows the
 collection's permissions. Customers authorize processing of submitted documents
-and reference writing under their declared rights for a quoted job; buying inference gives no automatic
+and reference writing for a quoted job; buying inference gives no automatic
 permission to add either to training or benchmarks. Author references and
 derived profiles receive the same content protection as the query document.
 

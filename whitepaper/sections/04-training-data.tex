@@ -51,7 +51,8 @@ masked out of span training and scoring (Section~\ref{span-outputs}).
 Vary replacement size, position, topic, generator, and editing intensity,
 including dispersed edits and complete rewrites. All variants of one source
 remain in the same split. Control for splice artifacts and formatting cues,
-and evaluate on unseen sources, generators, and rewrite procedures. These
+and evaluate on unseen sources, newly released generators, and rewrite
+procedures. These
 examples could supervise an extent estimate; they do not establish that it
 generalizes to arbitrary human/AI revision histories.
 
@@ -72,8 +73,13 @@ for group-aware evaluation.
 Evaluation writers have independent reference and query works. Claims of
 chronological transfer require earlier references and later queries with usable
 composition dates. Held-out writers test gallery enrollment and open-set
-rejection. Origin testing also holds out generator and prompt families, and
-attribution testing includes previously unseen generators. Match subject,
+rejection. No generator or model class is held out of training: origin and
+attribution testing measure generalization on fresh documents, on scenarios
+and prompts kept apart from training, and on models released after a detector
+was trained. The rule postdates \(R_0\), whose October 30 Test included one
+open generator, OLMo-2, kept out of training; the Test's frontier models were in
+training, and only some of their prompted voices were held out
+(Section~\ref{sealed-test-evidence}). Match subject,
 genre, length, and assignment format across origins. Cross-topic comparisons
 test whether an apparent writer signature survives a change of subject rather
 than merely identifying the material that writer discussed.
@@ -143,9 +149,11 @@ PLOS articles offer factual material and citation constraints; coauthorship
 limits their use as single-writer examples~\cite{plos}. Acquisition qualifies
 rights and labels item by item. Existing Blog Authorship Corpus experiments
 remain local, noncommercial research and supply no commercial starter data.
-Restricted private research material is excluded from releases. Project policy
-permits publishing Pangram row-level results, hosted and open-weight model
-outputs, and fifteen Creative Commons-licensed collections, each with its
+Restricted private research material is excluded from releases. Pangram's
+per-text scores are kept privately and not published, only set-level
+comparisons are reported, and its scores never become origin labels or training
+targets; Pangram links and ids may be published where they serve verification. Project policy permits publishing hosted and open-weight model
+outputs and fifteen Creative Commons-licensed collections, each with its
 licence notice. FineWeb page text, Reddit, Amazon
 reviews, Ubuntu IRC, RAID, and SBCSAE text are not published, and Common Crawl
 text is never redistributed. The acquisition plan~\cite{trainingplan} records
@@ -166,6 +174,9 @@ private evaluation, with further withheld writers needed for stronger open-set
 rejection evidence. These two collections are unfunded options. Neither has
 been commissioned, and launch does not depend on their counts.
 
+From November 13, 2026, frontier-model text is the main generated source of
+every SlopNinja training round, and text from newly released frontier models is
+generated as they appear.
 Permitted sources can also produce model-only and mixed examples while
 retaining exact prompts where known, model revisions, outputs, and human editing
 records. Later \textit{B} research adds linked source, brief, candidate, and

@@ -18,9 +18,8 @@
 //!   once (pending review: the page is de-indexed and its card generic); an
 //!   illegal-content report against a secret page disables it with its
 //!   re-run copy family; a wrong-result report on a public page queues a
-//!   background re-check; a report on an X post's page from its author
-//!   removes the page at once (the X removal below). Everything else waits
-//!   for the operator.
+//!   background re-check. Author claims, including claims about X posts,
+//!   wait for the operator to verify them before signed removal.
 //! - **States** ([`case_edge`]): `received → reviewing → accepted →
 //!   countered → restored`, `rejected`, `incomplete → received`, and
 //!   `closed` from any other state. Each op names its `from` states in its
@@ -29,7 +28,7 @@
 //!   adds a `strikes` row with the page's `owner_via`. A strike on a claimed
 //!   page counts only after `review_strike` says so.
 //! - **The X removal** ([`x_removal`]): every page about one X post goes, as
-//!   one removal, whether from the form, from `remove` or from `x_remove`:
+//!   one removal, whether from `remove` or from `x_remove`:
 //!   the opt-out tombstone that keeps only `canon_key` is written first, in
 //!   its own batch, so no check of the post can store after it; then the run
 //!   documents are deleted from R2, and one D1 batch removes the detections
@@ -309,7 +308,9 @@ pub fn target_slug(origins: &Origins, target: &str) -> Option<(SlugForm, String)
     }
     let t = t.split(['#', '?']).next()?;
     for (role, form) in [(HostRole::Site, SlugForm::Public), (HostRole::Secret, SlugForm::Secret)] {
-        let Some(path) = t.strip_prefix(origins.of(role).as_str()) else { continue };
+        let Some(path) = t.strip_prefix(origins.of(role).as_str()) else {
+            continue;
+        };
         if !path.starts_with('/') {
             continue;
         }
@@ -353,7 +354,9 @@ async fn find_target(
     origins: &Origins,
     target: &str,
 ) -> Result<Option<Target>, RefusalCode> {
-    let Some((form, slug)) = target_slug(origins, target) else { return Ok(None) };
+    let Some((form, slug)) = target_slug(origins, target) else {
+        return Ok(None);
+    };
     let row = match form {
         SlugForm::Public => public_lookup(io, &slug).await.map_err(|_| RefusalCode::Unavailable)?.0,
         SlugForm::Secret | SlugForm::Text => {
@@ -550,7 +553,9 @@ pub async fn removal(
             missing: check.missing,
         }));
     }
-    let (Some(t), true) = (target, check.missing.is_empty()) else { return Err(RefusalCode::RemovalIncomplete) };
+    let (Some(t), true) = (target, check.missing.is_empty()) else {
+        return Err(RefusalCode::RemovalIncomplete);
+    };
     send(io, keys, origins, principal, req, t).await.map(RemovalAnswer::Received)
 }
 
@@ -572,7 +577,8 @@ fn auto_step(req: &RemovalRequest, t: &Target) -> Option<AutoStep> {
         {
             Some(AutoStep::Recheck)
         }
-        CaseKind::Author if t.is_x() && !state.is_ended() => Some(AutoStep::Removed),
+        // A nonempty verification field is a claim, not proof. The operator
+        // verifies author requests and uses the signed remove operation.
         _ => None,
     }
 }
@@ -996,7 +1002,9 @@ async fn report_kept(io: &impl Io, run_id: Option<u64>) -> Result<bool, RefusalC
 
 /// The source key of an X page's source, from its row.
 async fn x_source_of(io: &impl Io, row: &DetRow) -> Result<Option<Bytes32>, RefusalCode> {
-    let Some(sid) = row.source_id else { return Ok(None) };
+    let Some(sid) = row.source_id else {
+        return Ok(None);
+    };
     let d = io
         .run(Stmt::new(
             "SELECT hex(canon_key) AS canon_key FROM sources WHERE source_id = ?1 AND adapter = 'x'",
@@ -1053,7 +1061,7 @@ pub struct XRemoved {
     pub removed: u64,
 }
 
-/// `x_remove`'s journal row when no signed op carries it (the form, and
+/// `x_remove`'s journal row when no signed op carries it (the removal effect, and
 /// `remove`): `auto:x_tombstone`, unsigned.
 pub fn auto_x_journal(canon_key: &Bytes32, reason: XReason, now: u64) -> Stmt {
     let op =
@@ -1084,7 +1092,7 @@ FROM detections d WHERE d.source_id = (SELECT source_id FROM sources WHERE canon
 AND d.platform = 'x'";
 
 /// Every page about the post whose source key hashes to `canon_key` goes,
-/// as one removal, whether from the form, from `remove` or from `x_remove`.
+/// as one removal, whether from `remove` or from `x_remove`.
 /// A post we never held still gets its tombstone, so no new check of it can
 /// start.
 ///
@@ -1475,7 +1483,9 @@ AND kind = 'public_url' AND platform <> 'x' AND state = 'live' ORDER BY id_h",
     let mut slugs = Vec::new();
     let mut ids = Vec::new();
     for r in &pages.rows {
-        let (Some(id), Some(slug)) = (r.hex32("id_h"), r.text("public_slug")) else { continue };
+        let (Some(id), Some(slug)) = (r.hex32("id_h"), r.text("public_slug")) else {
+            continue;
+        };
         let row_stub = stub_row(id);
         batch.extend(withhold_stmts(&row_stub, slug, &basis.basis, &basis.jurisdiction, now));
         slugs.push(slug.to_owned());
@@ -1536,7 +1546,9 @@ pub fn is_withheld_doc(d: &RunDoc) -> bool {
 /// nothing; a missing document is left missing.
 pub async fn rewrite_without_text(io: &impl Io, run_id: u64) -> Result<(), IoError> {
     let key = run_doc_key(run_id);
-    let Some(b) = io.doc_get(&key).await? else { return Ok(()) };
+    let Some(b) = io.doc_get(&key).await? else {
+        return Ok(());
+    };
     let mut d = RunDoc::decode(&b).map_err(|_| IoError)?;
     drop(b);
     if is_withheld_doc(&d) {
@@ -1573,15 +1585,18 @@ pub async fn remove_case(
     let mut journal = Some(journal);
     // X pages first: their removal journals the signed op itself.
     for t in targets.iter().filter(|t| t.platform == Platform::X && !t.state.is_ended()) {
-        let Some(canon_key) = x_source_of(io, t).await? else { continue };
+        let Some(canon_key) = x_source_of(io, t).await? else {
+            continue;
+        };
         let mut rows = Vec::new();
         rows.extend(journal.take());
-        rows.push(auto_x_journal(&canon_key, XReason::Other, now));
+        let reason = if case.kind == CaseKind::Author { XReason::Author } else { XReason::Other };
+        rows.push(auto_x_journal(&canon_key, reason, now));
         let r = x_removal(
             io,
             origins,
             &canon_key,
-            XReason::Other,
+            reason,
             XCase::Existing { case_id: &case.case_id, insert: Vec::new() },
             rows,
         )
@@ -1773,7 +1788,9 @@ fn quarantine_aad(case_id: &str, id_h: &Bytes32) -> Vec<u8> {
 /// wrapped again under `K_cases`. A page whose document is already gone has
 /// nothing to keep.
 async fn quarantine(io: &impl Io, keys: &StoreKeys, case_id: &str, id_h: &Bytes32) -> Result<(), IoError> {
-    let Some(b) = io.doc_get(&secret_doc_key(id_h)).await? else { return Ok(()) };
+    let Some(b) = io.doc_get(&secret_doc_key(id_h)).await? else {
+        return Ok(());
+    };
     let mut nonce = [0u8; NONCE_BYTES];
     io.fill(&mut nonce);
     let wrapped = seal_with(keys.cases_key(), &nonce, &quarantine_aad(case_id, id_h), &b);
@@ -1783,7 +1800,9 @@ async fn quarantine(io: &impl Io, keys: &StoreKeys, case_id: &str, id_h: &Bytes3
 /// Puts a quarantined document back as the page's own; `Ok(false)` when the
 /// quarantine holds none.
 async fn unquarantine(io: &impl Io, keys: &StoreKeys, case_id: &str, id_h: &Bytes32) -> Result<bool, IoError> {
-    let Some(b) = io.doc_get(&quarantine_key(case_id, id_h)).await? else { return Ok(false) };
+    let Some(b) = io.doc_get(&quarantine_key(case_id, id_h)).await? else {
+        return Ok(false);
+    };
     let plain = open_with(keys.cases_key(), &quarantine_aad(case_id, id_h), &b).map_err(|_| IoError)?;
     io.doc_put(&secret_doc_key(id_h), plain).await?;
     Ok(true)
@@ -1867,7 +1886,9 @@ pub async fn restore_case(
         let mut seen = BTreeSet::new();
         for t in &targets {
             if t.kind == Kind::PublicUrl {
-                let Some(from) = returned_from(t.state) else { continue };
+                let Some(from) = returned_from(t.state) else {
+                    continue;
+                };
                 if t.platform == Platform::X || !returned.insert(t.id_h) {
                     continue;
                 }
@@ -2343,7 +2364,9 @@ JOIN detections d ON d.id_h = t.det_id_h WHERE t.case_id = ?1 AND d.owner_h IS N
     let mut owners: BTreeMap<Bytes32, (Option<OwnerVia>, Option<String>)> = BTreeMap::new();
     for (i, done) in d.iter().enumerate() {
         for r in &done.rows {
-            let Some(o) = r.hex32("owner_h") else { continue };
+            let Some(o) = r.hex32("owner_h") else {
+                continue;
+            };
             let via = r.text("owner_via").and_then(OwnerVia::parse);
             let review = if i == 0 { r.text("review").map(str::to_owned) } else { None };
             owners.entry(o).or_insert((via, review));

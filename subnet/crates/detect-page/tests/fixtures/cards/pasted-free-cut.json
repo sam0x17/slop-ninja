@@ -7,7 +7,7 @@
     "band": "very_strong",
     "document": false
   },
-  "confidence_text": "above 99.9%",
+  "confidence_text": "at the top of the detector's scale",
   "share_text": "about 86%",
   "headline": "Very strong evidence of AI involvement.",
   "source_label": "Private text · secret link",
@@ -16,7 +16,7 @@
   "link": {
     "kind": "secret_host"
   },
-  "model_line": "span package d24 · e2536d12 · publication pending",
+  "model_line": "Package · e2536d12 · publication pending",
   "free_cut_note": "First 986 of 1,361 words",
   "document_note": null,
   "ladder": []

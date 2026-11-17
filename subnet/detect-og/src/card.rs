@@ -816,15 +816,37 @@ fn copy(out: &mut String, c: &Card, f: &Faces, width: f32) {
         (_, Some(conf), _) => {
             let top = y + 16.0;
             let lead = "Confidence ";
-            let mut s = 30.0f32;
-            while s > 22.0 && f.bold.width(&format!("{lead}{conf}"), s, -0.03 * s) > width {
-                s -= 1.0;
+            if conf == card::TOP_CONFIDENCE {
+                // Keep the full ceiling caveat readable in the narrow column.
+                // A single shrinking line would run into the illustration.
+                let size = 24.0;
+                let line = format!("{lead}{conf}");
+                let lines = layout::wrap(&f.bold, &line, size, -0.03 * size, width);
+                for (i, line) in lines.iter().enumerate() {
+                    text_el(
+                        out,
+                        COPY_X,
+                        baseline(top + i as f32 * 27.6, size, 1.15),
+                        size,
+                        Weight::Bold,
+                        -0.03 * size,
+                        WHITE,
+                        "start",
+                        line,
+                    );
+                }
+                y = top + lines.len() as f32 * 27.6;
+            } else {
+                let mut s = 30.0f32;
+                while s > 22.0 && f.bold.width(&format!("{lead}{conf}"), s, -0.03 * s) > width {
+                    s -= 1.0;
+                }
+                open_text(out, COPY_X, baseline(top, s, 1.15), "start");
+                tspan(out, s, Weight::Bold, -0.03 * s, "#e6eef0", lead);
+                tspan(out, s, Weight::Bold, -0.03 * s, WHITE, conf);
+                out.push_str("</text>");
+                y = top + 1.15 * 30.0;
             }
-            open_text(out, COPY_X, baseline(top, s, 1.15), "start");
-            tspan(out, s, Weight::Bold, -0.03 * s, "#e6eef0", lead);
-            tspan(out, s, Weight::Bold, -0.03 * s, WHITE, conf);
-            out.push_str("</text>");
-            y = top + 1.15 * 30.0;
         }
         _ => {}
     }

@@ -1402,7 +1402,9 @@ fn restore_what_status_names(w: &World, bound: usize) -> Vec<String> {
     for _ in 0..bound {
         let st = w.op("status", json!({})).unwrap();
         let due = st["cases"]["restores_due"].as_array().unwrap().clone();
-        let Some(first) = due.first() else { return restored };
+        let Some(first) = due.first() else {
+            return restored;
+        };
         let id = first["case_id"].as_str().unwrap().to_owned();
         w.op("restore", json!({"case_id": id, "reason": "counter-notice wait passed"})).unwrap();
         restored.push(id);
@@ -1618,7 +1620,7 @@ fn verify_row(w: &World, op: &str, sig: &[u8]) {
 }
 
 #[test]
-fn the_author_s_report_removes_an_x_page_at_once_and_leaves_only_the_hash() {
+fn an_x_author_claim_waits_for_verified_operator_removal() {
     let w = World::new();
     let run = x_page(&w, "x4m8q2t", 1855);
     let run2 = x_page(&w, "x5n9r3v", 1855);
@@ -1629,7 +1631,18 @@ fn the_author_s_report_removes_an_x_page_at_once_and_leaves_only_the_hash() {
         ("verification", "a post from the account"),
     ];
     let (case_id, _, auto) = w.send(CaseKind::Author, "x4m8q2t", &fields, None);
-    assert_eq!(auto, Some(AutoStep::Removed));
+    assert_eq!(auto, None);
+    for (slug, r) in [("x4m8q2t", run), ("x5n9r3v", run2)] {
+        assert_eq!(state(&w, slug, false), "live");
+        assert!(w.h.doc(&format!("r/{r}")).is_some());
+    }
+    assert_eq!(w.text(&format!("SELECT state FROM cases WHERE case_id = '{case_id}'")), "received");
+    assert_eq!(w.h.count("SELECT count(*) FROM op_journal"), 0);
+    assert_eq!(w.h.count("SELECT count(*) FROM sources WHERE state = 'opted_out'"), 0);
+    assert_eq!(queued(&w, |j| matches!(j, Job::Purge { .. })), 0);
+    // The operator verifies the claim outside intake and signs the decision.
+    let removed = w.op("remove", json!({"case_id": case_id, "reason": "author verified"})).unwrap();
+    assert_eq!(removed["pages"], 2);
     for (slug, r) in [("x4m8q2t", run), ("x5n9r3v", run2)] {
         assert_eq!(state(&w, slug, false), "removed");
         assert!(w.h.doc(&format!("r/{r}")).is_none(), "the run document goes first");
@@ -1652,8 +1665,19 @@ fn the_author_s_report_removes_an_x_page_at_once_and_leaves_only_the_hash() {
     assert_eq!(w.text(&format!("SELECT state FROM cases WHERE case_id = '{case_id}'")), "accepted");
     // One auto:x_tombstone row journals the removal by its hash.
     let (actor, op): (String, String) =
-        w.h.db.query_row("SELECT actor, op FROM op_journal", [], |r| Ok((r.get(0)?, r.get(1)?))).unwrap();
+        w.h.db
+            .query_row("SELECT actor, op FROM op_journal WHERE actor = 'auto:x_tombstone'", [], |r| {
+                Ok((r.get(0)?, r.get(1)?))
+            })
+            .unwrap();
     assert_eq!(actor, "auto:x_tombstone");
+    let (signed_op, signature): (String, Vec<u8>) =
+        w.h.db
+            .query_row("SELECT op, signature FROM op_journal WHERE actor != 'auto:x_tombstone'", [], |r| {
+                Ok((r.get(0)?, r.get(1)?))
+            })
+            .unwrap();
+    verify_row(&w, &signed_op, &signature);
     assert_eq!(
         op,
         format!("{{\"args\":{{\"canon_key\":\"{}\",\"reason\":\"author\"}},\"op\":\"x_remove\"}}", hex::encode(key))

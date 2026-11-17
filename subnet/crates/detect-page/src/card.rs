@@ -26,8 +26,9 @@ pub const DOWNLOAD_NAME: &str = "slopninja-report.png";
 pub const MAX_SOURCE_LABEL: usize = 253;
 /// Longest `headline`: the paid form with two 10-digit counts.
 pub const MAX_HEADLINE: usize = 72;
-/// Longest `confidence_text` or `share_text` ("above 99.9%", "about 100%").
-pub const MAX_FIGURE: usize = 16;
+/// The longest displayed figure is the calibration-ceiling description.
+pub const TOP_CONFIDENCE: &str = "at the top of the detector's scale";
+pub const MAX_FIGURE: usize = TOP_CONFIDENCE.len();
 /// Longest package label in a model line.
 pub const MAX_PACKAGE_LABEL: usize = 48;
 /// Longest `model_line` in bytes: the label, " · " (4 bytes), 8 hex digits,
@@ -95,7 +96,7 @@ pub struct Card {
     pub variant: CardVariant,
     pub band: Option<Band>,
     pub gauge: CardGauge,
-    /// "97.3%" or "above 99.9%"; `null` on paid cards.
+    /// A percentage, range, or calibration-ceiling description; `null` on paid cards.
     pub confidence_text: Option<String>,
     pub share_text: Option<String>,
     pub headline: String,
@@ -218,7 +219,7 @@ impl Card {
         };
         let generic = cards_generic || page.state == DetState::ExcerptWithheld;
         let free_cut_note = (run.cut != CutKind::None).then(|| free_cut_note(run.words, run.total_words));
-        let model_line = model_line(&run.package.label, &run.package.published_digest, run.package.publication_pending);
+        let model_line = model_line("Package", &run.package.published_digest, run.package.publication_pending);
         let date = iso_date(run.scored_at);
         if let Some(s) = page.sections.as_ref().filter(|_| page.is_paid_document()) {
             return Ok(Card {
@@ -251,7 +252,11 @@ impl Card {
             variant,
             band: run.band,
             gauge: CardGauge { level: run.share_pct, band: run.band, document: false },
-            confidence_text: run.confidence_text.clone(),
+            confidence_text: if run.band == Some(Band::VeryStrong) {
+                Some(if run.length == Some(LengthBin::Short24) { "98.85% or more" } else { TOP_CONFIDENCE }.into())
+            } else {
+                run.confidence_text.clone()
+            },
             share_text: run.share_text.clone(),
             headline: headline.to_owned(),
             source_label,
@@ -283,21 +288,20 @@ impl Card {
         }
         need(
             self.date.len() == DATE_LEN
-                && self
-                    .date
-                    .bytes()
-                    .enumerate()
-                    .all(|(i, b)| if i == 4 || i == 7 { b == b'-' } else { b.is_ascii_digit() }),
+                && self.date.bytes().enumerate().all(
+                    |(i, b)| {
+                        if i == 4 || i == 7 { b == b'-' } else { b.is_ascii_digit() }
+                    },
+                ),
             "date",
         )?;
         if let CardLink::Public { slug } = &self.link {
             need(crate::slug::is_canonical(slug, crate::slug::PUBLIC_LEN), "public link slug")?;
         }
         match self.variant {
-            CardVariant::Band => need(
-                self.band.is_some() && self.gauge.level.is_some() && self.share_text.is_some(),
-                "band card",
-            )?,
+            CardVariant::Band => {
+                need(self.band.is_some() && self.gauge.level.is_some() && self.share_text.is_some(), "band card")?
+            }
             CardVariant::Generic => need(self.band.is_some() && self.ninja.is_none(), "generic card")?,
             CardVariant::Short => need(
                 self.band.is_some()

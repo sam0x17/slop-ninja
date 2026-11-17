@@ -353,9 +353,11 @@ The removal form and the operator's signed ops run as pure flows too
   against a live public page withholds its excerpt at once (pending review:
   de-indexed, card generic); an illegal-content report against a secret
   page disables it with its re-run copy family; a wrong-result report on a
-  shown public result (live or withheld) queues a re-check; a report on an
-  X post's page from its author removes every page about the post at once.
-  Everything else waits.
+  shown public result (live or withheld) queues a re-check. Author requests,
+  including requests about X posts, wait for operator verification. After
+  verification, signed `remove {case_id}` removes every page about the post
+  and records the author basis. A filled verification field alone never
+  authorizes removal.
 - `POST /api/detect/v1/removal/status` (both hosts): the case's state and
   dates, never its notice.
 - `POST /api/detect/v1/op`: one signed op, the bare envelope of

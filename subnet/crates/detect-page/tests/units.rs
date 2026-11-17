@@ -264,7 +264,8 @@ fn ninja_state_matches_the_mockup_edges() {
         assert_eq!(ninja_state(NinjaInput::Banded { band, share_pct: share }, false), Some(want), "{share} {band}");
     }
     // A short text has no share: ready in the strong bands, stoic otherwise.
-    for (band, want) in [(Band::VeryStrong, Ready), (Band::Strong, Ready), (Band::Unclear, Stoic), (Band::Weak, Stoic)] {
+    for (band, want) in [(Band::VeryStrong, Ready), (Band::Strong, Ready), (Band::Unclear, Stoic), (Band::Weak, Stoic)]
+    {
         assert_eq!(ninja_state(NinjaInput::Short(band), false), Some(want), "{band}");
         assert!(allowed(band).contains(&want), "{band}: within the band's states");
     }
@@ -338,7 +339,8 @@ fn cards_follow_their_page() {
     let c = Card::from_page(&fixture("01-public-very-strong"), false).unwrap();
     assert_eq!((c.variant, c.ninja), (CardVariant::Band, Some(NinjaState::Strike)));
     assert_eq!(c.headline, "Very strong evidence of AI involvement.");
-    assert_eq!(c.model_line, "span package d24 · e2536d12 · publication pending");
+    assert_eq!(c.model_line, "Package · e2536d12 · publication pending");
+    assert_eq!(c.confidence_text.as_deref(), Some(card::TOP_CONFIDENCE));
     let c = Card::from_page(&fixture("24-paid-document"), false).unwrap();
     assert_eq!(c.headline, "Strong signs of AI involvement in 1 of 3 sections.");
     assert_eq!(c.document_note.as_deref(), Some("Whole document, 3,214 words, 3 sections"));
@@ -363,6 +365,15 @@ fn cards_follow_their_page() {
     );
     assert_eq!(c.headline, "Strong evidence of AI involvement.");
     assert!(c.check().is_ok());
+    let mut p = fixture("16-secret-short-strong");
+    p.run.as_mut().unwrap().band = Some(Band::VeryStrong);
+    for length in [LengthBin::Short24, LengthBin::Short50, LengthBin::Short100] {
+        p.run.as_mut().unwrap().length = Some(length);
+        let card = Card::from_page(&p, false).unwrap();
+        let expected = if length == LengthBin::Short24 { "98.85% or more" } else { card::TOP_CONFIDENCE };
+        assert_eq!(card.confidence_text.as_deref(), Some(expected));
+        assert!(card.check().is_ok());
+    }
     let mut bad = c.clone();
     bad.gauge.level = Some(40);
     assert!(bad.check().is_err(), "a short card has no needle");

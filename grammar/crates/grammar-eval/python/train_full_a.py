@@ -75,8 +75,8 @@ naming the same class fit a larger pretrained encoder with the same recipe.
 `--artifact` is then the class's pinned local snapshot (digests checked at
 load) and `--init` is not given; the stage-3 heads take the encoder's width
 and start fresh from the fit seed, so the step-0 V6 gate is skipped; the
-contract's dimensions are the class width; arms train document heads only and
-`--init-fit` is refused. The binding and fit.json carry a `teacher_class`
+contract's dimensions are the class width. Frozen token heads and span towers
+can start from a completed fit of that class. The binding and fit.json carry a `teacher_class`
 record. A teacher fit binds no initializer, so every `export_full_a.py` route
 refuses it and it is never packaged; `teacher_a.py raw` and `raw_full_a.py`
 score it.
@@ -295,7 +295,10 @@ def validate_protocol(p):
                                  isinstance(ex["sha256"], str) and len(ex["sha256"]) == 64), "span metric exclusions")
     # 2026-11-06 span-target floor (optional): AI spans under the floor are unsupervised in
     # every token/word span target of the trainer's populations (full_a_bundle.floor_span_targets).
-    bundle.validate_span_target_floor(p.get("span_target_floor"))
+    # A legacy export restores the exact bundle reader bound by its fit. It
+    # needs no newer reader API when the protocol names no span floor.
+    if p.get("span_target_floor") is not None:
+        bundle.validate_span_target_floor(p["span_target_floor"])
     shared.demand(number(p["cuda_memory_fraction"], hi=.95, positive=True), "CUDA memory cap")
     r = p.get("ai_roster")
     shared.demand(r is None or (isinstance(r, dict) and set(r) == {"rule", "profiles_sha256"} and
@@ -443,7 +446,7 @@ def build(encoder, contract, init, arm, protocol, device, seed=None):
         heads = WarmStartA(init, norm["mean"], norm["scale"], len(profiles["human"]), len(profiles["ai"]), "text")
     span = None if arm["span_head"] is None else full_a.SpanHead(arm["span_head"]["pooling"])
     th = span_fields(arm)["token_head"]
-    token_head = None if th is None else full_a.TokenHead(width=th["hidden"])
+    token_head = None if th is None else full_a.TokenHead(hidden=teacher_a.width_of(encoder), width=th["hidden"])
     dtype = torch.bfloat16 if protocol["precision"]["train"] == "bf16_autocast" else None
     if s2_mechanism(arm) == "span_tower":
         # The tower is copied from the encoder after the init fit is loaded (attach_tower).
@@ -504,9 +507,22 @@ def load_init_fit(model, path, seed, contract):
                   "--init-fit needs a complete, non-diagnostic fit")
     shared.demand(bridge.sha256(fit_dir / "selected.pt") == report["selected_checkpoint_sha256"],
                   "init fit selected checkpoint changed")
+    shared.demand(bridge.sha256(fit_dir / "dev_iter-raw.jsonl") == report["dev_iter_raw_sha256"],
+                  "init fit raw output changed")
     shared.demand(report["binding"]["seed"] == seed, "init fit seed differs from this fit's seed")
     saved = torch.load(fit_dir / "selected.pt", map_location="cpu", weights_only=False)
+    shared.demand(saved["binding"] == report["binding"] == read(fit_dir / "binding.json") and
+                  saved["evaluation"] == report["selected_evaluation"], "init checkpoint lineage differs")
+    initial_teacher = report["binding"].get("teacher_class")
+    shared.demand((initial_teacher is None) == (contract.get("teacher_class") is None) and
+                  (initial_teacher is None or initial_teacher["class"] == contract["teacher_class"]),
+                  "init fit teacher class differs")
+    shared.demand(report["binding"]["parent_artifact_id"] == contract["parent_artifact_id"],
+                  "init fit encoder parent differs")
     m = saved["model"]
+    if "token_head" in m:
+        shared.demand(bridge.sha256(fit_dir / "dev_iter-token-logits.jsonl") == report["dev_iter_token_logits_sha256"],
+                      "init fit token output changed")
     model.encoder.load_state_dict(m["encoder"], strict=True)
     model.heads.load_state_dict(m["heads"], strict=True)
     shared.demand((model.span is None) == ("span" not in m), "init fit span head presence differs")
@@ -537,14 +553,21 @@ def init_raw_gate(raw, init_dir, subset=False):
     with (init_dir / "dev_iter-raw.jsonl").open("rb") as f:
         for line in f:
             r = json.loads(line)
+            shared.demand(r["id"] not in ref, "duplicate init raw row")
             ref[r["id"]] = r
     worst = 0.
+    seen = set()
     for r in raw:
+        shared.demand(r["id"] not in seen, "duplicate identity row")
+        seen.add(r["id"])
         q = ref.get(r["id"])
         shared.demand(q is not None and q["text_sha256"] == r["text_sha256"], "Dev-iter row absent from init fit")
         for key in ("origin_logits", "human_logits", "ai_logits"):
+            shared.demand(len(r[key]) == len(q[key]) and
+                          all(math.isfinite(x) for x in r[key] + q[key]), "identity logits differ in shape or are nonfinite")
             worst = max([worst] + [abs(a - b) for a, b in zip(r[key], q[key])])
         for key in ("involvement_logit", "conditional_mixed_share", "uncalibrated_share"):
+            shared.demand(math.isfinite(r[key]) and math.isfinite(q[key]), "nonfinite identity output")
             worst = max(worst, abs(r[key] - q[key]))
     shared.demand((subset or len(raw) == len(ref)) and worst <= 1e-6, f"evaluation 0 differs from the init fit: {worst}")
     return {"rows": len(raw), "document_raw_max_abs_error": worst}
@@ -563,15 +586,45 @@ def init_token_gate(token_rows, init_dir):
     with path.open("rb") as f:
         for line in f:
             r = json.loads(line)
-            ref[r["id"]] = r["token_logits"]
+            shared.demand(r["id"] not in ref, "duplicate init token row")
+            ref[r["id"]] = r
     logit = prob = 0.
+    seen = set()
     for r in token_rows:
-        q = ref.get(r["id"])
-        shared.demand(q is not None and len(q) == len(r["token_logits"]), "Dev-iter token row absent from init fit")
+        shared.demand(r["id"] not in seen, "duplicate token identity row")
+        seen.add(r["id"])
+        row = ref.get(r["id"])
+        shared.demand(row is not None and row["text_sha256"] == r["text_sha256"],
+                      "Dev-iter token row absent from init fit")
+        q = row["token_logits"]
+        shared.demand(len(q) == len(r["token_logits"]) and all(math.isfinite(x) for x in q + r["token_logits"]),
+                      "token identity logits differ in shape or are nonfinite")
         for a, b in zip(r["token_logits"], q):
             logit = max(logit, abs(a - b))
             prob = max(prob, abs(_sigmoid(a) - _sigmoid(b)))
     return {"rows": len(token_rows), "token_logit_max_abs_error": logit, "token_probability_max_abs_error": prob}
+
+
+@torch.no_grad()
+def identity_outputs(model, population, device):
+    """Unpadded FP32 outputs only: no target access, objective, diagnostic or metric.
+
+    Read input ids and input flags directly rather than Population.batch, which
+    also reads token labels. Only row identities enter the document output.
+    """
+    model.eval()
+    raw, token_rows = [], []
+    for i, meta in enumerate(population.meta):
+        a, b = int(population.starts[i]), int(population.starts[i + 1])
+        ids = torch.tensor(population.ids[a:b].tolist(), dtype=torch.long, device=device).unsqueeze(0)
+        flags = torch.tensor(population.flags[a:b].tolist(), dtype=torch.long, device=device).unsqueeze(0)
+        out = model(ids, torch.ones_like(ids), (flags & bundle.FLAG_CONTENT) > 0,
+                    autocast=False, words=(flags & bundle.FLAG_WORD) > 0)
+        raw.append(raw_prediction(meta, out, b - a))
+        if out["span_logits"] is not None:
+            token_rows.append({"schema": TOKEN_DUMP_SCHEMA, "id": meta.id, "text_sha256": meta.text_sha256,
+                               "tokens": b - a, "token_logits": out["span_logits"][0].double().tolist()})
+    return raw, token_rows
 
 
 def frozen_equal(model, saved):
@@ -1056,15 +1109,26 @@ def fit(args, root, config, output):
     model.token_head_weight = 0. if th is None else th["loss_weight"]
     init_record = init_saved = init_dir = None
     if getattr(args, "init_fit", None):
-        shared.demand(teacher_class is None, "a teacher class starts from its pretrained snapshot, never --init-fit")
+        shared.demand(teacher_class is None or sp["freeze"] == "encoder_and_document_heads",
+                      "teacher --init-fit requires frozen encoder and document heads")
         init_record, init_saved, init_dir = load_init_fit(model, args.init_fit, args.seed, contract)
     frozen = sp["freeze"] == "encoder_and_document_heads"
     shared.demand(not frozen or init_record is not None, "a frozen document model needs --init-fit")
     mechanism = s2_mechanism(arm)
     shared.demand(mechanism is None or init_record is not None, "S2 arms start from --init-fit")
+    saved_tower = None if init_saved is None else init_saved["model"].get("span_tower")
+    shared.demand(saved_tower is None or mechanism == "span_tower",
+                  "init fit has a trained span tower; destination must preserve it")
     teacher = None
     if mechanism == "span_tower":
+        if saved_tower is not None:
+            shared.demand(init_saved["binding"]["arm_definition"]["s2"]["layers"] == arm["s2"]["layers"],
+                          "init fit span tower depth differs")
         model.attach_tower()
+        if saved_tower is not None:
+            model.span_tower.load_state_dict(saved_tower, strict=True)
+        if teacher_class is not None:
+            teacher_a.check_tower(model)
     elif mechanism == "anchor":
         teacher = s2.make_teacher(model)
     if frozen:
@@ -1072,8 +1136,13 @@ def fit(args, root, config, output):
     if protocol["gradient_checkpointing"] and not frozen:
         encoder.gradient_checkpointing_enable(gradient_checkpointing_kwargs={"use_reentrant": False})
     final_step = bool(getattr(args, "final_step", False))
-    # Evaluation 0 of an --init-fit start scores Dev-iter for its gate; a final-step fit scores it once, at the end.
-    shared.demand(not final_step or init_record is None, "--final-step takes no --init-fit")
+    # A frozen final-step start checks outputs only; its sole metric evaluation
+    # remains at the end, after the final checkpoint has been fixed.
+    shared.demand(not final_step or init_record is None or frozen,
+                  "--final-step with --init-fit requires frozen encoder and document heads")
+    shared.demand(not ((final_step and init_record is not None) or (teacher_class is not None and th is not None)) or
+                  protocol.get("span_target_floor") == {"policy": "slop_ninja_span_target_floor24_v1", "min_words": 24},
+                  "frozen final-step and teacher spans require the 24-word target floor")
     special = set(tokenizer.all_special_ids)
     tokenize = full_a.hf_tokenize(tokenizer)
     fixed = protocol.get("ai_roster")
@@ -1357,6 +1426,12 @@ def fit(args, root, config, output):
     if final_step:
         state.setdefault("train_log", [])
         if not recovery.exists():
+            if init_dir is not None:
+                raw0, token0 = identity_outputs(model, dev, device)
+                state["init_raw_gate"] = init_raw_gate(raw0, init_dir, subset=dev_keep is not None)
+                state["init_token_gate"] = init_token_gate(token0, init_dir)
+                bridge.write_json(output / "init-raw-gate.json", state["init_raw_gate"])
+                bridge.write_json(output / "init-token-gate.json", state["init_token_gate"])
             checkpoint()
     elif state["evaluations"] == 0:
         evaluation(0, 0)
@@ -1553,7 +1628,9 @@ def fit(args, root, config, output):
     if teacher_class is not None:
         record["teacher_class"] = binding["teacher_class"]
         record["limitations"] = [x for x in record["limitations"] if not x.startswith("Evaluation-0")] + [
-            f"Teacher class {teacher_class}: fresh heads on a pretrained encoder (no V6 step-0 gate); never "
+            f"Teacher class {teacher_class}: " +
+            ("frozen document model restored from a completed fit" if init_record is not None else
+             "fresh heads on a pretrained encoder (no V6 step-0 gate)") + "; never "
             "exported, packaged, entered or served."]
     bridge.write_json(output / "fit.json", record)
     print(json.dumps({"complete": True, "selected_evaluation": best["evaluation"],

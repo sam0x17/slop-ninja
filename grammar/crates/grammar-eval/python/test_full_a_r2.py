@@ -512,7 +512,7 @@ class FinalStep(unittest.TestCase):
                 with self.assertRaises(KeyboardInterrupt):
                     fit(root, config, Path(d) / "mixed", final_step=True, interrupt_after=2)
                 fit(root, config, Path(d) / "mixed")
-            with self.assertRaisesRegex(ValueError, "--final-step takes no --init-fit"):
+            with self.assertRaisesRegex(ValueError, "requires frozen encoder and document heads"):
                 fit(root, config, Path(d) / "init", final_step=True, init_fit=str(whole))
 
 
@@ -586,8 +586,16 @@ class Bitwise(unittest.TestCase):
                "--candidate-tree", str(HERE), "--data", str(data), "--config", str(config),
                "--artifact", "unused", "--init", str(config / "init.json"), "--arm", "E1", "--seed", "17",
                "--device", "cpu", "--out", str(Path(d) / name), "--synthetic-fixture", *extra]
-        rc = subprocess.run(cmd, capture_output=True, timeout=900).returncode
-        return rc, read(Path(d) / name / "BITWISE.json")
+        result = subprocess.run(cmd, capture_output=True, timeout=900)
+        report = Path(d) / name / "BITWISE.json"
+        diagnostics = result.stderr.decode(errors="replace")[-4000:]
+        if not report.exists():
+            for part in ("reference", "candidate"):
+                path = Path(d) / (name + ".failed") / (part + ".stderr")
+                if path.exists():
+                    diagnostics += "\n" + path.read_text()[-4000:]
+        self.assertTrue(report.exists(), diagnostics)
+        return result.returncode, read(report)
 
     def test_compare_equal_trees_and_a_perturbed_tree(self):
         with tempfile.TemporaryDirectory() as d:

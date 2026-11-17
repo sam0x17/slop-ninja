@@ -121,6 +121,13 @@ class TinyClass(unittest.TestCase):
 
 
 class Pins(unittest.TestCase):
+    def test_modernbert_base_matches_public_recipe(self):
+        c = teacher.CLASSES["modernbert_base_v1"]
+        recipe = public_a.recipe()["base_model"]
+        self.assertEqual((c["repository"], c["revision"]), (recipe["repository"], recipe["revision"]))
+        self.assertEqual((c["hidden_size"], c["layers"]), (768, 22))
+        self.assertEqual({k: v["sha256"] for k, v in c["files"].items()}, recipe["files"])
+
     def test_modernbert_large_pins(self):
         c = teacher.CLASSES["modernbert_large_v1"]
         self.assertTrue(re.fullmatch(r"45bb4654[0-9a-f]{32}", c["revision"]))
@@ -228,12 +235,12 @@ class Validation(unittest.TestCase):
         for arm in ("E2w", "E2wall"):
             bad = copy.deepcopy(p)
             bad["arms"][arm] = synthetic.protocol_template()["arms"][arm]
-            with self.subTest(arm=arm), self.assertRaisesRegex(ValueError, "document heads only"):
+            with self.subTest(arm=arm), self.assertRaisesRegex(ValueError, "cannot consume span outputs"):
                 trainer.validate_protocol(bad)
         token = copy.deepcopy(p)
         token["arms"]["E1"].update(token_head={"hidden": 8, "loss_weight": 1., "learning_rate": 1e-3},
                                    freeze="none", token_weighting="row_weight")
-        with self.assertRaisesRegex(ValueError, "document heads only"):
+        with self.assertRaisesRegex(ValueError, "requires frozen"):
             trainer.validate_protocol(token)
         with self.assertRaisesRegex(ValueError, "unknown teacher class"):
             trainer.validate_protocol(dict(p, teacher_class="nope_v1"))

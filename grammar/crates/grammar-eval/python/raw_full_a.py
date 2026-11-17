@@ -25,6 +25,7 @@ rebuilt from the class's snapshot (`--artifact`).
 from __future__ import annotations
 
 import argparse
+from contextlib import ExitStack
 import json
 import os
 from pathlib import Path
@@ -72,11 +73,16 @@ def raw_heads(args, source, source_record):
     trainer.configure(device, trainer.validate_protocol(read(config / "protocol.json"))["cuda_memory_fraction"])
     model, tokenizer, contract, protocol, arm, profiles = teacher_a.restore_model(args, root, config, binding, saved,
                                                                                  device)
+    tokens = bool(getattr(args, "token_logits", False))
+    shared.demand(not tokens or model.token_head is not None, "--token-logits requires a trained token head")
     tokenize, special = full_a.hf_tokenize(tokenizer), set(tokenizer.all_special_ids)
     out.mkdir()
     n, seen = 0, set()
     t = lambda v, dt: torch.tensor([v], dtype=dt, device=device)  # noqa: E731
-    with (out / "raw.jsonl").open("xb") as f:
+    with ExitStack() as stack:
+        f = stack.enter_context((out / "raw.jsonl").open("xb"))
+        tf = stack.enter_context((out / "token-logits.jsonl").open("xb")) if tokens else None
+        of = stack.enter_context((out / "token-offsets.jsonl").open("xb")) if tokens else None
         for m, text in source(root):
             shared.demand(m.id not in seen, f"duplicate row id {m.id}")
             seen.add(m.id)
@@ -86,6 +92,13 @@ def raw_heads(args, source, source_record):
             o = model(t(ids, torch.long), t([1] * len(ids), torch.long), t(content, torch.bool), autocast=False,
                       words=t(words, torch.bool))
             f.write(bridge.canonical(trainer.raw_prediction(m, o, len(ids))) + b"\n")
+            if tokens:
+                tf.write(bridge.canonical({"schema": trainer.TOKEN_DUMP_SCHEMA, "id": m.id,
+                    "text_sha256": m.text_sha256, "tokens": len(ids),
+                    "token_logits": o["span_logits"][0].double().tolist()}) + b"\n")
+                of.write(bridge.canonical({"schema": "slop_ninja_full_a_token_offsets_v1", "id": m.id,
+                    "text_sha256": m.text_sha256, "tokens": len(ids), "token_offsets": offsets,
+                    "word_mask": words, "offset_unit": "unicode_scalar", "labels_included": False}) + b"\n")
             n += 1
     shared.demand(n > 0, "no rows")
     bridge.write_json(out / "manifest.json", {"schema": RAW_HEADS_SCHEMA, "complete": True, **source_record,
@@ -97,6 +110,10 @@ def raw_heads(args, source, source_record):
         "exporter_sha256": bridge.sha256(exporter.__file__), "trainer_sha256": bridge.sha256(trainer.__file__),
         "precision": "fp32", "final_test_opened": False, "calibrated": False, "device": str(device),
         "torch": torch.__version__,
+        **({"token_logits_sha256": bridge.sha256(out / "token-logits.jsonl"),
+            "token_offsets_sha256": bridge.sha256(out / "token-offsets.jsonl"),
+            "token_outputs": "unmodified FP32 logits and exact-text character offsets; no labels or decoding"}
+           if tokens else {}),
         "involvement_logit_semantics": "log(p_model+p_mixed)-log(p_human) of the final uncalibrated origin",
         "origin_logits_semantics": "original_classifier_linear_divided_by_base_temperature; no CAL map",
         **({"teacher_class": binding["teacher_class"]} if teacher_a.is_teacher_binding(binding) else {})})
@@ -125,6 +142,8 @@ def main(argv=None):
         p.add_argument("--device", choices=("cpu", "cuda"), default="cuda")
         p.add_argument("--allow-diagnostic-subset", action="store_true",
                        help="smoke only: accept a diagnostic Train-subset fit")
+        p.add_argument("--token-logits", action="store_true",
+                       help="also retain token logits and character offsets, without labels or decoding")
         if name == "rows":
             p.add_argument("--rows", required=True, help="shared-contract rows file (JSONL)")
             p.add_argument("--split", choices=ROW_SPLITS, required=True, help="the split every row must name")

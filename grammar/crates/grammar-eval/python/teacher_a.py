@@ -21,8 +21,8 @@ trainer and exporter is the base one, unchanged. With it:
 - the contract's `raw_dimension` and normalization dimension are the class width, and the normalization is the
   base rule (`train_query_only_equal_source_family_weight`) fitted on the class's pretrained h of the bundle's
   Train rows (`embed` here, then `fit_full_a_normalization fit` and `prepare_full_a_contract --teacher-class`);
-- arms train document heads only (no span head, token head, frozen document model or S2 mechanism), and
-  `--init-fit` is refused.
+- optional token heads and a copied span tower train with the encoder and document heads frozen, starting from
+  a completed fit of the same class. The token head never feeds the document outputs.
 
 Commands:
   id      print the class's snapshot identity (the contract's `parent_artifact_id`) and pins
@@ -71,6 +71,25 @@ HEADS_RULE = ("teacher_heads_v1: WarmStartA's structure and forward at the encod
               "default initialization, drawn right after torch.manual_seed(fit seed) in a forked CPU generator; "
               "no V6 classifier copied")
 CLASSES = {
+    "modernbert_base_v1": {
+        "repository": "answerdotai/ModernBERT-base",
+        "revision": "8949b909ec900327062f0ebf497f51aef5e6f0c8",
+        "license": "Apache-2.0",
+        "hidden_size": 768,
+        "layers": 22,
+        "files": {
+            "config.json": {"sha256": "1609d59e627c33eaed524b4f01e546d42e84190a079a5a5ded84b212c41c324f",
+                            "bytes": 1193},
+            "model.safetensors": {"sha256": "340ac08b74eef0d7bdec2d7981a6a3d4249bf0e6aab60634b72ad02c2b8023a9",
+                                  "bytes": 598635032},
+            "special_tokens_map.json": {"sha256": "ea97ecdbcc73713039d8d64dbb05e3689495c96657fbd9a18f5bed381be81049",
+                                        "bytes": 694},
+            "tokenizer.json": {"sha256": "9fd55248d51d33976b324fc11592e28071da7d41e0e9401dfb7082e30574b7b1",
+                               "bytes": 2132967},
+            "tokenizer_config.json": {"sha256": "3cd2017ff46d0a527e5d39cae39272eccfa1f19bb9f89b05d166aab2e38354e2",
+                                      "bytes": 20810},
+        },
+    },
     "modernbert_large_v1": {
         "repository": "answerdotai/ModernBERT-large",
         "revision": "45bb4654a4d5aaff24dd11d4781fa46d39bf8c13",
@@ -119,9 +138,33 @@ def contract_width(contract):
 
 
 def check_arm(name, arm):
-    """A teacher class trains document heads only."""
-    demand(arm["span_head"] is None and arm.get("token_head") is None and arm.get("freeze", "none") == "none" and
-           arm.get("s2") is None, "a teacher class trains document heads only: " + name)
+    """Document training, or a token head whose document model stays frozen."""
+    demand(arm["span_head"] is None and arm["share_mode"] == "head",
+           "a teacher's document heads cannot consume span outputs: " + name)
+    token = arm.get("token_head") is not None
+    demand(arm.get("freeze", "none") == ("encoder_and_document_heads" if token else "none"),
+           "teacher token training requires frozen encoder and document heads: " + name)
+    mechanism = arm.get("s2")
+    demand(mechanism is None or (token and mechanism.get("mechanism") == "span_tower"),
+           "teacher span mechanism must be a frozen span tower: " + name)
+
+
+def check_tower(model):
+    """Verify the copied layers retain their original positions and attention windows."""
+    config = model.encoder.config
+    layers = model.encoder.model.layers
+    demand(len(layers) == config.num_hidden_layers and config.global_attn_every_n_layers > 0,
+           "span tower encoder geometry")
+    copied = model.span_tower.layers
+    start = len(layers) - model.tower_layers
+    demand(len(copied) == model.tower_layers, "span tower depth differs")
+    for index, layer in zip(range(start, len(layers)), copied):
+        expected = ((-1, -1) if index % config.global_attn_every_n_layers == 0 else
+                    (config.local_attention // 2, config.local_attention // 2))
+        for attn in (layers[index].attn, layer.attn):
+            demand(attn.layer_id == index and attn.local_attention == expected and
+                   attn.all_head_size == config.hidden_size, "span tower attention geometry differs")
+    demand(tuple(model.span_tower.norm.normalized_shape) == (config.hidden_size,), "span tower norm width")
 
 
 def is_teacher_binding(binding):
@@ -266,6 +309,9 @@ def completed_fit(root, config, fit, init, allow_subset=False):
                         (bundle, "bundle_reader_sha256"), (exporter.spans_rule, "spans_rule_sha256")):
         exporter.require(module.__file__, binding[key])
     exporter.require(__file__, binding["teacher_class"]["module_sha256"])
+    if binding.get("s2") is not None:
+        import full_a_s2
+        exporter.require(full_a_s2.__file__, binding["s2"]["module_sha256"])
     exporter.require(fit / "selected.pt", report["selected_checkpoint_sha256"])
     saved = torch.load(fit / "selected.pt", map_location="cpu", weights_only=False)
     demand(saved["binding"] == binding and saved["evaluation"] == report["selected_evaluation"],
@@ -290,7 +336,12 @@ def restore_model(args, root, config, binding, saved, device):
     demand(parent["artifact_id"] == contract["parent_artifact_id"] == binding["parent_artifact_id"],
            "parent differs")
     model, profiles = trainer.build(encoder, contract, None, arm, protocol, device, binding["seed"])
+    if trainer.s2_mechanism(arm) == "span_tower":
+        model.attach_tower()
+        check_tower(model)
     trainer.restore(model, saved["model"])
+    if arm.get("freeze") == "encoder_and_document_heads":
+        model.freeze_document()
     model.token_loss_weight = model.token_head_weight = 0.
     return model.eval(), tokenizer, contract, protocol, arm, profiles
 

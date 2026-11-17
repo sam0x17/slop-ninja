@@ -351,13 +351,12 @@ published files let you score locally against the model you have to beat,
 and `R_0`'s package and training companion let you start from R0's encoder
 ([Optional local tools](#optional-local-tools)).
 
-The release trainer in the repository
-(`grammar/crates/grammar-eval/python/train_full_a.py`) is not a path on its
-own. It accepts only the private parent model that R0 was trained from, which
-is not distributed; the training guide's recipe supplies a public parent in
-its place. And it writes a fit directory, not the artifact's files:
-calibration, the release files, the graph export and the assembly come after
-it.
+The release trainer (`grammar/crates/grammar-eval/python/train_full_a.py`)
+writes a fit directory. The training guide supplies its public parent,
+calibration, release files, graph export and assembly steps. Its optional
+[teacher classes](../a-teacher-training.md) support fresh document heads and
+frozen-document span experiments, but teacher fits have no artifact export
+path. Use the training guide for an admissible submission.
 
 The result is a directory holding the files the [artifact spec](artifact-spec.md)
 lists for the output contract the cohort names (`output_contract` in the

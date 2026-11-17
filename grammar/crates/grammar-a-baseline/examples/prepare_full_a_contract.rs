@@ -43,7 +43,7 @@ const NORMALIZATION_FIT: &str = "train_query_only_equal_source_family_weight";
 /// The V6 h width (every contract without a teacher class).
 const V6_WIDTH: usize = 768;
 /// Teacher classes and their encoder widths (`teacher_a.CLASSES` in grammar-eval/python).
-const TEACHER_CLASSES: &[(&str, usize)] = &[("modernbert_large_v1", 1024)];
+const TEACHER_CLASSES: &[(&str, usize)] = &[("modernbert_base_v1", 768), ("modernbert_large_v1", 1024)];
 
 #[derive(Parser)]
 struct Args {
@@ -262,12 +262,17 @@ mod tests {
         let c = contract(b"{}", vec!["a".into(), "b".into()], n.clone(), "x", &"0".repeat(64), teacher).unwrap();
         assert_eq!((c["raw_dimension"].as_u64(), c["teacher_class"].as_str()), (Some(1024), teacher));
         assert_eq!(c["embedding_normalization"]["dimension"], 1024);
-        // A V6-width normalization never makes a teacher contract, nor a teacher-width one a V6 contract.
+        // Large and base normalizations have different widths.
         assert!(normalization(&at(V6_WIDTH), w).is_err());
         assert!(normalization(&at(w), V6_WIDTH).is_err());
         assert!(contract(b"{}", vec!["a".into(), "b".into()], n, "x", &"0".repeat(64), None).is_err());
         let v6 = normalization(&at(V6_WIDTH), V6_WIDTH).unwrap();
-        assert!(contract(b"{}", vec!["a".into(), "b".into()], v6, "x", &"0".repeat(64), teacher).is_err());
+        assert!(contract(b"{}", vec!["a".into(), "b".into()], v6.clone(), "x", &"0".repeat(64), teacher).is_err());
+        let base_teacher = Some("modernbert_base_v1");
+        assert_eq!(width(base_teacher).unwrap(), V6_WIDTH);
+        let base = contract(b"{}", vec!["a".into(), "b".into()], v6, "x", &"0".repeat(64), base_teacher).unwrap();
+        assert_eq!(base["teacher_class"], "modernbert_base_v1");
+        assert_eq!(base["raw_dimension"], 768);
         assert!(width(Some("unknown_v1")).is_err());
     }
 }

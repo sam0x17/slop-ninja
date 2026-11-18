@@ -539,7 +539,7 @@ fn page_of(w: &World, text: &str, seal_s: &str) -> Result<String, RefusalCode> {
     let opened = seal::open_result(&w.secret, w.h.now.get(), seal_s, text).map_err(|_| RefusalCode::SealInvalid)?;
     let sealed = handoff::sealed(opened, &w.serving)?;
     let req = SaveRequest { text: text.into(), seal: seal_s.into(), save: false };
-    block_on(save::save(&w.h, w.keys(), &req, Some(sealed), None)).map(|a| a.slug)
+    block_on(save::save(&w.h, w.keys(), &req, Some(sealed), Some(reader(false)))).map(|a| a.slug)
 }
 
 /// "Check all" from the text's page.
@@ -649,7 +649,7 @@ fn a_quote_a_start_and_a_job_make_one_paid_page() {
     assert_eq!(w.h.count("SELECT sections_done FROM jobs"), 1, "section 1 is the free check's");
     assert_eq!(w.h.count("SELECT sections_total FROM jobs"), i64::from(q.sections));
     assert_eq!(w.docs_under("j/"), 2, "the job text and section 1");
-    let saved = w.h.owned.borrow().clone();
+    let saved: Vec<_> = w.h.owned.borrow().iter().filter(|e| e.summary.kind == Kind::PrivatePaid).cloned().collect();
     assert_eq!((saved.len(), saved[0].is_owner, saved[0].summary.kind), (1, true, Kind::PrivatePaid));
     // Nothing derived from the text reaches D1.
     let dump = w.h.dump();
@@ -734,6 +734,23 @@ fn the_quote_refuses_what_cannot_be_checked() {
     let mut moved = World::new();
     moved.serving.load = "b".repeat(64);
     assert_eq!(quote(&moved, &l, &text, &seal, Some(reader(false))).unwrap_err(), RefusalCode::SealInvalid);
+}
+
+#[test]
+fn failed_account_save_never_creates_a_paid_job_and_returns_its_hold() {
+    let w = World::new();
+    let l = FakeLedger::with(100_000);
+    let text = prose(3_214);
+    let seal = w.free_seal(&text, 1);
+    let q = quote(&w, &l, &text, &seal, Some(reader(false))).unwrap();
+    let req = StartRequest { slug: page_of(&w, &text, &seal).unwrap(), quote_seal: q.quote_seal };
+    w.h.owned_fails.set(true);
+    let answer = block_on(paid::start(&w.h, &l, &w.cx(), Some(reader(false)), &req, &mut |b, _| b <= 8 << 20));
+    assert_eq!(answer, Err(RefusalCode::AccountUnavailable));
+    assert_eq!(w.h.count("SELECT count(*) FROM jobs"), 0);
+    assert_eq!(w.h.count("SELECT count(*) FROM detections WHERE kind = 'private_paid'"), 0);
+    assert_eq!(w.docs_under("j/"), 0);
+    assert_eq!(l.releases.get(), 1);
 }
 
 #[test]

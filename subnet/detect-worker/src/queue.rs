@@ -127,7 +127,8 @@ pub const NOT_BUILT_RETRY_S: u32 = 3600;
 
 /// An account's deletable pages.
 pub const SELECT_OWNED_DELETABLE: &str = "SELECT hex(id_h) AS id_h FROM detections \
-WHERE owner_h = ?1 AND state IN ('live','pending','failed','disabled') LIMIT ?2";
+WHERE owner_h = ?1 AND state IN ('live','pending','failed','disabled') \
+AND (kind <> 'public_url' OR state <> 'disabled') LIMIT ?2";
 
 /// Releases up to `?2` of an account's pages.
 pub const RELEASE_OWNED: &str = "UPDATE detections SET owner_h = NULL, owner_via = NULL \

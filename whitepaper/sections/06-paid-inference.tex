@@ -49,7 +49,7 @@ alpha holders. The policy's commercial viability remains to be measured.
 Testnet runs for several months before the mainnet subnet is registered, and
 SlopNinja plans to earn revenue during that period. The first product is a
 free public detection page. A visitor pastes text, or the address of a public
-web page or of a post on Bluesky or X, and needs no account. The page runs
+web page or of a post on Bluesky or X, after signing in. The page runs
 SlopNinja's first span package (Section~\ref{span-outputs}) in SlopNinja's own
 runtime, a single Cloudflare Container that sleeps while the page is idle, so
 submitted text reaches no miner, and no submitted text is reused for training
@@ -116,9 +116,10 @@ and anyone who checks exactly that text reaches it as well. Its text is stored
 encrypted under that page's own key. A post on X is checked only through X's
 free embed. Its page keeps the post's identifier and the result, never the
 post's text; the post is checked again daily, and the page is removed once the
-post is gone. A free check needs no account; an account, signed in by an email
-link, Google, GitHub, or a Bittensor wallet, saves and manages links and holds
-paid credit. Every result page links to a removal form. A copyright notice or
+post is gone. Every check requires an account and saves its result to that
+account automatically; reading either kind of shared page requires no account.
+Accounts sign in by email link, Google, GitHub, or a Bittensor wallet, manage
+saved links and hold paid credit. Every result page links to a removal form. A copyright notice or
 counter-notice, a report of illegal content, a report of a wrong result, or a request from a post's author opens a recorded
 removal case, which the operator decides through signed
 operations. Some cases take an interim step at once, such as withholding a

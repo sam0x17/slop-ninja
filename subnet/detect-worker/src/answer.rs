@@ -136,6 +136,9 @@ pub struct Answer {
     /// shared or quoted.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub seal: Option<String>,
+    /// The result page, already saved to the checking account before success.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub saved: Option<slop_ninja_detect_page::internal::SaveAnswer>,
 }
 
 /// The result as a seal carries it (`result_full`): the answer line's
@@ -347,6 +350,7 @@ pub fn answer(scored: Scored, length: LengthBin, cut: &Cut<'_>, package: Package
         package,
         receipt,
         seal: None,
+        saved: None,
     }
 }
 
@@ -493,7 +497,14 @@ mod tests {
         assert_eq!(a.scored_end, before);
         // Offsets that do not map drop every passage.
         let mut bad = answer(
-            scored(read(&reply(99.99, 60.0, json!([span_json(&canonical, 5, 154, 30)])), PKG, &canonical, true, M, None)),
+            scored(read(
+                &reply(99.99, 60.0, json!([span_json(&canonical, 5, 154, 30)])),
+                PKG,
+                &canonical,
+                true,
+                M,
+                None,
+            )),
             M,
             &whole(&canonical),
             pkg(),

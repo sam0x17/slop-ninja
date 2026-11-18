@@ -10,7 +10,7 @@
 //!   check, `X-SN-Principal` only where the route table takes one). An
 //!   internal route is refused when it carries `X-SN-Route` or `X-SN-Host`;
 //!   it takes `X-SN-Principal` on the owner route, where it is required, and
-//!   on the save, where it is optional.
+//!   on the save, where it is required.
 //! - **Memory.** A save or a preview reserves its footprint from the
 //!   isolate's scan memory by its declared length before reading a byte
 //!   (`routes::text_footprint`); a document read reserves by the object's
@@ -201,7 +201,7 @@ pub(crate) fn refused(env: &Env, route: RouteId, code: RefusalCode) -> web_sys::
 
 /// An opened result seal as the store takes it; `None` for a forged,
 /// expired or mismatched seal, or one of another package.
-fn open_seal(env: &Env, serving: &Serving, text: &str, sealed: &str) -> Option<Sealed> {
+pub(crate) fn open_seal(env: &Env, serving: &Serving, text: &str, sealed: &str) -> Option<Sealed> {
     let secret = store_secret(env)?;
     let o = seal::open_result(&secret, now_ms(), sealed, text).ok()?;
     handoff::sealed(o, serving).ok()
@@ -243,7 +243,7 @@ pub(crate) async fn rerun(mut req: Request, env: &Env) -> web_sys::Response {
     };
     let ip = header(&req, "cf-connecting-ip");
     let scorer = CfScorer { env, ip: ip.as_deref(), channel: admission.channel(route), serving: &c.serving };
-    match rerun::rerun_secret(&c.io, c.secrets.keys(), &body.slug, &c.serving, &scorer).await {
+    match rerun::rerun_secret(&c.io, c.secrets.keys(), &body.slug, &c.serving, &scorer, admission.principal()).await {
         Ok(a) => ok(&a),
         Err(code) => refused(env, route, code),
     }

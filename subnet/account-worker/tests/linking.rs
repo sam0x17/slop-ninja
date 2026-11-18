@@ -217,14 +217,14 @@ fn save(
 }
 
 #[test]
-fn saved_links_keep_only_secret_slugs_and_only_their_users_rows() {
+fn saved_links_validate_kind_and_keep_only_their_users_rows() {
     let h = TestHost::new();
     let cfg = config(&[]);
     let mut a = Browser::new();
     a.email_sign_in(&h, &cfg, A);
     let ua = user_of(&mut a, &h, &cfg);
     let r = save(&h, &cfg, &ua, "abc1234", 1, false);
-    assert_eq!(r.status, 400, "a public slug is never saved");
+    assert_eq!(r.status, 400, "a public slug cannot masquerade as private text");
     assert_eq!(h.count("SELECT COUNT(*) AS n FROM owned"), 0);
     let slug = "0123456789abcdefghjk";
     let r = save(&h, &cfg, &ua, slug, 2, false);
@@ -255,6 +255,39 @@ fn saved_links_keep_only_secret_slugs_and_only_their_users_rows() {
     for bad in ["uM07zZQ", "manifest", "uM07zZQv!", "UM07ZZQVEKUM07ZZQVEK1"] {
         assert_eq!(save(&h, &cfg, &ua, bad, 4, false).status, 400, "{bad}");
     }
+}
+
+#[test]
+fn public_results_keep_encrypted_links_without_retaining_removed_results() {
+    let h = TestHost::new();
+    let cfg = config(&[]);
+    let mut a = Browser::new();
+    a.email_sign_in(&h, &cfg, A);
+    let user = user_of(&mut a, &h, &cfg);
+    let mut website = Browser::new();
+    let mut req = json!({
+        "user_id": user, "slug": "k7m2xq9", "id_h": hex::encode([9; 32]), "is_owner": true,
+        "summary": {"kind": "public_url", "band": null, "strong_sections": null,
+                    "total_sections": null, "words": 0, "created_at": 1}
+    });
+    let r = website.internal(&h, &cfg, "/internal/v1/owned/add", req.clone());
+    assert_eq!(r.status, 200);
+    assert_eq!(body(&r)["added"], true);
+    req["summary"]["words"] = json!(320);
+    let r = website.internal(&h, &cfg, "/internal/v1/owned/add", req.clone());
+    assert_eq!(r.status, 400, "a source removal must not leave a copied public result in account exports");
+    req["summary"]["words"] = json!(0);
+    req["is_owner"] = json!(false);
+    let r = website.internal(&h, &cfg, "/internal/v1/owned/add", req);
+    assert_eq!(body(&r)["added"], false);
+    let view = a.view(&h, &cfg, "detections");
+    assert_eq!(view["entries"].as_array().unwrap().len(), 1);
+    let entry = &view["entries"][0];
+    assert_eq!(entry["slug"], "k7m2xq9");
+    assert_eq!(entry["summary"]["words"], 0);
+    assert!(entry["summary"]["band"].is_null());
+    assert_eq!(entry["is_owner"], true);
+    assert!(!h.dump().contains("k7m2xq9"));
 }
 
 fn two_accounts(

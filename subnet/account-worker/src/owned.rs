@@ -1,18 +1,16 @@
 //! "My detections": the internal saved-link routes.
 //!
-//! `owned/add` keeps a secret page's link for an account (a pasted text's
-//! slug, 8 to 19 base62 characters, or a drawn 20-character one), sealed under that
-//! account's key with the `id_h`, summary and ownership the detect Worker
-//! produced or answered. It never keeps a public page's slug: a public page
-//! is reachable by anyone and needs no saved link, and an X post's page must
-//! leave nothing outside the rows its deletion reaches. `get`, `remove` and
+//! `owned/add` keeps every checked page's link for an account, sealed under
+//! that account's key with the `id_h`, summary and ownership the detect Worker
+//! produced or answered. It keeps no source text or URL. `get`, `remove` and
 //! `prune` touch only rows of the `user_id` they are given.
 
 use slop_ninja_account_wire::{
     OwnedAddAnswer, OwnedAddRequest, OwnedEntry, OwnedEntryRequest, OwnedPruneRequest, OwnedRemoved,
 };
+use slop_ninja_detect_page::codes::Kind;
 use slop_ninja_detect_page::internal::MAX_STATES_PER_CALL;
-use slop_ninja_detect_page::slug::is_secret_slug;
+use slop_ninja_detect_page::slug::{PUBLIC_LEN, is_canonical, is_secret_slug};
 use slop_ninja_detect_page::{IdH, RefusalCode, UserId};
 
 use crate::config::Config;
@@ -30,8 +28,16 @@ pub async fn add<H: Host>(cfg: &Config, host: &H, req: &Req, sw: &Switches) -> R
         Ok(b) => b,
         Err(c) => return Resp::refusal(c),
     };
-    // Only a secret page's slug, in either form: never the public form.
-    if !is_secret_slug(&body.slug) {
+    let valid = if body.summary.kind == Kind::PublicUrl {
+        is_canonical(&body.slug, PUBLIC_LEN)
+            && body.summary.words == 0
+            && body.summary.band.is_none()
+            && body.summary.strong_sections.is_none()
+            && body.summary.total_sections.is_none()
+    } else {
+        is_secret_slug(&body.slug)
+    };
+    if !valid {
         return Resp::refusal(RefusalCode::MalformedRequest);
     }
     if sw.read_only() {
@@ -51,12 +57,13 @@ pub async fn add<H: Host>(cfg: &Config, host: &H, req: &Req, sw: &Switches) -> R
              ON CONFLICT (user_id, det_id_h) DO NOTHING RETURNING entry_id",
             body.user_id.0,
             body.id_h.0,
-            sealed,
+            sealed.clone(),
             body.is_owner,
             now
         ),
         crate::stmt!(
-            "UPDATE owned SET is_owner = MAX(is_owner, ?) WHERE user_id = ? AND det_id_h = ? RETURNING entry_id",
+            "UPDATE owned SET enc_ref = ?, is_owner = MAX(is_owner, ?) WHERE user_id = ? AND det_id_h = ? RETURNING entry_id",
+            sealed,
             body.is_owner,
             body.user_id.0,
             body.id_h.0

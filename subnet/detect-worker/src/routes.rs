@@ -272,7 +272,9 @@ pub fn internal_route(
         let (m, p) = r.method_path();
         let shard = match p.strip_suffix("<n>") {
             Some(prefix) => {
-                let Some(n) = path.strip_prefix(prefix) else { continue };
+                let Some(n) = path.strip_prefix(prefix) else {
+                    continue;
+                };
                 let canonical = !n.is_empty()
                     && n.len() <= 9
                     && n.bytes().all(|b| b.is_ascii_digit())
@@ -421,9 +423,9 @@ impl ScanMemory {
 /// - `X-SN-Principal` is accepted only on a route whose row takes one, with
 ///   `X-SN-Host` the site's, and only in the exact form the website writes.
 ///   On any other route, or without `X-SN-Route`, its presence refuses the
-///   request: a free check is the same request for everyone.
-/// - A request with neither header is a direct binding call. It is served,
-///   but its scans are never counted toward the pot ([`forwarded::Admission::channel`]).
+///   request. Checking routes require a principal.
+/// - A request with neither header is a direct binding call. Account-required
+///   routes refuse it before work.
 ///   `X-SN-Host` alone refuses it: the forwarders set both or neither.
 /// - An `/internal/` request carrying `X-SN-Route` or `X-SN-Host` is refused
 ///   ([`forwarded::admit_internal`]): only the forwarders set those, and they never
@@ -470,6 +472,13 @@ pub mod forwarded {
     }
 
     impl Admission {
+        pub fn principal(&self) -> Option<Principal> {
+            match self {
+                Self::Forwarded { principal, .. } => *principal,
+                Self::Direct => None,
+            }
+        }
+
         /// The counting channel of a free scan on `route`: `free_text` only
         /// for the score route and the secret re-run (counted like a paste)
         /// forwarded from the site host. `None`: the scan is served and
@@ -490,7 +499,7 @@ pub mod forwarded {
             if a.sn_host.is_some() || a.sn_principal.is_some() {
                 return Err(RefusalCode::MalformedRequest);
             }
-            return Ok(Admission::Direct);
+            return if route.requires_account() { Err(RefusalCode::SignedOut) } else { Ok(Admission::Direct) };
         };
         let id = RouteId::parse(id).filter(|r| *r == route).ok_or(RefusalCode::MalformedRequest)?;
         let host = a.sn_host.and_then(|h| origins.role_of_sn_host(h)).ok_or(RefusalCode::MalformedRequest)?;
@@ -507,6 +516,9 @@ pub mod forwarded {
             }
         };
         csrf::check_route(id, host, origins, a.method, a.sec_fetch_site, a.origin).map_err(|e| e.code())?;
+        if id.requires_account() && principal.is_none() {
+            return Err(RefusalCode::SignedOut);
+        }
         Ok(Admission::Forwarded { host, principal })
     }
 
@@ -520,8 +532,8 @@ pub mod forwarded {
     }
 
     /// The principal of internal route `route`, in the exact form the
-    /// website writes: the owner route needs one (`signed_out` without), the
-    /// save takes one when the reader asked to save, and on any other
+    /// website writes: the owner and save routes need one (`signed_out`
+    /// without), and on any other
     /// internal route its presence refuses the request.
     pub fn internal_principal(route: InternalRoute, a: &Arrival<'_>) -> Result<Option<Principal>, RefusalCode> {
         admit_internal(a)?;
@@ -550,6 +562,9 @@ pub mod forwarded {
                 method: "POST",
                 sn_route: Some(route),
                 sn_host: Some(host),
+                sn_principal: RouteId::parse(route)
+                    .filter(|r| r.requires_account())
+                    .map(|_| "v1;0123456789abcdef0123456789abcdef;5;0"),
                 sec_fetch_site: Some("same-origin"),
                 origin: Some(SITE),
                 ..Arrival::default()
@@ -565,16 +580,30 @@ pub mod forwarded {
         fn a_forwarded_score_from_the_site_is_counted() {
             let o = origins();
             let a = admit(RouteId::Score, &forwarded("score", "site.example"), &o).unwrap();
-            assert_eq!(a, Admission::Forwarded { host: HostRole::Site, principal: None });
+            assert_eq!(a.principal(), Principal::decode(&principal()));
             assert_eq!(a.channel(RouteId::Score), Some(Channel::FreeText));
             assert_eq!(a.channel(RouteId::Warm), None);
         }
 
         #[test]
-        fn a_direct_call_is_served_uncounted() {
-            let a = admit(RouteId::Score, &Arrival { method: "POST", ..Arrival::default() }, &origins()).unwrap();
-            assert_eq!(a, Admission::Direct);
-            assert_eq!(a.channel(RouteId::Score), None);
+        fn checks_require_accounts_before_work_but_readers_do_not() {
+            let o = origins();
+            for route in
+                [RouteId::Score, RouteId::Warm, RouteId::Url, RouteId::Rerun, RouteId::PaidQuote, RouteId::PaidStart]
+            {
+                let authenticated = forwarded(route.as_str(), "site.example");
+                assert!(admit(route, &authenticated, &o).unwrap().principal().is_some());
+                let anonymous = Arrival { sn_principal: None, ..authenticated };
+                assert_eq!(admit(route, &anonymous, &o), Err(RefusalCode::SignedOut));
+                assert_eq!(
+                    admit(route, &Arrival { method: "POST", ..Arrival::default() }, &o),
+                    Err(RefusalCode::SignedOut)
+                );
+            }
+            assert!(admit(RouteId::State, &forwarded("state", "site.example"), &o).is_ok());
+            for route in [InternalRoute::Page, InternalRoute::Card, InternalRoute::States] {
+                assert_eq!(internal_principal(route, &Arrival { method: "POST", ..Arrival::default() }), Ok(None));
+            }
         }
 
         #[test]
@@ -615,7 +644,7 @@ pub mod forwarded {
         fn a_principal_only_where_the_table_takes_one() {
             let o = origins();
             let p = principal();
-            for route in ["score", "warm", "feedback"] {
+            for route in ["state", "feedback"] {
                 let r = RouteId::parse(route).unwrap();
                 let a = Arrival { sn_principal: Some(&p), ..forwarded(route, "site.example") };
                 assert_eq!(admit(r, &a, &o), Err(RefusalCode::MalformedRequest), "{route}");
@@ -635,8 +664,12 @@ pub mod forwarded {
                 assert_eq!(admit(RouteId::PaidQuote, &a, &o), Err(RefusalCode::MalformedRequest), "{bad}");
             }
             assert_eq!(
-                admit(RouteId::PaidQuote, &forwarded("paid_quote", "site.example"), &o).unwrap(),
-                Admission::Forwarded { host: HostRole::Site, principal: None }
+                admit(
+                    RouteId::PaidQuote,
+                    &Arrival { sn_principal: None, ..forwarded("paid_quote", "site.example") },
+                    &o
+                ),
+                Err(RefusalCode::SignedOut)
             );
         }
 
@@ -669,9 +702,9 @@ pub mod forwarded {
             assert!(admit(RouteId::Score, &origin_only, &o).is_ok());
             let put = Arrival { method: "PUT", ..forwarded("score", "site.example") };
             assert_eq!(admit(RouteId::Score, &put, &o), Err(RefusalCode::Method));
-            // A binding call carries no browser headers and gets no check.
+            // A binding call cannot bypass the required account.
             let direct = Arrival { method: "POST", sec_fetch_site: Some("cross-site"), ..Arrival::default() };
-            assert_eq!(admit(RouteId::Score, &direct, &o), Ok(Admission::Direct));
+            assert_eq!(admit(RouteId::Score, &direct, &o), Err(RefusalCode::SignedOut));
         }
 
         #[test]
@@ -687,7 +720,7 @@ pub mod forwarded {
         }
 
         #[test]
-        fn the_owner_route_needs_a_principal_and_the_save_may_take_one() {
+        fn owner_and_save_require_principals() {
             let p = principal();
             let with = Arrival { method: "POST", sn_principal: Some(&p), ..Arrival::default() };
             let without = Arrival { method: "POST", ..Arrival::default() };
@@ -699,9 +732,9 @@ pub mod forwarded {
                 assert_eq!(internal_principal(r, &without), Ok(None));
                 assert_eq!(internal_principal(r, &with), Err(RefusalCode::MalformedRequest), "{r:?}");
             }
-            // The save: optional, in the exact form only.
+            // Result creation also requires the exact principal form.
             assert_eq!(internal_principal(InternalRoute::Save, &with).unwrap().map(|x| x.auth_time_ms), Some(5));
-            assert_eq!(internal_principal(InternalRoute::Save, &without), Ok(None));
+            assert_eq!(internal_principal(InternalRoute::Save, &without), Err(RefusalCode::SignedOut));
             assert_eq!(internal_principal(InternalRoute::Save, &bad), Err(RefusalCode::MalformedRequest));
             let forwarded = Arrival { sn_route: Some("score"), ..with };
             assert_eq!(internal_principal(InternalRoute::Owner, &forwarded), Err(RefusalCode::MalformedRequest));

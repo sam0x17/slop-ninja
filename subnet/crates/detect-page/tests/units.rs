@@ -983,7 +983,7 @@ fn routes_and_headers() {
         }
     }
     let principal: Vec<_> = RouteId::ALL.iter().filter(|r| r.takes_principal()).map(|r| r.as_str()).collect();
-    assert_eq!(principal, ["paid_quote", "paid_start", "removal"]);
+    assert_eq!(principal, ["score", "warm", "url", "rerun", "paid_quote", "paid_start", "removal"]);
     assert!(RouteId::parse("share").is_none(), "Get a link is gone: every check saves through the website");
     for r in [RouteId::Manage, RouteId::Job] {
         assert!(r.spec().hosts.admits(HostRole::Secret) && !r.spec().hosts.admits(HostRole::Site));
@@ -991,7 +991,7 @@ fn routes_and_headers() {
     let internal: Vec<_> = InternalRoute::ALL.iter().filter(|r| r.takes_principal()).collect();
     assert_eq!(internal, [&InternalRoute::Save, &InternalRoute::Owner]);
     assert_eq!(InternalRoute::Owner.principal(), sn::PrincipalRule::Required);
-    assert_eq!(InternalRoute::Save.principal(), sn::PrincipalRule::Optional);
+    assert_eq!(InternalRoute::Save.principal(), sn::PrincipalRule::Required);
     assert_eq!(InternalRoute::Page.principal(), sn::PrincipalRule::Refused);
     assert_eq!(InternalRoute::Save.method_path(), ("POST", "/internal/v1/save"));
     assert_eq!(InternalRoute::Save.callee(), sn::Callee::Detect);

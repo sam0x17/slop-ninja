@@ -74,7 +74,8 @@ WHERE id_h = ?1 AND manage_h = ?2 AND state IN ('live','pending','failed','disab
 /// The tombstone of a delete by the owner.
 pub const DELETE_BY_OWNER: &str = "UPDATE detections SET state = 'deleted', doc_key = NULL, doc_bytes = NULL, \
 manage_h = NULL, owner_h = NULL, owner_via = NULL, state_v = state_v + 1, updated_at = ?3 \
-WHERE id_h = ?1 AND owner_h = ?2 AND state IN ('live','pending','failed','disabled')";
+WHERE id_h = ?1 AND owner_h = ?2 AND state IN ('live','pending','failed','disabled') \
+AND (kind <> 'public_url' OR state <> 'disabled')";
 
 /// A deleted root's copies end with it; guarded on the root being deleted
 /// now, so a wrong token or owner ends nothing.
@@ -341,9 +342,9 @@ pub async fn states(io: &impl Io, req: &StatesRequest) -> Result<StatesAnswer, R
         .map(|id| {
             let r = done.rows.iter().find(|r| r.hex32("id_h") == Some(id.0));
             let state = r.and_then(|r| {
-                let kind = Kind::parse(r.text("kind")?)?;
+                Kind::parse(r.text("kind")?)?;
                 let st = DetState::parse(r.text("state")?)?;
-                kind.is_secret().then_some(st)
+                Some(st)
             });
             StateEntry { id_h: *id, state }
         })

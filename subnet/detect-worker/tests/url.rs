@@ -72,7 +72,7 @@ impl World {
     }
 
     fn admit(&self, url: &str) -> Result<Admitted, RefusalCode> {
-        block_on(admit(&self.h, &self.host, &self.ctx(), url)).map_err(|r| r.code)
+        block_on(admit(&self.h, &self.host, &self.ctx(), url, Some(principal(1)))).map_err(|r| r.code)
     }
 
     /// Admits and drives to the end, as one submitter does.
@@ -92,7 +92,37 @@ impl World {
     }
 }
 
+fn principal(n: u8) -> slop_ninja_detect_page::Principal {
+    slop_ninja_detect_page::Principal { user_id: slop_ninja_detect_page::UserId([n; 16]), auth_time_ms: 1, flags: 0 }
+}
+
 const URL: &str = "https://example.com/garden/notes";
+
+#[test]
+fn public_checks_require_and_save_accounts_before_fetching() {
+    let w = World::new();
+    let denied = block_on(admit(&w.h, &w.host, &w.ctx(), URL, None)).unwrap_err();
+    assert_eq!(denied.code, RefusalCode::SignedOut);
+    assert_eq!(w.rows("detections") + w.rows("claims"), 0);
+    assert!(w.h.owned.borrow().is_empty());
+    w.h.owned_fails.set(true);
+    assert_eq!(w.admit(URL), Err(RefusalCode::AccountUnavailable));
+    assert_eq!((w.fetch.fetch_calls.get(), w.scorer.calls.get()), (0, 0));
+    assert_eq!(w.h.count("SELECT count(*) FROM detections WHERE state = 'live'"), 0);
+    // The pending claim can be retried without drawing a second page.
+    w.h.owned_fails.set(false);
+    let Admitted::Joined(slug) = w.admit(URL).unwrap() else { panic!() };
+    assert_eq!(w.rows("detections"), 1);
+    assert!(w.h.owned.borrow().last().unwrap().is_owner);
+    let joined = block_on(admit(&w.h, &w.host, &w.ctx(), URL, Some(principal(2)))).unwrap();
+    assert_eq!(joined, Admitted::Joined(slug.clone()));
+    let saved = w.h.owned.borrow().last().unwrap().clone();
+    assert_eq!(saved.slug, slug);
+    assert_eq!(saved.user_id, principal(2).user_id);
+    assert!(!saved.is_owner);
+    // Reading the shared page has no account input.
+    assert_eq!(w.page(&slug).unwrap().state, DetState::Pending);
+}
 
 #[test]
 fn a_page_is_checked_once_and_its_link_reused() {
@@ -229,7 +259,7 @@ fn refusals_before_a_slug_store_nothing() {
     assert_eq!(w.rows("detections") + w.rows("sources") + w.rows("claims"), 0);
     assert_eq!(w.fetch.fetch_calls.get(), 0);
     // Our own page's link answers its slug.
-    assert_eq!(w.admit("https://slop.ninja/d/K7M2XQ9").unwrap(), Admitted::Done("k7m2xq9".into()));
+    assert_eq!(w.admit("https://slop.ninja/d/K7M2XQ9"), Err(RefusalCode::NotFound));
     // The switches.
     w.h.vars.borrow_mut().insert("DETECT_URLS".into(), "off".into());
     assert_eq!(w.admit(URL), Err(RefusalCode::UrlsOff));
@@ -436,7 +466,8 @@ fn a_pasted_copy_of_a_public_text_stays_secret() {
     let id = post_id(w.h.now.get(), 2 * 3_600_000, 1);
     w.fetch.posts.borrow_mut().insert(id, XPostAnswer::Text { text: x_text() });
     let x = w.check(&format!("https://x.com/someone/status/{id}")).unwrap();
-    let fixture = format!("{}/../crates/detect-page/tests/fixtures/pages/15-secret-text.json", env!("CARGO_MANIFEST_DIR"));
+    let fixture =
+        format!("{}/../crates/detect-page/tests/fixtures/pages/15-secret-text.json", env!("CARGO_MANIFEST_DIR"));
     let run = serde_json::from_str::<slop_ninja_detect_page::page::Page>(&std::fs::read_to_string(fixture).unwrap())
         .unwrap()
         .run
@@ -473,7 +504,9 @@ fn a_pasted_copy_of_a_public_text_stays_secret() {
         };
         let sealed = Sealed { text_sha256: canon::text_sha256(&text), nonce, result };
         let req = SaveRequest { text: text.clone(), seal: "opened-elsewhere".into(), save: false };
-        let a = block_on(save(&w.h, Keys { store: &w.store, peppers: &w.peppers }, &req, Some(sealed), None)).unwrap();
+        let a =
+            block_on(save(&w.h, Keys { store: &w.store, peppers: &w.peppers }, &req, Some(sealed), Some(principal(1))))
+                .unwrap();
         assert!(a.made);
         secrets.push(a.slug);
     }
@@ -671,7 +704,8 @@ fn a_young_post_makes_no_request_and_draws_no_slug() {
     let w = World::new();
     let now = w.h.now.get();
     let id = post_id(now, 30 * 60_000, 2);
-    let r = block_on(admit(&w.h, &w.host, &w.ctx(), &format!("https://x.com/a/status/{id}"))).unwrap_err();
+    let r = block_on(admit(&w.h, &w.host, &w.ctx(), &format!("https://x.com/a/status/{id}"), Some(principal(1))))
+        .unwrap_err();
     assert_eq!(r.code, RefusalCode::XPostTooNew);
     assert_eq!(r.after_ms, Some(now - 30 * 60_000 + 3_660_000));
     assert_eq!(w.rows("detections") + w.rows("sources") + w.rows("claims"), 0);

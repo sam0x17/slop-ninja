@@ -38,8 +38,7 @@
 //!   page) and `/state`; and the binding-only `/internal/v1/*` routes (page,
 //!   preview, save, card, states, owner, examples, example, sitemap shards,
 //!   removals), refused when they carry `X-SN-Route` or `X-SN-Host`, with
-//!   `X-SN-Principal` required on the owner route and optional on the save
-//!   (the website sends it only when the reader asked to save).
+//!   `X-SN-Principal` required on the owner and save routes.
 //! - The paid check's routes (`cf_paid`): `POST /api/detect/v1/paid/quote`
 //!   and `/paid/start` (the site host, with `X-SN-Principal`), and
 //!   `/api/detect/v1/job` (the secret host), whose NDJSON stream drives the
@@ -528,8 +527,8 @@ pub(crate) fn admit(req: &Request, env: &Env, route: RouteId) -> std::result::Re
     forwarded::admit(route, &Heads::of(req).arrival(), &o)
 }
 
-/// An internal route's admission and its principal (the owner route's
-/// only), before any body is read.
+/// An internal route's admission and its principal (owner and save),
+/// before any body is read.
 pub(crate) fn admit_internal(
     req: &Request,
     route: slop_ninja_detect_page::sn::InternalRoute,
@@ -914,7 +913,8 @@ impl<'a> Accepted<'a> {
         channel: Channel,
     ) -> Option<Accepted<'a>> {
         let length = policy::length_bin(words).ok().filter(|l| !l.is_short())?;
-        let fwd = Forward { package: &pkg.load, spans: true, calibration_input: false, docs: [ForwardDoc { id: "d", text }] };
+        let fwd =
+            Forward { package: &pkg.load, spans: true, calibration_input: false, docs: [ForwardDoc { id: "d", text }] };
         let fwd = serde_json::to_string(&fwd).ok().filter(|f| f.len() as u64 <= bound::SCORER_MAX_BODY)?;
         let cut = Cut { scored: text, kind: cut::Kind::Whole, total_words: words, scored_words: words, tokens };
         Some(Accepted {
@@ -977,13 +977,24 @@ async fn score(mut req: Request, env: Env, answer: &Answer) {
         Ok(a) => a,
         Err(code) => return answer.send(refused(code)),
     };
+    let Some(principal) = admission.principal() else { return answer.send(refused(RefusalCode::SignedOut)) };
+    let store = match crate::cf_routes::ctx(&env) {
+        Ok(c) => c,
+        Err(code) => return answer.send(refused(code)),
+    };
     if !content_type_ok(header(&req, "content-type").as_deref(), BodyType::Json) {
         return answer.send(refused(RefusalCode::ContentType));
     }
     let w = waits(&env);
     let sw = read_switches(&env, switches::SCORE, w.hold_ms).await;
+    if sw.d1_failed() {
+        return answer.send(refused(RefusalCode::SaveUnavailable));
+    }
     if !sw.on(switches::TOOL) {
         return answer.send(refused(RefusalCode::ToolOff));
+    }
+    if !sw.on(switches::STORE) {
+        return answer.send(refused(RefusalCode::StoreOff));
     }
     let Some(pkg) = package(&env) else { return answer.send(refused(RefusalCode::NotConfigured)) };
     let declared = header(&req, "content-length").and_then(|v| v.trim().parse::<u64>().ok());
@@ -1046,7 +1057,19 @@ async fn score(mut req: Request, env: Env, answer: &Answer) {
             // and a preview renders); the line gets the sent string's.
             let full = answer::sealed_result(&mut line, text, &canonical);
             line.seal = result_seal(&env, &accepted, full);
-            let _ = lines.line(&line).await;
+            let sealed = line.seal.as_deref().and_then(|s| crate::cf_routes::open_seal(&env, &store.serving, text, s));
+            // Saving is server-side: a client cannot omit a second POST to
+            // avoid its account's saved detections. No success is sent until
+            // both the association and the result page exist.
+            match crate::save::save_text(&store.io, store.secrets.keys(), text, sealed, Some(principal)).await {
+                Ok(saved) => {
+                    line.saved = Some(saved);
+                    let _ = lines.line(&line).await;
+                }
+                Err(code) => {
+                    let _ = lines.line(&ApiRefusal::new(code)).await;
+                }
+            }
         }
         Scan::Refused(r) => {
             let _ = lines.line(&r).await;

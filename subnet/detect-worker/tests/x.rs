@@ -19,10 +19,25 @@ use slop_ninja_detect_worker::db::Stmt;
 use slop_ninja_detect_worker::doc::Serving;
 use slop_ninja_detect_worker::keys::{Pepper, Peppers, StoreKeys};
 use slop_ninja_detect_worker::save::Keys;
-use slop_ninja_detect_worker::url_flow::{Admitted, UrlCtx, admit, drive};
+use slop_ninja_detect_worker::url_flow::{Admitted, UrlCtx, admit as admit_url, drive};
 use slop_ninja_detect_worker::x_flow::{self, X_CHECK_EVERY_MS, X_LATE_MS, X_REQUEUE_MS, XConfig, x_canon_key};
 use slop_ninja_detect_worker::{queue, reads, sitemap};
 use stubs::*;
+
+/// These source-lifecycle fixtures are submitted by a signed-in account.
+async fn admit(
+    io: &Harness,
+    host: &HostStub,
+    ctx: &UrlCtx<'_>,
+    url: &str,
+) -> Result<Admitted, slop_ninja_detect_page::refusal::ApiRefusal> {
+    let principal = slop_ninja_detect_page::Principal {
+        user_id: slop_ninja_detect_page::UserId([1; 16]),
+        auth_time_ms: 1,
+        flags: 0,
+    };
+    admit_url(io, host, ctx, url, Some(principal)).await
+}
 
 struct World {
     h: Harness,

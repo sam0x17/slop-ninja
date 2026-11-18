@@ -774,6 +774,26 @@ pub async fn start(
         give_back(io, ledger, &idem, &hold.hold_id, &keys).await;
         return Err(RefusalCode::SaveUnavailable);
     }
+    let add = OwnedAddRequest {
+        user_id: p.user_id,
+        slug: slug.clone(),
+        id_h: IdH(id_h),
+        summary: Summary {
+            kind: Kind::PrivatePaid,
+            band: None,
+            strong_sections: None,
+            total_sections: Some(k),
+            words: job.header.plan.total_words,
+            created_at: now,
+        },
+        is_owner: true,
+    };
+    // Associate before creating a runnable job. A failed or lost account
+    // response cannot leave a paid check running outside its account list.
+    if io.owned_add(&add).await.is_err() {
+        give_back(io, ledger, &idem, &hold.hold_id, &keys).await;
+        return Err(RefusalCode::AccountUnavailable);
+    }
     let batch = vec![
         Stmt::new(
             INSERT_PAID,
@@ -822,25 +842,6 @@ pub async fn start(
         });
     }
     io.metric("job", &["started"]);
-    let add = OwnedAddRequest {
-        user_id: p.user_id,
-        slug: slug.clone(),
-        id_h: IdH(id_h),
-        summary: Summary {
-            kind: Kind::PrivatePaid,
-            band: None,
-            strong_sections: None,
-            total_sections: Some(k),
-            words: job.header.plan.total_words,
-            created_at: now,
-        },
-        is_owner: true,
-    };
-    // The page is the account's by its owner hash either way; a failed save
-    // leaves it out of "my detections" only.
-    if io.owned_add(&add).await.is_err() {
-        io.metric("job", &["save_failed"]);
-    }
     Ok(StartAnswer { slug, manage })
 }
 

@@ -85,13 +85,17 @@
 //!    before that write, and the removal deletes it, or is fenced off here.
 //!    Nothing of the post outlives the removal.
 
+use slop_ninja_account_wire::OwnedAddRequest;
 use slop_ninja_detect_fetch_wire::{FetchAnswer, FetchRequest, Limits, MAX_HOPS, Outcome, XPostAnswer, XPostRequest};
+use slop_ninja_detect_page::codes::Kind;
 use slop_ninja_detect_page::codes::{DetectXState, Platform, Reputation};
+use slop_ninja_detect_page::internal::Summary;
 use slop_ninja_detect_page::origins::Origins;
 use slop_ninja_detect_page::queue::{Job, QueueMessage};
 use slop_ninja_detect_page::refusal::{ApiRefusal, RefusalCode};
 use slop_ninja_detect_page::slug::{self as pslug, PUBLIC_LEN};
 use slop_ninja_detect_page::x::{X_HOST, x_canonical};
+use slop_ninja_detect_page::{IdH, Principal};
 use slop_ninja_detect_url::{Admitted as UrlAdmitted, Policy, Refusal, platform};
 
 use crate::claims::{self, Claim, FENCE, Held};
@@ -262,19 +266,79 @@ AND d.refusal IN ('robots','private_source') AND d.updated_at > ?2";
 /// The host's opt-out row.
 pub const SELECT_OPTOUT: &str = "SELECT 1 AS hit FROM optouts WHERE host = ?1";
 
-/// Every step before a slug exists.
-pub async fn admit(io: &impl Io, host: &impl HostApi, ctx: &UrlCtx<'_>, url: &str) -> Result<Admitted, ApiRefusal> {
-    let sw = io.run(Stmt::new(SELECT_SWITCHES, Vec::new())).await;
-    let sw = SwitchRows::from_done(sw.as_ref().ok());
+/// Checks require an account. Save the association before returning a slug
+/// or allowing any fetch or scoring work, including reuse and claim takeover.
+pub async fn admit(
+    io: &impl Io,
+    host: &impl HostApi,
+    ctx: &UrlCtx<'_>,
+    url: &str,
+    principal: Option<Principal>,
+) -> Result<Admitted, ApiRefusal> {
+    let principal = principal.ok_or_else(|| refusal(RefusalCode::SignedOut))?;
+    let owner_h = ctx.keys.owner_h(&principal.user_id.0);
+    let admitted = admit_inner(io, host, ctx, url, &owner_h).await?;
+    let slug = match &admitted {
+        Admitted::Done(s) | Admitted::Joined(s) => s,
+        Admitted::Drive(d) => &d.held.slug,
+    };
+    save_account(io, ctx.keys, slug, principal).await.map_err(refusal)?;
+    Ok(admitted)
+}
+
+/// Records a public page in the checking account, preserving its creator.
+/// Keep only the link and creation date, so source removal cannot leave a
+/// copy of its result in account storage or account exports.
+async fn save_account(io: &impl Io, keys: &StoreKeys, slug: &str, principal: Principal) -> Result<(), RefusalCode> {
+    let id = crate::keys::public_id_h(slug);
+    let d = io
+        .run(Stmt::new(
+            "SELECT hex(owner_h) AS owner_h, created_at FROM detections WHERE id_h = ?1 AND kind = 'public_url'",
+            vec![Val::blob(&id)],
+        ))
+        .await
+        .map_err(|_| RefusalCode::SaveUnavailable)?;
+    let row = d.first().ok_or(RefusalCode::NotFound)?;
+    let owns = row.hex32("owner_h").is_some_and(|h| h == keys.owner_h(&principal.user_id.0));
+    io.owned_add(&OwnedAddRequest {
+        user_id: principal.user_id,
+        slug: slug.to_owned(),
+        id_h: IdH(id),
+        summary: Summary {
+            kind: Kind::PublicUrl,
+            band: None,
+            strong_sections: None,
+            total_sections: None,
+            words: 0,
+            created_at: row.u64("created_at").ok_or(RefusalCode::Internal)?,
+        },
+        is_owner: owns,
+    })
+    .await
+    .map_err(|_| RefusalCode::AccountUnavailable)
+}
+
+async fn admit_inner(
+    io: &impl Io,
+    host: &impl HostApi,
+    ctx: &UrlCtx<'_>,
+    url: &str,
+    owner_h: &Bytes32,
+) -> Result<Admitted, ApiRefusal> {
+    let sw = io.run(Stmt::new(SELECT_SWITCHES, Vec::new())).await.map_err(|_| unavailable())?;
+    let sw = SwitchRows::from_done(Some(&sw));
     if !sw.on(io, switches::TOOL) {
         return Err(refusal(RefusalCode::ToolOff));
+    }
+    if !sw.on(io, switches::STORE) {
+        return Err(refusal(RefusalCode::StoreOff));
     }
     if let Some(id) = xpost::x_post_v1(url) {
         let x_on = sw.on(io, switches::URLS) && sw.state(io, switches::X) == DetectXState::On.as_str();
         if !x_on {
             return Err(refusal(RefusalCode::XOff));
         }
-        return admit_x(io, ctx, id).await;
+        return admit_x(io, ctx, id, owner_h).await;
     }
     if !sw.on(io, switches::URLS) {
         return Err(refusal(RefusalCode::UrlsOff));
@@ -335,7 +399,7 @@ pub async fn admit(io: &impl Io, host: &impl HostApi, ctx: &UrlCtx<'_>, url: &st
         platform::Platform::Bluesky { .. } => Platform::Bluesky,
         _ => Platform::Web,
     };
-    claim_or_join(io, ctx, &ckey, platform, Link::Page { target, submitted_key }).await
+    claim_or_join(io, ctx, &ckey, platform, Link::Page { target, submitted_key }, owner_h).await
 }
 
 /// The domain a link's pending page names: the submitted link's host (a
@@ -365,7 +429,7 @@ pub const SELECT_X_SOURCE: &str = "SELECT s.source_id AS source_id, s.canon_url 
 AND d.package_load = ?2 AND d.superseded_by IS NULL ORDER BY d.created_at DESC LIMIT 1) AS live_slug \
 FROM sources s WHERE s.canon_key = ?1 AND s.adapter = 'x'";
 
-async fn admit_x(io: &impl Io, ctx: &UrlCtx<'_>, id: u64) -> Result<Admitted, ApiRefusal> {
+async fn admit_x(io: &impl Io, ctx: &UrlCtx<'_>, id: u64, owner_h: &Bytes32) -> Result<Admitted, ApiRefusal> {
     if let Some(after) = xpost::x_too_new(id, io.now_ms()) {
         io.metric("xread", &["too_new"]);
         return Err(ApiRefusal::x_post_too_new(after));
@@ -385,7 +449,7 @@ async fn admit_x(io: &impl Io, ctx: &UrlCtx<'_>, id: u64) -> Result<Admitted, Ap
         }
     }
     let ckey = claims::claim_key(&key, &ctx.serving.load);
-    claim_or_join(io, ctx, &ckey, Platform::X, Link::XPost { id }).await
+    claim_or_join(io, ctx, &ckey, Platform::X, Link::XPost { id }, owner_h).await
 }
 
 async fn claim_or_join(
@@ -394,8 +458,9 @@ async fn claim_or_join(
     ckey: &Bytes32,
     platform: Platform,
     link: Link,
+    owner_h: &Bytes32,
 ) -> Result<Admitted, ApiRefusal> {
-    let claimed = claims::claim(io, ckey, platform, domain_of(&link), &ctx.serving.load, ctx.lease_ms).await;
+    let claimed = claims::claim(io, ckey, platform, domain_of(&link), &ctx.serving.load, ctx.lease_ms, owner_h).await;
     match claimed {
         Ok(Claim::Drive(held)) => Ok(Admitted::Drive(Box::new(Drive { held, link }))),
         Ok(Claim::Joined { slug }) => {

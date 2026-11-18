@@ -311,7 +311,16 @@ fn secret_page_of(w: &World, text: &str, who: Option<Principal>) -> (String, Opt
     w.h.fill(&mut nonce);
     let sealed = Sealed { text_sha256: canon::text_sha256(text), nonce, result };
     let req = SaveRequest { text: text.into(), seal: "s".into(), save: who.is_some() };
-    let a = block_on(save(&w.h, w.keys(), &req, Some(sealed), who)).unwrap();
+    let a = block_on(save(&w.h, w.keys(), &req, Some(sealed), Some(who.unwrap_or(principal(99))))).unwrap();
+    if who.is_none() {
+        // Preserve legacy unowned-page fixtures; new checks require accounts.
+        w.h.db
+            .execute(
+                "UPDATE detections SET owner_h = NULL, owner_via = NULL WHERE id_h = ?1",
+                [w.peppers.current().text_id_h(&a.slug).to_vec()],
+            )
+            .unwrap();
+    }
     (a.slug, a.manage, a.made)
 }
 
@@ -2090,7 +2099,7 @@ fn a_deleted_disabled_page_holds_its_text_until_its_cases_end() {
             w.h.fill(&mut nonce);
             let sealed = Sealed { text_sha256: canon::text_sha256(&text), nonce, result };
             let req = SaveRequest { text: text.clone(), seal: "s".into(), save: false };
-            block_on(save(&w.h, w.keys(), &req, Some(sealed), None))
+            block_on(save(&w.h, w.keys(), &req, Some(sealed), Some(principal(1))))
         };
         let (slug, manage, made) = secret_page_of(&w, &text, None);
         assert!(made);
@@ -2150,9 +2159,12 @@ fn a_removed_page_holds_its_text_and_its_restore_lands_on_it() {
     w.h.fill(&mut nonce);
     let sealed = Sealed { text_sha256: canon::text_sha256(&text), nonce, result };
     let req = SaveRequest { text: text.clone(), seal: "s".into(), save: false };
-    assert_eq!(block_on(save(&w.h, w.keys(), &req, Some(sealed.clone()), None)), Err(RefusalCode::TextOnHold));
+    assert_eq!(
+        block_on(save(&w.h, w.keys(), &req, Some(sealed.clone()), Some(principal(1)))),
+        Err(RefusalCode::TextOnHold)
+    );
     w.op("restore", json!({"case_id": case_id, "reason": "review done"})).unwrap();
     assert_eq!(state(&w, &slug, true), "live");
-    let a = block_on(save(&w.h, w.keys(), &req, Some(sealed), None)).unwrap();
+    let a = block_on(save(&w.h, w.keys(), &req, Some(sealed), Some(principal(1)))).unwrap();
     assert_eq!((a.slug, a.made), (slug, false));
 }

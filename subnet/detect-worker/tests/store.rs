@@ -8,7 +8,7 @@ mod common;
 use std::cell::Cell;
 
 use common::{Harness, block_on};
-use slop_ninja_detect_page::api::{ManageRequest, SaveReason, SavedAs};
+use slop_ninja_detect_page::api::{ManageRequest, SavedAs};
 use slop_ninja_detect_page::codes::{DetState, ManageAction, OwnerAction, OwnerRelation, PurgeMode};
 use slop_ninja_detect_page::ids::{IdH, UserId};
 use slop_ninja_detect_page::internal::{OwnerRequest, SaveAnswer, SaveRequest, StatesRequest};
@@ -136,7 +136,16 @@ fn save_as(w: &World, text: &str, load: &str, who: Option<Principal>) -> Result<
 
 /// A new page of a text of its own: its slug and manage token.
 fn make_link(w: &World, load: &str, who: Option<Principal>) -> (String, String) {
-    let a = save_as(w, &w.next_text(), load, who).unwrap();
+    let a = save_as(w, &w.next_text(), load, Some(who.unwrap_or(principal(99)))).unwrap();
+    if who.is_none() {
+        // Legacy unowned-page fixture: current creation always requires an account.
+        w.h.db
+            .execute(
+                "UPDATE detections SET owner_h = NULL, owner_via = NULL WHERE id_h = ?1",
+                [id_of(w, &a.slug).to_vec()],
+            )
+            .unwrap();
+    }
     assert!(a.made);
     (a.slug, a.manage.unwrap())
 }
@@ -158,9 +167,9 @@ fn state_of(w: &World, slug: &str) -> String {
 #[test]
 fn a_save_stores_the_text_encrypted_and_only_its_keyed_address_in_d1() {
     let w = World::new();
-    let a = save_as(&w, TEXT, "load-new", None).unwrap();
+    let a = save_as(&w, TEXT, "load-new", Some(principal(1))).unwrap();
     let (slug, manage_t) = (a.slug.clone(), a.manage.clone().unwrap());
-    assert_eq!((a.made, a.updated, a.saved, a.reason), (true, false, None, None));
+    assert_eq!((a.made, a.updated, a.saved, a.reason), (true, false, Some(SavedAs::Owner), None));
     assert_eq!(slug.len(), 10, "permalink-policy/v1's default length");
     assert!(slug.bytes().all(|b| b.is_ascii_alphanumeric()));
     assert_eq!(manage_t.len(), 26);
@@ -202,7 +211,7 @@ fn a_save_stores_the_text_encrypted_and_only_its_keyed_address_in_d1() {
             .unwrap();
     assert_eq!((kind.as_str(), platform.as_str(), state.as_str()), ("private_text", "paste", "live"));
     assert_eq!(exp, None, "no page ends by time");
-    assert!(owner.is_none());
+    assert_eq!(owner, Some(w.store.owner_h(&[1; 16]).to_vec()));
     let p = page(&w, &slug).unwrap();
     assert_eq!(p.state, DetState::Live);
     // The page shows the text the scorer read: its canonical form.
@@ -217,25 +226,31 @@ fn a_save_stores_the_text_encrypted_and_only_its_keyed_address_in_d1() {
 fn the_same_text_lands_on_its_page_without_a_token() {
     let w = World::new();
     let s = sealed(&w, TEXT, "load-new");
-    let a = block_on(save(&w.h, w.keys(), &req(TEXT, false), Some(s.clone()), None)).unwrap();
+    let a = block_on(save(&w.h, w.keys(), &req(TEXT, false), Some(s.clone()), Some(principal(1)))).unwrap();
     // The same seal again (a retry): the same page, no second token.
-    let again = block_on(save(&w.h, w.keys(), &req(TEXT, false), Some(s), None)).unwrap();
+    let again = block_on(save(&w.h, w.keys(), &req(TEXT, false), Some(s), Some(principal(1)))).unwrap();
     assert_eq!((again.slug.as_str(), again.made, again.manage.as_deref()), (a.slug.as_str(), false, None));
     // Another reader's check of the same text, and of a string with the same
     // canonical form (edge whitespace, CRLF): the same page.
-    let b = save_as(&w, TEXT, "load-new", None).unwrap();
+    let b = save_as(&w, TEXT, "load-new", Some(principal(1))).unwrap();
     assert_eq!((b.slug.as_str(), b.made, b.updated), (a.slug.as_str(), false, false));
     let respaced = format!("  {}", TEXT.replace("\r\n", "\n"));
-    let c = save_as(&w, &respaced, "load-new", None).unwrap();
+    let c = save_as(&w, &respaced, "load-new", Some(principal(1))).unwrap();
     assert_eq!(c.slug, a.slug);
     // Any other edit is another text: its own page.
     let edited = TEXT.replace("late", "early");
-    let d = save_as(&w, &edited, "load-new", None).unwrap();
+    let d = save_as(&w, &edited, "load-new", Some(principal(1))).unwrap();
     assert!(d.made && d.slug != a.slug);
     // A seal binds its text: another text with it is refused, as is no seal.
     let s2 = sealed(&w, TEXT, "load-new");
-    assert_eq!(block_on(save(&w.h, w.keys(), &req(&edited, false), Some(s2), None)), Err(RefusalCode::SealInvalid));
-    assert_eq!(block_on(save(&w.h, w.keys(), &req(TEXT, false), None, None)), Err(RefusalCode::SealInvalid));
+    assert_eq!(
+        block_on(save(&w.h, w.keys(), &req(&edited, false), Some(s2), Some(principal(1)))),
+        Err(RefusalCode::SealInvalid)
+    );
+    assert_eq!(
+        block_on(save(&w.h, w.keys(), &req(TEXT, false), None, Some(principal(1)))),
+        Err(RefusalCode::SealInvalid)
+    );
     assert_eq!(w.h.count("SELECT count(*) FROM detections"), 2);
     assert_eq!(w.h.count("SELECT count(*) FROM texts"), 2);
     assert_eq!(w.h.docs.borrow().len(), 2, "a repeat save writes no document");
@@ -321,10 +336,12 @@ fn an_equal_canonical_text_keeps_its_passages_on_the_same_words() {
         let p = block_on(reads::preview(&w.h, &w.serving, s, Some(&open(s).unwrap()))).unwrap();
         on_the_words(&p, "preview");
     }
-    let a = block_on(save(&w.h, w.keys(), &req(&shifted, false), Some(open(&shifted).unwrap()), None)).unwrap();
+    let a = block_on(save(&w.h, w.keys(), &req(&shifted, false), Some(open(&shifted).unwrap()), Some(principal(1))))
+        .unwrap();
     on_the_words(&page(&w, &a.slug).unwrap(), "page");
     // The other string lands on the same page.
-    let b = block_on(save(&w.h, w.keys(), &req(&lone_cr, false), Some(open(&lone_cr).unwrap()), None)).unwrap();
+    let b = block_on(save(&w.h, w.keys(), &req(&lone_cr, false), Some(open(&lone_cr).unwrap()), Some(principal(1))))
+        .unwrap();
     assert_eq!((b.slug, b.made), (a.slug, false));
 }
 
@@ -332,10 +349,10 @@ fn an_equal_canonical_text_keeps_its_passages_on_the_same_words() {
 fn the_store_switch_stops_new_pages() {
     let w = World::new();
     w.h.exec("INSERT INTO switches (name, state, at, journal_seq) VALUES ('DETECT_STORE', 'off', 1, 1)");
-    assert_eq!(save_as(&w, TEXT, "l", None), Err(RefusalCode::StoreOff));
+    assert_eq!(save_as(&w, TEXT, "l", Some(principal(1))), Err(RefusalCode::StoreOff));
     w.h.exec("UPDATE switches SET state = 'on'");
     w.h.vars.borrow_mut().insert("DETECT_STORE".into(), "off".into());
-    assert_eq!(save_as(&w, TEXT, "l", None), Err(RefusalCode::StoreOff), "the var is the hard off");
+    assert_eq!(save_as(&w, TEXT, "l", Some(principal(1))), Err(RefusalCode::StoreOff), "the var is the hard off");
     assert!(w.h.docs.borrow().is_empty());
 }
 
@@ -371,21 +388,18 @@ fn the_first_saver_owns_the_page_and_later_savers_keep_bookmarks() {
         assert_eq!((d.ok, d.code), (false, Some(RefusalCode::NotOwner)));
     }
     assert_eq!(state_of(&w, &slug), "live");
-    // The account side fails: the page stays, unowned.
+    // Account failure cannot publish an anonymous page or clear another owner.
     w.h.owned_fails.set(true);
     let t2 = w.next_text();
-    let d = save_as(&w, &t2, "load-new", Some(who)).unwrap();
-    assert_eq!((d.made, d.saved, d.reason), (true, None, Some(SaveReason::AccountUnavailable)));
-    assert_eq!(w.h.count("SELECT count(*) FROM detections WHERE owner_h IS NULL AND owner_via IS NULL"), 1);
-    let e = save_as(&w, TEXT, "load-new", Some(other)).unwrap();
-    assert_eq!((e.saved, e.reason), (None, Some(SaveReason::AccountUnavailable)));
-    // Save asked for without a session.
+    assert_eq!(save_as(&w, &t2, "load-new", Some(who)), Err(RefusalCode::AccountUnavailable));
+    assert_eq!(w.h.count("SELECT count(*) FROM detections WHERE state = 'live'"), 1);
+    assert_eq!(save_as(&w, TEXT, "load-new", Some(other)), Err(RefusalCode::AccountUnavailable));
     w.h.owned_fails.set(false);
-    let f = block_on(save(&w.h, w.keys(), &req(&w.next_text(), true), Some(sealed(&w, TEXT, "l")), None));
-    assert_eq!(f, Err(RefusalCode::SealInvalid), "the seal is the text's");
     let t3 = w.next_text();
-    let f = block_on(save(&w.h, w.keys(), &req(&t3, true), Some(sealed(&w, &t3, "load-new")), None)).unwrap();
-    assert_eq!((f.made, f.saved, f.reason), (true, None, Some(SaveReason::SignedOut)));
+    assert_eq!(
+        block_on(save(&w.h, w.keys(), &req(&t3, true), Some(sealed(&w, &t3, "load-new")), None)),
+        Err(RefusalCode::SignedOut)
+    );
 }
 
 // ------------------------------------------------------------------ manage
@@ -519,6 +533,29 @@ VALUES (x'00', 'x4m8q2t', 'public_url', 'x', 'live', 1, 1)",
 
 // ------------------------------------------------------------------ re-run
 
+#[test]
+fn rerun_requires_an_account_and_saves_before_scoring() {
+    let w = World::new();
+    let (slug, _) = make_link(&w, "load-old", Some(principal(1)));
+    let s = FakeScorer { h: &w.h, during: Some("UPDATE detections SET package_load = 'scorer-called'") };
+    let reads = w.h.doc_reads.get();
+    assert_eq!(block_on(rerun_secret(&w.h, w.keys(), &slug, &w.serving, &s, None)), Err(RefusalCode::SignedOut));
+    assert_eq!(w.h.doc_reads.get(), reads);
+    w.h.owned_fails.set(true);
+    assert_eq!(
+        block_on(rerun_secret(&w.h, w.keys(), &slug, &w.serving, &s, Some(principal(2)))),
+        Err(RefusalCode::AccountUnavailable)
+    );
+    assert_eq!(w.h.count("SELECT count(*) FROM detections WHERE package_load = 'scorer-called'"), 0);
+    w.h.owned_fails.set(false);
+    let s = FakeScorer { h: &w.h, during: None };
+    assert!(block_on(rerun_secret(&w.h, w.keys(), &slug, &w.serving, &s, Some(principal(2)))).unwrap().updated);
+    let saved = w.h.owned.borrow().last().unwrap().clone();
+    assert_eq!(saved.user_id, principal(2).user_id);
+    assert!(!saved.is_owner);
+    assert_eq!(page(&w, &slug).unwrap().state, DetState::Live);
+}
+
 struct FakeScorer<'a> {
     h: &'a Harness,
     during: Option<&'static str>,
@@ -535,7 +572,7 @@ impl Scorer for FakeScorer<'_> {
 
 fn rerun(w: &World, slug: &str, during: Option<&'static str>) -> Result<bool, RefusalCode> {
     let s = FakeScorer { h: &w.h, during };
-    block_on(rerun_secret(&w.h, w.keys(), slug, &w.serving, &s)).map(|a| {
+    block_on(rerun_secret(&w.h, w.keys(), slug, &w.serving, &s, Some(principal(1)))).map(|a| {
         assert_eq!(a.slug, slug, "the run is added to the same page");
         a.updated
     })
@@ -607,8 +644,8 @@ fn two_reruns_racing_the_fence_add_one_run() {
     w.h.pause_at("UPDATE detections SET package_load");
     let s = FakeScorer { h: &w.h, during: None };
     let (a, b) = common::interleave(
-        rerun_secret(&w.h, w.keys(), &old, &w.serving, &s),
-        rerun_secret(&w.h, w.keys(), &old, &w.serving, &s),
+        rerun_secret(&w.h, w.keys(), &old, &w.serving, &s, Some(principal(1))),
+        rerun_secret(&w.h, w.keys(), &old, &w.serving, &s, Some(principal(1))),
     );
     let updated = [a.unwrap().updated, b.unwrap().updated];
     assert_eq!(updated.iter().filter(|u| **u).count(), 1, "{updated:?}");
@@ -726,6 +763,27 @@ fn the_backstop_deletes_orphans_only() {
 }
 
 // ------------------------------------------------------------------ states
+
+#[test]
+fn deleting_an_account_keeps_public_source_legal_holds() {
+    let w = World::new();
+    public_row(&w, "k7m2xq9", 1, "disabled", "web", "ranked", None);
+    let owner_h = w.store.owner_h(&[1; 16]);
+    w.h.db
+        .execute(
+            "UPDATE detections SET owner_h = ?1, owner_via = 'created' WHERE kind = 'public_url'",
+            [owner_h.to_vec()],
+        )
+        .unwrap();
+    let msg = QueueMessage::new(Job::OwnerPurge { user_id: principal(1).user_id, mode: PurgeMode::Delete });
+    assert_eq!(block_on(consume(&w.h, &w.store, &msg)), Ack::Done);
+    assert_eq!(
+        w.h.count(
+            "SELECT count(*) FROM detections WHERE kind = 'public_url' AND state = 'disabled' AND owner_h IS NULL"
+        ),
+        1
+    );
+}
 
 #[test]
 fn states_report_in_order() {
@@ -1115,7 +1173,10 @@ fn a_preview_writes_nothing_and_keeps_its_seal() {
     assert_eq!(p.kind.as_str(), "unstored");
     assert_eq!(block_on(reads::preview(&w.h, &w.serving, "another text", Some(&s))), Err(RefusalCode::SealInvalid));
     assert_eq!(w.h.dump(), before);
-    assert!(block_on(save(&w.h, w.keys(), &req(TEXT, false), Some(s), None)).is_ok(), "the seal still makes a page");
+    assert!(
+        block_on(save(&w.h, w.keys(), &req(TEXT, false), Some(s), Some(principal(1)))).is_ok(),
+        "the seal still makes a page"
+    );
 }
 
 #[test]
@@ -1182,22 +1243,31 @@ fn a_free_check_s_seal_becomes_a_link() {
     assert_eq!(make("load-old", 1).unwrap_err(), RefusalCode::SealInvalid, "another package scored it");
     let sealed = make("load-new", 2).unwrap();
     assert_eq!(sealed.text_sha256, canon::text_sha256(TEXT));
-    let a = block_on(save(&w.h, w.keys(), &req(TEXT, false), Some(sealed), None)).unwrap();
+    let a = block_on(save(&w.h, w.keys(), &req(TEXT, false), Some(sealed), Some(principal(1)))).unwrap();
     let p = page(&w, &a.slug).unwrap();
     let run = p.run.as_ref().unwrap();
-    assert_eq!((run.band, run.confidence_text.as_deref()), (Some(slop_ninja_detect_page::codes::Band::Strong), Some("98.4%")));
-    assert_eq!((run.share_text.as_deref(), run.length), (None, Some(slop_ninja_detect_page::codes::LengthBin::Short50)));
+    assert_eq!(
+        (run.band, run.confidence_text.as_deref()),
+        (Some(slop_ninja_detect_page::codes::Band::Strong), Some("98.4%"))
+    );
+    assert_eq!(
+        (run.share_text.as_deref(), run.length),
+        (None, Some(slop_ninja_detect_page::codes::LengthBin::Short50))
+    );
     assert_eq!(run.spans.len(), 1);
     assert_eq!((run.spans[0].start, run.spans[0].end), (14, 200));
     assert_eq!((run.scorer_build.as_str(), run.evidence.as_str()), ("7030a86f", "evidence-d24-web-v1"));
     assert_eq!(run.package.label, "span package d24");
     // The same seal opened again makes no second page: it lands on the first.
     let again = make("load-new", 2).unwrap();
-    let b = block_on(save(&w.h, w.keys(), &req(TEXT, false), Some(again), None)).unwrap();
+    let b = block_on(save(&w.h, w.keys(), &req(TEXT, false), Some(again), Some(principal(1)))).unwrap();
     assert_eq!((b.slug, b.made, b.manage), (a.slug.clone(), false, None));
     // Once that page is deleted, the seal makes no other page.
     let t = a.manage.unwrap();
     block_on(manage(&w.h, w.keys(), &w.origins, &mreq(&a.slug, &t, ManageAction::Delete))).unwrap();
     let again = make("load-new", 2).unwrap();
-    assert_eq!(block_on(save(&w.h, w.keys(), &req(TEXT, false), Some(again), None)), Err(RefusalCode::SealUsed));
+    assert_eq!(
+        block_on(save(&w.h, w.keys(), &req(TEXT, false), Some(again), Some(principal(1)))),
+        Err(RefusalCode::SealUsed)
+    );
 }

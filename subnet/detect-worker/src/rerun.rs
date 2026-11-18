@@ -18,8 +18,10 @@
 //! 5. The answer is the page's slug and whether this call added the run;
 //!    nothing changes the text, the owner or the manage token.
 
+use slop_ninja_account_wire::OwnedAddRequest;
 use slop_ninja_detect_page::api::RerunAnswer;
 use slop_ninja_detect_page::refusal::RefusalCode;
+use slop_ninja_detect_page::{IdH, Principal};
 
 use crate::db::Io;
 use crate::doc::{SecretDoc, Serving, StoredResult};
@@ -51,7 +53,9 @@ pub async fn rerun_secret(
     slug: &str,
     serving: &Serving,
     scorer: &impl Scorer,
+    principal: Option<Principal>,
 ) -> Result<RerunAnswer, RefusalCode> {
+    let principal = principal.ok_or(RefusalCode::SignedOut)?;
     if !slug_form(slug).is_some_and(SlugForm::is_secret) {
         return Err(RefusalCode::NotFound);
     }
@@ -61,6 +65,17 @@ pub async fn rerun_secret(
     let plain = found.pepper.doc_key(slug).open(&bytes).map_err(|_| RefusalCode::RerunUnavailable)?;
     let doc = SecretDoc::decode(&plain).map_err(|_| RefusalCode::RerunUnavailable)?;
     let newest = doc.latest().ok_or(RefusalCode::RerunUnavailable)?;
+    let owns =
+        found.row.owner_h.as_ref().is_some_and(|h| crate::keys::ct_eq(h, &keys.store.owner_h(&principal.user_id.0)));
+    io.owned_add(&OwnedAddRequest {
+        user_id: principal.user_id,
+        slug: slug.to_owned(),
+        id_h: IdH(found.row.id_h),
+        summary: crate::save::summary(found.row.kind, newest, found.row.created_at),
+        is_owner: owns,
+    })
+    .await
+    .map_err(|_| RefusalCode::AccountUnavailable)?;
     store::rerun_gate(found.row.kind, found.row.state, newest.package_load != serving.load)?;
     let result = scorer.score(&doc.text).await?;
     let fence = found.row.package_load.as_deref();

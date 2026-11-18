@@ -311,9 +311,13 @@ fn policy(env: &Env) -> Policy {
 /// `POST /api/detect/v1/url {url}`.
 pub(crate) async fn url(mut req: Request, env: Env, answer: &Answer) {
     let route = RouteId::Url;
-    if let Err(c) = forwarded(&req, &env, route) {
-        return answer.send(refused(&env, route, c));
-    }
+    let admission = match forwarded(&req, &env, route) {
+        Ok(a) => a,
+        Err(c) => return answer.send(refused(&env, route, c)),
+    };
+    let Some(principal) = admission.principal() else {
+        return answer.send(refused(&env, route, RefusalCode::SignedOut));
+    };
     if !content_type_ok(crate::cf::header(&req, "content-type").as_deref(), BodyType::Json) {
         return answer.send(refused(&env, route, RefusalCode::ContentType));
     }
@@ -338,7 +342,7 @@ pub(crate) async fn url(mut req: Request, env: Env, answer: &Answer) {
         html_bound: 4 * 1024 * 1024,
     };
     let host = CfHost { env: &env, wait_ms: w.hold_ms.max(fetch_wait) };
-    let admitted = match url_flow::admit(&c.io, &host, &uctx, &body.url).await {
+    let admitted = match url_flow::admit(&c.io, &host, &uctx, &body.url, Some(principal)).await {
         Ok(a) => a,
         Err(r) => {
             crate::cf::submitted(&env, route, r.code.as_str());

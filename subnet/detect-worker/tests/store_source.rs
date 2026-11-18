@@ -96,7 +96,6 @@ fn every_owner_statement_matches_the_owner() {
     for (file, name, clause) in [
         ("manage.rs", "DELETE_BY_OWNER", "WHERE id_h = ?1 AND owner_h = ?2"),
         ("manage.rs", "RELEASE", "WHERE id_h = ?1 AND owner_h = ?2"),
-        ("save.rs", "CLEAR_OWNER", "WHERE id_h = ?1 AND owner_h = ?2"),
         ("manage.rs", "HOLD_BY_OWNER", "state = 'disabled' AND owner_h = ?2"),
         ("manage.rs", "HOLD_BY_TOKEN", "state = 'disabled' AND manage_h = ?2"),
         ("manage.rs", "CLAIM", "AND owner_h IS NULL"),

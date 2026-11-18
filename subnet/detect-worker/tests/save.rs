@@ -111,6 +111,77 @@ fn save_as(w: &World, text: &str, load: &str, who: Option<Principal>) -> Result<
     save_with(w, text, sealed(w, text, load), who)
 }
 
+#[test]
+fn anonymous_save_is_rejected_without_storage_effects() {
+    let w = World::new();
+    assert_eq!(save_as(&w, T, "load-new", None), Err(RefusalCode::SignedOut));
+    assert_eq!(w.h.count("SELECT count(*) FROM detections"), 0);
+    assert_eq!(w.h.count("SELECT count(*) FROM texts"), 0);
+    assert!(w.h.docs.borrow().is_empty());
+    assert!(w.h.owned.borrow().is_empty());
+}
+
+#[test]
+fn legacy_save_false_still_saves_to_the_account() {
+    let w = World::new();
+    let req = SaveRequest { text: T.into(), seal: "opened-elsewhere".into(), save: false };
+    let a = block_on(save::save(&w.h, w.keys(), &req, Some(sealed(&w, T, "load-new")), Some(principal(1)))).unwrap();
+    assert_eq!(a.saved, Some(SavedAs::Owner));
+    assert_eq!(w.h.owned.borrow().len(), 1);
+    assert_eq!(w.h.owned.borrow()[0].user_id, principal(1).user_id);
+    assert_eq!(page(&w, &a.slug).unwrap().state, DetState::Live);
+}
+
+#[test]
+fn failed_account_association_never_publishes_an_anonymous_page() {
+    let w = World::new();
+    let s = sealed(&w, T, "load-new");
+    w.h.owned_fails.set(true);
+    assert_eq!(save_with(&w, T, s.clone(), Some(principal(1))), Err(RefusalCode::AccountUnavailable));
+    assert_eq!(w.h.count("SELECT count(*) FROM detections WHERE state = 'live'"), 0);
+    assert!(w.h.docs.borrow().is_empty());
+    w.h.owned_fails.set(false);
+    let a = save_with(&w, T, s, Some(principal(1))).unwrap();
+    assert_eq!(a.saved, Some(SavedAs::Owner));
+    assert_eq!(page(&w, &a.slug).unwrap().state, DetState::Live);
+    w.h.owned_fails.set(true);
+    assert_eq!(save_as(&w, T, "load-new", Some(principal(2))), Err(RefusalCode::AccountUnavailable));
+    assert_eq!(w.h.count("SELECT count(*) FROM detections WHERE state = 'live' AND owner_h IS NOT NULL"), 1);
+    assert_eq!(page(&w, &a.slug).unwrap().state, DetState::Live);
+}
+
+#[test]
+fn a_lost_account_reply_leaves_only_a_deleted_entry_and_retry_saves_a_live_page() {
+    let w = World::new();
+    let s = sealed(&w, T, "load-new");
+    w.h.owned_reply_lost.set(true);
+    assert_eq!(save_with(&w, T, s.clone(), Some(principal(1))), Err(RefusalCode::AccountUnavailable));
+    let stale = w.h.owned.borrow()[0].clone();
+    assert_eq!(page(&w, &stale.slug).unwrap().state, DetState::Deleted);
+    assert!(w.h.docs.borrow().is_empty());
+    w.h.owned_reply_lost.set(false);
+    let a = save_with(&w, T, s, Some(principal(1))).unwrap();
+    assert_ne!(a.slug, stale.slug);
+    assert_eq!(a.saved, Some(SavedAs::Owner));
+    assert_eq!(page(&w, &a.slug).unwrap().state, DetState::Live);
+}
+
+#[test]
+fn a_duplicate_cannot_succeed_while_the_original_page_is_pending() {
+    let w = World::new();
+    w.h.pause_at(save::FLIP_LIVE);
+    let req = SaveRequest { text: T.into(), seal: "x".into(), save: false };
+    let (a, b) = interleave(
+        save::save(&w.h, w.keys(), &req, Some(sealed(&w, T, "load-new")), Some(principal(1))),
+        save::save(&w.h, w.keys(), &req, Some(sealed(&w, T, "load-new")), Some(principal(2))),
+    );
+    let a = a.unwrap();
+    assert_eq!(b, Err(RefusalCode::SaveUnavailable));
+    let retry = save_as(&w, T, "load-new", Some(principal(2))).unwrap();
+    assert_eq!(retry.slug, a.slug);
+    assert_eq!(retry.saved, Some(SavedAs::Bookmark));
+}
+
 fn page(w: &World, slug: &str) -> Result<Page, RefusalCode> {
     block_on(reads::page(&w.h, w.keys(), &w.serving, slug))
 }
@@ -135,22 +206,22 @@ fn set_state(w: &World, slug: &str, state: &str) {
 #[test]
 fn the_worked_example() {
     let w = World::new();
-    let a = save_as(&w, T, "load-new", None).unwrap();
+    let a = save_as(&w, T, "load-new", Some(principal(1))).unwrap();
     assert_eq!((a.slug.as_str(), a.made), ("uM07zZQvek", true));
     let token = a.manage.clone().unwrap();
     let b = save_as(&w, T, "load-new", Some(principal(2))).unwrap();
     assert_eq!((b.slug.as_str(), b.made, b.manage, b.saved), ("uM07zZQvek", false, None, Some(SavedAs::Bookmark)));
     // Edge spaces and a CRLF: the same text.
-    let c = save_as(&w, &format!("  {T}\r\n"), "load-new", None).unwrap();
+    let c = save_as(&w, &format!("  {T}\r\n"), "load-new", Some(principal(1))).unwrap();
     assert_eq!(c.slug, "uM07zZQvek");
     // One comma removed: another text.
     let other = T.replacen(',', "", 1);
-    assert_ne!(save_as(&w, &other, "load-new", None).unwrap().slug, "uM07zZQvek");
+    assert_ne!(save_as(&w, &other, "load-new", Some(principal(1))).unwrap().slug, "uM07zZQvek");
     // The first reader deletes the page.
     delete(&w, "uM07zZQvek", &token);
     assert_eq!(page(&w, "uM07zZQvek").unwrap().http_status(), 410);
     // A third reader's check: generation 1, a new slug and a new token.
-    let d = save_as(&w, T, "load-new", None).unwrap();
+    let d = save_as(&w, T, "load-new", Some(principal(1))).unwrap();
     assert_eq!((d.slug.as_str(), d.made), ("XxXl3YyGso", true));
     assert!(d.manage.is_some() && d.manage.as_deref() != Some(token.as_str()));
     assert_eq!(page(&w, "uM07zZQvek").unwrap().http_status(), 410, "the old link stays dead");
@@ -175,14 +246,14 @@ fn a_collision_extends_the_slug_and_the_text_keeps_it() {
             [p.text_id_h(&chars[..10]).to_vec()],
         )
         .unwrap();
-    let a = save_as(&w, T, "load-new", None).unwrap();
+    let a = save_as(&w, T, "load-new", Some(principal(1))).unwrap();
     assert_eq!(a.slug, "uM07zZQvekQ");
     let len: i64 = w.h.count("SELECT slug_len FROM texts");
     assert_eq!(len, 11);
     // The later save lands on it with no probe: one batch reads the text
     // row, and nothing is written.
     let before = (w.h.statements.get(), w.h.dump());
-    let b = save_as(&w, T, "load-new", None).unwrap();
+    let b = save_as(&w, T, "load-new", Some(principal(1))).unwrap();
     assert_eq!((b.slug.as_str(), b.made), ("uM07zZQvekQ", false));
     assert_eq!(w.h.dump(), before.1);
     assert!(w.h.statements.get() - before.0 <= 3, "one read batch, no probe");
@@ -208,7 +279,7 @@ fn the_different_text_collision_race() {
         )
         .unwrap();
     });
-    let a = save_as(&w, T, "load-new", None).unwrap();
+    let a = save_as(&w, T, "load-new", Some(principal(1))).unwrap();
     assert_eq!(a.slug, format!("{cand}Q"));
     assert!(w.h.doc(&secret_doc_key(&id)).is_none(), "the loser writes nothing under the winner's id");
     assert_eq!(w.h.count("SELECT count(*) FROM texts"), 1);
@@ -221,8 +292,10 @@ fn the_same_text_race_makes_one_page() {
     w.h.pause_at("INSERT INTO detections (id_h, pepper_v, kind, platform, state, state_v");
     let (s1, s2) = (sealed(&w, T, "load-new"), sealed(&w, T, "load-new"));
     let req = SaveRequest { text: T.into(), seal: "x".into(), save: false };
-    let (a, b) =
-        interleave(save::save(&w.h, w.keys(), &req, Some(s1), None), save::save(&w.h, w.keys(), &req, Some(s2), None));
+    let (a, b) = interleave(
+        save::save(&w.h, w.keys(), &req, Some(s1), Some(principal(1))),
+        save::save(&w.h, w.keys(), &req, Some(s2), Some(principal(2))),
+    );
     let (a, b) = (a.unwrap(), b.unwrap());
     assert_eq!(a.slug, b.slug);
     assert_eq!([a.made, b.made].iter().filter(|m| **m).count(), 1);
@@ -239,12 +312,12 @@ fn a_failed_put_tombstones_the_claim_and_the_next_save_takes_the_next_generation
     let w = World::new();
     let s = sealed(&w, T, "load-new");
     w.h.fail_doc_put.set(true);
-    assert_eq!(save_with(&w, T, s.clone(), None), Err(RefusalCode::SaveUnavailable));
+    assert_eq!(save_with(&w, T, s.clone(), Some(principal(1))), Err(RefusalCode::SaveUnavailable));
     w.h.fail_doc_put.set(false);
     let st: String = w.h.db.query_row("SELECT state FROM detections", [], |r| r.get(0)).unwrap();
     assert_eq!(st, "deleted");
     assert_eq!(w.h.count("SELECT count(*) FROM detections WHERE seal_nonce_h IS NOT NULL"), 0);
-    let a = save_with(&w, T, s, None).unwrap();
+    let a = save_with(&w, T, s, Some(principal(1))).unwrap();
     assert_eq!((a.slug.as_str(), a.made), ("XxXl3YyGso", true));
     assert_eq!(page(&w, "uM07zZQvek").unwrap().http_status(), 410);
 }
@@ -260,7 +333,7 @@ fn legal_states_hold_the_text() {
         let w = World::new();
         let a = save_as(&w, T, "load-new", Some(principal(1))).unwrap();
         set_state(&w, &a.slug, "disabled");
-        assert_eq!(save_as(&w, T, "load-new", None), Err(RefusalCode::TextOnHold), "{path}: disabled");
+        assert_eq!(save_as(&w, T, "load-new", Some(principal(1))), Err(RefusalCode::TextOnHold), "{path}: disabled");
         match path {
             "token" => delete(&w, &a.slug, a.manage.as_deref().unwrap()),
             "owner" => {
@@ -282,7 +355,11 @@ fn legal_states_hold_the_text() {
         let st: String = w.h.db.query_row("SELECT state FROM detections", [], |r| r.get(0)).unwrap();
         assert_eq!(st, "deleted", "{path}");
         assert_eq!(w.h.count("SELECT count(*) FROM texts WHERE hold = 'notice'"), 1, "{path}: on hold");
-        assert_eq!(save_as(&w, T, "load-new", None), Err(RefusalCode::TextOnHold), "{path}: held after the delete");
+        assert_eq!(
+            save_as(&w, T, "load-new", Some(principal(1))),
+            Err(RefusalCode::TextOnHold),
+            "{path}: held after the delete"
+        );
         assert_eq!(w.h.count("SELECT count(*) FROM detections"), 1, "{path}: no new page");
         // The operator's release lets the text get its next page.
         block_on(slop_ninja_detect_worker::db::Sql::run(
@@ -290,11 +367,11 @@ fn legal_states_hold_the_text() {
             slop_ninja_detect_worker::store_ops::release_text(&id_of(&w, &a.slug), w.h.now.get()),
         ))
         .unwrap();
-        assert_eq!(save_as(&w, T, "load-new", None).unwrap().slug, "XxXl3YyGso", "{path}");
+        assert_eq!(save_as(&w, T, "load-new", Some(principal(1))).unwrap().slug, "XxXl3YyGso", "{path}");
     }
     // A wrong token deletes nothing and holds nothing.
     let w = World::new();
-    let a = save_as(&w, T, "load-new", None).unwrap();
+    let a = save_as(&w, T, "load-new", Some(principal(1))).unwrap();
     set_state(&w, &a.slug, "disabled");
     let r = ManageRequest { slug: a.slug.clone(), manage: "0".repeat(26), action: ManageAction::Delete };
     assert!(block_on(manage(&w.h, w.keys(), &w.origins, &r)).is_err());
@@ -305,9 +382,9 @@ fn legal_states_hold_the_text() {
     assert_eq!(w.h.count("SELECT count(*) FROM texts WHERE hold IS NOT NULL"), 0);
     // A removed page holds its text.
     let w = World::new();
-    let a = save_as(&w, T, "load-new", None).unwrap();
+    let a = save_as(&w, T, "load-new", Some(principal(1))).unwrap();
     set_state(&w, &a.slug, "removed");
-    assert_eq!(save_as(&w, T, "load-new", None), Err(RefusalCode::TextOnHold));
+    assert_eq!(save_as(&w, T, "load-new", Some(principal(1))), Err(RefusalCode::TextOnHold));
     assert_eq!(w.h.metric_count("store", "on_hold"), 1);
 }
 
@@ -317,11 +394,11 @@ fn legal_states_hold_the_text() {
 fn a_newer_packages_check_adds_its_run() {
     let w = World::new();
     w.h.purge_token.set(true);
-    let a = save_as(&w, T, "load-old", None).unwrap();
+    let a = save_as(&w, T, "load-old", Some(principal(1))).unwrap();
     let before = page(&w, &a.slug).unwrap();
     assert!(before.serving.differs_from_run);
     w.h.advance(86_400_000);
-    let b = save_as(&w, T, "load-new", None).unwrap();
+    let b = save_as(&w, T, "load-new", Some(principal(1))).unwrap();
     assert_eq!((b.slug.as_str(), b.made, b.updated, b.manage), (a.slug.as_str(), false, true, None));
     let p = page(&w, &a.slug).unwrap();
     assert!(!p.serving.differs_from_run);
@@ -336,7 +413,7 @@ fn a_newer_packages_check_adds_its_run() {
     let d = SecretDoc::decode(&w.peppers.current().doc_key(&a.slug).open(&doc).unwrap()).unwrap();
     assert_eq!(d.runs.iter().map(|r| r.package_load.as_str()).collect::<Vec<_>>(), ["load-old", "load-new"]);
     // The same package again: nothing is added.
-    let c = save_as(&w, T, "load-new", None).unwrap();
+    let c = save_as(&w, T, "load-new", Some(principal(1))).unwrap();
     assert_eq!((c.updated, c.made), (false, false));
     assert_eq!(page(&w, &a.slug).unwrap().history.len(), 1);
 }
@@ -351,28 +428,28 @@ fn the_policy_length() {
     let w = World::new();
     // A page made while the length was 8.
     w.h.vars.borrow_mut().insert(save::SLUG_LEN_VAR.into(), "8".into());
-    let a = save_as(&w, T, "load-new", None).unwrap();
+    let a = save_as(&w, T, "load-new", Some(principal(1))).unwrap();
     assert_eq!((a.slug.as_str(), a.made), ("uM07zZQv", true));
     // The default: a new text gets 10 characters, and the old text keeps 8.
     w.h.vars.borrow_mut().remove(save::SLUG_LEN_VAR);
     let other = format!("{T} Next quarter looks the same.");
-    let b = save_as(&w, &other, "load-new", None).unwrap();
+    let b = save_as(&w, &other, "load-new", Some(principal(1))).unwrap();
     assert_eq!((b.slug.len(), b.made), (10, true));
-    let again = save_as(&w, T, "load-new", None).unwrap();
+    let again = save_as(&w, T, "load-new", Some(principal(1))).unwrap();
     assert_eq!((again.slug.as_str(), again.made), ("uM07zZQv", false), "an existing text keeps its length");
     assert_eq!(page(&w, "uM07zZQv").unwrap().state, DetState::Live);
     // A longer length applies to new texts only.
     w.h.vars.borrow_mut().insert(save::SLUG_LEN_VAR.into(), "12".into());
     let third = format!("{T} The year ends well.");
-    assert_eq!(save_as(&w, &third, "load-new", None).unwrap().slug.len(), 12);
-    assert_eq!(save_as(&w, &other, "load-new", None).unwrap().slug, b.slug);
+    assert_eq!(save_as(&w, &third, "load-new", Some(principal(1))).unwrap().slug.len(), 12);
+    assert_eq!(save_as(&w, &other, "load-new", Some(principal(1))).unwrap().slug, b.slug);
     for bad in ["7", "20", "eight", ""] {
         w.h.vars.borrow_mut().insert(save::SLUG_LEN_VAR.into(), bad.into());
         if bad.is_empty() {
             continue;
         }
         let third = format!("{T} A {bad} note.");
-        assert_eq!(save_as(&w, &third, "load-new", None), Err(RefusalCode::SaveUnavailable), "{bad}");
+        assert_eq!(save_as(&w, &third, "load-new", Some(principal(1))), Err(RefusalCode::SaveUnavailable), "{bad}");
     }
     assert!(w.h.metric_count("error", "policy") >= 3);
 }
@@ -399,17 +476,17 @@ fn a_collision_extends_from_ten_up_to_nineteen() {
     };
     let w = World::new();
     take(&w, 18);
-    let a = save_as(&w, T, "load-new", None).unwrap();
+    let a = save_as(&w, T, "load-new", Some(principal(1))).unwrap();
     assert_eq!((a.slug.as_str(), a.made), ("uM07zZQvekQkoFpGFa6", true));
     assert_eq!(w.h.count("SELECT slug_len FROM texts"), 19);
     assert_eq!(page(&w, &a.slug).unwrap().state, DetState::Live);
     // A later save rebuilds the 19-character slug from the row.
-    let b = save_as(&w, T, "load-new", None).unwrap();
+    let b = save_as(&w, T, "load-new", Some(principal(1))).unwrap();
     assert_eq!((b.slug.as_str(), b.made), (a.slug.as_str(), false));
     // Every length taken: refused, and nothing is written for the text.
     let w = World::new();
     take(&w, 19);
-    assert_eq!(save_as(&w, T, "load-new", None), Err(RefusalCode::SlugExhausted));
+    assert_eq!(save_as(&w, T, "load-new", Some(principal(1))), Err(RefusalCode::SlugExhausted));
     assert_eq!(w.h.metric_count("error", "slug_exhausted"), 1);
     assert_eq!(w.h.count("SELECT count(*) FROM texts"), 0);
 }

@@ -24,7 +24,7 @@ pub struct PageRequest {
 }
 
 /// `POST /internal/v1/save` (the website's `POST /detect/result`, with
-/// `X-SN-Principal` only when `save` is set and the reader is signed in):
+/// a required `X-SN-Principal` for the signed-in account):
 /// a sealed free check becomes its text's page, or lands on the page the
 /// same text already has. Every check that returns a seal is saved this way.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -32,7 +32,8 @@ pub struct SaveRequest {
     /// The exact string that was scored.
     pub text: String,
     pub seal: String,
-    /// "Save to my detections" was ticked (needs a principal).
+    /// Legacy input retained for older clients. Result creation always saves
+    /// to the required account, including when this field is false or absent.
     #[serde(default)]
     pub save: bool,
 }
@@ -92,7 +93,8 @@ pub struct StateEntry {
     pub state: Option<DetState>,
 }
 
-/// What the account list shows of a detection, fixed when it was saved.
+/// What the account list shows of a detection. Public pages retain only
+/// kind and creation date; secret-page summaries refresh on later saves.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Summary {
     pub kind: Kind,

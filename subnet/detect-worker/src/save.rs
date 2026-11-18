@@ -20,7 +20,7 @@
 //! 3. a text whose page is `live` or `pending` lands on it
 //!    ([`existing`]): a seal under another package than the page's newest
 //!    run adds its run (the page shows the newest and lists the others,
-//!    [`append_run`]); with "Save to my detections" the account owns it if
+//!    [`append_run`]); the account owns it if
 //!    its owner hash is the page's, and keeps a bookmark otherwise. No
 //!    manage token is drawn and nothing changes for anyone else;
 //! 4. otherwise (no row, or the page was deleted) a new page at generation
@@ -32,17 +32,16 @@
 //!    before the document is written ([`claim_batch`]): a `pending` row and
 //!    the text's address in one batch, so only the save whose address write
 //!    stands puts a document under that id. Then the document goes to R2 and
-//!    the row goes `live`. A failed put tombstones the claim, and the next
+//!    the account association is recorded and the row goes `live`. A failed put tombstones the claim, and the next
 //!    save of the text takes the next generation;
-//! 5. with "Save to my detections", the account's `owned/add` records the
-//!    page; if that fails the ownership just set is cleared and the answer
-//!    says `account_unavailable`. The page exists either way.
+//! 5. a failed account association tombstones the pending claim and answers
+//!    `account_unavailable`. No successful check publishes an unsaved page.
 //!
 //! No model runs, so nothing is counted. The text is in request memory only;
 //! D1 gets its keyed address and nothing else derived from it.
 
 use slop_ninja_account_wire::OwnedAddRequest;
-use slop_ninja_detect_page::api::{SaveReason, SavedAs};
+use slop_ninja_detect_page::api::SavedAs;
 use slop_ninja_detect_page::codes::{DetState, Kind};
 use slop_ninja_detect_page::ids::{IdH, UserId};
 use slop_ninja_detect_page::internal::{SaveAnswer, SaveRequest, Summary};
@@ -133,19 +132,9 @@ updated_at = ?4 WHERE id_h = ?1 AND state = 'live' AND kind = 'private_text' AND
 /// A page's state, read after a run's document was written.
 pub const SELECT_STATE: &str = "SELECT state FROM detections WHERE id_h = ?1";
 
-/// Clears an ownership this request set, when the account save failed.
-pub const CLEAR_OWNER: &str = "UPDATE detections SET owner_h = NULL, owner_via = NULL WHERE id_h = ?1 AND owner_h = ?2";
-
 /// The account list's summary of a secret page.
 pub fn summary(kind: Kind, r: &StoredResult, created_at: u64) -> Summary {
-    Summary {
-        kind,
-        band: r.band,
-        strong_sections: None,
-        total_sections: None,
-        words: r.total_words,
-        created_at,
-    }
+    Summary { kind, band: r.band, strong_sections: None, total_sections: None, words: r.total_words, created_at }
 }
 
 /// Draws a paid page's 20-character slug and its manage token.
@@ -233,7 +222,7 @@ fn find_text<'p>(peppers: &[&'p Pepper], text: &str, done: &[Done]) -> Result<Op
     Ok(None)
 }
 
-/// The account side of a save that asked for it.
+/// The account required for every save.
 struct Account {
     user_id: UserId,
     owner_h: Bytes32,
@@ -247,8 +236,22 @@ pub async fn save(
     sealed: Option<Sealed>,
     principal: Option<Principal>,
 ) -> Result<SaveAnswer, RefusalCode> {
+    save_text(io, keys, &req.text, sealed, principal).await
+}
+
+/// Stores the scored text before a successful check is returned to its account.
+/// Borrowing the request avoids another full-text allocation in the score route.
+pub async fn save_text(
+    io: &impl Io,
+    keys: Keys<'_>,
+    text: &str,
+    sealed: Option<Sealed>,
+    principal: Option<Principal>,
+) -> Result<SaveAnswer, RefusalCode> {
+    let principal = principal.ok_or(RefusalCode::SignedOut)?;
+    let account = Account { user_id: principal.user_id, owner_h: keys.store.owner_h(&principal.user_id.0) };
     let nonce_h = sealed.as_ref().map(|s| seal_nonce_h(&s.nonce));
-    let text = crate::canon::canon_v1(&req.text);
+    let text = crate::canon::canon_v1(text);
     let peppers: Vec<&Pepper> = keys.peppers.all().collect();
     let mut batch = vec![Stmt::new(SELECT_SWITCHES, Vec::new())];
     batch.push(Stmt::new(SEAL_USED, vec![Val::opt_blob(nonce_h.as_ref().map(|n| n.as_slice()))]));
@@ -265,27 +268,19 @@ pub async fn save(
     if !ct_eq(&crate::canon::canonical_sha256(&text), &sealed.text_sha256) {
         return Err(RefusalCode::SealInvalid);
     }
-    let account = principal
-        .filter(|_| req.save)
-        .map(|p| Account { user_id: p.user_id, owner_h: keys.store.owner_h(&p.user_id.0) });
-    let mut reason = (req.save && account.is_none()).then_some(SaveReason::SignedOut);
     let seal_used = done.get(1).is_some_and(|d| !d.rows.is_empty());
     let found = find_text(&peppers, &text, done.get(2..).unwrap_or_default())?;
-    let mut answer = match found {
+    match found {
         Some(row) => match row.state {
-            _ if row.held => return held(io),
-            DetState::Disabled | DetState::Removed => return held(io),
-            DetState::Live | DetState::Pending => existing(io, &text, &row, &sealed, account.as_ref()).await?,
-            _ if seal_used => return Err(RefusalCode::SealUsed),
-            _ => make(io, keys, &text, Some(row), &sealed, &nonce_h, account.as_ref()).await?,
+            _ if row.held => held(io),
+            DetState::Disabled | DetState::Removed => held(io),
+            DetState::Live | DetState::Pending => existing(io, &text, &row, &sealed, &account).await,
+            _ if seal_used => Err(RefusalCode::SealUsed),
+            _ => make(io, keys, &text, Some(row), &sealed, &nonce_h, &account).await,
         },
-        None if seal_used => return Err(RefusalCode::SealUsed),
-        None => make(io, keys, &text, None, &sealed, &nonce_h, account.as_ref()).await?,
-    };
-    if answer.reason.is_none() {
-        answer.reason = reason.take();
+        None if seal_used => Err(RefusalCode::SealUsed),
+        None => make(io, keys, &text, None, &sealed, &nonce_h, &account).await,
     }
-    Ok(answer)
 }
 
 fn held(io: &impl Io) -> Result<SaveAnswer, RefusalCode> {
@@ -300,36 +295,37 @@ async fn existing(
     text: &str,
     row: &TextRow<'_>,
     sealed: &Sealed,
-    account: Option<&Account>,
+    account: &Account,
 ) -> Result<SaveAnswer, RefusalCode> {
+    if row.state == DetState::Pending {
+        return Err(RefusalCode::SaveUnavailable);
+    }
     let slug = row.slug(text).ok_or(RefusalCode::Internal)?;
+    let owns = row.owner_h.as_ref().is_some_and(|o| ct_eq(o, &account.owner_h));
+    let add = OwnedAddRequest {
+        user_id: account.user_id,
+        slug: slug.clone(),
+        id_h: IdH(row.det_id_h),
+        summary: summary(Kind::PrivateText, &sealed.result, row.created_at),
+        is_owner: owns,
+    };
+    io.owned_add(&add).await.map_err(|_| RefusalCode::AccountUnavailable)?;
     let mut updated = false;
     if row.state == DetState::Live
         && row.kind == Kind::PrivateText
         && row.package_load.as_deref() != Some(sealed.result.package_load.as_str())
     {
-        updated = append_run(io, &slug, row.pepper, &row.det_id_h, row.package_load.as_deref(), &sealed.result)
-            .await
-            .unwrap_or(false);
+        updated = append_run(io, &slug, row.pepper, &row.det_id_h, row.package_load.as_deref(), &sealed.result).await?;
     }
     io.metric("store", &[if updated { "updated" } else { "existing" }]);
-    let mut answer = SaveAnswer { slug: slug.clone(), manage: None, made: false, updated, saved: None, reason: None };
-    if let Some(a) = account {
-        let owns = row.owner_h.as_ref().is_some_and(|o| ct_eq(o, &a.owner_h));
-        let add = OwnedAddRequest {
-            user_id: a.user_id,
-            slug,
-            id_h: IdH(row.det_id_h),
-            summary: summary(Kind::PrivateText, &sealed.result, row.created_at),
-            is_owner: owns,
-        };
-        if io.owned_add(&add).await.is_ok() {
-            answer.saved = Some(if owns { SavedAs::Owner } else { SavedAs::Bookmark });
-        } else {
-            answer.reason = Some(SaveReason::AccountUnavailable);
-        }
-    }
-    Ok(answer)
+    Ok(SaveAnswer {
+        slug,
+        manage: None,
+        made: false,
+        updated,
+        saved: Some(if owns { SavedAs::Owner } else { SavedAs::Bookmark }),
+        reason: None,
+    })
 }
 
 /// Adds `run` to the live text page `id_h` (slug `slug`) when its newest
@@ -527,7 +523,7 @@ async fn make(
     row: Option<TextRow<'_>>,
     sealed: &Sealed,
     nonce_h: &Bytes32,
-    account: Option<&Account>,
+    account: &Account,
 ) -> Result<SaveAnswer, RefusalCode> {
     let Some(floor) = policy_len(io) else {
         io.metric("error", &["policy"]);
@@ -545,7 +541,6 @@ async fn make(
     let all: Vec<&Pepper> = keys.peppers.all().collect();
     let manage = draw_token(io);
     let manage_hash = manage_h(&manage);
-    let owner = account.map(|a| a.owner_h);
     let now = io.now_ms();
     let mut len = floor;
     while len <= slug::TEXT_MAX_LEN {
@@ -563,7 +558,7 @@ async fn make(
             prev,
             nonce_h,
             &manage_hash,
-            owner.as_ref(),
+            Some(&account.owner_h),
             &sealed.result.package_load,
             now,
         );
@@ -607,7 +602,7 @@ async fn held_anywhere(io: &impl Io, peppers: &[&Pepper], cand: &str) -> Result<
     Ok(!d.rows.is_empty())
 }
 
-/// The won claim: its document, then the row live, then the account.
+/// The won claim: its document and account association, then the row live.
 #[allow(clippy::too_many_arguments)]
 async fn finish(
     io: &impl Io,
@@ -618,7 +613,7 @@ async fn finish(
     text: &str,
     sealed: &Sealed,
     manage: String,
-    account: Option<&Account>,
+    account: &Account,
 ) -> Result<SaveAnswer, RefusalCode> {
     let doc = SecretDoc::text_page(text.to_owned(), sealed.result.clone());
     let bytes = seal_doc(io, pepper, slug_, &doc);
@@ -630,6 +625,25 @@ async fn finish(
         return Err(RefusalCode::SaveUnavailable);
     }
     let now = io.now_ms();
+    let add = OwnedAddRequest {
+        user_id: account.user_id,
+        slug: slug_.to_owned(),
+        id_h: IdH(*id_h),
+        summary: summary(Kind::PrivateText, &sealed.result, now),
+        is_owner: true,
+    };
+    if io.owned_add(&add).await.is_err() {
+        // Never publish an unassociated result. A lost account response can
+        // leave a stale saved entry, which the account's state reconciliation
+        // can remove. It must not make a live anonymous page.
+        let _ = io.run(drop(now)).await;
+        if let Ok(state) = io.run(Stmt::new(SELECT_STATE, vec![Val::blob(id_h)])).await
+            && state.first().and_then(|r| r.text("state")) != Some(DetState::Live.as_str())
+        {
+            let _ = io.doc_delete(std::slice::from_ref(&key)).await;
+        }
+        return Err(RefusalCode::AccountUnavailable);
+    }
     let flip = Stmt::new(FLIP_LIVE, vec![Val::blob(id_h), Val::blob(nonce_h), Val::int(doc_bytes), Val::int(now)]);
     let live = io.run(flip).await.map(|d| d.changes == 1);
     if live != Ok(true) {
@@ -650,30 +664,14 @@ async fn finish(
         }
     }
     io.metric("store", &["made"]);
-    let mut answer = SaveAnswer {
+    Ok(SaveAnswer {
         slug: slug_.to_owned(),
         manage: Some(manage),
         made: true,
         updated: false,
-        saved: None,
+        saved: Some(SavedAs::Owner),
         reason: None,
-    };
-    if let Some(a) = account {
-        let add = OwnedAddRequest {
-            user_id: a.user_id,
-            slug: slug_.to_owned(),
-            id_h: IdH(*id_h),
-            summary: summary(Kind::PrivateText, &sealed.result, now),
-            is_owner: true,
-        };
-        if io.owned_add(&add).await.is_ok() {
-            answer.saved = Some(SavedAs::Owner);
-        } else {
-            let _ = io.run(Stmt::new(CLEAR_OWNER, vec![Val::blob(id_h), Val::blob(&a.owner_h)])).await;
-            answer.reason = Some(SaveReason::AccountUnavailable);
-        }
-    }
-    Ok(answer)
+    })
 }
 
 /// The pending text pages older than this the hourly cron tombstones: a save

@@ -49,7 +49,8 @@ words; spans keep the 24-word floor), up to 1,000 words cut at a sentence end
 (every check gets a page whose link never expires: public result pages for
 public sources, X posts included, always indexable except opt-outs, removed
 or legal-state pages and family-filter blocks; content-addressed unlisted
-short links for pasted text; optional accounts, removal requests; no ad or
+short links for pasted text; accounts required to check, automatic account saving,
+no account required to read a shared page, removal requests; no ad or
 analytics script on the pages that hold pasted text; ads only on approved
 content pages; operator SlopNinja LLC, a Maryland LLC), later serving the reigning
 reference, paid checks of longer documents (operator grants only at launch), a

@@ -55,8 +55,8 @@ WHERE EXISTS (SELECT 1 FROM claims WHERE claim_key = ?1 AND det_id_h = ?2) ON CO
 /// The pending page, inserted only where the claim names it, with the
 /// domain-only source of `?7` (none for an X post: `?7` is NULL).
 pub const INSERT_PENDING: &str = "INSERT INTO detections (id_h, public_slug, kind, platform, state, state_v, \
-created_at, updated_at, package_load, source_id) SELECT ?2, ?3, 'public_url', ?4, 'pending', 1, ?5, ?5, ?6, \
-(SELECT source_id FROM sources WHERE canon_key = ?7) \
+created_at, updated_at, package_load, source_id, owner_h, owner_via) SELECT ?2, ?3, 'public_url', ?4, 'pending', 1, ?5, ?5, ?6, \
+(SELECT source_id FROM sources WHERE canon_key = ?7), ?8, 'created' \
 WHERE EXISTS (SELECT 1 FROM claims WHERE claim_key = ?1 AND det_id_h = ?2)";
 
 /// The claim as it stands, with its page.
@@ -130,6 +130,7 @@ pub async fn claim(
     domain: Option<Domain<'_>>,
     package_load: &str,
     lease_ms: u64,
+    owner_h: &Bytes32,
 ) -> Result<Claim, IoError> {
     let dkey = domain.map(|d| d.source_key());
     for _ in 0..SLUG_DRAWS {
@@ -168,6 +169,7 @@ pub async fn claim(
                 Val::int(now),
                 Val::text(package_load),
                 Val::opt_blob(dkey.as_ref().map(|k| &k[..])),
+                Val::blob(owner_h),
             ],
         ));
         batch.push(Stmt::new(SELECT_CLAIM, vec![Val::blob(ckey)]));

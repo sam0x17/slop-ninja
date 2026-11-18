@@ -39,13 +39,12 @@ Every route first checks how the request arrived (`routes::forwarded`):
   row of the forwarded route table, and the CSRF check of `auth-core`
   applies (Fetch Metadata and `Origin` against that host's origin).
 - `X-SN-Principal` is accepted only on the routes whose table row takes one,
-  from the site host. Of the routes served here only `share` does: a free
-  check is the same request for everyone, and a principal on it refuses the
-  request.
-- A request with neither header is a binding call no forwarder made. It is
-  served, and its scans are recorded as `uncovered_path`, never counted.
+  from the site host. Score, warm, URL, rerun, paid quote and paid start
+  require it; the removal form can also take one.
+- A request with neither header is a binding call no forwarder made.
+  Account-required routes refuse it before work.
 - An `/internal/` request carrying `X-SN-Route` or `X-SN-Host` is refused,
-  and only the owner route takes `X-SN-Principal` (and needs it).
+  and the owner and save routes require `X-SN-Principal`.
 - No header outside the forwarders' allow-list is read, and never a cookie
   (`tests/source.rs`).
 
@@ -63,9 +62,9 @@ counts some codes carry, under the HTTP status of its code
   1. how the request arrived (above);
   2. the content type;
   3. the switches: each the deploy-time var AND the detect store's
-     `switches` row, read in one statement; when the row cannot be read the
-     var decides and an `error {d1}` point is written, so a store outage never
-     stops free checks;
+     `switches` row, read in one statement; a failed row read writes an
+     `error {d1}` point and refuses before inference, since every completed
+     check must be stored;
   4. a declared length within the body bound, whose full footprint fits the
      isolate's scan memory (413 unread above either, 411 without a length);
   5. the intake reservation from the scan memory: 2 bytes per declared body
@@ -162,9 +161,12 @@ routes in `cf_routes.rs`:
   (stale pending pages, the orphan backstop, stale claims, sitemap shards).
 
 **Every check makes its page** (`save.rs`, `permalink-policy/v1`). The
-website's `POST /detect/result` sends the sealed free check to
-`/internal/v1/save` (with `X-SN-Principal` only when the reader ticked "Save
-to my detections") and the browser lands on the page. A pasted text's slug is
+score route requires an authenticated principal and saves the result and its
+account association before returning success. Its response includes the saved
+page, which the browser opens. The compatibility `/internal/v1/save` route
+also requires a principal and ignores the retired optional-save flag. URL checks
+and reruns associate the account before starting work. Shared-page reads remain
+anonymous. A pasted text's slug is
 the first `DETECT_TEXT_SLUG_LEN` (10 by default, 8 to 19) base62 characters
 derived from a keyed hash of its `canon_v1` form, extended one character at
 a time past a slug any row holds; the store keeps the text's keyed address

@@ -115,10 +115,10 @@ macro_rules! routes {
 
 routes! {
     // detect
-    Score = "score", "POST", "/api/detect/v1/score", Detect, Site, false, true;
-    Warm = "warm", "POST", "/api/detect/v1/warm", Detect, Site, false, true;
-    Url = "url", "POST", "/api/detect/v1/url", Detect, Site, false, true;
-    Rerun = "rerun", "POST", "/api/detect/v1/rerun", Detect, Site, false, true;
+    Score = "score", "POST", "/api/detect/v1/score", Detect, Site, true, true;
+    Warm = "warm", "POST", "/api/detect/v1/warm", Detect, Site, true, true;
+    Url = "url", "POST", "/api/detect/v1/url", Detect, Site, true, true;
+    Rerun = "rerun", "POST", "/api/detect/v1/rerun", Detect, Site, true, true;
     State = "state", "POST", "/api/detect/v1/state", Detect, Site, false, true;
     Feedback = "feedback", "POST", "/api/detect/v1/feedback", Detect, Both, false, true;
     PaidQuote = "paid_quote", "POST", "/api/detect/v1/paid/quote", Detect, Site, true, true;
@@ -153,6 +153,12 @@ routes! {
 }
 
 impl RouteId {
+    /// Creating or re-running a detection requires a signed-in account.
+    /// Page reads, status polls and removal notices remain available to readers.
+    pub const fn requires_account(self) -> bool {
+        matches!(self, Self::Score | Self::Warm | Self::Url | Self::Rerun | Self::PaidQuote | Self::PaidStart)
+    }
+
     /// Whether the detect Worker accepts `X-SN-Principal` on this route.
     pub fn takes_principal(self) -> bool {
         self.spec().principal
@@ -164,7 +170,7 @@ impl RouteId {
 pub enum PrincipalRule {
     /// A request with the header is refused.
     Refused,
-    /// The header may be present (the save, when the reader asked to save).
+    /// The header may be present.
     Optional,
     /// A request without the header is refused (`signed_out`).
     Required,
@@ -178,7 +184,7 @@ pub enum InternalRoute {
     Preview,
     /// The website's `POST /detect/result`: a sealed free check becomes its
     /// text's page ([`crate::internal::SaveRequest`]). Takes
-    /// `X-SN-Principal` when the reader asked to save and is signed in.
+    /// a required `X-SN-Principal`; every result is saved to that account.
     Save,
     Card,
     States,
@@ -280,13 +286,11 @@ impl InternalRoute {
         }
     }
 
-    /// Whether the route takes `X-SN-Principal`: the owner route requires it,
-    /// the save takes it when the reader asked to save, and every other
-    /// internal route refuses it.
+    /// Account ownership and result creation require `X-SN-Principal`.
+    /// Reading a result remains anonymous.
     pub fn principal(self) -> PrincipalRule {
         match self {
-            InternalRoute::Owner => PrincipalRule::Required,
-            InternalRoute::Save => PrincipalRule::Optional,
+            InternalRoute::Owner | InternalRoute::Save => PrincipalRule::Required,
             _ => PrincipalRule::Refused,
         }
     }

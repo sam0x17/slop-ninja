@@ -80,6 +80,7 @@ pub struct Harness {
     pub vars: RefCell<BTreeMap<String, String>>,
     pub owned: RefCell<Vec<OwnedAddRequest>>,
     pub owned_fails: Cell<bool>,
+    pub owned_reply_lost: Cell<bool>,
     pub queue: RefCell<Vec<QueueMessage>>,
     pub metrics: RefCell<Vec<(String, Vec<String>)>>,
     /// The points written with a double, in order (also in `metrics`).
@@ -115,6 +116,7 @@ impl Harness {
             vars: RefCell::new(BTreeMap::new()),
             owned: RefCell::new(Vec::new()),
             owned_fails: Cell::new(false),
+            owned_reply_lost: Cell::new(false),
             queue: RefCell::new(Vec::new()),
             metrics: RefCell::new(Vec::new()),
             doubles: RefCell::new(Vec::new()),
@@ -368,6 +370,9 @@ impl Io for Harness {
             return Err(IoError);
         }
         self.owned.borrow_mut().push(req.clone());
+        if self.owned_reply_lost.get() {
+            return Err(IoError);
+        }
         Ok(())
     }
 

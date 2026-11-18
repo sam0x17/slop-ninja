@@ -6,17 +6,19 @@
 //! ([`select_sql`]), so a flip takes effect on the next request and needs no
 //! cache. When the row cannot be read (D1 unreachable, the binding missing,
 //! the read past its wait), the var decides: its hard off still holds and
-//! a D1 outage never stops free checks. The Worker then writes an AE
+//! the score route refuses before inference because every result needs
+//! durable storage. The Worker also writes an AE
 //! `error {d1}` point ([`Switches::d1_failed`]).
 
 use slop_ninja_detect_page::switches::{self, Switch};
 
 /// The switches the free check reads.
-pub const SCORE: &[&str] = &[TOOL, SPANS, URLS, X];
+pub const SCORE: &[&str] = &[TOOL, SPANS, URLS, X, STORE];
 /// The switches the warm answer reads.
 pub const WARM: &[&str] = &[TOOL, SPANS];
 
 pub const TOOL: &str = "DETECT_TOOL";
+pub const STORE: &str = "DETECT_STORE";
 pub const SPANS: &str = "DETECT_SPANS";
 pub const URLS: &str = "DETECT_URLS";
 pub const X: &str = "DETECT_X";

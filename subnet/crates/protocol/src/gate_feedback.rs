@@ -333,8 +333,8 @@ impl GateFeedbackV1 {
             entrants,
             result_bits,
             cases: result.cases,
-            identify_bits: result.params.quant.identify_bits,
-            budget_factor: result.params.quant.budget_factor,
+            identify_bits: result.params.quant.identify_bits(),
+            budget_factor: result.params.quant.budget_factor(),
         };
         record.validate()?;
         record.check_result(result)?;
@@ -377,14 +377,14 @@ impl GateFeedbackV1 {
                 _ => return Err(Error::Mismatch("feedback outcome")),
             }
         }
-        if self.executed() != r.budget.executed {
+        if self.executed() != r.budget.executed() {
             return Err(Error::Mismatch("feedback executed"));
         }
-        let counted = self.bits.checked_add(r.budget.total).ok_or(Error::Overflow("counted bits"))?;
+        let counted = self.bits.checked_add(r.budget.total()).ok_or(Error::Overflow("counted bits"))?;
         if self.result_bits < counted
             || self.cases != r.cases
-            || self.identify_bits != r.params.quant.identify_bits
-            || self.budget_factor != r.params.quant.budget_factor
+            || self.identify_bits != r.params.quant.identify_bits()
+            || self.budget_factor != r.params.quant.budget_factor()
         {
             return Err(Error::Mismatch("feedback bit parameters"));
         }

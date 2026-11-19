@@ -7,6 +7,16 @@ the website. The website's typed reading of it lives in its own repository
 (`src/model.rs`, `src/clean.rs`), and the publisher's tests round-trip every
 document through a copy of those types.
 
+The implemented publisher derivation is `slop_ninja.dashboard.publisher/v5`.
+Its quant-v2/reward-v3 fields and accounting below are built, not deployed.
+The website consumer still needs a matching preview and launch review before
+these rules are activated. Existing quant-v1/reward-v2 fields remain available.
+Dashboard paths, document schemas and byte bounds stay at their current
+versions: the additions are optional scalar fields, with at most three decimal
+strings per quantization block and three privacy strings per live roster.
+They fit the existing fixed overhead and per-cohort row allowance; no roster
+or key bound changes.
+
 ## Data path
 
 1. The publisher builds each document from typed fields of the coordinator's
@@ -188,9 +198,13 @@ netuid}`, `generated_at` (unix seconds, floored to the minute) and
   roster is written at `sessions`. `checkpoints` are the entrant's `live-v1`
   segment readings, at most `segments - 1`, in order, each a multiple of
   `width`, released once and never changed, with no value after a stop.
-  `prefinal` is the entrant's quantized score `q` under `quant-v1`, or
-  `withheld`, once it and `R_k` have finished and `R_k` has no failure; it
-  is the value the signed result will carry unless a signed correction
+  `prefinal` is the entrant's quantized score `q`, or `withheld`.
+  Under `quant-v1` it waits until the entrant and `R_k` have finished and
+  `R_k` has no failure. The implemented, not yet deployed `quant-v2` path
+  fixes its grid at the seal, so an entrant's value can appear before `R_k`
+  finishes. Its top-level `live.prefinal` then names the grid with `current`,
+  `predecessor` and `margin_line` null until the reference value is available.
+  A pre-finalized value is the value the signed result will carry unless a signed correction
   replaces it. No rank, position, leader, score order, band, gate, cluster
   or unit value; rows stay in UID order. **Residual (accepted):** a value's
   appearance shows that the entrant finished a segment or its work.
@@ -201,12 +215,26 @@ netuid}`, `generated_at` (unix seconds, floored to the minute) and
   `boundary_block + (epoch - boundary_epoch) * tempo_blocks`.
 - **No score before quantization.** A score is published only as a
   quantized score `q` under a quantization block `{rule, width}` (rule
-  `quant-v1`; readings follow their own grid under `live-v1`): every score, cutoff and band edge of a document is a multiple
+  `quant-v1` or `quant-v2`; readings follow their own grid under `live-v1`):
+  every score, cutoff and band edge of a document is a multiple
   of `width` printed with exactly its decimals (a band's upper edge may be
   the scale's `1`), never finer than the grid. A cohort listed before
   quantization (its summary is `cohort_summary/v2`) keeps every score, band
   edge, cutoff value and `quantization` field `null`, and its quality chart
   shows bands only.
+- **Quant-v2 display parameters.** Its quantization block additionally carries
+  `sigma`, `rho` and `mu`, each a decimal string rounded upward to three
+  places. `sigma` bounds the released score's standard deviation, including
+  grid rounding: `sqrt(sigma_v^2 + width^2/6)`. `rho` is the signed result's
+  quantization privacy cost; `mu = sqrt(2 rho)` is the Gaussian comparison
+  parameter, not an additional privacy guarantee. Calculate each display
+  from the public micro-unit/ppb parameters before rounding. Quant-v1 omits
+  all three fields. A live quant-v2 roster also carries `rho_quant`,
+  `rho_live` and `rho_total`: the quantization term, `eps_live^2/2` when
+  readings are enabled (zero otherwise), and their sum. These terms remain
+  available when pre-finalized values are disabled. The sum is computed
+  before display rounding, so it can differ from the sum of the displayed
+  terms by one thousandth. No private statistic supplies these fields.
 - **No rank before the close, and none beyond the published values.**
   Entrants are listed in roster order, which admission fixes before any
   document is scored. Only a closed cohort's document carries a rank: each
@@ -396,7 +424,7 @@ list and the cohort documents keep their last version. A closed cohort with its 
   roster order); `null` for every other entrant. `row_share_pct` is the
   entrant's share of the cohort's row (65,535 units) in percent with one
   decimal place, rounded half up, derived from the published `q` values,
-  bands, gate bits and cluster membership under reward-v2's fixed decay
+  bands, gate bits and cluster membership under the summary's reward rule, fixed decay
   and largest-remainder rule (`dashboard::row_units`): `0.0` for an
   entrant the row pays nothing, and `null` for every entrant of a cohort
   that set no target (no cutoff: the previous target stays in force, or
@@ -410,10 +438,13 @@ list and the cohort documents keep their last version. A closed cohort with its 
   edge; band `k`'s upper edge is band `k - 1`'s lower edge; the last band's
   lower edge is the cutoff; every other lower edge is the band's grid edge.
   Empty grid bands between two occupied ones merge into the lower one. A
-  band places near-copy clusters by their first-ranked member, so every
-  such member lies inside its band's edges, but another member of the same
-  cluster can have a lower `q` (down to the cutoff): its dot can sit below
-  its band's lower edge, inside a lower band's range.
+  band places near-copy clusters by their head: the first member in q-rank
+  under reward-v2, or the first roster member under reward-v3. Other members
+  may lie outside their band's edges. Under reward-v3 a member can score
+  above its head or below the cutoff and still share its retained cluster's
+  payment. Every gated member keeps its cluster label, including members of
+  unretained clusters; unretained members have no band and receive no units.
+  Rank still describes each entrant's own q, independently of cluster payment.
 - `reference{index, label, score}` (`R_k`'s `q`), `predecessor` (`R_k-1`'s
   `q`), `score_better` (`higher`), `promotion_rule` (`testnet_no_canary`
   on the testnet record), and the `previous` and `next` labels. The
@@ -525,3 +556,23 @@ value `null`.
   `slop_ninja.coordinator.registry/v1`, `signing::registry`): every
   registered UID as the latest signing registration read saw it, the
   source of `registry.json`.
+
+### Retained privacy composition (built, not deployed)
+
+A closed quant-v2 cohort document may carry `privacy` with `rule: live-v1`,
+`segments`, `eps_live_milli`, and decimal `rho_quant`, `rho_live`, `rho_total`.
+The same block is retained in summary v5. It survives closure and dashboard
+rebuilds independently of the last live roster. The quant term comes from the
+signed result. The live term is the full sealed-policy bound, including after
+an operator stop, derived as epsilon squared divided by two when the policy
+provides readings. Each rho display rounds upward from micro-units; the sum
+is computed before display rounding.
+
+The live policy is operator metadata retained beside the private result,
+bound to that result and its manifest by digest. It is not a signed policy
+record. Its authenticity relies on the private coordinator storage boundary.
+A missing or inconsistent report leaves `privacy` absent and reports an
+operator diagnostic; it neither asserts zero live cost nor blocks the cohort's
+result. Zero live cost is displayed only for a checked no-readings policy.
+Quant-v1 summaries and signed result/manifest bytes do not change. Website
+rendering and deployment qualification for this block remain pending.

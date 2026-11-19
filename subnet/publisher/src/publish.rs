@@ -1409,6 +1409,9 @@ impl<S: Store, K: Keepalive> Run<'_, S, K> {
         if let Some(why) = &v.feedback_refused {
             report.refused.push((format!("{label}/{}", verify::FEEDBACK), why.clone()));
         }
+        if let Some(why) = &v.live_privacy_refused {
+            report.refused.push((format!("{label}/{}", slop_ninja_protocol::live_privacy::OBJECT), why.clone()));
+        }
         // Artifacts: what publication at scoring start did, checked against
         // the public result's artifact digests.
         let references = self.withheld_references(memo, idx, Some(v));

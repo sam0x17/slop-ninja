@@ -2403,11 +2403,12 @@ staged by the tracked pin, one change per deploy):
    otherwise, and `authority-check` refuses a tree whose `EVAL_MAIN_RULES`
    differs from the deployed authority's `record_rules`,
    `record_rules_mismatch`, unless it switches to a fresh authority; a tree
-   without the var runs `reward-v2,quant-v1`), the coordinator's `AUTO_TARGET_AUTHORITIES` (the new
+   without the var runs `reward-v2,quant-v1`; a rollback must match the target
+   authority's own pair, including a frozen rollback), the coordinator's `AUTO_TARGET_AUTHORITIES` (the new
    name), the publisher's `RECORD_LABEL_PREFIX` and
    `PUBLISH_FROM_EPOCH`, `record_from_epoch` (the same epoch), R_0 and the
    probe record's key; `<dir>/probe-plan.json` is the probe build.
-4. **Switch.** Commit exactly the three vars from `restart.json` in
+4. **Switch.** Commit exactly the four eval authority vars from `restart.json` in
    `[env.eval-testnet.vars]` and its `coordinator` value,
    `AUTO_TARGET_AUTHORITIES`, in `[env.testnet.vars]` (a one-line-per-var
    commit, nothing else; the coordinator's automatic handoff hands in only

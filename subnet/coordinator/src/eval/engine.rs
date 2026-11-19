@@ -1856,6 +1856,9 @@ pub const RULE_OUTSIDE_RECORD: &str =
     "rule_outside_record: the plan's reward or quantization rule is not this record's; switch to burn and open a fresh record";
 
 pub fn admit(cfg: &EvalConfig, bytes: &[u8]) -> R<(CohortPlan, Admission)> {
+    if !cfg.is_load() && cfg.authority.rules_mismatch() {
+        return Err(EvalError::Plan(super::record_rules::MISMATCH));
+    }
     let plan = if cfg.is_load() {
         LoadPlan::parse(bytes, cfg.ceilings).map_err(|e| EvalError::Plan(e.0))?.cohort_plan()
     } else {
@@ -1932,6 +1935,9 @@ pub fn admit(cfg: &EvalConfig, bytes: &[u8]) -> R<(CohortPlan, Admission)> {
 /// goes straight to `sealing`: it never waits on a boundary and never opens a
 /// target.
 pub fn queue(sql: &impl Sql, cfg: &EvalConfig, bytes: &[u8], now_ms: u64) -> R<i64> {
+    if !cfg.is_load() {
+        super::record_rules::require(sql, &cfg.authority, now_ms)?;
+    }
     // `cfg` was read when the request started; a successor's supersede may
     // have committed since (an operator plan awaits the ledger, a calendar
     // open its predecessors, between the two). Read here, in the queueing
@@ -4296,6 +4302,9 @@ pub fn status(sql: &impl Sql, now_ms: u64) -> R<Value> {
         let objects_missing = probe_found_objects_missing(&c.phase, c.fault.as_deref(), opt_text(row, 35).as_deref(), opt_text(row, 32).as_deref());
         out.push(json!({
             "cohort": c.plan.cohort, "label": c.label, "phase": c.phase, "fault": c.fault,
+            "reward_rule": c.plan.reward_rule,
+            "quant_rule": c.plan.reward_v1.as_ref().and_then(|v| v.quant.as_ref())
+                .map(|q| q.rule().map(|rule| rule.name())).transpose().map_err(|e| EvalError::Plan(e.0))?,
             "n": c.plan.n, "k_tempos": c.plan.k_tempos, "plan_sha256": c.plan_sha256,
             "opened_epoch": opt_int(row, 11), "opened_block": opt_int(row, 12),
             "packaged_epoch": opt_int(row, 13), "closed_epoch": opt_int(row, 14),

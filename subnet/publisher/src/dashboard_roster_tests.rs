@@ -5,6 +5,7 @@
 //! configured level.
 
 use super::*;
+use super::roster::check_rho_terms;
 use crate::artifacts::{StartEntry, StartRecord};
 use crate::status::RegistryView;
 
@@ -427,9 +428,9 @@ fn the_roster_allow_list_is_exactly_the_contract() {
     v["rows"][0]["challenges"] = json!({"state": "running", "done": 1, "total": 2});
     v["rows"][0]["live"] = json!({"checkpoints": ["0.84"], "stopped": false, "prefinal": "0.86"});
     v["live"] = json!({"rule": "live-v1", "width": "0.04", "segments": 4, "released_max": 3, "noise_sd": "0.054",
-        "eps_live_milli": 1000, "bits": {"counted": 148, "live": 135, "bound": 800},
+        "eps_live_milli": 1000, "rho_quant": "0.500", "rho_live": "0.500", "rho_total": "1.000", "bits": {"counted": 148, "live": 135, "bound": 800},
         "reference": {"done": 250, "total": 1000, "checkpoints": ["0.84"], "stopped": false},
-        "prefinal": {"quantization": {"rule": "quant-v1", "width": "0.02"}, "current": "0.86", "predecessor": "0.84", "margin_line": "0.88"}});
+        "prefinal": {"quantization": {"rule": "quant-v2", "width": "0.02", "sigma": "0.011", "rho": "0.500", "mu": "1.000"}, "current": "0.86", "predecessor": "0.84", "margin_line": "0.88"}});
     let paths = crate::allowlist::paths(&v);
     assert_eq!(paths, allowed_paths(&Doc::Roster("a", "c".into())));
 }
@@ -917,6 +918,104 @@ fn the_live_level_carries_live_values_on_the_entrants_rows_only() {
     // A pre-finalized entrant value with the reference's.
     let d = live_roster(RosterLevel::Live, Some(live_json(&[(4, &["0.840", "0.848", "0.856"], Some("0.88"))], false))).unwrap();
     assert_eq!(d.rows.iter().find(|r| r.uid == Some(4)).unwrap().live.as_ref().unwrap().prefinal.as_deref(), Some("0.88"));
+}
+
+#[test]
+fn quant_v2_composes_privacy_without_prefinal_values_and_rejects_inconsistent_terms() {
+    let mut input = live_json(&[(4, CPS, None)], false);
+    input["policy"]["prefinal"] = json!(false);
+    input["policy"]["quantization"] = json!({"rule": "quant-v2", "width": "0.02", "sigma_ppb": 10_000_000, "rho_micro": 500_001});
+    input["prefinal"] = Value::Null;
+    let d = live_roster(RosterLevel::Live, Some(input.clone())).unwrap();
+    let b = d.live.as_ref().unwrap();
+    assert!(b.prefinal.is_none());
+    assert_eq!((b.rho_quant.as_deref(), b.rho_live.as_deref(), b.rho_total.as_deref()),
+        (Some("0.501"), Some("0.500"), Some("1.001")));
+    let key = Doc::Roster("a", "testnet-r0-c7".into()).key();
+    for (field, bad) in [("rho_quant", Value::Null), ("rho_live", json!("0.499")),
+        ("rho_total", json!("1.000")), ("rho_total", json!("1.002")), ("rho_total", json!("01.001"))] {
+        let mut output = value(&d);
+        output["live"][field] = bad;
+        assert!(check(&key, output.to_string().as_bytes()).is_err(), "{field}");
+    }
+    // Private report parameters must agree when both blocks are present.
+    input["policy"]["prefinal"] = json!(true);
+    input["prefinal"] = json!({"quantization": {"rule": "quant-v2", "width": "0.02", "sigma_ppb": 10_000_000, "rho_micro": 500_000},
+        "current": null, "predecessor": null, "margin_line": null});
+    assert!(crate::status::parse_live_bytes(input.to_string().as_bytes()).is_none());
+    input["prefinal"]["quantization"] = input["policy"]["quantization"].clone();
+    assert!(crate::status::parse_live_bytes(input.to_string().as_bytes()).is_some());
+}
+
+#[test]
+fn composition_checks_allow_only_rounding_uncertainty() {
+    let mut d = live_roster(RosterLevel::Live, Some(live_json(&[(4, CPS, None)], false))).unwrap();
+    let b = d.live.as_mut().unwrap();
+    b.prefinal = None;
+    b.eps_live_milli = 1;
+    b.rho_quant = Some("0.501".into());
+    b.rho_live = Some("0.001".into());
+    // Quant rho lies in [0.500001, 0.501000], live rho rounds to
+    // 0.000001: total may round to either 0.501 or 0.502.
+    for total in ["0.501", "0.502"] {
+        b.rho_total = Some(total.into());
+        assert!(check_rho_terms(b).is_ok());
+    }
+    b.rho_total = Some("0.500".into());
+    assert!(check_rho_terms(b).is_err());
+    b.segments = 0;
+    b.rho_live = Some("0.000".into());
+    b.rho_total = Some("0.501".into());
+    assert!(check_rho_terms(b).is_ok());
+    b.rho_live = Some("0.001".into());
+    assert!(check_rho_terms(b).is_err());
+}
+
+#[test]
+fn quant_v2_publishes_an_early_entrant_on_its_sealed_grid_without_inventing_a_reference() {
+    let mut early = live_json(&[(4, CPS, Some("0.88"))], false);
+    early["prefinal"]["quantization"]["rule"] = json!("quant-v2");
+    early["prefinal"]["quantization"]["sigma_ppb"] = json!(10_000_000);
+    early["prefinal"]["quantization"]["rho_micro"] = json!(500_000);
+    early["prefinal"]["current"] = Value::Null;
+    early["prefinal"]["margin_line"] = Value::Null;
+    let view = crate::status::parse_live_bytes(early.to_string().as_bytes()).unwrap();
+    assert_eq!(view.prefinal.as_ref().unwrap().current, None);
+    let doc = live_roster(RosterLevel::Live, Some(early.clone())).unwrap();
+    assert_eq!(doc.level, "live");
+    let privacy = doc.live.as_ref().unwrap();
+    assert_eq!((privacy.rho_quant.as_deref(), privacy.rho_live.as_deref(), privacy.rho_total.as_deref()), (Some("0.500"), Some("0.500"), Some("1.000")));
+    let quant = &privacy.prefinal.as_ref().unwrap().quantization;
+    assert_eq!((quant.sigma.as_deref(), quant.rho.as_deref(), quant.mu.as_deref()), (Some("0.013"), Some("0.500"), Some("1.000")));
+    assert_eq!(doc.live.as_ref().unwrap().prefinal.as_ref().unwrap().current, None);
+    assert_eq!(doc.rows.iter().find(|r| r.uid == Some(4)).unwrap().live.as_ref().unwrap().prefinal.as_deref(), Some("0.88"));
+    let mut shown = Vec::new();
+    record_shown(&mut shown, &doc);
+    assert!(shown.iter().any(|s| s.subject == hx(4) && s.kind == "prefinal" && s.value == "0.88"));
+    assert!(!shown.iter().any(|s| s.subject == "current" && s.kind == "prefinal"));
+    let mut finished = early.clone();
+    finished["prefinal"]["current"] = json!("0.86");
+    finished["prefinal"]["margin_line"] = json!("0.88");
+    let later = live_roster(RosterLevel::Live, Some(finished)).unwrap();
+    assert!(!replaces_shown(&shown, &later));
+    record_shown(&mut shown, &later);
+    assert_eq!(shown.iter().filter(|s| s.subject == hx(4) && s.kind == "prefinal").count(), 1);
+    assert!(shown.iter().any(|s| s.subject == "current" && s.kind == "prefinal" && s.value == "0.86"));
+    // Both the private input parser and the public document checker retain
+    // the quant-v1 dependency and reject values derived from an absent R_k.
+    for (field, bad) in [("rule", json!("quant-v1")), ("margin_line", json!("0.88")), ("predecessor", json!("0.84"))] {
+        let mut input = early.clone();
+        let mut output = value(&doc);
+        if field == "rule" {
+            input["prefinal"]["quantization"][field] = bad.clone();
+            output["live"]["prefinal"]["quantization"][field] = bad;
+        } else {
+            input["prefinal"][field] = bad.clone();
+            output["live"]["prefinal"][field] = bad;
+        }
+        assert!(crate::status::parse_live_bytes(input.to_string().as_bytes()).is_none(), "{field}");
+        assert!(check(&Doc::Roster("a", "testnet-r0-c7".into()).key(), output.to_string().as_bytes()).is_err(), "{field}");
+    }
 }
 
 /// The level says `live` only with live content: without a view, while

@@ -2508,7 +2508,9 @@ answer `Paused`, as silence does, without stopping the heartbeat.
 
 **Main authority (chain-record restart).** `EVAL_MAIN_AUTHORITY`,
 `EVAL_MAIN_FIRST_COHORT` and `EVAL_MAIN_PREVIOUS` name the main instance's
-authority. They are tracked in `wrangler.toml` and never passed with `--var`,
+authority. `EVAL_MAIN_RULES` names its reward and quantization pair; when
+absent it means `reward-v2,quant-v1`. These vars are tracked in
+`wrangler.toml` and never passed with `--var`,
 so every deploy carries the authority its tree names, and
 `slop_ninja_eval_ops authority-check` (`config::deploy_check`) refuses an
 eval deploy whose tree names another authority than the deployed one. It
@@ -2540,6 +2542,24 @@ authority's later `(seq, gen)` refuses its kicks. Kicks name the authority
 (`LaneKick.authority`), and a lane's calls go back to the object that kicked
 it whatever the deployment names now. The pool's durable used ledger is keyed
 by the object's id, so the new authority still sees every earlier draw.
+
+The persisted rule guard is implemented but not deployed. Eval schema 32
+stores one immutable rule pair per authority. A later configuration mismatch
+reports `record_rules_mismatch` and refuses new plans, template installs and
+cohort starts; existing work and status keep the stored rules, including after
+retirement. Restore `EVAL_MAIN_RULES` to the stored pair, or switch to a fresh
+authority through the restart procedure. Configuration drift and recovery are
+journaled. A rollback must preserve its target authority's own rules, even
+when deliberately frozen; first deployment of authority support also preserves
+the original record's rules.
+
+Coordinator journal schema 16 binds each restart floor to its rule pair,
+decision and statement digests, and queued restart payload digest. Those rows,
+the held-target change and the operator action commit in one transaction.
+Identical queue replays do not add records; conflicting payloads refuse.
+Version-1 restart records keep their bytes and legacy rules. Neither migration
+permits an older build to reopen the upgraded store. Ship and qualify the schema
+upgrade under the existing authority before a separate switch changes rules.
 
 Succession is durable (`eval::succession`). Every earlier authority (the
 original, then each name `EVAL_MAIN_PREVIOUS` lists, oldest first) is a
@@ -3307,3 +3327,11 @@ passed.
 The 2026-10-29 local-runtime runs (`wrangler dev --env testnet --local`) of the
 heartbeat are in git history; the M3 signing path was exercised live on
 testnet instead ([TESTNET.md](TESTNET.md)).
+
+Quant-v2 packaging also retains `live-privacy.bin`, a fixed-size unsigned
+operator report bound to the result and manifest digests. It contains the
+checked sealed epsilon/segment policy for the closed dashboard's combined
+privacy display. Missing or inconsistent live state omits the report with a
+private diagnostic and never changes or blocks the signed result. No private
+predictions or detailed receipts enter it. Its report shape has no effect on
+legacy quant-v1 package objects or participant wire formats. Built, not deployed.

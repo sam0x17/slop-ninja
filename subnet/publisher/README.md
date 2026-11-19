@@ -1,5 +1,17 @@
 # Publisher (testnet)
 
+The implemented bundle reader accepts both reward-v2/reward-v3 and
+quant-v1/quant-v2, independently. Summary v5 names the reward rule, and
+allow-list v6 adds quant-v2 release SD and privacy displays. The dashboard
+uses the named reward rule for row shares and reports combined quantization
+and live-reading privacy cost even with pre-finalized values disabled.
+These changes are built, not deployed; the live record still uses its frozen
+rules. Deploy the dual reader before the new coordinator report, qualify the
+website consumer, then follow the fresh-record activation procedure. A code
+deployment alone does not activate either rule. See the
+[public layout](../../docs/testnet/public-layout.md) and
+[dashboard contract](../../docs/testnet/dashboard-contract.md).
+
 A separate Cloudflare cron Worker that turns the coordinator's private state
 into static public objects. Once a minute it:
 
@@ -849,3 +861,12 @@ cargo check --manifest-path subnet/publisher/Cargo.toml --target wasm32-unknown-
   distinct published artifact and is outside the AR-14 spend envelope; a
   retention rule for artifacts that are neither `R_k`, `R_k-1` nor credited
   is a user decision.
+
+Closed quant-v2 summaries now retain an optional combined privacy block from
+`live-privacy.bin` beside the private result. This unsigned operator metadata
+is checked against the signed result's digests; the signed result supplies the
+quant rho. Missing, oversized, malformed or mismatched reports produce a
+content-free diagnostic and omit the block without blocking result publication.
+The report never enters the public bucket. Stops do not erase the full live
+policy bound. Dashboard rebuilds use the stored summary. This path and its
+website consumer still require qualification before deployment.

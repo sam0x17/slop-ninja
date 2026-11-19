@@ -529,9 +529,9 @@ fn arena_witness_the_gate_feedback_record_fits_its_derived_footprint() {
         fx::finalize_fixture(&mut p, &index, &mut fx::spec_measure(&specs, 1000, |_, _| false)).expect("finalize");
         let result = QuantizedResult::of_package(&p).expect("result");
         let key = slop_ninja_protocol::fixtures::package_key();
-        let bits = slop_ninja_protocol::gate_feedback::terms(&thresholds).bits(result.budget.executed).expect("bits");
+        let bits = slop_ninja_protocol::gate_feedback::terms(&thresholds).bits(result.budget.executed()).expect("bits");
         let step = || {
-            let record = GateFeedbackV1::of_package(&p, &result, m.gate_policy, thresholds, result.budget.total + bits)
+            let record = GateFeedbackV1::of_package(&p, &result, m.gate_policy, thresholds, result.budget.total() + bits)
                 .expect("record");
             record.check_manifest(&m).expect("manifest");
             let signed = crate::eval::package::signed_bytes(record.clone(), &key).expect("signed");

@@ -9,7 +9,7 @@ const NOW: u64 = 1_793_000_000_000;
 pub(crate) fn journal() -> Sqlite {
     let db = Sqlite::open();
     let report = tx(&db, |sql| migrate(sql, &CHAIN_JOURNAL_SCHEMA)).unwrap();
-    assert_eq!((report.from, report.to), (0, 15));
+    assert_eq!((report.from, report.to), (0, 16));
     db
 }
 
@@ -45,22 +45,22 @@ fn status_of(db: &Sqlite) -> JournalStatus {
 fn migrations_are_versioned_and_idempotent() {
     let db = journal();
     let again = tx(&db, |sql| migrate(sql, &CHAIN_JOURNAL_SCHEMA)).unwrap();
-    assert_eq!((again.from, again.to), (15, 15));
+    assert_eq!((again.from, again.to), (16, 16));
     assert_eq!(
         tx(&db, |sql| migrate(sql, &EVAL_COHORT_SCHEMA)),
         Err(MigrationError::Family)
     );
     db.conn
         .execute(
-            "UPDATE schema_meta SET value = '16' WHERE name = 'version'",
+            "UPDATE schema_meta SET value = '17' WHERE name = 'version'",
             [],
         )
         .unwrap();
     assert_eq!(
         tx(&db, |sql| migrate(sql, &CHAIN_JOURNAL_SCHEMA)),
         Err(MigrationError::NewerStoredVersion {
-            stored: 16,
-            supported: 15
+            stored: 17,
+            supported: 16
         })
     );
     const GAPPED: Schema = Schema {
@@ -94,7 +94,7 @@ fn v1_storage_upgrades_in_place_to_latest() {
         )
         .unwrap();
     let report = tx(&db, |sql| migrate(sql, &CHAIN_JOURNAL_SCHEMA)).unwrap();
-    assert_eq!((report.from, report.to), (1, 15));
+    assert_eq!((report.from, report.to), (1, 16));
     assert_eq!(db.count("deliveries"), 1);
     assert_eq!(db.count("watchdog"), 1);
     assert_eq!(db.count("rpc_budget"), 1);
@@ -142,26 +142,50 @@ fn migration_upgrades_in_order_and_rolls_back_failures() {
         .unwrap();
 }
 
+fn forbidden_schema_word(statement: &str) -> Option<&'static str> {
+    let upper = statement.to_uppercase();
+    // Whole SQL words: identifiers such as `commit_ops` are fine. A trigger's
+    // BEGIN is SQL grammar, not transaction control. Workerd also supports
+    // AUTOINCREMENT; neither should be mistaken for a forbidden statement.
+    let words: Vec<&str> = upper
+        .split(|c: char| !(c.is_ascii_alphanumeric() || c == '_'))
+        .filter(|word| !word.is_empty())
+        .collect();
+    let trigger_body = words.starts_with(&["CREATE", "TRIGGER"])
+        && words.iter().filter(|word| **word == "BEGIN").count() == 1
+        && words.last() == Some(&"END");
+    ["BEGIN", "COMMIT", "ROLLBACK", "SAVEPOINT", "PRAGMA"]
+        .into_iter()
+        .find(|word| words.contains(word) && !(*word == "BEGIN" && trigger_body))
+}
+
+#[test]
+fn schema_guard_distinguishes_trigger_bodies_from_transaction_control() {
+    for statement in [
+        "BEGIN TRANSACTION",
+        "COMMIT",
+        "ROLLBACK",
+        "SAVEPOINT one",
+        "PRAGMA user_version = 1",
+        "CREATE TRIGGER guard BEFORE UPDATE ON rules BEGIN SELECT 1; END; BEGIN TRANSACTION",
+    ] {
+        assert!(forbidden_schema_word(statement).is_some(), "{statement}");
+    }
+    for statement in [
+        "CREATE TABLE commit_ops (id INTEGER PRIMARY KEY AUTOINCREMENT)",
+        "CREATE TRIGGER guard BEFORE UPDATE ON rules BEGIN SELECT RAISE(ABORT, 'immutable'); END",
+    ] {
+        assert!(forbidden_schema_word(statement).is_none(), "{statement}");
+    }
+}
+
 #[test]
 fn schemas_avoid_statements_durable_objects_reject() {
     for schema in [&CHAIN_JOURNAL_SCHEMA, &EVAL_COHORT_SCHEMA] {
         for migration in schema.migrations {
             for statement in migration.statements {
                 let upper = statement.to_uppercase();
-                // Whole SQL words: identifiers such as `commit_ops` are fine.
-                let words: Vec<&str> = upper
-                    .split(|c: char| !(c.is_ascii_alphanumeric() || c == '_'))
-                    .collect();
-                for forbidden in [
-                    "BEGIN",
-                    "COMMIT",
-                    "ROLLBACK",
-                    "SAVEPOINT",
-                    "PRAGMA",
-                    "AUTOINCREMENT",
-                ] {
-                    assert!(!words.contains(&forbidden), "{statement}");
-                }
+                assert!(forbidden_schema_word(statement).is_none(), "{statement}");
                 assert!(!upper.contains("_CF_"), "{statement}");
             }
         }
@@ -508,7 +532,7 @@ fn v2_storage_upgrades_with_the_watermark_seeded_at_its_anchor() {
         )
         .unwrap();
     let report = tx(&db, |sql| migrate(sql, &CHAIN_JOURNAL_SCHEMA)).unwrap();
-    assert_eq!((report.from, report.to), (2, 15));
+    assert_eq!((report.from, report.to), (2, 16));
     let s = status_of(&db);
     assert_eq!((s.cursor, s.confirmed), (Some(block(13)), Some(block(10))));
     assert_eq!(s.provisional_blocks, Some(3));
@@ -689,6 +713,8 @@ fn migrations_are_pinned_by_content() {
         "6bee5d9d53f3bb89",
         // v31: reference pins and the presence check (`eval::pins`).
         "681035e8a564c24f",
+        // v32: immutable authority rules and configuration observations.
+        "0d33e56327251e3a",
     ];
     // v1-v10 are deployed on both testnet Workers; v11 is the stuck-states
     // lane's; v12 the automatic target handoff's; v13 the signed coordinator
@@ -712,6 +738,8 @@ fn migrations_are_pinned_by_content() {
         // v15: operator decisions, consumed_unverified attempts and the
         // restart's pre-floor record (self-lock phase 1; never deployed).
         "979f545ae8c9658e",
+        // v16: immutable per-floor rule bindings.
+        "25da636fd839e2ee",
     ];
     let (e, j) = (digests(&EVAL_COHORT_SCHEMA), digests(&CHAIN_JOURNAL_SCHEMA));
     assert!(e == EVAL && j == JOURNAL, "migrations changed or were not pinned: eval_cohort {e:?}, chain_journal {j:?}");

@@ -318,6 +318,8 @@ pub struct Authority {
     /// The reward and quantization rules of this authority's chain record
     /// (`EVAL_MAIN_RULES`): the only rules a plan may name here.
     rules: RecordRules,
+    /// Configured pair before loading this authority's immutable stored pair.
+    configured_rules: Option<RecordRules>,
 }
 
 /// The reward and quantization rules of a chain record (`EVAL_MAIN_RULES`,
@@ -421,6 +423,7 @@ impl Authority {
                     superseded_by: None,
                     previous: listed,
                     rules: RecordRules::default(),
+                    configured_rules: None,
                 })
             }
             Some(_) => Err(ConfigError::Authority),
@@ -458,13 +461,31 @@ impl Authority {
             superseded_by: None,
             previous: Vec::new(),
             rules: RecordRules::default(),
+            configured_rules: None,
         }
     }
 
     /// This authority with its record's rules (`EVAL_MAIN_RULES`).
     pub fn with_rules(mut self, rules: RecordRules) -> Self {
         self.rules = rules;
+        self.configured_rules = None;
         self
+    }
+
+    /// Restores the record's rules for execution, including after retirement.
+    /// The deployment's pair is retained separately for admission and status.
+    pub fn with_persisted_rules(mut self, rules: RecordRules) -> Self {
+        self.configured_rules = Some(self.configured_rules());
+        self.rules = rules;
+        self
+    }
+
+    pub fn configured_rules(&self) -> RecordRules {
+        self.configured_rules.unwrap_or(self.rules)
+    }
+
+    pub fn rules_mismatch(&self) -> bool {
+        !self.is_retired() && self.configured_rules() != self.rules
     }
 
     /// The rules of this authority's chain record: the only rules a plan
@@ -1038,6 +1059,30 @@ fn eval_status(status: &serde_json::Value) -> Result<&serde_json::Value, String>
     Ok(st)
 }
 
+fn status_record_rules(st: &serde_json::Value) -> Result<RecordRules, String> {
+    match st.get("record_rules") {
+        // Builds before rule reporting run the legacy pair. A present but
+        // empty or malformed field is not evidence of those legacy rules.
+        None => Ok(RecordRules::default()),
+        Some(v) => {
+            let name = v.as_str().filter(|s| !s.trim().is_empty())
+                .ok_or("record_rules is not a nonempty name")?;
+            RecordRules::parse(Some(name)).map_err(|_| "the status reports unknown record_rules".into())
+        }
+    }
+}
+
+fn check_record_rules(tracked: &Authority, deployed: RecordRules) -> Result<(), String> {
+    if deployed != tracked.rules() {
+        return Err(format!(
+            "record_rules_mismatch: the deployed authority {} runs {} and the tree tracks {} for it; \
+             restore EVAL_MAIN_RULES, or switch to a fresh authority that names the new rules",
+            tracked.name(), deployed.name(), tracked.rules().name()
+        ));
+    }
+    Ok(())
+}
+
 /// `(label, number, phase)` of every cohort an eval status lists.
 fn status_cohorts(st: &serde_json::Value) -> Result<Vec<(String, u64, String)>, String> {
     let cohorts = st
@@ -1126,11 +1171,7 @@ impl DeployedAuthority {
             superseded_by,
             succession_recorded,
             work,
-            record_rules: match st.get("record_rules") {
-                None => RecordRules::default(),
-                Some(v) => RecordRules::parse(Some(v.as_str().ok_or("record_rules is not a name")?))
-                    .map_err(|_| "the status reports unknown record_rules")?,
-            },
+            record_rules: status_record_rules(st)?,
         })
     }
 }
@@ -1161,6 +1202,9 @@ pub enum DeployMode {
 /// what the stores recorded (`superseded_by`, `succession_recorded`), never
 /// inferred from the cohorts listed, since it is recorded before the first
 /// plan queues or the first templated cohort opens.
+/// Every deployment that reuses an authority preserves that authority's
+/// reported rule pair, including first deployment of authority support and
+/// a frozen rollback. Only a fresh authority can name another pair.
 ///
 /// - `Same`: the deployed name, first cohort and predecessors equal the
 ///   tree's, and no successor superseded it (it would admit nothing).
@@ -1207,6 +1251,7 @@ pub fn deploy_check(
                 tracked.name()
             ));
         }
+        check_record_rules(tracked, status_record_rules(st)?)?;
         return Ok(
             "first deploy of authority support: the deployed build reports no authority \
                    (it runs the original); the tree tracks main"
@@ -1220,14 +1265,8 @@ pub fn deploy_check(
     let DeployMode::Switch { freeze } = mode else {
         // A record's rules never change under it: only a switch to a fresh
         // authority names other rules.
-        if same && d.record_rules != tracked.rules() {
-            return Err(format!(
-                "record_rules_mismatch: the deployed authority {} runs {} and the tree tracks {} for it; \
-                 restore EVAL_MAIN_RULES, or switch to a fresh authority that names the new rules",
-                d.name,
-                d.record_rules.name(),
-                tracked.rules().name()
-            ));
+        if same {
+            check_record_rules(tracked, d.record_rules)?;
         }
         if !same {
             return Err(format!(
@@ -1340,6 +1379,10 @@ pub fn deploy_check(
                 tracked.name()
             ));
         }
+        if t.first_cohort != tracked.first_cohort() || t.predecessors != tracked_preds {
+            return Err("--target-status: the rollback authority's first cohort or predecessors differ from the tree".into());
+        }
+        check_record_rules(tracked, t.record_rules)?;
         let mut happened = Vec::new();
         if let Some(by) = &t.superseded_by {
             happened.push(format!("{} recorded {by} as its successor", t.name));
@@ -2549,6 +2592,67 @@ mod tests {
         assert!(deploy_check(&main, &reports, None, DeployMode::Same).unwrap_err().starts_with("record_rules_mismatch"));
         reports["record_rules"] = serde_json::json!("reward-v9,quant-v1");
         assert!(deploy_check(&v3, &reports, None, DeployMode::Same).is_err());
+    }
+
+    #[test]
+    fn first_authority_deploy_preserves_legacy_rules_and_rejects_malformed_reports() {
+        let legacy = status_of(None, 0, &[], serde_json::json!([]));
+        let main = Authority::default();
+        for pair in ["reward-v2,quant-v1", "reward-v2,quant-v2", "reward-v3,quant-v1", "reward-v3,quant-v2"] {
+            let tracked = main.clone().with_rules(RecordRules::parse(Some(pair)).unwrap());
+            let result = deploy_check(&tracked, &legacy, None, DeployMode::FirstDeploy);
+            assert_eq!(result.is_ok(), pair == "reward-v2,quant-v1", "{pair}: {result:?}");
+        }
+        for malformed in [serde_json::json!(""), serde_json::json!(" "), serde_json::json!(null),
+            serde_json::json!(7), serde_json::json!("reward-v9,quant-v1")] {
+            for mode in [DeployMode::FirstDeploy, DeployMode::Same] {
+                let mut report = status_of((mode == DeployMode::Same).then_some("main"), 0, &[], serde_json::json!([]));
+                assert!(deploy_check(&main, &report, None, mode).is_ok());
+                report["record_rules"] = malformed.clone();
+                assert!(deploy_check(&main, &report, None, mode).is_err(), "{malformed} {mode:?}");
+            }
+        }
+    }
+
+    #[test]
+    fn rollback_preserves_the_target_authoritys_rules_even_when_frozen() {
+        let old = Authority::named("r0", 10).unwrap();
+        let mut current = status_of(Some("r1"), 20, &["main", "r0"], serde_json::json!([]));
+        current["record_rules"] = serde_json::json!("reward-v3,quant-v2");
+        let target = status_of(Some("r0"), 10, &["main"], serde_json::json!([]));
+        for frozen in [false, true] {
+            let mut target = target.clone();
+            if frozen { target["superseded_by"] = serde_json::json!("r1"); }
+            let mode = DeployMode::Switch { freeze: frozen };
+            for pair in ["reward-v2,quant-v1", "reward-v2,quant-v2", "reward-v3,quant-v1", "reward-v3,quant-v2"] {
+                let tracked = old.clone().with_rules(RecordRules::parse(Some(pair)).unwrap());
+                let result = deploy_check(&tracked, &current, Some(&target), mode);
+                assert_eq!(result.is_ok(), pair == "reward-v2,quant-v1", "{pair} {mode:?}: {result:?}");
+            }
+        }
+        let mut bad = target.clone();
+        bad["first_cohort"] = serde_json::json!(11);
+        assert!(deploy_check(&old, &current, Some(&bad), DeployMode::Switch { freeze: false }).is_err());
+        let mut bad = target;
+        bad["predecessors"] = serde_json::json!([]);
+        assert!(deploy_check(&old, &current, Some(&bad), DeployMode::Switch { freeze: false }).is_err());
+    }
+
+    #[test]
+    fn restoring_configuration_and_a_fresh_authority_remain_available() {
+        let main = Authority::default();
+        let mut drift = status_of(Some("main"), 0, &[], serde_json::json!([]));
+        drift["record_rules"] = serde_json::json!(main.rules().name());
+        drift["configured_record_rules"] = serde_json::json!("reward-v3,quant-v2");
+        drift["record_rules_mismatch"] = serde_json::json!(true);
+        assert!(deploy_check(&main, &drift, None, DeployMode::Same).is_ok());
+        let changed = main.clone().with_rules(RecordRules::parse(Some("reward-v3,quant-v2")).unwrap());
+        assert!(deploy_check(&changed, &drift, None, DeployMode::Same).is_err());
+        let successor = Authority::named("r0", 1).unwrap().with_rules(changed.rules());
+        assert!(deploy_check(&successor, &drift, None, DeployMode::Switch { freeze: false }).is_ok());
+        drift["superseded_by"] = serde_json::json!("r0");
+        assert!(deploy_check(&main, &drift, None, DeployMode::Frozen).is_ok());
+        assert!(deploy_check(&changed, &drift, None, DeployMode::Frozen).is_err());
     }
 
 }

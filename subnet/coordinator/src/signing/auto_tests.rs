@@ -1688,6 +1688,82 @@ fn signed(body: serde_json::Value) -> serde_json::Value {
     crate::operator::tests::signed_body(&op_key().0, "coordinator.restart", &to, body)
 }
 
+/// Each rule is checked independently before the target or authorization
+/// changes. The matching record still installs the same signed fixture.
+#[test]
+fn handoff_refuses_a_target_outside_either_record_rule() {
+    for (reward, quant, allowed) in [
+        ("reward-v2", "quant-v1", true),
+        ("reward-v3", "quant-v1", false),
+        ("reward-v2", "quant-v2", false),
+        ("reward-v3", "quant-v2", false),
+    ] {
+        let h = H::new();
+        // The fixture already installed a launch issued at epoch 1.
+        let mut body = restart_body(&h, "rules-handoff", 2, 2, &[], &[], None);
+        body["reward_rule"] = serde_json::json!(reward);
+        body["quant_rule"] = serde_json::json!(quant);
+        decide_restart(&h, signed(body), 2).unwrap();
+        let before = h.installed();
+        let installs = h.logged("target_installed").len();
+        let (target, _) = targets();
+        let mut b = Bucket::new(1000);
+        b.put(&target, true);
+        let report = pass(&h, &mut b);
+        if allowed {
+            assert_eq!(outcomes(&report), vec![(3, Some("installed"))]);
+            assert_eq!(h.held().digest(), target.target.unwrap());
+        } else {
+            assert_eq!(report.handled.len(), 1, "{report:?}");
+            assert_eq!(report.handled[0].error.as_deref(), Some("target_rule_outside_record"));
+            assert!(report.handled[0].authorization.is_none());
+            assert_eq!(h.installed(), before);
+            assert!(h.held().is_launch_burn());
+            assert_eq!(h.logged("target_installed").len(), installs);
+            assert!(h.logged("auto_target_failed").iter().flatten().any(|s| s.contains("target_rule_outside_record")));
+        }
+    }
+}
+
+/// Queued old records retain their signature domain; new records retain
+/// their named rules. Malformed records cannot select legacy rules.
+#[test]
+fn restart_record_writer_preserves_versions_and_rejects_invalid_bytes() {
+    use crate::signing::decide::{queue_restart_record, record_rules, restart_records_due, sign_restart_record};
+    use slop_ninja_protocol::decisions::{ChainRestart, ChainRestartV2, open_restart};
+    let h = H::new();
+    let legacy = ChainRestart {
+        chain: chain(), floor: 1, launch_authorization: domain_hash("test.launch", b"one"),
+        previous_target: None, previous_activated_epoch: None, last: None,
+        past: vec![], unlisted: vec![], decision: None, statement: None,
+    };
+    tx(&h.db, |sql| queue_restart_record(sql, 1, "restart", None, &legacy, T0)).unwrap();
+    assert_eq!(tx(&h.db, record_rules).unwrap().name(), "reward-v2,quant-v1");
+    let current = ChainRestartV2 {
+        chain: chain(), floor: 2, launch_authorization: legacy.launch_authorization,
+        previous_target: None, previous_activated_epoch: None, last: None,
+        past: vec![], unlisted: vec![], decision: None, statement: None,
+        reward_rule: slop_ninja_protocol::RewardRule::RewardV3,
+        quant_rule: slop_ninja_protocol::QuantRule::QuantV2,
+    };
+    tx(&h.db, |sql| queue_restart_record(sql, 2, "restart", None, &current, T0)).unwrap();
+    assert_eq!(tx(&h.db, record_rules).unwrap().name(), "reward-v3,quant-v2");
+    let due = tx(&h.db, restart_records_due).unwrap();
+    assert_eq!(due.len(), 2);
+    for ((_, _, kind, bytes), version) in due.iter().zip([1, 2]) {
+        let signed = sign_restart_record(kind, bytes, &keys_fx::authorization_key()).unwrap();
+        let view = open_restart(&signed, &h.trusted).unwrap();
+        assert_eq!(view.version, version);
+        assert_eq!(view.floor, u64::from(version));
+        assert_eq!(view.reward_rule.name(), if version == 1 { "reward-v2" } else { "reward-v3" });
+        assert_eq!(view.quant_rule.name(), if version == 1 { "quant-v1" } else { "quant-v2" });
+    }
+    assert!(sign_restart_record("unknown", &due[0].3, &keys_fx::authorization_key()).is_err());
+    assert!(sign_restart_record("restart", &[0xff], &keys_fx::authorization_key()).is_err());
+    h.db.conn.execute("UPDATE sign_restart_records SET record_hex = 'ff' WHERE floor = 2", []).unwrap();
+    assert!(tx(&h.db, record_rules).is_err(), "an unreadable latest record never falls back to old rules");
+}
+
 fn decide_restart_full(h: &H, body: serde_json::Value, observed: u64) -> Result<serde_json::Value, crate::signing::decide::Refused> {
     let (_, key) = op_key();
     tx(&h.db, |sql| crate::signing::decide::decide(sql, &h.cfg, &h.trusted, body, Some(&key), Some(observed), T0)).unwrap()
@@ -1700,6 +1776,163 @@ fn decide_restart(h: &H, body: serde_json::Value, observed: u64) -> Result<serde
 fn previewed(mut body: serde_json::Value) -> serde_json::Value {
     body["preview"] = serde_json::json!(true);
     body
+}
+
+#[test]
+fn restart_rules_bind_operator_evidence_and_preview_and_replay_do_not_write() {
+    use crate::signing::decide::{queue_restart_record, record_rules};
+    let h = H::new();
+    let mut body = restart_body(&h, "rules-binding", 250, 250, &[], &[], None);
+    body["decision_sha256"] = serde_json::json!(domain_hash("test.decision", b"rules-binding").to_string());
+    body["reward_rule"] = serde_json::json!("reward-v3");
+    body["quant_rule"] = serde_json::json!("quant-v2");
+    let signed_body = signed(body);
+    let counts = || (h.db.count("sign_held_target_resets"), h.db.count("record_rules"),
+        h.db.count("sign_restart_records"), h.db.count("operator_actions"));
+    let before = counts();
+    let preview = decide_restart(&h, previewed(signed_body.clone()), 300).unwrap();
+    assert_eq!(preview["effect"]["reward_rule"], "reward-v3");
+    assert_eq!(preview["effect"]["quant_rule"], "quant-v2");
+    assert_eq!(counts(), before);
+    for (field, value) in [("reward_rule", "reward-v2"), ("quant_rule", "quant-v1")] {
+        let mut tampered = signed_body.clone();
+        tampered[field] = serde_json::json!(value);
+        assert_eq!(decide_restart(&h, tampered, 300), Err("authorization_mismatch"));
+        assert_eq!(counts(), before);
+    }
+    decide_restart(&h, signed_body.clone(), 300).unwrap();
+    assert_eq!(counts(), (before.0 + 1, 1, 1, before.3 + 1));
+    assert_eq!(tx(&h.db, record_rules).unwrap().name(), "reward-v3,quant-v2");
+    let mismatches: i64 = h.db.conn.query_row(
+        "SELECT COUNT(*) FROM record_rules r JOIN operator_actions o ON r.decision_sha256 = o.decision_sha256
+         JOIN sign_restart_records s ON r.floor = s.floor
+         WHERE r.statement_sha256 = o.statement_sha256 AND r.record_sha256 = s.sha256", [], |r| r.get(0),
+    ).unwrap();
+    assert_eq!(mismatches, 1);
+    let after = counts();
+    decide_restart(&h, signed_body, 300).unwrap();
+    assert_eq!(counts(), after);
+    let bytes: String = h.db.conn.query_row("SELECT record_hex FROM sign_restart_records", [], |r| r.get(0)).unwrap();
+    let record = <slop_ninja_protocol::decisions::ChainRestartV2 as Record_>::from_bytes(&hex::decode(bytes).unwrap()).unwrap();
+    // The internal queue is also idempotent with a NULL cohort.
+    tx(&h.db, |sql| queue_restart_record(sql, 250, "restart", None, &record, T0 + 1)).unwrap();
+    assert_eq!(counts(), after);
+    let mut changed = record.clone();
+    changed.quant_rule = slop_ninja_protocol::QuantRule::QuantV1;
+    assert!(tx(&h.db, |sql| queue_restart_record(sql, 250, "restart", None, &changed, T0)).is_err());
+    assert!(tx(&h.db, |sql| queue_restart_record(sql, 251, "restart", None, &record, T0)).is_err());
+    assert!(tx(&h.db, |sql| queue_restart_record(sql, 250, "restart", Some(1), &record, T0)).is_err());
+    assert_eq!(counts(), after);
+    for statement in [
+        "UPDATE record_rules SET quant_rule = 'quant-v1'",
+        "DELETE FROM record_rules",
+        "INSERT OR REPLACE INTO record_rules SELECT * FROM record_rules",
+    ] {
+        assert!(h.db.conn.execute(statement, []).is_err());
+    }
+    // Delivery bookkeeping must remain writable.
+    tx(&h.db, |sql| crate::signing::decide::restart_record_written(sql, 1, T0 + 1)).unwrap();
+    assert_eq!(tx(&h.db, record_rules).unwrap().name(), "reward-v3,quant-v2");
+    // Recomputing the queue digest cannot rewrite the immutable rule pair.
+    let bytes = changed.to_bytes().unwrap();
+    let sha = hex::encode(<sha2::Sha256 as sha2::Digest>::digest(&bytes));
+    h.db.conn.execute(
+        "UPDATE sign_restart_records SET record_hex = ?1, sha256 = ?2, written_ms = NULL",
+        rusqlite::params![hex::encode(bytes), sha],
+    ).unwrap();
+    assert!(tx(&h.db, record_rules).is_err());
+    assert!(tx(&h.db, crate::signing::decide::restart_records_due).is_err());
+}
+
+#[test]
+fn restart_addendum_queue_is_idempotent_and_rejects_conflicting_payloads() {
+    use crate::signing::decide::queue_restart_record;
+    let h = H::new();
+    let record = slop_ninja_protocol::decisions::RestartAddendum {
+        chain: chain(), floor: 250, restart: domain_hash("test.restart", b"synthetic"),
+        cohort: 11, cohort_label: "synthetic-11".into(), opened_epoch: 200,
+    };
+    for now in [T0, T0 + 1] {
+        tx(&h.db, |sql| queue_restart_record(sql, 250, "addendum", Some(11), &record, now)).unwrap();
+    }
+    assert_eq!(h.db.count("sign_restart_records"), 1);
+    assert_eq!(h.db.count("record_rules"), 0);
+    let mut conflicting = record.clone();
+    conflicting.opened_epoch += 1;
+    assert!(tx(&h.db, |sql| queue_restart_record(sql, 250, "addendum", Some(11), &conflicting, T0)).is_err());
+    assert!(tx(&h.db, |sql| queue_restart_record(sql, 250, "addendum", Some(12), &record, T0)).is_err());
+    assert!(tx(&h.db, |sql| queue_restart_record(sql, 251, "addendum", Some(11), &record, T0)).is_err());
+    assert_eq!(h.db.count("sign_restart_records"), 1);
+}
+
+#[test]
+fn restart_rule_binding_failure_rolls_back_the_entire_operator_action() {
+    let h = H::new();
+    h.db.conn.execute_batch(
+        "CREATE TRIGGER test_fail_rules BEFORE INSERT ON record_rules
+         BEGIN SELECT RAISE(ABORT, 'injected binding failure'); END;",
+    ).unwrap();
+    let held = h.held().digest();
+    let body = signed(restart_body(&h, "atomic-rule-binding", 250, 250, &[], &[], None));
+    let (_, key) = op_key();
+    assert!(tx(&h.db, |sql| crate::signing::decide::decide(
+        sql, &h.cfg, &h.trusted, body.clone(), Some(&key), Some(300), T0,
+    )).is_err());
+    assert_eq!(h.held().digest(), held);
+    for table in ["sign_held_target_resets", "record_rules", "sign_restart_records", "operator_actions"] {
+        assert_eq!(h.db.count(table), 0, "{table}");
+    }
+    h.db.conn.execute_batch("DROP TRIGGER test_fail_rules").unwrap();
+    decide_restart(&h, body, 300).unwrap();
+    assert_eq!(h.db.count("record_rules"), 1);
+}
+
+#[test]
+fn restart_rule_reads_and_delivery_reject_missing_or_changed_bindings() {
+    use crate::signing::decide::{record_rules, restart_records_due};
+    for corrupt in [
+        "UPDATE sign_restart_records SET floor = floor + 1",
+        "UPDATE sign_restart_records SET sha256 = '00'",
+        "DROP TRIGGER record_rules_no_update; UPDATE record_rules SET statement_sha256 = '00'",
+        "DROP TRIGGER record_rules_no_update; UPDATE record_rules SET reward_rule = 'reward-v3'",
+        "DROP TRIGGER record_rules_no_delete; DELETE FROM record_rules",
+    ] {
+        let h = H::new();
+        decide_restart(&h, signed(restart_body(&h, "corrupt-binding", 250, 250, &[], &[], None)), 300).unwrap();
+        h.db.conn.execute_batch(corrupt).unwrap();
+        assert!(tx(&h.db, record_rules).is_err(), "{corrupt}");
+        assert!(tx(&h.db, restart_records_due).is_err(), "{corrupt}");
+    }
+    let h = H::new();
+    decide_restart(&h, signed(restart_body(&h, "missing-payload", 250, 250, &[], &[], None)), 300).unwrap();
+    h.db.conn.execute("DELETE FROM sign_restart_records", []).unwrap();
+    assert!(tx(&h.db, record_rules).is_err());
+}
+
+#[test]
+fn restart_journal_migration_preserves_legacy_bytes_and_refuses_downgrade() {
+    use crate::sql::{CHAIN_JOURNAL_SCHEMA, MigrationError, Schema, migrate};
+    use crate::signing::decide::{record_rules, restart_records_due};
+    let db = crate::testing::Sqlite::open();
+    let old = Schema { family: CHAIN_JOURNAL_SCHEMA.family, migrations: &CHAIN_JOURNAL_SCHEMA.migrations[..15] };
+    tx(&db, |sql| migrate(sql, &old)).unwrap();
+    let legacy = slop_ninja_protocol::decisions::ChainRestart {
+        chain: chain(), floor: 1, launch_authorization: domain_hash("test.launch", b"legacy"),
+        previous_target: None, previous_activated_epoch: None, last: None,
+        past: vec![], unlisted: vec![], decision: None, statement: None,
+    }.to_bytes().unwrap();
+    let digest = hex::encode(<sha2::Sha256 as sha2::Digest>::digest(&legacy));
+    db.conn.execute(
+        "INSERT INTO sign_restart_records (floor, kind, record_hex, sha256, at_ms) VALUES (1, 'restart', ?1, ?2, 1)",
+        rusqlite::params![hex::encode(&legacy), digest],
+    ).unwrap();
+    let migration = tx(&db, |sql| migrate(sql, &CHAIN_JOURNAL_SCHEMA)).unwrap();
+    assert_eq!((migration.from, migration.to), (15, 16));
+    assert_eq!(db.count("record_rules"), 0);
+    assert_eq!(tx(&db, record_rules).unwrap().name(), "reward-v2,quant-v1");
+    assert_eq!(tx(&db, restart_records_due).unwrap()[0].3, legacy);
+    assert!(matches!(tx(&db, |sql| migrate(sql, &old)),
+        Err(MigrationError::NewerStoredVersion { stored: 16, supported: 15 })));
 }
 
 /// P1-R with review-p1-final M1: a regular cohort is open while the number

@@ -55,8 +55,18 @@ fn cohort_of(
     quant: QuantParams,
     failures: &[(usize, Vec<GateFailure>)],
 ) -> Result<(CohortManifestV2, ScorePackageV2, QuantizedResult)> {
+    cohort_with_rules(specs, quant.into(), RewardRule::RewardV2, failures)
+}
+
+fn cohort_with_rules(
+    specs: &[Spec],
+    quant: QuantBlock,
+    reward: RewardRule,
+    failures: &[(usize, Vec<GateFailure>)],
+) -> Result<(CohortManifestV2, ScorePackageV2, QuantizedResult)> {
     let mut m = fx::manifest(chain(), 7, 1000, sigma_permille(40), 1, specs);
     m.params.quant = quant;
+    m.reward_rule = reward;
     let index = fx::default_index(&m.references);
     let mut p = fx::package(&m, bp(9100), Some(bp(8800)), specs)?;
     for (i, f) in failures {
@@ -72,8 +82,8 @@ fn fixture_quant() -> QuantParams {
 }
 
 fn record(p: &ScorePackageV2, r: &QuantizedResult, m: &CohortManifestV2, t: GateThresholds) -> Result<GateFeedbackV1> {
-    let bits = gate_feedback::terms(&t).bits(r.budget.executed)?;
-    GateFeedbackV1::of_package(p, r, m.gate_policy, t, r.budget.total + bits)
+    let bits = gate_feedback::terms(&t).bits(r.budget.executed())?;
+    GateFeedbackV1::of_package(p, r, m.gate_policy, t, r.budget.total() + bits)
 }
 
 #[test]
@@ -98,7 +108,7 @@ fn the_record_publishes_classes_and_reasons_and_counts_its_bits() -> Result<()> 
     assert_eq!((NotExecuted::Content.code(), NotExecuted::Qualification.code()), ("copy", "qualification"));
     // Four executed entrants (the withheld one included) at one bit each.
     assert_eq!((rec.executed(), rec.bits), (4, 4));
-    assert_eq!(rec.result_bits, r.budget.total + 4);
+    assert_eq!(rec.result_bits, r.budget.total() + 4);
     rec.validate()?;
     rec.check_result(&r)?;
     rec.check_manifest(&m)?;
@@ -173,7 +183,7 @@ fn every_class_reaches_the_record_at_two_bits_per_executed_entrant() -> Result<(
     // Five executed entrants (the withheld one included) at two bits each.
     assert_eq!((rec.executed(), rec.bits), (5, 10));
     assert_eq!(rec.bits, 2 * u32::from(rec.executed()));
-    assert_eq!(rec.result_bits, r.budget.total + 10);
+    assert_eq!(rec.result_bits, r.budget.total() + 10);
     rec.validate()?;
     rec.check_result(&r)?;
     rec.check_manifest(&m)?;
@@ -187,7 +197,7 @@ fn every_class_reaches_the_record_at_two_bits_per_executed_entrant() -> Result<(
     short.bits = 5;
     assert_eq!(short.validate().unwrap_err(), Error::Mismatch("feedback bits"));
     let mut short = rec.clone();
-    short.result_bits = r.budget.total + 5;
+    short.result_bits = r.budget.total() + 5;
     assert_eq!(short.check_result(&r).unwrap_err(), Error::Mismatch("feedback bit parameters"));
     // At testnet's thresholds attribution cannot fail, so the same package
     // builds no record.
@@ -242,8 +252,8 @@ fn the_testnet_budget_with_the_record() -> Result<()> {
     // eps_live 1, at most four segments): L (without, with a predecessor)
     // drops at 29 to 31, 34 and 35 executed entrants and nowhere else.
     let live = LiveParams { eps_live_milli: 1000, segments_max: 4 };
-    let without = segments_table(1000, 40, &TESTNET_QUANT, &live, &quant::CountedTerms::NONE)?;
-    let with = segments_table(1000, 40, &TESTNET_QUANT, &live, &feedback)?;
+    let without = segments_table(1000, 40, &TESTNET_QUANT.into(), &live, &quant::CountedTerms::NONE)?;
+    let with = segments_table(1000, 40, &TESTNET_QUANT.into(), &live, &feedback)?;
     let changed: Vec<_> = (0..=40usize).filter(|&x| without[x] != with[x]).map(|x| (x, without[x], with[x])).collect();
     assert_eq!(
         changed,
@@ -317,7 +327,7 @@ fn the_record_refuses_values_the_result_does_not_support() -> Result<()> {
         Error::Mismatch("feedback roster")
     );
     assert_eq!(refused(&|x| x.bits += 1), Error::Mismatch("feedback bits"));
-    assert_eq!(refused(&|x| x.result_bits = r.budget.total), Error::Mismatch("feedback bit parameters"));
+    assert_eq!(refused(&|x| x.result_bits = r.budget.total()), Error::Mismatch("feedback bit parameters"));
     assert_eq!(refused(&|x| x.result_bits = u32::MAX), Error::Invalid("feedback bits beyond n h / F"));
     assert_eq!(refused(&|x| x.thresholds.operating_ppb = 0), Error::OutOfRange("gate thresholds"));
     // The manifest binds the policy digest.
@@ -357,4 +367,32 @@ fn unknown_class_bits_and_tags_do_not_decode() {
         <EntrantFeedback as Canonical>::decode_from(&mut Decoder::new(&[4])).unwrap_err(),
         Error::InvalidTag { field: "entrant_feedback", tag: 4 }
     );
+}
+
+/// Feedback uses each result's rule-specific budget and preserves its
+/// outcomes under every supported reward/quantization pair.
+#[test]
+fn feedback_binds_each_reward_and_quantization_pair() -> Result<()> {
+    for reward in [RewardRule::RewardV2, RewardRule::RewardV3] {
+        for quant in [QuantBlock::V1(fixture_quant()), QuantBlock::V2(crate::fixtures_quant2::TESTNET_QUANT2)] {
+            let (m, p, r) = cohort_with_rules(&roster(), quant, reward, &[])?;
+            let feedback = record(&p, &r, &m, TESTNET_GATES)?;
+            feedback.check_manifest(&m)?;
+            feedback.check_result(&r)?;
+            assert_eq!(feedback.bits, u32::from(r.budget.executed()));
+            assert_eq!(feedback.result_bits, r.budget.total() + feedback.bits);
+            assert_eq!(feedback.identify_bits, r.params.quant.identify_bits());
+            assert_eq!(feedback.budget_factor, r.params.quant.budget_factor());
+            assert_eq!(feedback.entrants[1], EntrantFeedback::Scored(GateClasses::SHARE));
+            assert_eq!(feedback.entrants[3], EntrantFeedback::Withheld);
+            assert_eq!(feedback.entrants[4], EntrantFeedback::NotExecuted(NotExecuted::Content));
+            let signed = sign(feedback.clone(), &crate::fixtures::package_key())?;
+            let decoded = Signed::<GateFeedbackV1>::from_bytes(&signed.to_bytes()?)?;
+            assert_eq!(decoded.record, feedback);
+            let mut uncounted = feedback;
+            uncounted.result_bits = r.budget.total();
+            assert_eq!(uncounted.check_result(&r), Err(Error::Mismatch("feedback bit parameters")));
+        }
+    }
+    Ok(())
 }

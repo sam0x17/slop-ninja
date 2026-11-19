@@ -921,6 +921,17 @@ fn cohort_report(sql: &impl Sql, seq: i64, number: i64) -> R<Value> {
         "stopped": stop, "prefinal": lr.prefinal,
         "bits": {"counted": counted, "live": live_bits, "bound": bound},
     });
+    // The quantization privacy term belongs to the sealed policy even
+    // when the operator has disabled pre-finalized values. It depends on
+    // public plan/roster values only, never on a model's progress.
+    if let slop_ninja_protocol::QuantBlock::V2(q) = sealed_quant(sql, &c)? {
+        let scale = slop_ninja_protocol::quant2::Scale::derive(lr.n, quant::charged(lr.executed, lr.predecessor), &q)
+            .map_err(|_| state_err("scale"))?;
+        out["policy"]["quantization"] = json!({
+            "rule": slop_ninja_protocol::quant2::QUANT_RULE, "width": grid(scale.width, scale.width)?,
+            "sigma_ppb": scale.sigma, "rho_micro": scale.rho_micro,
+        });
+    }
     out["fault"] = json!(lr.fault);
     let js = jobs(sql, seq)?;
     let reference = js.iter().find(|j| j.role == "reference");
@@ -969,16 +980,19 @@ fn cohort_report(sql: &impl Sql, seq: i64, number: i64) -> R<Value> {
             None => Ok(Value::Null),
         }
     };
-    if let (Some(rj), Some(w), false) = (reference, qw, silent) {
+    if let (Some(rj), Some(w), false, true) = (reference, qw, silent, lr.prefinal) {
         let current = prefinal_of(rj.job)?;
-        if !current.is_null() {
+        let block = sealed_quant(sql, &c)?;
+        if !current.is_null() || matches!(block, slop_ninja_protocol::QuantBlock::V2(_)) {
             let pred = js.iter().find(|j| j.role == "previous_reference").map(|j| prefinal_of(j.job)).transpose()?;
             let margin: Option<u64> = lr.margin_line.as_deref().map(str::parse).transpose().map_err(|_| state_err("margin"))?;
-            let cur: u64 = quant::parse_grid(current.as_str().ok_or(state_err("current"))?, w).map_err(|_| state_err("current"))?;
-            if margin.is_some_and(|m| m < cur) {
+            let cur = current.as_str().map(|v| quant::parse_grid(v, w)).transpose().map_err(|_| state_err("current"))?;
+            if margin.is_some_and(|m| cur.is_none_or(|c| m < c)) {
                 return Err(state_err("margin line below the reference"));
             }
-            let quantization = match sealed_quant(sql, &c)? {
+            // Quant-v2's public sealed grid is available before R_k's
+            // result, so entrant values can be interpreted immediately.
+            let quantization = match block {
                 slop_ninja_protocol::QuantBlock::V1(_) => json!({"rule": quant::QUANT_RULE, "width": grid(w, w)?}),
                 slop_ninja_protocol::QuantBlock::V2(q) => {
                     let scale = slop_ninja_protocol::quant2::Scale::derive(lr.n, quant::charged(lr.executed, lr.predecessor), &q)
@@ -1024,6 +1038,45 @@ fn cohort_report(sql: &impl Sql, seq: i64, number: i64) -> R<Value> {
 }
 
 // -------------------------------------------------------- package check
+
+/// Content-free retained policy for a quant-v2 result. Read only sealed policy
+/// and roster metadata, never predictions. A missing or inconsistent live row
+/// refuses this optional display report rather than asserting no readings.
+/// A stop, closed phase or absent publisher poll cannot reduce its cost.
+pub fn privacy_report(sql: &impl Sql, c: &Cohort, result: &slop_ninja_protocol::QuantizedResult)
+    -> R<slop_ninja_protocol::live_privacy::LivePrivacy>
+{
+    use slop_ninja_protocol::live_privacy::LivePrivacy;
+    // The packaging caller already checked the signed manifest. Match its
+    // public cohort identity here without decoding a second full manifest.
+    if result.cohort != c.plan.cohort || result.cohort_label != c.label
+        || c.manifest_digest.as_deref() != Some(result.cohort_manifest.to_string().as_str()) {
+        return Err(state_err("privacy manifest"));
+    }
+    let (epsilon, segments) = match live_plan(c) {
+        None => {
+            if count(sql, "SELECT COUNT(*) FROM live_cohorts WHERE seq = ?", &[i(c.seq)])? != 0
+                || count(sql, "SELECT COUNT(*) FROM live_releases WHERE seq = ?", &[i(c.seq)])? != 0 {
+                return Err(state_err("privacy unexpected live state"));
+            }
+            (0, 0)
+        }
+        Some(plan) => {
+            let lr = live_row(sql, c.seq)?.ok_or(state_err("privacy live state missing"))?;
+            let v = c.plan.reward_v1.as_ref().ok_or(state_err("privacy plan"))?;
+            let executed = u16::try_from(result.entrants.iter().filter(|e| e.outcome.executed()).count())
+                .map_err(|_| state_err("privacy roster"))?;
+            let d = live::derive_segments(result.cases, executed, result.predecessor.is_some(),
+                &result.params.quant, &plan.params(), &v.counted_terms()).map_err(|_| state_err("privacy policy"))?;
+            if lr.n != result.cases || lr.executed != executed || lr.predecessor != result.predecessor.is_some()
+                || lr.eps_live_milli != plan.eps_live_milli || lr.segments != d.segments {
+                return Err(state_err("privacy live state mismatch"));
+            }
+            (lr.eps_live_milli, lr.segments)
+        }
+    };
+    LivePrivacy::of(result, epsilon, segments).map_err(|_| state_err("privacy report"))
+}
 
 /// A pre-finalized value the package does not carry.
 #[derive(Clone, Debug, PartialEq, Eq)]

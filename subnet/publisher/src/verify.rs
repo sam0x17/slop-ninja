@@ -112,6 +112,10 @@ fn invalid(rel: &str, why: impl core::fmt::Display) -> Refusal {
 /// A verified cohort: its manifest, its public result and its closure.
 #[derive(Clone, Debug)]
 pub struct VerifiedCohort {
+    /// Checked operator metadata from private storage. The live policy is
+    /// not signed; its quant term comes from the verified signed result.
+    pub live_privacy: Option<slop_ninja_protocol::live_privacy::LivePrivacy>,
+    pub live_privacy_refused: Option<String>,
     pub label: String,
     pub manifest: CohortManifestV2,
     pub result: QuantizedResult,
@@ -297,13 +301,35 @@ pub async fn verify_cohort<S: Store>(
         .check_schedule(&manifest)
         .map_err(|e| invalid(CLOSURE, e))?;
     let (feedback, feedback_refused) = read_feedback(&r, &manifest, &result).await?;
+    let (live_privacy, live_privacy_refused) = read_live_privacy(&r, &result).await?;
     Ok(VerifiedCohort {
+        live_privacy,
+        live_privacy_refused,
         label: label.to_owned(),
         manifest,
         result,
         closure,
         feedback,
         feedback_refused,
+    })
+}
+
+async fn read_live_privacy<S: Store>(r: &Reader<'_, S>, result: &QuantizedResult)
+    -> Result<(Option<slop_ninja_protocol::live_privacy::LivePrivacy>, Option<String>), Refusal>
+{
+    use slop_ninja_protocol::{BudgetBlock, live_privacy::{LivePrivacy, OBJECT, REPORT_BYTES}};
+    // Existing quant-v1 cohorts do not gain a new read or public field.
+    if !matches!(result.budget, BudgetBlock::V2(_)) { return Ok((None, None)); }
+    let (raw, _hold) = match r.read(OBJECT, REPORT_BYTES).await {
+        Ok(read) => read,
+        Err(Refusal::Missing(_)) => return Ok((None, Some("retained live policy unavailable".into()))),
+        Err(Refusal::Invalid(_, _)) => return Ok((None, Some("invalid retained live policy".into()))),
+        Err(e) => return Err(e),
+    };
+    let report = LivePrivacy::from_bytes(&raw).and_then(|p| p.check_result(result).map(|()| p));
+    Ok(match report {
+        Ok(p) => (Some(p), None),
+        Err(_) => (None, Some("retained live policy binding or shape".into())),
     })
 }
 

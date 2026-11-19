@@ -429,7 +429,8 @@ pub(crate) mod tests {
         let st = Statement {
             action: action.into(),
             decision,
-            decision_sha256: None,
+            decision_sha256: body.get("decision_sha256").and_then(Value::as_str)
+                .map(|s| Digest(parse_hex32(s).expect("synthetic decision digest"))),
             body_sha256: body_digest(&body),
             service: to.service.into(),
             authority: to.authority.into(),

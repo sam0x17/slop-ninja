@@ -42,6 +42,13 @@ pub struct Header {
 pub struct Quantization {
     pub rule: Option<String>,
     pub width: Option<String>,
+    /// Public noise/privacy parameters, rounded up to thousandths.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub sigma: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub rho: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub mu: Option<String>,
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -545,6 +552,8 @@ pub struct ReferenceRow {
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct CohortDoc {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub privacy: Option<Privacy>,
     #[serde(flatten)]
     pub header: Header,
     pub mechanism: String,
@@ -565,6 +574,16 @@ pub struct CohortDoc {
     pub promotion_rule: Option<String>,
     pub previous: Option<String>,
     pub next: Option<String>,
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Privacy {
+    pub rule: String,
+    pub segments: u8,
+    pub eps_live_milli: u32,
+    pub rho_quant: String,
+    pub rho_live: String,
+    pub rho_total: String,
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]

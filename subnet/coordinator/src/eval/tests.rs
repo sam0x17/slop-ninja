@@ -992,6 +992,9 @@ impl<'a> Sim<'a> {
         self.rcpt.insert(format!("{prefix}/chunk-map.json"), b"{}".to_vec());
         self.rcpt.insert(format!("{prefix}/package.signed"), b.package.to_bytes().unwrap());
         self.rcpt.insert(format!("{prefix}/result.signed"), b.result.to_bytes().unwrap());
+        if let Some(p) = &b.live_privacy {
+            self.rcpt.insert(format!("{prefix}/{}", slop_ninja_protocol::live_privacy::OBJECT), p.to_bytes());
+        }
         if let Some(l) = &b.localization {
             self.rcpt.insert(format!("{prefix}/localization.signed"), l.to_bytes().unwrap());
         }
@@ -1425,8 +1428,12 @@ fn status(db: &Sqlite, now: u64) -> Value {
 }
 
 fn open_cohort(db: &Sqlite, p: &CohortPlan, first_epoch: u64, now: u64) -> i64 {
+    open_cohort_with_config(db, &cfg(), p, first_epoch, now)
+}
+
+fn open_cohort_with_config(db: &Sqlite, config: &EvalConfig, p: &CohortPlan, first_epoch: u64, now: u64) -> i64 {
     let bytes = serde_json::to_vec(p).unwrap();
-    let seq = tx(db, |s| engine::queue(s, &cfg(), &bytes, now)).unwrap();
+    let seq = tx(db, |s| engine::queue(s, config, &bytes, now)).unwrap();
     kick_at(db, first_epoch, now);
     kick_at(db, first_epoch + 1, now);
     kick_at(db, first_epoch + 2, now);
@@ -1473,6 +1480,38 @@ fn wide(n: u32, entrants: u16) -> CohortPlan {
 }
 
 // --------------------------------------------------------------------- tests
+
+#[test]
+fn persisted_rules_fence_every_new_admission_but_allow_configuration_recovery() {
+    use super::record_rules;
+    let db = Sqlite::open();
+    sql::migrate(&db, &EVAL_COHORT_SCHEMA).unwrap();
+    let original = cfg();
+    tx(&db, |sql| record_rules::configure(sql, &original.authority, 10, true)).unwrap();
+    let mut drifted = original.clone();
+    drifted.authority = drifted.authority.with_rules(crate::config::RecordRules::parse(Some("reward-v3,quant-v2")).unwrap());
+    let request = crate::operator::parse(json!({"decision": "rule_check", "reason": "rule_check", "preview": true})).unwrap();
+    let expected = engine::EvalError::Plan(record_rules::MISMATCH);
+    assert_eq!(tx(&db, |sql| engine::queue(sql, &drifted, b"not a plan", 20)).unwrap_err(), expected);
+    assert_eq!(tx(&db, |sql| super::calendar::install(sql, &drifted, b"not a template", 20)).unwrap_err(), expected);
+    assert_eq!(tx(&db, |sql| super::decide::cohort_start(sql, &drifted, &request, None, 20)).unwrap_err(), expected);
+    drifted.authority = tx(&db, |sql| record_rules::configure(sql, &drifted.authority, 20, true)).unwrap();
+    assert_eq!(engine::admit(&drifted, b"not a plan").unwrap_err(), expected);
+    assert!(engine::cohorts(&db).unwrap().is_empty());
+    assert!(super::calendar::due(&db, &drifted).unwrap().is_none());
+    assert!(!super::calendar::ready(&db, &drifted).unwrap());
+    assert!(matches!(super::calendar::start_now(&db, &drifted).unwrap(), Err(record_rules::MISMATCH)));
+    let bytes = serde_json::to_vec(&wide(20, 2)).unwrap();
+    let seq = tx(&db, |sql| engine::queue(sql, &original, &bytes, 30)).unwrap();
+    // Queued cohorts wait for eligible epoch ticks; they do not arm the
+    // lane alarm. Start the admitted work before checking its continuation.
+    for epoch in 10..=12 { kick_at(&db, epoch, 30); }
+    assert!(engine::has_work(&db, &original).unwrap());
+    assert!(engine::has_work(&db, &drifted).unwrap());
+    assert!(engine::status(&db, 40).is_ok());
+    let mut sim = Sim::new(&db, drifted, 50);
+    assert_eq!(sim.run(seq, 400), "transition");
+}
 
 #[test]
 fn a_cohort_runs_end_to_end_through_lanes_with_verifiable_bundles() {
@@ -2749,6 +2788,20 @@ fn plans_name_their_records_rules() {
     both.reward_rule = "reward-v3".into();
     admit(&in_record("reward-v3,quant-v2"), &both).unwrap();
     assert!(outside(admit(&in_record("reward-v3,quant-v2"), &ok)));
+    for (p, rules) in [
+        (&ok, "reward-v2,quant-v1"),
+        (&v3, "reward-v3,quant-v1"),
+        (&q2, "reward-v2,quant-v2"),
+        (&both, "reward-v3,quant-v2"),
+    ] {
+        let db = Sqlite::open();
+        sql::migrate(&db, &EVAL_COHORT_SCHEMA).unwrap();
+        tx(&db, |sql| engine::queue(sql, &in_record(rules), &serde_json::to_vec(p).unwrap(), 1)).unwrap();
+        let state = status(&db, 1);
+        let (reward, quant) = rules.split_once(',').unwrap();
+        assert_eq!(state["cohorts"][0]["reward_rule"], reward);
+        assert_eq!(state["cohorts"][0]["quant_rule"], quant);
+    }
 }
 
 /// L2 review r1 (item 9): a new cohort plan declares its generation pause
@@ -3040,7 +3093,7 @@ fn the_v3_cohort_store_migrates_in_place_to_v7() {
         )
         .unwrap();
     let report = sql::migrate(&db, &EVAL_COHORT_SCHEMA).unwrap();
-    assert_eq!((report.from, report.to), (3, 31));
+    assert_eq!((report.from, report.to), (3, 32));
     let st = status(&db, 5);
     assert_eq!(st["cohorts"][0]["phase"], "closed");
     assert_eq!(st["cohorts"][0]["jobs"][0]["status"], "done", "the jobs table was rebuilt with its rows");
@@ -3796,9 +3849,9 @@ fn v3_gate_feedback_publishes_classes_and_thresholds_beside_the_result() {
     assert!(classes[1].is_some_and(|c| c.contains(GateClasses::HUMAN_FPR)), "{classes:?}");
     // One bit per executed entrant, inside the complete total the package
     // recounted (the record's term included).
-    assert_eq!(f.bits, u32::from(b.result.budget.executed));
+    assert_eq!(f.bits, u32::from(b.result.budget.executed()));
     assert_eq!(f.result_bits, b.live_recount);
-    assert_eq!(b.live_recount, b.result.budget.total + f.bits);
+    assert_eq!(b.live_recount, b.result.budget.total() + f.bits);
     assert_eq!(b.components["feedback"]["bits"], f.bits);
     // The signed record round-trips under the package key.
     let key = slop_ninja_protocol::fixtures::package_key();
@@ -3815,7 +3868,7 @@ fn v3_gate_feedback_publishes_classes_and_thresholds_beside_the_result() {
     assert!(none.is_none() && note.is_null());
     // A build that fails (a total short of the record's own bits) drops the
     // record and says why; it never holds the package.
-    let (dropped, note) = v3::gate_feedback(&v, &policy, &b.package, &b.result, &b.manifest, b.result.budget.total);
+    let (dropped, note) = v3::gate_feedback(&v, &policy, &b.package, &b.result, &b.manifest, b.result.budget.total());
     assert!(dropped.is_none());
     assert!(note["error"].as_str().is_some_and(|x| x.contains("feedback bit parameters")), "{note}");
     // Thresholds other than the ones the manifest's policy digest binds are
@@ -6094,9 +6147,29 @@ fn sealed_tasks(db: &Sqlite, seq: i64) -> Vec<SealedTask> {
 
 /// A probe version built (in `order`) with document-keyed predictions.
 fn probe_built_doc<'a>(db: &'a Sqlite, order: Option<&str>) -> (Sim<'a>, super::plan::ArtifactJson, super::plan::ProbeRef) {
+    probe_built_doc_with_config(db, order, cfg(), 120)
+}
+
+/// Set the synthetic plan's pair before its authority first opens. Production
+/// noise/privacy constants are unchanged; the existing generous test-only
+/// information bound still accommodates these small simulation batches.
+fn plan_record_rules(p: &mut CohortPlan, rules: crate::config::RecordRules) {
+    p.reward_rule = rules.reward.name().into();
+    if rules.quant == slop_ninja_protocol::QuantRule::QuantV2 {
+        let q = p.reward_v1.as_mut().unwrap().quant.as_mut().unwrap();
+        q.rule = Some("quant-v2".into());
+        q.eps_total_milli = None;
+        q.noise_target_h_milli = Some(70);
+        q.rho_max_milli = Some(500);
+        q.headroom = Some(super::plan::HeadroomPlan { source: super::plan::HEADROOM_PREVIOUS.into(), initial_ppb: 153_000_000 });
+        q.headroom_basis = Some("synthetic integration fixture".into());
+    }
+}
+
+fn probe_built_doc_with_config<'a>(db: &'a Sqlite, order: Option<&str>, config: EvalConfig, pool_size: usize) -> (Sim<'a>, super::plan::ArtifactJson, super::plan::ProbeRef) {
     sql::migrate(db, &EVAL_COHORT_SCHEMA).unwrap();
-    let mut sim = Sim::new(db, cfg(), 2_000_000);
-    let (pool, texts) = pool_of(120);
+    let mut sim = Sim::new(db, config, 2_000_000);
+    let (pool, texts) = pool_of(pool_size);
     sim.pool = pool;
     sim.texts = texts;
     let weak = v3_artifact(&mut sim, super::plan::tests::identity(0, 0xb0), [1, 2, 3, 4, 5]);
@@ -6112,7 +6185,8 @@ fn probe_built_doc<'a>(db: &'a Sqlite, order: Option<&str>) -> (Sim<'a>, super::
         let c = doc_conf(1, kind, sha, (35.0, 65.0, 70.0), 10.0);
         (c, c * 0.4)
     }));
-    let pseq = open_cohort(db, &probe, 10, sim.now);
+    plan_record_rules(&mut probe, sim.cfg.authority.rules());
+    let pseq = open_cohort_with_config(db, &sim.cfg, &probe, 10, sim.now);
     assert_eq!(sim.run(pseq, 3_000), "closed", "fault {:?}", fault_of(db, pseq));
     let record = sim.eval["probes/v1/record.json"].clone();
     let probe_ref = super::plan::ProbeRef {
@@ -7882,7 +7956,7 @@ fn store_v23_seeds_the_boundary_journal_from_cohort_history_without_work_times()
         )
         .unwrap();
     let report = sql::migrate(&db, &EVAL_COHORT_SCHEMA).unwrap();
-    assert_eq!((report.from, report.to), (22, 31));
+    assert_eq!((report.from, report.to), (22, 32));
     let got: Vec<(u64, Option<u64>, Option<u64>)> = journal(&db).iter().map(|r| (r.epoch, r.block, r.observed_ms)).collect();
     assert_eq!(
         got,
@@ -8868,6 +8942,7 @@ fn arena_witness_a_span_equivalent_decision_fits_the_cohort_footprint() {
     template_install(&db, &standing_of("testnet-t", base, vec![v1]), sim.now).unwrap();
     assert!(tx(&db, |s| super::calendar::set_paused(s, true)).unwrap());
     let r0: String = db.conn.query_row("SELECT current FROM reference_state WHERE id = 1", [], |r| r.get(0)).unwrap();
+    let pinned_r0 = tx(&db, |s| super::pins::pinned(s, &r0)).unwrap().expect("R_0 is pinned");
     let candidate = "c4".repeat(32);
     db.conn.execute("INSERT INTO published_contents (content, seq) VALUES (?1, 1)", [&candidate]).unwrap();
     db.conn
@@ -8883,7 +8958,7 @@ fn arena_witness_a_span_equivalent_decision_fits_the_cohort_footprint() {
     record.manifest_key = super::admission::manifest_key(&package);
     // R_0's files manifest at the longest shaped layout (its file digests
     // unchanged: graph [1; 32], heads [2; 32]).
-    let mut wide: Value = serde_json::from_slice(&sim.eval[&weak.manifest_key]).unwrap();
+    let mut wide: Value = serde_json::from_slice(&sim.eval[&pinned_r0.manifest_key]).unwrap();
     wide["profile_id"] = json!("p".repeat(slop_ninja_protocol::MAX_LABEL_LEN));
     for f in wide["files"].as_array_mut().unwrap() {
         f["bucket"] = json!("admission");
@@ -8924,7 +8999,7 @@ fn arena_witness_a_span_equivalent_decision_fits_the_cohort_footprint() {
         let reads = r.clone();
         let (pairs, r0_record) = tx(&db, |s| super::decide::span_reads(s, &reads)).unwrap().unwrap();
         drop(reads);
-        assert_eq!(r0_record.manifest_key, weak.manifest_key);
+        assert_eq!(r0_record, pinned_r0, "the Worker reads the pinned reference record");
         let mut ev = SpanEvidence::default();
         for (version, ..) in &pairs {
             ev.vectors.push((*version, vector.clone(), vector.clone()));

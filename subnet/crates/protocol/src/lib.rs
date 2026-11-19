@@ -22,6 +22,7 @@ mod error;
 pub mod gate_feedback;
 mod hash;
 pub mod live;
+pub mod live_privacy;
 pub mod localization;
 mod operation;
 pub mod operator;

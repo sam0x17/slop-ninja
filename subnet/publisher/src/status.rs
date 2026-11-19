@@ -402,6 +402,8 @@ pub struct RewardView {
 /// the alert rule, never as an amount.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct EvalView {
+    /// Configured reward/quantization rules disagree with the immutable record.
+    pub record_rules_mismatch: Option<bool>,
     pub confirmed_block: Option<u64>,
     pub epoch: Option<u64>,
     /// The epoch index at the confirmed watermark as the last tick read it
@@ -771,6 +773,7 @@ struct OpJson {
 #[derive(Deserialize, Default)]
 #[serde(default)]
 struct EvalJson {
+    record_rules_mismatch: Option<Lenient<bool>>,
     observed: ObservedJson,
     watermark_epoch: Option<u64>,
     cohorts: Option<Vec<CohortJson>>,
@@ -1461,6 +1464,7 @@ fn eval_view(j: EvalJson) -> EvalView {
         epoch: j.observed.epoch.and_then(|e| e.index),
         uid_map: j.uid_map.and_then(uid_map_view),
         references: j.references.map(references_view),
+        record_rules_mismatch: j.record_rules_mismatch.and_then(Lenient::ok),
         watermark_epoch: j.watermark_epoch,
         active_tempos: j.observed.active_tempos,
         cohorts,
@@ -2314,6 +2318,8 @@ pub struct LiveScoresView {
     pub bits: (u32, u32, u64),
     pub reference: Option<LiveReferenceView>,
     pub prefinal: Option<LivePrefinalView>,
+    /// Quant-v2's public sealed rho, independent of pre-final publication.
+    pub quant_rho_micro: Option<u64>,
     /// Ascending hotkeys, each once: one per executed entrant.
     pub rows: Vec<LiveRowView>,
     /// `prepare`, `release` or `over_bound`.
@@ -2338,7 +2344,12 @@ pub struct LivePrefinalView {
     pub rule: String,
     /// The cohort's grid.
     pub width: u64,
-    pub current: String,
+    pub sigma: Option<String>,
+    pub rho: Option<String>,
+    pub mu: Option<String>,
+    pub rho_micro: Option<u64>,
+    /// Absent under quant-v2 until the reference finishes; its grid is sealed.
+    pub current: Option<String>,
     pub predecessor: Option<String>,
     pub margin_line: Option<String>,
 }
@@ -2349,7 +2360,7 @@ pub struct LiveRowView {
     /// Grid decimals or `withheld`.
     pub checkpoints: Vec<String>,
     pub stopped: bool,
-    /// A `quant-v1` grid decimal or `withheld`.
+    /// A cohort-grid decimal or `withheld`.
     pub prefinal: Option<String>,
 }
 
@@ -2382,6 +2393,8 @@ struct LivePolicyJson {
     noise_sd: Option<String>,
     stopped: bool,
     prefinal: bool,
+    #[serde(default)]
+    quantization: Option<LiveQuantJson>,
     bits: LiveBitsJson,
 }
 
@@ -2406,23 +2419,20 @@ struct LiveReferenceJson {
 #[serde(deny_unknown_fields)]
 struct LivePrefinalJson {
     quantization: LiveQuantJson,
-    current: String,
+    current: Option<String>,
     predecessor: Option<String>,
     margin_line: Option<String>,
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, PartialEq, Eq)]
 #[serde(deny_unknown_fields)]
 struct LiveQuantJson {
     rule: String,
     width: String,
-    /// `quant-v2`: the sealed noise scale and spent rho (read, not yet
-    /// published).
+    /// `quant-v2`: the sealed public scale and rho.
     #[serde(default)]
-    #[allow(dead_code)]
     sigma_ppb: Option<u64>,
     #[serde(default)]
-    #[allow(dead_code)]
     rho_micro: Option<u64>,
 }
 
@@ -2449,7 +2459,7 @@ struct LiveDefectJson {
 
 /// A grid width printed as a decimal: the one-digit ladder's value whose
 /// own decimal it is.
-fn ladder_width(text: &str) -> Option<u64> {
+pub(crate) fn ladder_width(text: &str) -> Option<u64> {
     let (whole, frac) = text.split_once('.').unwrap_or((text, ""));
     if whole.len() != 1 || frac.len() > 18 || !text.bytes().all(|b| b.is_ascii_digit() || b == b'.') {
         return None;
@@ -2478,8 +2488,9 @@ fn on_grid(text: &str, w: u64, symbols: &[&str]) -> bool {
 /// bits within the bound; ascending distinct hotkeys within the roster's
 /// entrant bound; at most `released_max` checkpoints, each on the live grid
 /// with exactly its decimals or `withheld` (entrants) / `none` (`R_k`); no
-/// value at all while stopped; pre-finalized values on the `quant-v1` grid,
-/// an entrant's only with `R_k`'s, and a margin line at or above it. Any
+/// value at all while stopped; pre-finalized values on the cohort grid,
+/// with `R_k` required first under quant-v1; a margin line at or above
+/// `R_k`; and matching policy/prefinal privacy parameters. Any
 /// failure drops the live view whole; the counts survive.
 pub fn parse_live_bytes(body: &[u8]) -> Option<LiveScoresView> {
     let j: LiveJson = serde_json::from_slice(body).ok()?;
@@ -2535,22 +2546,47 @@ pub fn parse_live_bytes(body: &[u8]) -> Option<LiveScoresView> {
         }
         None => None,
     };
+    let policy_rho = match &p.quantization {
+        Some(q) => {
+            if q.rule != slop_ninja_protocol::quant2::QUANT_RULE {
+                return None;
+            }
+            crate::summary::v2_display(q.sigma_ppb?, q.rho_micro?, ladder_width(&q.width)?)?;
+            if j.prefinal.as_ref().is_some_and(|pf| pf.quantization != *q) {
+                return None;
+            }
+            q.rho_micro
+        }
+        None => None,
+    };
     let prefinal = match j.prefinal {
         Some(pf) => {
             let w = ladder_width(&pf.quantization.width)?;
             if silent || !known_quant_rule(&pf.quantization.rule) {
                 return None;
             }
-            let cur = slop_ninja_protocol::quant::parse_grid(&pf.current, w).ok()?;
+            let cur = pf.current.as_deref().map(|v| slop_ninja_protocol::quant::parse_grid(v, w)).transpose().ok()?;
+            if cur.is_none() && (pf.quantization.rule != slop_ninja_protocol::quant2::QUANT_RULE
+                || pf.predecessor.is_some() || pf.margin_line.is_some()) {
+                return None;
+            }
             if pf.predecessor.as_deref().is_some_and(|v| slop_ninja_protocol::quant::parse_grid(v, w).is_err()) {
                 return None;
             }
             if let Some(m) = &pf.margin_line
-                && slop_ninja_protocol::quant::parse_grid(m, w).ok()? < cur
+                && slop_ninja_protocol::quant::parse_grid(m, w).ok()? < cur?
             {
                 return None;
             }
-            Some(LivePrefinalView { rule: pf.quantization.rule, width: w, current: pf.current, predecessor: pf.predecessor, margin_line: pf.margin_line })
+            let (sigma, rho, mu) = if pf.quantization.rule == slop_ninja_protocol::quant2::QUANT_RULE {
+                let (s, r, m) = crate::summary::v2_display(pf.quantization.sigma_ppb?, pf.quantization.rho_micro?, w)?;
+                (Some(s), Some(r), Some(m))
+            } else {
+                if pf.quantization.sigma_ppb.is_some() || pf.quantization.rho_micro.is_some() { return None; }
+                (None, None, None)
+            };
+            Some(LivePrefinalView { rule: pf.quantization.rule, width: w, sigma, rho, mu,
+                rho_micro: pf.quantization.rho_micro, current: pf.current, predecessor: pf.predecessor, margin_line: pf.margin_line })
         }
         None => None,
     };
@@ -2564,7 +2600,8 @@ pub fn parse_live_bytes(body: &[u8]) -> Option<LiveScoresView> {
             return None;
         }
         if let Some(v) = &r.prefinal {
-            // An entrant's value only with R_k's, on its grid.
+            // An entrant's value needs the cohort grid. Under quant-v2
+            // that grid is sealed before R_k finishes.
             let pf = prefinal.as_ref()?;
             if !on_grid(v, pf.width, &[live::WITHHELD]) {
                 return None;
@@ -2582,6 +2619,12 @@ pub fn parse_live_bytes(body: &[u8]) -> Option<LiveScoresView> {
     if j.fault.as_deref().is_some_and(|f| !matches!(f, "prepare" | "release" | "over_bound")) {
         return None;
     }
+    // Older quant-v2 reports carry this only in the prefinal block.
+    let quant_rho_micro = policy_rho.or_else(|| prefinal.as_ref().and_then(|pf| pf.rho_micro));
+    if let Some(rho) = quant_rho_micro {
+        let live_micro = if readings { u64::from(p.eps_live_milli).pow(2).div_ceil(2) } else { 0 };
+        rho.checked_add(live_micro)?;
+    }
     Some(LiveScoresView {
         cohort,
         n: p.n,
@@ -2593,6 +2636,7 @@ pub fn parse_live_bytes(body: &[u8]) -> Option<LiveScoresView> {
         stopped: p.stopped,
         bits: (p.bits.counted, p.bits.live, p.bits.bound),
         reference,
+        quant_rho_micro,
         prefinal,
         rows: out_rows,
         fault: j.fault,
@@ -2605,8 +2649,8 @@ mod quant_rule_tests {
     use super::*;
 
     /// The live report's quantization block names either rule; a quant-v2
-    /// block may carry its sealed scale and rho, which this build reads and
-    /// does not publish.
+    /// block carries its sealed scale and rho, from which this build
+    /// derives the rounded public displays.
     #[test]
     fn live_quantization_names_either_rule() {
         assert!(known_quant_rule("quant-v1") && known_quant_rule("quant-v2"));

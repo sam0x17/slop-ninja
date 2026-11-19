@@ -1,6 +1,6 @@
 //! The public summary of one closed cohort
 //! (`v1/cohorts/<label>/summary.json`, schema
-//! `slop_ninja.public.cohort_summary/v4`): the public summary derived from
+//! `slop_ninja.public.cohort_summary/v5`): the public summary derived from
 //! the verified result and optional gate feedback record.
 //!
 //! The coordinator keeps every record computed from the hidden evaluation
@@ -9,7 +9,8 @@
 //! monitor, promotion audits, attempt counts, the SE sums and the
 //! quantization draws, the receipt root and count), the target, the
 //! published-content and fingerprint indexes, the components and every
-//! receipt. What it publishes is the signed `QuantizedResult` (`quant-v1`),
+//! receipt. What it publishes is the signed `QuantizedResult`, under the
+//! cohort's quantization rule,
 //! which the publisher verifies in the private bucket
 //! ([`crate::verify`]). This summary carries:
 //!
@@ -33,7 +34,8 @@
 //! any document is scored, and a cluster is named by its first member in
 //! that order. The q-rank (`q` descending, then roster order) follows from
 //! the published values and adds no bits beyond them; it is also the order
-//! rewards are computed in (`reward-v2`), and every credit, band and unit
+//! rewards are computed in under `reward-v2`. Under `reward-v3`, the
+//! cluster head is its first member in roster order. Every credit, band and unit
 //! is a function of the published `q` values, bits and membership alone.
 //!
 //! Version 4 adds the gate feedback a failing entrant may learn: each
@@ -45,6 +47,12 @@
 //! per-document value is published; the record's bits are counted in the
 //! cohort's bit budget.
 //!
+//! Version 5 names `reward_rule` separately from the quantization rule.
+//! Quant-v2 adds upward-rounded release SD (`sigma`), zCDP cost (`rho`)
+//! and comparison-curve parameter (`mu`). Reward-v3 labels every gated
+//! cluster, including unretained clusters; paid members can lie below the
+//! cutoff or above their head. These fields add no hidden measurements.
+//!
 //! [`crate::allowlist`] names every field this schema may carry.
 
 use serde::{Deserialize, Serialize};
@@ -55,7 +63,8 @@ use slop_ninja_protocol::{CutoffMode, EntrantFeedback, EntrantOutcome, GateFeedb
 use crate::ss58;
 use crate::verify::VerifiedCohort;
 
-pub const SUMMARY_SCHEMA: &str = "slop_ninja.public.cohort_summary/v4";
+pub const SUMMARY_SCHEMA: &str = "slop_ninja.public.cohort_summary/v5";
+pub const SUMMARY_SCHEMA_V4: &str = "slop_ninja.public.cohort_summary/v4";
 /// The summary schema of cohorts listed before the gate feedback fields: a
 /// v4 document without them, read as one.
 pub const SUMMARY_SCHEMA_V3: &str = "slop_ninja.public.cohort_summary/v3";
@@ -65,11 +74,59 @@ pub const SUMMARY: &str = "summary.json";
 /// How the scores of a document were published: the quantization rule and
 /// the grid width `w`, a decimal string. Every score is a multiple of `w`
 /// printed with exactly `w`'s decimals.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Quantization {
     pub rule: String,
     pub width: String,
+    /// Public noise/privacy parameters, rounded up to thousandths.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub sigma: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub rho: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub mu: Option<String>,
+}
+
+/// Retained policy bound, including the cost of live readings. The quant
+/// term is signed; the live policy is checked operator metadata. All rho
+/// displays round upward independently from micro-units.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Privacy {
+    pub rule: String,
+    pub segments: u8,
+    pub eps_live_milli: u32,
+    pub rho_quant: String,
+    pub rho_live: String,
+    pub rho_total: String,
+}
+
+pub const PRIVACY_FIELDS: &[&str] = &["rule", "segments", "eps_live_milli", "rho_quant", "rho_live", "rho_total"];
+
+impl Privacy {
+    pub fn of(p: &slop_ninja_protocol::live_privacy::LivePrivacy, r: &QuantizedResult) -> Option<Self> {
+        p.check_result(r).ok()?;
+        let (q, l, t) = p.costs(r).ok()?;
+        let f = |x: u64| slop_ninja_protocol::live::format_milli(x.div_ceil(1000));
+        Some(Self { rule: slop_ninja_protocol::live::LIVE_RULE.into(), segments: p.segments,
+            eps_live_milli: p.eps_live_milli, rho_quant: f(q), rho_live: f(l), rho_total: f(t) })
+    }
+
+    pub fn check(&self, quant: &Quantization) -> Option<()> {
+        if self.rule != slop_ninja_protocol::live::LIVE_RULE || self.segments == 1
+            || (self.segments >= 2 && self.eps_live_milli == 0)
+            || quant.rule != slop_ninja_protocol::quant2::QUANT_RULE
+            || quant.rho.as_deref() != Some(self.rho_quant.as_str()) { return None; }
+        let q = u128::from(display_milli(&self.rho_quant)?);
+        let l = u128::from(display_milli(&self.rho_live)?);
+        let t = u128::from(display_milli(&self.rho_total)?);
+        let live = if self.segments >= 2 { u128::from(self.eps_live_milli).pow(2).div_ceil(2) } else { 0 };
+        let high = q * 1000;
+        let low = high.saturating_sub(999);
+        (l == live.div_ceil(1000) && t >= (low + live).div_ceil(1000)
+            && t <= (high + live).div_ceil(1000)).then_some(())
+    }
 }
 
 /// A model by its inference-content and artifact digests, with its
@@ -95,7 +152,8 @@ pub struct References {
 
 /// An entrant's near-copy cluster, named by its first member in roster
 /// order: a label every member shares, chosen before any document is
-/// scored. It is not the cluster's head (its first member in q-rank).
+/// scored. Under reward-v2 its head is the first member in q-rank; under
+/// reward-v3 the label identifies the head itself.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct ClusterRef {
@@ -114,8 +172,8 @@ pub struct Entrant {
     /// The quantized score, a multiple of the summary's width; `None` for an
     /// entrant withheld or never executed.
     pub q: Option<String>,
-    /// Its cluster's reward band, `1` the top occupied band; `None` below
-    /// the cutoff or without a target.
+    /// Its paid cluster's reward band, `1` the top occupied band. Under
+    /// reward-v3 a paid member can lie below the cutoff.
     pub band: Option<u32>,
     /// `pass` (every gate passed, the public-copy gate included), `fail`,
     /// `withheld` (the minimum-success gate: nothing else is published) or
@@ -125,7 +183,8 @@ pub struct Entrant {
     /// `pass`, or `fail` when the public-copy gate refused it; `None` for a
     /// withheld entrant.
     pub copy_gate: Option<String>,
-    /// Its near-copy cluster, for an entrant at or above the cutoff.
+    /// Its near-copy cluster: retained members under reward-v2; every
+    /// gated member, including unretained clusters, under reward-v3.
     pub cluster: Option<ClusterRef>,
     /// Why an entrant was never executed: `copy` (its inference content is
     /// that of a published artifact) or `qualification`; absent otherwise.
@@ -195,6 +254,9 @@ pub struct Quality {
 #[serde(deny_unknown_fields)]
 pub struct CohortSummary {
     pub schema: String,
+    /// Explicit because reward and quantization rules vary independently.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reward_rule: Option<String>,
     pub network: String,
     pub chain: Chain,
     pub cohort: u64,
@@ -204,6 +266,9 @@ pub struct CohortSummary {
     /// Every v3 summary carries the block; `None` only for a summary listed
     /// before quantization ([`read`]), which carries no score at all.
     pub quantization: Option<Quantization>,
+    /// Quant plus retained live-policy cost. Absent means unavailable.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub privacy: Option<Privacy>,
     pub references: References,
     pub quality: Quality,
     /// The entrant promoted to `R_k+1` (SS58), if any.
@@ -242,10 +307,30 @@ pub fn decimal(value: u64, w: u64) -> String {
 
 /// The quantization block of a result.
 pub fn quantization(r: &QuantizedResult) -> Quantization {
-    Quantization {
-        rule: r.quant_rule.name().into(),
-        width: decimal(r.width, r.width),
+    let display = match r.budget {
+        slop_ninja_protocol::BudgetBlock::V1(_) => None,
+        slop_ninja_protocol::BudgetBlock::V2(b) => v2_display(b.sigma_ppb, b.rho_micro, r.width),
+    };
+    let (sigma, rho, mu) = display.map_or((None, None, None), |(s, r, m)| (Some(s), Some(r), Some(m)));
+    Quantization { rule: r.quant_rule.name().into(), width: decimal(r.width, r.width), sigma, rho, mu }
+}
+
+/// Total release SD sqrt(sigma^2 + width^2/6), rho and mu=sqrt(2 rho).
+/// All three displays round upward; only the verified public scale is used.
+/// Integer arithmetic preserves the boundary at exact thousandths.
+pub(crate) fn v2_display(sigma_ppb: u64, rho_micro: u64, width: u64) -> Option<(String, String, String)> {
+    use slop_ninja_protocol::{SCORE_SCALE, live, quant2};
+    if sigma_ppb == 0 || sigma_ppb > quant2::MAX_SIGMA_PPB || width > SCORE_SCALE || !quant::on_ladder(width) {
+        return None;
     }
+    let sigma = u128::from(sigma_ppb);
+    let w = u128::from(width);
+    // d^2 >= (6 sigma_ppb^2 * 1e18 + width^2) / 6e30.
+    let variance = (6 * sigma * sigma * 1_000_000_000_000_000_000 + w * w)
+        .div_ceil(6_000_000_000_000_000_000_000_000_000_000);
+    let sd = u64::try_from(quant::ceil_isqrt(variance)).ok()?;
+    let mu = u64::try_from(quant::ceil_isqrt(2 * u128::from(rho_micro))).ok()?;
+    Some((live::format_milli(sd), live::format_milli(rho_micro.div_ceil(1000)), live::format_milli(mu)))
 }
 
 pub fn gate_bit(outcome: &EntrantOutcome) -> &'static str {
@@ -347,7 +432,7 @@ pub fn gates(v: &VerifiedCohort) -> Option<Gates> {
         strict_fpr_max_permille: t.strict_fpr_max_permille,
         share_mae_max_ppb: t.share_mae_max_ppb,
         attribution_min_permille: t.attribution_min_permille,
-        min_success_max_failed: v.result.params.quant.min_success_max_failed,
+        min_success_max_failed: v.result.params.quant.min_success_max_failed(),
         localization_enforced: t.span_gate,
     })
 }
@@ -390,6 +475,7 @@ pub fn build(v: &VerifiedCohort, chain: Chain) -> CohortSummary {
     let r = &v.result;
     CohortSummary {
         schema: SUMMARY_SCHEMA.into(),
+        reward_rule: Some(r.reward_rule.name().into()),
         network: "testnet".into(),
         chain,
         cohort: r.cohort,
@@ -397,6 +483,7 @@ pub fn build(v: &VerifiedCohort, chain: Chain) -> CohortSummary {
         opened_epoch: r.opened_epoch,
         closed_epoch: v.closure.closed_epoch,
         quantization: Some(quantization(r)),
+        privacy: v.live_privacy.as_ref().and_then(|p| Privacy::of(p, r)),
         references: References {
             index: r.reference_index,
             current: model(&r.current, r.width),
@@ -463,19 +550,67 @@ pub mod v2 {
     }
 }
 
-/// A listed summary as readers take it: a v4 document as is, a v3 document
-/// (listed before the gate feedback fields, which it never carries) as is,
-/// or a v2 document (listed before quantization) as a summary with no
-/// quantization block, no `q`, no cutoff and no band edges, its band
-/// numbers and bits kept. `None` for anything else.
+fn has_v5_fields(v: &serde_json::Value) -> bool {
+    v.get("reward_rule").is_some() || v.get("privacy").is_some()
+        || ["sigma", "rho", "mu"].iter().any(|k| v["quantization"].get(k).is_some())
+}
+
+/// A canonical nonnegative decimal with exactly three fractional digits.
+pub(crate) fn display_milli(s: &str) -> Option<u64> {
+    let (whole, frac) = s.split_once('.')?;
+    if whole.is_empty() || (whole.len() > 1 && whole.starts_with('0')) || frac.len() != 3
+        || !whole.bytes().chain(frac.bytes()).all(|c| c.is_ascii_digit()) {
+        return None;
+    }
+    whole.parse::<u64>().ok()?.checked_mul(1000)?.checked_add(frac.parse::<u64>().ok()?)
+}
+
+/// Check the public rule/metadata shape. These rounded displays do not
+/// replace verification of the signed result's exact public parameters.
+pub(crate) fn quantization_shape(q: &serde_json::Value) -> Option<()> {
+    let has_metrics = has_v5_metrics(q);
+    let q: Quantization = serde_json::from_value(q.clone()).ok()?;
+    crate::status::ladder_width(&q.width)?;
+    match q.rule.as_str() {
+        quant::QUANT_RULE => (!has_metrics).then_some(()),
+        slop_ninja_protocol::quant2::QUANT_RULE => {
+            let sigma = display_milli(q.sigma.as_deref()?)?;
+            let rho = display_milli(q.rho.as_deref()?)?;
+            let mu = display_milli(q.mu.as_deref()?)?;
+            // Rho was rounded upward from micro-units, so the mu display
+            // must fit that interval. Do not take sqrt of the rounded rho.
+            let high = u128::from(rho) * 1000;
+            let low = high.saturating_sub(999);
+            ((1..=1081).contains(&sigma)
+                && u128::from(mu) >= quant::ceil_isqrt(2 * low)
+                && u128::from(mu) <= quant::ceil_isqrt(2 * high)).then_some(())
+        }
+        _ => None,
+    }
+}
+
+/// Read current summaries or retain an earlier schema's original field
+/// set. V2 predates quantization and is normalized with no score values.
 pub fn read(bytes: &[u8]) -> Option<CohortSummary> {
     let schema = serde_json::from_slice::<serde_json::Value>(bytes).ok()?;
     match schema.get("schema").and_then(|s| s.as_str())? {
-        SUMMARY_SCHEMA => serde_json::from_slice(bytes).ok(),
+        SUMMARY_SCHEMA => {
+            let s: CohortSummary = serde_json::from_slice(bytes).ok()?;
+            quantization_shape(&schema["quantization"])?;
+            if let Some(p) = &s.privacy { p.check(s.quantization.as_ref()?)?; }
+            matches!(s.reward_rule.as_deref(), Some("reward-v2" | "reward-v3")).then_some(s)
+        }
+        SUMMARY_SCHEMA_V4 => {
+            let s: CohortSummary = serde_json::from_slice(bytes).ok()?;
+            quantization_shape(&schema["quantization"])?;
+            (!has_v5_fields(&schema) && s.quantization.as_ref()?.rule == quant::QUANT_RULE).then_some(s)
+        },
         SUMMARY_SCHEMA_V3 => {
             let s: CohortSummary = serde_json::from_slice(bytes).ok()?;
-            let v4_only = s.gates.is_some() || s.entrants.iter().any(|e| e.not_executed.is_some() || e.gate_classes.is_some());
-            (!v4_only).then_some(s)
+            quantization_shape(&schema["quantization"])?;
+            let v4_only = schema.get("gates").is_some() || schema["entrants"].as_array()?.iter()
+                .any(|e| e.get("not_executed").is_some() || e.get("gate_classes").is_some());
+            (!v4_only && !has_v5_fields(&schema) && s.quantization.as_ref()?.rule == quant::QUANT_RULE).then_some(s)
         }
         SUMMARY_SCHEMA_V2 => {
             let old: v2::CohortSummary = serde_json::from_slice(bytes).ok()?;
@@ -486,6 +621,7 @@ pub fn read(bytes: &[u8]) -> Option<CohortSummary> {
             };
             Some(CohortSummary {
                 schema: old.schema,
+                reward_rule: None,
                 network: old.network,
                 chain: old.chain,
                 cohort: old.cohort,
@@ -493,6 +629,7 @@ pub fn read(bytes: &[u8]) -> Option<CohortSummary> {
                 opened_epoch: old.opened_epoch,
                 closed_epoch: old.closed_epoch,
                 quantization: None,
+                privacy: None,
                 references: References {
                     index: old.references.index,
                     current: model(old.references.current),
@@ -523,5 +660,29 @@ pub fn read(bytes: &[u8]) -> Option<CohortSummary> {
             })
         }
         _ => None,
+    }
+}
+
+fn has_v5_metrics(q: &serde_json::Value) -> bool {
+    ["sigma", "rho", "mu"].iter().any(|k| q.get(k).is_some())
+}
+
+#[cfg(test)]
+mod display_tests {
+    use super::*;
+
+    #[test]
+    fn gaussian_display_includes_the_grid_and_rounds_up() {
+        // sigma=0.003, width=0.004: total SD is sqrt(0.000011666...).
+        assert_eq!(v2_display(3_000_000, 500_000, 4_000_000_000_000_000),
+            Some(("0.004".into(), "0.500".into(), "1.000".into())));
+        // Even a tiny nonzero grid lifts an exact sigma boundary.
+        assert_eq!(v2_display(1_000_000, 500_001, 1),
+            Some(("0.002".into(), "0.501".into(), "1.001".into())));
+        assert_eq!(v2_display(1_000_000_000, 0, slop_ninja_protocol::SCORE_SCALE),
+            Some(("1.081".into(), "0.000".into(), "0.000".into())));
+        assert!(v2_display(0, 1, 1).is_none());
+        assert!(v2_display(1_000_000_001, 1, 1).is_none());
+        assert!(v2_display(1, 1, 0).is_none());
     }
 }

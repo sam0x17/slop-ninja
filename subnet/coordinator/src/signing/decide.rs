@@ -1,5 +1,5 @@
 //! The coordinator's operator decisions and the evidence-based attempt
-//! resolution's storage (self-lock phase 1): journal schema v15.
+//! resolution's storage and immutable restart rules: journal schemas v15-v16.
 
 /// v15: the operator action log (`crate::operator`); the attempts table
 /// rebuilt so an attempt can settle as `consumed_unverified` (D5) and record
@@ -88,6 +88,75 @@ use super::{SignConfig, attempt, attempt_subject, held_target, log, restart_chec
 use crate::sql::{SqlValue, bind_u64};
 use crate::operator::{self, Address, Begin, Request};
 use crate::sql::{Sql, StoreError, text, uint};
+
+/// v16 binds each fresh record's rules to the restart payload and its
+/// operator evidence. Queue delivery may change; these bindings may not.
+pub const SCHEMA_V16: &[&str] = &[
+    "CREATE TABLE record_rules (
+        floor INTEGER PRIMARY KEY CHECK (floor >= 0),
+        reward_rule TEXT NOT NULL, quant_rule TEXT NOT NULL,
+        decision_sha256 TEXT, statement_sha256 TEXT,
+        record_sha256 TEXT NOT NULL, at_ms INTEGER NOT NULL
+    ) STRICT",
+    "CREATE TRIGGER record_rules_no_replace BEFORE INSERT ON record_rules
+        WHEN EXISTS (SELECT 1 FROM record_rules WHERE floor = NEW.floor)
+        BEGIN SELECT RAISE(ABORT, 'record rules are immutable'); END",
+    "CREATE TRIGGER record_rules_no_update BEFORE UPDATE ON record_rules
+        BEGIN SELECT RAISE(ABORT, 'record rules are immutable'); END",
+    "CREATE TRIGGER record_rules_no_delete BEFORE DELETE ON record_rules
+        BEGIN SELECT RAISE(ABORT, 'record rules are immutable'); END",
+];
+
+struct RestartBinding {
+    floor: u64,
+    rules: crate::config::RecordRules,
+    decision: Option<slop_ninja_protocol::Digest>,
+    statement: Option<slop_ninja_protocol::Digest>,
+    legacy: bool,
+}
+
+impl RestartBinding {
+    fn decode(bytes: &[u8]) -> Result<Self, StoreError> {
+        use slop_ninja_protocol::{Record as _, decisions::{ChainRestart, ChainRestartV2}};
+        if let Ok(r) = ChainRestartV2::from_bytes(bytes) {
+            Ok(Self {
+                floor: r.floor,
+                rules: crate::config::RecordRules { reward: r.reward_rule, quant: r.quant_rule },
+                decision: r.decision, statement: r.statement, legacy: false,
+            })
+        } else {
+            let r = ChainRestart::from_bytes(bytes).map_err(|_| StoreError("restart record"))?;
+            Ok(Self {
+                floor: r.floor, rules: crate::config::RecordRules::default(),
+                decision: r.decision, statement: r.statement, legacy: true,
+            })
+        }
+    }
+
+    fn values(&self, sha: &str) -> Vec<SqlValue> {
+        vec![
+            self.rules.reward.name().into(), self.rules.quant.name().into(),
+            self.decision.map_or(SqlValue::Null, |d| d.hex().into()),
+            self.statement.map_or(SqlValue::Null, |d| d.hex().into()), sha.into(),
+        ]
+    }
+
+    fn check(&self, sql: &impl Sql, sha: &str) -> Result<(), StoreError> {
+        let rows = sql.exec(
+            "SELECT reward_rule, quant_rule, decision_sha256, statement_sha256, record_sha256
+             FROM record_rules WHERE floor = ?", &[bind_u64(self.floor)?],
+        )?;
+        match rows.first() {
+            Some(row) if *row == self.values(sha) => Ok(()),
+            None if self.legacy => Ok(()),
+            _ => Err(StoreError("restart rule binding")),
+        }
+    }
+}
+
+fn record_sha(bytes: &[u8]) -> String {
+    hex::encode(<sha2::Sha256 as sha2::Digest>::digest(bytes))
+}
 
 /// The coordinator's address in an operator statement: service
 /// `coordinator`, authority `coordinator`, store `journal` (one signing
@@ -397,7 +466,9 @@ pub fn restart(
     // The set this floor passes, from the journal alone; every refusal
     // from here names it.
     let computed_set = restart_set(sql, floor, last)?;
-    let detail = set_json(floor, last, &computed_set);
+    let mut detail = set_json(floor, last, &computed_set);
+    set(&mut detail, "reward_rule", json!(rules.reward.name()));
+    set(&mut detail, "quant_rule", json!(rules.quant.name()));
     let refuse = |code: &'static str| -> Result<Answer, StoreError> { Ok(Err(Refused { code, detail: Some(detail.clone()) })) };
     let (past, info, unlisted) = computed_set;
     // D13: the floor is bounded by finalized chain state, from the journal's
@@ -534,22 +605,53 @@ pub fn restart(
 /// (`ChainRestartV2`), or `reward-v2,quant-v1` for the record in force before
 /// restarts named their rules (no restart, or a version-1 restart record).
 pub fn record_rules(sql: &impl Sql) -> Result<crate::config::RecordRules, StoreError> {
-    let rows = sql.exec("SELECT record_hex FROM sign_restart_records WHERE kind = 'restart' ORDER BY floor DESC, id DESC LIMIT 1", &[])?;
-    let Some(hex_text) = rows.first().and_then(|r| r.first()).and_then(|v| match v {
-        SqlValue::Text(t) => Some(t.clone()),
-        _ => None,
-    }) else {
+    let rows = sql.exec("SELECT floor, record_hex, sha256, cohort FROM sign_restart_records WHERE kind = 'restart' ORDER BY floor DESC, id DESC LIMIT 1", &[])?;
+    let latest = sql.exec("SELECT floor FROM record_rules ORDER BY floor DESC LIMIT 1", &[])?;
+    let Some(row) = rows.first() else {
+        if !latest.is_empty() {
+            return Err(StoreError("restart rule binding"));
+        }
         return Ok(crate::config::RecordRules::default());
     };
-    let bytes = hex::decode(hex_text).map_err(|_| StoreError("restart record"))?;
-    match <slop_ninja_protocol::decisions::ChainRestartV2 as slop_ninja_protocol::Record>::from_bytes(&bytes) {
-        Ok(r) => Ok(crate::config::RecordRules { reward: r.reward_rule, quant: r.quant_rule }),
-        Err(_) => Ok(crate::config::RecordRules::default()),
+    let bytes = hex::decode(text(row, 1)?).map_err(|_| StoreError("restart record"))?;
+    let binding = RestartBinding::decode(&bytes)?;
+    let sha = record_sha(&bytes);
+    if binding.floor != uint(row, 0)? || sha != text(row, 2)? || row.get(3) != Some(&SqlValue::Null) {
+        return Err(StoreError("restart record binding"));
+    }
+    if let Some(latest) = latest.first()
+        && uint(latest, 0)? != binding.floor
+    {
+        return Err(StoreError("restart rule floor"));
+    }
+    binding.check(sql, &sha)?;
+    Ok(binding.rules)
+}
+
+/// Sign the queued bytes without upgrading a legacy restart's version.
+pub fn sign_restart_record(
+    kind: &str,
+    bytes: &[u8],
+    key: &slop_ninja_protocol::SigningKey,
+) -> slop_ninja_protocol::Result<Vec<u8>> {
+    use slop_ninja_protocol::{Record as _, decisions, sign};
+    match kind {
+        "restart" => match decisions::ChainRestartV2::from_bytes(bytes) {
+            Ok(record) => sign(record, key).and_then(|signed| signed.to_bytes()),
+            Err(_) => decisions::ChainRestart::from_bytes(bytes)
+                .and_then(|record| sign(record, key))
+                .and_then(|signed| signed.to_bytes()),
+        },
+        "addendum" => decisions::RestartAddendum::from_bytes(bytes)
+            .and_then(|record| sign(record, key))
+            .and_then(|signed| signed.to_bytes()),
+        _ => Err(slop_ninja_protocol::Error::Invalid("restart record kind")),
     }
 }
 
 /// Queues a signed restart record (signed with the authorization key and
-/// written by the pointer pass).
+/// written by the pointer pass). Call in the restart transaction: its rule
+/// binding, held-target change and operator action must commit together.
 pub fn queue_restart_record<R: slop_ninja_protocol::Record>(
     sql: &impl Sql,
     floor: u64,
@@ -559,11 +661,57 @@ pub fn queue_restart_record<R: slop_ninja_protocol::Record>(
     now_ms: u64,
 ) -> Result<(), StoreError> {
     let bytes = record.to_bytes().map_err(|_| StoreError("restart record"))?;
-    let sha = hex::encode(<sha2::Sha256 as sha2::Digest>::digest(&bytes));
+    let sha = record_sha(&bytes);
+    let binding = match kind {
+        "restart" if cohort.is_none() => {
+            let binding = RestartBinding::decode(&bytes)?;
+            if binding.floor != floor {
+                return Err(StoreError("restart record floor"));
+            }
+            Some(binding)
+        }
+        "addendum" => {
+            use slop_ninja_protocol::Record as _;
+            let r = slop_ninja_protocol::decisions::RestartAddendum::from_bytes(&bytes)
+                .map_err(|_| StoreError("restart addendum"))?;
+            if r.floor != floor || Some(r.cohort) != cohort {
+                return Err(StoreError("restart addendum binding"));
+            }
+            None
+        }
+        _ => return Err(StoreError("restart record kind")),
+    };
+    let cohort = cohort.map_or(Ok(SqlValue::Null), bind_u64)?;
+    let encoded = hex::encode(&bytes);
+    // NULL does not participate in SQLite's UNIQUE constraint. Check the
+    // nullable cohort explicitly, including pre-migration duplicate rows.
+    let existing = sql.exec(
+        "SELECT record_hex, sha256 FROM sign_restart_records WHERE floor = ? AND kind = ? AND cohort IS ?",
+        &[bind_u64(floor)?, kind.into(), cohort.clone()],
+    )?;
+    if !existing.is_empty() {
+        for row in &existing {
+            if text(row, 0)? != encoded || text(row, 1)? != sha {
+                return Err(StoreError("restart record conflict"));
+            }
+        }
+        if let Some(binding) = binding {
+            binding.check(sql, &sha)?;
+        }
+        return Ok(());
+    }
+    if let Some(binding) = binding {
+        let mut values = vec![bind_u64(floor)?];
+        values.extend(binding.values(&sha));
+        values.push(bind_u64(now_ms)?);
+        sql.exec(
+            "INSERT INTO record_rules (floor, reward_rule, quant_rule, decision_sha256, statement_sha256, record_sha256, at_ms)
+             VALUES (?, ?, ?, ?, ?, ?, ?)", &values,
+        )?;
+    }
     sql.exec(
-        "INSERT INTO sign_restart_records (floor, kind, cohort, record_hex, sha256, at_ms) VALUES (?, ?, ?, ?, ?, ?)
-         ON CONFLICT(floor, kind, cohort) DO NOTHING",
-        &[bind_u64(floor)?, kind.into(), cohort.map_or(Ok(SqlValue::Null), bind_u64)?, hex::encode(&bytes).into(), sha.into(), bind_u64(now_ms)?],
+        "INSERT INTO sign_restart_records (floor, kind, cohort, record_hex, sha256, at_ms) VALUES (?, ?, ?, ?, ?, ?)",
+        &[bind_u64(floor)?, kind.into(), cohort, encoded.into(), sha.into(), bind_u64(now_ms)?],
     )?;
     Ok(())
 }
@@ -573,7 +721,7 @@ pub type DueRecord = (i64, String, String, Vec<u8>);
 
 /// The restart records not yet written.
 pub fn restart_records_due(sql: &impl Sql) -> Result<Vec<DueRecord>, StoreError> {
-    sql.exec("SELECT id, floor, kind, cohort, record_hex FROM sign_restart_records WHERE written_ms IS NULL ORDER BY id LIMIT 4", &[])?
+    sql.exec("SELECT id, floor, kind, cohort, record_hex, sha256 FROM sign_restart_records WHERE written_ms IS NULL ORDER BY id LIMIT 4", &[])?
         .iter()
         .map(|r| {
             let id = match r.first() {
@@ -587,6 +735,17 @@ pub fn restart_records_due(sql: &impl Sql) -> Result<Vec<DueRecord>, StoreError>
                 _ => format!("chain-restarts/{floor}/restart.signed"),
             };
             let bytes = hex::decode(text(r, 4)?).map_err(|_| StoreError("restart record hex"))?;
+            let sha = record_sha(&bytes);
+            if sha != text(r, 5)? {
+                return Err(StoreError("restart record digest"));
+            }
+            if kind == "restart" {
+                let binding = RestartBinding::decode(&bytes)?;
+                if binding.floor != floor || r.get(3) != Some(&SqlValue::Null) {
+                    return Err(StoreError("restart record binding"));
+                }
+                binding.check(sql, &sha)?;
+            }
             Ok((id, key, kind, bytes))
         })
         .collect()

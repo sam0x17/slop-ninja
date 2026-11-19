@@ -1,5 +1,14 @@
 # Testnet miner guide
 
+The publisher's summary v5 and allow-list v6 support the built, not yet
+activated reward-v3/quant-v2 rules. The summary names both rules separately.
+Under reward-v3, every gated entrant keeps its cluster label; paid cluster
+members may lie below the cutoff or above their head, while unretained
+clusters receive no payment. Quant-v2 adds public release SD and privacy
+parameters. See [the public layout](public-layout.md#the-cohort-summary-summaryjson)
+and [the dashboard contract](dashboard-contract.md) for field definitions.
+Current live rules remain those named by the cohort's signed manifest.
+
 This guide takes you from nothing to an *A* artifact that is committed on
 chain and uploaded for a cohort on Bittensor testnet subnet 601. It covers the
 miner client `slop_ninja_miner`, wallets and registration with rtao, training,
@@ -1239,7 +1248,13 @@ What becomes public, and what never does
 
 The full rules are in the [reward rules](../agents/rewards.md) and the
 whitepaper's rewards section; each signed cohort manifest freezes the
-parameters that cohort uses. In short:
+parameters that cohort uses.
+
+The reward and quantization rules belong to a chain record. A rule change
+requires a recorded restart into a fresh record; it does not rescore an old
+cohort. Read the cohort's signed manifest and the published release notes
+before entering after a restart. Validator support for a new rule must be
+released before that rule is activated.
 
 **The score.** The score is binary Brier utility on AI involvement,
 `1 - (a - y)^2` per document, averaged over the batch: `a` is your predicted
@@ -1491,3 +1506,10 @@ copyright notice about a published artifact, privately to the address in the
   [validator guide](validator-guide.md).
 - The [whitepaper](../../whitepaper/slop_ninja.pdf): rewards, cohorts and the
   reference model.
+
+The next dashboard build will retain the combined quantization and live-reading
+privacy bound after a cohort closes. Its quantization term is from the signed
+result; the live term is retained operator policy metadata. An unavailable
+policy report means the combined bound is unavailable, not zero. This display
+change does not change scores, gates, rewards, submitted artifacts or validator
+rows. It is built but has not been deployed.

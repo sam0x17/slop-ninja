@@ -55,10 +55,10 @@ companion are attached to the testnet release as two tar archives
   predictions, spend figures or credentials. The
   [redaction rules](../../subnet/publisher/src/redact.rs) say how this is
   enforced. A publisher built from this tree publishes only what the
-  versioned allow-list (`slop_ninja.public.allowlist/v5`,
+  versioned allow-list (`slop_ninja.public.allowlist/v6`,
   [`allowlist.rs`](../../subnet/publisher/src/allowlist.rs)) names. Per
   cohort that is a summary ([below](#the-cohort-summary-summaryjson)) of
-  the coordinator's quantized scores under `quant-v1`: the grid width,
+  the coordinator's quantized scores under the cohort's rule: the grid width,
   each entrant's `q`, band, gate bit, public-copy gate bit and cluster
   membership, with the entrants in roster order, and `R_k`'s and
   `R_k-1`'s `q`; and, for a cohort whose plan names the gate feedback
@@ -88,7 +88,7 @@ companion are attached to the testnet release as two tar archives
 | `index.html`, `style.css` | The leaderboard page, rendered from `v1/leaderboard.json` (no score column) | with `v1/leaderboard.json` |
 | `v1/status.json` | The status snapshot (unsigned), schema `slop_ninja.public.status/v1` | every run (one a minute) |
 | `v1/cohorts/index.json` | The cohort index, schema `slop_ninja.public.cohort_index/v1` | when a cohort is published or an artifact lands |
-| `v1/cohorts/<label>/summary.json` | One closed cohort's quantized summary, schema `slop_ninja.public.cohort_summary/v4` (below; a cohort listed earlier keeps its `v3` summary) | never, once listed |
+| `v1/cohorts/<label>/summary.json` | One closed cohort's quantized summary, schema `slop_ninja.public.cohort_summary/v5` (below; a cohort listed earlier keeps its original `v2`, `v3` or `v4` summary) | never, once listed |
 | `v1/cohorts/<label>/artifacts.json` | Publication at scoring start: each roster entry's artifact state, header digest and published keys, schema `slop_ninja.public.artifacts/v1` | from scoring start until every entry is decided |
 | `v1/cohorts/<label>/publication.json` | The publisher's record of the cohort, schema `slop_ninja.public.publication/v1` | when an artifact lands |
 | `v1/leaderboard.json` | The newest listed cohort's leaderboard, schema `slop_ninja.public.leaderboard/v4`: its summary's rows in roster order with each artifact's state, no rank or exact score ([below](#the-leaderboard-v1leaderboardjson)) | when the newest cohort is listed or one of its pending artifacts is settled; deleted at a record restart |
@@ -110,7 +110,7 @@ names in the private receipts bucket at `cohorts/<label>/`:
 | Object | Record | Read by the publisher |
 | --- | --- | --- |
 | `manifest.signed` | `CohortManifestV2`, package key | yes: the chain, label and roster |
-| `result.signed` | `QuantizedResult`, package key: the cohort's public record under `quant-v1` (below) | yes |
+| `result.signed` | `QuantizedResult`, package key: the cohort's public quantized record (below) | yes |
 | `closure.signed` | `CohortClosure` (version 2), package key: phase epochs, the target, the result's digest and every entrant's commitment opening | yes |
 | `gate-feedback.signed` | `GateFeedbackV1`, package key, for a plan naming `reward_v1.feedback`: the cohort's gate thresholds and each entrant's coarse failed-gate classes ([below](#gate-feedback-gate-feedbacksigned)) | yes, when stored |
 | `package.signed` | `ScorePackageV2`, package key: the exact scores, every hidden measurement, the SE sums and the quantization draws | never |
@@ -122,8 +122,9 @@ coordinator's signed row
 ([What a validator checks](#what-a-validator-checks)).
 
 `QuantizedResult` (kind `quantized-result`, version 1) carries the chain,
-cohort, label, manifest digest and opening epoch; the rules `reward-v2`
-and `quant-v1`; the batch size `n`, the charged count `m`, the grid width
+cohort, label, manifest digest and opening epoch; the independent reward
+(`reward-v2` or `reward-v3`) and quantization (`quant-v1` or `quant-v2`) rules;
+the batch size `n`, the charged count `m`, the grid width
 `w`, the band width `W_q` and the public reward and quantization
 parameters; the cutoff mode and cutoff; each reference's content, artifact
 and `q`; the promoted hotkey; the occupied bands' grid edges; per entrant
@@ -142,8 +143,9 @@ state of every entrant (below).
 
 ### Gate feedback: `gate-feedback.signed`
 
-Gate feedback, summary v4 and allow-list v5 are built, not deployed. The
-live publisher still writes summary v3; existing summaries stay unchanged.
+Gate feedback is built, not deployed. The integrated build carries its
+fields in summary v5 under allow-list v6. The live publisher still writes
+summary v3; existing summaries stay unchanged.
 
 A cohort whose plan names `reward_v1.feedback` (rule
 `slop_ninja_gate_feedback_v1`) stores a second public record beside the
@@ -214,12 +216,17 @@ the closure.
 
 ### The cohort summary: `summary.json`
 
-Schema `slop_ninja.public.cohort_summary/v4`, built from the verified
-result and, when one is stored, the verified gate feedback record:
+Schema `slop_ninja.public.cohort_summary/v5`, built from the verified
+result and, when one is stored, the verified gate feedback record. Summary
+v5 and allow-list v6 are built, not deployed. A listed historical summary
+retains its original bytes and fields. V3/v4 summaries imply reward-v2 and
+quant-v1; v2 predates quantized scores. V5 names the reward rule explicitly
+because reward and quantization rules vary independently:
 
 ```json
 {
-  "schema": "slop_ninja.public.cohort_summary/v4",
+  "schema": "slop_ninja.public.cohort_summary/v5",
+  "reward_rule": "reward-v2",
   "network": "testnet",
   "chain": { "genesis": "8f9c…3105", "netuid": 601, "mechanism": 0 },
   "cohort": 12, "label": "testnet-c12", "opened_epoch": 23100, "closed_epoch": 23120,
@@ -258,9 +265,18 @@ result and, when one is stored, the verified gate feedback record:
 - `gate` is `pass` (every gate passed, the public-copy gate included),
   `fail`, `withheld` (the minimum-success gate: `q`, `band`, `copy_gate` and
   `cluster` are `null`) or `not_executed`.
-- `band` is `1` for the top occupied band; it is set for an entrant at or
-  above the cutoff. `cluster` names the cluster's first member in roster
-  order.
+- `reward_rule` is `reward-v2` or `reward-v3`. `band` is `1` for the
+  top occupied band and is set for each paid member. Under reward-v3 this
+  includes members below the cutoff. `cluster` names the cluster's first
+  member in roster order. Reward-v2 labels retained members; reward-v3
+  labels every gated member, including unretained clusters with no band.
+  Reward-v3's head is its first roster member, so members may score above
+  their head or outside their band's edges without changing the payment.
+- Quant-v2 adds `sigma`, `rho` and `mu` to every quantization block.
+  These are upward-rounded three-place decimal strings: total release SD
+  `sqrt(sigma_v^2 + width^2/6)`, quantization zCDP cost, and `sqrt(2 rho)`
+  respectively, each derived from public parameters before rounding.
+  Quant-v1 omits these fields. They contain no hidden score or statistic.
 - `quality.cutoff` is `null` and `bands` empty for a cohort without a
   target; `mode` is `margin` or `fallback`. Band edges are absolute grid
   multiples of `W_q`.
@@ -875,9 +891,9 @@ registered UID plus every former entrant), cache 60 s:
 | `rows[].roster_position`, `rows[].result` | Closed cohorts only: the 1-based roster order and the summary's `gate` (`pass`, `fail`, `withheld`, `not_executed`), `copy_gate`, `band` and `cluster`. No `q` |
 | `rows[].artifact_state` | `published`, `pending` or `withheld`, from scoring start |
 | `rows[].challenges` | `admitted` and `evaluating` rows of a running roster at the `sessions` level only: `{state, done, total}`, `pending` before the entrant's scoring starts (`done` 0, `total` `null` until the batch is sealed), `running` while `done < total`, `complete` at it; `null` otherwise, and when the eval Worker reports none (an entrant whose content was already published is not scored and has none). Read each run |
-| `rows[].live` | `admitted` and `evaluating` rows of a running roster at the `live` level only (absent otherwise): `{checkpoints, stopped, prefinal}`, the entrant's `live-v1` segment readings (each a multiple of `live.width` with exactly its decimals, or `withheld`; at most `live.released_max`, released once), whether more attributable failures than the minimum-success limit stopped them, and its pre-finalized quantized score (`quant-v1` grid, or `withheld`; `null` until it and `R_k` finish) |
+| `rows[].live` | `admitted` and `evaluating` rows of a running roster at the `live` level only (absent otherwise): `{checkpoints, stopped, prefinal}`, the entrant's `live-v1` segment readings (each a multiple of `live.width` with exactly its decimals, or `withheld`; at most `live.released_max`, released once), whether more attributable failures than the minimum-success limit stopped them, and its pre-finalized quantized score (cohort grid, or `withheld`; under quant-v1, `null` until it and `R_k` finish; under quant-v2, available on the sealed grid once that entrant finishes) |
 | `references` | Closed cohorts only: `R_k` and `R_k-1` by content and artifact digest, from the summary |
-| `live` | A running roster at the `live` level only (absent otherwise): `{rule, width, segments, released_max, noise_sd, eps_live_milli, bits{counted, live, bound}, reference{done, total, checkpoints, stopped}, prefinal{quantization{rule, width}, current, predecessor, margin_line}}`. `reference.done` moves in segment steps; `prefinal` is `null` until `R_k` finishes without a failure |
+| `live` | A running roster at the `live` level only (absent otherwise): `{rule, width, segments, released_max, noise_sd, eps_live_milli, bits{counted, live, bound}, reference{done, total, checkpoints, stopped}, prefinal{quantization, current, predecessor, margin_line}}`. Under quant-v2 it also carries `rho_quant`, `rho_live` and `rho_total` (three-place upward-rounded strings), including when pre-finalized values are disabled. The live term is `eps_live^2/2` with readings, zero otherwise; total is computed before rounding. The pre-final quantization block carries `sigma`, `rho` and `mu` under quant-v2. `reference.done` moves in segment steps. Under `quant-v1`, `prefinal` is null until `R_k` finishes without a failure. The implemented, not yet deployed `quant-v2` path can publish the sealed grid earlier, with `current`, `predecessor` and `margin_line` null; entrant pre-finalized values use that grid |
 
 A closed, listed cohort's roster is built from its summary and publication
 record alone and rewritten with its cohort document. It lists the
@@ -962,3 +978,21 @@ Both documents come from content-free status fields:
 The publisher reads each whole or not at all (the closed vocabularies,
 ascending distinct UIDs, distinct hotkeys, the bounds); a malformed field
 never fails the rest of the status.
+
+### Closed-cohort privacy metadata (built, not deployed)
+
+Summary v5 and its dashboard cohort document permit an optional `privacy`
+block: `{rule, segments, eps_live_milli, rho_quant, rho_live, rho_total}`.
+`rule` is `live-v1`; segments is zero or at least two. All rho fields use
+canonical decimal strings with three fractional digits. `rho_quant` must
+match the quant-v2 quantization block; the remaining fields must match the
+upward-rounded epsilon-squared composition, allowing only the quant term's
+display-rounding interval. Earlier summary schemas refuse these fields.
+
+The input `live-privacy.bin` is a fixed-size versioned operator report in the
+private cohort directory. It carries only manifest/result digests, epsilon
+and segment policy. It is not a signed record and is never copied to a public
+bucket. The publisher bounds its read by its exact binary structure, checks
+its binding against the verified result, and omits unavailable or invalid
+metadata rather than replacing it with zero. A closed document can be rebuilt
+from the retained summary without a live observation or in-memory history.

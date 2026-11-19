@@ -60,7 +60,7 @@ pub use roster::*;
 
 /// Bumped whenever a document's derivation changes, so every cohort
 /// document is rebuilt once ([`Memo::cohorts_key`]).
-pub const RULES: &str = "slop_ninja.dashboard.publisher/v4";
+pub const RULES: &str = "slop_ninja.dashboard.publisher/v5";
 
 /// The `cohort/v1` bar stages in order, with their kind (progress-hero
 /// spec, section 2).
@@ -116,6 +116,7 @@ pub fn quantization_of(q: &crate::summary::Quantization) -> Quantization {
     Quantization {
         rule: Some(q.rule.clone()),
         width: Some(q.width.clone()),
+        sigma: q.sigma.clone(), rho: q.rho.clone(), mu: q.mu.clone(),
     }
 }
 
@@ -176,7 +177,7 @@ fn on_grid_text(text: &str, w: u64, edge: bool) -> bool {
 
 /// The grid rule of every score a document carries: each is `null` unless
 /// the document's quantization block (`best.quantization`, a list row's
-/// `quantization` or the cohort row's) names the rule `quant-v1` and a
+/// `quantization` or the cohort row's) names a supported rule and a
 /// width on the ladder, and then each is a multiple of that width printed
 /// with exactly its decimals (a band's upper edge may be `1`).
 pub fn grid_check(doc: &Doc, v: &Value) -> Result<(), String> {
@@ -184,10 +185,9 @@ pub fn grid_check(doc: &Doc, v: &Value) -> Result<(), String> {
         if q.is_null() {
             return Ok(None);
         }
-        if !q["rule"].as_str().is_some_and(crate::status::known_quant_rule) {
-            return Err("quantization rule".into());
-        }
-        q["width"].as_str().and_then(width_units).map(Some).ok_or_else(|| "quantization width".into())
+        let width = q["width"].as_str().and_then(width_units).ok_or("quantization width")?;
+        crate::summary::quantization_shape(q).ok_or("quantization rule or display")?;
+        Ok(Some(width))
     };
     let score = |s: &Value, w: Option<u64>, edge: bool, what: &str| -> Result<(), String> {
         match (s, w) {
@@ -210,6 +210,12 @@ pub fn grid_check(doc: &Doc, v: &Value) -> Result<(), String> {
         }
         Doc::Cohort(..) => {
             let w = block(&v["cohort"]["quantization"])?;
+            if !v["privacy"].is_null() {
+                let p: crate::summary::Privacy = serde_json::from_value(v["privacy"].clone()).map_err(|_| "privacy shape")?;
+                let q = serde_json::from_value(v["cohort"]["quantization"].clone()).map_err(|_| "privacy quantization")?;
+                p.check(&q).ok_or("privacy composition")?;
+                if v["cohort"]["state"].as_str() != Some("closed") { return Err("privacy before close".into()); }
+            }
             score(&v["cohort"]["best_score"], w, false, "cohort.best_score")?;
             for e in v["entrants"].as_array().map(Vec::as_slice).unwrap_or_default() {
                 score(&e["score"], w, false, "entrants[].score")?;
@@ -260,6 +266,13 @@ pub struct Chain {
 pub struct Quantization {
     pub rule: Option<String>,
     pub width: Option<String>,
+    /// Public noise/privacy parameters, rounded up to thousandths.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub sigma: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub rho: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub mu: Option<String>,
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -650,6 +663,8 @@ pub struct ReferenceRow {
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct CohortDoc {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub privacy: Option<crate::summary::Privacy>,
     pub schema: String,
     pub network: String,
     pub chain: Chain,
@@ -716,7 +731,7 @@ const PHASE: &[&str] = &[
 ];
 const STAGE_PLAN: &[&str] = &["stage", "kind", "expected_tempos", "earliest_epoch", "earliest_block"];
 const TEMPLATE: &[&str] = &["k_tempos", "admission_tempos", "transition_tempos", "work_window_tempos"];
-const QUANT: &[&str] = &["rule", "width"];
+const QUANT: &[&str] = &["rule", "width", "sigma", "rho", "mu"];
 const OWNER: &[&str] = &["uid", "hotkey"];
 const ARTIFACT: &[&str] = &["state", "download"];
 const MARK: &[&str] = &["epoch", "block", "at", "basis"];
@@ -912,6 +927,8 @@ pub fn allowed_paths(doc: &Doc) -> BTreeSet<String> {
         }
         Doc::Cohort(..) => {
             add("", COHORT_PATHS);
+            add("", &["privacy"]);
+            add("privacy", crate::summary::PRIVACY_FIELDS);
             add("cohort", ROW);
             for m in ["opened", "admission_closed", "published", "closed"] {
                 add(&format!("cohort.{m}"), MARK);
@@ -2775,6 +2792,7 @@ pub fn cohort_doc(
     let testnet = crate::leaderboard::PromotionRule::of(&slop_ninja_admission_wire::json::Chain::from_binding(s.chain)).is_some();
     row.bounds = cohort_bounds(&phases, None);
     let mut d = CohortDoc {
+        privacy: summary.and_then(|sm| sm.privacy.clone()),
         schema: Doc::Cohort("a", String::new()).schema().into(),
         network: "testnet".into(),
         chain: chain(s.chain),
@@ -2850,19 +2868,25 @@ pub fn q_ranks(sm: &CohortSummary) -> Vec<Option<u32>> {
 }
 
 /// Each entrant's units of the cohort's row (`ROW_TOTAL` in all), in
-/// roster order, as reward-v2 pays them (`reward_v1::q_outcome`, steps 6 to
-/// 9) from the published values: the clusters at or above the cutoff in
-/// head rank order, grouped by their published band, credited
+/// roster order, under the summary's reward rule. Legacy summaries use
+/// reward-v2. Retained clusters are ordered by their highest-scoring member
+/// under v2 or by their first roster member under v3. Paid clusters are
+/// grouped by their published band and credited
 /// `r^kappa r^mu` with `r` the rule's fixed decay, equal head scores
 /// sharing their positions' credit, each member taking its cluster's credit
 /// over its size, and the row apportioned by largest remainder in rank
 /// order (equal remainders in roster order). `None` for a cohort without a
 /// target (no cutoff), without quantized scores, or whose published bands
-/// and clusters are not a reward-v2 outcome.
+/// and clusters cannot form an outcome under the named rule.
 pub fn row_units(sm: &CohortSummary) -> Option<Vec<u16>> {
     use slop_ninja_protocol::bigint::Fraction;
     use slop_ninja_protocol::reward_v1::{band_credits, largest_remainder};
     sm.quality.cutoff.as_ref()?;
+    let roster_first = match sm.reward_rule.as_deref().unwrap_or("reward-v2") {
+        "reward-v2" => false,
+        "reward-v3" => true,
+        _ => return None,
+    };
     let q = grid_scores(sm)?;
     let n = sm.entrants.len();
     // The eligible entrants, in rank order: exactly those with a band, each
@@ -2879,7 +2903,7 @@ pub fn row_units(sm: &CohortSummary) -> Option<Vec<u16>> {
     }
     eligible.sort_by_key(|&i| (core::cmp::Reverse(q[i]), i));
     // Clusters, named by their first member in roster order, in head rank
-    // order: the walk over the eligible entrants meets each head first.
+    // order under v2. V3 then sorts them by their first roster member.
     let mut clusters: Vec<(usize, Vec<usize>)> = Vec::new();
     for &i in &eligible {
         let c = sm.entrants[i].cluster.as_ref()?;
@@ -2891,6 +2915,9 @@ pub fn row_units(sm: &CohortSummary) -> Option<Vec<u16>> {
             Some((_, members)) => members.push(i),
             None => clusters.push((first, vec![i])),
         }
+    }
+    if roster_first {
+        clusters.sort_by_key(|(first, _)| (core::cmp::Reverse(q[*first]), *first));
     }
     // Every member carries its cluster's band; bands run 1..B from the top.
     let mut runs: Vec<Vec<usize>> = Vec::new();
@@ -2908,7 +2935,7 @@ pub fn row_units(sm: &CohortSummary) -> Option<Vec<u16>> {
     }
     let sizes: Vec<usize> = runs.iter().map(Vec::len).collect();
     let credits = band_credits(&sizes, slop_ninja_protocol::DECAY_BPS).ok()?;
-    let head_q = |c: usize| q[clusters[c].1[0]];
+    let head_q = |c: usize| q[if roster_first { clusters[c].0 } else { clusters[c].1[0] }];
     let mut credit_of: Vec<Option<Fraction>> = vec![None; clusters.len()];
     for (kappa, run) in runs.iter().enumerate() {
         let mut start = 0;

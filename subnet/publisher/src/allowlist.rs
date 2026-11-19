@@ -1,5 +1,5 @@
 //! The versioned allow-list of everything the public host may carry
-//! (`slop_ninja.public.allowlist/v5`).
+//! (`slop_ninja.public.allowlist/v6`).
 //!
 //! Validators and the public never learn held-out data (user rule,
 //! 2026-11-04): every object in the public bucket must be one this module
@@ -70,6 +70,13 @@
 //! leaderboard keeps its v4 fields; a v3 summary listed earlier stays valid
 //! without the new fields.
 //!
+//! Version 6 adds summary v5 with an explicit `reward_rule`, and quant-v2
+//! display fields `sigma`, `rho` and `mu` wherever a quantization block
+//! appears. Live rosters add `rho_quant`, `rho_live` and `rho_total`.
+//! Reward-v3 labels all gated clusters, including unretained ones, and
+//! retains paid members' bands below the cutoff. No head/rank field is
+//! added; legacy summary schemas retain their original field sets.
+//!
 //! Every cohort object other than `summary.json`, `publication.json` and
 //! `artifacts.json`
 //! (the signed manifest, package, target and closure, receipt indexes, chunk
@@ -86,7 +93,7 @@ use slop_ninja_protocol::{
 
 use crate::layout;
 
-pub const ALLOWLIST_VERSION: &str = "slop_ninja.public.allowlist/v5";
+pub const ALLOWLIST_VERSION: &str = "slop_ninja.public.allowlist/v6";
 
 /// What a public key holds.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -257,6 +264,9 @@ const INDEX: &[&str] = &[
     "cohorts[].quantization",
     "cohorts[].quantization.rule",
     "cohorts[].quantization.width",
+    "cohorts[].quantization.sigma",
+    "cohorts[].quantization.rho",
+    "cohorts[].quantization.mu",
     "initial_references",
     "initial_references[].content",
     "initial_references[].artifact",
@@ -298,7 +308,7 @@ const REFERENCES: &[&str] = &[
 ];
 
 /// The grid every `q` of a document is on.
-const QUANTIZATION: &[&str] = &["quantization", "quantization.rule", "quantization.width"];
+const QUANTIZATION: &[&str] = &["quantization", "quantization.rule", "quantization.width", "quantization.sigma", "quantization.rho", "quantization.mu"];
 
 /// The summary's cutoff and occupied bands on the grid.
 const QUALITY: &[&str] = &[
@@ -492,7 +502,10 @@ pub fn fields(kind: Kind) -> Option<(&'static str, BTreeSet<String>)> {
             crate::index::INDEX_SCHEMA
         }
         Kind::Summary => {
+            out.insert("reward_rule".into());
             out.extend(prefixed("", SUMMARY));
+            out.insert("privacy".into());
+            out.extend(prefixed("privacy.", crate::summary::PRIVACY_FIELDS));
             out.extend(prefixed("", CHAIN));
             out.extend(prefixed("", REFERENCES));
             out.extend(prefixed("", QUANTIZATION));
@@ -541,10 +554,15 @@ pub fn fields(kind: Kind) -> Option<(&'static str, BTreeSet<String>)> {
     Some((schema, out))
 }
 
-/// The fields of a `cohort_summary/v3` document (listed before the gate
-/// feedback): the v4 summary's without the thresholds and the entrants'
-/// feedback fields. Nothing it lists is new.
+/// A v4 summary retains its pre-bundle field set.
+fn summary_v4_fields(v5: BTreeSet<String>) -> BTreeSet<String> {
+    v5.into_iter().filter(|f| !["reward_rule", "quantization.sigma", "quantization.rho", "quantization.mu", "privacy"].contains(&f.as_str())
+        && !f.starts_with("privacy.")).collect()
+}
+
+/// A v3 summary also omits the thresholds and entrants' gate feedback.
 fn summary_v3_fields(v4: BTreeSet<String>) -> BTreeSet<String> {
+    let v4 = summary_v4_fields(v4);
     let feedback: BTreeSet<String> = prefixed("", SUMMARY_GATES)
         .chain(prefixed("entrants[].", SUMMARY_ENTRANT_FEEDBACK))
         .collect();
@@ -680,6 +698,12 @@ pub fn check_object(key: &str, bytes: &[u8]) -> Result<(), String> {
             let v: serde_json::Value =
                 serde_json::from_slice(bytes).map_err(|_| format!("{key}: not JSON"))?;
             let named = v.get("schema").and_then(|s| s.as_str());
+            if kind == Kind::Summary && !v["privacy"].is_null() {
+                let p: crate::summary::Privacy = serde_json::from_value(v["privacy"].clone())
+                    .map_err(|_| "privacy shape")?;
+                let q = serde_json::from_value(v["quantization"].clone()).map_err(|_| "privacy quantization")?;
+                p.check(&q).ok_or("privacy composition")?;
+            }
             if kind == Kind::Summary && named == Some(crate::summary::SUMMARY_SCHEMA_V2) {
                 // A cohort listed before quantization keeps its v2 summary
                 // (a summary is never rewritten once listed): the v3 fields
@@ -689,6 +713,8 @@ pub fn check_object(key: &str, bytes: &[u8]) -> Result<(), String> {
                 // A cohort listed before the gate feedback keeps its v3
                 // summary: the v4 fields without the feedback.
                 allowed = summary_v3_fields(allowed);
+            } else if kind == Kind::Summary && named == Some(crate::summary::SUMMARY_SCHEMA_V4) {
+                allowed = summary_v4_fields(allowed);
             } else if named != Some(schema) {
                 return Err(format!("{key}: not schema {schema}"));
             }

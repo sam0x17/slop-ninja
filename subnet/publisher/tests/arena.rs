@@ -60,7 +60,10 @@ static GLOBAL: Counting = Counting;
 const UNACCOUNTED_ALLOWANCE: usize = 2 << 20;
 
 fn measure(receipts: u64) -> (usize, u64) {
-    let b = build(receipts);
+    measure_built(build(receipts))
+}
+
+fn measure_built(b: Built) -> (usize, u64) {
     let x = buckets(&b);
     let cfg = config(Some(0), false);
     let opts = Options {
@@ -99,6 +102,24 @@ fn accounting_covers_the_measured_peak() {
             real <= accounted as usize + UNACCOUNTED_ALLOWANCE,
             "measured {real} exceeds accounted {accounted} plus the allowance"
         );
+    }
+    use slop_ninja_protocol::{QuantBlock, QuantParamsV2, RewardRule, fixtures_reward_v1 as fx};
+    let v2 = QuantParamsV2 {
+        identify_bits: u16::MAX, budget_factor: 1,
+        min_success_max_failed: fx::FIXTURE_QUANT.min_success_max_failed,
+        ..slop_ninja_protocol::fixtures_quant2::TESTNET_QUANT2
+    };
+    for reward in [RewardRule::RewardV2, RewardRule::RewardV3] {
+        for quant in [QuantBlock::V1(fx::FIXTURE_QUANT), QuantBlock::V2(v2)] {
+            let b = build_with(|c| {
+                let (manifest, package) = fx::computed_package(reward, quant).unwrap();
+                c.manifest = manifest;
+                c.package = package;
+            });
+            let (real, accounted) = measure_built(b);
+            assert!(real <= accounted as usize + UNACCOUNTED_ALLOWANCE,
+                "{reward:?}/{quant:?}: measured {real}, accounted {accounted}");
+        }
     }
     // The largest admissible index fits the budget, with the reserve left for
     // everything else, at the coordinator's per-job chunking.

@@ -618,6 +618,14 @@ pub fn evaluate(o: &Observed, p: &PublisherObs, r: &Rules) -> Vec<Condition> {
         if let Some(refs) = &e.references {
             reference_conditions(refs, r, &mut out);
         }
+        if e.record_rules_mismatch == Some(true) {
+            out.push(cond(
+                "record_rules_mismatch",
+                "eval",
+                "configured rules differ from the stored record; restore the configured pair or open a fresh authority".into(),
+                0,
+            ));
+        }
         if let (Some(w), Some(stored)) = (e.watermark_epoch, e.epoch)
             && w >= stored.saturating_add(DEFERRED_EPOCHS)
         {
@@ -907,6 +915,7 @@ pub const STATUS_RULES: &[&str] = &[
     "reference_objects_missing",
     "reference_pin_failed",
     "reference_presence_unchecked",
+    "record_rules_mismatch",
     "ledger_threshold",
     "retention_stalled",
     "ledger_threshold_unset",
@@ -1016,6 +1025,9 @@ pub fn needs(rule: &str, subject: &str, o: &Observed) -> Vec<Need> {
         }
         "reference_objects_missing" | "reference_pin_failed" | "reference_presence_unchecked" => {
             need_eval(o, Some(("references", |e| e.references.is_some())), &mut n)
+        }
+        "record_rules_mismatch" => {
+            need_eval(o, Some(("record_rules_mismatch", |e| e.record_rules_mismatch.is_some())), &mut n)
         }
         "epoch_deferred" => need_eval(
             o,
@@ -1396,6 +1408,34 @@ mod tests {
 
     fn rules_of(c: &[Condition]) -> Vec<&'static str> {
         c.iter().map(|c| c.rule).collect()
+    }
+
+    #[test]
+    fn record_rule_drift_alert_waits_for_an_explicit_recovery_read() {
+        let (r, p) = (rules(), PublisherObs::default());
+        let mut o = healthy();
+        o.eval.as_mut().unwrap().record_rules_mismatch = Some(true);
+        let mut state = AlertState::default();
+        let firing = conditions(&o, &p, &r, &state, 100);
+        assert!(firing.iter().any(|c| c.rule == "record_rules_mismatch" && c.hold_ms == 0));
+        observe(&mut state, &firing, 100);
+        let events = due(&state, 100, r.renotify_ms);
+        acknowledge(&mut state, &events, 100);
+        for value in [Value::Null, json!("invalid")] {
+            let mut status = eval_status("admission");
+            status["record_rules_mismatch"] = value;
+            let mut parsed = parse_eval(&status);
+            assert_eq!(parsed.record_rules_mismatch, None);
+            assert!(!parsed.cohorts.is_empty());
+            parsed.ledger_over_threshold = Some(false);
+            o.eval = Some(parsed);
+            assert!(!needs("record_rules_mismatch", "eval", &o).is_empty());
+            assert!(conditions(&o, &p, &r, &state, 200).iter().any(|c| c.rule == "record_rules_mismatch"));
+        }
+        o.eval.as_mut().unwrap().record_rules_mismatch = Some(false);
+        assert!(needs("record_rules_mismatch", "eval", &o).is_empty());
+        assert!(!conditions(&o, &p, &r, &state, 300).iter().any(|c| c.rule == "record_rules_mismatch"));
+        assert!(STATUS_RULES.contains(&"record_rules_mismatch"));
     }
 
     /// v14: a paused cohort whose fault the coordinator says does not

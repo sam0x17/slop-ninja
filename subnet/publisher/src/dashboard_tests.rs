@@ -517,6 +517,44 @@ fn index_with(entries: &[(u64, &str, Option<u8>, u64)]) -> CohortIndex {
     idx
 }
 
+#[test]
+fn summary_versions_isolate_rule_and_privacy_fields() {
+    let original = serde_json::to_value(summary_for("testnet-r0-c6", 6, 3, None)).unwrap();
+    let reads = |v: &Value| summary::read(&serde_json::to_vec(v).unwrap()).is_some();
+    assert!(reads(&original));
+    for bad in [Value::Null, json!("reward-v4")] {
+        let mut v = original.clone();
+        v["reward_rule"] = bad;
+        assert!(!reads(&v));
+    }
+    let mut gaussian = original.clone();
+    gaussian["reward_rule"] = json!("reward-v3");
+    gaussian["quantization"] = json!({"rule": "quant-v2", "width": "0.02", "sigma": "0.013", "rho": "0.500", "mu": "1.000"});
+    assert!(reads(&gaussian));
+    for (field, bad) in [("sigma", Value::Null), ("rho", json!("0.5")), ("mu", json!("0.998")),
+        ("sigma", json!("0.000")), ("mu", json!("NaN")), ("width", json!("0.021")), ("rule", json!("quant-v3"))] {
+        let mut v = gaussian.clone();
+        v["quantization"][field] = bad;
+        assert!(!reads(&v), "{field}");
+    }
+    for version in [summary::SUMMARY_SCHEMA_V4, summary::SUMMARY_SCHEMA_V3] {
+        let mut legacy = original.clone();
+        legacy["schema"] = json!(version);
+        legacy.as_object_mut().unwrap().remove("reward_rule");
+        assert!(reads(&legacy));
+        let mut v = legacy.clone();
+        v["reward_rule"] = Value::Null;
+        assert!(!reads(&v));
+        for field in ["sigma", "rho", "mu"] {
+            let mut v = legacy.clone();
+            v["quantization"][field] = Value::Null;
+            assert!(!reads(&v), "{version}: {field}");
+        }
+        legacy["quantization"]["rule"] = json!("quant-v2");
+        assert!(!reads(&legacy));
+    }
+}
+
 fn summary_for(label: &str, cohort: u64, n: usize, promoted: Option<u8>) -> CohortSummary {
     let c = chain();
     let model = |b: u8| ModelRef {
@@ -526,6 +564,8 @@ fn summary_for(label: &str, cohort: u64, n: usize, promoted: Option<u8>) -> Coho
     };
     CohortSummary {
         schema: summary::SUMMARY_SCHEMA.into(),
+        reward_rule: Some("reward-v2".into()),
+        privacy: None,
         network: "testnet".into(),
         chain: slop_ninja_admission_wire::json::Chain::from_binding(&c),
         cohort,
@@ -535,6 +575,7 @@ fn summary_for(label: &str, cohort: u64, n: usize, promoted: Option<u8>) -> Coho
         quantization: Some(summary::Quantization {
             rule: "quant-v1".into(),
             width: "0.02".into(),
+            ..Default::default()
         }),
         references: References {
             index: 1,
@@ -651,7 +692,7 @@ fn a_closed_cohort_document_carries_quantized_scores_bands_gates_and_ranks() {
     assert_eq!(en.iter().map(|e| e.rank).collect::<Vec<_>>(), [Some(1), Some(3), None, Some(2)]);
     assert_eq!(
         d.cohort.quantization,
-        Some(Quantization { rule: Some("quant-v1".into()), width: Some("0.02".into()) })
+        Some(Quantization { rule: Some("quant-v1".into()), width: Some("0.02".into()), ..Default::default() })
     );
     assert_eq!(d.cohort.best_score.as_deref(), Some("0.90"));
     assert_eq!(d.score_better.as_deref(), Some(SCORE_BETTER));
@@ -1022,7 +1063,7 @@ fn the_best_model_is_the_cohort_that_promoted_the_current_reference() {
         (b.latest_score.as_deref(), b.latest_score_label.as_deref(), b.licence),
         (Some("0.90"), Some("testnet-r0-c5"), None)
     );
-    assert_eq!(b.quantization, Some(Quantization { rule: Some("quant-v1".into()), width: Some("0.02".into()) }));
+    assert_eq!(b.quantization, Some(Quantization { rule: Some("quant-v1".into()), width: Some("0.02".into()), ..Default::default() }));
     assert_eq!(d.latest_cohort.as_deref(), Some("testnet-r0-c6"));
 }
 
@@ -1326,14 +1367,16 @@ fn the_allow_list_is_exactly_the_contract() {
     let mut now = value(&now_doc(&s, &o, Some(&idx), Some(&facts), &memo, time_of(118)));
     now["cohort"]["progress"]["admission"] = json!({"admitted": 1, "roster_cap": 2});
     now["cohort"]["tempos"] = json!({"credited": 1, "required": 2});
-    now["best"]["quantization"] = json!({"rule": "r", "width": "0.01"});
+    now["best"]["quantization"] = json!({"rule": "r", "width": "0.01", "sigma": "0.011", "rho": "0.500", "mu": "1.000"});
     let point = json!({"epoch": 1, "block": 2, "at": 60, "basis": "observed"});
     now["cohort"]["bounds"]["cutoff"] = point.clone();
     now["weights"] = json!({"epoch": 1, "commit_block": 2, "commit_index": 3, "reveal": "revealed", "reveal_block": 4});
     now["uids"] = json!({"epoch": 1, "block": 2, "rows": [{"uid": 3, "hotkey": "5F"}]});
     let rows = listed(&s, &idx, o.eval.as_ref());
     let mut cohort = value(&cohort_doc(&s, &rows, 1, Some(&sm), &arts, 118, time_of(118)));
-    cohort["cohort"]["quantization"] = json!({"rule": "r", "width": "0.01"});
+    cohort["cohort"]["quantization"] = json!({"rule": "r", "width": "0.01", "sigma": "0.011", "rho": "0.500", "mu": "1.000"});
+    cohort["privacy"] = json!({"rule": "live-v1", "segments": 4, "eps_live_milli": 1000,
+        "rho_quant": "0.500", "rho_live": "0.500", "rho_total": "1.000"});
     cohort["cohort"]["admission_closed"] = point.clone();
     for b in ["open", "cutoff", "close"] {
         cohort["cohort"]["bounds"][b] = point.clone();
@@ -1343,7 +1386,7 @@ fn the_allow_list_is_exactly_the_contract() {
     let mut list = value(&cohorts_doc(&s, &idx, &rows, time_of(118)));
     list["records"] = json!([{"first_label": "testnet-rv1-a"}]);
     for r in list["cohorts"].as_array_mut().unwrap() {
-        r["quantization"] = json!({"rule": "r", "width": "0.01"});
+        r["quantization"] = json!({"rule": "r", "width": "0.01", "sigma": "0.011", "rho": "0.500", "mu": "1.000"});
         r["admission_closed"] = point.clone();
         r["published"] = point.clone();
     }
@@ -2119,6 +2162,7 @@ fn a_cohort_listed_before_quantization_keeps_entrants_and_bands_without_scores()
     let mut v = serde_json::to_value(summary_for("testnet-r0-c6", 6, 4, Some(1))).unwrap();
     v["schema"] = summary::SUMMARY_SCHEMA_V2.into();
     let o = v.as_object_mut().unwrap();
+    o.remove("reward_rule");
     o.remove("quantization");
     o.remove("quality");
     for r in ["current", "predecessor"] {
@@ -2157,6 +2201,10 @@ fn a_cohort_listed_before_quantization_keeps_entrants_and_bands_without_scores()
 /// order as `(q in grid steps, gated, copy bit, cluster label)`, published
 /// the way the summary module publishes a result.
 fn summary_of_outcome(spec: &[(Option<u64>, bool, &str, Option<u16>)]) -> (CohortSummary, Vec<u16>) {
+    summary_of_placement(spec, slop_ninja_protocol::reward_v1::Placement::QRankHead)
+}
+
+fn summary_of_placement(spec: &[(Option<u64>, bool, &str, Option<u16>)], placement: slop_ninja_protocol::reward_v1::Placement) -> (CohortSummary, Vec<u16>) {
     use slop_ninja_protocol::reward_v1::{QEntrant, QInput, q_outcome};
     use slop_ninja_protocol::{RewardV1Params, SCORE_SCALE};
     let w = SCORE_SCALE / 50;
@@ -2166,6 +2214,7 @@ fn summary_of_outcome(spec: &[(Option<u64>, bool, &str, Option<u16>)]) -> (Cohor
         .map(|&(q, gated, _, cluster)| QEntrant { q: q.map(|k| k * w), gated, cluster })
         .collect();
     let out = q_outcome(&QInput {
+        placement,
         params: &params,
         width: w,
         reference_q: 40 * w,
@@ -2174,6 +2223,8 @@ fn summary_of_outcome(spec: &[(Option<u64>, bool, &str, Option<u16>)]) -> (Cohor
     })
     .unwrap();
     let mut sm = summary_for("testnet-r0-c6", 6, spec.len(), None);
+    let roster_first = placement == slop_ninja_protocol::reward_v1::Placement::RosterFirst;
+    sm.reward_rule = Some(if roster_first { "reward-v3" } else { "reward-v2" }.into());
     sm.references.index = 0;
     sm.references.current.q = Some(summary::decimal(40 * w, w));
     sm.references.predecessor = None;
@@ -2192,7 +2243,7 @@ fn summary_of_outcome(spec: &[(Option<u64>, bool, &str, Option<u16>)]) -> (Cohor
     }
     let refs: Vec<_> = sm.entrants.iter().map(|e| summary::ClusterRef { uid: e.uid, hotkey: e.hotkey.clone() }).collect();
     for (i, e) in sm.entrants.iter_mut().enumerate() {
-        e.cluster = spec[i].3.filter(|_| e.band.is_some()).map(|l| refs[usize::from(l)].clone());
+        e.cluster = spec[i].3.filter(|_| e.band.is_some() || (roster_first && spec[i].1)).map(|l| refs[usize::from(l)].clone());
     }
     (sm, out.units)
 }
@@ -2299,3 +2350,54 @@ fn a_cohort_nobody_beat_ranks_its_gated_entrants_and_derives_no_share() {
 
 #[path = "dashboard_roster_tests.rs"]
 mod roster_tests;
+
+#[test]
+fn reward_v3_members_keep_the_first_admitted_heads_band_and_credit() {
+    let spec = [
+        (Some(43), true, "pass", Some(0)),
+        (Some(49), true, "pass", Some(0)),
+        (Some(46), true, "pass", Some(2)),
+        (Some(35), true, "pass", Some(0)),
+        (Some(38), true, "pass", Some(4)),
+        (Some(48), true, "pass", Some(4)),
+    ];
+    let (sm, units) = summary_of_placement(&spec, slop_ninja_protocol::reward_v1::Placement::RosterFirst);
+    assert_eq!(row_units(&sm), Some(units.clone()));
+    assert!(units[3] > 0, "a member below the cutoff shares its retained cluster's credit");
+    assert_eq!(sm.entrants[0].band, sm.entrants[1].band);
+    assert_eq!(sm.entrants[0].band, sm.entrants[3].band);
+    assert!(sm.entrants[4].cluster.is_some() && sm.entrants[5].cluster.is_some());
+    assert!(sm.entrants[4].band.is_none() && sm.entrants[5].band.is_none());
+    assert_eq!((units[4], units[5]), (0, 0));
+    let mut mislabeled = sm;
+    mislabeled.reward_rule = Some("reward-v2".into());
+    assert_ne!(row_units(&mislabeled), Some(units));
+}
+
+#[test]
+fn closed_cohort_rebuild_keeps_the_stored_composition_without_a_live_memo() {
+    let c = chain();
+    let s = settings(&c);
+    let idx = index_with(&[(5, "testnet-r0-c5", None, 1), (6, "testnet-r0-c6", Some(1), 1)]);
+    let o = observed(eval_json(118, "scoring", LOG_SCORING, json!({})));
+    let rows = listed(&s, &idx, o.eval.as_ref());
+    let mut sm = summary_for("testnet-r0-c6", 6, 4, Some(1));
+    let q = sm.quantization.as_mut().unwrap();
+    q.rule = "quant-v2".into();
+    q.sigma = Some("0.030".into()); q.rho = Some("0.500".into()); q.mu = Some("1.000".into());
+    sm.privacy = Some(crate::summary::Privacy { rule: "live-v1".into(), segments: 4, eps_live_milli: 1000,
+        rho_quant: "0.500".into(), rho_live: "0.500".into(), rho_total: "1.000".into() });
+    let d = cohort_doc(&s, &rows, 1, Some(&sm), &[], 118, time_of(118));
+    let doc = Doc::Cohort("a", sm.label.clone());
+    let v = checked(&doc, &d);
+    round_trips::<web_model::CohortDoc>(&v);
+    assert_eq!(d.privacy, sm.privacy);
+    let mut invalid = v.clone();
+    invalid["privacy"]["rho_total"] = json!("0.500");
+    assert!(grid_check(&doc, &invalid).is_err());
+    invalid = v.clone(); invalid["cohort"]["state"] = json!("scoring");
+    assert!(grid_check(&doc, &invalid).is_err());
+    sm.privacy = None;
+    let d = cohort_doc(&s, &rows, 1, Some(&sm), &[], 118, time_of(118));
+    assert!(checked(&doc, &d).get("privacy").is_none(), "missing policy is not zero");
+}

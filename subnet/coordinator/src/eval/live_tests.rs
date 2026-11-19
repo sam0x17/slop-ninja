@@ -23,19 +23,30 @@ fn live_block() -> LivePlan {
 /// (job 3: every document a model error, so withheld). Calls `f` with the
 /// cohort open.
 fn with_live_cohort<T>(live: Option<LivePlan>, f: impl FnOnce(&Sqlite, &mut Sim<'_>, i64) -> T) -> T {
+    with_live_cohort_rules(live, crate::config::RecordRules::default(), 40, f)
+}
+
+fn with_live_cohort_rules<T>(live: Option<LivePlan>, rules: crate::config::RecordRules, n: u32, f: impl FnOnce(&Sqlite, &mut Sim<'_>, i64) -> T) -> T {
+    with_live_cohort_budget(live, rules, n, false, f)
+}
+
+fn with_live_cohort_budget<T>(live: Option<LivePlan>, rules: crate::config::RecordRules, n: u32, tight_budget: bool, f: impl FnOnce(&Sqlite, &mut Sim<'_>, i64) -> T) -> T {
     let db = Sqlite::open();
-    let (mut sim, weak, probe_ref) = probe_built_doc(&db, Some(crate::eval::plan::TASK_ORDER_SEEDED_RANK));
+    let mut config = EvalConfig { authority: crate::config::Authority::default().with_rules(rules), ..cfg() };
+    if tight_budget { config.ceilings.roster_cap = Some(3); }
+    let (mut sim, weak, probe_ref) = probe_built_doc_with_config(&db, Some(crate::eval::plan::TASK_ORDER_SEEDED_RANK), config, (n as usize * 3).max(120));
     let id = crate::eval::plan::tests::identity;
     let copy = v3_artifact(&mut sim, id(31, 0xd1), [1, 2, 3, 31, 5]);
     let good = v3_artifact(&mut sim, id(32, 0xd2), [1, 2, 3, 32, 5]);
     let crash = v3_artifact(&mut sim, id(33, 0xd3), [1, 2, 3, 33, 5]);
-    let mut p = plan_v3(2, LIVE_LABEL, 40, weak);
+    let mut p = plan_v3(2, LIVE_LABEL, n, weak);
     p.entrants = vec![copy, good, crash];
     p.allow_list = vec![id(31, 0xd1), id(32, 0xd2), id(33, 0xd3)];
+    let humans = p.counts()[0];
     {
         let v = p.reward_v1.as_mut().unwrap();
         v.probes = vec![probe_ref];
-        v.canary.draw_humans = 8;
+        v.canary.draw_humans = humans;
         v.task_order = Some(crate::eval::plan::TASK_ORDER_SEEDED_RANK.into());
         v.live = live;
     }
@@ -47,7 +58,19 @@ fn with_live_cohort<T>(live: Option<LivePlan>, f: impl FnOnce(&Sqlite, &mut Sim<
         (c, c * 0.4)
     }));
     sim.score = Box::new(|q| if q.job == 3 { Score::Crash } else { Score::Ok });
-    let seq = open_cohort(&db, &p, 20, sim.now);
+    plan_record_rules(&mut p, rules);
+    if tight_budget {
+        let v = p.reward_v1.as_mut().unwrap();
+        // Admit the full roster's worst-case final output with a predecessor,
+        // leaving too little room for even one live checkpoint. The live
+        // policy remains enabled; setup must derive zero rather than fail.
+        let (counted, _) = v.quant_params().unwrap().worst_case()
+            .worst_case_terms(n, 3, &v.counted_terms()).unwrap();
+        let q = v.quant.as_mut().unwrap();
+        q.identify_bits = u16::try_from(counted).unwrap();
+        q.budget_factor = u16::try_from(n).unwrap();
+    }
+    let seq = open_cohort_with_config(&db, &sim.cfg, &p, 20, sim.now);
     f(&db, &mut sim, seq)
 }
 
@@ -234,6 +257,162 @@ fn live_values_follow_the_cohort_at_block_cadence_and_match_the_package() {
         run_to_close(sim, db, seq, 22);
         // A closed cohort's live values leave the report.
         assert_eq!(report(db)["cohort"], Value::Null);
+    });
+}
+
+/// Exercise both new rules through the real simulated lanes, package,
+/// public result and closure. The original test covers the legacy pair.
+#[test]
+fn successor_rule_pairs_finalize_and_keep_live_values_identical_to_the_package() {
+    for pair in ["reward-v2,quant-v2", "reward-v3,quant-v1", "reward-v3,quant-v2"] {
+        let rules = crate::config::RecordRules::parse(Some(pair)).unwrap();
+        with_live_cohort_rules(Some(live_block()), rules, 200, |db, sim, seq| {
+            assert_eq!(sim.run(seq, 3_000), "transition", "{pair}: {:?}", fault_of(db, seq));
+            let package = sim.packages_v3.last().unwrap().clone();
+            let p = &package.package;
+            assert_eq!(p.reward_rule, rules.reward);
+            assert_eq!(p.params.quant.rule(), rules.quant);
+            let index = v3::index_at_seal(&tx(db, |s| v3::state(s, seq)).unwrap()).unwrap();
+            slop_ninja_protocol::reward_v1::check_outcome(p, &index).unwrap();
+            assert_eq!(package.result.digest().unwrap(), p.result);
+            assert!(package.live_defects.is_empty());
+            let released = releases(db, seq);
+            let final_value = |job| released.iter().find(|r| r.0 == job && r.1 == "prefinal").unwrap();
+            assert_eq!(final_value(0).3.as_deref(), Some(p.quant.reference_q().get().to_string().as_str()));
+            for (job, entrant) in [(1, 0), (2, 1)] {
+                assert_eq!(final_value(job).3.as_deref(), Some(p.entrants[entrant].q.unwrap().get().to_string().as_str()));
+            }
+            assert_eq!(final_value(3).4, "withheld");
+            let state = tx(db, |s| v3::state(s, seq)).unwrap();
+            assert!(state.released.iter().any(|(content, q)| content.0 == p.reference.model.content && *q == p.quant.reference_q().get()));
+            let promoted = p.promoted.expect("the strong synthetic entrant promotes");
+            let entrant = p.entrants.iter().find(|e| e.identity.hotkey == promoted).unwrap();
+            assert!(state.released.iter().any(|(content, q)| content.0 == entrant.content && *q == entrant.q.unwrap().get()));
+            let report = report(db);
+            assert_eq!(report["prefinal"]["quantization"]["rule"], rules.quant.name());
+            assert_eq!(report["defects"], json!([]));
+            run_to_close(sim, db, seq, 22);
+            package.target.as_ref().unwrap().check_package(p).unwrap();
+            sim.closures.last().unwrap().closure.check(&package.manifest, p, package.target.as_ref()).unwrap();
+        });
+    }
+}
+
+#[test]
+fn quant_v2_reports_privacy_when_prefinal_values_are_disabled() {
+    let rules = crate::config::RecordRules::parse(Some("reward-v3,quant-v2")).unwrap();
+    let mut plan = live_block();
+    plan.prefinal = false;
+    with_live_cohort_rules(Some(plan), rules, 200, |db, sim, seq| {
+        assert_eq!(sim.run(seq, 3_000), "transition", "{:?}", fault_of(db, seq));
+        let report = report(db);
+        let p = &sim.packages_v3.last().unwrap().package;
+        let slop_ninja_protocol::QuantRecordBlock::V2(q) = &p.quant else { panic!("quant-v2") };
+        assert_eq!(report["policy"]["quantization"]["rho_micro"], q.rho_micro);
+        assert_eq!(report["policy"]["quantization"]["sigma_ppb"], q.sigma_ppb);
+        assert!(report["prefinal"].is_null());
+        assert!(report["rows"].as_array().unwrap().iter().all(|r| r["prefinal"].is_null()));
+        assert!(!releases(db, seq).iter().any(|r| r.1 == "prefinal"));
+        assert!(report["policy"]["segments"].as_u64().unwrap() >= 2);
+    });
+}
+
+#[test]
+fn quant_v2_releases_an_entrants_final_value_before_the_reference_finishes() {
+    let rules = crate::config::RecordRules::parse(Some("reward-v3,quant-v2")).unwrap();
+    with_live_cohort_rules(Some(live_block()), rules, 200, |db, sim, seq| {
+        let delayed = std::rc::Rc::new(std::cell::Cell::new(true));
+        let delay = delayed.clone();
+        sim.score = Box::new(move |q| match q.job {
+            0 if delay.get() => Score::DieBeforePut,
+            3 => Score::Crash,
+            _ => Score::Ok,
+        });
+        let mut early = None;
+        for _ in 0..3_000 {
+            sim.tick();
+            if let Some(value) = releases(db, seq).into_iter().find(|r| r.0 == 2 && r.1 == "prefinal") {
+                assert!(!job_done(db, seq, 0));
+                assert!(job_done(db, seq, 2));
+                assert!(!releases(db, seq).iter().any(|r| r.0 == 0 && r.1 == "prefinal"));
+                let current = report(db);
+                assert!(current["prefinal"]["current"].is_null());
+                assert!(current["prefinal"]["quantization"]["width"].is_string());
+                early = value.3;
+                break;
+            }
+            assert!(fault_of(db, seq).is_none(), "reference delay faulted: {:?}", fault_of(db, seq));
+        }
+        let early = early.expect("an entrant releases while R_k is unfinished");
+        delayed.set(false);
+        run_to_close(sim, db, seq, 22);
+        let package = &sim.packages_v3.last().unwrap().package;
+        assert_eq!(early, package.entrants[1].q.unwrap().get().to_string());
+        assert!(sim.packages_v3.last().unwrap().live_defects.is_empty());
+        assert_eq!(releases(db, seq).iter().filter(|r| r.0 == 2 && r.1 == "prefinal").count(), 1);
+    });
+}
+
+#[test]
+fn quant_v2_headroom_uses_closed_public_results_and_the_reference_in_force() {
+    use slop_ninja_protocol::{Digest, QuantBlock, ReferenceModel, ReferenceSet, SCORE_SCALE, quant2::UNIT};
+    let rules = crate::config::RecordRules::parse(Some("reward-v3,quant-v2")).unwrap();
+    with_live_cohort_rules(None, rules, 200, |db, sim, seq| {
+        assert_eq!(sim.run(seq, 3_000), "transition");
+        let package = sim.packages_v3.last().unwrap().clone();
+        let p = &package.package;
+        let v = tx(db, |s| engine::cohort(s, seq)).unwrap().plan.reward_v1.unwrap();
+        let headroom = |v: &super::super::plan::RewardV1Plan, refs: &ReferenceSet| {
+            let QuantBlock::V2(params) = tx(db, |s| v3::sealed_quant(s, v, refs)).unwrap() else { panic!("quant-v2") };
+            params.headroom_pub_ppb
+        };
+        let refs = package.manifest.references;
+        let initial = v.quant.as_ref().unwrap().headroom.as_ref().unwrap().initial_ppb;
+        assert_eq!(headroom(&v, &refs), initial, "a package in transition is not a closed public result");
+        run_to_close(sim, db, seq, 22);
+        let expected = ((SCORE_SCALE - p.quant.reference_q().get()) / UNIT) as u32;
+        assert_eq!(headroom(&v, &refs), expected);
+        let promoted = p.promoted.expect("strong synthetic entrant");
+        let entrant = p.entrants.iter().find(|e| e.identity.hotkey == promoted).unwrap();
+        let promoted_refs = ReferenceSet {
+            index: refs.index + 1,
+            current: ReferenceModel { content: entrant.content, artifact: entrant.artifact },
+            predecessor: Some(refs.current),
+        };
+        assert_eq!(headroom(&v, &promoted_refs), ((SCORE_SCALE - entrant.q.unwrap().get()) / UNIT) as u32);
+        let unknown = ReferenceSet { current: ReferenceModel { content: Digest([0x77; 32]), ..refs.current }, ..refs };
+        assert_eq!(headroom(&v, &unknown), initial);
+        let mut fixed = v.clone();
+        fixed.quant.as_mut().unwrap().headroom.as_mut().unwrap().source = super::super::plan::HEADROOM_FIXED.into();
+        assert_eq!(headroom(&fixed, &refs), initial);
+        // Cross the lookup's page boundary with unrelated closed results.
+        for n in 0..17 {
+            db.conn.execute(
+                "INSERT INTO cohorts (label, cohort, plan, plan_sha256, phase, phase_since_ms, queued_ms,
+                    package_digest, published_epoch, closed_epoch, v3)
+                 VALUES (?1, ?2, '{}', 'synthetic', 'closed', 0, 0, 'synthetic', ?3, ?3, ?4)",
+                rusqlite::params![format!("synthetic-headroom-{n}"), 100 + n, 100 + n,
+                    json!({"released": [[hex::encode([0x77; 32]), 500_000_000_000_000_000u64]]}).to_string()],
+            ).unwrap();
+        }
+        assert_eq!(headroom(&v, &refs), expected);
+        // A newer result without publication evidence is not a source.
+        db.conn.execute(
+            "UPDATE cohorts SET v3 = ?1, published_epoch = NULL WHERE cohort = 116",
+            [json!({"released": [[refs.current.content.to_string(), 0u64]]}).to_string()],
+        ).unwrap();
+        assert_eq!(headroom(&v, &refs), expected);
+        // Select the newest closure, not its allocation/sequence order.
+        db.conn.execute("UPDATE cohorts SET published_epoch = 1, closed_epoch = 1 WHERE cohort = 116", []).unwrap();
+        assert_eq!(headroom(&v, &refs), expected);
+        db.conn.execute("UPDATE cohorts SET closed_epoch = 999 WHERE cohort = 116", []).unwrap();
+        assert_eq!(headroom(&v, &refs), 1_000_000_000);
+        db.conn.execute(
+            "UPDATE cohorts SET v3 = ?1 WHERE cohort = 116",
+            [json!({"released": [[refs.current.content.to_string(), SCORE_SCALE + 1]]}).to_string()],
+        ).unwrap();
+        assert!(tx(db, |s| v3::sealed_quant(s, &v, &refs)).is_err());
+        assert_eq!(headroom(&fixed, &refs), initial, "fixed source is a recovery path independent of history");
     });
 }
 
@@ -875,4 +1054,81 @@ fn arena_witness_live_steps_fit_at_the_widest_roster() {
 #[test]
 fn arena_witness_live_steps_fit_at_the_deployed_batch() {
     live_witness_at(40, 1_024);
+}
+
+#[test]
+fn retained_privacy_survives_close_and_stop_and_refuses_missing_or_changed_policy() {
+    let rules = crate::config::RecordRules::parse(Some("reward-v3,quant-v2")).unwrap();
+    for kind in ["readings", "readings_only", "prefinal_only", "disabled"] {
+        let mut p = live_block();
+        if kind == "readings_only" { p.prefinal = false; }
+        if kind == "prefinal_only" { p.segments_max = 0; }
+        with_live_cohort_rules((kind != "disabled").then_some(p), rules, 200, |db, sim, seq| {
+            assert_eq!(sim.run(seq, 3_000), "transition", "{kind}: {:?}", fault_of(db, seq));
+            let package = sim.packages_v3.last().unwrap().clone();
+            let retained = package.live_privacy.clone().expect(kind);
+            retained.check_result(&package.result).unwrap();
+            let (q, l, t) = retained.costs(&package.result).unwrap();
+            assert_eq!(t, q + l);
+            assert_eq!(l == 0, matches!(kind, "disabled" | "prefinal_only"));
+            tx(db, |s| live::set_stop(s, &live::StopRequest { stopped: true, cohort: Some(2),
+                reason: "synthetic privacy retention check".into(), clear_fault: false })).unwrap();
+            run_to_close(sim, db, seq, 22);
+            let after = tx(db, |s| live::privacy_report(s, &engine::cohort(s, seq)?, &package.result)).unwrap();
+            assert_eq!(after, retained, "close/stop cannot erase policy cost");
+            let key = format!("{}/{}", engine::receipt_prefix(LIVE_LABEL), slop_ninja_protocol::live_privacy::OBJECT);
+            assert_eq!(sim.rcpt.get(&key), Some(&retained.to_bytes()), "retained beside the private package");
+            assert_eq!(slop_ninja_protocol::live_privacy::LivePrivacy::from_bytes(&retained.to_bytes()).unwrap(), retained);
+            if kind != "disabled" {
+                db.conn.execute("UPDATE live_cohorts SET eps_live_milli = eps_live_milli + 1 WHERE seq = ?1", [seq]).unwrap();
+                assert!(tx(db, |s| live::privacy_report(s, &engine::cohort(s, seq)?, &package.result)).is_err());
+                db.conn.execute("DELETE FROM live_cohorts WHERE seq = ?1", [seq]).unwrap();
+                assert!(tx(db, |s| live::privacy_report(s, &engine::cohort(s, seq)?, &package.result)).is_err());
+            }
+        });
+    }
+}
+
+#[test]
+fn retained_privacy_records_derived_zero_readings_without_a_setup_failure() {
+    let rules = crate::config::RecordRules::parse(Some("reward-v3,quant-v2")).unwrap();
+    let p = LivePlan { eps_live_milli: u32::MAX, ..live_block() };
+    with_live_cohort_budget(Some(p), rules, 200, true, |db, sim, seq| {
+        assert_eq!(sim.run(seq, 3_000), "transition", "{:?}", fault_of(db, seq));
+        let (segments, setup, fault): (i64, String, Option<String>) = db.conn.query_row(
+            "SELECT segments, setup, fault FROM live_cohorts WHERE seq = ?1", [seq],
+            |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?))).unwrap();
+        assert_eq!((segments, setup.as_str(), fault), (0, "done", None));
+        assert_eq!(q1(db, "SELECT COUNT(*) FROM live_releases WHERE seq = ?1 AND kind = 'reading'", seq), 0);
+        let package = sim.packages_v3.last().unwrap().clone();
+        let retained = package.live_privacy.clone().expect("checked zero-readings policy");
+        assert_eq!((retained.segments, retained.eps_live_milli), (0, u32::MAX));
+        let (q, l, t) = retained.costs(&package.result).unwrap();
+        assert_eq!((l, t), (0, q));
+        run_to_close(sim, db, seq, 22);
+        assert_eq!(tx(db, |s| live::privacy_report(s, &engine::cohort(s, seq)?, &package.result)).unwrap(), retained);
+    });
+}
+
+#[test]
+fn failed_live_setup_omits_retained_privacy_without_holding_the_package() {
+    struct ResetPrepare;
+    impl Drop for ResetPrepare {
+        fn drop(&mut self) { live::FAIL_PREPARE.with(|f| f.set(false)); }
+    }
+    let _reset = ResetPrepare;
+    let rules = crate::config::RecordRules::parse(Some("reward-v3,quant-v2")).unwrap();
+    live::FAIL_PREPARE.with(|f| f.set(true));
+    with_live_cohort_rules(Some(live_block()), rules, 200, |db, sim, seq| {
+        assert_eq!(sim.run(seq, 3_000), "transition", "{:?}", fault_of(db, seq));
+        let package = sim.packages_v3.last().unwrap().clone();
+        assert!(package.live_privacy.is_none());
+        assert_eq!(package.components["live_privacy"]["state"], "unavailable");
+        assert_eq!(q1(db, "SELECT COUNT(*) FROM live_releases WHERE seq = ?1 AND kind = 'reading'", seq), 0);
+        let key = format!("{}/{}", engine::receipt_prefix(LIVE_LABEL), slop_ninja_protocol::live_privacy::OBJECT);
+        assert!(!sim.rcpt.contains_key(&key), "failed setup must not persist a zero-cost report");
+        live::FAIL_PREPARE.with(|f| f.set(false));
+        run_to_close(sim, db, seq, 22);
+        assert!(tx(db, |s| live::privacy_report(s, &engine::cohort(s, seq)?, &package.result)).is_err());
+    });
 }

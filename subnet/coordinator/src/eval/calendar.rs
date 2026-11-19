@@ -390,6 +390,7 @@ fn unfingerprinted(sql: &impl Sql, plan: &CohortPlan, next: &NextReferences) -> 
 /// original entry. Either way a paused calendar stays paused until
 /// `POST /eval/template/pause` with `{"paused": false}` resumes it.
 pub fn install(sql: &impl Sql, cfg: &EvalConfig, bytes: &[u8], now_ms: u64) -> R<Value> {
+    super::record_rules::require(sql, &cfg.authority, now_ms)?;
     let t = check(cfg, bytes)?;
     let sha = engine::sha_hex(bytes);
     let replaced = installed_sha(sql)?;
@@ -752,7 +753,7 @@ pub fn check_probe_cut(sql: &impl Sql, plan: &CohortPlan, existing: &[engine::Co
 /// (`config::Authority`), and its template's labels carry its prefix (the
 /// template check refuses any other).
 pub fn due(sql: &impl Sql, cfg: &EvalConfig) -> R<Option<(String, Vec<u8>)>> {
-    if cfg.authority.is_retired() {
+    if cfg.authority.is_retired() || super::record_rules::configure(sql, &cfg.authority, 0, false)?.rules_mismatch() {
         return Ok(None);
     }
     // The next cohort's references must be pinned and present
@@ -771,7 +772,7 @@ pub fn due(sql: &impl Sql, cfg: &EvalConfig) -> R<Option<(String, Vec<u8>)>> {
 /// and the step's reason to run use this; only the calendar's own step
 /// ([`due`]) records a reference error and pauses the template.
 pub fn ready(sql: &impl Sql, cfg: &EvalConfig) -> R<bool> {
-    if cfg.authority.is_retired() {
+    if cfg.authority.is_retired() || super::record_rules::configure(sql, &cfg.authority, 0, false)?.rules_mismatch() {
         return Ok(false);
     }
     Ok(template_ready(sql)?.is_some() && crate::eval::pins::gate(sql, cfg.authority.first_cohort())?.is_none())
@@ -842,6 +843,9 @@ pub fn paused(sql: &impl Sql) -> R<Option<bool>> {
 /// operator can act on (install a template, wait for the open cohort, cut a
 /// probe version).
 pub fn start_now(sql: &impl Sql, cfg: &EvalConfig) -> R<Result<StartPlan, &'static str>> {
+    if super::record_rules::configure(sql, &cfg.authority, 0, false)?.rules_mismatch() {
+        return Ok(Err(super::record_rules::MISMATCH));
+    }
     if cfg.authority.is_retired() {
         return Ok(Err("authority_retired"));
     }

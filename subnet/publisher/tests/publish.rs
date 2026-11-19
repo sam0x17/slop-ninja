@@ -622,8 +622,8 @@ fn gate_feedback_reaches_the_summary_and_a_failing_record_holds_nothing() {
     let record_of = |b: &Built| {
         let result = b.result();
         let t = thresholds(b);
-        let bits = gate_feedback::terms(&t).bits(result.budget.executed).unwrap();
-        GateFeedbackV1::of_package(&b.c.package, &result, b.c.manifest.gate_policy, t, result.budget.total + bits).unwrap()
+        let bits = gate_feedback::terms(&t).bits(result.budget.executed()).unwrap();
+        GateFeedbackV1::of_package(&b.c.package, &result, b.c.manifest.gate_policy, t, result.budget.total() + bits).unwrap()
     };
     let feedback_key = |b: &Built| format!("cohorts/{}/{}", b.label, verify::FEEDBACK);
     let summary_of = |x: &Buckets3, b: &Built| -> CohortSummary {
@@ -640,7 +640,7 @@ fn gate_feedback_reaches_the_summary_and_a_failing_record_holds_nothing() {
     assert_eq!(report.published, vec![b.label.clone()]);
     assert!(report.refused.is_empty(), "{report:?}");
     let summary = summary_of(&x, &b);
-    assert_eq!(summary.schema, "slop_ninja.public.cohort_summary/v4");
+    assert_eq!(summary.schema, "slop_ninja.public.cohort_summary/v5");
     let gates = summary.gates.as_ref().expect("the thresholds");
     assert_eq!(
         (gates.provisional, gates.share_mae_max_ppb, gates.loose_fpr_max_permille, gates.attribution_min_permille),
@@ -648,7 +648,7 @@ fn gate_feedback_reaches_the_summary_and_a_failing_record_holds_nothing() {
     );
     assert_eq!((gates.operating_ppb, gates.strict_fpr_max_permille), (1_000_000_000 / 2, 50));
     assert_eq!(gates.policy, b.c.manifest.gate_policy.hex());
-    assert_eq!(gates.min_success_max_failed, b.c.manifest.params.quant.min_success_max_failed);
+    assert_eq!(gates.min_success_max_failed, b.c.manifest.params.quant.min_success_max_failed());
     let result = b.result();
     for ((e, f), r) in summary.entrants.iter().zip(&record.entrants).zip(&result.entrants) {
         match (f, r.outcome) {
@@ -687,10 +687,11 @@ fn gate_feedback_reaches_the_summary_and_a_failing_record_holds_nothing() {
 
     // Feedback widens only v4 summaries under allow-list v5. A stored v3
     // summary remains valid, but cannot carry any of the new fields.
-    assert_eq!(slop_ninja_publisher::allowlist::ALLOWLIST_VERSION, "slop_ninja.public.allowlist/v5");
+    assert_eq!(slop_ninja_publisher::allowlist::ALLOWLIST_VERSION, "slop_ninja.public.allowlist/v6");
     let key = format!("v1/cohorts/{}/summary.json", b.label);
     let mut legacy: serde_json::Value = serde_json::from_slice(&x.public.bytes(&key).unwrap()).unwrap();
     legacy["schema"] = "slop_ninja.public.cohort_summary/v3".into();
+    legacy.as_object_mut().unwrap().remove("reward_rule");
     legacy.as_object_mut().unwrap().remove("gates");
     for e in legacy["entrants"].as_array_mut().unwrap() {
         e.as_object_mut().unwrap().remove("not_executed");
@@ -736,10 +737,10 @@ fn gate_feedback_reaches_the_summary_and_a_failing_record_holds_nothing() {
         let x = buckets(&b);
         let result = b.result();
         let t = GateThresholds { attribution_min_permille: 500, ..thresholds(&b) };
-        let bits = gate_feedback::terms(&t).bits(result.budget.executed).unwrap();
-        assert_eq!(bits, 2 * u32::from(result.budget.executed));
+        let bits = gate_feedback::terms(&t).bits(result.budget.executed()).unwrap();
+        assert_eq!(bits, 2 * u32::from(result.budget.executed()));
         let record =
-            GateFeedbackV1::of_package(&b.c.package, &result, b.c.manifest.gate_policy, t, result.budget.total + bits)
+            GateFeedbackV1::of_package(&b.c.package, &result, b.c.manifest.gate_policy, t, result.budget.total() + bits)
                 .unwrap();
         x.receipts.insert(&feedback_key(&b), sign(record, &package_key()).unwrap().to_bytes().unwrap());
         let (report, _) = run(&cfg, &x, &mut Memo::default());
@@ -3139,4 +3140,95 @@ fn scoring_start_publication_is_done_only_once_the_eval_worker_took_the_report()
     assert_eq!(taken[0].0, b.c.manifest.cohort);
     assert_eq!(taken[0].1, b.label);
     assert_eq!(taken[0].2.len(), b.c.manifest.roster.len());
+}
+
+/// The actual signed-object reader and public-store allow-list process all
+/// rule pairs. Row shares agree with the protocol's verified result.
+#[test]
+fn all_rule_pairs_publish_versioned_summaries_and_correct_row_shares() {
+    use slop_ninja_protocol::{QuantBlock, QuantParamsV2, RewardRule};
+    let v2 = QuantParamsV2 {
+        identify_bits: u16::MAX, budget_factor: 1,
+        min_success_max_failed: fx::FIXTURE_QUANT.min_success_max_failed,
+        ..slop_ninja_protocol::fixtures_quant2::TESTNET_QUANT2
+    };
+    for reward in [RewardRule::RewardV2, RewardRule::RewardV3] {
+        for quant in [QuantBlock::V1(fx::FIXTURE_QUANT), QuantBlock::V2(v2)] {
+            let b = build_with(|c| {
+                let (manifest, package) = fx::computed_package(reward, quant).unwrap();
+                c.manifest = manifest;
+                c.package = package;
+            });
+            let x = buckets(&b);
+            let (report, _) = run(&config(Some(0), false), &x, &mut Memo::default());
+            assert_eq!(report.published, vec![b.label.clone()], "{reward:?}/{quant:?}: {report:?}");
+            assert!(report.refused.is_empty(), "{report:?}");
+            let key = format!("v1/cohorts/{}/summary.json", b.label);
+            let bytes = x.public.bytes(&key).unwrap();
+            let sm = slop_ninja_publisher::summary::read(&bytes).unwrap();
+            assert_eq!(sm.schema, "slop_ninja.public.cohort_summary/v5");
+            assert_eq!(sm.reward_rule.as_deref(), Some(reward.name()));
+            let q = sm.quantization.as_ref().unwrap();
+            assert_eq!(q.rule, quant.rule().name());
+            assert_eq!((q.sigma.is_some(), q.rho.is_some(), q.mu.is_some()),
+                if matches!(quant, QuantBlock::V2(_)) { (true, true, true) } else { (false, false, false) });
+            let result = b.result();
+            let units = slop_ninja_publisher::dashboard::row_units(&sm);
+            if result.cutoff.is_some() {
+                assert_eq!(units, Some(result.entrants.iter().map(|e| e.units).collect()));
+            } else { assert!(units.is_none()); }
+            for key in x.public.keys() {
+                let bytes = x.public.bytes(&key).unwrap();
+                slop_ninja_publisher::allowlist::check_object(&key, &bytes).unwrap();
+                if key.ends_with(".json") { slop_ninja_publisher::redact::scan_json(&bytes).unwrap(); }
+            }
+            assert_no_score_values(&b, &x);
+        }
+    }
+}
+
+#[test]
+fn retained_privacy_is_available_without_live_polls_and_bad_history_never_means_zero() {
+    use slop_ninja_protocol::{QuantBlock, QuantParamsV2, RewardRule, live_privacy::{LivePrivacy, OBJECT}};
+    let v2 = QuantParamsV2 { identify_bits: u16::MAX, budget_factor: 1,
+        min_success_max_failed: fx::FIXTURE_QUANT.min_success_max_failed,
+        ..slop_ninja_protocol::fixtures_quant2::TESTNET_QUANT2 };
+    let b = build_with(|c| {
+        let (manifest, package) = fx::computed_package(RewardRule::RewardV3, QuantBlock::V2(v2)).unwrap();
+        c.manifest = manifest; c.package = package;
+    });
+    let result = b.result();
+    let retained = LivePrivacy::of(&result, 1000, 4).unwrap();
+    for mode in ["valid", "missing", "wrong_result", "truncated", "extra", "invalid_segments"] {
+        let x = buckets(&b);
+        let key = format!("{}/{}", dir(&b.label), OBJECT);
+        let mut p = retained.clone();
+        if mode == "wrong_result" { p.result = slop_ninja_protocol::Digest([0; 32]); }
+        if mode == "invalid_segments" { p.segments = 1; }
+        let mut bytes = p.to_bytes();
+        if mode == "truncated" { bytes.pop(); }
+        if mode == "extra" { bytes.push(0); }
+        x.receipts.insert(&key, bytes);
+        if mode == "missing" { x.receipts.remove(&key); }
+        let (report, _) = run(&config(Some(0), false), &x, &mut Memo::default());
+        assert_eq!(report.published, vec![b.label.clone()], "{mode}: {report:?}");
+        let public_key = format!("v1/cohorts/{}/summary.json", b.label);
+        let public = x.public.bytes(&public_key).unwrap();
+        let summary = slop_ninja_publisher::summary::read(&public).unwrap();
+        assert_eq!(summary.privacy.is_some(), mode == "valid", "{mode}");
+        assert_eq!(report.refused.iter().any(|(k, _)| k.ends_with(OBJECT)), mode != "valid");
+        if let Some(privacy) = &summary.privacy {
+            assert_eq!(privacy.rho_live, "0.500");
+            privacy.check(summary.quantization.as_ref().unwrap()).unwrap();
+            let mut invalid: serde_json::Value = serde_json::from_slice(&public).unwrap();
+            invalid["privacy"]["rho_total"] = serde_json::json!("0.000");
+            assert!(slop_ninja_publisher::summary::read(&serde_json::to_vec(&invalid).unwrap()).is_none());
+            // The composition remains in the stored summary after a fresh
+            // publisher memo, independent of any old live roster observation.
+            let (_, index) = run(&config(Some(0), false), &x, &mut Memo::default());
+            index.expect("a fresh memo still publishes a valid index");
+            assert_eq!(x.public.bytes(&public_key).unwrap(), public);
+        }
+        assert!(!x.public.keys().iter().any(|k| k.ends_with(OBJECT)));
+    }
 }

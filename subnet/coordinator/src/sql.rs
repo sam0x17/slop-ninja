@@ -762,6 +762,11 @@ pub const CHAIN_JOURNAL_SCHEMA: Schema = Schema {
             version: 15,
             statements: crate::signing::decide::SCHEMA_V15,
         },
+        // v16: immutable rule pair and operator evidence for each restart.
+        Migration {
+            version: 16,
+            statements: crate::signing::decide::SCHEMA_V16,
+        },
     ],
 };
 
@@ -1000,6 +1005,11 @@ pub const EVAL_COHORT_SCHEMA: Schema = Schema {
         Migration {
             version: 31,
             statements: crate::eval::pins::SCHEMA_V31,
+        },
+        // Immutable rule pairs and configuration observations for each authority.
+        Migration {
+            version: 32,
+            statements: crate::eval::record_rules::SCHEMA_V32,
         },
     ],
 };

@@ -260,6 +260,10 @@ SCORER_START_WAIT_MS = "60000"
 EVAL_MAIN_AUTHORITY = "r1"
 EVAL_MAIN_FIRST_COHORT = "22"
 EVAL_MAIN_PREVIOUS = "r0"
+# EVAL_MAIN_RULES defaults to "reward-v2,quant-v1" when absent. A rule
+# change names both rules here in the same switch commit as a fresh authority;
+# authority-check compares this pair with the deployed record before deploy.
+# Never override it through a command-line --var.
 
 [env.eval-testnet.ai]
 binding = "AI"

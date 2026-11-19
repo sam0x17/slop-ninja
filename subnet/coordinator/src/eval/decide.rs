@@ -419,6 +419,7 @@ pub fn release_objects(sql: &impl Sql, cfg: &EvalConfig, req: &Request, key: Opt
 /// token-level action: an inline template (which changes reward inputs) is
 /// not taken here; install it paused first, then start.
 pub fn cohort_start(sql: &impl Sql, cfg: &EvalConfig, req: &Request, key: Option<&OperatorKey>, now_ms: u64) -> R<Answer> {
+    super::record_rules::require(sql, &cfg.authority, now_ms)?;
     let authority = cfg.authority.name().to_owned();
     match operator::begin(sql, req, "eval.cohort_start", false, key, &address(cfg, &authority))? {
         Ok(Begin::Answer(v)) => return Ok(Ok(v)),

@@ -161,8 +161,14 @@ fn build_cohort(mut c: fx::Computed, receipts: u64) -> Built {
     let launch = CalculationTargetV2::launch_burn(fx::chain())
         .digest()
         .unwrap();
-    c.target = CalculationTargetV2::for_package(&c.package, Some(launch)).unwrap();
-    c.closure = fx::closure(&c.manifest, &c.package, Some(&c.target), &c.specs).unwrap();
+    let target = (c.package.mode != slop_ninja_protocol::CutoffMode::NoTarget)
+        .then(|| CalculationTargetV2::for_package(&c.package, Some(launch)).unwrap());
+    c.closure = fx::closure(&c.manifest, &c.package, target.as_ref(), &c.specs).unwrap();
+    // Computed retains a non-optional legacy fixture field. A no-target
+    // package has no target in its closure or stored objects.
+    if let Some(target) = target {
+        c.target = target;
+    }
     let label = c.manifest.cohort_label.clone();
     Built {
         c,
@@ -212,13 +218,20 @@ pub fn store(b: &Built, receipts: &MemStore, admission: &MemStore) {
             .to_bytes()
             .unwrap(),
     );
-    put(
-        "target.signed",
-        sign(c.target.clone(), &package_key())
-            .unwrap()
-            .to_bytes()
-            .unwrap(),
-    );
+    // Synthetic fixtures declare no readings unless a test replaces this.
+    if matches!(b.result().budget, slop_ninja_protocol::BudgetBlock::V2(_)) {
+        put(slop_ninja_protocol::live_privacy::OBJECT,
+            slop_ninja_protocol::live_privacy::LivePrivacy::of(&b.result(), 0, 0).unwrap().to_bytes());
+    }
+    if c.package.mode != slop_ninja_protocol::CutoffMode::NoTarget {
+        put(
+            "target.signed",
+            sign(c.target.clone(), &package_key())
+                .unwrap()
+                .to_bytes()
+                .unwrap(),
+        );
+    }
     put(
         "receipt-index.signed",
         sign(b.index.clone(), &receipt_key())

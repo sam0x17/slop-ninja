@@ -346,8 +346,8 @@ pub fn band_rule(name: &str) -> R<RewardRule> {
 /// The manifest's quantization block at the seal. Under `quant-v1`, the
 /// plan's block. Under `quant-v2` the headroom `H` is signed here (public
 /// data, no privacy cost): with source `previous`, `1 - q` for the released
-/// q of the reference in force from the most recent cohort of this store
-/// that released one; otherwise, or with source `fixed`, the plan's
+/// q of the reference in force from the most recently closed cohort of this
+/// store that published one; otherwise, or with source `fixed`, the plan's
 /// `initial_ppb`.
 pub fn sealed_quant(sql: &impl Sql, v: &RewardV1Plan, references: &ReferenceSet) -> R<slop_ninja_protocol::QuantBlock> {
     let block = v.quant_params().map_err(|e| EvalError::Plan(e.0))?;
@@ -358,14 +358,14 @@ pub fn sealed_quant(sql: &impl Sql, v: &RewardV1Plan, references: &ReferenceSet)
     if source == Some(crate::eval::plan::HEADROOM_PREVIOUS)
         && let Some(q) = released_q(sql, &references.current.content)?
     {
-        let headroom = slop_ninja_protocol::SCORE_SCALE.saturating_sub(q) / slop_ninja_protocol::quant2::UNIT;
+        let headroom = (slop_ninja_protocol::SCORE_SCALE - q) / slop_ninja_protocol::quant2::UNIT;
         params.headroom_pub_ppb = u32::try_from(headroom).map_err(|_| EvalError::State("headroom"))?;
     }
     Ok(slop_ninja_protocol::QuantBlock::V2(params))
 }
 
 /// The most recently released q of the model with inference content
-/// `content` among this store's packaged cohorts, newest first, read a page
+/// `content` among this store's closed, published cohorts, newest first, read a page
 /// of small `released` lists at a time (the reference in force is released
 /// by every packaged cohort of its record, so the first page answers).
 fn released_q(sql: &impl Sql, content: &Digest) -> R<Option<u64>> {
@@ -374,14 +374,17 @@ fn released_q(sql: &impl Sql, content: &Digest) -> R<Option<u64>> {
     loop {
         let rows = sql.exec(
             "SELECT v3 ->> 'released' FROM cohorts
-              WHERE package_digest IS NOT NULL AND phase IN ('transition','closed') AND v3 ->> 'released' IS NOT NULL
-              ORDER BY seq DESC LIMIT ? OFFSET ?",
+              WHERE package_digest IS NOT NULL AND phase = 'closed'
+                AND published_epoch IS NOT NULL AND closed_epoch IS NOT NULL
+                AND v3 ->> 'released' IS NOT NULL
+              ORDER BY closed_epoch DESC, seq DESC LIMIT ? OFFSET ?",
             &[i(PAGE), i(offset)],
         )?;
         for r in &rows {
             let Some(t) = opt_text(r, 0) else { continue };
             let released: Vec<(H, u64)> = serde_json::from_str(&t).map_err(|_| EvalError::State("released q"))?;
             if let Some((_, q)) = released.iter().find(|(h, _)| h.0 == *content) {
+                slop_ninja_protocol::Score::new(*q).map_err(|_| EvalError::State("released q outside score range"))?;
                 return Ok(Some(*q));
             }
         }
@@ -2540,6 +2543,9 @@ pub fn vector_digest(v: &[Option<Probability>]) -> Digest {
 /// What the package step produced for a v3 cohort.
 #[derive(Clone, Debug)]
 pub struct PackageV3 {
+    /// Optional operator policy metadata for the closed quant-v2 display.
+    /// Stored privately; unlike `result`, this report is not signed.
+    pub live_privacy: Option<slop_ninja_protocol::live_privacy::LivePrivacy>,
     pub manifest: CohortManifestV2,
     /// Private: exact scores and every hidden measurement. It stays in the
     /// coordinator's storage.
@@ -3094,7 +3100,19 @@ pub fn prepare_package(
     if let (Some(_), Some(o)) = (&v.feedback, components.as_object_mut()) {
         o.insert("feedback".into(), feedback_components);
     }
+    let live_privacy = if matches!(result.budget, slop_ninja_protocol::BudgetBlock::V2(_)) {
+        match crate::eval::live::privacy_report(sql, c, &result) {
+            Ok(report) => Some(report),
+            Err(e) => {
+                if let Some(o) = components.as_object_mut() {
+                    o.insert("live_privacy".into(), json!({"state": "unavailable", "reason": e.code()}));
+                }
+                None
+            }
+        }
+    } else { None };
     Ok(PackageV3 {
+        live_privacy,
         manifest,
         package,
         result,

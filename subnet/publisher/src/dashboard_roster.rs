@@ -271,6 +271,12 @@ pub struct LiveBlock {
     /// One reading's standard deviation, rounded up to thousandths.
     pub noise_sd: Option<String>,
     pub eps_live_milli: u32,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub rho_quant: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub rho_live: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub rho_total: Option<String>,
     pub bits: LiveBits,
     pub reference: Option<LiveReference>,
     pub prefinal: Option<LivePrefinal>,
@@ -297,13 +303,13 @@ pub struct LiveReference {
     pub stopped: bool,
 }
 
-/// The references' pre-finalized scores on the cohort's `quant-v1` grid
-/// and the margin line that follows from `R_k`'s.
+/// The cohort's quantization grid, the references' pre-finalized scores
+/// when available, and the margin line that follows from `R_k`'s.
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct LivePrefinal {
     pub quantization: LiveQuantization,
-    pub current: String,
+    pub current: Option<String>,
     pub predecessor: Option<String>,
     pub margin_line: Option<String>,
 }
@@ -313,6 +319,12 @@ pub struct LivePrefinal {
 pub struct LiveQuantization {
     pub rule: String,
     pub width: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub sigma: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub rho: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub mu: Option<String>,
 }
 
 /// One entrant's scoring progress, counts only. `pending`: its scoring has
@@ -458,6 +470,9 @@ pub(super) const ROSTER_PATHS: &[&str] = &[
     "live.released_max",
     "live.noise_sd",
     "live.eps_live_milli",
+    "live.rho_quant",
+    "live.rho_live",
+    "live.rho_total",
     "live.bits",
     "live.bits.counted",
     "live.bits.live",
@@ -471,6 +486,9 @@ pub(super) const ROSTER_PATHS: &[&str] = &[
     "live.prefinal.quantization",
     "live.prefinal.quantization.rule",
     "live.prefinal.quantization.width",
+    "live.prefinal.quantization.sigma",
+    "live.prefinal.quantization.rho",
+    "live.prefinal.quantization.mu",
     "live.prefinal.current",
     "live.prefinal.predecessor",
     "live.prefinal.margin_line",
@@ -653,17 +671,30 @@ fn check_live_block(b: &LiveBlock) -> Result<(), String> {
     {
         return Err("live reference".into());
     }
+    check_rho_terms(b)?;
     if let Some(p) = &b.prefinal {
+        let gaussian = p.quantization.rule == slop_ninja_protocol::quant2::QUANT_RULE;
+        crate::summary::quantization_shape(&serde_json::to_value(&p.quantization).map_err(|_| "live quantization")?)
+            .ok_or("live quantization display")?;
+        if b.rho_quant.is_some() != gaussian {
+            return Err("live quantization display".into());
+        }
+        if gaussian && b.rho_quant != p.quantization.rho { return Err("live rho terms".into()); }
         let qw = grid_width(&p.quantization.width)?;
         if !crate::status::known_quant_rule(&p.quantization.rule) {
             return Err("live quantization rule".into());
         }
-        let cur = quant::parse_grid(&p.current, qw).map_err(|_| "live current off the grid")?;
+        let cur = p.current.as_deref().map(|v| quant::parse_grid(v, qw)).transpose()
+            .map_err(|_| "live current off the grid")?;
+        if cur.is_none() && (p.quantization.rule != slop_ninja_protocol::quant2::QUANT_RULE
+            || p.predecessor.is_some() || p.margin_line.is_some()) {
+            return Err("live reference missing for its rule or dependent values".into());
+        }
         if p.predecessor.as_deref().is_some_and(|v| quant::parse_grid(v, qw).is_err()) {
             return Err("live predecessor off the grid".into());
         }
         if let Some(m) = &p.margin_line
-            && quant::parse_grid(m, qw).map_err(|_| "live margin line off the grid")? < cur
+            && quant::parse_grid(m, qw).map_err(|_| "live margin line off the grid")? < cur.ok_or("live margin without reference")?
         {
             return Err("live margin line below the reference".into());
         }
@@ -671,9 +702,32 @@ fn check_live_block(b: &LiveBlock) -> Result<(), String> {
     Ok(())
 }
 
+/// Validate the composition using the exact live epsilon and the interval
+/// represented by the upward-rounded quant rho. Rounding each component
+/// separately can make their displayed sum one thousandth too large.
+pub(super) fn check_rho_terms(b: &LiveBlock) -> Result<(), String> {
+    let (q, l, t) = match (&b.rho_quant, &b.rho_live, &b.rho_total) {
+        (None, None, None) => return Ok(()),
+        (Some(q), Some(l), Some(t)) => (q, l, t),
+        _ => return Err("incomplete live rho terms".into()),
+    };
+    let parse = |s: &str| crate::summary::display_milli(s).map(u128::from).ok_or("live rho display");
+    let (q, l, t) = (parse(q)?, parse(l)?, parse(t)?);
+    let live_micro = if b.segments >= slop_ninja_protocol::live::MIN_SEGMENTS {
+        u128::from(b.eps_live_milli).pow(2).div_ceil(2)
+    } else { 0 };
+    let high = q * 1000;
+    let low = high.saturating_sub(999);
+    if l != live_micro.div_ceil(1000) || t < (low + live_micro).div_ceil(1000)
+        || t > (high + live_micro).div_ceil(1000) {
+        return Err("inconsistent live rho terms".into());
+    }
+    Ok(())
+}
+
 /// An entrant's live values: checkpoints on the block's grid (or
-/// `withheld`), at most `released_max`; a pre-finalized value only with the
-/// references', on their grid (or `withheld`).
+/// `withheld`), at most `released_max`; a pre-finalized value on the cohort's
+/// grid (or `withheld`). Quant-v2 seals that grid before the reference finishes.
 fn check_live_row(b: &LiveBlock, r: &LiveRow) -> Result<(), String> {
     use slop_ninja_protocol::{live, quant};
     let w = b.width.as_deref().map(grid_width).transpose()?;
@@ -681,7 +735,7 @@ fn check_live_row(b: &LiveBlock, r: &LiveRow) -> Result<(), String> {
         return Err("live checkpoints".into());
     }
     if let Some(v) = &r.prefinal {
-        let p = b.prefinal.as_ref().ok_or("an entrant's prefinal before the reference's")?;
+        let p = b.prefinal.as_ref().ok_or("an entrant's prefinal without its grid")?;
         let qw = grid_width(&p.quantization.width)?;
         if v != live::WITHHELD && quant::parse_grid(v, qw).is_err() {
             return Err("live prefinal off the grid".into());
@@ -976,6 +1030,13 @@ pub fn running_roster(
 
 /// The roster's live block from the eval Worker's checked view.
 fn live_block(l: &LiveScoresView) -> LiveBlock {
+    let privacy = l.quant_rho_micro.and_then(|r| {
+        let live_micro = if l.segments >= slop_ninja_protocol::live::MIN_SEGMENTS { u64::from(l.eps_live_milli).pow(2).div_ceil(2) } else { 0 };
+        let total = r.checked_add(live_micro)?;
+        let f = |micro: u64| slop_ninja_protocol::live::format_milli(micro.div_ceil(1000));
+        Some((f(r), f(live_micro), f(total)))
+    });
+    let (rho_quant, rho_live, rho_total) = privacy.map_or((None, None, None), |(q, l, t)| (Some(q), Some(l), Some(t)));
     let grid = |w: u64| {
         let mut buf = [0u8; slop_ninja_protocol::quant::MAX_DECIMAL_LEN];
         slop_ninja_protocol::quant::format_grid(w, w, &mut buf).map(str::to_owned).unwrap_or_default()
@@ -987,6 +1048,7 @@ fn live_block(l: &LiveScoresView) -> LiveBlock {
         released_max: l.segments.saturating_sub(1),
         noise_sd: l.noise_sd.clone(),
         eps_live_milli: l.eps_live_milli,
+        rho_quant, rho_live, rho_total,
         bits: LiveBits { counted: l.bits.0, live: l.bits.1, bound: l.bits.2 },
         reference: l.reference.as_ref().map(|r| LiveReference {
             done: r.done,
@@ -995,7 +1057,7 @@ fn live_block(l: &LiveScoresView) -> LiveBlock {
             stopped: r.stopped,
         }),
         prefinal: l.prefinal.as_ref().map(|p| LivePrefinal {
-            quantization: LiveQuantization { rule: p.rule.clone(), width: grid(p.width) },
+            quantization: LiveQuantization { rule: p.rule.clone(), width: grid(p.width), sigma: p.sigma.clone(), rho: p.rho.clone(), mu: p.mu.clone() },
             current: p.current.clone(),
             predecessor: p.predecessor.clone(),
             margin_line: p.margin_line.clone(),
@@ -1053,7 +1115,9 @@ pub fn live_values(d: &RosterDoc) -> Vec<LiveShown> {
         }
     }
     if let Some(p) = &b.prefinal {
-        push("current", "prefinal", 0, &p.current);
+        if let Some(v) = &p.current {
+            push("current", "prefinal", 0, v);
+        }
         if let Some(v) = &p.predecessor {
             push("predecessor", "prefinal", 0, v);
         }

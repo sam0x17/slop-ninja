@@ -3425,7 +3425,7 @@ fn store_v21_restarts_the_reader_call_maxima_and_keeps_the_failure_count() {
     let max = tx(&db, |q| q.exec("SELECT plan_ms_max FROM commit_reader WHERE id = 1", &[])).unwrap();
     assert_eq!(crate::sql::int(&max[0], 0).unwrap(), 3000);
     let report = tx(&db, |s| crate::sql::migrate(s, &EVAL_COHORT_SCHEMA)).unwrap();
-    assert_eq!((report.from, report.to), (20, 31));
+    assert_eq!((report.from, report.to), (20, 32));
     let c = calls(&db);
     assert_eq!((c["plan_ms_max"].as_i64(), c["ingest_ms_max"].as_i64(), c["failed"].as_i64()), (Some(0), Some(0), Some(1)));
     assert_eq!(c["plan_ms_last"], 80);
@@ -4320,7 +4320,7 @@ fn store_v25_refuses_a_live_v1_admission_then_replaces_the_session_tables() {
         )
         .unwrap();
     let report = tx(&db, |s| crate::sql::migrate(s, &EVAL_COHORT_SCHEMA)).unwrap();
-    assert_eq!((report.from, report.to), (24, 31));
+    assert_eq!((report.from, report.to), (24, 32));
     let queued: std::collections::BTreeSet<(String, Option<String>)> =
         tx(&db, |s| object_deletes_due(s, 10, crate::wire::MAX_SAFE_INTEGER)).unwrap().into_iter().collect();
     let want: std::collections::BTreeSet<(String, Option<String>)> = ["d", "e"]

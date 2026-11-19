@@ -69,6 +69,7 @@ pub mod pins;
 pub mod probe_cut;
 pub mod reference;
 pub mod receipts;
+pub mod record_rules;
 pub mod retention;
 pub mod score;
 pub mod scorer_client;

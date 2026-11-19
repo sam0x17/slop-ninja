@@ -1943,7 +1943,7 @@ fn v4_storage_upgrades_with_its_signing_journal_intact() {
         )
         .unwrap();
     let report = tx(&db, |sql| migrate(sql, &CHAIN_JOURNAL_SCHEMA)).unwrap();
-    assert_eq!((report.from, report.to), (4, 15));
+    assert_eq!((report.from, report.to), (4, 16));
     let s = tx(&db, signer).unwrap();
     assert_eq!(
         (s.state.as_str(), s.nonce_floor, s.runtime, s.runtime_block),

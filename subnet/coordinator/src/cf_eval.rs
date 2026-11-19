@@ -782,6 +782,26 @@ impl DurableObject for EvalCohort {
             return error("not_configured", 503);
         };
         let now = now_ms();
+        let cfg = if cfg.is_load() {
+            cfg
+        } else {
+            match transaction(&storage, move |sql| {
+                let mut cfg = cfg;
+                cfg.authority = crate::eval::record_rules::configure(sql, &cfg.authority, now, may_create)?;
+                Ok::<_, crate::sql::StoreError>(cfg)
+            }) {
+                Ok(cfg) => cfg,
+                Err(_) => return error("record_rules_unavailable", 503),
+            }
+        };
+        // Keep reads, recovery and existing work available during drift. No
+        // new plan/template may pass its preflight under different rules.
+        if cfg.authority.rules_mismatch()
+            && req.method() == Method::Post
+            && matches!(path.as_str(), "/plan" | "/template" | "/cohort/start")
+        {
+            return error(crate::eval::record_rules::MISMATCH, 409);
+        }
         // The lanes' routes; the operator's vendor clear, under `/gen/`
         // too, is answered below (`lanes::lane_route_path`).
         if lanes::lane_route_path(&path) {
@@ -969,6 +989,8 @@ impl DurableObject for EvalCohort {
                         v["authority"] = j!(self.state.id().to_string());
                         v["authority_name"] = j!(cfg.authority.name());
                         v["record_rules"] = j!(cfg.authority.rules().name());
+                        v["configured_record_rules"] = j!(cfg.authority.configured_rules().name());
+                        v["record_rules_mismatch"] = j!(cfg.authority.rules_mismatch());
                         v["authority_retired"] = j!(cfg.authority.is_retired());
                         v["first_cohort"] = j!(cfg.authority.first_cohort());
                         v["label_prefix"] = j!(cfg.authority.label_prefix());
@@ -1595,7 +1617,13 @@ impl EvalCohort {
         } else {
             None
         };
-        own_config(&self.env, instance, &own, superseded.as_deref())
+        let mut cfg = own_config(&self.env, instance, &own, superseded.as_deref())?;
+        if !cfg.is_load() {
+            cfg.authority = transaction(&storage, move |sql| {
+                crate::eval::record_rules::configure(sql, &cfg.authority, now_ms(), true)
+            }).map_err(|_| "record rules read")?;
+        }
+        Ok(cfg)
     }
 
     /// Before a named authority's plan or template: every predecessor
@@ -3320,6 +3348,9 @@ impl EvalCohort {
         // result after close.
         if let Some(f) = &b.feedback {
             objects.push(("gate-feedback.signed", package::signed_bytes(f.clone(), &package_key).map_err(|e| e.0)?));
+        }
+        if let Some(report) = &b.live_privacy {
+            objects.push((slop_ninja_protocol::live_privacy::OBJECT, report.to_bytes()));
         }
         objects.push((
             "keys.json",

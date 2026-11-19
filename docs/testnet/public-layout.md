@@ -55,7 +55,7 @@ companion are attached to the testnet release as two tar archives
   predictions, spend figures or credentials. The
   [redaction rules](../../subnet/publisher/src/redact.rs) say how this is
   enforced. A publisher built from this tree publishes only what the
-  versioned allow-list (`slop_ninja.public.allowlist/v4`,
+  versioned allow-list (`slop_ninja.public.allowlist/v5`,
   [`allowlist.rs`](../../subnet/publisher/src/allowlist.rs)) names. Per
   cohort that is a summary ([below](#the-cohort-summary-summaryjson)) of
   the coordinator's quantized scores under `quant-v1`: the grid width,
@@ -141,6 +141,9 @@ bit budget are recomputed from the published values alone
 state of every entrant (below).
 
 ### Gate feedback: `gate-feedback.signed`
+
+Gate feedback, summary v4 and allow-list v5 are built, not deployed. The
+live publisher still writes summary v3; existing summaries stay unchanged.
 
 A cohort whose plan names `reward_v1.feedback` (rule
 `slop_ninja_gate_feedback_v1`) stores a second public record beside the

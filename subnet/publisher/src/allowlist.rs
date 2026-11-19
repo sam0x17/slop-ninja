@@ -1,5 +1,5 @@
 //! The versioned allow-list of everything the public host may carry
-//! (`slop_ninja.public.allowlist/v4`).
+//! (`slop_ninja.public.allowlist/v5`).
 //!
 //! Validators and the public never learn held-out data (user rule,
 //! 2026-11-04): every object in the public bucket must be one this module
@@ -61,7 +61,7 @@
 //! (`artifacts/v2/ModernBERT-base-LICENSE`), each the compiled text byte for
 //! byte ([`crate::layout::ARTIFACT_NOTICES`]).
 //!
-//! Version 4 adds the gate feedback to the cohort summary
+//! Version 5 adds the gate feedback to the cohort summary
 //! (v4) only: each never-executed entrant's public reason (`not_executed`),
 //! each scored entrant's coarse failed-gate classes (`gate_classes`, no
 //! statistic or reason code) and the cohort's gate thresholds (`gates`, plan
@@ -86,7 +86,7 @@ use slop_ninja_protocol::{
 
 use crate::layout;
 
-pub const ALLOWLIST_VERSION: &str = "slop_ninja.public.allowlist/v4";
+pub const ALLOWLIST_VERSION: &str = "slop_ninja.public.allowlist/v5";
 
 /// What a public key holds.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

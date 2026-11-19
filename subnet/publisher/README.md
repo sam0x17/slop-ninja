@@ -18,15 +18,19 @@ into static public objects. Once a minute it:
    `QuantizedResult` (`result.signed`, `quant-v1`) and its closure (at most
    one to completion per run); it never reads the private score package or
    the components. It then writes only the cohort's allow-listed summary
-   (`v1/cohorts/<label>/summary.json`, schema v3: the grid width, per
+   (`v1/cohorts/<label>/summary.json`, schema v4: the grid width, per
    entrant in roster order its quantized score `q`, band, gate and
    public-copy gate bits and cluster membership, the cluster named by its
    first member in roster order, `R_k` and `R_k-1` with their `q`, and the
-   cutoff and bands on the grid; no exact score and no rank) into the
+   cutoff and bands on the grid; no exact score and no rank). Summary v4
+   also carries admission reasons for unexecuted entrants and, when its
+   optional signed gate feedback record verifies, the gate thresholds and
+   coarse failed-gate classes. These additions and allow-list v5 are built,
+   not deployed; the live publisher still writes summary v3. It writes into the
    separate public-candidate bucket and lists the cohort in the public
    index. The coordinator's signed records, its receipts, receipt index,
    chunk maps and bundles, its published-content and fingerprint indexes
-   and its components stay private (`allowlist.rs`, version 3, names every
+   and its components stay private (`allowlist.rs`, version 5, names every
    public object and field). Cohorts are listed strictly in order: one
    that is incomplete or unreadable for now (a store error, an object not
    stored yet, or a closure or manifest that does not answer during the

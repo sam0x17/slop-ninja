@@ -685,6 +685,36 @@ fn gate_feedback_reaches_the_summary_and_a_failing_record_holds_nothing() {
     }
     assert_no_score_values(&b, &x);
 
+    // Feedback widens only v4 summaries under allow-list v5. A stored v3
+    // summary remains valid, but cannot carry any of the new fields.
+    assert_eq!(slop_ninja_publisher::allowlist::ALLOWLIST_VERSION, "slop_ninja.public.allowlist/v5");
+    let key = format!("v1/cohorts/{}/summary.json", b.label);
+    let mut legacy: serde_json::Value = serde_json::from_slice(&x.public.bytes(&key).unwrap()).unwrap();
+    legacy["schema"] = "slop_ninja.public.cohort_summary/v3".into();
+    legacy.as_object_mut().unwrap().remove("gates");
+    for e in legacy["entrants"].as_array_mut().unwrap() {
+        e.as_object_mut().unwrap().remove("not_executed");
+        e.as_object_mut().unwrap().remove("gate_classes");
+    }
+    let legacy_bytes = serde_json::to_vec(&legacy).unwrap();
+    slop_ninja_publisher::allowlist::check_object(&key, &legacy_bytes).unwrap();
+    assert!(slop_ninja_publisher::summary::read(&legacy_bytes).is_some());
+    for field in ["gates", "not_executed", "gate_classes"] {
+        let mut expanded = legacy.clone();
+        if field == "gates" {
+            expanded[field] = serde_json::to_value(gates).unwrap();
+        } else {
+            expanded["entrants"][0][field] = if field == "gate_classes" {
+                serde_json::json!(["share"])
+            } else {
+                serde_json::json!("copy")
+            };
+        }
+        let bytes = serde_json::to_vec(&expanded).unwrap();
+        assert!(slop_ninja_publisher::allowlist::check_object(&key, &bytes).is_err(), "{field}");
+        assert!(slop_ninja_publisher::summary::read(&bytes).is_none(), "{field}");
+    }
+
     // Every class reaches the summary in code order: zeta failing the
     // attribution gate alone, the loose false-positive tier alone, and all
     // three, under thresholds where attribution can fail (two bits per

@@ -1,7 +1,7 @@
 //! The public summary of one closed cohort
 //! (`v1/cohorts/<label>/summary.json`, schema
-//! `slop_ninja.public.cohort_summary/v3`): the only cohort object the public
-//! host carries.
+//! `slop_ninja.public.cohort_summary/v4`): the public summary derived from
+//! the verified result and optional gate feedback record.
 //!
 //! The coordinator keeps every record computed from the hidden evaluation
 //! private: the signed manifest's strata and source groups, the score
@@ -11,7 +11,7 @@
 //! published-content and fingerprint indexes, the components and every
 //! receipt. What it publishes is the signed `QuantizedResult` (`quant-v1`),
 //! which the publisher verifies in the private bucket
-//! ([`crate::verify`]) and from which alone this summary is built:
+//! ([`crate::verify`]). This summary carries:
 //!
 //! - the grid, as `quantization {rule, width}`; every score below is a
 //!   multiple of `width`, printed with exactly its decimals;

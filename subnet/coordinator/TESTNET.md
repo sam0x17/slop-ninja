@@ -957,15 +957,15 @@ printf 'Authorization: Bearer %s\n' "$(cat $S/eval_operator_token)" |
 #   result.signed at packaging: the plan's gate thresholds (bound into the manifest's gate-policy
 #   digest, which gains a "feedback" entry for such plans only) and per scored entrant its failed
 #   gate classes among share, attribution and human_fpr; never a gate failure of the package (a
-#   build error, a plan policy document that no longer hashes to the manifest's gate-policy digest,
-#   or an enforced span gate without its own record drops the record: components.feedback.error).
+#   build error or a plan policy document that no longer hashes to the manifest's gate-policy digest
+#   drops the record: components.feedback.error). Span enforcement is refused by this build.
 #   Its bits, max(g - 1, 0) per executed entrant (g the classes the gates can fail; 1 at the r1
 #   template's gates), join the plan's counted terms, so plan validation refuses a template whose
 #   worst case no longer fits (with the span gate's block too, for rosters above 38 entrants at
 #   n 1,000, h 8, F 10) and live-v1's L(X) shrinks.
 #   The package step admits its term (arena_routes::feedback_package_bytes). Older eval builds refuse
-#   a plan naming the block. Deploy order: the publisher that reads the record (summary v4,
-#   allow-list v4) before or with the eval Worker, then a template naming the block.
+#   a plan naming the block. Deploy order: the publisher that reads the record (summary v5,
+#   allow-list v6) before or with the eval Worker, then a template naming the block.
 # void one cohort's measured span conditions before its packaging starts (journaled, idempotent):
 #   POST /eval/span-gate/void {"label", "decision", "reason"[, "withdraw": true]}
 #   (decision_reused for another body under a used id; span_gate_void_after_packaging once

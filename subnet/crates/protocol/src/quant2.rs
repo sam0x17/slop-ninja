@@ -36,9 +36,10 @@
 //!   carries about the batch ([`noisy_bits`]). The grid width is public and
 //!   adds no term.
 //!
-//! Keys use new domains (`.../offset/v3`, `.../noise/v3`), so no quant-v2
-//! draw equals a quant-v1 draw even under a reused manifest digest; the
-//! stream blocks are unchanged. Subjects stay keyed by inference content, so
+//! Keys use new domains (`.../offset/v3`, `.../noise/v3`), separating the
+//! quant-v2 streams from quant-v1 even under a reused manifest digest;
+//! sampled values can still coincide. Stream blocks are unchanged.
+//! Subjects stay keyed by inference content, so
 //! identical copies share one draw.
 //!
 //! Everything here is integer arithmetic on fixed-size values: no floating

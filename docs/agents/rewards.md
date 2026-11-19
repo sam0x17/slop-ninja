@@ -76,10 +76,11 @@ false-positive tier. The span gate keeps its own record and the public-copy
 gate its bit. The result's gate bit is a function of the set, so the record
 counts `max(g - 1, 0)` more bits per executed entrant, `g` being the classes
 the thresholds let fail. At testnet's thresholds (attribution cannot fail)
-that is one bit: 786 of the 800 bits `n h / F` allows at 40 entrants, against
+that is one bit. Under quant-v1, the total is 786 of the 800 bits `n h / F`
+allows at 40 entrants, against
 746 without it. Naming the span gate's record as well gives 828 at 40, so
 such a plan is refused for rosters above 38 entrants unless `h` or `F`
-change. At testnet's live block the record shrinks the `live-v1` segment
+change. With quant-v1 and testnet's live block the record shrinks the `live-v1` segment
 count only at 29, 30, 31, 34 and 35 executed entrants.
 
 Pre-finalized scores and readings (whitepaper Section 5; built, not yet

@@ -80,7 +80,7 @@ fn history_entry(r: &StoredResult) -> HistoryEntry {
     HistoryEntry {
         scored_at: r.scored_at,
         package: HistoryPackage { label: r.package_label.clone(), published_digest: r.package_pub.clone() },
-        band: r.band,
+        band: r.display_band(),
         confidence_text: r.confidence_text.clone(),
         share_text: r.share_text.clone(),
     }

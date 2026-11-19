@@ -115,6 +115,43 @@ fn result(load: &str) -> StoredResult {
     r
 }
 
+#[test]
+fn short_display_labels_update_without_rewriting_stored_scores() {
+    use slop_ninja_detect_page::codes::{Band, Kind, LengthBin, SpansNote};
+    use slop_ninja_detect_worker::save::summary;
+    let w = World::new();
+    for bin in [LengthBin::Short24, LengthBin::Short50, LengthBin::Short100] {
+        let mut r = result("load-new");
+        r.length = Some(bin);
+        r.band = Some(Band::Unclear);
+        r.spans_note = Some(SpansNote::StrongBandsOnly);
+        for (confidence, expected) in
+            [(699, Band::Unclear), (700, Band::Strong), (701, Band::Strong), (800, Band::Strong)]
+        {
+            r.confidence_tenths = Some(confidence);
+            let before = serde_json::to_vec(&r).unwrap();
+            let run = r.to_run(&w.serving);
+            assert_eq!(run.band, Some(expected));
+            assert_eq!(run.confidence_tenths, r.confidence_tenths);
+            assert_eq!(run.policy, r.policy);
+            assert_eq!(serde_json::to_vec(&r).unwrap(), before);
+            assert_eq!(summary(Kind::PrivateText, &r, 1).band, Some(expected));
+            if expected == Band::Strong {
+                assert!(run.spans_note.is_none());
+            }
+        }
+        r.band = Some(Band::VeryStrong);
+        assert_eq!(r.display_band(), Some(Band::VeryStrong));
+        r.band = None;
+        assert_eq!(r.display_band(), None);
+    }
+    let mut long = result("load-new");
+    long.length = Some(LengthBin::Measured);
+    long.band = Some(Band::Unclear);
+    long.confidence_tenths = Some(800);
+    assert_eq!(long.to_run(&w.serving).band, Some(Band::Unclear));
+}
+
 fn sealed(w: &World, text: &str, load: &str) -> Sealed {
     let mut nonce = vec![0u8; 12];
     slop_ninja_detect_worker::db::Io::fill(&w.h, &mut nonce);

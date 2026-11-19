@@ -1,5 +1,13 @@
 # Evidence behind the detection page
 
+Current short-text display policy (19 November 2026): for 24 to 149 words,
+Strong starts at 70% calibrated involvement confidence. Unclear still starts
+at 50%, and each length bin retains its existing Very strong threshold.
+Calibration maps and numerical scores are unchanged. Existing pages apply
+the current label to their retained confidence without rewriting stored runs.
+The short-text tables below retain the originally measured operating points;
+their Strong-band error rates do not measure the new 70% label.
+
 SlopNinja's free detection page, planned at `slop.ninja/detect/`, scores one
 pasted English text with *A*, SlopNinja's AI-text detector. For each text of
 24 words or more the page shows:

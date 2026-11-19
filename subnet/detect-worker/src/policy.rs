@@ -22,9 +22,10 @@
 //!   (`docs/detect-evidence.md`, short texts). Each short bin has its own
 //!   isotonic map, fitted on Calibration-split excerpts of that length, from
 //!   the scorer's `calibration_input` (the release map's own input) to the
-//!   confidence the page prints, and its own cuts, chosen on the
-//!   Calibration split by the release's rule: strong at the 1% point, very
-//!   strong at the 0.1% point, unclear from 50%. The maps belong to one
+//!   confidence the page prints. The current product labels are unclear from
+//!   50% and strong from 70%, retaining each bin's measured very-strong cut.
+//!   Historical 1%-FPR strong cuts remain in the frozen maps as evidence;
+//!   those rates do not describe the current 70% label. The maps belong to one
 //!   package (span package d24, by its published digest) and are bound by
 //!   their file's digest ([`SHORT_MAPS_SHA256`]); under another package, or
 //!   without the input, a short text gets the measured minimum of 150 words
@@ -46,6 +47,8 @@ pub const STRONG_CUT: f64 = 0.9090909090909091;
 pub const VERY_STRONG_CUT: f64 = 0.9998820476527482;
 /// Below this the result is in the weak band.
 pub const UNCLEAR_CUT: f64 = 0.5;
+/// Product label for short texts, independent of the historical FPR operating points.
+pub const SHORT_STRONG_CUT: f64 = 0.70;
 /// The span floor: no passage under 24 words is ever shown.
 pub const SPAN_MIN_WORDS: u64 = 24;
 
@@ -100,9 +103,7 @@ impl Band {
     }
 
     pub fn from_code(s: &str) -> Option<Band> {
-        [Band::VeryStrong, Band::Strong, Band::Unclear, Band::Weak]
-            .into_iter()
-            .find(|b| b.code() == s)
+        [Band::VeryStrong, Band::Strong, Band::Unclear, Band::Weak].into_iter().find(|b| b.code() == s)
     }
 
     /// Whether passages may be highlighted in this band.
@@ -196,11 +197,11 @@ impl ShortMap {
         Some(y0 + (y1 - y0) * (x - x0) / (x1 - x0))
     }
 
-    /// The band of a confidence `p` (a probability) under the bin's cuts.
+    /// The current display band: strong from 70%, with the bin's existing very-strong ceiling.
     pub fn band(&self, p: f64) -> Band {
         if p >= self.very_strong {
             Band::VeryStrong
-        } else if p >= self.strong {
+        } else if p >= SHORT_STRONG_CUT {
             Band::Strong
         } else if p >= self.unclear {
             Band::Unclear
@@ -290,10 +291,10 @@ impl ShortMaps {
                 knots: b.knots.into_iter().map(|[x, y]| (x, y)).collect(),
             };
             let pairs = || m.knots.iter().zip(m.knots.iter().skip(1));
-            let inputs_ok =
-                pairs().all(|(a, b)| a.0 < b.0) && m.knots.iter().all(|k| k.0.is_finite() && (0.0..=1.0).contains(&k.0));
-            let levels_ok =
-                pairs().all(|(a, b)| a.1 <= b.1) && m.knots.iter().all(|k| k.1.is_finite() && m.lo <= k.1 && k.1 <= m.hi);
+            let inputs_ok = pairs().all(|(a, b)| a.0 < b.0)
+                && m.knots.iter().all(|k| k.0.is_finite() && (0.0..=1.0).contains(&k.0));
+            let levels_ok = pairs().all(|(a, b)| a.1 <= b.1)
+                && m.knots.iter().all(|k| k.1.is_finite() && m.lo <= k.1 && k.1 <= m.hi);
             let is_level = |c: f64| m.knots.iter().any(|k| k.1 == c);
             let cuts_ok = [m.lo, m.hi, m.unclear, m.strong, m.very_strong].iter().all(|c| c.is_finite())
                 && 0.0 < m.lo
@@ -488,7 +489,7 @@ mod tests {
     /// band, the largest input below it is not.
     #[test]
     fn each_bin_has_its_own_map_and_cuts() {
-        for (b, strong, very_strong) in CUTS {
+        for (b, _strong, very_strong) in CUTS {
             let m = b.short_map(D24).unwrap();
             let (first, last) = (m.knots[0], *m.knots.last().unwrap());
             assert_eq!(m.confidence(0.0), Some(first.1));
@@ -504,7 +505,8 @@ mod tests {
                 let mid = m.confidence(x0 + (x1 - x0) / 2.).unwrap();
                 assert!(y0 <= mid && mid <= y1, "{b:?}: {mid} outside [{y0}, {y1}]");
             }
-            for (cut, band) in [(strong, Band::Strong), (very_strong, Band::VeryStrong)] {
+            {
+                let (cut, band) = (very_strong, Band::VeryStrong);
                 let at = m.knots.iter().position(|k| k.1 == cut).unwrap();
                 let x = m.knots[at].0;
                 assert_eq!(m.band(m.confidence(x).unwrap()), band, "{b:?} at {cut}");
@@ -514,15 +516,18 @@ mod tests {
                 assert_eq!(m.band(cut), band);
                 assert!(m.band(below(cut)) < band);
             }
+            assert_eq!(m.band(below(SHORT_STRONG_CUT)), Band::Unclear);
+            assert_eq!(m.band(SHORT_STRONG_CUT), Band::Strong);
+            assert_eq!(m.band(0.80), Band::Strong);
             assert_eq!(m.band(0.5), Band::Unclear);
             assert_eq!(m.band(below(0.5)), Band::Weak);
             assert_eq!(m.band(m.hi), Band::VeryStrong);
             assert_eq!(m.band(m.lo), Band::Weak);
         }
-        // The cuts differ by bin: one confidence, three bands.
+        // Strong starts at 70% for every short bin; very strong still differs.
         let p = 0.95;
         let bands: Vec<Band> = CUTS.iter().map(|(b, ..)| b.short_map(D24).unwrap().band(p)).collect();
-        assert_eq!(bands, [Band::Strong, Band::Unclear, Band::Strong]);
+        assert_eq!(bands, [Band::Strong, Band::Strong, Band::Strong]);
         assert_eq!(Band::of_percent(p * 100.), Some(Band::Strong));
         let q = 0.99;
         let bands: Vec<Band> = CUTS.iter().map(|(b, ..)| b.short_map(D24).unwrap().band(q)).collect();

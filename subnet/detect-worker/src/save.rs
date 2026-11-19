@@ -134,7 +134,14 @@ pub const SELECT_STATE: &str = "SELECT state FROM detections WHERE id_h = ?1";
 
 /// The account list's summary of a secret page.
 pub fn summary(kind: Kind, r: &StoredResult, created_at: u64) -> Summary {
-    Summary { kind, band: r.band, strong_sections: None, total_sections: None, words: r.total_words, created_at }
+    Summary {
+        kind,
+        band: r.display_band(),
+        strong_sections: None,
+        total_sections: None,
+        words: r.total_words,
+        created_at,
+    }
 }
 
 /// Draws a paid page's 20-character slug and its manage token.

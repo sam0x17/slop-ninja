@@ -124,7 +124,7 @@ impl StoredResult {
             scorer_build: self.scorer_build.clone(),
             policy: self.policy.clone(),
             evidence: self.evidence.clone(),
-            band: self.band,
+            band: self.display_band(),
             confidence_tenths: self.confidence_tenths,
             confidence_text: self.confidence_text.clone(),
             share_pct: self.share_pct,
@@ -135,13 +135,30 @@ impl StoredResult {
             tokens: self.tokens,
             length: self.length,
             spans: self.spans.clone(),
-            spans_note: self.spans_note,
+            spans_note: if self.display_band() != self.band && self.spans_note == Some(SpansNote::StrongBandsOnly) {
+                None
+            } else {
+                self.spans_note
+            },
             markers: self.markers.clone(),
             invisible: self.invisible,
         }
     }
 
-    /// Whether the result is in a strong band.
+    /// Current short-text label, without rewriting the stored score or its policy.
+    /// Confidence is stored floored to tenths, so 700 means at least 70%.
+    pub fn display_band(&self) -> Option<Band> {
+        if self.length.is_some_and(LengthBin::is_short)
+            && self.band == Some(Band::Unclear)
+            && self.confidence_tenths.is_some_and(|p| (700..=1000).contains(&p))
+        {
+            Some(Band::Strong)
+        } else {
+            self.band
+        }
+    }
+
+    /// Whether the stored result was in a strong band.
     pub fn is_strong(&self) -> bool {
         self.band.is_some_and(Band::is_strong)
     }

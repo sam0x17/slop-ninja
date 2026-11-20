@@ -43,7 +43,11 @@ unchanged:
   structure, while their AI words still count toward share and involvement;
 - a `distill` block in an arm, with `--distill-targets FILE`, mixes each
   document term with a soft term against teacher-mean targets (alpha,
-  temperature); alpha 0 trains bit for bit as no distillation.
+  temperature). By default the targets file must contain every Train row.
+  Set `distill.rows` to `listed_only` when teacher predictions cover a subset.
+  Each listed ID and text digest must match its Train row. Unlisted rows train
+  on their original labels at full weight. An alpha of 0 reproduces training
+  with hard labels alone.
 
 `raw_full_a.py` writes a fit's FP32 raw heads for its Train block (`train`) or
 for a rows file (`rows`). The Rust example `seed_mean_full_a` in

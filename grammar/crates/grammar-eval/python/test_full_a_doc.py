@@ -314,6 +314,23 @@ class DocumentObjective(unittest.TestCase):
                                    DENOMINATORS["conditional_share"])
         self.assertAlmostEqual(a - b, extra, places=5)
 
+    def test_unlisted_rows_keep_the_full_hard_loss(self):
+        out, leaves = fake_out()
+        targets, soft = fake_targets(), fake_soft()
+        listed = [i % 2 == 0 for i in range(len(targets))]
+
+        def loss(weights, teachers=None):
+            return doc.objective(out, targets, weights, DENOMINATORS, .25, 1., "head",
+                                 soft=teachers, alpha=.5 if teachers is not None else 0.)
+
+        combined = loss(WEIGHTS, [s if use else None for s, use in zip(soft, listed)])
+        expected = (loss([w if use else 0. for w, use in zip(WEIGHTS, listed)], soft) +
+                    loss([0. if use else w for w, use in zip(WEIGHTS, listed)]))
+        torch.testing.assert_close(combined, expected)
+        for a, b in zip(torch.autograd.grad(combined, leaves, retain_graph=True, allow_unused=True),
+                        torch.autograd.grad(expected, leaves, allow_unused=True)):
+            torch.testing.assert_close(a, b)
+
     def test_distill_validation(self):
         for bad in ({"rule": doc.DISTILL_RULE, "alpha": 1.5, "temperature": 1.},
                     {"rule": doc.DISTILL_RULE, "alpha": -.1, "temperature": 1.},
@@ -324,6 +341,9 @@ class DocumentObjective(unittest.TestCase):
                 trainer.validate_protocol(protocol(distill=bad))
         good = {"rule": doc.DISTILL_RULE, "alpha": .5, "temperature": 1.}
         trainer.validate_protocol(protocol(distill=good))
+        trainer.validate_protocol(protocol(distill=dict(good, rows="listed_only")))
+        with self.assertRaisesRegex(ValueError, "distill"):
+            trainer.validate_protocol(protocol(distill=dict(good, rows="other")))
         with self.assertRaisesRegex(ValueError, "document-head arm"):
             trainer.validate_protocol(protocol(arm="E2w", distill=good))
         p = protocol(distill=good)
@@ -514,6 +534,42 @@ class DocumentFits(unittest.TestCase):
             refused("header schema", lambda h, r: (dict(h, schema="other"), r))
             refused("--distill-targets goes with", path=False)
             refused("--distill-targets goes with", cfg=plain)
+
+    def test_listed_distillation(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            d = Path(tmp)
+            arm = "E1share"
+            root, _, rows = bundle_with(d, spread_rows(groups=2))
+            base_protocol = protocol(arm, balance=BALANCE)
+            teacher_config = config_with(d, root, rows, base_protocol, "teacher-config")
+            r2.fit(root, teacher_config, d / "teacher", arm=arm, final_step=True)
+            raw_train(root, teacher_config, d / "teacher", d / "raw")
+            full = targets_from_raw([d / "raw"], d / "full.jsonl")
+            base_protocol.update(logical_batch_size=2, max_epochs=5)
+            spec = {"rule": doc.DISTILL_RULE, "alpha": .5, "temperature": 1.}
+            scoped = dict(spec, rows="listed_only")
+
+            def run(name, option, targets=None):
+                cfg = config_with(d, root, rows, protocol(arm, distill=option, base_protocol=base_protocol),
+                                  name + "-config")
+                extra = {"distill_targets": str(targets)} if targets else {}
+                r2.fit(root, cfg, d / name, arm=arm, final_step=True, **extra)
+                self.assertEqual(r2.read(d / name / "fit.json")["selected_global_step"], 50)
+                return r2.model_tensors(d / name / "selected.pt")
+
+            self.assertTrue(tensors_equal(run("strict", spec, full), run("listed", scoped, full)))
+
+            subset = targets_from_raw([d / "raw"], d / "subset.jsonl",
+                                      lambda h, r: (dict(h, rows=len(r[::2])), r[::2]))
+            partial = run("partial", scoped, subset)
+            hard = run("hard", None)
+            self.assertFalse(tensors_equal(partial, hard))
+            self.assertTrue(tensors_equal(run("zero", dict(scoped, alpha=0.), subset), hard))
+            binding = r2.read(d / "partial" / "binding.json")["document_options"]["distill"]
+            self.assertEqual(binding["rows"], "listed_only")
+            report = r2.read(d / "partial" / "fit.json")["document_options"]["distill"]
+            self.assertEqual(report["hard_only_population_rows"], 10)
+            self.assertEqual(binding["targets_rows"], 10)
 
     def test_raw_routes(self):
         with tempfile.TemporaryDirectory() as d:

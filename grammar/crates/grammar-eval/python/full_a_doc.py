@@ -35,9 +35,10 @@ builds the same populations and calls `full_a.objective` as before.
   T^2; the Brier, squared-error and BCE terms use the teacher means directly.
   The share-bin multipliers apply to the hard and soft share terms alike.
   alpha = 0 adds no soft term, so the fit is the fit without `distill`. The
-  targets file is bound by its digest; it must hold every Train-block row
-  exactly once (zero-weight rows included), with the row's text digest, and
-  nothing else.
+  targets file is bound by its digest. By default it covers every Train row,
+  including zero-weight rows. With `rows: listed_only`, unlisted Train rows
+  receive only hard supervision. Every listed ID and text digest must match
+  a Train row in either mode.
 
 The balanced and distilled objective (`objective`) is used only when share-bin
 balance or distillation is on, and only in document-head arms (no span head,
@@ -106,7 +107,8 @@ def validate_bin_balance(spec, name):
 
 
 def validate_distill(spec, name):
-    demand(isinstance(spec, dict) and set(spec) == {"rule", "alpha", "temperature"} and spec["rule"] == DISTILL_RULE
+    demand(isinstance(spec, dict) and set(spec) - {"rows"} == {"rule", "alpha", "temperature"}
+           and ("rows" not in spec or spec["rows"] == "listed_only") and spec["rule"] == DISTILL_RULE
            and _number(spec["alpha"], lo=0, hi=1) and _number(spec["temperature"], positive=True),
            "distill: " + name)
 
@@ -220,7 +222,7 @@ def _probabilities(v, n, what):
     return [float(x) for x in v]
 
 
-def read_targets(path, ai_profiles, block):
+def read_targets(path, ai_profiles, block, *, listed_only=False):
     """(header, {id: target}) of a distillation targets file checked against the Train block digests."""
     path = Path(path)
     rows, header = {}, None
@@ -249,19 +251,25 @@ def read_targets(path, ai_profiles, block):
                          "ai": _probabilities(r["ai"], len(ai_profiles), f"target {rid}: AI distribution")}
     demand(header is not None, "distillation targets: empty file")
     demand(header.get("rows") == len(rows), "distillation targets: header row count differs")
-    missing = len(set(block) - set(rows))
-    demand(missing == 0, f"distillation targets: {missing} Train rows have no target")
+    if not listed_only:
+        missing = len(block) - len(rows)
+        demand(missing == 0, f"distillation targets: {missing} Train rows have no target")
     return header, rows
 
 
 def distill_state(spec, path, population, root, ai_profiles):
     """Soft targets per Train population row and the binding record of the targets file."""
     digest = sha256_file(path)
-    header, rows = read_targets(path, ai_profiles, train_block_digests(root))
-    soft = [rows[m.id] for m in population.meta]
+    listed_only = spec.get("rows") == "listed_only"
+    header, rows = read_targets(path, ai_profiles, train_block_digests(root), listed_only=listed_only)
+    lookup = rows.get if listed_only else rows.__getitem__
+    soft = [lookup(m.id) for m in population.meta]
     record = {"rule": DISTILL_TEXT, "alpha": spec["alpha"], "temperature": spec["temperature"],
               "targets_sha256": digest, "targets_rows": len(rows),
               "teachers": header.get("teachers"), "targets_rule": header.get("rule")}
+    if listed_only:
+        record["rows"] = "listed_only"
+        record["hard_only_population_rows"] = soft.count(None)
     return soft, record
 
 

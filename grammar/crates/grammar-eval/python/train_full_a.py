@@ -65,7 +65,9 @@ and with all of them off the training computation is unchanged): the arm's
 protocol's `attribution.unsupervised_cohort_ids` (no attribution supervision
 and no contrastive role for the listed cohorts' rows) and the arm block
 `distill` with `--distill-targets FILE` (seed-ensemble distillation, alpha and
-temperature). The binding and fit.json record them under `document_options`.
+temperature). Set `distill.rows` to `listed_only` to train rows absent from
+the targets file on their hard labels alone. The binding and fit.json record
+the options under `document_options`.
 Per-row Train weights (zero weights included) and class shares come from the
 bundle's weights, and `--final-step` trains to the last step.
 

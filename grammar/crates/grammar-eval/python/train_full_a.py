@@ -1138,13 +1138,19 @@ def fit(args, root, config, output):
     if protocol["gradient_checkpointing"] and not frozen:
         encoder.gradient_checkpointing_enable(gradient_checkpointing_kwargs={"use_reentrant": False})
     final_step = bool(getattr(args, "final_step", False))
-    # A frozen final-step start checks outputs only; its sole metric evaluation
-    # remains at the end, after the final checkpoint has been fixed.
-    shared.demand(not final_step or init_record is None or frozen,
-                  "--final-step with --init-fit requires frozen encoder and document heads")
-    shared.demand(not ((final_step and init_record is not None) or (teacher_class is not None and th is not None)) or
-                  protocol.get("span_target_floor") == {"policy": "slop_ninja_span_target_floor24_v1", "min_words": 24},
-                  "frozen final-step and teacher spans require the 24-word target floor")
+    # A warm document fit checks its starting outputs before the first update.
+    # Span warm starts retain the frozen-head and 24-word qualification rules.
+    final_step_init = final_step and init_record is not None
+    document_only = arm["span_head"] is None and th is None and mechanism is None
+    shared.demand(not final_step_init or document_only or frozen,
+                  "final-step span initialization requires frozen encoder and document heads")
+    if final_step_init and document_only:
+        shared.demand("token_head" not in init_saved["model"],
+                      "a document-only final-step fit requires a document-only starting checkpoint")
+    if (final_step_init and frozen) or (teacher_class is not None and th is not None):
+        shared.demand(protocol.get("span_target_floor") ==
+                      {"policy": "slop_ninja_span_target_floor24_v1", "min_words": 24},
+                      "frozen final-step and teacher spans require the 24-word target floor")
     special = set(tokenizer.all_special_ids)
     tokenize = full_a.hf_tokenize(tokenizer)
     fixed = protocol.get("ai_roster")

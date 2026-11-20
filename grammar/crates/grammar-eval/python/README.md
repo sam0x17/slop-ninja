@@ -49,6 +49,11 @@ unchanged:
   on their original labels at full weight. An alpha of 0 reproduces training
   with hard labels alone.
 
+A document-only arm can use `--final-step --init-fit DIR` to continue training
+from a completed fit's selected encoder and document heads. The trainer checks
+the starting document outputs against the earlier fit on Dev-iter before the
+first update. It scores the new fit once, after the last scheduled step.
+
 `raw_full_a.py` writes a fit's FP32 raw heads for its Train block (`train`) or
 for a rows file (`rows`). The Rust example `seed_mean_full_a` in
 `grammar-a-baseline` averages several fits' Train raw heads into a targets

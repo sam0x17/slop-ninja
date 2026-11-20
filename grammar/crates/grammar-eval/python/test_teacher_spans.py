@@ -160,6 +160,16 @@ class FrozenTeacher(fixtures.TinyClass):
                 r2.fit(root, span, d / "span", arm="S", final_step=True, init_fit=str(d / "init"))
             self.assertEqual(evaluate.call_count, 1)
             self.assertEqual((d / "init/dev_iter-raw.jsonl").read_bytes(), (d / "span/dev_iter-raw.jsonl").read_bytes())
+            with self.assertRaisesRegex(ValueError, "requires a document-only starting checkpoint"):
+                r2.fit(root, plain, d / "discard-token", final_step=True,
+                       init_fit=str(d / "span"))
+
+            protocol = span_protocol(teacher=False)
+            protocol["arms"]["S"]["freeze"] = "none"
+            trainable = d / "trainable-span-config"
+            r2.write_config(trainable, root, rows, protocol)
+            with self.assertRaisesRegex(ValueError, "final-step span initialization requires frozen"):
+                r2.fit(root, trainable, d / "trainable-span", arm="S", final_step=True, init_fit=str(d / "init"))
 
 
 class InputOnly(unittest.TestCase):

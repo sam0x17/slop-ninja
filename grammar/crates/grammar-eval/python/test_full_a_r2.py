@@ -512,8 +512,17 @@ class FinalStep(unittest.TestCase):
                 with self.assertRaises(KeyboardInterrupt):
                     fit(root, config, Path(d) / "mixed", final_step=True, interrupt_after=2)
                 fit(root, config, Path(d) / "mixed")
-            with self.assertRaisesRegex(ValueError, "requires frozen encoder and document heads"):
-                fit(root, config, Path(d) / "init", final_step=True, init_fit=str(whole))
+            warm = Path(d) / "warm"
+            with mock.patch.object(trainer, "evaluate", wraps=trainer.evaluate) as evaluate:
+                fit(root, config, warm, final_step=True, init_fit=str(whole))
+            self.assertEqual(evaluate.call_count, 1)
+            report = read(warm / "fit.json")
+            self.assertEqual(report["init_fit"]["selected_checkpoint_sha256"], read(whole / "fit.json")["selected_checkpoint_sha256"])
+            self.assertLessEqual(report["init_raw_gate"]["document_raw_max_abs_error"], 1e-6)
+            self.assertIsNone(report["frozen_document_check"])
+            self.assertIsNone(report["selection_split"])
+            self.assertEqual(len(read(warm / "history.json")), 1)
+            self.assertNotEqual((warm / "encoder.safetensors").read_bytes(), (whole / "encoder.safetensors").read_bytes())
 
 
 class P0Shape(unittest.TestCase):

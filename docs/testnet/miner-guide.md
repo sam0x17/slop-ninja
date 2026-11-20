@@ -1191,7 +1191,9 @@ The cohort then runs without you:
   public-copy gate ([copies](../agents/rewards.md#copies)).
 - **Package.** The coordinator signs its score package (the exact scores and
   every hidden measurement) and its receipt index before the transition. Both
-  stay private to the coordinator.
+  stay private to the coordinator. The live index uses the flat receipt format.
+  The candidate chunked format changes how the coordinator stores this evidence.
+  Miners use the same artifact and submission commands in either case.
 - **Transition.** At least two tempos with no new challenges. At the closing
   boundary the coordinator publishes every admitted entrant's opening and the
   cohort's quantized result, and the cohort's target, if it produced one,

@@ -1904,7 +1904,9 @@ salts derive from the private seed and the attempt ID.
 
 To audit a private export offline, run
 `slop_ninja_eval_ops receipt-audit cohort DIR LABEL TRUST.json`.
-Put the objects under `cohorts/<label>/` in `DIR`, preserving relative paths.
+Copy the contents of `cohorts/<label>/` from the private receipts bucket
+into `DIR`, stripping that prefix. For example, the signed index goes at
+`DIR/receipt-index.signed` and the receipt bundles go under `DIR/receipts/`.
 Supply the operator's pinned package, receipt and authorization public keys in
 `TRUST.json` using the fields `package_public_key`, `receipt_public_key`
 and `authorization_public_key`. The audit opens the signed manifest, score
@@ -1912,8 +1914,11 @@ package and receipt index, then checks each stored bundle against its map
 and the receipts against the signed index. For chunked indexes it also
 reconstructs the index chunks and compares them with the stored bytes.
 For a private chunked probe export, use `probe` in place of `cohort` and
-supply the probe label. This checks the plan and format declaration bound
-to the probe index. A successful audit prints the verified format, receipt
+supply the probe build's cohort label. Copy its `cohorts/<label>/receipts/`
+subtree into `DIR/receipts/`. Copy `receipt-index.signed` and `chunk-map.json`
+from that build's probe prefix into `DIR/`. The prefix is `probes/v<version>/`
+or `probes/authority/<name>/v<version>/` for a named authority. The audit
+checks the label, plan and format declaration bound to the signed index. A successful audit prints the verified format, receipt
 count and root. An incomplete or inconsistent export exits with an error.
 
 **Scorer containers.** One per scoring lane, started on demand and stopped by

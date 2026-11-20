@@ -652,10 +652,12 @@ index starts that records the earlier record, its initial references (still
 withheld as entrant artifacts) and its cohorts whose detailed receipts are
 still published (deleted once the coordinator's retirement marker for each
 exists; see [Retention](#retention)).
-Components of
-a cohort whose plan names an artifact spec carry `limits`, the limits record
-(`slop_ninja_eval_limits_v2`) the signed manifest binds by digest under
-`slop_ninja.eval/limits/v2`.
+For a cohort whose plan names an artifact spec, the private components carry
+the limits record authenticated by the signed manifest. Current plans use
+`slop_ninja_eval_limits_v2` under `slop_ninja.eval/limits/v2`. A plan that
+explicitly selects the candidate chunked receipt format uses
+`slop_ninja_eval_limits_v3` under `slop_ninja.eval/limits/v3`. Its limits
+record also specifies the receipt index and chunk versions and bounds.
 
 ### Retention
 

@@ -390,6 +390,11 @@ impl Reject {
 /// wording is a throttle.
 pub fn classify_ai_error(text: &str) -> Reject {
     let t = text.to_ascii_lowercase();
+    // A retired Workers AI model returns 5028 even while other models are serving.
+    // Match the binding's code field so a request ID or model name cannot trigger rotation.
+    if t.split_once("aierror:").is_some_and(|(_, detail)| detail.trim_start().starts_with("5028:")) {
+        return Reject::ModelUnavailable;
+    }
     if ["3040", "3036", "429", "capacity temporarily exceeded", "rate limit", "too many requests", "rate-limit"]
         .iter()
         .any(|k| t.contains(k))

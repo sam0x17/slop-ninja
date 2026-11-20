@@ -1061,6 +1061,10 @@ exits 1 with the code.
 Session states: `uploading`, `verifying`, `verified`, `refused`, `admitted`,
 `overflow` and `superseded` (a newer commitment replaced it).
 
+When a provider retires a generation model, the coordinator can continue the
+same cohort on another model allowed by its manifest. Admitted miners keep
+their place and their submissions.
+
 ### The status API
 
 The [status page](https://slop.ninja/testnet/status/)'s tracker links to a

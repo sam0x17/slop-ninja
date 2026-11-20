@@ -3013,6 +3013,9 @@ fn an_outage_is_no_answer_while_an_empty_answer_after_tokens_is_the_models() {
     assert_eq!(textgen::classify_ai_error("AiError: 3040: Capacity temporarily exceeded, please try again."), Reject::Throttled);
     assert_eq!(textgen::classify_ai_error("Error: 429 Too Many Requests"), Reject::Throttled);
     assert_eq!(textgen::classify_ai_error("AiError: 5007: No such model"), Reject::ModelUnavailable);
+    assert_eq!(textgen::classify_ai_error("Error: AiError: 5028: example was deprecated"), Reject::ModelUnavailable);
+    assert_eq!(textgen::classify_ai_error("AiError: transport failed, request 5028: retry later"), Reject::Transport);
+    assert_eq!(textgen::classify_ai_error("AiError: 50280: transport failed"), Reject::Transport);
     assert_eq!(textgen::classify_ai_error("network connection lost"), Reject::Transport);
 }
 

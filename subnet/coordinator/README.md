@@ -1552,6 +1552,8 @@ A fault pauses the cohort with its state intact. Two kinds:
   `/eval/status` `resumable_faults`. (`scoring_budget` and
   `generation_budget` are listed for stores that paused under the earlier
   budget guard; the guards now only alert.)
+The generation probe treats a Workers AI model retirement (5028) as an answered request. A generation-v2 cohort disables the refused model/effort cell and reassigns its pending items under the manifest’s existing retry rule.
+
 - **Automatic resume.** `generation_unavailable` and `scorer_unavailable` in
   a work phase can clear by themselves: while the cohort is paused, a step
   (one probe at a time, at most once a minute after the previous probe

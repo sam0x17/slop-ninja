@@ -4,7 +4,7 @@ version = "0.1.0"
 edition = "2024"
 license = "MIT OR Apache-2.0"
 publish = false
-description = "Stateless Worker that renders a SlopNinja detection page's share card (1200 x 630 PNG) from its card JSON"
+description = "Stateless Worker that renders a SlopNinja detection page's share card (2400 x 1260 PNG) from its card JSON"
 
 # Its own workspace, like the other Workers: it links no chain code, holds no
 # binding and shares only pure crates (the arena and the page contracts).

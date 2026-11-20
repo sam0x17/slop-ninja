@@ -25,7 +25,7 @@ use crate::doc::{RunDoc, SecretDoc, Serving, StoredResult};
 use crate::store::DetRow;
 
 /// The card layout version (`?v=<CARD_V>.<state_v>`).
-pub const CARD_V: u32 = 1;
+pub const CARD_V: u32 = 2;
 
 /// What a page read needs besides the rows.
 #[derive(Clone, Debug)]

@@ -209,8 +209,8 @@ fn domain_only(host: &str) -> Source {
 
 fn card_ref(p: &Page, variant: CardVariant) -> CardRef {
     let image = match p.host {
-        HostRole::Site => format!("/d/{}/card.png?v=1.{}", p.slug.as_deref().unwrap(), p.state_v),
-        HostRole::Secret => format!("/{}/card.png?v=1.{}", p.slug.as_deref().unwrap(), p.state_v),
+        HostRole::Site => format!("/d/{}/card.png?v=2.{}", p.slug.as_deref().unwrap(), p.state_v),
+        HostRole::Secret => format!("/{}/card.png?v=2.{}", p.slug.as_deref().unwrap(), p.state_v),
     };
     CardRef { variant, image }
 }

@@ -1,4 +1,4 @@
-//! The share card's JSON (`detect-og` renders it as a 1200 x 630 PNG).
+//! The share card's JSON (`detect-og` renders it as a 2400 x 1260 PNG).
 //!
 //! The detect Worker builds a card from the page it describes
 //! ([`Card::from_page`]), so the page and its card agree. A card never holds

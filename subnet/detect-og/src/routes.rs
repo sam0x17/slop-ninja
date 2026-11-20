@@ -5,7 +5,7 @@
 //! - A `POST /render` invocation runs in a scope of [`RENDER_CONTROL_BYTES`]:
 //!   the request body (at most [`crate::wire::REQUEST_BYTES`]), the parsed
 //!   card and the workers-rs request and response objects.
-//! - The render itself (the SVG document, resvg's tree, the 1200 x 630
+//! - The render itself (the SVG document, resvg's tree, the 2400 x 1260
 //!   pixmap, filter buffers and the PNG encoder) runs synchronously in a
 //!   child scope of [`RENDER_WORK_BYTES`], admitted physically before it
 //!   starts (a refusal answers 503, never a trap). The PNG is copied to a JS
@@ -43,13 +43,9 @@ pub const OTHER_CONTROL_BYTES: usize = slop_ninja_arena::PAGE;
 pub const MIN_CONTROL_BYTES: usize = OTHER_CONTROL_BYTES;
 pub const LARGEST_INVOCATION_BYTES: usize = RENDER_CONTROL_BYTES + slop_ninja_arena::PAGE;
 
-/// One render's work: 9.0 MiB measured by `arena_witness` (resvg 0.50.0,
-/// 2026-11-13) as the largest peak over every fixture card with either
-/// ends and the paid fixture with the most ladder cells a request body can
-/// carry (8,126 sections alternating `weak` and `strong`, so that no run
-/// merges, in a 65,532-byte body), rounded up to 12 MiB as the stated
-/// margin. The witness fails when a render exceeds it.
-pub const RENDER_WORK_BYTES: usize = 12 * MIB;
+/// Arena budget for the vector render and double-resolution PNG encoding.
+/// The native witness exercises both gauge ends and the longest request-sized ladder.
+pub const RENDER_WORK_BYTES: usize = 36 * MIB;
 
 /// Requests one isolate holds side by side at the render route's control
 /// footprint while one render runs.

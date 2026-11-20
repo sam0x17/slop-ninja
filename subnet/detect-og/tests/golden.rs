@@ -97,6 +97,8 @@ fn every_card_matches_its_golden_digest() {
     for (name, card, ends) in golden_cases() {
         let bytes = png(&card, ends);
         let kinds = chunks(&bytes);
+        assert_eq!(u32::from_be_bytes(bytes[16..20].try_into().unwrap()), 2400, "{name} width");
+        assert_eq!(u32::from_be_bytes(bytes[20..24].try_into().unwrap()), 1260, "{name} height");
         assert_eq!(kinds.first().map(String::as_str), Some("IHDR"), "{name}");
         assert_eq!(kinds.last().map(String::as_str), Some("IEND"), "{name}");
         assert!(kinds[1..kinds.len() - 1].iter().all(|k| k == "IDAT"), "{name}: only image chunks: {kinds:?}");
@@ -121,6 +123,24 @@ fn every_card_matches_its_golden_digest() {
             .collect();
         panic!("golden digests differ for {diff:?}; rerun with UPDATE_GOLDEN=1 after checking the renders");
     }
+}
+
+#[test]
+fn confidence_and_share_keep_their_labels_and_short_cards_omit_share() {
+    let mut c = Card::from_page(&page("15-secret-text"), false).unwrap();
+    c.gauge.level = Some(18);
+    c.share_text = Some("about 18%".into());
+    for shown in ["45.8%", "below 1%", "above 99.9%", "98.85% or more", slop_ninja_detect_page::card::TOP_CONFIDENCE] {
+        c.confidence_text = Some(shown.into());
+        let svg = card::svg(&c, &origins(), GaugeEnds::Icons).unwrap();
+        let display = if shown == slop_ninja_detect_page::card::TOP_CONFIDENCE { "Scale top" } else { shown };
+        assert!(svg.contains(&format!(">{display}</text>")));
+        assert!(svg.contains(">AI INVOLVEMENT CONFIDENCE</text>"));
+        assert!(svg.contains(">Estimated AI share: about 18%</text>"));
+    }
+    let short = Card::from_page(&page("16-secret-short-strong"), false).unwrap();
+    let svg = card::svg(&short, &origins(), GaugeEnds::Icons).unwrap();
+    assert!(!svg.to_lowercase().contains("share"));
 }
 
 #[test]

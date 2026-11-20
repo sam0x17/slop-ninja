@@ -4,7 +4,7 @@
 //! the two embedded faces and nothing else (no system fonts), set no
 //! resources directory and resolve no `<image>` reference of any kind, data
 //! URLs included, so rendering reads no file and fetches nothing. The PNG
-//! is tiny-skia's encoding of the 1200 x 630 RGBA pixmap, with no text, time
+//! is tiny-skia's encoding of the 2400 x 1260 RGBA pixmap, with no text, time
 //! or other metadata chunk, so equal cards give equal bytes.
 
 use crate::card::{self, CardRefusal, HEIGHT, WIDTH};
@@ -48,9 +48,10 @@ pub fn options() -> usvg::Options<'static> {
 
 /// Rasterizes an SVG document of the card's size into PNG bytes.
 pub fn png(svg: &str) -> Result<Vec<u8>, RenderError> {
+    const SCALE: u32 = 2;
     let tree = usvg::Tree::from_str(svg, &options()).map_err(|_| RenderError::Parse)?;
-    let mut pixmap = tiny_skia::Pixmap::new(WIDTH, HEIGHT).ok_or(RenderError::Pixmap)?;
-    resvg::render(&tree, tiny_skia::Transform::default(), &mut pixmap.as_mut());
+    let mut pixmap = tiny_skia::Pixmap::new(WIDTH * SCALE, HEIGHT * SCALE).ok_or(RenderError::Pixmap)?;
+    resvg::render(&tree, tiny_skia::Transform::from_scale(SCALE as f32, SCALE as f32), &mut pixmap.as_mut());
     drop(tree);
     pixmap.encode_png().map_err(|_| RenderError::Encode)
 }

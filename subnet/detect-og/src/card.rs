@@ -2,16 +2,10 @@
 //! as the detection pages' header block is.
 //!
 //! - Top left: the wordmark and a "Detector report" pill.
-//! - Left: the slop gauge (the dial with its 25, 50 and 75 marks, the lit
-//!   arc and needle at the estimated share, the human and slop ends), the
-//!   share under the hub, the band chip and the four-band scale. A short
-//!   text's (24 to 149 words) gauge has no needle, level or number ("No
-//!   share"), with its band's chip and the four-band scale; a whole-document
-//!   check's has a neutral needle and its section ladder in place of the
-//!   chip and scale.
-//! - Middle: the headline, the confidence line (or the document line), the
-//!   source ("a page on <host>", "a post on Bluesky", "a post on X" or the
-//!   secret label), the scan date and a free-cut note.
+//! - Left: the confidence of AI involvement, the evidence band and its scale.
+//!   A paid whole-document card uses estimated share and the section ladder.
+//! - Middle: the headline, a secondary share reading when available, the
+//!   source, scan date and any free-cut note.
 //! - Right: the ninja in its state, on a soft halo and a contact shadow. A
 //!   card without a state (generic, whole document) widens the middle column
 //!   instead.
@@ -411,10 +405,22 @@ fn top(out: &mut String, f: &Faces) -> Option<()> {
     Some(())
 }
 
+/// Draw an exact percentage or the endpoint of a displayed range. Keep the
+/// range wording on the dial. A different display form gets no numeric needle.
+fn confidence_position(shown: &str) -> Option<f32> {
+    if shown == card::TOP_CONFIDENCE {
+        return Some(100.0);
+    }
+    let value = shown.strip_prefix("below ").or_else(|| shown.strip_prefix("above ")).unwrap_or(shown);
+    let value = value.strip_suffix(" or more").unwrap_or(value);
+    value.strip_suffix('%')?.parse::<f32>().ok().filter(|n| (0.0..=100.0).contains(n))
+}
+
 /// The dial, its number, chip and scale.
 fn gauge(out: &mut String, c: &Card, tone: Tone, ends: GaugeEnds, f: &Faces) -> Option<()> {
-    let level = c.gauge.level.filter(|_| c.variant != CardVariant::Short);
-    let short = c.variant == CardVariant::Short;
+    let paid = c.variant == CardVariant::PaidDocument;
+    let level =
+        if paid { c.gauge.level.map(f32::from) } else { c.confidence_text.as_deref().and_then(confidence_position) };
     let colour = tone.level();
     put(out, format_args!(r#"<g transform="translate({} {}) scale({})">"#, N(GAUGE_X), N(GAUGE_Y), GAUGE_SCALE));
     out.push_str(concat!(
@@ -431,8 +437,8 @@ fn gauge(out: &mut String, c: &Card, tone: Tone, ends: GaugeEnds, f: &Faces) -> 
         format_args!(r##"<path d="{}" fill="none" stroke="#30454d" stroke-width="1"/>"##, arc(R + 11.0, 150.0, 390.0)),
     );
     put(out, format_args!(r##"<path d="{track}" fill="none" stroke="#1c2a30" stroke-width="18"/>"##));
-    if let Some(l) = level.filter(|l| *l > 0) {
-        let d = arc(R, 150.0, 150.0 + 2.4 * f32::from(l.min(100)));
+    if let Some(l) = level.filter(|l| *l > 0.0) {
+        let d = arc(R, 150.0, 150.0 + 2.4 * l);
         let (stroke, filter) =
             if tone == Tone::Hot { ("url(#c-hot)", r#" filter="url(#c-level-glow)""#) } else { (colour, "") };
         put(out, format_args!(r#"<path d="{d}" fill="none" stroke="{stroke}" stroke-width="18"{filter}/>"#));
@@ -442,7 +448,7 @@ fn gauge(out: &mut String, c: &Card, tone: Tone, ends: GaugeEnds, f: &Faces) -> 
         format_args!(r##"<path d="{}" fill="none" stroke="#30454d" stroke-width="1"/>"##, arc(R - 11.0, 150.0, 390.0)),
     );
     // Ticks: minor every 10%, major and labelled at 25, 50 and 75 and major
-    // at the ends (hidden on a short gauge).
+    // at the ends.
     let tick = |out: &mut String, angle: f32, major: bool| {
         let (x1, y1) = pol(angle, R - 16.0);
         let (x2, y2) = pol(angle, R - if major { 28.0 } else { 23.0 });
@@ -460,10 +466,6 @@ fn gauge(out: &mut String, c: &Card, tone: Tone, ends: GaugeEnds, f: &Faces) -> 
         );
     };
     for i in 0..=10u8 {
-        let end = i == 0 || i == 10;
-        if end && short {
-            continue;
-        }
         tick(out, 150.0 + f32::from(i) * 24.0, i % 5 == 0);
     }
     for pct in [25.0f32, 75.0] {
@@ -474,8 +476,8 @@ fn gauge(out: &mut String, c: &Card, tone: Tone, ends: GaugeEnds, f: &Faces) -> 
         text_el(out, x, y + 4.0, 11.0, Weight::Bold, 0.44, GREY, "middle", label);
     }
     gauge_ends(out, ends)?;
-    if level.is_some() {
-        let rot = -120.0 + 2.4 * f32::from(level.unwrap_or(0).min(100));
+    if let Some(pct) = level {
+        let rot = -120.0 + 2.4 * pct;
         put(
             out,
             format_args!(
@@ -493,27 +495,25 @@ fn gauge(out: &mut String, c: &Card, tone: Tone, ends: GaugeEnds, f: &Faces) -> 
     out.push_str("</g>");
 
     // The number and its label, in card pixels.
-    if let Some(l) = level {
-        let top = GAUGE_Y + 0.67 * GAUGE_H;
-        open_text(out, MID, baseline(top, 72.0, 0.95), "middle");
-        tspan(out, 72.0, Weight::Bold, -4.32, WHITE, &l.min(100).to_string());
-        tspan(out, 36.0, Weight::Bold, -0.72, SOFT, "%");
-        out.push_str("</text>");
-        let label_top = top + 72.0 * 0.95 + 6.0;
+    let paid_number = c.gauge.level.map(|pct| format!("{pct}%"));
+    let display = if paid { paid_number.as_deref() } else { c.confidence_text.as_deref() };
+    if let Some(value) = display {
+        let number = if value == card::TOP_CONFIDENCE { "Scale top" } else { value };
+        let top = GAUGE_Y + 0.70 * GAUGE_H;
+        let (size, fitted) = layout::fit(&f.bold, number, 54.0, 24.0, -0.045, GAUGE_W - 94.0);
         text_el(
             out,
             MID,
-            baseline(label_top, 17.0, 1.21),
-            17.0,
+            baseline(top + 60.0 - size, size, 0.95),
+            size,
             Weight::Bold,
-            2.04,
-            "#a7bbc2",
+            -0.045 * size,
+            WHITE,
             "middle",
-            "ESTIMATED AI SHARE",
+            &fitted,
         );
-    } else if short {
-        let top = GAUGE_Y + 0.71 * GAUGE_H;
-        text_el(out, MID, baseline(top, 17.0, 1.21), 17.0, Weight::Bold, 2.72, SOFT, "middle", "NO SHARE");
+        let label = if paid { "ESTIMATED AI SHARE" } else { "AI INVOLVEMENT CONFIDENCE" };
+        text_el(out, MID, baseline(top + 66.0, 16.0, 1.21), 16.0, Weight::Bold, 1.2, SOFT, "middle", label);
     }
 
     let chip_top = GAUGE_Y + GAUGE_H + 10.0;
@@ -806,49 +806,31 @@ fn copy(out: &mut String, c: &Card, f: &Faces, width: f32) {
     }
     y += lines.len() as f32 * lh;
 
-    match (c.variant, c.confidence_text.as_deref(), c.document_note.as_deref()) {
-        (CardVariant::PaidDocument, _, Some(note)) => {
+    if c.variant == CardVariant::PaidDocument {
+        if let Some(note) = c.document_note.as_deref() {
             let top = y + 16.0;
             let (s, t) = layout::fit(&f.bold, note, 26.0, 18.0, -0.02, width);
             text_el(out, COPY_X, baseline(top, s, 1.15), s, Weight::Bold, -0.02 * s, "#e6eef0", "start", &t);
             y = top + 1.15 * 26.0;
         }
-        (_, Some(conf), _) => {
-            let top = y + 16.0;
-            let lead = "Confidence ";
-            if conf == card::TOP_CONFIDENCE {
-                // Keep the full ceiling caveat readable in the narrow column.
-                // A single shrinking line would run into the illustration.
-                let size = 24.0;
-                let line = format!("{lead}{conf}");
-                let lines = layout::wrap(&f.bold, &line, size, -0.03 * size, width);
-                for (i, line) in lines.iter().enumerate() {
-                    text_el(
-                        out,
-                        COPY_X,
-                        baseline(top + i as f32 * 27.6, size, 1.15),
-                        size,
-                        Weight::Bold,
-                        -0.03 * size,
-                        WHITE,
-                        "start",
-                        line,
-                    );
-                }
-                y = top + lines.len() as f32 * 27.6;
-            } else {
-                let mut s = 30.0f32;
-                while s > 22.0 && f.bold.width(&format!("{lead}{conf}"), s, -0.03 * s) > width {
-                    s -= 1.0;
-                }
-                open_text(out, COPY_X, baseline(top, s, 1.15), "start");
-                tspan(out, s, Weight::Bold, -0.03 * s, "#e6eef0", lead);
-                tspan(out, s, Weight::Bold, -0.03 * s, WHITE, conf);
-                out.push_str("</text>");
-                y = top + 1.15 * 30.0;
-            }
-        }
-        _ => {}
+    } else if let (Some(share), Some(pct)) = (c.share_text.as_deref(), c.gauge.level) {
+        let top = y + 16.0;
+        let (s, t) = layout::fit(&f.bold, &format!("Estimated AI share: {share}"), 24.0, 18.0, -0.02, width);
+        text_el(out, COPY_X, baseline(top, s, 1.15), s, Weight::Bold, -0.02 * s, SOFT, "start", &t);
+        let bar_y = top + s * 1.15 + 7.0;
+        put(
+            out,
+            format_args!(r##"<rect x="{COPY_X}" y="{}" width="140" height="5" rx="2.5" fill="#35484d"/>"##, N(bar_y)),
+        );
+        put(
+            out,
+            format_args!(
+                r#"<rect x="{COPY_X}" y="{}" width="{}" height="5" rx="2.5" fill="{MINT_TEXT}"/>"#,
+                N(bar_y),
+                N(1.4 * f32::from(pct))
+            ),
+        );
+        y = bar_y + 5.0;
     }
 
     // The source, the date and a free-cut note: 26 px, 1.35 line height.

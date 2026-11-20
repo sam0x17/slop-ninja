@@ -2,7 +2,7 @@
 //!
 //! A stateless Worker with no route and no binding of its own: the website
 //! and the secret-host Worker reach it through their `DETECT_OG` service
-//! bindings with `POST /render {card}` ([`wire`]) and get the 1200 x 630 PNG
+//! bindings with `POST /render {card}` ([`wire`]) and get the 2400 x 1260 PNG
 //! of that card. The card JSON is `slop_ninja_detect_page::Card`, which the
 //! detect Worker builds from the page; a secret page's card carries no slug,
 //! so its PNG prints the secret host and nothing after it.

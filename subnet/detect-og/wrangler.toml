@@ -1,6 +1,6 @@
 # SlopNinja card Worker: Wrangler configuration (tracked).
 #
-# Renders a detection page's share card (1200 x 630 PNG) from its card JSON.
+# Renders a detection page's share card (2400 x 1260 PNG) from its card JSON.
 # The website and the secret-host Worker reach it only through their service
 # bindings (DETECT_OG_TESTNET) with POST /render; this Worker has no route, no
 # custom domain, no default workers_dev subdomain and no preview URLs. It has

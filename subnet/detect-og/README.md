@@ -1,7 +1,7 @@
 # detect-og
 
 The stateless Worker that renders a SlopNinja detection page's share card: a
-1200 x 630 PNG drawn from the page's card JSON (`slop_ninja_detect_page::Card`,
+2400 x 1260 PNG drawn from the page's card JSON (`slop_ninja_detect_page::Card`,
 `subnet/crates/detect-page`). The website and the secret-host Worker reach it
 only through their service bindings; it has no route, no binding, no secret
 and makes no outbound request. The detect Worker builds the card from the page
@@ -13,18 +13,14 @@ it.
 |---|---|
 | `POST /render {card}` | the card's PNG (`200 image/png`, `Cache-Control: no-store`); 400 for a body that is not one card or a card the template refuses, 413 over 64 KiB, 503 when the configuration is unusable or the render does not fit its memory (the caller then serves the static site card) |
 
-What a card shows: the wordmark and a "Detector report"
-pill; the slop gauge (the dial with its 25, 50 and 75 marks, the lit arc and
-needle at the estimated share, the human and robot busts at its ends), the
-share, the band chip and the four-band scale; the headline, the confidence
-line, the source ("a page on <host>", "a post on Bluesky", "a post on X" or
-"Private text · secret link"), the scan date and a free-cut note; the ninja in
-its state; the link and the model line. A short text's (24 to 149 words)
-gauge has no needle, level or number, since it shows no share; its band chip,
-scale and confidence line are as on any other card. A paid document's has a neutral needle,
-its section ladder in place of the chip and scale, and no ninja. A generic
-card has no ninja. No card shows text from the page, a rate or a "not proof"
-line.
+The dial on a scored detection shows the displayed confidence in AI involvement.
+A qualified reading such as "above" or "below" keeps its qualifier and places
+the needle at the displayed endpoint. A second, labeled bar shows estimated
+AI share when available. Short texts (24 to 149 words) show the involvement
+reading alone. A paid whole-document card shows estimated AI share and a
+section ladder. The card also shows the source, scan date and model. A pasted
+text's card identifies the source as private and prints only the secret host.
+Generic and paid whole-document cards omit the ninja.
 
 Modules: `card.rs` (the template: one SVG document per card), `layout.rs`
 (line breaking and fitting with the fonts' own metrics), `fonts.rs` (the
@@ -41,11 +37,10 @@ two embedded faces only, sets no resources directory and resolves no
 `<image>` reference, data URLs included. The PNG carries no metadata chunk,
 so equal cards give equal bytes.
 
-Memory (the bounded-arena rule): each request runs in its own scope, and each
-render in a child scope of its measured footprint (`routes::RENDER_WORK_BYTES`,
-12 MiB; the native arena witness peaks at 9.0 MiB, on the 8,126-section ladder
-of unmerged cells that fills a 64 KiB body), admitted before it starts; the
-PNG leaves the child scope as a JS copy.
+Each request has its own arena scope. The renderer reserves 36 MiB in a
+child scope before drawing. The native arena test exercises both gauge styles
+and a worst-case section ladder that fits the 64 KiB request limit. The PNG
+leaves the child scope as a JavaScript copy.
 
 Configuration: vars `SITE_ORIGIN` and `SECRET_ORIGIN` (the hosts a card
 prints) and `GAUGE_ENDS` (`icons`, the default, or `letters`; no emoji art

@@ -1902,6 +1902,20 @@ v1 receipt index binds every receipt's own digest and length, so
 `chunk-map.json` lists each bundle's key, digest, length and count. Result
 salts derive from the private seed and the attempt ID.
 
+To audit a private export offline, run
+`slop_ninja_eval_ops receipt-audit cohort DIR LABEL TRUST.json`.
+Put the objects under `cohorts/<label>/` in `DIR`, preserving relative paths.
+Supply the operator's pinned package, receipt and authorization public keys in
+`TRUST.json` using the fields `package_public_key`, `receipt_public_key`
+and `authorization_public_key`. The audit opens the signed manifest, score
+package and receipt index, then checks each stored bundle against its map
+and the receipts against the signed index. For chunked indexes it also
+reconstructs the index chunks and compares them with the stored bytes.
+For a private chunked probe export, use `probe` in place of `cohort` and
+supply the probe label. This checks the plan and format declaration bound
+to the probe index. A successful audit prints the verified format, receipt
+count and root. An incomplete or inconsistent export exits with an error.
+
 **Scorer containers.** One per scoring lane, started on demand and stopped by
 the lane when its job is done or the cohort pauses. Each instance serves one
 artifact for one cohort: before using a running instance the lane reads its
@@ -3101,10 +3115,44 @@ so the publisher keeps retrying its report.
   labelled testnet-only in the guides, the terms and the leaderboard
   (`promotion_rule` in `v1/leaderboard.json`, a note on the page). The canary
   is required before mainnet.
-- **Fan-out stage 2.** Job ledgers (one Durable Object per scored job) and a
-  two-level receipt index are not implemented; the flat v1 index and one
-  cohort object hold every receipt row, which fits the testnet rosters
-  measured (TESTNET.md).
+- **Fan-out stage 2.** Job ledgers (one Durable Object per scored job) remain
+  unimplemented. The live producer still uses the flat v1 receipt index and
+  one cohort object holds every receipt row, which fits the testnet rosters
+  measured (TESTNET.md). The candidate chunked index has a protocol builder,
+  authenticated commitment reader, bounded SQL scan and durable upload journal;
+  a candidate packaging path and automatic handoff reader are also wired, but
+  full integration and qualification remain incomplete. Candidate admission
+  selects the frozen format's capacity; this path is not deployed or qualified
+  for live activation.
+  Eval schema 33 adds the journal tables without changing frozen cohort
+  formats. Upload recovery reuses the same key and bytes, confirms stored
+  chunks transactionally and reconstructs the commitment from bounded pages of
+  confirmed digests. Packaging processes one chunk per root step and reads the
+  stored object before advancing, avoiding a full receipt-table recount on each
+  step. Probe builds bind their exact frozen plan instead of a
+  cohort manifest. Their exact plan and limits declaration are exported beneath
+  the build's private detailed-receipt prefix and retire with those receipts.
+  The chunk map names the bounded index-chunk prefix and count; for probes it
+  also names the plan and limits objects. A probe reader authenticates the
+  signed commitment, checks the exact plan-byte digest, then derives and checks
+  the declaration from that plan. The offline audit also verifies the underlying
+  receipt objects. Chunk objects use the existing private retirement prefix.
+  Retirement pages their SQL ledger and removes its cursor in the final
+  transaction under the two-later-completions rule. An explicit
+  `receipt_index_format` plan field selects `chunked-v2` in limits record v3.
+  Absent fields preserve existing plan and limits bytes. Automatic handoff
+  authenticates `receipt-format.json` against the signed manifest's limits
+  digest before selecting the v2 reader. A missing declaration selects the
+  legacy reader, which rejects v2 records. An invalid declaration fails the
+  check. Native row-only validators continue to use the signed row record.
+  Schema 33 awaits deployment. Local tests passed for migration, capacity,
+  retry extensions, recovery at each chunk upload boundary and retirement.
+  The offline audit verified legacy and chunked cohort exports and a chunked
+  probe export on synthetic receipts. Chunked capacity uses the Worker SQL
+  bridge's exact integer range, with a bounded chunk per upload. Retry extensions
+  retain the u8 attempt ceiling. Native receipt-bearing bundle formats remain
+  v1-only. Full package execution and deployed CPU/whole-isolate memory
+  qualification remain open. Plans without the selector retain the v1 limit.
 - **The 1-vCPU instance type and ENAM placement constraint.** Not qualified;
   scoring lanes use standard-4 with no placement constraint.
 - **Signing limits** (see [Signing](#signing-m3)): mechanism 0 only; one RPC

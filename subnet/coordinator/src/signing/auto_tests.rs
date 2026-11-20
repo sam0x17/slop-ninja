@@ -964,6 +964,70 @@ fn the_receipt_index_is_checked_against_the_package_before_any_install() {
     }
 }
 
+/// Both receipt formats pass through the real handoff with their own bindings.
+#[test]
+fn chunked_receipt_handoff_requires_authenticated_format_and_preserves_legacy() {
+    use crate::eval::{receipt_format, v3};
+    use slop_ninja_protocol::receipt_chunks::{CHUNK_ENTRIES, ReceiptIndexBuilder, ReceiptIndexChunk};
+    let mut c = fx::computed().unwrap();
+    let mut p = crate::eval::tests::plan_v3(1, "testnet-format", 20,
+        crate::eval::plan::tests::artifact(crate::eval::plan::tests::identity(0, 0xb0), 0x22));
+    let score = &mut p.fanout.as_mut().unwrap().score;
+    score.artifact_max_mib = None;
+    score.artifact_spec = Some("slop_ninja_a_artifact_spec_v3".into());
+    score.artifact_spec_sha256 = Some(slop_ninja_artifact_check::spec::Version::V3.spec_sha256());
+    p.receipt_index_format = Some(receipt_format::ReceiptIndexFormat::ChunkedV2);
+    let (limits, domain) = v3::limits_record(&p).unwrap();
+    c.manifest.limits = domain_hash(domain, limits.to_string().as_bytes());
+    c.package.cohort_manifest = c.manifest.digest().unwrap();
+    // Quantized outcomes bind the manifest too; regenerate this synthetic
+    // fixture's measurements after changing it, preserving real verification.
+    fx::finalize_fixture(&mut c.package, &c.index, &mut fx::ComputedMeasure::new(&c.models)).unwrap();
+    let legacy = bind_receipts(&mut c.package);
+    let index = Signed::<ReceiptIndex>::open(&legacy, &keys_fx::trusted_keys()).unwrap();
+    let mut builder = ReceiptIndexBuilder::new(c.package.cohort_manifest);
+    for (ordinal, entries) in index.entries.chunks(CHUNK_ENTRIES).enumerate() {
+        builder.push(&ReceiptIndexChunk { cohort_manifest: c.package.cohort_manifest, ordinal: ordinal as u64, entries: entries.to_vec() }).unwrap();
+    }
+    let commitment = builder.finish();
+    c.package.receipt_root = commitment.digest().unwrap();
+    let signed = sign(commitment, &keys_fx::receipt_key()).unwrap().to_bytes().unwrap();
+    let launch = CalculationTargetV2::launch_burn(fx::chain()).digest().unwrap();
+    let target = CalculationTargetV2::for_package(&c.package, Some(launch)).unwrap();
+    let closure = fx::closure(&c.manifest, &c.package, Some(&target), &c.specs).unwrap();
+    let mut cohort = cohort_of(c.manifest, c.package, Some(&target), closure, &c.index, Some(signed));
+    cohort.objects.insert(receipt_format::OBJECT, serde_json::to_vec(&limits).unwrap());
+    for change in ["valid", "missing-format", "changed-format", "legacy-index", "signature", "map", "unavailable-format"] {
+        let h = H::new();
+        let mut bucket = Bucket::new(1000); bucket.put(&cohort, true);
+        let format_key = key(&cohort.label, receipt_format::OBJECT);
+        match change {
+            "missing-format" => { bucket.objects.remove(&format_key); }
+            "changed-format" => { let mut bad = limits.clone(); bad["max_attempts"] = serde_json::json!(9); bucket.objects.insert(format_key, serde_json::to_vec(&bad).unwrap()); }
+            "legacy-index" => { bucket.objects.insert(key(&cohort.label, object::RECEIPT_INDEX), legacy.clone()); }
+            "signature" => { *bucket.objects.get_mut(&key(&cohort.label, object::RECEIPT_INDEX)).unwrap().last_mut().unwrap() ^= 1; }
+            "map" => { bucket.objects.remove(&key(&cohort.label, object::CHUNK_MAP)); }
+            "unavailable-format" => { bucket.unavailable.insert(format_key); }
+            _ => {}
+        }
+        let report = pass(&h, &mut bucket);
+        if change == "valid" {
+            assert!(report.handled.iter().any(|r| r.outcome.as_deref() == Some("installed")), "{report:?}");
+            assert!(!h.held().is_launch_burn());
+            let again = pass(&h, &mut bucket);
+            assert!(!again.handled.iter().any(|r| r.new));
+        } else {
+            assert!(h.held().is_launch_burn(), "{change}: {report:?}");
+            if change != "unavailable-format" {
+                assert_eq!(h.view().error.as_deref(), Some(if change == "map" { "receipts_missing" } else { "receipt_index_unverified" }), "{change}");
+            }
+        }
+    }
+    // Legacy cohorts without the new object still install through v1.
+    let h = H::new(); let mut bucket = Bucket::new(1000); let (legacy, _) = targets();
+    bucket.put(&legacy, true); pass(&h, &mut bucket); assert!(!h.held().is_launch_burn());
+}
+
 /// An installed bundle whose authorization does not read refuses the
 /// handoff instead of signing under a guessed generation.
 #[test]

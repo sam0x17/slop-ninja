@@ -34,6 +34,8 @@ use slop_ninja_protocol::{
 };
 use std::collections::{BTreeMap, BTreeSet};
 
+mod package_fixture;
+
 fn cfg() -> EvalConfig {
     EvalConfig {
         chain: ChainBinding {
@@ -359,6 +361,9 @@ struct Sim<'a> {
     predict_doc: Option<PredictDocHook<'a>>,
     /// Leaves a v3 cohort in `sealing` (the seal is driven by the test).
     hold_seal: bool,
+    /// Fixture exports stop before calling either package implementation.
+    hold_package: bool,
+    package_ready: Option<i64>,
     packages_v3: Vec<v3::PackageV3>,
     closures: Vec<v3::ClosureBuild>,
     /// Outage probes run (`engine::probe_due`), by fault code.
@@ -440,6 +445,8 @@ impl<'a> Sim<'a> {
             predict: None,
             predict_doc: None,
             hold_seal: false,
+            hold_package: false,
+            package_ready: None,
             packages_v3: Vec::new(),
             closures: Vec::new(),
             probes: Vec::new(),
@@ -505,6 +512,10 @@ impl<'a> Sim<'a> {
                 }
                 Work::Seal { seq } if self.hold_seal && is_v3(seq) => break,
                 Work::Seal { seq } if is_v3(seq) => self.seal_v3(seq),
+                Work::Package { seq } if self.hold_package => {
+                    self.package_ready = Some(seq);
+                    break;
+                }
                 Work::Package { seq } if is_v3(seq) => self.package_v3(seq),
                 Work::Close { seq } => {
                     let b = tx(self.db, |s| v3::prepare_closure(s, &c, seq)).unwrap();
@@ -2043,6 +2054,57 @@ fn a_chunk_with_no_further_attempt_faults_alone_and_a_clear_resumes_the_same_coh
 }
 
 #[test]
+fn receipt_extension_respects_frozen_format_storage_and_attempt_bounds() {
+    use super::receipt_format::{MAX_RECEIPTS, ReceiptIndexFormat};
+    let db = Sqlite::open();
+    sql::migrate(&db, &EVAL_COHORT_SCHEMA).unwrap();
+    let p = wide(20, 2);
+    let seq = open_cohort(&db, &p, 10, 1_000_000);
+    let mut sim = Sim::new(&db, cfg(), 1_000_010);
+    for _ in 0..400 {
+        if db.count("chunks") > 0 {
+            break;
+        }
+        sim.tick();
+    }
+    let (job, chunk): (i64, i64) = db.conn.query_row(
+        "SELECT job, chunk FROM chunks WHERE seq = ?1 ORDER BY job, chunk LIMIT 1",
+        [seq], |r| Ok((r.get(0)?, r.get(1)?)),
+    ).unwrap();
+    let mut c = engine::cohort(&db, seq).unwrap();
+    let base = c.plan.receipt_bound();
+    let round = u64::from(c.plan.max_attempts);
+    // Exercise the capacity decision on the same SQL chunk. Plan admission
+    // and format binding are covered separately; no stored plan is rewritten.
+    let cases = [
+        (None, super::plan::receipt_index_bound() - base, round, 1, None),
+        (Some(ReceiptIndexFormat::ChunkedV2), super::plan::receipt_index_bound() - base, round, 1, Some((round * 2) as u8)),
+        (Some(ReceiptIndexFormat::ChunkedV2), MAX_RECEIPTS - base - round, round, 1, Some((round * 2) as u8)),
+        (Some(ReceiptIndexFormat::ChunkedV2), MAX_RECEIPTS - base - round + 1, round, 1, None),
+        (Some(ReceiptIndexFormat::ChunkedV2), 0, 254, 1, Some(255)),
+        (Some(ReceiptIndexFormat::ChunkedV2), 0, 255, 1, None),
+        (Some(ReceiptIndexFormat::ChunkedV2), 0, round, u64::MAX, None),
+    ];
+    for (format, used, limit, unresolved, expected) in cases {
+        c.plan.receipt_index_format = format;
+        db.conn.execute("UPDATE cohorts SET extension_receipts = ?1, attempt_extensions = 0 WHERE seq = ?2",
+            rusqlite::params![used as i64, seq]).unwrap();
+        db.conn.execute("UPDATE chunks SET attempt_limit = ?1 WHERE seq = ?2 AND job = ?3 AND chunk = ?4",
+            rusqlite::params![limit as i64, seq, job, chunk]).unwrap();
+        let got = tx(&db, |s| lanes::extend_attempts(s, &c, job, chunk, unresolved, sim.now)).unwrap();
+        assert_eq!(got, expected, "format={format:?}, used={used}, limit={limit}");
+        let (stored_limit, stored_used, extensions): (i64, i64, i64) = db.conn.query_row(
+            "SELECT ch.attempt_limit, co.extension_receipts, co.attempt_extensions FROM chunks ch JOIN cohorts co ON co.seq = ch.seq WHERE ch.seq = ?1 AND ch.job = ?2 AND ch.chunk = ?3",
+            rusqlite::params![seq, job, chunk], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
+        ).unwrap();
+        let added = expected.map_or(0, |next| unresolved * (u64::from(next) - limit));
+        assert_eq!(stored_limit as u64, expected.map_or(limit, u64::from));
+        assert_eq!(stored_used as u64, used + added);
+        assert_eq!(extensions, i64::from(expected.is_some()));
+    }
+}
+
+#[test]
 fn an_extension_past_one_signed_receipt_index_faults_the_job_instead() {
     let db = Sqlite::open();
     sql::migrate(&db, &EVAL_COHORT_SCHEMA).unwrap();
@@ -3093,7 +3155,7 @@ fn the_v3_cohort_store_migrates_in_place_to_v7() {
         )
         .unwrap();
     let report = sql::migrate(&db, &EVAL_COHORT_SCHEMA).unwrap();
-    assert_eq!((report.from, report.to), (3, 32));
+    assert_eq!((report.from, report.to), (3, 33));
     let st = status(&db, 5);
     assert_eq!(st["cohorts"][0]["phase"], "closed");
     assert_eq!(st["cohorts"][0]["jobs"][0]["status"], "done", "the jobs table was rebuilt with its rows");
@@ -3415,7 +3477,7 @@ fn v3_block(probes: Vec<super::plan::ProbeRef>) -> super::plan::RewardV1Plan {
     }
 }
 
-fn plan_v3(cohort: u64, label: &str, n: u32, reference: super::plan::ArtifactJson) -> CohortPlan {
+pub(crate) fn plan_v3(cohort: u64, label: &str, n: u32, reference: super::plan::ArtifactJson) -> CohortPlan {
     let mut p = plan(n);
     p.schema = super::plan::PLAN_SCHEMA_V3.into();
     p.cohort = cohort;
@@ -5206,6 +5268,13 @@ fn detailed_receipts_are_deleted_after_two_later_cohorts_complete() {
     };
     assert!(receipts_under(&sim, "testnet-probe-v1") > 0);
     assert!(sim.rcpt.contains_key("probes/v1/receipt-index.signed"));
+    // New-format probe audit inputs use the same detailed-receipt prefix.
+    // Synthetic bytes exercise retention only, not format verification.
+    let probe_audit_keys = ["probe-plan.json", "receipt-format.json"].map(|name|
+        format!("cohorts/testnet-probe-v1/receipts/index-v2/{name}"));
+    for key in &probe_audit_keys {
+        sim.rcpt.insert(key.clone(), b"synthetic audit input".to_vec());
+    }
     let mut epoch = 20;
     let mut done: Vec<(i64, String)> = vec![(pseq, "testnet-probe-v1".into())];
     let roots = |seq: i64| -> (Option<String>, Option<i64>) {
@@ -5249,7 +5318,11 @@ fn detailed_receipts_are_deleted_after_two_later_cohorts_complete() {
             // its root and count stay on the cohort row.
             assert!(!sim.rcpt.contains_key("probes/v1/receipt-index.signed"));
             assert!(!sim.rcpt.contains_key("probes/v1/chunk-map.json"));
+            assert!(probe_audit_keys.iter().all(|key| !sim.rcpt.contains_key(key)));
             assert_eq!(roots(pseq), probe_roots);
+        }
+        if k == 0 {
+            assert!(probe_audit_keys.iter().all(|key| sim.rcpt.contains_key(key)));
         }
     }
     // Signed packages are never deleted, and the status reports the rule.
@@ -5291,6 +5364,70 @@ fn closed_cohorts(db: &Sqlite, numbers: &[u64]) -> Vec<i64> {
             seq
         })
         .collect()
+}
+
+#[test]
+fn receipt_index_migration_preserves_v32_and_rolls_back_failed_creation() {
+    let db = Sqlite::open();
+    let old = sql::Schema { family: EVAL_COHORT_SCHEMA.family, migrations: &EVAL_COHORT_SCHEMA.migrations[..32] };
+    tx(&db, |s| sql::migrate(s, &old)).unwrap();
+    closed_cohorts(&db, &[1, 2, 3]);
+    let cohorts = sql::Sql::exec(&db, "SELECT * FROM cohorts ORDER BY seq", &[]).unwrap();
+    let receipts = sql::Sql::exec(&db, "SELECT * FROM receipts ORDER BY seq, attempt_id", &[]).unwrap();
+    db.fail_on.set(Some("CREATE TABLE receipt_index_chunks"));
+    assert!(tx(&db, |s| sql::migrate(s, &EVAL_COHORT_SCHEMA)).is_err());
+    db.fail_on.set(None);
+    assert_eq!(sql::stored_version(&db).unwrap().1, 32);
+    let partial: i64 = db.conn.query_row("SELECT COUNT(*) FROM sqlite_master WHERE name IN ('receipt_index_builds', 'receipt_index_chunks')", [], |r| r.get(0)).unwrap();
+    assert_eq!(partial, 0);
+    assert_eq!(sql::Sql::exec(&db, "SELECT * FROM cohorts ORDER BY seq", &[]).unwrap(), cohorts);
+    assert_eq!(sql::Sql::exec(&db, "SELECT * FROM receipts ORDER BY seq, attempt_id", &[]).unwrap(), receipts);
+    let report = tx(&db, |s| sql::migrate(s, &EVAL_COHORT_SCHEMA)).unwrap();
+    assert_eq!((report.from, report.to), (32, 33));
+    assert_eq!(db.count("receipt_index_builds"), 0);
+    assert_eq!(db.count("receipt_index_chunks"), 0);
+    assert_eq!(sql::Sql::exec(&db, "SELECT * FROM cohorts ORDER BY seq", &[]).unwrap(), cohorts);
+    assert_eq!(sql::Sql::exec(&db, "SELECT * FROM receipts ORDER BY seq, attempt_id", &[]).unwrap(), receipts);
+    let again = tx(&db, |s| sql::migrate(s, &EVAL_COHORT_SCHEMA)).unwrap();
+    assert_eq!((again.from, again.to), (33, 33));
+    assert!(matches!(tx(&db, |s| sql::migrate(s, &old)), Err(sql::MigrationError::NewerStoredVersion { stored: 33, supported: 32 })));
+}
+
+#[test]
+fn receipt_index_retirement_pages_journal_and_preserves_other_cohort() {
+    let db = Sqlite::open();
+    tx(&db, |s| sql::migrate(s, &EVAL_COHORT_SCHEMA)).unwrap();
+    let seqs = closed_cohorts(&db, &[1, 2, 3]);
+    // Synthetic journal rows exercise lifecycle only, not receipt verification.
+    for seq in &seqs[..2] {
+        db.conn.execute("INSERT INTO receipt_index_builds VALUES (?, 'manifest', 3, 3, 'last', 3)", [seq]).unwrap();
+        for ordinal in 0..3 {
+            db.conn.execute("INSERT INTO receipt_index_chunks VALUES (?, ?, 'digest', 'object', 1, 1, 'last', 1)", rusqlite::params![seq, ordinal]).unwrap();
+        }
+    }
+    assert_eq!(tx(&db, super::retention::mark_due).unwrap(), 1);
+    let Some(Work::RetireReceipts { seq, prefix, .. }) = tx(&db, |s| super::retention::next_work(s, &cfg())).unwrap() else { panic!("retire"); };
+    assert_eq!(seq, seqs[0]);
+    assert!("cohorts/testnet-ret-1/receipts/index-v2/0000000000000000-object.bin".starts_with(&prefix));
+    let chunks = |seq| db.conn.query_row("SELECT COUNT(*) FROM receipt_index_chunks WHERE seq = ?", [seq], |r| r.get::<_, i64>(0)).unwrap();
+    assert!(!tx(&db, |s| super::retention::finish(s, seq, 1, 100)).unwrap());
+    assert_eq!(chunks(seq), 2);
+    assert_eq!(retention_of(&db, seq).1, None);
+    assert!(!tx(&db, |s| super::retention::finish(s, seq, 1, 200)).unwrap());
+    assert_eq!(chunks(seq), 1);
+    db.fail_on.set(Some("DELETE FROM receipt_index_builds"));
+    assert!(tx(&db, |s| super::retention::finish(s, seq, 1, 300)).is_err());
+    db.fail_on.set(None);
+    assert_eq!(chunks(seq), 1, "failed final step rolls back the chunk deletion");
+    assert_eq!(retention_of(&db, seq).1, None);
+    assert!(tx(&db, |s| super::retention::finish(s, seq, 1, 400)).unwrap());
+    assert_eq!(chunks(seq), 0);
+    assert_eq!(db.count("receipt_index_builds"), 1);
+    assert_eq!(chunks(seqs[1]), 3);
+    assert_eq!(retention_of(&db, seq).1, Some(400));
+    assert_eq!(retention_of(&db, seqs[1]).1, None);
+    assert!(tx(&db, |s| super::retention::finish(s, seq, 1, 500)).unwrap());
+    assert_eq!(retention_of(&db, seq).1, Some(400), "repeated finish keeps the original retirement");
 }
 
 /// New commitments to a target need its receipts: while cohort N's target is
@@ -7956,7 +8093,7 @@ fn store_v23_seeds_the_boundary_journal_from_cohort_history_without_work_times()
         )
         .unwrap();
     let report = sql::migrate(&db, &EVAL_COHORT_SCHEMA).unwrap();
-    assert_eq!((report.from, report.to), (22, 32));
+    assert_eq!((report.from, report.to), (22, 33));
     let got: Vec<(u64, Option<u64>, Option<u64>)> = journal(&db).iter().map(|r| (r.epoch, r.block, r.observed_ms)).collect();
     assert_eq!(
         got,

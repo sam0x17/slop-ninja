@@ -63,12 +63,18 @@ pub mod limiter;
 pub mod live;
 pub mod textgen;
 pub mod package;
+#[cfg(any(test, feature = "package-qualification"))]
+pub mod package_fixture_import;
+#[cfg(any(test, feature = "package-qualification"))]
+pub mod package_fixture_metadata;
 pub mod plan;
 pub mod pool;
 pub mod pins;
 pub mod probe_cut;
 pub mod reference;
 pub mod receipts;
+pub mod receipt_index;
+pub mod receipt_format;
 pub mod record_rules;
 pub mod retention;
 pub mod score;
@@ -78,4 +84,4 @@ pub mod succession;
 pub mod v3;
 
 #[cfg(test)]
-mod tests;
+pub(crate) mod tests;

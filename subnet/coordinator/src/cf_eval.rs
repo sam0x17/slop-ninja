@@ -40,6 +40,10 @@ use wasm_bindgen::JsValue;
 use slop_ninja_arena::{Refusal, RefusalKind, Scope, ScopeRef};
 use worker::{Delay, DurableObject, Env, Method, Request, RequestInit, Response, Result, State};
 
+#[cfg(feature = "package-qualification")]
+#[path = "cf_eval_fixture.rs"]
+pub(super) mod fixture;
+
 pub const A_SCORER: &str = "A_SCORER";
 pub const EVAL_LANE: &str = "EVAL_LANE";
 pub const GEN_LIMITER: &str = "GEN_LIMITER";
@@ -700,6 +704,45 @@ pub struct EvalCohort {
     pub(super) state: State,
     pub(super) env: Env,
     schema: std::result::Result<u32, &'static str>,
+    #[cfg(feature = "package-qualification")]
+    fixture_busy: std::cell::Cell<bool>,
+}
+
+struct ReceiptIndexIo<'a> {
+    cohort: &'a EvalCohort,
+    seq: i64,
+}
+
+impl crate::eval::receipt_index::io::Io for ReceiptIndexIo<'_> {
+    fn prepare(&mut self) -> std::result::Result<Option<crate::eval::receipt_index::store::Upload>, &'static str> {
+        let storage = self.cohort.state.storage();
+        let seq = self.seq;
+        transaction(&storage, move |sql| crate::eval::receipt_index::store::resume(sql, seq))
+            .map_err(|_| "receipt index prepare")
+    }
+
+    fn finish(&mut self) -> std::result::Result<slop_ninja_protocol::receipt_chunks::ReceiptIndexCommitment, &'static str> {
+        let storage = self.cohort.state.storage();
+        let seq = self.seq;
+        transaction(&storage, move |sql| crate::eval::receipt_index::store::finish(sql, seq))
+            .map_err(|_| "receipt index finish")
+    }
+
+    fn confirm(&mut self, ordinal: u64, bytes: Vec<u8>) -> std::result::Result<(), &'static str> {
+        let storage = self.cohort.state.storage();
+        let seq = self.seq;
+        transaction(&storage, move |sql| crate::eval::receipt_index::store::confirm(sql, seq, ordinal, &bytes))
+            .map_err(|_| "receipt index confirm")
+    }
+
+    async fn read(&mut self, key: &str, stage: &'static str) -> std::result::Result<Option<Vec<u8>>, &'static str> {
+        self.cohort.read(self.seq, RECEIPTS_BUCKET, key,
+            slop_ninja_protocol::receipt_chunks::CHUNK_BYTES, stage).await
+    }
+
+    async fn put(&mut self, key: &str, bytes: Vec<u8>) -> std::result::Result<(), &'static str> {
+        put(&self.cohort.env, RECEIPTS_BUCKET, key, bytes).await.map_err(|_| "receipt index put")
+    }
 }
 
 fn tx_reply<T: Serialize>(r: std::result::Result<T, TxError<engine::EvalError>>) -> Result<Response> {
@@ -721,10 +764,16 @@ impl DurableObject for EvalCohort {
         let schema = super::sync_scoped(crate::arena_routes::R_COHORT_NEW, crate::arena_routes::CONSTRUCTOR_CONTROL_BYTES, || {
             migrate_storage(&state.storage(), &EVAL_COHORT_SCHEMA)
         });
-        Self { state, env, schema }
+        Self { state, env, schema,
+            #[cfg(feature = "package-qualification")]
+            fixture_busy: std::cell::Cell::new(false),
+        }
     }
 
     async fn fetch(&self, mut req: Request) -> Result<Response> {
+        if cfg!(feature = "package-qualification") {
+            return error("qualification_requires_scoped_entry", 403);
+        }
         let version = match self.schema {
             Ok(v) => v,
             // P1-F: a store whose migration was refused is read-only: frozen
@@ -1552,6 +1601,9 @@ impl EvalCohort {
     /// (`cf_arena`): each seal and package step runs in a child scope that
     /// admits its shape-derived footprint first.
     pub(super) async fn alarm_in(&self, scope: &ScopeRef) -> Result<Response> {
+        if cfg!(feature = "package-qualification") {
+            return error("qualification_alarm_disabled", 403);
+        }
         if self.schema.is_err() {
             return Response::ok("schema");
         }
@@ -3228,14 +3280,35 @@ impl EvalCohort {
         Ok(summaries)
     }
 
+    /// One private index upload per root work step. The SQL intent survives
+    /// eviction and every retry reads the deterministic key before sending a
+    /// put. A successful put is read back before the cursor can advance.
+    async fn receipt_commitment(&self, seq: i64) -> std::result::Result<Option<slop_ninja_protocol::receipt_chunks::ReceiptIndexCommitment>, &'static str> {
+        crate::eval::receipt_index::io::step(&mut ReceiptIndexIo { cohort: self, seq }).await
+    }
+
     async fn package_v3(&self, cfg: &EvalConfig, seq: i64, plan: &CohortPlan) -> std::result::Result<(), &'static str> {
         let storage = self.state.storage();
-        let summaries = self.summaries(seq, plan).await?;
-        let (index, chunk_map) = transaction(&storage, move |sql| engine::receipt_index(sql, seq)).map_err(|e| match e {
-            TxError::Operation(e) => self.step_refused_now(seq, e),
-            TxError::Runtime => "receipt index",
-        })?;
         let (package_key, receipt_key) = keys(&self.env)?;
+        let (root, count, signed_index, mut chunk_map, format_record, index_puts, format_binding) = if plan.receipt_index_format.is_some() {
+            let Some(index) = self.receipt_commitment(seq).await? else { return Ok(()); };
+            let root = index.digest().map_err(|_| "receipt root")?;
+            let count = index.receipt_count;
+            let manifest = index.cohort_manifest;
+            let map_index = index.clone();
+            let map = transaction(&storage, move |sql| crate::eval::receipt_index::chunk_map(sql, seq, &map_index)).map_err(|_| "receipt chunk map")?;
+            let (limits, _) = v3::limits_record(plan).map_err(|_| "receipt format limits")?;
+            let format = serde_json::to_vec(&limits).map_err(|_| "receipt format encoding")?;
+            let signed = package::signed_bytes(index.clone(), &receipt_key).map_err(|e| e.0)?;
+            (root, count, signed, map, Some(format), index.chunk_count(), Some(manifest))
+        } else {
+            let (index, map) = transaction(&storage, move |sql| engine::receipt_index(sql, seq)).map_err(|e| match e {
+                TxError::Operation(e) => self.step_refused_now(seq, e),
+                TxError::Runtime => "receipt index",
+            })?;
+            (index.digest().map_err(|_| "receipt root")?, index.count(), package::signed_bytes(index, &receipt_key).map_err(|e| e.0)?, map, None, 0, None)
+        };
+        let summaries = self.summaries(seq, plan).await?;
         let label = plan.label.clone();
         if plan.is_probe_build() {
             let version = plan.reward_v1.as_ref().and_then(|v| v.probe_version).ok_or("probe version")?;
@@ -3262,8 +3335,36 @@ impl EvalCohort {
                 put(&self.env, EVAL_BUCKET, key, bytes.clone()).await.map_err(|_| "fingerprint put")?;
             }
             let prefix = v3::probe_prefix(cfg, f.version);
+            if let Some(format) = format_record {
+                let declaration: Value = serde_json::from_slice(&format).map_err(|_| "probe receipt format")?;
+                let authenticated_plan = format_binding.ok_or("probe receipt binding")?;
+                let plan_bytes = transaction(&storage, move |sql| {
+                    let rows = sql.exec("SELECT plan, plan_sha256 FROM cohorts WHERE seq = ?", &[seq.into()])?;
+                    let row = rows.first().ok_or(engine::EvalError::State("probe plan missing"))?;
+                    let bytes = crate::sql::text(row, 0)?.as_bytes().to_vec();
+                    let digest = engine::parse_digest(crate::sql::text(row, 1)?)
+                        .ok_or(engine::EvalError::State("probe plan digest"))?;
+                    if digest != authenticated_plan {
+                        return Err(engine::EvalError::State("probe plan changed after commitment"));
+                    }
+                    crate::eval::receipt_format::verify_probe(&bytes, authenticated_plan, &declaration)?;
+                    Ok::<_, engine::EvalError>(bytes)
+                }).map_err(|_| "probe receipt plan")?;
+                // Both files stay beneath this build's private retirement
+                // prefix. The signed commitment authenticates exact plan bytes;
+                // the plan in turn selects the exact limits declaration.
+                let base = format!("{}/receipts/index-v2", engine::receipt_prefix(&label));
+                let plan_key = format!("{base}/probe-plan.json");
+                let format_key = format!("{base}/receipt-format.json");
+                chunk_map.as_object_mut().ok_or("receipt chunk map shape")?.insert("probe_binding".into(), j!({
+                    "plan": {"key": plan_key, "sha256": sha_hex(&plan_bytes), "bytes": plan_bytes.len()},
+                    "limits": {"key": format_key, "sha256": sha_hex(&format), "bytes": format.len()}
+                }));
+                put(&self.env, RECEIPTS_BUCKET, &plan_key, plan_bytes).await.map_err(|_| "probe receipt plan put")?;
+                put(&self.env, RECEIPTS_BUCKET, &format_key, format).await.map_err(|_| "probe receipt format put")?;
+            }
             put(&self.env, RECEIPTS_BUCKET, &format!("{prefix}/receipt-index.signed"),
-                package::signed_bytes(index.clone(), &receipt_key).map_err(|e| e.0)?)
+                signed_index)
                 .await
                 .map_err(|_| "receipt index put")?;
             put(&self.env, RECEIPTS_BUCKET, &format!("{prefix}/chunk-map.json"), serde_json::to_vec_pretty(&chunk_map).unwrap_or_default())
@@ -3302,8 +3403,6 @@ impl EvalCohort {
             fps.insert((content, version), v);
         }
         let c2 = cfg.clone();
-        let root = index.digest().map_err(|_| "receipt root")?;
-        let count = index.count();
         let b = match transaction(&storage, move |sql| {
             let c = engine::cohort(sql, seq)?;
             v3::prepare_package(sql, &c2, &c, &summaries, &fps, root, count)
@@ -3328,7 +3427,7 @@ impl EvalCohort {
         }
         let prefix = engine::receipt_prefix(&label);
         let mut objects = vec![
-            ("receipt-index.signed", package::signed_bytes(index.clone(), &receipt_key).map_err(|e| e.0)?),
+            ("receipt-index.signed", signed_index),
             // Private: exact scores and hidden measurements. The publisher
             // reads only `result.signed` and the closure.
             ("package.signed", package::signed_bytes(b.package.clone(), &package_key).map_err(|e| e.0)?),
@@ -3336,6 +3435,9 @@ impl EvalCohort {
             ("chunk-map.json", serde_json::to_vec_pretty(&chunk_map).unwrap_or_default()),
             ("components.json", serde_json::to_vec_pretty(&b.components).unwrap_or_default()),
         ];
+        if let Some(format) = format_record {
+            objects.push((crate::eval::receipt_format::OBJECT, format));
+        }
         if let Some(t) = &b.target {
             objects.push(("target.signed", package::signed_bytes(t.clone(), &package_key).map_err(|e| e.0)?));
         }
@@ -3364,7 +3466,9 @@ impl EvalCohort {
             }))
             .unwrap_or_default(),
         ));
-        let puts = objects.len() as u64 + b.vectors.len() as u64;
+        // As with existing package objects, this counts committed objects,
+        // not a billing ledger of uncertain/retried external attempts.
+        let puts = objects.len() as u64 + b.vectors.len() as u64 + index_puts;
         for (name, bytes) in objects {
             put(&self.env, RECEIPTS_BUCKET, &format!("{prefix}/{name}"), bytes).await.map_err(|_| "package put")?;
         }

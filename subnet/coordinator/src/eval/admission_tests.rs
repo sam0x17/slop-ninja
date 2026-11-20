@@ -2140,6 +2140,27 @@ fn daily_template(prefix: &str, cap: u16) -> crate::eval::calendar::Template {
 }
 
 #[test]
+fn chunked_receipt_capacity_admits_retries_beyond_the_legacy_record_bound() {
+    use crate::eval::{calendar, receipt_format};
+    let cfg = cfg();
+    let check = |t: &calendar::Template| calendar::check(&cfg, &serde_json::to_vec(t).unwrap());
+    let mut t = daily_template("testnet-cohort", 40);
+    t.plan.max_attempts = 11;
+    assert!(matches!(check(&t), Err(EvalError::Plan(c)) if c.contains("signed receipt index")));
+    t.plan.receipt_index_format = Some(receipt_format::ReceiptIndexFormat::ChunkedV2);
+    t.plan.fanout.as_mut().unwrap().score.artifact_spec_sha256 = Some(Version::V3.spec_sha256());
+    check(&t).unwrap();
+    let c = calendar::capacity(&t);
+    assert_eq!(c["receipts_per_cohort"], 1_000_560_u64);
+    assert_eq!(c["receipt_index_bound"], receipt_format::MAX_RECEIPTS);
+    assert_eq!(calendar::embedded_bundle_bytes(&t.plan), None);
+    assert_eq!(c["embedded_bundle_fits"], false);
+    // Removing the selector restores the exact legacy refusal.
+    t.plan.receipt_index_format = None;
+    assert!(matches!(check(&t), Err(EvalError::Plan(c)) if c.contains("signed receipt index")));
+}
+
+#[test]
 fn the_receipt_index_bounds_the_template_roster_and_validators_hold_it_by_reference() {
     use slop_ninja_protocol::target_bundle::{
         VALIDATOR_BUNDLE_BYTES, receipt_bundle_bytes, receipt_index_bytes, receipt_index_capacity,
@@ -3425,7 +3446,7 @@ fn store_v21_restarts_the_reader_call_maxima_and_keeps_the_failure_count() {
     let max = tx(&db, |q| q.exec("SELECT plan_ms_max FROM commit_reader WHERE id = 1", &[])).unwrap();
     assert_eq!(crate::sql::int(&max[0], 0).unwrap(), 3000);
     let report = tx(&db, |s| crate::sql::migrate(s, &EVAL_COHORT_SCHEMA)).unwrap();
-    assert_eq!((report.from, report.to), (20, 32));
+    assert_eq!((report.from, report.to), (20, EVAL_COHORT_SCHEMA.latest()));
     let c = calls(&db);
     assert_eq!((c["plan_ms_max"].as_i64(), c["ingest_ms_max"].as_i64(), c["failed"].as_i64()), (Some(0), Some(0), Some(1)));
     assert_eq!(c["plan_ms_last"], 80);
@@ -4320,7 +4341,7 @@ fn store_v25_refuses_a_live_v1_admission_then_replaces_the_session_tables() {
         )
         .unwrap();
     let report = tx(&db, |s| crate::sql::migrate(s, &EVAL_COHORT_SCHEMA)).unwrap();
-    assert_eq!((report.from, report.to), (24, 32));
+    assert_eq!((report.from, report.to), (24, EVAL_COHORT_SCHEMA.latest()));
     let queued: std::collections::BTreeSet<(String, Option<String>)> =
         tx(&db, |s| object_deletes_due(s, 10, crate::wire::MAX_SAFE_INTEGER)).unwrap().into_iter().collect();
     let want: std::collections::BTreeSet<(String, Option<String>)> = ["d", "e"]

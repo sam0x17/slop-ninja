@@ -3825,6 +3825,14 @@ pub fn receipt_index(sql: &impl Sql, seq: i64) -> R<(ReceiptIndex, Value)> {
     }
     let index = receipts::build_index(manifest_digest, entries).map_err(|e| EvalError::State(e.0))?;
     let receipt_root = index.digest().map_err(|_| EvalError::State("receipt root"))?;
+    let chunk_map = receipt_chunk_map(sql, seq, manifest_digest, receipt_root, index.count())?;
+    Ok((index, chunk_map))
+}
+
+/// Describes the jobs' verified receipt bundles for either index format.
+/// The lane's exact object verification remains mandatory; these aggregate
+/// checks do not replace it. No receipt-entry vector is loaded here.
+pub fn receipt_chunk_map(sql: &impl Sql, seq: i64, manifest_digest: Digest, receipt_root: Digest, receipt_count: u64) -> R<Value> {
     let mut objects = Vec::new();
     let mut bundled = 0u64;
     for j in sql.exec(
@@ -3839,17 +3847,17 @@ pub fn receipt_index(sql: &impl Sql, seq: i64) -> R<(ReceiptIndex, Value)> {
         bundled += n_r as u64;
         objects.push(json!({"key": key, "sha256": sha, "bytes": bytes, "receipts": n_r}));
     }
-    if bundled != index.count() {
+    if bundled != receipt_count {
         return Err(EvalError::State("bundles do not hold every indexed receipt"));
     }
     let chunk_map = json!({
         "format": receipts::CHUNK_FORMAT,
         "cohort_manifest": manifest_digest.to_string(),
         "receipt_root": receipt_root.to_string(),
-        "receipt_count": index.count(),
+        "receipt_count": receipt_count,
         "objects": objects,
     });
-    Ok((index, chunk_map))
+    Ok(chunk_map)
 }
 
 /// Builds the receipt index, package inputs, the v1 package (through the reward

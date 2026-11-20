@@ -1502,7 +1502,7 @@ async fn observe<I: PassIo>(io: &mut I, keys: &TrustedKeys, label: &str, closure
         return Ok(obs);
     }
     if obs.target.is_some() {
-        obs.receipts = receipts(io, keys, label).await?;
+        obs.receipts = receipts(io, keys, label, obs.manifest.as_deref()).await?;
     }
     Ok(obs)
 }
@@ -1511,12 +1511,44 @@ async fn observe<I: PassIo>(io: &mut I, keys: &TrustedKeys, label: &str, closure
 /// (written before any receipt goes), then the chunk map, then the signed
 /// index, streamed through its signature check ([`ReceiptIndexStream`]) so
 /// an index of any length is checked in a fixed buffer.
-async fn receipts<I: PassIo>(io: &mut I, keys: &TrustedKeys, label: &str) -> Result<Receipts, ()> {
+async fn receipts<I: PassIo>(io: &mut I, keys: &TrustedKeys, label: &str, manifest: Option<&[u8]>) -> Result<Receipts, ()> {
     if io.exists(&key(label, object::RECEIPTS_RETIRED)).await? {
         return Ok(Receipts::Retired);
     }
     if !io.exists(&key(label, object::CHUNK_MAP)).await? {
         return Ok(Receipts::Missing);
+    }
+    // Old cohorts have no format object and retain their existing v1 reader.
+    // A present declaration must match the authenticated manifest's limits;
+    // an invalid or unavailable declaration is never retried as legacy.
+    let format_key = key(label, crate::eval::receipt_format::OBJECT);
+    if io.exists(&format_key).await? {
+        let bytes = match io.read(&format_key, END_RECORD_BYTES).await {
+            Ok(Some(bytes)) => bytes,
+            Ok(None) => return Ok(Receipts::Missing),
+            Err(ReadError::TooLarge) => return Ok(Receipts::Invalid),
+            Err(ReadError::Unavailable) => return Err(()),
+        };
+        let Some(manifest) = manifest.and_then(|bytes| Signed::<CohortManifestV2>::open(bytes, keys).ok()) else {
+            return Ok(Receipts::Invalid);
+        };
+        if manifest.cohort_label != label {
+            return Ok(Receipts::Invalid);
+        }
+        let Some(record) = serde_json::from_slice::<serde_json::Value>(&bytes).ok() else {
+            return Ok(Receipts::Invalid);
+        };
+        if crate::eval::receipt_format::verify(&record, manifest.limits).is_err() {
+            return Ok(Receipts::Invalid);
+        }
+        let mut stream = slop_ninja_protocol::receipt_chunks::ReceiptCommitmentStream::new();
+        if !io.fold(&key(label, object::RECEIPT_INDEX), &mut |piece| stream.update(piece)).await? {
+            return Ok(Receipts::Missing);
+        }
+        return Ok(match stream.finish(keys).and_then(|commitment| commitment.binding()) {
+            Ok(binding) => Receipts::Index(binding),
+            Err(_) => Receipts::Invalid,
+        });
     }
     let mut stream = ReceiptIndexStream::new();
     if !io.fold(&key(label, object::RECEIPT_INDEX), &mut |piece| stream.update(piece)).await? {

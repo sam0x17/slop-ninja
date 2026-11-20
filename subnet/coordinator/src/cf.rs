@@ -2301,6 +2301,10 @@ async fn probe_cost_model(env: &Env) -> Option<crate::eval::plan::CostModel> {
 /// The Worker's routes, run inside the invocation's scope by the
 /// hand-written `fetch` export (`cf_arena`).
 async fn fetch(req: Request, env: Env, ctx: Context, scope: &ScopeRef) -> Result<Response> {
+    #[cfg(feature = "package-qualification")]
+    if cfg!(feature = "package-qualification") {
+        return eval_do::fixture::route(req, env).await;
+    }
     let path = req.path();
     match (req.method(), path.as_str()) {
         (Method::Post, "/hook") => hook(req, env, ctx, scope).await,
@@ -2332,6 +2336,7 @@ async fn fetch(req: Request, env: Env, ctx: Context, scope: &ScopeRef) -> Result
 /// Duplicate or missed runs change only when work happens, never which work.
 /// Run inside its own scope by the hand-written `scheduled` export.
 async fn scheduled(env: Env) {
+    if cfg!(feature = "package-qualification") { return; }
     let Ok(d) = deployment(&env) else {
         return;
     };
@@ -2754,6 +2759,9 @@ mod reader_calls {
 /// retries the whole batch (the consumer's `max_retries` applies), and an
 /// event never reaches the lane consumer by mistake.
 async fn queue(batch: worker::worker_sys::MessageBatch, env: Env, scope: slop_ninja_arena::ScopeRef) -> Result<()> {
+    if cfg!(feature = "package-qualification") {
+        return Err(worker::Error::RustError("qualification_queue_disabled".into()));
+    }
     let Some(events) = var(&env, crate::eval::admission::EVENTS_QUEUE_VAR).filter(|v| !v.is_empty()) else {
         return Err(worker::Error::RustError(format!("{} unset: queue batch not routed", crate::eval::admission::EVENTS_QUEUE_VAR)));
     };

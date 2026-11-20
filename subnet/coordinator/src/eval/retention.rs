@@ -452,23 +452,25 @@ pub fn note_page(sql: &impl Sql, seq: i64, n: u64) -> R<()> {
 }
 
 /// After `seq`'s objects are gone: deletes at most `page` of its receipt rows
-/// and receipt-object rows, and marks its receipts deleted once none remain.
+/// and receipt-object/index-chunk rows, then removes the build cursor and marks
+/// its receipts deleted once none remain. Other cohorts' journals are untouched.
 /// `true` when the cohort is done.
 pub fn finish(sql: &impl Sql, seq: i64, page: usize, now_ms: u64) -> R<bool> {
     let limit = i64::try_from(page).map_err(|_| EvalError::State("page"))?;
-    for table in ["receipts", "receipt_objects"] {
+    for table in ["receipts", "receipt_objects", "receipt_index_chunks"] {
         sql.exec(
             &format!("DELETE FROM {table} WHERE rowid IN (SELECT rowid FROM {table} WHERE seq = ? LIMIT ?)"),
             &[i(seq), i(limit)],
         )?;
     }
     let left = sql.exec(
-        "SELECT (SELECT COUNT(*) FROM receipts WHERE seq = ?) + (SELECT COUNT(*) FROM receipt_objects WHERE seq = ?)",
-        &[i(seq), i(seq)],
+        "SELECT (SELECT COUNT(*) FROM receipts WHERE seq = ?) + (SELECT COUNT(*) FROM receipt_objects WHERE seq = ?) + (SELECT COUNT(*) FROM receipt_index_chunks WHERE seq = ?)",
+        &[i(seq), i(seq), i(seq)],
     )?;
     if left.first().map(|r| int(r, 0)).transpose()?.unwrap_or(0) > 0 {
         return Ok(false);
     }
+    sql.exec("DELETE FROM receipt_index_builds WHERE seq = ?", &[i(seq)])?;
     sql.exec(
         "UPDATE cohorts SET receipts_deleted_ms = ? WHERE seq = ? AND receipts_deleted_ms IS NULL",
         &[bind_u64(now_ms)?, i(seq)],

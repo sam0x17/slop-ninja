@@ -1475,6 +1475,7 @@ pub const LIMITS_DOMAIN_V1: &str = "slop_ninja.eval/limits/v1";
 /// The v2 limits record's domain: v1's fields plus the artifact spec every
 /// scoring load names, by id and by the digest the plan froze.
 pub const LIMITS_DOMAIN_V2: &str = "slop_ninja.eval/limits/v2";
+pub const LIMITS_DOMAIN_V3: &str = "slop_ninja.eval/limits/v3";
 
 /// The limits record the manifest binds by digest, with its domain. The v2
 /// record belongs to plans that carry `fanout.score.artifact_spec_sha256`
@@ -1488,6 +1489,20 @@ pub const LIMITS_DOMAIN_V2: &str = "slop_ninja.eval/limits/v2";
 /// `components.json` (`limits`), so the bound digest can be checked against
 /// public material ([`published_limits`]).
 pub fn limits_record(plan: &CohortPlan) -> R<(Value, &'static str)> {
+    let (mut record, domain) = legacy_limits_record(plan)?;
+    if let Some(format) = plan.receipt_index_format {
+        if !plan.is_v3() || domain != LIMITS_DOMAIN_V2 {
+            return Err(EvalError::Plan("chunked receipts require v3 plan and frozen artifact spec"));
+        }
+        let fields = record.as_object_mut().ok_or(EvalError::State("limits record"))?;
+        fields.insert("schema".into(), super::receipt_format::LIMITS_SCHEMA.into());
+        fields.insert("receipt_index".into(), super::receipt_format::declaration(format));
+        return Ok((record, LIMITS_DOMAIN_V3));
+    }
+    Ok((record, domain))
+}
+
+fn legacy_limits_record(plan: &CohortPlan) -> R<(Value, &'static str)> {
     let f = plan.fanout().map_err(|e| EvalError::Plan(e.0))?;
     let l = f.score.limits();
     match (&f.score.artifact_spec, f.score.artifact_spec_sha256.as_deref()) {
@@ -1516,7 +1531,7 @@ pub fn limits_record(plan: &CohortPlan) -> R<(Value, &'static str)> {
 /// they were.
 pub fn published_limits(plan: &CohortPlan) -> R<Option<Value>> {
     let (j, domain) = limits_record(plan)?;
-    Ok((domain == LIMITS_DOMAIN_V2).then_some(j))
+    Ok((domain != LIMITS_DOMAIN_V1).then_some(j))
 }
 
 fn limits_digest(plan: &CohortPlan) -> R<Digest> {

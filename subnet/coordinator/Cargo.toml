@@ -18,6 +18,8 @@ resolver = "3"
 crate-type = ["cdylib", "rlib"]
 
 [features]
+# Synthetic package qualification only. Default deployments have no fixture importer.
+package-qualification = ["dep:fixture-sha2"]
 # Native witness tests: the arena is the test binary's global allocator, so
 # `cargo test --features arena-witness -- --test-threads=1` runs the route
 # witnesses (and, unfiltered, the whole suite) on the bounded arena.
@@ -78,6 +80,8 @@ serde = { version = "1", features = ["derive"] }
 # runs only between cohorts (the idle rule), so no cohort mixes two parses.
 serde_json = { version = "1", features = ["float_roundtrip"] }
 sha2 = "0.10"
+# Resume the synthetic SQL readback digest across Worker invocations.
+fixture-sha2 = { package = "sha2", version = "=0.11.1", optional = true, default-features = false }
 subtle = "2.6"
 zeroize = "1"
 

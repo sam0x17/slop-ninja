@@ -210,7 +210,11 @@ mod tests {
             migrations: &EVAL_COHORT_SCHEMA.migrations[..31],
         };
         migrate(&db, &legacy).unwrap();
-        let upgraded = migrate(&db, &EVAL_COHORT_SCHEMA).unwrap();
+        let rules_schema = Schema {
+            family: EVAL_COHORT_SCHEMA.family,
+            migrations: &EVAL_COHORT_SCHEMA.migrations[..32],
+        };
+        let upgraded = migrate(&db, &rules_schema).unwrap();
         assert_eq!((upgraded.from, upgraded.to), (31, 32));
         assert_eq!(stored(&db).unwrap(), None);
         tx(&db, |sql| configure(sql, &Authority::default(), 10, true)).unwrap();
@@ -221,6 +225,9 @@ mod tests {
                 supported: 31
             })
         ));
+        // Existing rule bindings survive subsequent migrations.
+        let upgraded = migrate(&db, &EVAL_COHORT_SCHEMA).unwrap();
+        assert_eq!((upgraded.from, upgraded.to), (32, EVAL_COHORT_SCHEMA.latest()));
         assert_eq!(stored(&db).unwrap(), Some(RecordRules::default()));
     }
 

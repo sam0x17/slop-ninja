@@ -22,7 +22,8 @@
 //! with `roster_cap` admitted entrants, its scoring budget covers their
 //! probe-inclusive upper bound, its package step fits the memory model
 //! (`arena_routes::package_fits`), and every receipt it can record (every
-//! scored document at every attempt, `CohortPlan::receipt_bound`) fits one
+//! scored document at every attempt, `CohortPlan::receipt_bound`) fits its
+//! frozen format. Without an explicit selector, every receipt fits one
 //! signed receipt index (`plan::receipt_capacity`): the tighter of the
 //! codec's sequence bound and the entries whose record fits the protocol's
 //! 64 MiB signed-record limit (`target_bundle::receipt_index_capacity`,
@@ -35,7 +36,11 @@
 //! allowance (`target_bundle::validator_receipt_index_bytes`, two indexes
 //! at that capacity) beside the file bound. Schema v2 embeds the receipts
 //! hex-encoded; [`capacity`] reports every bound and whether that form
-//! would still fit ([`embedded_bundle_bytes`]). The roster
+//! would still fit ([`embedded_bundle_bytes`]). Explicit `chunked-v2` plans
+//! instead bind bounded private index chunks and a compact signed commitment;
+//! their receipt count is bounded by the Worker storage bridge's exact integer range. Native
+//! receipt-bearing bundles do not support that format; row-only delivery
+//! carries no private receipt index. The roster
 //! cap a template can take therefore follows from its shape (n, the probe
 //! and audit draws, `max_attempts`) and the protocol's bounds, never from a
 //! tuned figure. It runs the testnet plan defaults of the
@@ -138,6 +143,11 @@ pub fn fits(plan: &CohortPlan) -> bool {
 ///
 /// [`receipt_bundle_bytes`]: slop_ninja_protocol::target_bundle::receipt_bundle_bytes
 pub fn embedded_bundle_bytes(plan: &CohortPlan) -> Option<u64> {
+    // Native v2/v3 receipt-bearing bundles define only the legacy index.
+    // Row-only delivery never carries private receipt indexes.
+    if plan.receipt_index_format.is_some() {
+        return None;
+    }
     slop_ninja_protocol::target_bundle::receipt_bundle_bytes(plan.receipt_bound()).ok()?.checked_mul(2)
 }
 
@@ -261,6 +271,18 @@ pub fn capacity(t: &Template) -> Value {
     full.entrants = full_roster(&t.plan, cap);
     if full.previous_reference.is_none() {
         full.previous_reference = Some(t.plan.reference.clone());
+    }
+    if let Some(format) = full.receipt_index_format {
+        use slop_ninja_protocol::receipt_chunks::{CHUNK_BYTES, CHUNK_ENTRIES, COMMITMENT_BYTES};
+        return json!({"roster_cap": cap, "receipts_per_cohort": full.receipt_bound(),
+            "receipt_index_format": format, "receipt_index_bound": full.receipt_limit(),
+            "receipt_bounds": {"coordinator_storage_integer": super::receipt_format::MAX_RECEIPTS},
+            "receipt_commitment_record_bytes": COMMITMENT_BYTES,
+            "receipt_index_chunk_record_bytes": CHUNK_BYTES,
+            "receipt_index_chunk_entries": CHUNK_ENTRIES,
+            "receipt_index_chunks": full.receipt_bound().div_ceil(CHUNK_ENTRIES as u64),
+            "embedded_bundle_receipt_bytes": null, "embedded_bundle_fits": false,
+            "validator_bundle_schema": "row-only delivery; private receipt-bearing bundle formats unsupported"});
     }
     let embedded = embedded_bundle_bytes(&full);
     let bound = slop_ninja_protocol::target_bundle::VALIDATOR_BUNDLE_BYTES;

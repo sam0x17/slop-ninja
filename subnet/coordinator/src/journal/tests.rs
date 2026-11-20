@@ -715,6 +715,8 @@ fn migrations_are_pinned_by_content() {
         "681035e8a564c24f",
         // v32: immutable authority rules and configuration observations.
         "0d33e56327251e3a",
+        // v33: resumable private receipt-index chunk uploads.
+        "3249228bc59e3e8c",
     ];
     // v1-v10 are deployed on both testnet Workers; v11 is the stuck-states
     // lane's; v12 the automatic target handoff's; v13 the signed coordinator

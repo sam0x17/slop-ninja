@@ -31,6 +31,7 @@ pub mod quant2;
 mod quantized_result;
 mod records;
 mod records_v2;
+pub mod receipt_chunks;
 pub mod reward;
 pub mod reward_v1;
 mod sign;

@@ -438,6 +438,10 @@ impl EvalCohortExport {
                 _ => (arena_routes::R_COHORT_FETCH, arena_routes::COHORT_CONTROL_BYTES),
             };
             let res = in_scope(route, control, move |_s| async move {
+                #[cfg(feature = "package-qualification")]
+                if cfg!(feature = "package-qualification") {
+                    return to_js(inner.fixture_fetch(Request::from(req), &_s).await);
+                }
                 to_js(<super::eval_do::EvalCohort as DurableObject>::fetch(&inner, Request::from(req)).await)
             })
             .await;

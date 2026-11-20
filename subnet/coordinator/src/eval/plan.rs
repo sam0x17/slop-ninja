@@ -44,10 +44,10 @@ pub const LOAD_PLAN_SCHEMA: &str = "slop_ninja_eval_load_plan_v1";
 pub const LABEL_BYTES: usize = 96;
 /// The smallest batch a plan may name. The largest is not a constant: every
 /// receipt a cohort can record (each scored document of each job, at each
-/// attempt) must fit one signed receipt index ([`receipt_capacity`]).
+/// attempt) must fit the plan's frozen receipt format ([`CohortPlan::receipt_limit`]).
 pub const MIN_CASES: u32 = 10;
 
-/// The most receipts one cohort may record: the entries one signed receipt
+/// The most receipts a legacy-format cohort may record: the entries one signed receipt
 /// index holds (`target_bundle::receipt_index_capacity`, the tighter of the
 /// codec's sequence bound and the signed-record limit). A native validator's
 /// fetch session holds two indexes of that size, a target's cohort's and its
@@ -447,6 +447,10 @@ pub struct CohortPlan {
     pub admission_tempos: u64,
     pub transition_tempos: u64,
     pub max_attempts: u8,
+    /// Explicit receipt format. Absent preserves the legacy v1 index and
+    /// limits bytes. A different format applies only to newly frozen plans.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub receipt_index_format: Option<super::receipt_format::ReceiptIndexFormat>,
     pub pool: PoolRef,
     /// Workers AI text-generation model ids.
     pub generators: Vec<String>,
@@ -1371,6 +1375,7 @@ impl LoadPlan {
             admission_tempos: 0,
             transition_tempos: 0,
             max_attempts: self.max_attempts,
+            receipt_index_format: None,
             pool: PoolRef { pool_id: String::new(), manifest_key: String::new(), manifest_sha256: String::new() },
             generators: Vec::new(),
             generation_budget_microusd: 0,
@@ -1514,6 +1519,16 @@ impl CohortPlan {
         self.scored_docs().saturating_mul(u64::from(self.max_attempts))
     }
 
+    /// Capacity of the plan's frozen receipt format, including extensions.
+    /// V1 retains its signed-record bound; v2 uses bounded chunks and the
+    /// coordinator storage bridge's exact integer range.
+    pub fn receipt_limit(&self) -> u64 {
+        match self.receipt_index_format {
+            None => receipt_index_bound(),
+            Some(super::receipt_format::ReceiptIndexFormat::ChunkedV2) => super::receipt_format::MAX_RECEIPTS,
+        }
+    }
+
     /// The plan's own checks. A generation v2 block is checked for its shape
     /// here; the checks that need its bound objects and the generation
     /// Worker run before any operator path stores the plan
@@ -1540,10 +1555,17 @@ impl CohortPlan {
             "label",
         )?;
         e(self.n >= MIN_CASES, "n")?;
-        // Every document each job scores, at every attempt, fits one receipt
-        // index: references score the batch, entrants the batch, every probe
+        if self.receipt_index_format.is_some() {
+            e(self.is_v3() && (self.schema == PLAN_SCHEMA_V3 || self.is_probe_build()), "receipt_index_format (v3 or probe build)")?;
+            let score = &self.fanout()?.score;
+            e(score.artifact_spec.is_some() && score.artifact_spec_sha256.is_some(), "receipt_index_format (frozen artifact spec)")?;
+        }
+        // Every document each job scores, at every attempt, fits the frozen
+        // receipt format: references score the batch, entrants the batch, every probe
         // version in use and both canary audit draws.
-        e(receipt_capacity(self.scored_docs(), self.max_attempts), "n (receipts beyond one signed receipt index)")?;
+        e(self.receipt_bound() <= self.receipt_limit(), if self.receipt_index_format.is_none() {
+            "n (receipts beyond one signed receipt index)"
+        } else { "n (receipts beyond chunked index storage)" })?;
         // The mix is a plan parameter: whole percentages summing to 100, every
         // origin present, and for a cohort realized exactly at this n (the
         // manifest's batch design checks the same). A probe build has no
@@ -1863,6 +1885,7 @@ pub(crate) mod tests {
             admission_tempos: 1,
             transition_tempos: 1,
             max_attempts: 3,
+            receipt_index_format: None,
             pool: PoolRef {
                 pool_id: "p".into(),
                 manifest_key: "pools/p/manifest.json".into(),

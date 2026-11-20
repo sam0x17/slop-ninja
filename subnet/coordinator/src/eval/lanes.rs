@@ -235,8 +235,8 @@ fn fault_job(sql: &impl Sql, seq: i64, job: i64, code: &str, now: u64) -> R<()> 
 /// outcome: those attempts were all infrastructure-caused (lost leases,
 /// crashes, failed requests), so the chunk gets one more round of the
 /// plan's `max_attempts`. The bounds are structural, never time: the
-/// attempt number's range (`u8`), and the receipts one signed receipt index
-/// holds, against the plan's own reservation (every scored document at
+/// attempt number's range (`u8`), and the frozen receipt format's capacity,
+/// against the plan's own reservation (every scored document at
 /// `max_attempts`, [`crate::eval::plan::CohortPlan::receipt_bound`]) plus
 /// every earlier extension's worst case (each unresolved document at each
 /// added attempt). Returns the new allowance, or `None` when no further
@@ -261,7 +261,7 @@ pub fn extend_attempts(sql: &impl Sql, c: &Cohort, job: i64, chunk: i64, unresol
     }
     let added = unresolved.saturating_mul(next - limit);
     let extended = uint(row, 1)?;
-    let bound = crate::eval::plan::receipt_index_bound();
+    let bound = c.plan.receipt_limit();
     if c.plan.receipt_bound().saturating_add(extended).saturating_add(added) > bound {
         return Ok(None);
     }

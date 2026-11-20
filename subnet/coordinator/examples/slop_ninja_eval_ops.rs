@@ -17,6 +17,7 @@
 //! slop_ninja_eval_ops keys-check KEYS.json PACKAGE_KEY RECEIPT_KEY INSTANCE
 //! slop_ninja_eval_ops copy-ties COMPONENTS.json [--require-ties]
 //! slop_ninja_eval_ops chunk-keys CHUNK_MAP.json       (each object's key below cohorts/<label>/)
+//! slop_ninja_eval_ops receipt-audit cohort|probe DIR LABEL TRUST.json
 //! slop_ninja_eval_ops report-summary VERIFY_REPORT.json
 //! slop_ninja_eval_ops restart --authority NAME --status STATUS.json --wrangler WRANGLER.toml
 //!     --reference ARTIFACT.json --expect-package SHA256 --probe-template PLAN.json --out DIR
@@ -197,6 +198,9 @@
 //!   with `--var`.
 use serde_json::{Value, json};
 use sha2::{Digest as _, Sha256};
+#[path = "slop_ninja_eval_ops/receipt_audit.rs"]
+mod receipt_audit;
+
 use slop_ninja_coordinator::config::{Authority, DeployMode, DeployedAuthority, deploy_check};
 use slop_ninja_coordinator::eval::plan::{Ceilings, CohortPlan, LoadPlan, PLAN_SCHEMA_V3, PROBE_PLAN_SCHEMA};
 use std::collections::BTreeMap;
@@ -1168,7 +1172,7 @@ fn main() {
     let args: Vec<String> = std::env::args().skip(1).collect();
     let Some(cmd) = args.first() else {
         fail(
-            "a subcommand: load-plan, gate, summary, watch-line, tail-stats, snapshot-args, keys-check, copy-ties, chunk-keys, report-summary, restart, restart-cohort, authority-check, standing-template, probe-cut, template-reinstall",
+            "a subcommand: load-plan, gate, summary, watch-line, tail-stats, snapshot-args, keys-check, copy-ties, chunk-keys, receipt-audit, report-summary, restart, restart-cohort, authority-check, standing-template, probe-cut, template-reinstall",
         )
     };
     let (flags, pos) = parse(&args[1..]);
@@ -1182,6 +1186,7 @@ fn main() {
         "keys-check" => keys_check(&pos),
         "copy-ties" => copy_ties(&flags, &pos),
         "chunk-keys" => chunk_keys(&pos),
+        "receipt-audit" => println!("{}", receipt_audit::audit(&pos).unwrap_or_else(|e| fail(&e.to_string()))),
         "report-summary" => report_summary(&pos),
         "restart" => restart(&flags),
         "restart-cohort" => restart_cohort(&flags),

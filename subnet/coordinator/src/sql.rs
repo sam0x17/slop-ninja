@@ -1011,5 +1011,11 @@ pub const EVAL_COHORT_SCHEMA: Schema = Schema {
             version: 32,
             statements: crate::eval::record_rules::SCHEMA_V32,
         },
+        // Durable private receipt-index upload intents. Existing cohorts keep
+        // their frozen format; adding storage does not select the v2 producer.
+        Migration {
+            version: 33,
+            statements: crate::eval::receipt_index::store::SCHEMA_V33,
+        },
     ],
 };

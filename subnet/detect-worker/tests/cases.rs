@@ -2128,7 +2128,7 @@ fn a_deleted_disabled_page_holds_its_text_until_its_cases_end() {
             let row = w.text("SELECT op FROM op_journal ORDER BY seq DESC LIMIT 1");
             assert!(!row.contains(&slug), "no slug in the journal: {row}");
             assert_eq!(w.h.count("SELECT count(*) FROM op_journal"), n + 1);
-            assert_eq!(w.h.count("SELECT count(*) FROM op_journal WHERE signature IS NULL"), 1, "redacted");
+            assert_eq!(w.h.count("SELECT signature IS NULL FROM op_journal ORDER BY seq DESC LIMIT 1"), 1, "redacted");
             // A public slug, or one of no form, is refused.
             assert_eq!(
                 w.op("release_text", json!({"slug": "k7m2xq9", "reason": "r"})).err(),

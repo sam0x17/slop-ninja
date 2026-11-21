@@ -232,11 +232,11 @@ async fn owner_purge(io: &impl Io, keys: &StoreKeys, user_id: UserId, mode: Purg
             for (part, id) in done.chunks(DELETE_BATCH_LEN).zip(&ids) {
                 if part.get(1).is_some_and(|x| x.changes == 1) {
                     gone.push(*id);
-                    if let Some(c) = part.get(2) {
+                    if let Some(c) = part.get(3) {
                         gone.extend(c.rows.iter().filter_map(|r| r.hex32("id_h")));
                     }
                     // A paid page's running job: its hold goes back.
-                    crate::paid::after_cancel(io, part.get(3)).await;
+                    crate::paid::after_cancel(io, part.get(4)).await;
                 }
             }
             let docs: Vec<String> = gone.iter().map(secret_doc_key).collect();

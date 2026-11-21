@@ -107,14 +107,24 @@ pub fn delete_batch(hold: Stmt, first: Stmt, id_h: &Bytes32, now: u64) -> Vec<St
     vec![
         hold,
         first,
+        // SQLite's changes() here is the row count of the guarded tombstone
+        // immediately above in the same D1 batch. A retry or an ownership
+        // change must never add an instruction to replay a deletion.
+        Stmt::new(
+            "INSERT INTO op_journal (at, actor, op) \
+             SELECT ?2, 'auto:private_delete', json_object('op', 'delete_private', \
+             'args', json_object('id_h', lower(hex(id_h)))) FROM detections \
+             WHERE changes() = 1 AND id_h = ?1 AND kind IN ('private_text','private_paid') AND state = 'deleted'",
+            vec![Val::blob(id_h), Val::int(now)],
+        ),
         Stmt::new(DELETE_COPIES, vec![Val::blob(id_h), Val::int(now)]),
         Stmt::new(crate::paid::CANCEL_DELETED, vec![Val::blob(id_h), Val::int(now)]),
     ]
 }
 
 /// The statements per page of [`delete_batch`]; the tombstone is the
-/// second, the copies the third and the cancel the fourth.
-pub const DELETE_BATCH_LEN: usize = 4;
+/// second, the recovery journal third, the copies fourth and the cancel fifth.
+pub const DELETE_BATCH_LEN: usize = 5;
 
 /// After a delete batch: whether the page was deleted, and the pages it
 /// ended (the page and its copies).
@@ -123,7 +133,7 @@ fn deleted_docs(done: &[Done], id_h: &Bytes32) -> (bool, Vec<Bytes32>) {
     let mut ids = Vec::new();
     if hit {
         ids.push(*id_h);
-        if let Some(copies) = done.get(2) {
+        if let Some(copies) = done.get(3) {
             ids.extend(copies.rows.iter().filter_map(|r| r.hex32("id_h")));
         }
     }
@@ -181,7 +191,7 @@ pub async fn manage(
                 return Err(RefusalCode::ManageInvalid);
             }
             after_delete(io, origins, &req.slug, docs).await;
-            crate::paid::after_cancel(io, done.get(3)).await;
+            crate::paid::after_cancel(io, done.get(4)).await;
             io.metric("manage", &["delete"]);
             Ok(ManageAnswer { ok: true, state: DetState::Deleted })
         }
@@ -301,7 +311,7 @@ pub async fn owner(
                 return Ok(skipped(io));
             }
             after_delete(io, origins, &req.slug, docs).await;
-            crate::paid::after_cancel(io, done.get(3)).await;
+            crate::paid::after_cancel(io, done.get(4)).await;
             io.metric("owner", &["deleted"]);
             Ok(OwnerAnswer::Done(OwnerDone { ok: true, code: None }))
         }

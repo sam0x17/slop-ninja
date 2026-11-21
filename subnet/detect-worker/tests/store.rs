@@ -550,6 +550,44 @@ fn peek_and_claim_answer_the_id_and_a_bookmark_never_deletes() {
     assert!(d.ok);
     assert_eq!(state_of(&w, &slug), "deleted");
     assert_eq!(own(&w, 2, oreq(OwnerAction::Peek, &slug, Some(&t))), Err(RefusalCode::PageGone));
+    assert_private_delete_record(&w, &slug);
+}
+
+/// The recovery export needs only the keyed identifier of the deleted page.
+fn assert_private_delete_record(w: &World, slug: &str) {
+    assert_eq!(w.h.count("SELECT count(*) FROM op_journal"), 1);
+    let (actor, op, unsigned): (String, String, bool) =
+        w.h.db
+            .query_row(
+                "SELECT actor, op, signature IS NULL AND nonce_h IS NULL FROM op_journal",
+                [],
+                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+            )
+            .unwrap();
+    assert_eq!(actor, "auto:private_delete");
+    assert!(unsigned);
+    assert_eq!(
+        serde_json::from_str::<serde_json::Value>(&op).unwrap(),
+        serde_json::json!({"op":"delete_private","args":{"id_h":hex::encode(id_of(w,slug))}})
+    );
+}
+
+#[test]
+fn private_delete_and_recovery_record_commit_together() {
+    let w = World::new();
+    let (slug, token) = make_link(&w, "load-new", Some(principal(1)));
+    w.h.exec("CREATE TRIGGER journal_unavailable BEFORE INSERT ON op_journal BEGIN SELECT RAISE(ABORT,'fixture'); END");
+    assert_eq!(
+        own(&w, 1, oreq(OwnerAction::Delete, &slug, None)),
+        Err(RefusalCode::SaveUnavailable)
+    );
+    assert_eq!(state_of(&w, &slug), "live");
+    assert!(w.h.doc(&secret_doc_key(&id_of(&w, &slug))).is_some());
+    w.h.exec("DROP TRIGGER journal_unavailable");
+    let req = mreq(&slug, &token, ManageAction::Delete);
+    block_on(manage(&w.h, w.keys(), &w.origins, &req)).unwrap();
+    assert!(block_on(manage(&w.h, w.keys(), &w.origins, &req)).is_err());
+    assert_private_delete_record(&w, &slug);
 }
 
 #[test]
@@ -861,6 +899,7 @@ fn an_owner_purge_deletes_or_releases_only_that_owners_pages() {
     assert_eq!(block_on(consume(&w.h, &w.store, &r)), Ack::Done);
     assert_eq!(state_of(&w, &theirs), "live");
     assert_eq!(w.h.count("SELECT count(*) FROM detections WHERE owner_h IS NOT NULL"), 0);
+    assert_private_delete_record(&w, &mine);
 }
 
 /// A page an account's deletion ends leaves the page cache at once

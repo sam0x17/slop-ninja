@@ -188,6 +188,7 @@ pub const CATALOG: &[(Target, &str)] = &[
     (Target::Account, "restore_account"),
     (Target::Account, "revoke_sessions"),
     (Target::Account, "delete_account"),
+    (Target::Account, "redeliver_owner_purge"),
     (Target::Account, "attach_email"),
     (Target::Account, "merge_accounts"),
     (Target::Account, "undo_merge"),

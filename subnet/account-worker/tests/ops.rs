@@ -103,6 +103,48 @@ fn account_ops_lock_flag_revoke_and_delete_by_recorded_decision() {
     assert!(!row.text("op").unwrap().contains("new@example.org"));
 }
 
+#[test]
+fn redelivery_uses_the_original_deletion_and_current_tombstone() {
+    for mode in ["release", "delete"] {
+        let h = TestHost::new();
+        let cfg = config(&[]);
+        let mut a = Browser::new();
+        a.email_sign_in(&h, &cfg, "reader@example.com");
+        let uid = user_of(&mut a, &h, &cfg);
+        let (status, receipt) =
+            op(&h, &cfg, "delete_account", json!({"user_id":uid, "basis":"legal", "mode":mode, "reason":"fixture"}));
+        assert_eq!(status, 200);
+        let seq = receipt["seq"].as_u64().unwrap();
+        let args = json!({"user_id":uid, "mode":mode, "seq":seq, "reason":"restore"});
+        let original = h.queue.borrow().last().unwrap().clone();
+        h.queue.borrow_mut().clear();
+        for (key, value) in [
+            ("seq", json!(seq + 1)),
+            ("mode", json!(if mode == "delete" { "release" } else { "delete" })),
+            ("user_id", json!("02".repeat(16))),
+        ] {
+            let mut changed = args.clone();
+            changed[key] = value;
+            assert_eq!(op(&h, &cfg, "redeliver_owner_purge", changed).0, 404);
+        }
+        assert!(h.queue.borrow().is_empty());
+        h.queue_down.set(true);
+        assert_eq!(op(&h, &cfg, "redeliver_owner_purge", args.clone()).0, 503);
+        h.queue_down.set(false);
+        let body = op_body(&h, "redeliver_owner_purge", args);
+        let (status, sent) = send_raw(&h, &cfg, body.clone());
+        assert_eq!((status, &sent["queued"]), (200, &json!(true)));
+        assert!(sent["seq"].as_u64().unwrap() > seq);
+        assert_eq!(send_raw(&h, &cfg, body).0, 409);
+        assert_eq!(h.queue.borrow().as_slice(), &[original]);
+        assert_eq!(h.count("SELECT COUNT(*) AS n FROM journal WHERE json_extract(op,'$.op')='delete_account'"), 1);
+        assert_eq!(
+            h.count("SELECT COUNT(*) AS n FROM journal WHERE json_extract(op,'$.op')='redeliver_owner_purge'"),
+            1
+        );
+    }
+}
+
 /// An account with an X identity (and, when `other`, an address too),
 /// with an X session and an avatar.
 fn x_account(

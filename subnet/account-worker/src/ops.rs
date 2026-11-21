@@ -13,6 +13,7 @@
 //! |---|---|
 //! | `disable_account`, `restore_account`, `revoke_sessions` | `user_id`, `reason` |
 //! | `delete_account` | `user_id`, `basis` (`legal` or `abuse`: the operator's own recorded decision, never a bare claim of ownership), `mode`?, `reason` |
+//! | `redeliver_owner_purge` | `seq`, `user_id`, `mode`, `reason` (redeliver a journaled account deletion to the detector after a restore) |
 //! | `merge_accounts` | `from_user_id`, `to_user_id`, `reason` (moves money too: the operator's decision) |
 //! | `undo_merge` | `seq` (the merge's journal row), `reason` |
 //! | `set_flag` | `user_id`, `flag` (`paid_preview`), `value`, `reason` |
@@ -149,6 +150,7 @@ pub async fn op<H: Host>(cfg: &Config, host: &H, req: &Req) -> Resp {
         "restore_account" => restore(cfg, host, &c).await,
         "revoke_sessions" => revoke(cfg, host, &c).await,
         "delete_account" => delete_op(cfg, host, &c).await,
+        "redeliver_owner_purge" => redeliver_owner_purge(cfg, host, &c).await,
         "merge_accounts" => merge_op(cfg, host, &c).await,
         "undo_merge" => undo_merge(cfg, host, &c).await,
         "set_flag" => set_flag(cfg, host, &c).await,
@@ -232,6 +234,45 @@ async fn delete_op<H: Host>(cfg: &Config, host: &H, c: &Ctx<'_>) -> Result<Resp,
     };
     let seq = delete::delete_account(cfg, host, &u, mode, by).await?;
     Ok(ok("delete_account", seq, Map::new()))
+}
+
+/// The account store retained the deletion, but the detector rolled back its effects.
+/// Bind the exported decision to the current tombstone and its original journal entry.
+async fn redeliver_owner_purge<H: Host>(cfg: &Config, host: &H, c: &Ctx<'_>) -> Result<Resp, RefusalCode> {
+    c.only(&["seq", "user_id", "mode"])?;
+    let seq = c.u64("seq")?;
+    let uid = c.user("user_id")?;
+    let mode = PurgeMode::parse(c.str("mode")?).ok_or(RefusalCode::OpMalformed)?;
+    let user_h = cfg.keys.user_h(&uid);
+    let decision = host
+        .first(crate::stmt!(
+            "SELECT j.seq FROM journal j JOIN users u ON u.user_id = ? AND u.deleted_at = j.at \
+         WHERE j.seq = ? AND u.state = 'deleted' AND j.user_h = ? \
+         AND json_extract(j.op, '$.op') = 'delete_account' \
+         AND json_extract(j.op, '$.args.user_id') = ? AND json_extract(j.op, '$.args.mode') = ?",
+            uid.0,
+            seq,
+            user_h,
+            uid.hex(),
+            mode.as_str()
+        ))
+        .await
+        .map_err(|_| RefusalCode::Internal)?;
+    if decision.is_none() {
+        return Err(RefusalCode::NotFound);
+    }
+    // Queue delivery is idempotent. A lost acknowledgement or a journal write failure
+    // permits retry with a fresh signature for this same recorded decision.
+    if host.enqueue(&QueueMessage::new(Job::OwnerPurge { user_id: uid, mode })).await.is_err() {
+        crate::metrics::error(host, "queue");
+        return Err(RefusalCode::Unavailable);
+    }
+    let args = journal::args([("seq", json!(seq)), ("user_id", json!(uid.hex())), ("mode", json!(mode.as_str()))]);
+    let rows = host
+        .batch(vec![c.entry(journal::op_text("redeliver_owner_purge", args), Some(user_h))])
+        .await
+        .map_err(db_code)?;
+    Ok(ok("redeliver_owner_purge", seq_of(&rows, 0), journal::args([("queued", json!(true))])))
 }
 
 async fn merge_op<H: Host>(cfg: &Config, host: &H, c: &Ctx<'_>) -> Result<Resp, RefusalCode> {

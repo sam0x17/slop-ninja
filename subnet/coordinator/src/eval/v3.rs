@@ -397,9 +397,9 @@ fn released_q(sql: &impl Sql, content: &Digest) -> R<Option<u64>> {
 
 pub fn state(sql: &impl Sql, seq: i64) -> R<V3State> {
     let rows = sql.exec("SELECT v3 FROM cohorts WHERE seq = ?", &[i(seq)])?;
-    match rows.first().and_then(|r| opt_text(r, 0)) {
-        Some(t) => serde_json::from_str(&t).map_err(|_| EvalError::State("v3 state")),
-        None => Ok(V3State::default()),
+    match rows.first().and_then(|r| r.first()) {
+        Some(SqlValue::Text(t)) => serde_json::from_str(t).map_err(|_| EvalError::State("v3 state")),
+        _ => Ok(V3State::default()),
     }
 }
 
@@ -2649,7 +2649,7 @@ pub fn active_target_digest(sql: &impl Sql, chain: &ChainBinding) -> R<Digest> {
 /// The signed manifest as stored at seal, checked against the stored digest.
 pub fn manifest_again(sql: &impl Sql, c: &Cohort) -> R<CohortManifestV2> {
     let st = state(sql, c.seq)?;
-    manifest_of_hex(sql, c, st.manifest_hex)
+    manifest_of_hex(sql, c, st.manifest_hex.as_deref())
 }
 
 /// [`manifest_again`] reading only the stored manifest record of the seal
@@ -2657,10 +2657,10 @@ pub fn manifest_again(sql: &impl Sql, c: &Cohort) -> R<CohortManifestV2> {
 /// manifest's, not the published index's).
 pub fn stored_manifest(sql: &impl Sql, c: &Cohort) -> R<CohortManifestV2> {
     let rows = sql.exec("SELECT v3 ->> 'manifest_hex' FROM cohorts WHERE seq = ?", &[i(c.seq)])?;
-    manifest_of_hex(sql, c, rows.first().and_then(|r| opt_text(r, 0)))
+    manifest_of_hex(sql, c, rows.first().and_then(|r| text(r, 0).ok()))
 }
 
-fn manifest_of_hex(sql: &impl Sql, c: &Cohort, manifest_hex: Option<String>) -> R<CohortManifestV2> {
+fn manifest_of_hex(sql: &impl Sql, c: &Cohort, manifest_hex: Option<&str>) -> R<CohortManifestV2> {
     let bytes = hex::decode(manifest_hex.ok_or(EvalError::State("stored manifest"))?)
         .map_err(|_| EvalError::State("stored manifest hex"))?;
     let m = CohortManifestV2::from_bytes(&bytes).map_err(|_| EvalError::State("stored manifest"))?;
@@ -2674,7 +2674,7 @@ fn manifest_of_hex(sql: &impl Sql, c: &Cohort, manifest_hex: Option<String>) -> 
 
 /// The published index this cohort's manifest binds.
 pub fn index_at_seal(st: &V3State) -> R<PublishedIndex> {
-    let (sc, sf) = st.published_at_seal.clone().ok_or(EvalError::State("published index at seal"))?;
+    let (sc, sf) = st.published_at_seal.as_ref().ok_or(EvalError::State("published index at seal"))?;
     Ok(PublishedIndex {
         contents: slop_ninja_protocol::PublishedContents::from_bytes(
             &hex::decode(sc).map_err(|_| EvalError::State("hex"))?,
@@ -2699,10 +2699,52 @@ pub fn prepare_package(
     receipt_root: Digest,
     receipt_count: u64,
 ) -> R<PackageV3> {
+    prepare_package_with_reader(
+        sql, cfg, c, |job| summaries.iter().find(|s| s.job == job).cloned(),
+        fingerprints, receipt_root, receipt_count,
+    )
+}
+
+/// Predictions and identity fields read by reward-v1 assembly. The Worker
+/// projects each verified summary as it is decoded. Boxed slices keep one
+/// slot per task while later reads and reward calculation use the same data.
+pub struct PackagePredictions {
+    pub job: i64,
+    artifact: String,
+    count: u32,
+    involvement: Box<[Option<u32>]>,
+    share: Box<[Option<u32>]>,
+    roles: Box<[bool]>,
+}
+
+impl From<engine::JobSummary> for PackagePredictions {
+    fn from(summary: engine::JobSummary) -> Self {
+        Self {
+            job: summary.job,
+            artifact: summary.artifact,
+            count: summary.count,
+            involvement: summary.inv_ppb.into_boxed_slice(),
+            share: summary.share_ppb.into_boxed_slice(),
+            roles: summary.roles.into_boxed_slice(),
+        }
+    }
+}
+
+/// Takes each verified job summary once. The Worker releases its input
+/// buffers as it builds the task vectors needed for reward calculation.
+pub fn prepare_package_with_reader<S: Into<PackagePredictions>>(
+    sql: &impl Sql,
+    cfg: &EvalConfig,
+    c: &Cohort,
+    mut take_summary: impl FnMut(i64) -> Option<S>,
+    fingerprints: &BTreeMap<(Digest, u32), Vec<Option<Probability>>>,
+    receipt_root: Digest,
+    receipt_count: u64,
+) -> R<PackageV3> {
     let plan = &c.plan;
     let v = v1(plan)?;
     let mut st = state(sql, c.seq)?;
-    let manifest = manifest_again(sql, c)?;
+    let manifest = manifest_of_hex(sql, c, st.manifest_hex.as_deref())?;
     let index = index_at_seal(&st)?;
     // Labels in task order. Under the seeded order they, and every entrant's
     // vectors, are read back into the appended layout every measurement
@@ -2773,17 +2815,16 @@ pub fn prepare_package(
     for j in &jobs {
         let job = int(j, 0)?;
         let tasks = opt_int(j, 5).unwrap_or(0);
-        let sm = summaries.iter().find(|x| x.job == job).ok_or(EvalError::State("job summary missing"))?;
-        if sm.artifact != text(j, 2)? || i64::from(sm.count) != opt_int(j, 4).unwrap_or(-1) || sm.inv_ppb.len() as i64 != tasks
+        let sm = take_summary(job).ok_or(EvalError::State("job summary missing"))?.into();
+        if sm.job != job || sm.artifact != text(j, 2)? || i64::from(sm.count) != opt_int(j, 4).unwrap_or(-1) || sm.involvement.len() as i64 != tasks
         {
             return Err(EvalError::State("job summary does not match its verified report"));
         }
-        let involvement = sm
-            .inv_ppb
-            .iter()
+        let involvement = sm.involvement.into_vec()
+            .into_iter()
             .map(|x| x.map(Probability::new).transpose().map_err(|_| EvalError::State("probability")))
             .collect::<R<Vec<_>>>()?;
-        let mut jv = JobVectors { involvement, share: sm.share_ppb.clone(), roles: sm.roles.clone() };
+        let mut jv = JobVectors { involvement, share: sm.share.into_vec(), roles: sm.roles.into_vec() };
         // A reference's vectors are its batch tasks in task order, which is
         // the layout's batch order already; an entrant's cover every task and
         // are permuted in place, so no job's vectors are held twice.
@@ -3000,18 +3041,22 @@ pub fn prepare_package(
             continue;
         }
         for (version, range) in &probe_ranges {
-            let pv = slice(&jv.involvement, *range)?;
+            let pv = jv.involvement.get(range.0..range.1).ok_or(EvalError::State("task range"))?;
+            let bytes = vector_bytes(pv);
             let key =
                 format!("{}/fp/{}/{}.bin", probe_prefix(cfg, *version), c.label, hex::encode(e.identity.hotkey.0));
             closure_fps.push(EntrantFingerprint {
                 hotkey: e.identity.hotkey,
                 version: *version,
-                fingerprint: vector_digest(&pv),
+                fingerprint: domain_hash(FINGERPRINT_DOMAIN, &bytes),
             });
             vector_key_of.insert((e.identity.hotkey, *version), key.clone());
-            vectors_out.push((key, vector_bytes(&pv)));
+            vectors_out.push((key, bytes));
         }
     }
+    // Every output fingerprint now owns its encoded bytes. Release the task
+    // vectors before the localization pass reads batch texts and predictions.
+    drop(vectors);
     let canonical = slop_ninja_protocol::canonical_fingerprints(&package, &closure_fps)
         .map_err(|_| EvalError::State("closure fingerprints"))?;
     let mut pending_fps = Vec::new();

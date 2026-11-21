@@ -64,6 +64,22 @@ fn state(sql: &impl Sql, seq: i64) -> R<State> {
     Ok(value)
 }
 
+/// Choose the scope before entering the package operation. Until the count is
+/// captured, an indexed existence read distinguishes an empty cohort. After
+/// capture, only confirmation of the last page selects final assembly.
+pub fn page_pending(sql: &impl Sql, seq: i64) -> R<bool> {
+    let rows = sql.exec("SELECT covered, expected FROM receipt_index_builds WHERE seq = ?", &[seq.into()])?;
+    if let Some(row) = rows.first() {
+        let covered = uint(row, 0)?;
+        let expected = uint(row, 1)?;
+        if covered > expected {
+            return Err(EvalError::State("receipt index build cursor"));
+        }
+        return Ok(covered < expected);
+    }
+    Ok(!sql.exec("SELECT 1 FROM receipts WHERE seq = ? LIMIT 1", &[seq.into()])?.is_empty())
+}
+
 /// Idempotent initial binding. A second start never recaptures a changed count.
 pub fn start(sql: &impl Sql, seq: i64) -> R<()> {
     let scan = IndexScan::open(sql, seq)?;
@@ -355,6 +371,23 @@ mod tests {
                 .unwrap();
         }
         db
+    }
+
+    #[test]
+    fn package_scope_follows_confirmed_pages() {
+        let empty = db(0);
+        assert!(!page_pending(&empty, 1).unwrap());
+        let db = db(CHUNK_ENTRIES + 1);
+        for ordinal in 0..2 {
+            assert!(page_pending(&db, 1).unwrap());
+            let upload = tx(&db, |sql| resume(sql, 1)).unwrap().unwrap();
+            assert_eq!(upload.ordinal, ordinal);
+            assert!(page_pending(&db, 1).unwrap());
+            tx(&db, |sql| confirm(sql, 1, ordinal, &upload.bytes)).unwrap();
+        }
+        assert!(!page_pending(&db, 1).unwrap());
+        db.conn.execute("UPDATE receipt_index_builds SET covered = expected + 1", []).unwrap();
+        assert!(page_pending(&db, 1).is_err());
     }
 
     #[test]

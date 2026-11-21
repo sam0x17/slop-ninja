@@ -63,6 +63,7 @@ pub mod limiter;
 pub mod live;
 pub mod textgen;
 pub mod package;
+pub mod package_capacity;
 #[cfg(any(test, feature = "package-qualification"))]
 pub mod package_fixture_import;
 #[cfg(any(test, feature = "package-qualification"))]

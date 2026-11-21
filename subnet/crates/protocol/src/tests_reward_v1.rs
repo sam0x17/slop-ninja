@@ -680,6 +680,29 @@ fn clusters_do_not_chain_through_members() -> Result<()> {
     Ok(())
 }
 
+#[test]
+fn distance_monitor_keeps_the_closest_pair_of_eventual_heads() -> Result<()> {
+    let specs = [s(0x21, 9600), s(0x22, 9500), s(0x23, 9400), s(0x24, 9300)];
+    let manifest = fx::manifest(chain(), 7, 1000, sigma_permille(40), 0, &specs);
+    let package = fx::package(&manifest, bp(REFERENCE), None, &specs)?;
+    let d = package.params.near_copy_ppb;
+    let result = reward_v1::assign_clusters(&package, &[0, 1, 2, 3], |head, other| {
+        let distance = match (head, other) {
+            (0, 1) => 9 * d,
+            (0, 2) => 2 * d, // Later joins head 1, so this distance drops out.
+            (0, 3) => 5 * d,
+            (1, 2) => d / 2,
+            (1, 3) => 8 * d,
+            _ => unreachable!("unexpected head comparison"),
+        };
+        let rss = u128::from(distance).pow(2);
+        Ok(NearStats { common: 1, rss_fwd: rss, rss_rev: rss })
+    })?;
+    assert_eq!(result.heads[2], Some(package.entrants[1].identity.hotkey));
+    assert_eq!(result.min_head_pair_ppb, Some(5 * d));
+    Ok(())
+}
+
 fn ppb(values: &[u32]) -> Vec<Probability> {
     values
         .iter()

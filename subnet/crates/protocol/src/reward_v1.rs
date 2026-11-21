@@ -887,7 +887,9 @@ pub fn assign_clusters(
     let d = package.params.near_copy_ppb;
     let mut heads = vec![None; package.entrants.len()];
     let mut stats = vec![None; package.entrants.len()];
-    let mut apart: Vec<(usize, Option<u32>)> = Vec::new();
+    // Each pair's first entrant is already a head. The other entrant
+    // may join a later cluster, so keep its minimum until its head is known.
+    let mut distances_to_heads: Vec<Option<u32>> = vec![None; package.entrants.len()];
     for (pos, &head) in eligible.iter().enumerate() {
         if heads[head].is_some() {
             continue;
@@ -906,13 +908,15 @@ pub fn assign_clusters(
             if measured.within(d)? {
                 heads[other] = Some(head_entrant.identity.hotkey);
                 stats[other] = Some(measured);
-            } else {
-                apart.push((other, measured.distance_ppb()));
+            } else if let Some(distance) = measured.distance_ppb() {
+                let best = &mut distances_to_heads[other];
+                *best = Some(best.map_or(distance, |previous| previous.min(distance)));
             }
         }
     }
-    let min_head_pair_ppb = apart
+    let min_head_pair_ppb = distances_to_heads
         .into_iter()
+        .enumerate()
         .filter(|&(other, _)| heads[other] == Some(package.entrants[other].identity.hotkey))
         .filter_map(|(_, distance)| distance)
         .min();

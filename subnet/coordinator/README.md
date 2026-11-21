@@ -3158,8 +3158,16 @@ so the publisher keeps retrying its report.
   probe export on synthetic receipts. Chunked capacity uses the Worker SQL
   bridge's exact integer range, with a bounded chunk per upload. Retry extensions
   retain the u8 attempt ceiling. Native receipt-bearing bundle formats remain
-  v1-only. Full package execution and deployed CPU/whole-isolate memory
-  qualification remain open. Plans without the selector retain the v1 limit.
+  v1-only. Chunked receipt pages reserve memory for one upload at a time.
+  After the receipt index commits, reward-package assembly reserves memory
+  for the admitted models, their assigned tasks and the fingerprint archive.
+  The template fit uses the maximum roster and checks the current archive
+  again before opening each cohort. The archive estimate counts metadata
+  across all versions and prediction slots across active probe versions.
+  Local workerd runs matched every expected output for two synthetic
+  256-entrant final assemblies (base and span). Hosted CPU time and peak
+  whole-isolate memory still need measurement. Plans without the selector
+  retain the v1 limit.
 - **The 1-vCPU instance type and ENAM placement constraint.** Not qualified;
   scoring lanes use standard-4 with no placement constraint.
 - **Signing limits** (see [Signing](#signing-m3)): mechanism 0 only; one RPC

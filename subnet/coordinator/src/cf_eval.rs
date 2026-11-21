@@ -708,6 +708,12 @@ pub struct EvalCohort {
     fixture_busy: std::cell::Cell<bool>,
 }
 
+#[derive(Clone, Copy)]
+enum PackagePhase {
+    ReceiptPage,
+    Assemble,
+}
+
 struct ReceiptIndexIo<'a> {
     cohort: &'a EvalCohort,
     seq: i64,
@@ -1107,7 +1113,11 @@ impl DurableObject for EvalCohort {
                         // A plan whose package step the memory model cannot
                         // hold is refused now, never admitted to pause at
                         // packaging (`arena_routes::package_fits`).
-                        if !crate::eval::calendar::fits(&plan) {
+                        let archive = match package_capacity::archive_bytes(&super::DoSql(storage.sql()), &plan) {
+                            Ok(bytes) => bytes,
+                            Err(_) => return error("package_archive_unavailable", 503),
+                        };
+                        if !package_capacity::fits(&plan, archive) {
                             return tx_reply::<()>(Err(TxError::Operation(engine::EvalError::Plan("arena_capacity: the package step exceeds the memory model"))));
                         }
                         (plan, adm)
@@ -1462,7 +1472,8 @@ impl DurableObject for EvalCohort {
 
 }
 
-use crate::eval::calendar::{max_job_tasks, package_shape};
+use crate::eval::calendar::max_job_tasks;
+use crate::eval::package_capacity;
 
 impl EvalCohort {
     /// P1-F: what a store whose migration was refused serves
@@ -1586,6 +1597,33 @@ impl EvalCohort {
     /// and trapping the isolate mid-step.
     fn step_scope_physical(&self, parent: &ScopeRef, route: slop_ninja_arena::Route, seq: i64, bytes: usize) -> std::result::Result<Scope, &'static str> {
         parent.child_physical(route, bytes).map_err(|r| self.step_refused(seq, r))
+    }
+
+    fn package_scope(&self, parent: &ScopeRef, seq: i64, plan: &CohortPlan) -> std::result::Result<(Scope, PackagePhase), &'static str> {
+        use crate::arena_routes::{R_COHORT_PACKAGE, receipt_page_bytes};
+        let pending = plan.is_v3() && plan.receipt_index_format.is_some() && transaction(&self.state.storage(), move |sql| {
+            crate::eval::receipt_index::store::page_pending(sql, seq)
+        }).map_err(|_| "receipt index cursor")?;
+        let (phase, bytes) = if pending {
+            (PackagePhase::ReceiptPage, receipt_page_bytes(plan.is_probe_build()))
+        } else {
+            let archive = package_capacity::archive_bytes(&super::DoSql(self.state.storage().sql()), plan)
+                .map_err(|_| "package archive counts")?;
+            (PackagePhase::Assemble, package_capacity::assembly_bytes(plan, archive))
+        };
+        Ok((self.step_scope_physical(parent, R_COHORT_PACKAGE, seq, bytes)?, phase))
+    }
+
+    async fn run_package_phase(&self, phase: PackagePhase, cfg: &EvalConfig, seq: i64, plan: &CohortPlan) -> std::result::Result<(), &'static str> {
+        match phase {
+            PackagePhase::ReceiptPage => {
+                keys(&self.env)?;
+                crate::eval::receipt_index::io::upload_page(&mut ReceiptIndexIo { cohort: self, seq }).await?;
+                Ok(())
+            }
+            PackagePhase::Assemble if plan.is_v3() => self.package_v3(cfg, seq, plan).await,
+            PackagePhase::Assemble => self.package(cfg, seq, &cfg.instance, plan).await,
+        }
     }
 
     fn step_refused(&self, seq: i64, r: Refusal) -> &'static str {
@@ -1890,7 +1928,7 @@ impl EvalCohort {
             let plan_of = |seq: i64| {
                 transaction(&storage, move |sql| Ok::<_, engine::EvalError>(engine::cohort(sql, seq)?.plan)).map_err(|_| "cohort plan")
             };
-            use crate::arena_routes::{R_COHORT_CLOSE, R_COHORT_DRAW, R_COHORT_LOAD_SEAL, R_COHORT_PACKAGE, R_COHORT_SEAL, STEP_BASE_BYTES};
+            use crate::arena_routes::{R_COHORT_CLOSE, R_COHORT_DRAW, R_COHORT_LOAD_SEAL, R_COHORT_SEAL, STEP_BASE_BYTES};
             match work {
                 // A cohort's root step: a failure is recorded against its
                 // cohort (`engine::note_step_error`): a transient one waits
@@ -1934,9 +1972,8 @@ impl EvalCohort {
                 Work::Package { seq } => {
                     let r = async {
                         let plan = plan_of(seq)?;
-                        let (jobs, docs, span, feedback) = package_shape(&plan);
-                        let child = self.step_scope_physical(scope, R_COHORT_PACKAGE, seq, crate::arena_routes::package_step_bytes(jobs, docs, span, feedback))?;
-                        let fut = async { if plan.is_v3() { self.package_v3(&cfg, seq, &plan).await } else { self.package(&cfg, seq, &instance, &plan).await } };
+                        let (child, phase) = self.package_scope(scope, seq, &plan)?;
+                        let fut = self.run_package_phase(phase, &cfg, seq, &plan);
                         child.scoped(fut).map_err(|_| "arena_defect")?.await?;
                         let _ = child.close();
                         Ok::<(), &'static str>(())
@@ -3251,7 +3288,7 @@ impl EvalCohort {
         Ok(())
     }
 
-    async fn summaries(&self, seq: i64, plan: &CohortPlan) -> std::result::Result<Vec<engine::JobSummary>, &'static str> {
+    async fn summaries<T: From<engine::JobSummary>>(&self, seq: i64, plan: &CohortPlan) -> std::result::Result<Vec<T>, &'static str> {
         let storage = self.state.storage();
         let bound = summary_bytes(max_job_tasks(plan));
         let refs: Vec<(String, String)> = transaction(&storage, move |sql| {
@@ -3270,7 +3307,7 @@ impl EvalCohort {
                 if &sha_hex(&b) != sha {
                     return Err("summary digest");
                 }
-                serde_json::from_slice::<engine::JobSummary>(&b).map_err(|_| "summary json")
+                serde_json::from_slice::<engine::JobSummary>(&b).map(T::from).map_err(|_| "summary json")
             }))
             .await
             {
@@ -3308,20 +3345,19 @@ impl EvalCohort {
             })?;
             (index.digest().map_err(|_| "receipt root")?, index.count(), package::signed_bytes(index, &receipt_key).map_err(|e| e.0)?, map, None, 0, None)
         };
-        let summaries = self.summaries(seq, plan).await?;
         let label = plan.label.clone();
         if plan.is_probe_build() {
+            let summaries = self.summaries::<engine::JobSummary>(seq, plan).await?;
             let version = plan.reward_v1.as_ref().and_then(|v| v.probe_version).ok_or("probe version")?;
             let record_key = format!("{}/record.json", v3::probe_prefix(cfg, version));
             let record = self
                 .read(seq, EVAL_BUCKET, &record_key, STEP_OBJECT_BYTES, "probe record read")
                 .await?
                 .ok_or("probe record missing")?;
-            let s2 = summaries.clone();
             let c2p = cfg.clone();
             let f = match transaction(&storage, move |sql| {
                 let c = engine::cohort(sql, seq)?;
-                v3::prepare_probe_finish(sql, &c2p, &c, &s2, &record)
+                v3::prepare_probe_finish(sql, &c2p, &c, &summaries, &record)
             }) {
                 Ok(f) => f,
                 Err(TxError::Operation(e)) if e.code() == "reference_failure" => {
@@ -3374,6 +3410,7 @@ impl EvalCohort {
             transaction(&storage, move |sql| v3::commit_probe_finish(sql, seq, &f, now)).map_err(|_| "probe finish commit")?;
             return Ok(());
         }
+        let summaries = self.summaries::<v3::PackagePredictions>(seq, plan).await?;
         // Every fingerprint the manifest's index holds on the probe versions in use.
         let keys_needed = transaction(&storage, move |sql| {
             let st = v3::state(sql, seq)?;
@@ -3405,7 +3442,11 @@ impl EvalCohort {
         let c2 = cfg.clone();
         let b = match transaction(&storage, move |sql| {
             let c = engine::cohort(sql, seq)?;
-            v3::prepare_package(sql, &c2, &c, &summaries, &fps, root, count)
+            let mut by_job = BTreeMap::new();
+            for summary in summaries {
+                by_job.entry(summary.job).or_insert(summary);
+            }
+            v3::prepare_package_with_reader(sql, &c2, &c, |job| by_job.remove(&job), &fps, root, count)
         }) {
             Ok(b) => b,
             Err(TxError::Operation(e)) if e.code() == "reference_failure" => {

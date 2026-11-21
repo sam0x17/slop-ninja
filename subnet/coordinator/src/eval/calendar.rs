@@ -131,8 +131,7 @@ pub fn max_job_tasks(plan: &CohortPlan) -> u64 {
 
 /// Whether a plan's package step fits the memory model.
 pub fn fits(plan: &CohortPlan) -> bool {
-    let (jobs, docs, span, feedback) = package_shape(plan);
-    crate::arena_routes::package_fits(jobs, docs, max_job_tasks(plan), span, feedback)
+    super::package_capacity::fits(plan, 0)
 }
 
 /// The bytes a bundle schema v2 (receipts embedded) needs for the receipts
@@ -176,6 +175,10 @@ fn full_roster(plan: &CohortPlan, cap: u16) -> Vec<ArtifactJson> {
 
 /// Checks a template at its roster cap and returns it.
 pub fn check(cfg: &EvalConfig, bytes: &[u8]) -> R<Template> {
+    check_fit(cfg, bytes, |plan| Ok(fits(plan)))
+}
+
+fn check_fit(cfg: &EvalConfig, bytes: &[u8], fit: impl FnOnce(&CohortPlan) -> R<bool>) -> R<Template> {
     let t: Template = serde_json::from_slice(bytes).map_err(|_| EvalError::Plan("template json"))?;
     let e = |c: bool, what: &'static str| if c { Ok(()) } else { Err(EvalError::Plan(what)) };
     e(t.schema == TEMPLATE_SCHEMA, "template schema")?;
@@ -251,7 +254,7 @@ pub fn check(cfg: &EvalConfig, bytes: &[u8]) -> R<Template> {
     let full_bytes = serde_json::to_vec(&full).map_err(|_| EvalError::Plan("template json"))?;
     let (plan, _) = engine::admit(cfg, &full_bytes)?;
     e(
-        fits(&plan),
+        fit(&plan)?,
         "arena_capacity: the package step at the template's roster cap exceeds the memory model",
     )?;
     Ok(t)
@@ -413,13 +416,13 @@ fn unfingerprinted(sql: &impl Sql, plan: &CohortPlan, next: &NextReferences) -> 
 /// `POST /eval/template/pause` with `{"paused": false}` resumes it.
 pub fn install(sql: &impl Sql, cfg: &EvalConfig, bytes: &[u8], now_ms: u64) -> R<Value> {
     super::record_rules::require(sql, &cfg.authority, now_ms)?;
-    let t = check(cfg, bytes)?;
     let sha = engine::sha_hex(bytes);
     let replaced = installed_sha(sql)?;
     if replaced.as_deref() == Some(sha.as_str())
         && let Some((version, journaled, governs_from)) = latest_install(sql)?
         && journaled == sha
     {
+        let t = check(cfg, bytes)?;
         let paused = stored(sql)?.is_some_and(|(_, p)| p);
         // What the next cohort would name now, when it resolves (read only).
         let next = references(sql, &t).ok().map(|n| {
@@ -431,6 +434,9 @@ pub fn install(sql: &impl Sql, cfg: &EvalConfig, bytes: &[u8], now_ms: u64) -> R
             "governs_from": governs_from, "paused": paused, "label_prefix": t.label_prefix,
             "roster_cap": t.plan.admission.as_ref().map(|a| a.roster_cap), "next_references": next}));
     }
+    let t = check_fit(cfg, bytes, |plan| {
+        Ok(super::package_capacity::fits(plan, super::package_capacity::archive_bytes(sql, plan)?))
+    })?;
     probes_recorded(sql, &t.plan)?;
     let next = references(sql, &t)?;
     if unfingerprinted(sql, &t.plan, &next)?.is_some() {
@@ -908,6 +914,11 @@ fn next_plan(sql: &impl Sql, t: &Template, first_cohort: u64) -> R<Result<(Strin
     plan.reference = refs.reference;
     plan.previous_reference = refs.previous;
     plan.entrants = Vec::new();
+    if super::package_capacity::compact(&plan)
+        && !super::package_capacity::fits(&plan, super::package_capacity::archive_bytes(sql, &plan)?)
+    {
+        return Ok(Err("arena_capacity: the template roster and current fingerprint archive exceed the memory model"));
+    }
     // A template installed before the generation pause bound was required
     // gives its cohorts the bound those builds compiled in, written into the
     // plan so the cohort's seal binds it.

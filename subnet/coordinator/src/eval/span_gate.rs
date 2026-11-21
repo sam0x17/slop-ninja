@@ -517,6 +517,8 @@ struct JobStats {
     facts: Option<SpanFacts>,
 }
 
+// Both joins look up one sealed task per prediction. The docset index
+// would otherwise scan the entire batch for each prediction.
 fn job_stats(sql: &impl Sql, seq: i64) -> R<BTreeMap<i64, JobStats>> {
     let mut out: BTreeMap<i64, JobStats> = BTreeMap::new();
     let rows = sql.exec(
@@ -532,7 +534,7 @@ fn job_stats(sql: &impl Sql, seq: i64) -> R<BTreeMap<i64, JobStats>> {
             SUM(CASE WHEN p.span_pop IS NOT NULL THEN ((p.span_flags >> 2) & 1) ELSE 0 END),
             SUM(COALESCE(p.span_spans, 0)),
             SUM(CASE WHEN p.outcome != 1 THEN 1 ELSE 0 END)
-         FROM preds p JOIN docs d ON d.seq = p.seq AND d.task = p.task
+         FROM preds p JOIN docs d INDEXED BY docs_task ON d.seq = p.seq AND d.task = p.task
          WHERE p.seq = ? AND d.docset = 'batch' GROUP BY p.job ORDER BY p.job",
         &[i(seq)],
     )?;
@@ -570,7 +572,7 @@ fn job_stats(sql: &impl Sql, seq: i64) -> R<BTreeMap<i64, JobStats>> {
 /// so no task list is held). Jobs without one are absent.
 fn emission_excess(sql: &impl Sql, seq: i64, anchor: i64) -> R<BTreeMap<i64, u32>> {
     sql.exec(
-        "SELECT p.job, COUNT(*) FROM preds p JOIN docs d ON d.seq = p.seq AND d.task = p.task
+        "SELECT p.job, COUNT(*) FROM preds p JOIN docs d INDEXED BY docs_task ON d.seq = p.seq AND d.task = p.task
          WHERE p.seq = ? AND d.docset = 'batch' AND p.span_pop IS NOT NULL AND (p.span_flags & 2) != 0
             AND NOT EXISTS (SELECT 1 FROM preds a WHERE a.seq = p.seq AND a.job = ? AND a.task = p.task
                 AND (a.outcome != 1 OR (a.span_pop IS NOT NULL AND (a.span_flags & 2) != 0)))

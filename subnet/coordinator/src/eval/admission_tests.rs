@@ -2268,6 +2268,90 @@ fn the_memory_model_bounds_the_template_roster() {
 }
 
 #[test]
+fn chunked_package_capacity_counts_active_vectors_and_preserves_legacy_fits() {
+    use crate::eval::package_capacity::{archive_bytes, assembly_bytes, fits};
+    let db = Sqlite::open();
+    tx(&db, |s| crate::sql::migrate(s, &EVAL_COHORT_SCHEMA)).unwrap();
+    let mut p = admission_plan(1, 40);
+    let legacy = assembly_bytes(&p, 0);
+    assert_eq!(assembly_bytes(&p, u64::MAX), legacy);
+    p.receipt_index_format = Some(crate::eval::receipt_format::ReceiptIndexFormat::ChunkedV2);
+    let probe = &p.reward_v1.as_ref().unwrap().probes[0];
+    let version = i64::from(probe.version);
+    let slots = u64::from(probe.size);
+    let actual = tx(&db, |sql| {
+        assert_eq!(archive_bytes(sql, &p)?, 0);
+        sql.exec("INSERT INTO published_contents VALUES ('a', 1), ('b', 1)", &[])?;
+        sql.exec("INSERT INTO fingerprints VALUES ('a', ?, 'x', 'é', 1), ('b', ?, 'y', 'old', 1)",
+            &[version.into(), (version + 1).into()])?;
+        archive_bytes(sql, &p)
+    }).unwrap();
+    assert_eq!(actual, 2 * 1024 + 2 * 2048 + 5 * 4 + slots * 8);
+    assert_eq!(assembly_bytes(&p, actual) - assembly_bytes(&p, 0), actual as usize);
+    assert!(fits(&p, actual));
+    assert!(!fits(&p, u64::MAX));
+    p.admission.as_mut().unwrap().roster_cap = u16::MAX;
+    assert!(!fits(&p, actual));
+}
+
+#[test]
+fn chunked_archive_growth_after_install_pauses_the_calendar_and_preserves_replay() {
+    use crate::eval::{calendar, receipt_format::ReceiptIndexFormat};
+    let db = Sqlite::open();
+    tx(&db, |s| crate::sql::migrate(s, &EVAL_COHORT_SCHEMA)).unwrap();
+    let mut template = daily_template("testnet-cohort", 40);
+    template.plan.receipt_index_format = Some(ReceiptIndexFormat::ChunkedV2);
+    template.plan.fanout.as_mut().unwrap().score.artifact_spec_sha256 = Some(Version::V3.spec_sha256());
+    let bytes = serde_json::to_vec(&template).unwrap();
+    record_probes(&db, &template);
+    let install = tx(&db, |s| calendar::install(s, &cfg(), &bytes, NOW)).unwrap();
+    assert!(tx(&db, |s| calendar::start_now(s, &cfg())).unwrap().is_ok());
+
+    // Only the count and probe width enter the estimate. No vector bodies are needed here.
+    let probe = &template.plan.reward_v1.as_ref().unwrap().probes[0];
+    let rows = slop_ninja_arena::model::LARGEST_ROUTE_BYTES / (probe.size as usize * 8) + 1;
+    db.conn.execute(
+        "WITH RECURSIVE n(i) AS (VALUES(1) UNION ALL SELECT i+1 FROM n WHERE i < ?1)
+         INSERT INTO fingerprints (content, version, fingerprint, vector_key, seq)
+         SELECT printf('%064x', i), ?2, 'x', 'fp', 0 FROM n",
+        (rows as i64, probe.version),
+    ).unwrap();
+    let refusal = tx(&db, |s| calendar::start_now(s, &cfg())).unwrap().unwrap_err();
+    assert!(refusal.starts_with("arena_capacity"));
+    assert_eq!(tx(&db, calendar::paused).unwrap(), Some(false));
+    assert!(tx(&db, |s| calendar::due_any(s, 0)).unwrap().is_none());
+    let view = tx(&db, calendar::view).unwrap();
+    assert_eq!(view["template"]["last_error"], refusal);
+    assert_eq!(view["template"]["paused"], true);
+    let replay = tx(&db, |s| calendar::install(s, &cfg(), &bytes, NOW + 1)).unwrap();
+    assert_eq!(replay["template_version"], install["template_version"]);
+    assert_eq!(replay["replayed"], true);
+    assert_eq!(replay["paused"], true);
+}
+
+#[test]
+fn chunked_assembly_accepts_the_last_available_byte_and_retains_the_probe_fit() {
+    use crate::arena_routes as routes;
+    use crate::eval::{calendar, package_capacity, receipt_format::ReceiptIndexFormat};
+    use slop_ninja_arena::{PAGE, SEGMENT_OVERHEAD, model::LARGEST_ROUTE_BYTES};
+    let mut p = daily_template("testnet-cohort", 1).plan;
+    p.entrants.push(p.reference.clone());
+    p.receipt_index_format = Some(ReceiptIndexFormat::ChunkedV2);
+    let fixed = package_capacity::assembly_bytes(&p, 0);
+    let other = routes::scope_bytes(routes::ALARM_CONTROL_BYTES) + routes::package_reads_bytes(calendar::max_job_tasks(&p));
+    // The assembly scope consumes a state page and page-rounded heap including segment overhead.
+    let remaining = LARGEST_ROUTE_BYTES - other - PAGE - SEGMENT_OVERHEAD - fixed;
+    assert!(package_capacity::fits(&p, remaining as u64));
+    assert!(!package_capacity::fits(&p, remaining as u64 + 1));
+    p.schema = plan::PROBE_PLAN_SCHEMA.into();
+    let probe = package_capacity::assembly_bytes(&p, u64::MAX);
+    let probe_fits = package_capacity::fits(&p, u64::MAX);
+    p.receipt_index_format = None;
+    assert_eq!(probe, package_capacity::assembly_bytes(&p, 0));
+    assert_eq!(probe_fits, package_capacity::fits(&p, 0));
+}
+
+#[test]
 fn the_gate_policy_binds_the_incentive_rule_only_when_declared() {
     let p = admission_plan(1, 2);
     let v = p.reward_v1.unwrap();

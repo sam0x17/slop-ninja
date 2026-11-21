@@ -38,6 +38,8 @@ struct Progress {
     after_rowid: i64,
     #[serde(default)]
     step_in_flight: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    admission_error: Option<String>,
     #[serde(default)]
     table_readback: Option<import::TableReadback>,
     #[serde(default)]
@@ -393,17 +395,23 @@ impl EvalCohort {
                     }
                 }
             }
+            let arena_before = super::super::arena_exports::arena_status();
+            let (child, phase) = match self.package_scope(scope, seq, &cohort.plan) {
+                Ok(admitted) => admitted,
+                Err(code) => {
+                    progress.admission_error = Some(code.to_owned());
+                    storage.put(STATE, &progress).await?;
+                    return Err(failure(code));
+                }
+            };
+            progress.admission_error = None;
             progress.started = true;
             progress.step_in_flight = Some(step);
             storage.put(STATE, &progress).await?;
-            let arena_before = super::super::arena_exports::arena_status();
-            let (jobs, docs, span, feedback) = package_shape(&cohort.plan);
-            let child = self.step_scope_physical(scope, crate::arena_routes::R_COHORT_PACKAGE, seq,
-                crate::arena_routes::package_step_bytes(jobs, docs, span, feedback)).map_err(failure)?;
             let started = now_ms();
             // Keep this exact production method unchanged. Do not invoke the
             // native oracle, load-v0 branch, scheduler or a reduced operation.
-            let result = child.scoped(self.package_v3(&cfg, seq, &cohort.plan)).map_err(|_| failure("fixture scope"))?.await;
+            let result = child.scoped(self.run_package_phase(phase, &cfg, seq, &cohort.plan)).map_err(|_| failure("fixture scope"))?.await;
             let wall_ms = now_ms().saturating_sub(started);
             let _ = child.close();
             let measurement = j!({"step":step,"package_wall_ms":wall_ms,"arena_before":arena_before,

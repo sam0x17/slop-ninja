@@ -374,6 +374,16 @@ pub const CONSTRUCTOR_CONTROL_BYTES: usize = 256 * KIB;
 /// the arena derives its glue tickets (checked by a test).
 pub const MIN_CONTROL_BYTES: usize = CONSTRUCTOR_CONTROL_BYTES;
 
+/// One v2 index page holds a protocol-bounded SQL result, its decoded
+/// entries, encoded bytes and R2 readback. In workerd, a full 948-entry page
+/// used seven arena pages on a fresh put and nine recovering an existing
+/// put. Reserve ten chunk buffers. A probe also reads and re-parses its plan
+/// to verify its manifest binding.
+pub const fn receipt_page_bytes(probe: bool) -> usize {
+    let page = 10 * slop_ninja_protocol::receipt_chunks::CHUNK_BYTES;
+    if probe { page + 2 * MAX_PLAN_BODY_BYTES + PLAN_PARSED_BYTES } else { page }
+}
+
 /// The package step's footprint for `jobs` jobs and `docs` documents.
 ///
 /// An upper bound fitted to the measured linear memory of the package step

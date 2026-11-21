@@ -13,8 +13,18 @@ pub(crate) trait Io {
 }
 
 pub(crate) async fn step(io: &mut impl Io) -> Result<Option<ReceiptIndexCommitment>, &'static str> {
+    if upload_page(io).await? {
+        Ok(None)
+    } else {
+        io.finish().map(Some)
+    }
+}
+
+/// A page scope can reconcile one upload, even if another invocation has
+/// advanced the cursor. Only a finalization scope can enter finish().
+pub(crate) async fn upload_page(io: &mut impl Io) -> Result<bool, &'static str> {
     let Some(upload) = io.prepare()? else {
-        return io.finish().map(Some);
+        return Ok(false);
     };
     let stored = match io.read(&upload.key, "receipt index read").await? {
         Some(bytes) => bytes,
@@ -25,5 +35,5 @@ pub(crate) async fn step(io: &mut impl Io) -> Result<Option<ReceiptIndexCommitme
         }
     };
     io.confirm(upload.ordinal, stored)?;
-    Ok(None)
+    Ok(true)
 }

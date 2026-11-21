@@ -2188,32 +2188,43 @@ pub async fn delete_quarantine(io: &impl Io, case_id: &str) -> Result<u64, IoErr
     }
 }
 
-/// The hourly backstop: the quarantine of every closed or rejected case.
-/// Bounded per run by the listing's pages; the next hour continues.
+/// Removes listed objects for missing, closed and rejected cases, up to ten
+/// pages per hour. Resume after the last successfully processed page.
 pub async fn sweep_quarantine(io: &impl Io) -> Result<u64, IoError> {
-    let mut cursor: Option<String> = None;
-    let mut seen = BTreeSet::new();
+    use crate::cron::{IDS_PER_READ, in_sql, read_cursor, save_cursor};
+
+    let mut cursor = read_cursor(io, "q/").await?;
     let mut deleted = 0;
     for _ in 0..10 {
         let page = io.doc_list("q/", cursor.as_deref()).await?;
-        for (k, _) in &page.objects {
-            if let Some(case_id) = k.strip_prefix("q/").and_then(|r| r.split('/').next()) {
-                seen.insert(case_id.to_owned());
+        let mut by_case = BTreeMap::<&str, Vec<&String>>::new();
+        for (key, _) in &page.objects {
+            if let Some((case_id, name)) = key.strip_prefix("q/").and_then(|s| s.split_once('/')) {
+                if !case_id.is_empty() && !name.is_empty() {
+                    by_case.entry(case_id).or_default().push(key);
+                }
             }
         }
+        let ids: Vec<&str> = by_case.keys().copied().collect();
+        for chunk in ids.chunks(IDS_PER_READ) {
+            // Retain every state except the two terminal states, including future states.
+            let sql = in_sql(
+                "SELECT case_id FROM cases WHERE case_id IN",
+                chunk.len(),
+                " AND state NOT IN ('closed','rejected')",
+            );
+            let kept = io.run(Stmt::owned(sql, chunk.iter().map(|id| Val::text(*id)).collect())).await?;
+            for row in &kept.rows {
+                by_case.remove(row.text("case_id").ok_or(IoError)?);
+            }
+        }
+        let keys: Vec<String> = by_case.into_values().flatten().cloned().collect();
+        delete_docs(io, &keys).await?;
+        deleted += keys.len() as u64;
         cursor = page.cursor;
+        save_cursor(io, "q/", cursor.as_deref()).await?;
         if cursor.is_none() {
             break;
-        }
-    }
-    for case_id in seen {
-        let d = io.run(Stmt::new("SELECT state FROM cases WHERE case_id = ?1", vec![Val::text(&case_id)])).await?;
-        let ended = match d.first().and_then(|r| r.text("state")).and_then(CaseState::parse) {
-            None => true,
-            Some(s) => matches!(s, CaseState::Closed | CaseState::Rejected),
-        };
-        if ended {
-            deleted += delete_quarantine(io, &case_id).await?;
         }
     }
     Ok(deleted)

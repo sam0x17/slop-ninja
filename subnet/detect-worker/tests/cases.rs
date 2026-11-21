@@ -2168,3 +2168,63 @@ fn a_removed_page_holds_its_text_and_its_restore_lands_on_it() {
     let a = block_on(save(&w.h, w.keys(), &req, Some(sealed), Some(principal(1)))).unwrap();
     assert_eq!((a.slug, a.made), (slug, false));
 }
+
+#[test]
+fn quarantine_backstop_resumes_retries_and_wraps() {
+    let h = Harness::new();
+    h.list_page.set(1);
+    h.exec("INSERT INTO cases (case_id, kind, state, received_at, updated_at) VALUES
+            ('a', 'x_request', 'accepted', 1, 1), ('b', 'x_request', 'closed', 1, 1),
+            ('c', 'x_request', 'rejected', 1, 1)");
+    let key = |id: &str, n: u8| cases::quarantine_key(id, &[n; 32]);
+    for n in 0..10 {
+        block_on(h.doc_put(&key("a", n), vec![n])).unwrap();
+    }
+    for id in ["b", "c", "orphan"] {
+        block_on(h.doc_put(&key(id, 0), vec![0])).unwrap();
+    }
+    assert_eq!(block_on(cases::sweep_quarantine(&h)).unwrap(), 0);
+    let cursor = || h.count("SELECT COUNT(*) FROM schema_info WHERE k = 'cron.backstop.q/'");
+    assert_eq!(cursor(), 1);
+    h.fail_doc_delete.set(true);
+    assert!(block_on(cases::sweep_quarantine(&h)).is_err());
+    assert!(h.doc(&key("b", 0)).is_some());
+    h.fail_doc_delete.set(false);
+    assert_eq!(block_on(cases::sweep_quarantine(&h)).unwrap(), 3);
+    assert_eq!(cursor(), 0);
+    assert_eq!(h.docs.borrow().len(), 10);
+    for n in 0..10 {
+        assert_eq!(h.doc(&key("a", n)), Some(vec![n]));
+    }
+    h.exec("UPDATE cases SET state = 'closed' WHERE case_id = 'a'");
+    assert_eq!(block_on(cases::sweep_quarantine(&h)).unwrap(), 10);
+    assert!(h.docs.borrow().is_empty());
+}
+
+#[test]
+fn quarantine_backstop_bounds_deletes_for_one_large_case() {
+    let h = Harness::new();
+    h.list_page.set(1);
+    for n in 0..12 {
+        block_on(h.doc_put(&cases::quarantine_key("orphan", &[n; 32]), vec![n])).unwrap();
+    }
+    assert_eq!(block_on(cases::sweep_quarantine(&h)).unwrap(), 10);
+    assert_eq!(block_on(cases::sweep_quarantine(&h)).unwrap(), 2);
+}
+
+#[test]
+fn quarantine_backstop_keeps_unrecognized_case_states_across_lookup_batches() {
+    let h = Harness::new();
+    // Emulate a later migration adding a state that this Worker does not know.
+    h.exec("PRAGMA ignore_check_constraints = ON;
+            INSERT INTO cases (case_id, kind, state, received_at, updated_at) VALUES
+            ('zzz', 'x_request', 'appeal', 1, 1);
+            PRAGMA ignore_check_constraints = OFF;");
+    for n in 0..100 {
+        block_on(h.doc_put(&cases::quarantine_key(&format!("case-{n:03}"), &[0; 32]), vec![0])).unwrap();
+    }
+    let evidence = cases::quarantine_key("zzz", &[1; 32]);
+    block_on(h.doc_put(&evidence, vec![1])).unwrap();
+    assert_eq!(block_on(cases::sweep_quarantine(&h)).unwrap(), 100);
+    assert_eq!(h.doc(&evidence), Some(vec![1]));
+}

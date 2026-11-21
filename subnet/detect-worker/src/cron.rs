@@ -109,7 +109,7 @@ pub fn object_id(key: &str) -> Option<[u8; 32]> {
     Some(out)
 }
 
-fn in_sql(head: &str, n: usize, tail: &str) -> String {
+pub(crate) fn in_sql(head: &str, n: usize, tail: &str) -> String {
     let marks: Vec<String> = (1..=n).map(|i| format!("?{i}")).collect();
     format!("{head} ({}){tail}", marks.join(", "))
 }
@@ -137,11 +137,27 @@ async fn kept(io: &impl Io, prefix: &str, want: &[[u8; 32]]) -> Result<Vec<[u8; 
     Ok(keep)
 }
 
+pub(crate) async fn read_cursor(io: &impl Io, prefix: &str) -> Result<Option<String>, IoError> {
+    let row = io.run(Stmt::new("SELECT v FROM schema_info WHERE k = ?1", vec![Val::text(cursor_key(prefix))])).await?;
+    Ok(row.first().and_then(|r| r.text("v")).map(str::to_owned))
+}
+
+pub(crate) async fn save_cursor(io: &impl Io, prefix: &str, cursor: Option<&str>) -> Result<(), IoError> {
+    let ck = cursor_key(prefix);
+    let save = match cursor {
+        Some(c) => Stmt::owned(
+            "INSERT INTO schema_info (k, v) VALUES (?1, ?2) ON CONFLICT (k) DO UPDATE SET v = excluded.v".into(),
+            vec![Val::text(ck), Val::text(c)],
+        ),
+        None => Stmt::owned("DELETE FROM schema_info WHERE k = ?1".into(), vec![Val::text(ck)]),
+    };
+    io.run(save).await?;
+    Ok(())
+}
+
 /// One backstop pass over `prefix` (`p/` or `j/`).
 pub async fn backstop(io: &impl Io, prefix: &str, now: u64) -> Result<u64, IoError> {
-    let ck = cursor_key(prefix);
-    let cur = io.run(Stmt::owned("SELECT v FROM schema_info WHERE k = ?1".into(), vec![Val::text(ck.clone())])).await?;
-    let mut cursor = cur.first().and_then(|r| r.text("v")).map(str::to_owned);
+    let mut cursor = read_cursor(io, prefix).await?;
     let mut deleted = 0;
     for _ in 0..BACKSTOP_PAGES {
         let page = io.doc_list(prefix, cursor.as_deref()).await?;
@@ -163,14 +179,7 @@ pub async fn backstop(io: &impl Io, prefix: &str, now: u64) -> Result<u64, IoErr
             break;
         }
     }
-    let save = match &cursor {
-        Some(c) => Stmt::owned(
-            "INSERT INTO schema_info (k, v) VALUES (?1, ?2) ON CONFLICT (k) DO UPDATE SET v = excluded.v".into(),
-            vec![Val::text(ck), Val::text(c.clone())],
-        ),
-        None => Stmt::owned("DELETE FROM schema_info WHERE k = ?1".into(), vec![Val::text(ck)]),
-    };
-    io.run(save).await?;
+    save_cursor(io, prefix, cursor.as_deref()).await?;
     Ok(deleted)
 }
 
